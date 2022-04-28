@@ -1,1 +1,2 @@
-graft Auto3D
+graft src/Auto3D
+include src/Auto3D/models/aimnet2nqed_pc14iall_b97m_sae.jpt
