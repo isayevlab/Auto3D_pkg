@@ -1,8 +1,8 @@
+# **Auto3D**
 <a href="https://pypi.org/project/Auto3D/" target="_blank"><img src="https://img.shields.io/badge/pypi-url-informational" alt="pypi_link"></a>
 ![PyPI](https://img.shields.io/pypi/v/Auto3D)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/Auto3D)
 ![PyPI - License](https://img.shields.io/pypi/l/Auto3D)
-# **Auto3D**
 
 # Introduction
 **Auto3D** automatically find the lowest-energy structures for the input SMILES. The user can get optimal 3D structures from plain SMIES files within 6 lines of code. All the processes, like isomer enumeration, duplicate and enantiomer filtering, optimization and ranking, are all taken care of by our package. The user can also try out different isomer enumeration programs and evaluation programs based on their demands.
