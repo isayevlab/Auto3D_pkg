@@ -1,5 +1,5 @@
 /Users/liu5/Documents/tautomer/dG/dG3/DFT_output_analyze2/817-2-473.xyz
- OpenBabel04272218213D
+ OpenBabel04272223063D
 
  20 19  0  0  0  0  0  0  0  0999 V2000
     1.0662   -0.6046   -0.2205 C   0  0  0  0  0  0  0  0  0  0  0  0
@@ -58,11 +58,11 @@ M  END
 817-2-473
 
 >  <E_hatree>
--386.1792062839602
+-386.1793964525865
 
 $$$$
 /Users/liu5/Documents/tautomer/dG/dG3/DFT_output_analyze2/510-2-443.xyz
- OpenBabel04272218213D
+ OpenBabel04272223063D
 
  27 29  0  0  0  0  0  0  0  0999 V2000
    -0.9493    3.7513   -0.3628 C   0  0  0  0  0  0  0  0  0  0  0  0
@@ -138,6 +138,6 @@ M  END
 510-2-443
 
 >  <E_hatree>
--1254.0171760641551
+-1254.017388286501
 
 $$$$
