@@ -38,11 +38,11 @@ conda install -c openeye openeye-toolkits
 # Usage
 A `.smi` file that stores your chemical structures is needed as the input for the program. You can find some example `.smi` files in the `examplesinput` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.**
 Running the following command in the terminal will give you the 3-dimensional structures, which are stored in a file that has the same name as your input file, but is appended with `_3d.sdf`.
-```{python}
+```{Python}
 from Auto3D.auto3D import options, main
 
 if __name__ == "__main__":
-    path = "example/smiles.smi"
+    path = "example/files/smiles.smi"
     args = options(path, k=1)   #args specify the parameters for Auto3D 
     out = main(args)            #main acceps the parameters and run Auto3D
 ```
