@@ -34,6 +34,11 @@ One additional isomer engine is availabel: OpenEye toolkit. It's a commercial so
 conda activate auto3D
 conda install -c openeye openeye-toolkits
 ```
+To calculate thermodynamical properties (such as Gibbs free energy, enthalpy, entropy, geometry optimization) with Auto3D, [ASE](https://wiki.fysik.dtu.dk/ase/) needs to be installed:
+```{bash}
+conda activate auto3D
+conda install -c conda-forge ase
+```
 
 # Usage
 A `.smi` file that stores your chemical structures is needed as the input for the program. You can find some example `.smi` files in the `examplesinput` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.**
