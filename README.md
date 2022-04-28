@@ -1,5 +1,5 @@
-<!-- <img src="https://github.com/isayevlab/workflow/blob/master/auto3d_logo.png" width="300"> -->
-
+![PyPI](https://img.shields.io/pypi/v/Auto3D)
+![PyPI](https://img.shields.io/badge/PyPi-https%3A%2F%2Fpypi.org%2Fproject%2FAuto3D%2F-brightgreen)
 # **Auto3D**
 
 # Introduction
