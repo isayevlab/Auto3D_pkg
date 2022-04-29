@@ -1,0 +1,9 @@
+OC1(C)CCCCO1 rs0
+C1=CC(=CC=C1)C2[C@H](N[C@H](O2)C3=CC=C(C=C3)Cl)C rs1
+CC1(C)O[C@@]2([H])[C@@]([C@H](N(O)C)OC2)([H])O1 rs2
+CCC(C=C(CC(C)C)O)=S ez0
+C1=CC(=CC=C1)C(O)[C@H](C)N=CC2=CC=C(C=C2)F ez1
+CC/C=C(OC)\O ez2
+C(C=C(C(C)CC)O)(C)=S both0
+C1=CC(=CC=C1)C(O)[C@@H](C)N=CC2=CC=C(C=C2)C both1
+OC(C)(C)C([H])[C@@H](C)/C(N)=C/C(OC)=O both2
