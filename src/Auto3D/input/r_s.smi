@@ -1,0 +1,5 @@
+CC(O)/C=C/C1=CC=CC=C1 smi1
+CCCCCC(O)C=C smi2
+C/C(O)=C/CCC(C)CC smi3
+CCCCCC(O)C=CCC smi4
+BrC=CC1OC(C2)(F)C2(Cl)C1 smi5
