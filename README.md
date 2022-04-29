@@ -16,8 +16,14 @@
 3. [OpenBabel](https://open-babel.readthedocs.io/en/latest/index.html) >= 3.1.1 (For molecular file processing)
 4. [PyTorch](https://pytorch.org/get-started/locally/) (For optimizing engine)
 
-The above dependencies are included in the auto3D.yml file. It's recommended to install the minimum denpendencies within a conda environment. For example,
+If you have an environment with the above dependencies, Auto3D can be installed by
 ```{bash}
+pip install Auto3D
+```
+Otherwise, you can create an environment and install Auto3D. In a terminal, excute the following code will create a environment named `auto3D` with the minimum dependencies installed, and install Auto3D.
+```{bash}
+git clone https://github.com/isayevlab/Auto3D_pkg.git
+cd Auto3D_pkg
 conda env create --file auto3D.yml --name auto3D
 conda activate auto3D
 pip install Auto3D
@@ -33,6 +39,11 @@ One additional isomer engine is availabel: OpenEye toolkit. It's a commercial so
 ```{bash}
 conda activate auto3D
 conda install -c openeye openeye-toolkits
+```
+To calculate thermodynamical properties (such as Gibbs free energy, enthalpy, entropy, geometry optimization) with Auto3D, [ASE](https://wiki.fysik.dtu.dk/ase/) needs to be installed:
+```{bash}
+conda activate auto3D
+conda install -c conda-forge ase
 ```
 
 # Usage
