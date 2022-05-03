@@ -142,7 +142,7 @@ def get_mol_idx_t6(mol):
     return (idx, T)
 
 
-def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.005, opt_steps=10000):
+def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.0005, opt_steps=10000):
     """ASE interface for calculation thermo properties using ANI2xt and AIMNET
     path: Input sdf file
     model_name: ANI2x, ANI2xt or AIMNET
@@ -237,128 +237,128 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, o
     return outpath
 
 
-if __name__ == "__main__":
-    import os
-    from openbabel import pybel
-    from ase.vibrations import Vibrations
-    from ase.thermochemistry import IdealGasThermo
-    import argparse
+# if __name__ == "__main__":
+#     import os
+#     from openbabel import pybel
+#     from ase.vibrations import Vibrations
+#     from ase.thermochemistry import IdealGasThermo
+#     import argparse
 
     
-    ev2hatree = 1/27.211385  #1 Hartree = 27.211385 eV
-    parser = argparse.ArgumentParser(description="ASE interface for calculation G for ANI2xt and AIMNET")
-    parser.add_argument("path", type=str, help="Input sdf file")
-    parser.add_argument("model", type=str, help="ANI2x, ANI2xt or AIMNET")
-    parser.add_argument("idx_t", type=int, help="Need to define a function to get index and T from openbabel molecule")
-    parser.add_argument("--gpu_idx", default=0, type=int, help="GPU cuda index")
-    parser.add_argument("--convergence_threshold", default=0.0005, type=float, 
-                        help="Convergence_threshold for geometry optimization")
-    parser.add_argument("--opt_steps", default=10000, type=int,
-                        help="Maximum geometry optimizaiton steps")
+#     ev2hatree = 1/27.211385  #1 Hartree = 27.211385 eV
+#     parser = argparse.ArgumentParser(description="ASE interface for calculation G for ANI2xt and AIMNET")
+#     parser.add_argument("path", type=str, help="Input sdf file")
+#     parser.add_argument("model", type=str, help="ANI2x, ANI2xt or AIMNET")
+#     parser.add_argument("idx_t", type=int, help="Need to define a function to get index and T from openbabel molecule")
+#     parser.add_argument("--gpu_idx", default=0, type=int, help="GPU cuda index")
+#     parser.add_argument("--convergence_threshold", default=0.0005, type=float, 
+#                         help="Convergence_threshold for geometry optimization")
+#     parser.add_argument("--opt_steps", default=10000, type=int,
+#                         help="Maximum geometry optimizaiton steps")
 
-    args = parser.parse_args()
-    path = args.path
-    model_name = args.model
-    gpu_idx = args.gpu_idx
-    idx_t = args.idx_t
-    opt_steps = args.opt_steps
-    opt_tol = args.convergence_threshold
+#     args = parser.parse_args()
+#     path = args.path
+#     model_name = args.model
+#     gpu_idx = args.gpu_idx
+#     idx_t = args.idx_t
+#     opt_steps = args.opt_steps
+#     opt_tol = args.convergence_threshold
 
-    dir = os.path.dirname(path)
-    basename = os.path.basename(path).split(".")[0] + f"_{model_name}_G.sdf"
-    outpath = os.path.join(dir, basename)
-    out_mols = []
-    mols_failed = []
-    species2numbers = {'H':1, 'C':6, 'N':7, 'O':8, 'F':9, 'Si':14, 'P':15,
-                       'S':16, 'Cl':17, 'As':33, 'Se':34, 'Br':35, 'I':53, 'B':5}
-    numbers2species = dict([(val, key) for (key, val) in species2numbers.items()])
+#     dir = os.path.dirname(path)
+#     basename = os.path.basename(path).split(".")[0] + f"_{model_name}_G.sdf"
+#     outpath = os.path.join(dir, basename)
+#     out_mols = []
+#     mols_failed = []
+#     species2numbers = {'H':1, 'C':6, 'N':7, 'O':8, 'F':9, 'Si':14, 'P':15,
+#                        'S':16, 'Cl':17, 'As':33, 'Se':34, 'Br':35, 'I':53, 'B':5}
+#     numbers2species = dict([(val, key) for (key, val) in species2numbers.items()])
 
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{gpu_idx}")
-    else:
-        device = torch.device("cpu")
-    if model_name == "ANI2xt":
-        dict_path = os.path.join(root, "models/ani2xt_seed0.pt")
-        model = EnForce_ANI('ANI2xt', dict_path, device=device)
-    elif model_name == "AIMNET":
-        dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
-        model = EnForce_ANI('AIMNET', dict_path, device=device)
-    elif model_name == "ANI2x":
-        calculator = torchani.models.ANI2x().to(device).ase()
-    else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
+#     if torch.cuda.is_available():
+#         device = torch.device(f"cuda:{gpu_idx}")
+#     else:
+#         device = torch.device("cpu")
+#     if model_name == "ANI2xt":
+#         dict_path = os.path.join(root, "models/ani2xt_seed0.pt")
+#         model = EnForce_ANI('ANI2xt', dict_path, device=device)
+#     elif model_name == "AIMNET":
+#         dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
+#         model = EnForce_ANI('AIMNET', dict_path, device=device)
+#     elif model_name == "ANI2x":
+#         calculator = torchani.models.ANI2x().to(device).ase()
+#     else:
+#         raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
 
 
-    if int(idx_t) == 1:
-        get_mol_idx_t = get_mol_idx_t1
-    elif int(idx_t) == 2:
-        get_mol_idx_t = get_mol_idx_t2
-    elif int(idx_t) == 3:
-        get_mol_idx_t = get_mol_idx_t3
-    elif int(idx_t) == 4:
-        get_mol_idx_t = get_mol_idx_t4
-    elif int(idx_t) == 5:
-        get_mol_idx_t = get_mol_idx_t5
-    elif int(idx_t) == 6:
-        get_mol_idx_t = get_mol_idx_t6
-    else:
-        raise ValueError("Has to define a function for get index and temperature for OB mol object.")
+#     if int(idx_t) == 1:
+#         get_mol_idx_t = get_mol_idx_t1
+#     elif int(idx_t) == 2:
+#         get_mol_idx_t = get_mol_idx_t2
+#     elif int(idx_t) == 3:
+#         get_mol_idx_t = get_mol_idx_t3
+#     elif int(idx_t) == 4:
+#         get_mol_idx_t = get_mol_idx_t4
+#     elif int(idx_t) == 5:
+#         get_mol_idx_t = get_mol_idx_t5
+#     elif int(idx_t) == 6:
+#         get_mol_idx_t = get_mol_idx_t6
+#     else:
+#         raise ValueError("Has to define a function for get index and temperature for OB mol object.")
 
-    mols = pybel.readfile("sdf", path)
-    for mol in mols:
-        coord = [a.coords for a in mol.atoms]
-        charge = mol.charge
-        species = [numbers2species[a.atomicnum] for a in mol.atoms]
-        atoms = Atoms(species, coord)
+#     mols = pybel.readfile("sdf", path)
+#     for mol in mols:
+#         coord = [a.coords for a in mol.atoms]
+#         charge = mol.charge
+#         species = [numbers2species[a.atomicnum] for a in mol.atoms]
+#         atoms = Atoms(species, coord)
         
-        if model_name != "ANI2x":
-            calculator = Calculator(model, charge)
-        atoms.set_calculator(calculator)
+#         if model_name != "ANI2x":
+#             calculator = Calculator(model, charge)
+#         atoms.set_calculator(calculator)
 
 
-        opt = BFGS(atoms)
-        opt.run(fmax=opt_tol, steps=opt_steps)
-        e = atoms.get_potential_energy()
+#         opt = BFGS(atoms)
+#         opt.run(fmax=opt_tol, steps=opt_steps)
+#         e = atoms.get_potential_energy()
 
-        idx, T = get_mol_idx_t(mol)
+#         idx, T = get_mol_idx_t(mol)
 
-        vib = Vibrations(atoms)
-        try:
-            vib.clean()
-            vib.run()
-            vib_e = vib.get_energies()
+#         vib = Vibrations(atoms)
+#         try:
+#             vib.clean()
+#             vib.run()
+#             vib_e = vib.get_energies()
 
-            thermo = IdealGasThermo(vib_energies=vib_e,
-                                    potentialenergy=e,
-                                    atoms=atoms,
-                                    geometry='nonlinear',
-                                    symmetrynumber=1, spin=0)
-            H = thermo.get_enthalpy(temperature=T) * ev2hatree
-            S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
-            G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
-            vib.clean()
-            print(G)
+#             thermo = IdealGasThermo(vib_energies=vib_e,
+#                                     potentialenergy=e,
+#                                     atoms=atoms,
+#                                     geometry='nonlinear',
+#                                     symmetrynumber=1, spin=0)
+#             H = thermo.get_enthalpy(temperature=T) * ev2hatree
+#             S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
+#             G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
+#             vib.clean()
+#             print(G)
 
-            mol.data['H_hatree'] = H
-            mol.data['S_hatree'] = S
-            mol.data['T_K'] = T
-            mol.data['G_hatree'] = G
-            mol.data['E_hatree'] = e * ev2hatree
-            out_mols.append(mol)
+#             mol.data['H_hatree'] = H
+#             mol.data['S_hatree'] = S
+#             mol.data['T_K'] = T
+#             mol.data['G_hatree'] = G
+#             mol.data['E_hatree'] = e * ev2hatree
+#             out_mols.append(mol)
 
-            #Updating ASE atoms coordinates into pybel mol
-            coord = atoms.get_positions()
-            for atom, c in zip(mol.atoms, coord):
-                atom.OBAtom.SetVector(*c)
+#             #Updating ASE atoms coordinates into pybel mol
+#             coord = atoms.get_positions()
+#             for atom, c in zip(mol.atoms, coord):
+#                 atom.OBAtom.SetVector(*c)
         
-        except:
-            print("Failed: ", idx)
-            vib.clean()
-            mols_failed.append(mol)
+#         except:
+#             print("Failed: ", idx)
+#             vib.clean()
+#             mols_failed.append(mol)
 
-    print(len(mols_failed))
-    print(len(out_mols))
-    with open(outpath, 'w+') as f:
-        all_mols = out_mols + mols_failed
-        for mol in all_mols:
-            f.write(mol.write('sdf'))
+#     print(len(mols_failed))
+#     print(len(out_mols))
+#     with open(outpath, 'w+') as f:
+#         all_mols = out_mols + mols_failed
+#         for mol in all_mols:
+#             f.write(mol.write('sdf'))
