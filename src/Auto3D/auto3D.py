@@ -158,7 +158,7 @@ def optim_rank_wrapper(args, queue):
 
 def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit",
-    isomer_engine="rdkit", cis_trans=True, mode_oe="classic", mpi_np=4, max_confs=1000,
+    isomer_engine="rdkit", cis_trans=False, mode_oe="classic", mpi_np=4, max_confs=1000,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET",
     opt_steps=10000, convergence_threshold=0.003, threshold=0.3):
     """Arguments for Auto3D main program
@@ -301,156 +301,156 @@ def main(args:dict):
     return path_combined
 
 
-if __name__ == "__main__":
-    chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
-    print("""
-        _              _             _____   ____  
-       / \     _   _  | |_    ___   |___ /  |  _ \ 
-      / _ \   | | | | | __|  / _ \    |_ \  | | | |
-     / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-    /_/   \_\  \__,_|  \__|  \___/  |____/  |____/ 
-        // Automatically generating the lowest-energy 3D structure                                       
-    """)
+# if __name__ == "__main__":
+#     chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
+#     print("""
+#         _              _             _____   ____  
+#        / \     _   _  | |_    ___   |___ /  |  _ \ 
+#       / _ \   | | | | | __|  / _ \    |_ \  | | | |
+#      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+#     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/ 
+#         // Automatically generating the lowest-energy 3D structure                                       
+#     """)
 
-    start = time.time()
-    job_name = time.strftime('%Y%m%d-%H%M%S')
+#     start = time.time()
+#     job_name = time.strftime('%Y%m%d-%H%M%S')
 
-    parser = argparse.ArgumentParser(prog='auto3D',
-                        description=('This program takes in a SMILES(s)'
-                                    ' and returns the optimal 3D structure(s)'),
-                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('path', type=str,
-                        help=('A input.smi containing SMILES and IDs. '
-                            'Examples are listed in the input folder'))
-    parser.add_argument('--k', type=int, default=False,
-                        help='Outputs the top-k structures for each SMILES.')
-    parser.add_argument('--window', type=float, default=False,
-                        help=('Outputs the structures whose energies are within '
-                            'window (kcal/mol) from the lowest energy'))
-    parser.add_argument('--verbose', default=True, type=lambda x: (str(x).lower() == 'true'),
-                        help='When True, save all meta data while running.')
-    parser.add_argument('--job_name', type=str, default=job_name,
-                        help="A folder name to save all meta data.")
+#     parser = argparse.ArgumentParser(prog='auto3D',
+#                         description=('This program takes in a SMILES(s)'
+#                                     ' and returns the optimal 3D structure(s)'),
+#                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+#     parser.add_argument('path', type=str,
+#                         help=('A input.smi containing SMILES and IDs. '
+#                             'Examples are listed in the input folder'))
+#     parser.add_argument('--k', type=int, default=False,
+#                         help='Outputs the top-k structures for each SMILES.')
+#     parser.add_argument('--window', type=float, default=False,
+#                         help=('Outputs the structures whose energies are within '
+#                             'window (kcal/mol) from the lowest energy'))
+#     parser.add_argument('--verbose', default=True, type=lambda x: (str(x).lower() == 'true'),
+#                         help='When True, save all meta data while running.')
+#     parser.add_argument('--job_name', type=str, default=job_name,
+#                         help="A folder name to save all meta data.")
 
-    # parameters for isomer enumeration step
-    parser.add_argument('--enumerate_tautomer', default=False, type=lambda x: (str(x).lower() == 'true'),
-                        help="When True, enumerate tautomers for the input")
-    parser.add_argument('--taut_engine', type=str, default='rdkit',
-                        help="Programs to enumerate tautomers, either 'rdkit' or 'oechem'")
-    parser.add_argument('--isomer_engine', type=str, default='rdkit',
-                        help=('The program for generating 3D isomers for each '
-                            'SMILES. This parameter is either '
-                            'rdkit or omega. rdkit is free for everyone, '
-                            'while omega reuqires a license.'))
-    parser.add_argument('--cis_trans', default=True, type=lambda x: (str(x).lower() == 'true'),
-                        help='When True, cis/trans and r/s isomers are enumerated.')
-    parser.add_argument('--mode_oe', type=str, default='classic',
-                        help=("The mode that omega program will take. "
-                            "It can be either 'classic', 'macrocycle' "
-                            "'rocs', 'pose' or 'dense'. "
-                            "By default, the 'classic' mode is used. "
-                            "For detailed information about each mode, see "
-                            "https://docs.eyesopen.com/applications/omega/omega/omega_overview.html"))
-    parser.add_argument('--mpi_np', type=int, default=4,
-                        help="Number of CPU cores for the isomer generation step.")
-    parser.add_argument('--max_confs', type=int, default=1000,
-                        help="Maximum number of isomers for each SMILES")
-    parser.add_argument('--use_gpu', default=True, type=lambda x: (str(x).lower() == 'true'),
-                        help="If True, the program will use GPU.")
-    parser.add_argument('--gpu_idx', default=0, type=int, 
-                        help="GPU index. It only works when --use_gpu=True")
-    parser.add_argument('--capacity', default=42, type=int,
-                        help="Number of SMILES that the model will handle for 1 G memory")
-    parser.add_argument('--optimizing_engine', type=str, default='AIMNET',
-                        help=("Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy "
-                            "calculation and geometry optimization."))
-    parser.add_argument('--opt_steps', type=int, default=10000,
-                        help="Maximum optimization steps for each structure.")
-    parser.add_argument('--convergence_threshold', type=float, default=0.003,
-                        help="Optimization is considered as converged if maximum force is below this threshold.")
-    parser.add_argument('--threshold', type=float, default=0.3,
-                        help=("If the RMSD between two conformers are within threhold, "
-                            "they are considered as duplicates. One of them will be removed."))
+#     # parameters for isomer enumeration step
+#     parser.add_argument('--enumerate_tautomer', default=False, type=lambda x: (str(x).lower() == 'true'),
+#                         help="When True, enumerate tautomers for the input")
+#     parser.add_argument('--taut_engine', type=str, default='rdkit',
+#                         help="Programs to enumerate tautomers, either 'rdkit' or 'oechem'")
+#     parser.add_argument('--isomer_engine', type=str, default='rdkit',
+#                         help=('The program for generating 3D isomers for each '
+#                             'SMILES. This parameter is either '
+#                             'rdkit or omega. rdkit is free for everyone, '
+#                             'while omega reuqires a license.'))
+#     parser.add_argument('--cis_trans', default=True, type=lambda x: (str(x).lower() == 'true'),
+#                         help='When True, cis/trans and r/s isomers are enumerated.')
+#     parser.add_argument('--mode_oe', type=str, default='classic',
+#                         help=("The mode that omega program will take. "
+#                             "It can be either 'classic', 'macrocycle' "
+#                             "'rocs', 'pose' or 'dense'. "
+#                             "By default, the 'classic' mode is used. "
+#                             "For detailed information about each mode, see "
+#                             "https://docs.eyesopen.com/applications/omega/omega/omega_overview.html"))
+#     parser.add_argument('--mpi_np', type=int, default=4,
+#                         help="Number of CPU cores for the isomer generation step.")
+#     parser.add_argument('--max_confs', type=int, default=1000,
+#                         help="Maximum number of isomers for each SMILES")
+#     parser.add_argument('--use_gpu', default=True, type=lambda x: (str(x).lower() == 'true'),
+#                         help="If True, the program will use GPU.")
+#     parser.add_argument('--gpu_idx', default=0, type=int, 
+#                         help="GPU index. It only works when --use_gpu=True")
+#     parser.add_argument('--capacity', default=42, type=int,
+#                         help="Number of SMILES that the model will handle for 1 G memory")
+#     parser.add_argument('--optimizing_engine', type=str, default='AIMNET',
+#                         help=("Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy "
+#                             "calculation and geometry optimization."))
+#     parser.add_argument('--opt_steps', type=int, default=10000,
+#                         help="Maximum optimization steps for each structure.")
+#     parser.add_argument('--convergence_threshold', type=float, default=0.003,
+#                         help="Optimization is considered as converged if maximum force is below this threshold.")
+#     parser.add_argument('--threshold', type=float, default=0.3,
+#                         help=("If the RMSD between two conformers are within threhold, "
+#                             "they are considered as duplicates. One of them will be removed."))
 
-    args = parser.parse_args()
-    path = args.path
-    k = args.k
-    window = args.window
-    if (not k) and (not window):
-        sys.exit("Either k or window needs to be specified. "
-                "Usually, setting '--k=1' satisfies most needs.")
-    job_name = args.job_name
-
-
-
-    basename = os.path.basename(path)
-    # initialiazation
-    dir = os.path.dirname(os.path.abspath(path))
-    job_name = job_name + "_" + basename.split('.')[0].strip()
-    job_name = os.path.join(dir, job_name)
-    os.mkdir(job_name)
-    check_input(args)
+#     args = parser.parse_args()
+#     path = args.path
+#     k = args.k
+#     window = args.window
+#     if (not k) and (not window):
+#         sys.exit("Either k or window needs to be specified. "
+#                 "Usually, setting '--k=1' satisfies most needs.")
+#     job_name = args.job_name
 
 
-    ## Devide jobs based on memory
-    smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
-    if args.use_gpu:
-        gpu_idx = int(args.gpu_idx)
-        t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
-    else:
-        t = psutil.virtual_memory().total/(1024**3)
-    chunk_size = t * smiles_per_G
 
-    #Get indexes for each chunk
-    df = pd.read_csv(path, sep=" ", header=None)
-    data_size = len(df)
-    num_chunks = int(data_size // chunk_size + 1)
-    print(f"There are {len(df)} SMILES, available memory is {t} GB.")
-    print(f"The task will be divided into {num_chunks} jobs.")
-    chunk_idxes = [[] for _ in range(num_chunks)]
-    for i in range(num_chunks):
-        idx = i
-        while idx < data_size:
-            chunk_idxes[i].append(idx)
-            idx += num_chunks
+#     basename = os.path.basename(path)
+#     # initialiazation
+#     dir = os.path.dirname(os.path.abspath(path))
+#     job_name = job_name + "_" + basename.split('.')[0].strip()
+#     job_name = os.path.join(dir, job_name)
+#     os.mkdir(job_name)
+#     check_input(args)
 
-    #Save each chunk as smi
-    chunk_info = []
-    basename = os.path.basename(path).split(".")[0].strip()
-    for i in range(num_chunks):
-        dir = os.path.join(job_name, f"job{i+1}")
-        os.mkdir(dir)
-        new_basename = basename + "_" + str(i+1) + ".smi"
-        new_name = os.path.join(dir, new_basename)
-        df_i = df.iloc[chunk_idxes[i], :]
-        df_i.to_csv(new_name, header=None, index=None, sep=" ")
-        path = new_name
 
-        print(f"Job{i+1}, number of inputs: {len(df_i)}")
-        chunk_info.append((path, dir))
+#     ## Devide jobs based on memory
+#     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
+#     if args.use_gpu:
+#         gpu_idx = int(args.gpu_idx)
+#         t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
+#     else:
+#         t = psutil.virtual_memory().total/(1024**3)
+#     chunk_size = t * smiles_per_G
 
-    p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line))
-    p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line,))
-    p1.start()
-    p2.start()
-    p1.join()
-    p2.join()
+#     #Get indexes for each chunk
+#     df = pd.read_csv(path, sep=" ", header=None)
+#     data_size = len(df)
+#     num_chunks = int(data_size // chunk_size + 1)
+#     print(f"There are {len(df)} SMILES, available memory is {t} GB.")
+#     print(f"The task will be divided into {num_chunks} jobs.")
+#     chunk_idxes = [[] for _ in range(num_chunks)]
+#     for i in range(num_chunks):
+#         idx = i
+#         while idx < data_size:
+#             chunk_idxes[i].append(idx)
+#             idx += num_chunks
 
-    #Combine jobs into a single sdf
-    data = []
-    paths = os.path.join(job_name, "job*/*.sdf")
-    files = glob.glob(paths)
-    for file in files:
-        with open(file, "r") as f:
-            data_i = f.readlines()
-        data += data_i
-    combined_basename = basename + "_out.sdf"
-    path_combined = os.path.join(job_name, combined_basename)
-    with open(path_combined, "w+") as f:
-        for line in data:
-            f.write(line)
+#     #Save each chunk as smi
+#     chunk_info = []
+#     basename = os.path.basename(path).split(".")[0].strip()
+#     for i in range(num_chunks):
+#         dir = os.path.join(job_name, f"job{i+1}")
+#         os.mkdir(dir)
+#         new_basename = basename + "_" + str(i+1) + ".smi"
+#         new_name = os.path.join(dir, new_basename)
+#         df_i = df.iloc[chunk_idxes[i], :]
+#         df_i.to_csv(new_name, header=None, index=None, sep=" ")
+#         path = new_name
 
-    # Program ends
-    end = time.time()
-    print("Energy unit: Hartree if implicit.")
-    print(f'Program running time: {end - start} seconds')
+#         print(f"Job{i+1}, number of inputs: {len(df_i)}")
+#         chunk_info.append((path, dir))
+
+#     p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line))
+#     p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line,))
+#     p1.start()
+#     p2.start()
+#     p1.join()
+#     p2.join()
+
+#     #Combine jobs into a single sdf
+#     data = []
+#     paths = os.path.join(job_name, "job*/*.sdf")
+#     files = glob.glob(paths)
+#     for file in files:
+#         with open(file, "r") as f:
+#             data_i = f.readlines()
+#         data += data_i
+#     combined_basename = basename + "_out.sdf"
+#     path_combined = os.path.join(job_name, combined_basename)
+#     with open(path_combined, "w+") as f:
+#         for line in data:
+#             f.write(line)
+
+#     # Program ends
+#     end = time.time()
+#     print("Energy unit: Hartree if implicit.")
+#     print(f'Program running time: {end - start} seconds')
