@@ -83,10 +83,19 @@ def check_input(args):
                "Empty SMILES string"
         assert len(id) > 0, \
                "Empty ID"
+        assert "_" not in id, \
+                f"Sorry, SMILES ID cannot contain underscore: {smiles}"
         smiles_all.append(smiles)
     print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ")
     print("\tAll SMILES and IDs are valid.")
 
+    # Check number of unspecified atomic stereo center
+    if args.cis_trans == False:
+        for smiles in smiles_all:
+            c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
+            if c > 0:
+                msg = f"{smiles} contains unspecified atomic stereo centers, but cis_trans=False. Please use cis_tras=True so that Auto3D can enumerate the unspecified atomic stereo centers."
+                warnings.warn(msg, UserWarning)
 
     # Check the properties of molecules
     only_aimnet_smiles = []
