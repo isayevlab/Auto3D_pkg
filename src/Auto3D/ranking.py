@@ -174,32 +174,3 @@ class ranking(object):
             mol.title = t_simplified
             f.write(mol)
         f.close()
-
-
-# if __name__ == "__main__":
-#     """Utils for select top conformers after running Auto3D"""
-#     import argparse
-#     import os
-
-
-#     parser = argparse.ArgumentParser(description="Utils for select top conformers after running Auto3D")
-#     parser.add_argument("path", type=str, help="Input sdf/xyz file")
-#     parser.add_argument('--k', type=int, default=False,
-#                         help='Outputs the top-k structures for each SMILES.')
-#     parser.add_argument('--window', type=float, default=False,
-#                         help=('Outputs the structures whose energies are within '
-#                             'window (kcal/mol) from the lowest energy'))
-#     parser.add_argument("--threshold", type=float, default=0.1, help="RMSD threshold for two conformers to be considered as duplicates")
-
-#     args = parser.parse_args()
-#     path = args.path
-#     k = args.k
-#     window = args.window
-#     threshold = args.threshold
-
-#     dir = os.path.dirname(os.path.abspath(path))
-#     basename = os.path.basename(path).split(".")[0] + "_out." +  os.path.basename(path).split(".")[1]
-#     out_path = os.path.join(dir, basename)
-
-#     rank_engine = ranking(path, out_path, threshold, k=k, window=window)
-#     rank_engine.run()
