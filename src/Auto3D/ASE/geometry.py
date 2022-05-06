@@ -33,7 +33,7 @@ class EnForce_ANI(torch.nn.Module):
         self.name = name
         self.model_parameters = model_parameters
         if self.name == 'ANI2xt':
-            model = ANI2xt(device, model_parameters)
+            model = ANI2xt(device)
         elif self.name == "AIMNET":
             model = torch.jit.load(model_parameters, map_location=device)
         self.model = model
@@ -125,7 +125,7 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
     else:
         device = torch.device("cpu")
     if model_name == "ANI2xt":
-        dict_path = os.path.join(root, "models/ani2xt_seed0.pt")
+        dict_path = None
         model = EnForce_ANI('ANI2xt', dict_path, device=device)
     elif model_name == "AIMNET":
         dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
@@ -149,7 +149,7 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
         opt = BFGS(atoms)
         opt.run(fmax=opt_tol, steps=opt_steps)
         e = atoms.get_potential_energy()
-        mol.data['E_hatree'] = e * ev2hatree
+        mol.data['E_hartree'] = e * ev2hatree
 
         #Updating ASE atoms coordinates into pybel mol
         coord = atoms.get_positions()
