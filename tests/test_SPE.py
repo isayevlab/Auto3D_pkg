@@ -14,7 +14,7 @@ def test_calc_spe_ani2xt():
 
     mols = list(pybel.readfile("sdf", out))
     for mol in mols:
-        spe_out = float(mol.data["E_hatree"])
+        spe_out = float(mol.data["E_hartree"])
         idx = mol.data["ID"].strip()
         spe_ref = spe[idx]
         diff = abs(spe_out - spe_ref)
@@ -30,7 +30,7 @@ def test_calc_spe_ani2x():
     #compare Auto3D output with the above
     mols = list(pybel.readfile("sdf", out))
     for mol in mols:
-        spe_out = float(mol.data["E_hatree"])
+        spe_out = float(mol.data["E_hartree"])
         idx = mol.data["ID"].strip()
         spe_ref = spe[idx]
         diff = abs(spe_out - spe_ref)
