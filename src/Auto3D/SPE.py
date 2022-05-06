@@ -33,7 +33,7 @@ class EnForce_ANI(torch.nn.Module):
         self.name = name
         self.model_parameters = model_parameters
         if self.name == 'ANI2xt':
-            model = ANI2xt(device, model_parameters)
+            model = ANI2xt(device)
         elif self.name == "AIMNET":
             model = torch.jit.load(model_parameters, map_location=device)
         self.model = model
@@ -122,7 +122,7 @@ def calc_spe(path:str, model_name:str, gpu_idx=0):
         device = torch.device("cpu")
 
     if model_name == "ANI2xt":
-        dict_path = os.path.join(root, "models/ani2xt_seed0.pt")
+        dict_path = None  #use default in ANI2xt in batch_opt
         model = EnForce_ANI('ANI2xt', dict_path, device=device)
     elif model_name == "AIMNET":
         dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
@@ -144,7 +144,7 @@ def calc_spe(path:str, model_name:str, gpu_idx=0):
         atoms.set_calculator(calculator)
 
         e = atoms.get_potential_energy()
-        mol.data['E_hatree'] = e * ev2hatree
+        mol.data['E_hartree'] = e * ev2hatree
         out_mols.append(mol)
 
     with open(outpath, 'w+') as f:

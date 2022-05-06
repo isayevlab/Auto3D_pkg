@@ -1,13 +1,16 @@
 #!/bin/usr/env python
 import torch
+import os
 import torch.nn as nn
 import torchani
 from torchani.repulsion import StandaloneRepulsionCalculator
 
 
 hartree2eV = 27.211385
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ani_2xt_dict = os.path.join(root, "models/ani2xt_seed22.pt")
 class ANI2xt(nn.Module):
-    def __init__(self, device, state_dict='models/ani2xt.pt'):
+    def __init__(self, device, state_dict=ani_2xt_dict):
         super().__init__()
         self.device = device
         self.state_dict = state_dict
@@ -20,8 +23,6 @@ class ANI2xt(nn.Module):
         ShfZ = torch.tensor([1.9634954e-01, 5.8904862e-01, 9.8174770e-01, 1.3744468e+00, 1.7671459e+00, 2.1598449e+00, 2.5525440e+00, 2.9452431e+00], device=device)
         EtaA = torch.tensor([8.0000000e+00], device=device)
         ShfA = torch.tensor([9.0000000e-01, 1.5500000e+00, 2.2000000e+00, 2.8500000e+00], device=device)
-#         species_order = [b'H', b'C', b'N', b'O', b'S', b'F', b'Cl']
-        # species_order = ["H", 'C', 'N', 'O', 'S', 'F', 'Cl']
         species_order = ["H", 'C', 'N', 'O', 'F', 'S', 'Cl']
 
         num_species = len(species_order)
