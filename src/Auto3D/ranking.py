@@ -26,11 +26,13 @@ class ranking(object):
     def __init__(self, input_path,
                  out_path, threshold, k=False, window=False):
         self.input_path = input_path
-        # self.energies = energies
         self.out_path = out_path
         self.threshold = threshold
-        self.atomic_number2symbol = {1: 'H', 6: 'C', 8: 'O',
-                                     7: 'N', 9: 'F', 16: 'S', 17: 'Cl'}
+        self.atomic_number2symbol = {1: 'H', 
+                                     5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 
+                                     14: 'Si', 15: 'P', 16: 'S', 17: 'Cl',
+                                     32: 'Ge', 33: 'As', 34: 'Se', 35: 'Br',
+                                     51: 'Sb', 52: 'Te', 53: 'I'}
         self.k = k
         self.window = window
 
