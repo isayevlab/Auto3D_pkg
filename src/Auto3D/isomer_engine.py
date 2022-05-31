@@ -215,10 +215,7 @@ class rd_isomer(object):
         smiles2 = self.read(self.enumerated_smi_hashed_path)
 
         smi_name_tuples = [(smi, name) for name, smi in smiles2.items()]
-        # if __name__ == "__main__":
-        #     with Pool(self.np) as p:
-        #         p.map(self.conformer_func, smi_name_tuples)
-        for smi_name in smi_name_tuples:
+        for smi_name in tqdm(smi_name_tuples):
             self.conformer_func(smi_name)
 
         self.combine_SDF(self.rdk_tmp, self.enumerated_sdf)
@@ -239,7 +236,6 @@ def oe_flipper(input, out):
     flipperOpts.SetEnumEZ(False)
     flipperOpts.SetEnumRS(False)
     for mol in ifs.GetOEMols():
-        # oechem.OEThrow.Info("Title: %s" % mol.GetTitle())
         for enantiomer in oeomega.OEFlipper(mol.GetActive(), flipperOpts):
             enantiomer = oechem.OEMol(enantiomer)
             oechem.OEWriteMolecule(ofs, enantiomer)
