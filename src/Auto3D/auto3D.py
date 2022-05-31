@@ -152,7 +152,10 @@ def optim_rank_wrapper(args, queue):
             tar.add(housekeeping_folder, arcname=os.path.basename(housekeeping_folder))
         shutil.rmtree(housekeeping_folder)
         if not args.verbose:
-            send2trash(housekeeping_folder_gz)
+            try:  #Clusters does not support send2trash
+                send2trash(housekeeping_folder_gz)
+            except:
+                os.remove(housekeeping_folder_gz)
         job += 1
 
 
@@ -160,7 +163,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit",
     isomer_engine="rdkit", cis_trans=False, mode_oe="classic", mpi_np=4, max_confs=1000,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET",
-    opt_steps=10000, convergence_threshold=0.003, threshold=0.3):
+    opt_steps=10000, convergence_threshold=0.003, threshold=0.3, memory=None):
     """Arguments for Auto3D main program
     path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
     k: Outputs the top-k structures for each SMILES.
@@ -182,6 +185,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     opt_steps: Maximum optimization steps for each structure.
     convergence_threshold: Optimization is considered as converged if maximum force is below this threshold.
     threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed.
+    memory: The RAM size assigned to Auto3D (unit GB).
     """
     d = {}
     args = my_name_space(d)
@@ -204,6 +208,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args["opt_steps"] = opt_steps
     args["convergence_threshold"] = convergence_threshold
     args["threshold"] = threshold
+    args["memory"] = memory
     return args
 
 def main(args:dict):
@@ -237,11 +242,14 @@ def main(args:dict):
 
     ## Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
-    if args.use_gpu:
-        gpu_idx = int(args.gpu_idx)
-        t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
+    if args.memory is not None:
+        t = int(args.memory)
     else:
-        t = psutil.virtual_memory().total/(1024**3)
+        if args.use_gpu:
+            gpu_idx = int(args.gpu_idx)
+            t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
+        else:
+            t = psutil.virtual_memory().total/(1024**3)
     chunk_size = t * smiles_per_G
 
     #Get indexes for each chunk
@@ -272,7 +280,6 @@ def main(args:dict):
         print(f"Job{i+1}, number of inputs: {len(df_i)}")
         chunk_info.append((path, dir))
 
-    # if __name__ == "__main__":
     p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line))
     p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line,))
     p1.start()
@@ -282,8 +289,13 @@ def main(args:dict):
 
     #Combine jobs into a single sdf
     data = []
-    paths = os.path.join(job_name, "job*/*.sdf")
+    paths = os.path.join(job_name, "job*/*_3d.sdf")
     files = glob.glob(paths)
+    if len(files) == 0:
+        msg = """The optimization engine did not run. Probably you didn't have enough memory to run the job. 
+                 Try to add `memory=x` as an argument in the `options` function,
+                 where x is the allocated RAM size for Auto3D."""
+        sys.exit(msg)
     for file in files:
         with open(file, "r") as f:
             data_i = f.readlines()
@@ -297,5 +309,11 @@ def main(args:dict):
     # Program ends
     end = time.time()
     print("Energy unit: Hartree if implicit.")
-    print(f'Program running time: {end - start} seconds')
+    running_time_m = int((end - start)/60)
+    if running_time_m <= 60:
+        print(f'Program running time: {running_time_m} minutes')
+    else:
+        running_time_h = running_time_m // 60
+        remaining_minutes = running_time_m - running_time_h*60
+        print(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes')
     return path_combined
