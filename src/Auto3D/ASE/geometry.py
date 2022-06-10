@@ -101,7 +101,7 @@ class Calculator(ase.calculators.calculator.Calculator):
         self.results['forces'] = forces.squeeze(0).to('cpu').numpy()
 
 
-def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=10000):
+def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=5000):
     """Geometry optimization interface with Auto3D
     path: Input sdf file
     model_name: ANI2xt or AIMNET

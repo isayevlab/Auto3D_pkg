@@ -142,7 +142,7 @@ def get_mol_idx_t6(mol):
     return (idx, T)
 
 
-def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.0005, opt_steps=10000):
+def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.0005, opt_steps=5000):
     """ASE interface for calculation thermo properties using ANI2xt and AIMNET
     path: Input sdf file
     model_name: ANI2x, ANI2xt or AIMNET
