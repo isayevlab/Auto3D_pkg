@@ -3,10 +3,12 @@
 Enumerating stereoisomers for each SMILES representation with RDKit.
 """
 import warnings
+import shutil
 import os
 import glob
 import collections
 from openbabel import pybel
+from send2trash import send2trash
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
@@ -168,6 +170,7 @@ class rd_isomer(object):
             writer.write(mol, confId=i)
             writer.close()
             files.append(file_path)
+        return len(files)
 
     def combine_SDF(self, SDFs, out):
         """Combine and sort SDF files in folder into a single file"""
@@ -219,6 +222,10 @@ class rd_isomer(object):
             self.conformer_func(smi_name)
 
         self.combine_SDF(self.rdk_tmp, self.enumerated_sdf)
+        try:
+            send2trash(self.rdk_tmp)
+        except:
+            shutil.rmtree(self.rdk_tmp)
 
 
 def oe_flipper(input, out):
