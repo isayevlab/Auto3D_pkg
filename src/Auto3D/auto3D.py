@@ -87,16 +87,16 @@ def isomer_wraper(chunk_info, args, queue):
         max_confs = args.max_confs
         duplicate_threshold = args.threshold
         mpi_np = args.mpi_np
-        cis_trans = args.cis_trans
+        enumerate_isomer = args.enumerate_isomer
         isomer_program = args.isomer_engine
         # Isomer enumeration step
         if isomer_program == 'omega':
             mode_oe = args.mode_oe
             oe_isomer(mode_oe, path, smiles_enumerated, smiles_reduced, smiles_hashed,
-                    enumerated_sdf, max_confs, duplicate_threshold, cis_trans)
+                    enumerated_sdf, max_confs, duplicate_threshold, enumerate_isomer)
         elif isomer_program == 'rdkit':
             engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed, 
-                            enumerated_sdf, dir, max_confs, duplicate_threshold, mpi_np, cis_trans)
+                            enumerated_sdf, dir, max_confs, duplicate_threshold, mpi_np, enumerate_isomer)
             engine.run()
         else: 
             raise ValueError('The isomer enumeration engine must be "omega" or "rdkit", '
@@ -161,9 +161,9 @@ def optim_rank_wrapper(args, queue):
 
 def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit",
-    isomer_engine="rdkit", cis_trans=False, mode_oe="classic", mpi_np=4, max_confs=1000,
+    isomer_engine="rdkit", enumerate_isomer=False, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET",
-    opt_steps=10000, convergence_threshold=0.003, threshold=0.3, memory=None):
+    opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
     """Arguments for Auto3D main program
     path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
     k: Outputs the top-k structures for each SMILES.
@@ -174,10 +174,10 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer: When True, enumerate tautomers for the input
     taut_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
     isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
-    cis_trans: When True, cis/trans and r/s isomers are enumerated.
+    enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
     mode_oe: The mode that omega program will take. It can be either 'classic' or 'macrocycle'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
     mpi_np: Number of CPU cores for the isomer generation engine.
-    max_confs: Maximum number of isomers for each SMILES.
+    max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.
     use_gpu: If True, the program will use GPU when available
     gpu_idx: GPU index. It only works when --use_gpu=True
     capacity: Number of SMILES that the model will handle for 1 G memory
@@ -197,7 +197,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args["enumerate_tautomer"] = enumerate_tautomer
     args["tauto_engine"] = tauto_engine
     args["isomer_engine"] = isomer_engine
-    args["cis_trans"] = cis_trans
+    args["enumerate_isomer"] = enumerate_isomer
     args["mode_oe"] = mode_oe
     args["mpi_np"] = mpi_np
     args["max_confs"] = max_confs
@@ -292,9 +292,8 @@ def main(args:dict):
     paths = os.path.join(job_name, "job*/*_3d.sdf")
     files = glob.glob(paths)
     if len(files) == 0:
-        msg = """The optimization engine did not run. Probably you didn't have enough memory to run the job. 
-                 Try to add `memory=x` as an argument in the `options` function,
-                 where x is the allocated RAM size for Auto3D."""
+        msg = """The optimization engine did not run. Make sure that your allocated memory is enough 
+                 And the input SMILES encodes valid chemical structures."""
         sys.exit(msg)
     for file in files:
         with open(file, "r") as f:
