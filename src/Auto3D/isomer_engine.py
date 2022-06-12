@@ -155,10 +155,19 @@ class rd_isomer(object):
     def conformer_func(self, smi_name):
         """smi_name is a tuple (smiles, name)"""
         smi, name = smi_name
+        mol = Chem.MolFromSmiles(smi)
+        atom_list = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+        num_atoms = len(atom_list)
         mol = Chem.AddHs(Chem.MolFromSmiles(smi))
-        AllChem.EmbedMultipleConfs(mol, numConfs=self.n_conformers,
-                                   randomSeed=42, numThreads=self.np,
-                                   pruneRmsThresh=self.threshold)
+        if self.n_conformers is None:
+            n_conformers = num_atoms - 1
+            AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
+                                    randomSeed=42, numThreads=self.np,
+                                    pruneRmsThresh=self.threshold)
+        else:         
+            AllChem.EmbedMultipleConfs(mol, numConfs=self.n_conformers,
+                                    randomSeed=42, numThreads=self.np,
+                                    pruneRmsThresh=self.threshold)
         files = []
         for i in range(mol.GetNumConformers()):
             basename = name.strip() + f"_{i}.sdf"
@@ -226,6 +235,7 @@ class rd_isomer(object):
             send2trash(self.rdk_tmp)
         except:
             shutil.rmtree(self.rdk_tmp)
+        return self.enumerated_sdf
 
 
 def oe_flipper(input, out):

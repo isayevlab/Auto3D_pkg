@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+from openbabel import pybel
 from Auto3D.isomer_engine import rd_isomer
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -9,16 +10,33 @@ smiles_enumerated = os.path.join(folder, "tests/files/single_smiles_enumerated.s
 smiles_reduced = os.path.join(folder, "tests/files/single_smiles_enumerated.smi")
 smiles_hashed = os.path.join(folder, "tests/files/single_smiles_hashed.smi")
 sdf_enumerated = os.path.join(folder, "tests/files/single_smiles_enumerated.sdf")
-max_confs = 100
+max_confs = None
 threshold = 0.3
 n_process = 4
 
+
+def rmsd_greater(mols, rmsd=0.3):
+    """Returns True if all conformer pairs in the mols have rmsd greater or equal to rmsd
+    The users need to make sure that the mols are the same molecules"""
+    aligner = pybel.ob.OBAlign()
+    for i in range(len(mols)):
+        aligner.SetRefMol(mols[i].OBMol)
+        for j in range(i+1, len(mols), 1):
+            aligner.SetTargetMol(mols[j].OBMol)
+            aligner.Align()
+            rmsd_ij = aligner.GetRMSD()
+            if rmsd_ij < rmsd:
+                return False
+    return True
+            
 def test_rd_isomer_class():
     job_name = time.strftime('%Y%m%d-%H%M%S')
     os.mkdir(job_name)
     engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                         sdf_enumerated, job_name, max_confs, threshold, n_process)
-    engine.run()
+    out = engine.run()
+    mols = list(pybel.readfile("sdf", out))
+    assert(rmsd_greater(mols) == True)
     try:
         os.remove(smiles_enumerated)
     except:
@@ -58,3 +76,7 @@ def test_rd_isomer_conformer_func():
     assert(num_conformers[0] >= num_conformers[1])
     assert(num_conformers[1] >= num_conformers[2])
 
+
+
+if __name__ == "__main__":
+    test_rd_isomer_conformer_func()
