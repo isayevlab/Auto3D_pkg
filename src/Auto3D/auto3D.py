@@ -161,7 +161,7 @@ def optim_rank_wrapper(args, queue):
 
 def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit",
-    isomer_engine="rdkit", enumerate_isomer=False, mode_oe="classic", mpi_np=4, max_confs=1000,
+    isomer_engine="rdkit", enumerate_isomer=False, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET",
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
     """Arguments for Auto3D main program
@@ -177,7 +177,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
     mode_oe: The mode that omega program will take. It can be either 'classic' or 'macrocycle'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
     mpi_np: Number of CPU cores for the isomer generation engine.
-    max_confs: Maximum number of isomers for each SMILES.
+    max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.
     use_gpu: If True, the program will use GPU when available
     gpu_idx: GPU index. It only works when --use_gpu=True
     capacity: Number of SMILES that the model will handle for 1 G memory
