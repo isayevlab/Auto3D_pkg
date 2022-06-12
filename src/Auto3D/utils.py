@@ -90,11 +90,11 @@ def check_input(args):
     print("\tAll SMILES and IDs are valid.")
 
     # Check number of unspecified atomic stereo center
-    if args.cis_trans == False:
+    if args.enumerate_isomer == False:
         for smiles in smiles_all:
             c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
             if c > 0:
-                msg = f"{smiles} contains unspecified atomic stereo centers, but cis_trans=False. Please use cis_tras=True so that Auto3D can enumerate the unspecified atomic stereo centers."
+                msg = f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. Please use cis_tras=True so that Auto3D can enumerate the unspecified atomic stereo centers."
                 warnings.warn(msg, UserWarning)
 
     # Check the properties of molecules
