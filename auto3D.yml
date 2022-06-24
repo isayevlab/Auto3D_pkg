@@ -9,7 +9,7 @@ dependencies:
   - python>=3.7
   - numpy
   - pytorch
-  - rdkit[version='>=2021.09.02']
+  - rdkit[version='>=2020.09.01']
   - openbabel[version='>=3.1.1']
   - pandas
 prefix: /home/jack/miniconda3/envs/auto3D

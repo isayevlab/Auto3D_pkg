@@ -72,7 +72,7 @@ def isomer_wraper(chunk_info, args, queue):
         # Tautomer enumeratioin
         if args.enumerate_tautomer:
             output_taut = meta["output_taut"]
-            taut_mode = args.taut_engine
+            taut_mode = args.tauto_engine
             print("Enumerating tautomers for the input...", end='')
             taut_engine = tautomer_engine(taut_mode, path, output_taut)
             taut_engine.run()
@@ -172,7 +172,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     job_name: A folder name to save all meta data.
     
     enumerate_tautomer: When True, enumerate tautomers for the input
-    taut_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
+    tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
     isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
     enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
     mode_oe: The mode that omega program will take. It can be either 'classic' or 'macrocycle'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
