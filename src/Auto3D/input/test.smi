@@ -1,6 +1,0 @@
-CC1(C2=CC=CC=C2)C=C1 smi1
-O=C(C)OCC1(C2=CC=CC=C2)C=C1 smi2
-C1=C\C=C/C=C\C=C/1 smi3
-C1(C2=CC=CC=C2)CC/C=C\CCC1C3=CC=CC=C3 smi4
-C1CCOC1 smi5
-CC(=Cc1ccc(cc1)O)C(=O)[O-] smi6

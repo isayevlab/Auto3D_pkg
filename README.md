@@ -5,16 +5,16 @@
 ![PyPI - License](https://img.shields.io/pypi/l/Auto3D)
 
 # Introduction
-**Auto3D** automatically find the lowest-energy structures for the input SMILES. The user can get optimal 3D structures from plain SMIES files within 6 lines of code. All the processes, like isomer enumeration, duplicate and enantiomer filtering, optimization and ranking, are all taken care of by our package. The user can also try out different isomer enumeration programs and evaluation programs based on their demands.
+**Auto3D** automatically find the low-energy structures for the input SMILES. All the processes, like isomer enumeration, duplicate and enantiomer filtering, 3D building, optimization and ranking, are all taken care of by our package. The user can also try out different isomer enumeration engines and optimization engines based on their demands. Auto3D can be run as a Python package or from the terminal command line.
 
 
 # Installatioin
 
 ## Minimum Dependencies Installatioin
 1. Python >= 3.7
-2. [RDKit](https://www.rdkit.org/docs/Install.html) (For isomer engine)
+2. [RDKit](https://www.rdkit.org/docs/Install.html) (For the isomer engine)
 3. [OpenBabel](https://open-babel.readthedocs.io/en/latest/index.html) >= 3.1.1 (For molecular file processing)
-4. [PyTorch](https://pytorch.org/get-started/locally/) (For optimizing engine)
+4. [PyTorch](https://pytorch.org/get-started/locally/) (For the optimizing engine)
 
 If you have an environment with the above dependencies, Auto3D can be installed by
 ```{bash}
@@ -30,12 +30,12 @@ pip install Auto3D
 ```
 ## Optional Denpendencies Installation
 By installing Auto3D with the above minimum dependencies, you can use Auto3D with RDKit and [AIMNET](https://github.com/aiqm/aimnet) as the isomer engine and optimizing engine, respectively.
-Two additional optimizing engines are available: ANI-2x and ANI-2xt, which can be installed by:
+Two additional optimizing engines are available: ANI-2x and ANI-2xt, which can be installed by (ANI-2xt will be incorporated into the `TorchANI` package soon):
 ```{bash}
 conda activate auto3D
 conda install -c conda-forge torchani
 ```
-One additional isomer engine is availabel: OpenEye toolkit. It's a commercial software from [OpenEye Software](https://www.eyesopen.com/omega). It can be iinstalled by
+One additional isomer engine is availabel: OpenEye toolkit. It's a commercial software from [OpenEye Software](https://www.eyesopen.com/omega). It can be installed by
 ```{bash}
 conda activate auto3D
 conda install -c openeye openeye-toolkits
@@ -46,21 +46,44 @@ conda activate auto3D
 conda install -c conda-forge ase
 ```
 
-# Usage
-A `.smi` file that stores your chemical structures is needed as the input for the program. You can find some example `.smi` files in the `examplesinput` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.**
-Running the following command in the terminal will give you the 3-dimensional structures, which are stored in a file that has the same name as your input file, but is appended with `_3d.sdf`.
+# Basic Usage
+A `.smi` file that stores your chemical structures is needed as the input for the package. You can find an example input files in the `examples/files` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.** You can use Auto3D in a Python script or via a commalnd line interface (CLI). They are equivalent for findig the low-energy 3D conformers.
+
+## Using Auto3D in a Python script
+The following script will give you the 3-dimensional structures, which are stored in a file that has the same name as your input file, but is appended with `_3d.sdf`.
 ```{Python}
 from Auto3D.auto3D import options, main
 
 if __name__ == "__main__":
     path = "example/files/smiles.smi"
     args = options(path, k=1)   #args specify the parameters for Auto3D 
-    out = main(args)            #main acceps the parameters and run Auto3D
+    out = main(args)            #main accepts the parameters and run Auto3D
 ```
-The above command runs the Auto3D and keeps 1 loweest-energy structure for each SMILES in your input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. `out` will be a path that stores the optimized 3D structures. If you want to keep n structures for each SMILES, simply set `k=n `. You can also keep structures that are within x kcal/mol compared with the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`. More options are available by type `help(f)` where `f` is the function name.
 
+## Using Auto3D in a terminal command line
+Alternatively, you can run Auto3D through CLI.
+```{Bash}
+cd <replace with your path_folder_with_Auto3D_pkg>
+python auto3D.py "example/files/smiles.smi" --k=1
+```
+The two examples will do the same thing: Both run Auto3D and keeps 1 lowest-energy structure for each SMILES in the input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. If you want to keep n structures for each SMILES, simply set `k=n `or `--k=n`. You can also keep structures that are within x kcal/mol from the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`.
 
-# Tunable parameters in Auto3D
+# Parameters in Auto3D
+For Auto3D, the Python package and CLI share the same set of parameters. Please note that `--` is only required for CLI. For example, to use `ANI2x` as the optimizing engine, you will use
+```{Pythoon}
+from Auto3D.auto3D import options, main
+
+if __name__ == "__main__":
+    path = "example/files/smiles.smi"
+    args = options(path, k=1, optimizing_engine="ANI2x")  
+    out = main(args)           
+```
+if you use the Python script; You will use
+```{Bash}
+cd <replace with your path_folder_with_Auto3D_pkg>
+python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
+```
+if you use the CLI.
 
 |State|Type|Name|Explanation|
 |---|---|---|---|
@@ -83,4 +106,5 @@ The above command runs the Auto3D and keeps 1 loweest-energy structure for each 
 |optimization|optional argument|--convergence_threshold|By deafult, 0.003 eV/Å. Optimization is considered as converged if maximum force is below this threshold|
 |duplicate removing|optional argument|--threshold|By default, 0.3. If the RMSD between two conformers are within the threhold, they are considered as duplicates. One of them will be removed. Duplicate removing are excuted after conformer enumeration and geometry optimization|
 |  housekeeping     |optional argument| --verbose |By default, False. When True, save all meta data while running|
+|  housekeeping     |optional argument|--job_name |A folder that stores all the results. By default, the name is the current date and time|
 
