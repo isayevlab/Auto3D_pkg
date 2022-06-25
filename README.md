@@ -93,7 +93,7 @@ if you use the CLI.
 |job segmentation|optioinal argument|--memory|The RAM size assigned to Auto3D (unit GB). By default `None`, and Auto3D can automatically detect the RAM size in the system.|
 |job segmentation|optional argument|--capacity|By default, 40. This is the number of SMILES that each 1 GB of memory can handle.|
 |isomer enumeration|optional argument|--enumerate_tautomer|By default, False. When True, enumerate tautomers for the input|
-|isomer enumeration|optional argument|--taut_program|Programs to enumerate tautomers, either 'rdkit' or 'oechem'. This argument only works when `--enumerate_tautomer=True`|
+|isomer enumeration|optional argument|--tauto_engine|Programs to enumerate tautomers, either 'rdkit' or 'oechem'. This argument only works when `--enumerate_tautomer=True`|
 |isomer enumeration|optional argument|--isomer_engine|By default, rdkit. The program for generating 3D conformers for each SMILES. This parameter is either rdkit or omega. RDKit is free for everyone, while Omega reuqires a license.))|
 |isomer enumeration|optional argument|--max_confs|Maximum number of isomers for each configuration of the SMILES.  Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.|
 |isomer enumeration|optional argument|--enumerate_isomer|By default, False. When True, unspecified cis/trans and r/s centers are enumerated|
