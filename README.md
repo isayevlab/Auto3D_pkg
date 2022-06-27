@@ -68,6 +68,11 @@ python auto3D.py "example/files/smiles.smi" --k=1
 ```
 The two examples will do the same thing: Both run Auto3D and keeps 1 lowest-energy structure for each SMILES in the input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. If you want to keep n structures for each SMILES, simply set `k=n `or `--k=n`. You can also keep structures that are within x kcal/mol from the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`.
 
+
+## Wrapper functions
+Auto3D also provides some wrapper functions for single point energy calculation, geometry optimization and thermodynamic analysis. Please see the `example` folder for details.
+
+
 # Parameters in Auto3D
 For Auto3D, the Python package and CLI share the same set of parameters. Please note that `--` is only required for CLI. For example, to use `ANI2x` as the optimizing engine, you will use
 ```{Pythoon}
@@ -108,3 +113,6 @@ if you use the CLI.
 |  housekeeping     |optional argument| --verbose |By default, False. When True, save all meta data while running|
 |  housekeeping     |optional argument|--job_name |A folder that stores all the results. By default, the name is the current date and time|
 
+
+# Citation:
+https://doi.org/10.26434/chemrxiv-2022-fw3tg 
