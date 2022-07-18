@@ -1,5 +1,4 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
-
 import torch
 import warnings
 import os
@@ -309,7 +308,6 @@ class optimizing(object):
     def __init__(self, in_f, out_f, model, device, config):
         self.in_f = in_f
         self.out_f = out_f
-        # self.energies = energies
         self.model = model
         self.device = device
         self.config = config
