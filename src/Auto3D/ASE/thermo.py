@@ -142,8 +142,8 @@ def get_mol_idx_t6(mol):
     return (idx, T)
 
 
-def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.0005, opt_steps=5000):
-    """ASE interface for calculation thermo properties using ANI2xt and AIMNET
+def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.001, opt_steps=5000):
+    """ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET
     path: Input sdf file
     model_name: ANI2x, ANI2xt or AIMNET
     get_mol_idx_t: a functioin that returns (idx, T) from a pybel mol object
@@ -228,8 +228,8 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, o
             vib.clean()
             mols_failed.append(mol)
 
-    print(len(mols_failed))
-    print(len(out_mols))
+    print("Number of failed thermo calculations: ", len(mols_failed))
+    print("Number of successful thermo calculations: ", len(out_mols))
     with open(outpath, 'w+') as f:
         all_mols = out_mols + mols_failed
         for mol in all_mols:
