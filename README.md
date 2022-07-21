@@ -4,6 +4,10 @@
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/Auto3D)
 ![PyPI - License](https://img.shields.io/pypi/l/Auto3D)
 
+<img width="1109" alt="image" src="https://user-images.githubusercontent.com/60156077/180329514-c72d7b92-91a8-431b-9339-1445d5cacd20.png">
+
+
+
 # Introduction
 **Auto3D** automatically find the low-energy structures for the input SMILES. All the processes, like isomer enumeration, duplicate and enantiomer filtering, 3D building, optimization and ranking, are all taken care of by our package. The user can also try out different isomer enumeration engines and optimization engines based on their demands. Auto3D can be run as a Python package or from the terminal command line.
 
@@ -109,6 +113,7 @@ if you use the CLI.
 |optimization|optional argument|--gpu_idx| GPU index. It only works when --use_gpu=True|
 |optimization|optional argument|--opt_steps|By deafult, 5000. Maximum optimization steps for each structure|
 |optimization|optional argument|--convergence_threshold|By deafult, 0.003 eV/Å. Optimization is considered as converged if maximum force is below this threshold|
+|optimization |optional argument|--patience|If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop|
 |duplicate removing|optional argument|--threshold|By default, 0.3. If the RMSD between two conformers are within the threhold, they are considered as duplicates. One of them will be removed. Duplicate removing are excuted after conformer enumeration and geometry optimization|
 |  housekeeping     |optional argument| --verbose |By default, False. When True, save all meta data while running|
 |  housekeeping     |optional argument|--job_name |A folder that stores all the results. By default, the name is the current date and time|
