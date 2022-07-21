@@ -104,7 +104,7 @@ class Calculator(ase.calculators.calculator.Calculator):
 def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=5000):
     """Geometry optimization interface with Auto3D
     path: Input sdf file
-    model_name: ANI2xt or AIMNET
+    model_name: ANI2x, ANI2xt or AIMNET
     gpu_idx: GPU cuda index
     opt_tol: Convergence_threshold for geometry optimization (eV/A)
     opt_steps: Maximum geometry optimizaiton steps
