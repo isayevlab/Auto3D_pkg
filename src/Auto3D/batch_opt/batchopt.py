@@ -2,6 +2,7 @@
 import torch
 import warnings
 import os
+import numpy as np
 try:
     import torchani
 except:
@@ -174,23 +175,32 @@ def print_stats(state):
     num_active = num_total - num_converged
     print("Total 3D structures: %i  Converged: %i   Active: %i" % (num_total, num_converged, num_active))
 
-def n_steps(state, n, opttol):
+def n_steps(state, n, opttol, patience=50):
     """Doing n steps optimization for each input. Only converged structures are 
-    modified at each step.
-    n_steps does not change input conformer order
+    modified at each step. n_steps does not change input conformer order.
     
     Argument:
         state: an dictionary containing all information about this optimization step
-        n: optimization step"""
+        n: optimization step
+        patience: optimization stops for a conformer if the force does not decrease for a continuous patience steps"""
     # t0 = perf_counter()
     numbers = state['numbers']
     charges = state['charges']
-    num_total = numbers.size()[0]
+    # num_total = numbers.size()[0]
     coord = state['coord']
     optimizer = FIRE(coord)
+    # the following two terms are used to detect oscillating conformers
+    smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999,
+                                 dtype=torch.float).to(coord.device)
+    oscilating_count0 = torch.tensor(np.zeros((len(coord), 1)),
+                                     dtype=torch.float).to(coord.device)
+    assert(len(coord.shape) == 3)
+    assert(len(numbers.shape) == 2)
+    assert(len(charges.shape) == 1)
+    assert(len(smallest_fmax0.shape) == 2)
+    assert(len(oscilating_count0.shape) == 2)
     for istep in tqdm(range(1, (n+1), 1)):
-        not_converged = ~ state['converged_mask']  #Size fixed
-        
+        not_converged = ~ state['converged_mask']  #Essential tracker handle, size fixed
         # stop optimization if all structures converged.
         if not not_converged.any():
             break
@@ -198,14 +208,29 @@ def n_steps(state, n, opttol):
         coord = state['coord'][not_converged]  #Subset coordinates, size=not_converged.
         numbers = state['numbers'][not_converged]
         charges = state['charges'][not_converged]
+        smallest_fmax = smallest_fmax0[not_converged]
+        oscilating_count = oscilating_count0[not_converged]
 
         coord.requires_grad_(True)
-        e, f = state['nn'].forward_batched(coord, numbers, charges)  #Key step to calculate all coordinates and forces.
+        e, f = state['nn'].forward_batched(coord, numbers, charges)  #Key step to calculate all energies and forces.
         coord.requires_grad_(False)
 
         coord = optimizer(coord, f)
-        fmax = f.norm(dim=-1).max(dim=-1)[0]  #Size(100), Norm is the length of each vector. Here it returns the maximum force length for ecah conformer. Size (100)
-        not_converged_post = fmax > opttol
+        fmax = f.norm(dim=-1).max(dim=-1)[0]  #Tensor, Norm is the length of each vector. Here it returns the maximum force length for ecah conformer. Size (100)
+        assert(len(fmax.shape) == 1)
+        not_converged_post1 = fmax > opttol
+
+        #update smallest_fmax for each molecule
+        fmax_reduced = fmax.reshape(-1, 1) < smallest_fmax
+        fmax_reduced = fmax_reduced.reshape(-1,)
+        smallest_fmax[fmax_reduced] = fmax.reshape(-1, 1)[fmax_reduced]
+        #reduce count to 0 for reducing; raise count for non-reducing
+        oscilating_count[fmax_reduced] = 0
+        fmax_not_reduced = ~fmax_reduced
+        oscilating_count += fmax_not_reduced.reshape(-1, 1)
+        not_oscilating = oscilating_count < patience
+        not_oscilating = not_oscilating.reshape(-1,)
+        not_converged_post = not_converged_post1 & not_oscilating
 
         optimizer.clean(not_converged_post)  #Subset v, a in FIRE for next optimization
         
@@ -213,6 +238,8 @@ def n_steps(state, n, opttol):
         state['fmax'][not_converged] = fmax  #Update fmax for conformers that are optimized in this iteration
         state['energy'][not_converged] = e.detach()  #Update energy for conformers that are optimized in this iteration
         state['coord'][not_converged] = coord  #Update coordinates for conformers that are optimized in this iteration
+        smallest_fmax0[not_converged] = smallest_fmax  # update smalles_fmax for each conformer
+        oscilating_count0[not_converged] = oscilating_count  #update counts for continuous no reduction in fmax
     
         if (istep % (n//10)) == 0:
             print_stats(state)
@@ -227,12 +254,14 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
     """Optimizing a group of molecules
     
     Arguments:
-    net: a EnForce_ANI object
+    net: an EnForce_ANI object
     coord: coordinates of input molecules (N, m, 3). N is the number of structures
            m is the number of atoms in each structure.
-    numbers: periodict number of atoms in the molecule (include H). size is m.
+    numbers: atomic numbers in the molecule (include H). (N, m)
+    charges: (N,)
     param: a dictionary containing parameters
-    
+    model: "AIMNET", "ANI2xt" or "ANI2x"
+    device
     """
     coord = torch.tensor(coord, dtype=torch.float, device=device)
     numbers = torch.tensor(numbers, dtype=torch.long, device=device)
@@ -241,17 +270,18 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
     fmax = torch.full(coord.shape[:1], 999.0, device=coord.device)  # size=N, a tensored filled with 999.0, representing the current maximum forces at each conformer.
     energy = torch.full(coord.shape[:1], 999.0, dtype=torch.double, device=coord.device)
     ids = torch.arange(coord.shape[0], device=coord.device)  #Returns a 1D tensor
-    optimizer = FIRE(coord)
+    # optimizer = FIRE(coord)
 
     state = dict(
         ids=ids,
         coord=coord, numbers=numbers, converged_mask=converged_mask,
-        optimizer=optimizer, nn=net, fmax=fmax, energy=energy,
+        # optimizer=optimizer, nn=net, fmax=fmax, energy=energy,
+        nn=net, fmax=fmax, energy=energy,
         timing=defaultdict(float), charges=charges,
         he=list(), close=list()  #!!! he and close?
     )
 
-    n_steps(state, param['opt_steps'], param['opttol'])
+    n_steps(state, param['opt_steps'], param['opttol'], param['patience'])
 
     return dict(
         coord=state['coord'].tolist(),
@@ -335,7 +365,6 @@ class optimizing(object):
 
         for p in self.ani.parameters():  
             p.requires_grad_(False)
-
         ani = EnForce_ANI(self.ani, self.model)  # Interesting, EnForce_ANI inherites nn.module, bu can still accept a ScriptModule object as the input
 
         with torch.jit.optimized_execution(False):

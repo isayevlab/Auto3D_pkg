@@ -121,7 +121,8 @@ def optim_rank_wrapper(args, queue):
         # Optimizing step
         opt_steps = args.opt_steps
         opt_tol = args.convergence_threshold
-        config = {"opt_steps": opt_steps, "opttol": opt_tol}
+        patience = args.patience
+        config = {"opt_steps": opt_steps, "opttol": opt_tol, "patience": patience}
         optimized_og = meta["optimized_og"]
         optimizing_engine = args.optimizing_engine
         if args.use_gpu:
@@ -162,7 +163,7 @@ def optim_rank_wrapper(args, queue):
 def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit",
     isomer_engine="rdkit", enumerate_isomer=False, mode_oe="classic", mpi_np=4, max_confs=None,
-    use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET",
+    use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=20,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
     """Arguments for Auto3D main program
     path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
@@ -182,6 +183,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     gpu_idx: GPU index. It only works when --use_gpu=True
     capacity: Number of SMILES that the model will handle for 1 G memory
     optimizing_engine: Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization.
+    patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop.
     opt_steps: Maximum optimization steps for each structure.
     convergence_threshold: Optimization is considered as converged if maximum force is below this threshold.
     threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed.
@@ -205,6 +207,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args["capacity"] = capacity
     args["gpu_idx"] = gpu_idx
     args["optimizing_engine"] = optimizing_engine
+    args["patience"] = patience
     args["opt_steps"] = opt_steps
     args["convergence_threshold"] = convergence_threshold
     args["threshold"] = threshold
