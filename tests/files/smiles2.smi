@@ -1,2 +1,3 @@
 CC(CC)=O smi2
 COC(/C=C/C)=O smi3
+CC(CCCl)=O smi4
