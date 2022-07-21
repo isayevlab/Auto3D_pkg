@@ -12,6 +12,7 @@ import torch
 import collections
 from collections import defaultdict, OrderedDict
 import shutil
+from openbabel import openbabel as ob
 from openbabel import pybel
 from tqdm import tqdm
 from io import StringIO
@@ -409,6 +410,32 @@ def remove_enantiomers(inpath, out):
                 f.write(line)
     return smiles
 
+def atomType(mol, atomIdx):
+    """get the atomic type given an atom index, both in pybel mol object"""
+    atom_num = mol.OBMol.GetAtom(atomIdx).GetAtomicNum()
+    return atom_num
+
+
+def check_bonds(mol):
+    """Check if a pybel mol object has valid bond lengths"""
+    # Initialize UFF bond radii (Rappe et al. JACS 1992)
+    # Units of angstroms 
+    # These radii neglect the bond-order and electronegativity corrections in the original paper. Where several values exist for the same atom, the largest was used. 
+    Radii = {1:0.354, 
+             5:0.838, 6:0.757, 7:0.700,  8:0.658,  9:0.668,
+             14:1.117, 15:1.117, 16:1.064, 17:1.044,
+             32: 1.197, 33:1.211, 34:1.190, 35:1.192,
+             51:1.407, 52:1.386,  53:1.382}
+
+    for bond in ob.OBMolBondIter(mol.OBMol):
+        length = bond.GetLength()
+        begin = atomType(mol, bond.GetBeginAtomIdx())
+        end = atomType(mol, bond.GetEndAtomIdx())
+        reference_length = (Radii[begin] + Radii[end]) * 1.25
+        if length > reference_length:
+            return False
+    return True
+
 
 def filter_unique(mols, crit=0.3):
     """Remove structures that are very similar.
@@ -424,7 +451,8 @@ def filter_unique(mols, crit=0.3):
     mols_ = []
     for mol in mols:
         convergence_flag = str(mol.data['Converged']).lower() == "true"
-        if convergence_flag:
+        has_valid_bonds = check_bonds(mol)
+        if convergence_flag and has_valid_bonds:
             mols_.append(mol)
     mols = mols_
 
