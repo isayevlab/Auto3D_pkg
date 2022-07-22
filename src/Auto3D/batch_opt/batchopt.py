@@ -167,15 +167,19 @@ class EnForce_ANI(torch.nn.Module):
             f.append(_f)
         return torch.cat(e, dim=0), torch.cat(f, dim=0)
 
-def print_stats(state):
+def print_stats(state, patience):
     """Print the optimization status"""
     numbers = state['numbers']
     num_total = numbers.size()[0]
-    num_converged = torch.sum(state['converged_mask']).to('cpu')
-    num_active = num_total - num_converged
-    print("Total 3D structures: %i  Converged: %i   Active: %i" % (num_total, num_converged, num_active))
+    num_converged_dropped = torch.sum(state['converged_mask']).to('cpu')
+    oscillating_count = state['oscilating_count'].to('cpu').reshape(-1,) >= patience
+    num_dropped = torch.sum(oscillating_count)
+    num_converged = num_converged_dropped - num_dropped
+    num_active = num_total - num_converged_dropped
+    print("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" % 
+          (num_total, num_converged, num_dropped, num_active))
 
-def n_steps(state, n, opttol, patience=50):
+def n_steps(state, n, opttol, patience):
     """Doing n steps optimization for each input. Only converged structures are 
     modified at each step. n_steps does not change input conformer order.
     
@@ -194,6 +198,7 @@ def n_steps(state, n, opttol, patience=50):
                                  dtype=torch.float).to(coord.device)
     oscilating_count0 = torch.tensor(np.zeros((len(coord), 1)),
                                      dtype=torch.float).to(coord.device)
+    state["oscilating_count"] = oscilating_count0
     assert(len(coord.shape) == 3)
     assert(len(numbers.shape) == 2)
     assert(len(charges.shape) == 1)
@@ -209,7 +214,7 @@ def n_steps(state, n, opttol, patience=50):
         numbers = state['numbers'][not_converged]
         charges = state['charges'][not_converged]
         smallest_fmax = smallest_fmax0[not_converged]
-        oscilating_count = oscilating_count0[not_converged]
+        oscilating_count = state["oscilating_count"][not_converged]
 
         coord.requires_grad_(True)
         e, f = state['nn'].forward_batched(coord, numbers, charges)  #Key step to calculate all energies and forces.
@@ -239,7 +244,7 @@ def n_steps(state, n, opttol, patience=50):
         state['energy'][not_converged] = e.detach()  #Update energy for conformers that are optimized in this iteration
         state['coord'][not_converged] = coord  #Update coordinates for conformers that are optimized in this iteration
         smallest_fmax0[not_converged] = smallest_fmax  # update smalles_fmax for each conformer
-        oscilating_count0[not_converged] = oscilating_count  #update counts for continuous no reduction in fmax
+        state["oscilating_count"][not_converged] = oscilating_count  #update counts for continuous no reduction in fmax
     
         if (istep % (n//10)) == 0:
             print_stats(state)
@@ -247,7 +252,7 @@ def n_steps(state, n, opttol, patience=50):
         print("Reaching maximum optimization step:   ", end="")
     else:
         print(f"All structures converged at step {istep}:   ", end="")
-    print_stats(state)
+    print_stats(state, patience)
 
 
 def ensemble_opt(net, coord, numbers, charges, param, model, device):
