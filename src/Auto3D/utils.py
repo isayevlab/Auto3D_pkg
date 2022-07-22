@@ -46,11 +46,11 @@ def check_input(args):
         if torch.cuda.is_available() == False:
             sys.exit("No cuda device was detected. Please set --use_gpu=False.")
     # Check the availability of omega
-    if "OE_LICENSE" not in os.environ:
-        warnings.warn("OpenEye software license is not detected. Please use RDKit for your program where applicable.")
-        isomer_engine = args.isomer_engine
-        if isomer_engine == "omega":
-            sys.exit("Omega is used as isomer engine, but OE_LICENSE is not detected.")
+    # if "OE_LICENSE" not in os.environ:
+    #     warnings.warn("OpenEye software license is not detected. Please use RDKit for your program where applicable.")
+    isomer_engine = args.isomer_engine
+    if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
+        sys.exit("Omega is used as the isomer engine, but OE_LICENSE is not detected. Please use rdkit.")
 
     # Check the installation for open toolkits, torchani
     if args.isomer_engine == "omega":
@@ -111,7 +111,7 @@ def check_input(args):
     print("Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
         print("\tIsomer engine options: RDKit and Omega.\n"
-              "\tOptimizing engine options: ANI2x, ANI_2xt and AIMNET.")
+              "\tOptimizing engine options: ANI2x, ANI2xt and AIMNET.")
     else:
         print("\tIsomer engine options: RDKit and Omega.\n"
               "\tOptimizing engine options: AIMNET.")
