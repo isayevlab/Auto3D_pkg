@@ -197,10 +197,10 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args['verbose'] = verbose
     args['job_name'] = job_name
     args["enumerate_tautomer"] = enumerate_tautomer
-    args["tauto_engine"] = tauto_engine
-    args["isomer_engine"] = isomer_engine
+    args["tauto_engine"] = tauto_engine.lower()
+    args["isomer_engine"] = isomer_engine.lower()
     args["enumerate_isomer"] = enumerate_isomer
-    args["mode_oe"] = mode_oe
+    args["mode_oe"] = mode_oe.lower()
     args["mpi_np"] = mpi_np
     args["max_confs"] = max_confs
     args["use_gpu"] = use_gpu
@@ -295,8 +295,11 @@ def main(args:dict):
     paths = os.path.join(job_name, "job*/*_3d.sdf")
     files = glob.glob(paths)
     if len(files) == 0:
-        msg = """The optimization engine did not run. Make sure that your allocated memory is enough 
-                 And the input SMILES encodes valid chemical structures."""
+        msg = """The optimization engine did not run, or no 3D structure converged.
+                 The reason might be one of the following: 
+                 1. Allocated memory is not enough;
+                 2. The input SMILES encodes valid chemical structures;
+                 3. Patience is too small"""
         sys.exit(msg)
     for file in files:
         with open(file, "r") as f:
