@@ -10,7 +10,7 @@ path = os.path.join(folder, "tests/files/smiles2.smi")
 
 def test_auto3D_rdkit_aimnet():
     """Check that the program runs"""
-    args = options(path, k=1, use_gpu=False, convergence_threshold=0.1,
+    args = options(path, k=1, use_gpu=False, convergence_threshold=0.003,
                    isomer_engine="rdkit", optimizing_engine="AIMNET")
     out = main(args)
     out_folder = os.path.dirname(os.path.abspath(out))
@@ -22,7 +22,7 @@ def test_auto3D_rdkit_aimnet():
 
 def test_auto3D_rdkit_ani2xt():
     """Check that the program runs"""
-    args = options(path, k=1, use_gpu=False, convergence_threshold=0.1,
+    args = options(path, k=1, use_gpu=False, convergence_threshold=0.003,
                    isomer_engine="rdkit", optimizing_engine="ANI2xt")
     out = main(args)
     out_folder = os.path.dirname(os.path.abspath(out))
@@ -33,7 +33,7 @@ def test_auto3D_rdkit_ani2xt():
 
 def test_auto3D_rdkit_ani2x():
     """Check that the program runs"""
-    args = options(path, k=1, use_gpu=False, convergence_threshold=0.1,
+    args = options(path, k=1, use_gpu=False, convergence_threshold=0.003,
                    isomer_engine="rdkit", optimizing_engine="ANI2x")
     out = main(args)
     out_folder = os.path.dirname(os.path.abspath(out))
