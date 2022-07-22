@@ -247,11 +247,11 @@ def n_steps(state, n, opttol, patience):
         state["oscilating_count"][not_converged] = oscilating_count  #update counts for continuous no reduction in fmax
     
         if (istep % (n//10)) == 0:
-            print_stats(state)
+            print_stats(state, patience)
     if istep == (n):
         print("Reaching maximum optimization step:   ", end="")
     else:
-        print(f"All structures converged at step {istep}:   ", end="")
+        print(f"Optimization finished at step {istep}:   ", end="")
     print_stats(state, patience)
 
 
