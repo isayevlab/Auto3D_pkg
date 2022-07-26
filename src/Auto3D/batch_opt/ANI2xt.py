@@ -4,11 +4,12 @@ import os
 import torch.nn as nn
 import torchani
 from torchani.repulsion import StandaloneRepulsionCalculator
+from ..utils import hartree2ev
 
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-hartree2eV = 27.211385
+# hartree2eV = 27.211385
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ani_2xt_dict = os.path.join(root, "models/ani2xt_seed22.pt")
 class ANI2xt(nn.Module):
@@ -113,12 +114,12 @@ class ANI2xt(nn.Module):
     
     def forward(self, species, coords):
         #Electronic part
-        energy = self.shifter(self.model((species, coords))).energies * hartree2eV
+        energy = self.shifter(self.model((species, coords))).energies * hartree2ev
         gradient = torch.autograd.grad([energy.sum()], [coords])[0]
         force = -gradient
     
         #Repulsion part
-        rep_energy = self.rep((species, coords)).energies * hartree2eV
+        rep_energy = self.rep((species, coords)).energies * hartree2ev
         derivative = torch.autograd.grad(rep_energy.sum(), coords)[0]
         rep_force = -derivative
         

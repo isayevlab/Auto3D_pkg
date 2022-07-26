@@ -14,10 +14,11 @@ try:
 except:
     pass
 from tqdm import tqdm
+from ..utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-hartree2eV = 27.211385
+# hartree2eV = 27.211385
 @torch.jit.script
 class FIRE():
     """a general optimization program """
@@ -137,7 +138,7 @@ class EnForce_ANI(torch.nn.Module):
             e, f = self.ani(numbers, coord)
         elif self.name == "ANI2x":
             e = self.ani((numbers, coord)).energies
-            e = e * hartree2eV  #ANI2x (torch.models.ANI2x()) output energy unit is Hatree;
+            e = e * hartree2ev  #ANI2x (torch.models.ANI2x()) output energy unit is Hatree;
                                      #ANI ASE interface unit is eV
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
