@@ -164,7 +164,7 @@ def optim_rank_wrapper(args, queue):
 def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit",
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
-    use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=150,
+    use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
     """Arguments for Auto3D main program
     path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder

@@ -113,7 +113,7 @@ class ranking(object):
 
         if len(out_mols_) == 0:
             name = names[0].split("_")[0].strip()
-            print(f"No structure converged for {name}, try a larger convergence threshold.")
+            print(f"No structure converged for {name}.")
         else:
             ref_energy = float(out_mols_[0].data['E_tot'])
             for mol in out_mols_:
