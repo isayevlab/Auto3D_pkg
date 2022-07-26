@@ -19,6 +19,8 @@ import torchani
 from openbabel import pybel
 
 
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 class EnForce_ANI(torch.nn.Module):
     """Takes in an torch model, then defines forward functions for it.
     Especially useful for AIMNET (class torch.jit)

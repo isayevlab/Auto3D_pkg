@@ -18,6 +18,8 @@ from openbabel import pybel
 from tqdm import tqdm
 
 
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 ev2hatree = 1/27.211385
 class EnForce_ANI(torch.nn.Module):
     """Takes in an torch model, then defines forward functions for it.
