@@ -26,7 +26,8 @@ try:
 except:
     pass
 
-
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 def create_chunk_meta_names(path, dir):
     """Output name is based on chunk input path and directory
     path: chunck input smi path
