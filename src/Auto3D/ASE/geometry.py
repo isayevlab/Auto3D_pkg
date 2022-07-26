@@ -17,6 +17,7 @@ except:
     pass
 import torchani
 from openbabel import pybel
+from ..utils import hartree2ev
 
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -111,7 +112,7 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
     opt_tol: Convergence_threshold for geometry optimization (eV/A)
     opt_steps: Maximum geometry optimizaiton steps
     """
-    ev2hatree = 1/27.211385
+    ev2hatree = 1/hartree2ev
     #create output path that is in the same directory as the input file
     dir = os.path.dirname(path)
     basename = os.path.basename(path).split(".")[0] + f"_{model_name}_opt.sdf"
