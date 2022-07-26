@@ -15,7 +15,8 @@ except:
     pass
 from tqdm import tqdm
 
-
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 hartree2eV = 27.211385
 @torch.jit.script
 class FIRE():
@@ -23,11 +24,11 @@ class FIRE():
     # For a list of documentation for different optimization programs: https://wiki.fysik.dtu.dk/ase/ase/optimize.html
     def __init__(self, coord):
         ## default parameters
-        self.dt_max = 1.0
+        self.dt_max = 0.1
         self.Nmin = 5
-        self.maxstep = 0.2
-        self.finc = 1.1
-        self.fdec = 0.5
+        self.maxstep = 0.1
+        self.finc = 1.5
+        self.fdec = 0.7
         self.astart = 0.1
         self.fa = 0.99
         self.v = torch.zeros_like(coord)

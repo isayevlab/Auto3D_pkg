@@ -6,6 +6,8 @@ import torchani
 from torchani.repulsion import StandaloneRepulsionCalculator
 
 
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 hartree2eV = 27.211385
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ani_2xt_dict = os.path.join(root, "models/ani2xt_seed22.pt")

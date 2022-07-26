@@ -21,6 +21,8 @@ except:
 import torchani
 
 
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 ev2hatree = 1/27.211385  #1 Hartree = 27.211385 eV
 class EnForce_ANI(torch.nn.Module):
     """Takes in an torch model, then defines forward functions for it.
