@@ -49,6 +49,8 @@ if __name__ == "__main__":
                         help="Maximum optimization steps for each structure.")
     parser.add_argument('--convergence_threshold', type=float, default=0.003,
                         help="Optimization is considered as converged if maximum force is below this threshold.")
+    parser.add_argument('--patience', type=int, default=1000,
+                        help="If the force does not decrease for a continuous patience steps, the conformer will be dropped out of the optimization loop.")
     parser.add_argument('--threshold', type=float, default=0.3,
                         help=("If the RMSD between two conformers are within threhold, "
                             "they are considered as duplicates. One of them will be removed."))
@@ -76,6 +78,7 @@ if __name__ == "__main__":
     gpu_idx = args.gpu_idx
     opt_steps = args.opt_steps
     convergence_threshold = args.convergence_threshold
+    patience = args.patience
     threshold = args.threshold
     verbose = args.verbose
     job_name = args.job_name
@@ -99,6 +102,7 @@ if __name__ == "__main__":
         optimizing_engine=optimizing_engine,
         opt_steps=opt_steps,
         convergence_threshold=convergence_threshold,
+        patience=patience,
         threshold=threshold,
         memory=memory
     )
