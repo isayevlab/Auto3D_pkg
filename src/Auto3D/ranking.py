@@ -6,9 +6,10 @@ import os
 import pandas as pd
 from openbabel import pybel
 from .utils import guess_file_type, filter_unique
+from .utils import hartree2ev, ev2kcalpermol
 
-eV2kcalmol = 23.06055  #1 eV = 23.06055 kcal/mol
-hartree2eV = 27.211385
+# eV2kcalmol = 23.06055  #1 eV = 23.06055 kcal/mol
+# hartree2eV = 27.211385
 class ranking(object):
     '''
     Finding 3D structures that satisfy the user-defined requirements.
@@ -97,7 +98,7 @@ class ranking(object):
         window (Hatree) from the lowest energy. Unit table is based on: 
         http://wild.life.nctu.edu.tw/class/common/energy-unit-conv-table.html
         '''
-        window = (window/eV2kcalmol)  # convert energy window into eV unit
+        window = (window/ev2kcalpermol)  # convert energy window into eV unit
         assert(len(energies) == len(names))
         assert(len(energies) == len(mols))
         assert(window >= 0)
@@ -112,7 +113,7 @@ class ranking(object):
 
         if len(out_mols_) == 0:
             name = names[0].split("_")[0].strip()
-            print(f"No structure converged for {name}, try a larger convergence threshold.")
+            print(f"No structure converged for {name}.")
         else:
             ref_energy = float(out_mols_[0].data['E_tot'])
             for mol in out_mols_:
@@ -135,7 +136,7 @@ class ranking(object):
         file_type = guess_file_type(self.input_path)
         data2 = pybel.readfile(file_type, self.input_path)
 
-        mols = [mol for mol in data2]
+        mols = [mol for mol in data2 if mol.data["Converged"].lower() == "true"]
         names = [mol.title.strip() for mol in mols]
         energies = [float(mol.data['E_tot']) for mol in mols]
         assert(len(mols) == len(names))
@@ -167,8 +168,8 @@ class ranking(object):
         f = pybel.Outputfile('sdf', self.out_path)
         for mol in results:
             # Change the energy unit from eV back to Hartree
-            mol.data['E_tot'] = (float(mol.data['E_tot'])/hartree2eV)
-            mol.data['E_rel(kcal/mol)'] = (float(mol.data['E_rel(eV)']) * eV2kcalmol)
+            mol.data['E_tot'] = (float(mol.data['E_tot'])/hartree2ev)
+            mol.data['E_rel(kcal/mol)'] = (float(mol.data['E_rel(eV)']) * ev2kcalpermol)
             del mol.data['E_rel(eV)']
             #Remove _ in the molecule title
             t = mol.title

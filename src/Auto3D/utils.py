@@ -20,6 +20,11 @@ from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 
+#CODATA 2018 energy conversion factor
+hartree2ev = 27.211386245988
+hartree2kcalpermol = 627.50947337481
+ev2kcalpermol = 23.060547830619026
+
 
 def guess_file_type(filename):
     """Returns the extension for the filename"""
