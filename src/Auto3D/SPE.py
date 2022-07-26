@@ -16,11 +16,12 @@ except:
 import torchani
 from openbabel import pybel
 from tqdm import tqdm
+from .utils import hartree2ev
 
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-ev2hatree = 1/27.211385
+ev2hatree = 1/hartree2ev
 class EnForce_ANI(torch.nn.Module):
     """Takes in an torch model, then defines forward functions for it.
     Especially useful for AIMNET (class torch.jit)

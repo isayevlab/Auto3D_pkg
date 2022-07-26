@@ -257,7 +257,7 @@ def main(args:dict):
     chunk_size = t * smiles_per_G
 
     #Get indexes for each chunk
-    df = pd.read_csv(path, sep=" ", header=None)
+    df = pd.read_csv(path, sep='\s+', header=None)
     data_size = len(df)
     num_chunks = int(data_size // chunk_size + 1)
     print(f"There are {len(df)} SMILES, available memory is {t} GB.")
