@@ -24,6 +24,8 @@ if __name__ == "__main__":
                         help="When True, enumerate tautomers for the input")
     parser.add_argument('--tauto_engine', type=str, default='rdkit',
                         help="Programs to enumerate tautomers, either 'rdkit' or 'oechem'")
+    parser.add_argument('--pKaNorm', default=True, type=lambda x: (str(x).lower() == 'true'),
+                        help="When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem')")
     parser.add_argument('--isomer_engine', type=str, default='rdkit',
                         help=('The program for generating 3D isomers for each '
                             'SMILES. This parameter is either '
@@ -68,6 +70,7 @@ if __name__ == "__main__":
     capacity = args.capacity
     enumerate_tautomer = args.enumerate_tautomer
     tauto_engine = args.tauto_engine
+    pKaNorm = args.pKaNorm
     isomer_engine = args.isomer_engine
     max_confs = args.max_confs
     enumerate_isomer = args.enumerate_isomer
@@ -91,6 +94,7 @@ if __name__ == "__main__":
         job_name=job_name,
         enumerate_tautomer=enumerate_tautomer,
         tauto_engine=tauto_engine,
+        pKaNorm=pKaNorm,
         isomer_engine=isomer_engine,
         enumerate_isomer=enumerate_isomer,
         mode_oe=mode_oe,

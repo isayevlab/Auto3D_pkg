@@ -190,8 +190,8 @@ def hash_taut_smi(smi, out):
         smiles, id = line.strip().split()
         c = 1
         id_ = id
-        while (id_ in dict0.keys()):
-            id_ = id + f"taut{c}"
+        while (('taut' not in id_) or (id_ in dict0.keys())):
+            id_ = id + f"@taut{c}"
             c += 1
         dict0[id_] = smiles
 
