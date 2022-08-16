@@ -75,7 +75,7 @@ def isomer_wraper(chunk_info, args, queue):
             output_taut = meta["output_taut"]
             taut_mode = args.tauto_engine
             print("Enumerating tautomers for the input...", end='')
-            taut_engine = tautomer_engine(taut_mode, path, output_taut)
+            taut_engine = tautomer_engine(taut_mode, path, output_taut, args.pKaNorm)
             taut_engine.run()
             hash_taut_smi(output_taut, output_taut)
             path = output_taut
@@ -162,7 +162,7 @@ def optim_rank_wrapper(args, queue):
 
 
 def options(path, k=False, window=False, verbose=False, job_name="",
-    enumerate_tautomer=False, tauto_engine="rdkit",
+    enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
@@ -175,6 +175,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     
     enumerate_tautomer: When True, enumerate tautomers for the input
     tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
+    pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem')
     isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
     enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
     mode_oe: The mode that omega program will take. It can be either 'classic' or 'macrocycle'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
@@ -199,6 +200,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args['job_name'] = job_name
     args["enumerate_tautomer"] = enumerate_tautomer
     args["tauto_engine"] = tauto_engine.lower()
+    args["pKaNorm"] = pKaNorm
     args["isomer_engine"] = isomer_engine.lower()
     args["enumerate_isomer"] = enumerate_isomer
     args["mode_oe"] = mode_oe.lower()

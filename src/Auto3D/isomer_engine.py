@@ -34,10 +34,11 @@ class tautomer_engine(object):
         output: smi file
         
     """
-    def __init__(self, mode, input, out):
+    def __init__(self, mode, input, out, pKaNorm):
         self.mode = mode
         self.input = input
         self.output = out
+        self.pKaNorm = pKaNorm
 
     def oe_taut(self):
         """OEChem enumerating tautomers, modified from
@@ -49,10 +50,9 @@ class tautomer_engine(object):
         ofs.open(self.output)
 
         tautomerOptions = oequacpac.OETautomerOptions()
-        pKaNorm = False
 
         for mol in ifs.GetOEGraphMols():
-            for tautomer in oequacpac.OEGetReasonableTautomers(mol, tautomerOptions, pKaNorm):
+            for tautomer in oequacpac.OEGetReasonableTautomers(mol, tautomerOptions, self.pKaNorm):
                 oechem.OEWriteMolecule(ofs, tautomer)
         
         # Appending input smiles into output
