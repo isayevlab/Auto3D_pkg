@@ -260,7 +260,7 @@ def oe_flipper(input, out):
 def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, output, max_confs, threshold, flipper=True):
     """Generating R/S, cis/trans and conformers using omega
     Arguments:
-        mode: 'classic' or 'macrocycle'
+        mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'
         input: input smi file
         output: output SDF file
         flipper: optional R/S and cis/trans enumeration"""
@@ -268,6 +268,14 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         max_confs = 100
     if mode == "classic":
         omegaOpts = oeomega.OEOmegaOptions()
+    elif mode == "dense":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Dense)
+    elif mode == "pose":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Pose)
+    elif mode == "rocs":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_ROCS)
+    elif mode == "fast_rocs":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_FastROCS)
     elif mode == "macrocycle":
         omegaOpts = oeomega.OEMacrocycleOmegaOptions()
     else:
@@ -277,22 +285,26 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-maxconfs", oechem.OEParamVisibility_Simple)
     
-    omegaOpts.SetMaxConfs(max_confs)
-    omegaOpts.SetEnergyWindow(999)
     if mode == "classic":
         omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
         omegaOpts.SetStrictStereo(False)
         omegaOpts.SetWarts(True)
-    else:
+        omegaOpts.SetMaxConfs(max_confs)
+        omegaOpts.SetEnergyWindow(999)
+    elif mode == "macrocycle":
         omegaOpts.SetIterCycleSize(1000)
-        omegaOpts.SetMaxIter(2000)
+        omegaOpts.SetMaxIter(2000)   
+        omegaOpts.SetMaxConfs(max_confs)
+        omegaOpts.SetEnergyWindow(999)
+    # dense, pose, rocs, fast_rocs mdoes use the default parameters from OEOMEGA:
+    # https://docs.eyesopen.com/toolkits/python/omegatk/OEConfGenConstants/OEOmegaSampling.html 
     opts = oechem.OESimpleAppOptions(omegaOpts, "Omega", oechem.OEFileStringType_Mol, oechem.OEFileStringType_Mol3D)
 
     omegaOpts.UpdateValues(opts)
-    if mode == "classic":
-        omega = oeomega.OEOmega(omegaOpts)
-    else:
+    if mode == "macrocyce":
         omega = oeomega.OEMacrocycleOmega(omegaOpts)
+    else:
+        omega = oeomega.OEOmega(omegaOpts)
 
     if flipper:
         print("Enumerating stereoisomers.")

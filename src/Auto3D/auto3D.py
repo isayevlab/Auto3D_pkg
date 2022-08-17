@@ -2,7 +2,7 @@
 """
 Generating 3-dimensional structures from SMILES based on user's demands.
 """
-
+import logging
 import argparse
 import os
 import shutil
@@ -178,7 +178,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem')
     isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
     enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
-    mode_oe: The mode that omega program will take. It can be either 'classic' or 'macrocycle'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
+    mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
     mpi_np: Number of CPU cores for the isomer generation engine.
     max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.
     use_gpu: If True, the program will use GPU when available
@@ -243,9 +243,31 @@ def main(args:dict):
     job_name = job_name + "_" + basename.split('.')[0].strip()
     job_name = os.path.join(dir, job_name)
     os.mkdir(job_name)
+
+    # initialize logging file
+    logging_path = os.path.join(job_name, "Auto3D.log")
+    logging.basicConfig(filename=logging_path, filemode='w', level=logging.INFO,
+                        format='%(message)s')
+    logging.info(f"""
+         _              _             _____   ____  
+        / \     _   _  | |_    ___   |___ /  |  _ \ 
+       / _ \   | | | | | __|  / _ \    |_ \  | | | |
+      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
+        // Automatic generation of the low-energy 3D structures                                      
+    """)
+    logging.info("================================================================================")
+    logging.info("                               INPUT PARAMETERS")
+    logging.info("================================================================================")
+    for key, val in args.items():
+        line = str(key) + ": " + str(val)
+        logging.info(line)
     check_input(args)
 
 
+    logging.info("================================================================================")
+    logging.info("                               RUNNING PROCESS")
+    logging.info("================================================================================")
     ## Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
     if args.memory is not None:
@@ -264,6 +286,8 @@ def main(args:dict):
     num_chunks = int(data_size // chunk_size + 1)
     print(f"There are {len(df)} SMILES, available memory is {t} GB.")
     print(f"The task will be divided into {num_chunks} jobs.")
+    logging.info(f"There are {len(df)} SMILES, available memory is {t} GB.")
+    logging.info(f"The task will be divided into {num_chunks} jobs.")
     chunk_idxes = [[] for _ in range(num_chunks)]
     for i in range(num_chunks):
         idx = i

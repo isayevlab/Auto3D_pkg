@@ -1,4 +1,5 @@
 import argparse
+import logging
 import Auto3D
 from Auto3D.auto3D import options, main
 
@@ -36,8 +37,7 @@ if __name__ == "__main__":
     parser.add_argument('--enumerate_isomer', default=False, type=lambda x: (str(x).lower() == 'true'),
                         help='When True, cis/trans and r/s isomers are enumerated.')
     parser.add_argument('--mode_oe', type=str, default='classic',
-                        help=("The mode that omega program will take. "
-                            "It can be either 'classic' or'macrocycle' "))
+                        help=("The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used."))
     parser.add_argument('--mpi_np', type=int, default=4,
                         help="Number of CPU cores for the isomer generation step.")
     parser.add_argument('--optimizing_engine', type=str, default='AIMNET',
