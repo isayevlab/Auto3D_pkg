@@ -2,6 +2,7 @@
 """
 Providing utilities for the workflow package.
 """
+import logging
 import math
 import warnings
 import os
@@ -25,7 +26,7 @@ hartree2ev = 27.211386245988
 hartree2kcalpermol = 627.50947337481
 ev2kcalpermol = 23.060547830619026
 
-
+logger = logging.getLogger("auto3d")
 def guess_file_type(filename):
     """Returns the extension for the filename"""
     assert '.' in filename
@@ -43,6 +44,10 @@ def check_input(args):
         each SMILES in the input file.
     """
     print("Checking input file...")
+    logger.info("Checking input file...")
+    # logger.info("================================================================================")
+    # logger.info("                               Check Input")
+    # logger.info("================================================================================")
     ANI_elements = {1, 6, 7, 8, 9, 16, 17}
     ANI = True
     # Check --use_gpu
@@ -94,6 +99,7 @@ def check_input(args):
         smiles_all.append(smiles)
     print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ")
     print("\tAll SMILES and IDs are valid.")
+    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
 
     # Check number of unspecified atomic stereo center
     if args.enumerate_isomer == False:
@@ -114,15 +120,21 @@ def check_input(args):
             only_aimnet_smiles.append(smiles)
 
     print("Suggestions for choosing isomer_engine and optimizing_engine: ")
+    logger.info(f"Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
         print("\tIsomer engine options: RDKit and Omega.\n"
               "\tOptimizing engine options: ANI2x, ANI2xt and AIMNET.")
+        logger.info("\tIsomer engine options: RDKit and Omega.")
+        logger.info("\tOptimizing engine options: ANI2x, ANI2xt and AIMNET.")
     else:
         print("\tIsomer engine options: RDKit and Omega.\n"
               "\tOptimizing engine options: AIMNET.")
+        logger.info("\tIsomer engine options: RDKit and Omega.")
+        logger.info("\tOptimizing engine options: AIMNET.")
         optimizing_engine = args.optimizing_engine
         if optimizing_engine != "AIMNET":
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
+            logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
 
 
 class NullIO(StringIO):
@@ -190,8 +202,8 @@ def hash_taut_smi(smi, out):
         smiles, id = line.strip().split()
         c = 1
         id_ = id
-        while (id_ in dict0.keys()):
-            id_ = id + f"taut{c}"
+        while (('taut' not in id_) or (id_ in dict0.keys())):
+            id_ = id + f"@taut{c}"
             c += 1
         dict0[id_] = smiles
 
@@ -405,6 +417,8 @@ def remove_enantiomers(inpath, out):
         except:
             new_values = values
             print(f"Enantiomers not removed for {key}")
+            logger.info(f"Enantiomers not removed for {key}")
+            
         smiles[key] = new_values
         
     with open(out, 'w+') as f:
@@ -664,6 +678,7 @@ def amend_configuration(smis):
                 dct[key] = value
             except:
                 print(f"Stereo centers for {key} are not fully enumerated.")
+                logger.info(f"Stereo centers for {key} are not fully enumerated.")
     return dct
 
 def amend_configuration_w(smi):
