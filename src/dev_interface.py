@@ -120,4 +120,3 @@ if __name__ == "__main__":
         // Automatic generation of the low-energy 3D structures                                      
     """)
     out = main(arguments)
-    print("Output path: ", out)

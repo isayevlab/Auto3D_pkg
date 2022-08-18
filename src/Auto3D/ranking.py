@@ -3,6 +3,7 @@
 Finding 3D structures that satisfy the input requirement.
 '''
 import os
+import logging
 import pandas as pd
 from openbabel import pybel
 from .utils import guess_file_type, filter_unique
@@ -82,6 +83,7 @@ class ranking(object):
         if len(out_mols) == 0:
             name = names[0].split("_")[0].strip()
             print(f"No structure converged for {name}, try a larger convergence threshold.")
+            logging.info(f"No structure converged for {name}, try a larger convergence threshold.")
         else:
             #Adding relative energies
             ref_energy = out_mols[0].data['E_tot']
@@ -114,6 +116,7 @@ class ranking(object):
         if len(out_mols_) == 0:
             name = names[0].split("_")[0].strip()
             print(f"No structure converged for {name}.")
+            logging.info(f"No structure converged for {name}.")
         else:
             ref_energy = float(out_mols_[0].data['E_tot'])
             for mol in out_mols_:
@@ -131,6 +134,7 @@ class ranking(object):
         When runs, lowest-energy structure will be stored in out_path folder.
         """
         print("Beggin to slelect structures that satisfy the requirements...")
+        logging.info("Beggin to slelect structures that satisfy the requirements...")
         results = []
 
         file_type = guess_file_type(self.input_path)
