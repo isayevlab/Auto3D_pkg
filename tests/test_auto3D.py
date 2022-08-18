@@ -125,3 +125,7 @@ def test_auto3D_config4():
         send2trash(out_folder)
     except:
         shutil.rmtree(out_folder)
+
+
+# if __name__ == "__main__":
+#     test_auto3D_omega_aimnet()

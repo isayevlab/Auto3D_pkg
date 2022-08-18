@@ -16,6 +16,7 @@ import pandas as pd
 import multiprocessing as mp
 from multiprocessing import Queue
 from logging.handlers import QueueHandler
+import Auto3D
 from Auto3D.isomer_engine import rd_isomer, tautomer_engine
 from Auto3D.isomer_engine import oe_isomer
 from Auto3D.ranking import ranking
@@ -276,7 +277,8 @@ def main(args:dict):
 
     # initialize logging file
     logging_path = os.path.join(job_name, "Auto3D.log")
-    logging_queue = Queue()
+    # logging_queue = Queue()
+    logging_queue = mp.Manager().Queue(999)
     logger_p = mp.Process(target=logger_process, args=(logging_queue, logging_path))
     logger_p.start()
 
@@ -290,7 +292,7 @@ def main(args:dict):
         / \     _   _  | |_    ___   |___ /  |  _ \ 
        / _ \   | | | | | __|  / _ \    |_ \  | | | |
       / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
+     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
         // Automatic generation of the low-energy 3D structures                                      
     """)
     logger.info("================================================================================")
