@@ -1,5 +1,6 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
 import torch
+import logging
 import warnings
 import os
 import numpy as np
@@ -180,6 +181,8 @@ def print_stats(state, patience):
     num_active = num_total - num_converged_dropped
     print("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" % 
           (num_total, num_converged, num_dropped, num_active))
+    # logging.info("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" % 
+    #       (num_total, num_converged, num_dropped, num_active))
 
 def n_steps(state, n, opttol, patience):
     """Doing n steps optimization for each input. Only converged structures are 
@@ -252,8 +255,10 @@ def n_steps(state, n, opttol, patience):
             print_stats(state, patience)
     if istep == (n):
         print("Reaching maximum optimization step:   ", end="")
+        # logging.info("Reaching maximum optimization step:   ")
     else:
         print(f"Optimization finished at step {istep}:   ", end="")
+        # logging.info(f"Optimization finished at step {istep}:   ")
     print_stats(state, patience)
 
 
@@ -360,8 +365,10 @@ class optimizing(object):
         
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
+        # logging.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
         mols = list(pybel.readfile('sdf', self.in_f))
         print(f"Total 3D conformers: {len(mols)}")
+        # logging.info(f"Total 3D conformers: {len(mols)}")
         coord, numbers, charges = mols2lists(mols, self.model)
         if self.model == "AIMNET":
             coord_padded = padding_coords(coord, 0)

@@ -2,6 +2,7 @@
 """
 Enumerating stereoisomers for each SMILES representation with RDKit.
 """
+import logging
 import warnings
 import shutil
 import os
@@ -25,6 +26,7 @@ except:
 from tqdm import tqdm
 
 
+# logger = logging.getLogger("auto3d")
 class tautomer_engine(object):
     """Enemerate possible tautomers for the input
     
@@ -34,10 +36,11 @@ class tautomer_engine(object):
         output: smi file
         
     """
-    def __init__(self, mode, input, out):
+    def __init__(self, mode, input, out, pKaNorm):
         self.mode = mode
         self.input = input
         self.output = out
+        self.pKaNorm = pKaNorm
 
     def oe_taut(self):
         """OEChem enumerating tautomers, modified from
@@ -49,10 +52,9 @@ class tautomer_engine(object):
         ofs.open(self.output)
 
         tautomerOptions = oequacpac.OETautomerOptions()
-        pKaNorm = False
 
         for mol in ifs.GetOEGraphMols():
-            for tautomer in oequacpac.OEGetReasonableTautomers(mol, tautomerOptions, pKaNorm):
+            for tautomer in oequacpac.OEGetReasonableTautomers(mol, tautomerOptions, self.pKaNorm):
                 oechem.OEWriteMolecule(ofs, tautomer)
         
         # Appending input smiles into output
@@ -207,6 +209,8 @@ class rd_isomer(object):
         if self.flipper:
             print("Enumerating cis/tran isomers for unspecified double bonds...")
             print("Enumerating R/S isomers for unspecified atomic centers...")
+            # logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
+            # logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input)
             for name, smiles in smiles_og.items():
                 # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
@@ -215,6 +219,7 @@ class rd_isomer(object):
                 self.enumerate[name] = isomers
             self.write_enumerated_smi()
             print("Removing enantiomers...")
+            # logger.info("Removing enantiomers...")
             amend_configuration_w(self.enumerated_smi_path)
             remove_enantiomers(self.enumerated_smi_path, self.enumerated_smi_path_reduced)
             hash_enumerated_smi_IDs(self.enumerated_smi_path_reduced,
@@ -224,6 +229,7 @@ class rd_isomer(object):
                                     self.enumerated_smi_hashed_path)
 
         print("Enumerating conformers/rotamers, removing duplicates...")
+        # logger.info("Enumerating conformers/rotamers, removing duplicates...")
         smiles2 = self.read(self.enumerated_smi_hashed_path)
 
         smi_name_tuples = [(smi, name) for name, smi in smiles2.items()]
@@ -260,14 +266,22 @@ def oe_flipper(input, out):
 def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, output, max_confs, threshold, flipper=True):
     """Generating R/S, cis/trans and conformers using omega
     Arguments:
-        mode: 'classic' or 'macrocycle'
+        mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'
         input: input smi file
         output: output SDF file
         flipper: optional R/S and cis/trans enumeration"""
     if max_confs is None:
-        max_confs = 100
+        max_confs = 1000
     if mode == "classic":
         omegaOpts = oeomega.OEOmegaOptions()
+    elif mode == "dense":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Dense)
+    elif mode == "pose":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Pose)
+    elif mode == "rocs":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_ROCS)
+    elif mode == "fast_rocs":
+        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_FastROCS)
     elif mode == "macrocycle":
         omegaOpts = oeomega.OEMacrocycleOmegaOptions()
     else:
@@ -277,25 +291,30 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-maxconfs", oechem.OEParamVisibility_Simple)
     
-    omegaOpts.SetMaxConfs(max_confs)
-    omegaOpts.SetEnergyWindow(999)
     if mode == "classic":
         omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
         omegaOpts.SetStrictStereo(False)
         omegaOpts.SetWarts(True)
-    else:
+        omegaOpts.SetMaxConfs(max_confs)
+        omegaOpts.SetEnergyWindow(999)
+    elif mode == "macrocycle":
         omegaOpts.SetIterCycleSize(1000)
-        omegaOpts.SetMaxIter(2000)
+        omegaOpts.SetMaxIter(2000)   
+        omegaOpts.SetMaxConfs(max_confs)
+        omegaOpts.SetEnergyWindow(999)
+    # dense, pose, rocs, fast_rocs mdoes use the default parameters from OEOMEGA:
+    # https://docs.eyesopen.com/toolkits/python/omegatk/OEConfGenConstants/OEOmegaSampling.html 
     opts = oechem.OESimpleAppOptions(omegaOpts, "Omega", oechem.OEFileStringType_Mol, oechem.OEFileStringType_Mol3D)
 
     omegaOpts.UpdateValues(opts)
-    if mode == "classic":
-        omega = oeomega.OEOmega(omegaOpts)
-    else:
+    if mode == "macrocyce":
         omega = oeomega.OEMacrocycleOmega(omegaOpts)
+    else:
+        omega = oeomega.OEOmega(omegaOpts)
 
     if flipper:
         print("Enumerating stereoisomers.")
+        # logger.info("Enumerating stereoisomers.")
         oe_flipper(input, smiles_enumerated)
         amend_configuration_w(smiles_enumerated)
         remove_enantiomers(smiles_enumerated, smiles_reduced)
@@ -308,6 +327,7 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     ofs.open(output)
 
     print("Enumerating conformers.")
+    # logger.info("Enumerating conformers.")
     for mol in tqdm(ifs.GetOEMols()):
         # oechem.OEThrow.Info("Title: %s" % mol.GetTitle())
         ret_code = omega.Build(mol)

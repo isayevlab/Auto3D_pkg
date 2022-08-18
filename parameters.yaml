@@ -1,0 +1,31 @@
+#replace with your input file
+path: "/home/jack/Auto3D_pkg/tests/files/smiles2.smi"
+
+#k and window are mutually exclusive parameters. Just specify one of them.
+k: 1  
+window: False
+
+#general setting
+memory: None
+capacity: 40
+#tautomer-related parameters
+enumerate_tautomer: False
+tauto_engine: 'rdkit'
+pKaNorm: True
+#stereoisomer-related parameters
+isomer_engine: rdkit
+max_confs: None
+enumerate_isomer: True
+mode_oe: 'classic'
+mpi_np: 4
+#optimization-related parameters
+optimizing_engine: 'AIMNET'
+use_gpu: True
+gpu_idx: 0
+opt_steps: 5000
+convergence_threshold: 0.003
+patience: 1000
+#cleanup parameters
+threshold: 0.3
+verbose: False
+job_name: ""

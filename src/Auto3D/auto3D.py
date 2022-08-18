@@ -2,7 +2,7 @@
 """
 Generating 3-dimensional structures from SMILES based on user's demands.
 """
-
+import logging
 import argparse
 import os
 import shutil
@@ -14,6 +14,9 @@ import psutil, tarfile
 import glob
 import pandas as pd
 import multiprocessing as mp
+from multiprocessing import Queue
+from logging.handlers import QueueHandler
+import Auto3D
 from Auto3D.isomer_engine import rd_isomer, tautomer_engine
 from Auto3D.isomer_engine import oe_isomer
 from Auto3D.ranking import ranking
@@ -59,14 +62,21 @@ def create_chunk_meta_names(path, dir):
     dct["dir"] = dir
     return dct
 
-def isomer_wraper(chunk_info, args, queue):
+def isomer_wraper(chunk_info, args, queue, logging_queue):
     """
     chunk_info: (path, dir) tuple for the chunk
     args: auto3D arguments
     queue: mp.queue
+    logging_queue
     """
+    #prepare logging
+    logger = logging.getLogger("auto3d")
+    logger.addHandler(QueueHandler(logging_queue))
+    logger.setLevel(logging.INFO)
+
     for i, path_dir in enumerate(chunk_info):
         print(f"\n\nIsomer generation for job{i+1}")
+        logger.info(f"\n\nIsomer generation for job{i+1}")
         path, dir = path_dir
         meta = create_chunk_meta_names(path, dir)
 
@@ -75,11 +85,13 @@ def isomer_wraper(chunk_info, args, queue):
             output_taut = meta["output_taut"]
             taut_mode = args.tauto_engine
             print("Enumerating tautomers for the input...", end='')
-            taut_engine = tautomer_engine(taut_mode, path, output_taut)
+            logger.info("Enumerating tautomers for the input...")
+            taut_engine = tautomer_engine(taut_mode, path, output_taut, args.pKaNorm)
             taut_engine.run()
             hash_taut_smi(output_taut, output_taut)
             path = output_taut
             print(f"Tautomers are saved in {output_taut}")
+            logger.info(f"Tautomers are saved in {output_taut}")
 
         smiles_enumerated = meta["smiles_enumerated"]
         smiles_reduced = meta["smiles_reduced"]
@@ -109,13 +121,19 @@ def isomer_wraper(chunk_info, args, queue):
     queue.put("Done")
 
 
-def optim_rank_wrapper(args, queue):
+def optim_rank_wrapper(args, queue, logging_queue):
+    #prepare logging
+    logger = logging.getLogger("auto3d")
+    logger.addHandler(QueueHandler(logging_queue))
+    logger.setLevel(logging.INFO)
+
     job = 1
     while True:
         sdf_path_dir = queue.get()
         if sdf_path_dir == "Done":
             break
         print(f"\n\nOptimizing on job{job}")
+        logger.info(f"\n\nOptimizing on job{job}")
         enumerated_sdf, path, dir = sdf_path_dir
         meta = create_chunk_meta_names(path, dir)
 
@@ -162,7 +180,7 @@ def optim_rank_wrapper(args, queue):
 
 
 def options(path, k=False, window=False, verbose=False, job_name="",
-    enumerate_tautomer=False, tauto_engine="rdkit",
+    enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
@@ -175,9 +193,10 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     
     enumerate_tautomer: When True, enumerate tautomers for the input
     tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
+    pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem')
     isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
     enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
-    mode_oe: The mode that omega program will take. It can be either 'classic' or 'macrocycle'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
+    mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
     mpi_np: Number of CPU cores for the isomer generation engine.
     max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.
     use_gpu: If True, the program will use GPU when available
@@ -199,6 +218,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args['job_name'] = job_name
     args["enumerate_tautomer"] = enumerate_tautomer
     args["tauto_engine"] = tauto_engine.lower()
+    args["pKaNorm"] = pKaNorm
     args["isomer_engine"] = isomer_engine.lower()
     args["enumerate_isomer"] = enumerate_isomer
     args["mode_oe"] = mode_oe.lower()
@@ -215,12 +235,25 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args["memory"] = memory
     return args
 
+
+def logger_process(queue, logging_path):
+    """A child process for logging all information from other processes"""
+    logger = logging.getLogger("auto3d")
+    logger.addHandler(logging.FileHandler(logging_path))
+    logger.setLevel(logging.INFO)
+    while True:
+        message = queue.get()
+        if message is None:
+            break
+        logger.handle(message)
+
+
 def main(args:dict):
     """Take the arguments from options and run Auto3D"""
 
 
     chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
-
+    
 
     start = time.time()
     job_name = time.strftime('%Y%m%d-%H%M%S')
@@ -241,9 +274,39 @@ def main(args:dict):
     job_name = job_name + "_" + basename.split('.')[0].strip()
     job_name = os.path.join(dir, job_name)
     os.mkdir(job_name)
+
+    # initialize logging file
+    logging_path = os.path.join(job_name, "Auto3D.log")
+    # logging_queue = Queue()
+    logging_queue = mp.Manager().Queue(999)
+    logger_p = mp.Process(target=logger_process, args=(logging_queue, logging_path))
+    logger_p.start()
+
+    # logger in the main process
+    logger = logging.getLogger("auto3d")
+    logger.addHandler(QueueHandler(logging_queue))
+    logger.setLevel(logging.INFO)
+
+    logger.info(f"""
+         _              _             _____   ____  
+        / \     _   _  | |_    ___   |___ /  |  _ \ 
+       / _ \   | | | | | __|  / _ \    |_ \  | | | |
+      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
+        // Automatic generation of the low-energy 3D structures                                      
+    """)
+    logger.info("================================================================================")
+    logger.info("                               INPUT PARAMETERS")
+    logger.info("================================================================================")
+    for key, val in args.items():
+        line = str(key) + ": " + str(val)
+        logger.info(line)
+
+
+    logger.info("================================================================================")
+    logger.info("                               RUNNING PROCESS")
+    logger.info("================================================================================")
     check_input(args)
-
-
     ## Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
     if args.memory is not None:
@@ -260,8 +323,10 @@ def main(args:dict):
     df = pd.read_csv(path, sep='\s+', header=None)
     data_size = len(df)
     num_chunks = int(data_size // chunk_size + 1)
-    print(f"There are {len(df)} SMILES, available memory is {t} GB.")
+    print(f"The available memory is {t} GB.")
     print(f"The task will be divided into {num_chunks} jobs.")
+    logger.info(f"The available memory is {t} GB.")
+    logger.info(f"The task will be divided into {num_chunks} jobs.")
     chunk_idxes = [[] for _ in range(num_chunks)]
     for i in range(num_chunks):
         idx = i
@@ -282,10 +347,11 @@ def main(args:dict):
         path = new_name
 
         print(f"Job{i+1}, number of inputs: {len(df_i)}")
+        logger.info(f"Job{i+1}, number of inputs: {len(df_i)}")
         chunk_info.append((path, dir))
 
-    p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line))
-    p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line,))
+    p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line, logging_queue,))
+    p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line, logging_queue,))
     p1.start()
     p2.start()
     p1.join()
@@ -315,11 +381,18 @@ def main(args:dict):
     # Program ends
     end = time.time()
     print("Energy unit: Hartree if implicit.")
+    logger.info("Energy unit: Hartree if implicit.")
     running_time_m = int((end - start)/60)
     if running_time_m <= 60:
         print(f'Program running time: {running_time_m} minutes')
+        logger.info(f'Program running time: {running_time_m} minutes')
     else:
         running_time_h = running_time_m // 60
         remaining_minutes = running_time_m - running_time_h*60
         print(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes')
+        logger.info(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes')
+    print(f"Output path: {path_combined}")
+    logger.info(f"Output path: {path_combined}")
+    logging_queue.put(None)
+    logger_p.join()
     return path_combined

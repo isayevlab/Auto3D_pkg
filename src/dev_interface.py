@@ -152,7 +152,7 @@ if __name__ == "__main__":
         / \     _   _  | |_    ___   |___ /  |  _ \ 
        / _ \   | | | | | __|  / _ \    |_ \  | | | |
       / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
+     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
         // Automatic generation of the low-energy 3D structures                                      
     """)
     out = main(arguments)
