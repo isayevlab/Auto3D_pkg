@@ -28,7 +28,7 @@ Otherwise, you can create an environment and install Auto3D. In a terminal, excu
 ```{bash}
 git clone https://github.com/isayevlab/Auto3D_pkg.git
 cd Auto3D_pkg
-conda env create --file auto3D.yml --name auto3D
+conda env create --file installation.yml --name auto3D
 conda activate auto3D
 pip install Auto3D
 ```
@@ -51,9 +51,9 @@ conda install -c conda-forge ase
 ```
 
 # Basic Usage
-A `.smi` file that stores your chemical structures is needed as the input for the package. You can find an example input files in the `examples/files` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.** You can use Auto3D in a Python script or via a commalnd line interface (CLI). They are equivalent for findig the low-energy 3D conformers.
+A `.smi` file that stores your chemical structures is needed as the input for the package. You can find an example input files in the `examples/files` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.** You can import Auto3D as a library in any Python script, or run Auto3D through the commalnd line interface (CLI). They are equivalent in findig the low-energy 3D conformers.
 
-## Using Auto3D in a Python script
+## Using Auto3D as a Python library
 The following script will give you the 3-dimensional structures, which are stored in a file that has the same name as your input file, but is appended with `_3d.sdf`.
 ```{Python}
 from Auto3D.auto3D import options, main
@@ -67,10 +67,20 @@ if __name__ == "__main__":
 ## Using Auto3D in a terminal command line
 Alternatively, you can run Auto3D through CLI.
 ```{Bash}
-cd <replace with your path_folder_with_Auto3D_pkg>
+cd <replace with your path_folder_with_auto3D.py>
 python auto3D.py "example/files/smiles.smi" --k=1
 ```
-The two examples will do the same thing: Both run Auto3D and keeps 1 lowest-energy structure for each SMILES in the input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. If you want to keep n structures for each SMILES, simply set `k=n `or `--k=n`. You can also keep structures that are within x kcal/mol from the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`.
+
+The parameter can be provided via a yaml file (for example `parameters.yaml`). So the above example is equivalent to 
+```{Bash}
+cd <replace with your path_folder_with_auto3D.py>
+python auto3D.py parameters.yaml
+```
+
+
+The 3 examples will do the same thing: Both run Auto3D and keeps 1 lowest-energy structure for each SMILES in the input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. If you want to keep n structures for each SMILES, simply set `k=n `or `--k=n`. You can also keep structures that are within x kcal/mol from the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`. 
+
+When the running process finishes, there will be folder with the name of year-date-time. In the folder, you can find an SDF file containing the optimized low-energy 3D structures for the input SMILES. There is also a log file that records the input parameters for Auto3D and some running meta data.
 
 
 ## Wrapper functions
@@ -102,15 +112,15 @@ if you use the CLI.
 |job segmentation|optioinal argument|--memory|The RAM size assigned to Auto3D (unit GB). By default `None`, and Auto3D can automatically detect the RAM size in the system.|
 |job segmentation|optional argument|--capacity|By default, 40. This is the number of SMILES that each 1 GB of memory can handle.|
 |isomer enumeration|optional argument|--enumerate_tautomer|By default, False. When True, enumerate tautomers for the input|
-|isomer enumeration|optional argument|--tauto_engine|Programs to enumerate tautomers, either 'rdkit' or 'oechem'. This argument only works when `--enumerate_tautomer=True`|
+|isomer enumeration|optional argument|--tauto_engine|By default, rdkit. Programs to enumerate tautomers, either 'rdkit' or 'oechem'. This argument only works when `--enumerate_tautomer=True`|
 |isomer enumeration|optional argument|--isomer_engine|By default, rdkit. The program for generating 3D conformers for each SMILES. This parameter is either rdkit or omega. RDKit is free for everyone, while Omega reuqires a license.))|
-|isomer enumeration|optional argument|--max_confs|Maximum number of isomers for each configuration of the SMILES.  Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.|
+|isomer enumeration|optional argument|--max_confs|Maximum number of conformers for each configuration of the SMILES.  The default number depends on the isomer engine: up to 1000 conformers will be generated for each SMILES if isomer engine is omega; The number of conformers for each SMILES is the number of heavey atoms in the SMILES minus 1 if isomer engine is rdkit.|
 |isomer enumeration|optional argument|--enumerate_isomer|By default, False. When True, unspecified cis/trans and r/s centers are enumerated|
 |isomer enumeration|optional argument|--mode_oe|By default, classic. The mode that omega program will take. It can be either 'classic' or 'macrocycle'. Only works when `--isomer_engine=omega`|
-|isomer enumeration|optional argument|--mpi_np|Number of CPU cores for the isomer generation step.|
+|isomer enumeration|optional argument|--mpi_np|By default, 4. The number of CPU cores for the isomer generation step.|
 |optimization|optional argument|--optimizing_engine|By default, AIMNET. Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization.|
 |optimization|optional argument|--use_gpu|By deafult, True. If True, the program will use GPU|
-|optimization|optional argument|--gpu_idx| GPU index. It only works when --use_gpu=True|
+|optimization|optional argument|--gpu_idx| By defalt, 0. It's the GPU index. It only works when --use_gpu=True|
 |optimization|optional argument|--opt_steps|By deafult, 5000. Maximum optimization steps for each structure|
 |optimization|optional argument|--convergence_threshold|By deafult, 0.003 eV/Å. Optimization is considered as converged if maximum force is below this threshold|
 |optimization |optional argument|--patience|If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop. By default, patience=1000|
