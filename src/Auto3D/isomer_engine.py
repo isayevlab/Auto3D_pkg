@@ -271,7 +271,7 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         output: output SDF file
         flipper: optional R/S and cis/trans enumeration"""
     if max_confs is None:
-        max_confs = 100
+        max_confs = 1000
     if mode == "classic":
         omegaOpts = oeomega.OEOmegaOptions()
     elif mode == "dense":

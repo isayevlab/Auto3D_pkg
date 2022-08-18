@@ -279,8 +279,7 @@ def main(args:dict):
     logging_queue = Queue()
     logger_p = mp.Process(target=logger_process, args=(logging_queue, logging_path))
     logger_p.start()
-    # logging.basicConfig(filename=logging_path, filemode='w', level=logging.INFO,
-    #                     format='%(message)s', encoding="utf-8")
+
     # logger in the main process
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
