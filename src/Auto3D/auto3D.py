@@ -8,6 +8,7 @@ import os
 import shutil
 import sys
 import time
+from datetime import datetime
 import torch
 import math
 import psutil, tarfile
@@ -253,10 +254,10 @@ def main(args:dict):
 
 
     chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
-    
 
     start = time.time()
-    job_name = time.strftime('%Y%m%d-%H%M%S')
+    # job_name = time.strftime('%Y%m%d-%H%M%S-%f')
+    job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
     path = args.path
     k = args.k
@@ -279,7 +280,7 @@ def main(args:dict):
     logging_path = os.path.join(job_name, "Auto3D.log")
     # logging_queue = Queue()
     logging_queue = mp.Manager().Queue(999)
-    logger_p = mp.Process(target=logger_process, args=(logging_queue, logging_path))
+    logger_p = mp.Process(target=logger_process, args=(logging_queue, logging_path), daemon=True)
     logger_p.start()
 
     # logger in the main process
@@ -394,5 +395,6 @@ def main(args:dict):
     print(f"Output path: {path_combined}")
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
-    logger_p.join()
+    # logger_p.join()  #set it as the daemon process, so it will be closed when the main process closes.
+    time.sleep(3)  #wait the daemon process for 3 seconds
     return path_combined
