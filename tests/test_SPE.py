@@ -1,11 +1,14 @@
 import os
+import pytest
 from openbabel import pybel
 import Auto3D
 from Auto3D.SPE import calc_spe
+from tests import skip_ani2xt_test
 
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+@pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
 def test_calc_spe_ani2xt():
     #load B97-3c results file
     path = os.path.join(folder, "tests/files/b973c.sdf")

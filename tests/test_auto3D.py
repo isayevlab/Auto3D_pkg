@@ -1,8 +1,9 @@
 import os
+import pytest
 import shutil
 from send2trash import send2trash
 from Auto3D.auto3D import options, main
-
+from tests import skip_ani2xt_test
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path = os.path.join(folder, "tests/files/smiles2.smi")
@@ -19,7 +20,7 @@ def test_auto3D_rdkit_aimnet():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
 def test_auto3D_rdkit_ani2xt():
     """Check that the program runs"""
     args = options(path, k=1, use_gpu=False, convergence_threshold=0.003,
@@ -55,6 +56,7 @@ def test_auto3D_omega_aimnet():
         shutil.rmtree(out_folder)
 
 
+@pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
 def test_auto3D_omega_ani2xt():
     """Check that the program runs"""
     args = options(path, k=1, use_gpu=False, convergence_threshold=0.1,
