@@ -9,7 +9,7 @@
 
 
 # Introduction
-**Auto3D** automatically find the low-energy structures for the input SMILES. All the processes, like isomer enumeration, duplicate and enantiomer filtering, 3D building, optimization and ranking, are all taken care of by our package. The user can also try out different isomer enumeration engines and optimization engines based on their demands. Auto3D can be run as a Python package or from the terminal command line.
+**Auto3D** is a Python package for generating low-energy conformers from SMILES. It automatizes the stereoisomer enumeration and duplicate filtering process, 3D building process, fast geometry optimization and ranking process using ANI and AIMNet neural network atomistic potentials. Auto3D can be imported as a Python library, or be excuted from the terminal.
 
 
 # Installatioin
@@ -18,13 +18,13 @@
 1. Python >= 3.7
 2. [RDKit](https://www.rdkit.org/docs/Install.html) (For the isomer engine)
 3. [OpenBabel](https://open-babel.readthedocs.io/en/latest/index.html) >= 3.1.1 (For molecular file processing)
-4. [PyTorch](https://pytorch.org/get-started/locally/) (For the optimizing engine)
+4. [PyTorch](https://pytorch.org/get-started/locally/) (For the optimization engine)
 
 If you have an environment with the above dependencies, Auto3D can be installed by
 ```{bash}
 pip install Auto3D
 ```
-Otherwise, you can create an environment and install Auto3D. In a terminal, excute the following code will create a environment named `auto3D` with the minimum dependencies installed, and install Auto3D.
+Otherwise, you can create an environment and install Auto3D. In a terminal, the following code will create a environment named `auto3D` with Auto3D and its minimum dependencies installed.
 ```{bash}
 git clone https://github.com/isayevlab/Auto3D_pkg.git
 cd Auto3D_pkg
@@ -33,8 +33,8 @@ conda activate auto3D
 pip install Auto3D
 ```
 ## Optional Denpendencies Installation
-By installing Auto3D with the above minimum dependencies, you can use Auto3D with RDKit and [AIMNET](https://github.com/aiqm/aimnet) as the isomer engine and optimizing engine, respectively.
-Two additional optimizing engines are available: ANI-2x and ANI-2xt, which can be installed by (ANI-2xt will be incorporated into the `TorchANI` package soon):
+By installing Auto3D with the above minimum dependencies, you can use Auto3D with RDKit and [AIMNET](https://github.com/aiqm/aimnet) as the isomer engine and optimization engine, respectively.
+Two additional optimization engines are available: ANI-2x and ANI-2xt, which can be installed by (ANI-2xt will be incorporated into the `TorchANI` package soon):
 ```{bash}
 conda activate auto3D
 conda install -c conda-forge torchani
@@ -51,17 +51,17 @@ conda install -c conda-forge ase
 ```
 
 # Basic Usage
-A `.smi` file that stores your chemical structures is needed as the input for the package. You can find an example input files in the `examples/files` folder. Basically, an `.smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.** You can import Auto3D as a library in any Python script, or run Auto3D through the commalnd line interface (CLI). They are equivalent in findig the low-energy 3D conformers.
+An `smi` file that stores the molecules is needed as the input for the package. You can find an example input files in the `examples/files` folder. Basically, an `smi ` file contains SMILES and their IDs.  **ID can contain anything like numbers or letters, but not "_", the underscore.** You can import Auto3D as a library in any Python script, or run Auto3D through the commalnd line interface (CLI). They are equivalent in findig the low-energy 3D conformers.
 
 ## Using Auto3D as a Python library
-The following script will give you the 3-dimensional structures, which are stored in a file that has the same name as your input file, but is appended with `_3d.sdf`.
+The following script will excute Auto3D, and stores the 3D structures in a file with the name `<input_file_name>_3d.sdf`.
 ```{Python}
 from Auto3D.auto3D import options, main
 
 if __name__ == "__main__":
-    path = "example/files/smiles.smi"
-    args = options(path, k=1)   #args specify the parameters for Auto3D 
-    out = main(args)            #main accepts the parameters and run Auto3D
+    input_path = "example/files/smiles.smi"
+    args = options(input_path, k=1)   #args specify the parameters for Auto3D 
+    out = main(args)                  #main accepts the parameters and runs Auto3D
 ```
 
 ## Using Auto3D in a terminal command line
@@ -78,31 +78,31 @@ python auto3D.py parameters.yaml
 ```
 
 
-The 3 examples will do the same thing: Both run Auto3D and keeps 1 lowest-energy structure for each SMILES in the input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. If you want to keep n structures for each SMILES, simply set `k=n `or `--k=n`. You can also keep structures that are within x kcal/mol from the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`. 
+The 3 examples will do the same thing: run Auto3D and keep 1 lowest-energy structure for each SMILES in the input file. It uses RDKit as the isomer engine and AIMNET as the optimizng engine by default. If you want to keep n structures for each SMILES, simply set `k=n `or `--k=n`. You can also keep structures that are within x kcal/mol from the lowest-energy structure for each SMILES if you replace `k=1` with `window=x`. 
 
-When the running process finishes, there will be folder with the name of year-date-time. In the folder, you can find an SDF file containing the optimized low-energy 3D structures for the input SMILES. There is also a log file that records the input parameters for Auto3D and some running meta data.
+When the running process finishes, there will be folder with the name of year-date-time. In the folder, you can find an SDF file containing the optimized low-energy 3D structures for the input SMILES. There is also a log file that records the input parameters and running meta data.
 
 
 ## Wrapper functions
-Auto3D also provides some wrapper functions for single point energy calculation, geometry optimization and thermodynamic analysis. Please see the `example` folder for details.
+Auto3D provides some wrapper functions for single point energy calculation, geometry optimization and thermodynamic analysis. Please see the `example` folder for details.
 
 
 # Parameters in Auto3D
-For Auto3D, the Python package and CLI share the same set of parameters. Please note that `--` is only required for CLI. For example, to use `ANI2x` as the optimizing engine, you will use
+For Auto3D, the Python package and CLI share the same set of parameters. Please note that `--` is only required for CLI. For example, to use `ANI2x` as the optimizing engine, you need the following block if you are writing a custom Python script;
 ```{Pythoon}
 from Auto3D.auto3D import options, main
 
 if __name__ == "__main__":
-    path = "example/files/smiles.smi"
-    args = options(path, k=1, optimizing_engine="ANI2x")  
+    input_path = "example/files/smiles.smi"
+    args = options(input_path, k=1, optimizing_engine="ANI2x")  
     out = main(args)           
 ```
-if you use the Python script; You will use
+You need the following block if you use the CLI.
 ```{Bash}
 cd <replace with your path_folder_with_Auto3D_pkg>
 python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
 ```
-if you use the CLI.
+
 
 |State|Type|Name|Explanation|
 |---|---|---|---|
@@ -130,4 +130,4 @@ if you use the CLI.
 
 
 # Citation:
-https://doi.org/10.26434/chemrxiv-2022-fw3tg 
+Auto3D is published as a cover article at Journal of Chemical Information and Modeling: "Auto3D: Automatic Generation of the Low-Energy 3D Structures with ANI Neural Network Potentials". https://doi.org/10.1021/acs.jcim.2c00817
