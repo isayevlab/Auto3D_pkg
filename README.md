@@ -16,7 +16,7 @@
 
 ## Minimum Dependencies Installatioin
 1. Python >= 3.7
-2. [RDKit](https://www.rdkit.org/docs/Install.html) (For the isomer engine)
+2. [RDKit](https://www.rdkit.org/docs/Install.html) >= 2022.03.1(For the isomer engine)
 3. [OpenBabel](https://open-babel.readthedocs.io/en/latest/index.html) >= 3.1.1 (For molecular file processing)
 4. [PyTorch](https://pytorch.org/get-started/locally/) (For the optimization engine)
 

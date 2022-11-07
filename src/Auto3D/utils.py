@@ -16,10 +16,12 @@ import shutil
 from openbabel import openbabel as ob
 from openbabel import pybel
 from tqdm import tqdm
+import numpy as np
 from io import StringIO
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
+from rdkit.Chem import rdMolDescriptors
 
 #CODATA 2018 energy conversion factor
 hartree2ev = 27.211386245988
@@ -135,6 +137,132 @@ def check_input(args):
         if optimizing_engine != "AIMNET":
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
             logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
+
+def to_smiles(path, fomat="sdf"):
+    """converting a file from a given format to smi file
+    input: path
+    format: [optional] sdf
+    
+    returns: a path of smi file containing the same molecules as in the sdf"""
+    suppl = Chem.SDMolSupplier(path)
+    smiles = []
+    for i, mol in enumerate(suppl):
+        name = mol.GetProp("_Name").strip()
+        if len(name) == 0:  #len("") == 0
+            name = str(i)
+        smiles.append((Chem.MolToSmiles(mol, isomericSmiles=True, canonical=True), name))
+    
+    #write
+    folder = os.path.dirname(os.path.abspath(path))
+    new_base = os.path.basename(path).split(".")[0].strip() + ".smi"
+    new_path = os.path.join(folder, new_base)
+    with open(new_path, "w") as f:
+        for smi, name in smiles:
+            f.write(f"{smi} {name}\n")
+    return new_path
+
+
+def report(path):
+    """Given a smi file, reports the following:
+    - number of SMILES
+    - SMILES size distribution
+    - element type and percent of molecules with this types
+    - number of charged molecules
+    - number of SMILES with unspecified stereo center
+    """
+    suppl = Chem.SmilesMolSupplier(path, titleLine=False)
+    c = 0  #count number of SMILES
+    sizes = []
+    element_counts = defaultdict(lambda: 0)
+    charges = []
+    charge_counts = defaultdict(lambda: 0)
+    num_charged_mols = 0
+    unspecified_atom_centers = []
+    num_unspecified_mols = 0
+    for mol in suppl:
+        c += 1
+        atoms = [a.GetAtomicNum() for a in mol.GetAtoms()]  #H not included
+        elements = list(set(atoms))
+        sizes.append(len(atoms))
+        for e in elements:
+            element_counts[e] += 1
+        
+        charge = Chem.rdmolops.GetFormalCharge(mol)
+        charge_counts[charge] += 1
+        charges.append(charge)
+        if charge != 0:
+            num_charged_mols += 1
+        
+        unspecified_centers = CalcNumUnspecifiedAtomStereoCenters(mol)
+        unspecified_atom_centers.append(unspecified_centers)
+        if unspecified_centers > 0:
+            num_unspecified_mols += 1
+    
+    print("Total number of SMILES: ", c)
+    print(f"SMILES size distribution: mean={str(np.mean(sizes))} std={str(np.std(sizes))} min={str(min(sizes))} max={str(max(sizes))}")    
+    print("Breakdown of element types and its prevailance: ")
+    for e, c_e in sorted(element_counts.items()):
+        print(f"    {str(e)} total: {str(c_e)}  percent: {str(round(c_e/c, 3))}")
+    print(f"Number of charged molecules: {str(num_charged_mols)}")
+    print("Breakdown of charge distribution")
+    for charge, c_c in sorted(charge_counts.items()):
+        print(f"    charge={str(charge)} total: {str(c_c)} percent: {str(round(c_c/c, 3))}")
+    print(f"Number of molecules with unspecified atomic centers: {str(num_unspecified_mols)}")
+
+
+def replace_(name, new="-"):
+    """
+    replace the underscore in a string with user specified character
+    name: a string
+    new: a tring, lenth=1, used to replace the underscore
+    """
+    new_name = ""
+    for letter in name:
+        if letter == "_":
+            new_name += new
+        else:
+            new_name += letter
+    return new_name
+
+
+def find_smiles_not_in_sdf(smi, sdf):
+    """Find the SMILES who doesn't have a 3D structure in the SDF file
+    smi: path to an smi file (the input path for Auto3D)
+    sdf: path to an SDF file"""
+    #find all SMILES ids
+    smi_names = []
+    with open(smi, "r") as f:
+        data = f.readlines()
+    for line in data:
+        smi, id = tuple(line.strip().split())
+        smi_names.append((smi.strip(), id.strip()))
+    
+    #find the titles of the SDF file
+    # with open(sdf, "r") as f:
+    #     sdf_data = f.readlines()
+    sdf_data = []
+    mols = Chem.SDMolSupplier(sdf)
+    for mol in mols:
+        sdf_data.append(mol.GetProp("_Name"))
+    sdf_data = list(set(sdf_data))
+
+    bad = []
+    for smi, id in smi_names:
+        has_3D_structure = False
+        for line in sdf_data:
+            if id in line:
+                has_3D_structure = True
+        if not has_3D_structure:
+            bad.append((id, smi))
+
+    if len(bad) > 0:
+        print("The following SMILES has no 3D structure in the SDF file.")
+        print("ID, SMILES")
+        for id, smi in bad:
+            print(id, smi)
+    else:
+        print("Every SMILES has at least an 3D structure in the SDF file.")
+    return bad
 
 
 class NullIO(StringIO):
