@@ -144,11 +144,11 @@ def get_mol_idx_t6(mol):
     return (idx, T)
 
 
-def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, opt_tol=0.001, opt_steps=5000):
+def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.001, opt_steps=5000):
     """ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET
     path: Input sdf file
     model_name: ANI2x, ANI2xt or AIMNET
-    get_mol_idx_t: a functioin that returns (idx, T) from a pybel mol object
+    get_mol_idx_t: a functioin that returns (idx, T) from a pybel mol object, by default using the 298 K temperature
     gpu_idx: GPU cuda index
     opt_tol: Convergence_threshold for geometry optimization
     opt_steps: Maximum geometry optimizaiton steps"""
@@ -194,7 +194,11 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t:callable, gpu_idx=0, o
         opt.run(fmax=opt_tol, steps=opt_steps)
         e = atoms.get_potential_energy()
 
-        idx, T = get_mol_idx_t(mol)
+        if get_mol_idx_t is None:
+            idx = mol.title.strip()
+            T = 298
+        else:
+            idx, T = get_mol_idx_t(mol)
 
         vib = Vibrations(atoms)
         try:
