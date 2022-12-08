@@ -25,6 +25,7 @@ gpu_idx: 0
 opt_steps: 5000
 convergence_threshold: 0.003
 patience: 1000
+batchsize_atoms: 1024
 #cleanup parameters
 threshold: 0.3
 verbose: False
