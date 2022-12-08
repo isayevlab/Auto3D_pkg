@@ -142,7 +142,8 @@ def optim_rank_wrapper(args, queue, logging_queue):
         opt_steps = args.opt_steps
         opt_tol = args.convergence_threshold
         patience = args.patience
-        config = {"opt_steps": opt_steps, "opttol": opt_tol, "patience": patience}
+        batchsize_atoms = args.batchsize_atoms
+        config = {"opt_steps": opt_steps, "opttol": opt_tol, "patience": patience, "batchsize_atoms": batchsize_atoms}
         optimized_og = meta["optimized_og"]
         optimizing_engine = args.optimizing_engine
         if args.use_gpu:
@@ -184,7 +185,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
-    opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None):
+    opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
     """Arguments for Auto3D main program
     path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
     k: Outputs the top-k structures for each SMILES.
@@ -209,6 +210,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     convergence_threshold: Optimization is considered as converged if maximum force is below this threshold.
     threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed.
     memory: The RAM size assigned to Auto3D (unit GB).
+    batchsize_atoms: The number of atoms in 1 optimization batch for 1GB
     """
     d = {}
     args = my_name_space(d)
@@ -234,6 +236,7 @@ def options(path, k=False, window=False, verbose=False, job_name="",
     args["convergence_threshold"] = convergence_threshold
     args["threshold"] = threshold
     args["memory"] = memory
+    args["batchsize_atoms"] = batchsize_atoms
     return args
 
 
@@ -288,14 +291,24 @@ def main(args:dict):
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
 
-    logger.info(f"""
-         _              _             _____   ____  
-        / \     _   _  | |_    ___   |___ /  |  _ \ 
-       / _ \   | | | | | __|  / _ \    |_ \  | | | |
-      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
-        // Automatic generation of the low-energy 3D structures                                      
-    """)
+    try:
+        logger.info(f"""
+             _              _             _____   ____  
+            / \     _   _  | |_    ___   |___ /  |  _ \ 
+           / _ \   | | | | | __|  / _ \    |_ \  | | | |
+          / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+         /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
+                // Automatic generation of the low-energy 3D structures                                      
+        """)
+    except:
+        logger.info(f"""
+             _              _             _____   ____  
+            / \     _   _  | |_    ___   |___ /  |  _ \ 
+           / _ \   | | | | | __|  / _ \    |_ \  | | | |
+          / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+         /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
+               // Automatic generation of the low-energy 3D structures                                      
+        """)    
     logger.info("================================================================================")
     logger.info("                               INPUT PARAMETERS")
     logger.info("================================================================================")
@@ -317,8 +330,10 @@ def main(args:dict):
             gpu_idx = int(args.gpu_idx)
             t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
         else:
-            t = psutil.virtual_memory().total/(1024**3)
+            t = int(psutil.virtual_memory().total/(1024**3))
     chunk_size = t * smiles_per_G
+    #batchsize_atoms based on GPU memory
+    args.batchsize_atoms = args.batchsize_atoms * t
 
     #Get indexes for each chunk
     df = pd.read_csv(path, sep='\s+', header=None)

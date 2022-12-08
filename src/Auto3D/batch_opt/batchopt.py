@@ -153,7 +153,7 @@ class EnForce_ANI(torch.nn.Module):
             coord: coordinates for all input structures. size (B, N, 3), where
                   B is the number of structures in coord, N is the number of
                   atoms in each structure, 3 represents xyz dimensions.
-            numbers: the periodic numbers for all atoms. size (N, )
+            numbers: the periodic numbers for all atoms. size (B, N)
             
         Returns:
             energies
@@ -163,7 +163,6 @@ class EnForce_ANI(torch.nn.Module):
         e = []
         f = []
         idx = torch.arange(B, device=coord.device)
-        # for batch in idx.split(self.batchsize_atoms // N):  #How was the batchsize_atoms decided?
         for batch in idx.split(self.batchsize_atoms // N):  #How was the batchsize_atoms decided?
             _e, _f = self(coord[batch], numbers[batch], charges[batch])
             e.append(_e)
@@ -379,7 +378,7 @@ class optimizing(object):
 
         for p in self.ani.parameters():  
             p.requires_grad_(False)
-        ani = EnForce_ANI(self.ani, self.model)  # Interesting, EnForce_ANI inherites nn.module, bu can still accept a ScriptModule object as the input
+        ani = EnForce_ANI(self.ani, self.model, self.config["batchsize_atoms"])  # Interesting, EnForce_ANI inherites nn.module, bu can still accept a ScriptModule object as the input
 
         with torch.jit.optimized_execution(False):
             optdict = ensemble_opt(ani, coord_padded, numbers_padded, charges,
