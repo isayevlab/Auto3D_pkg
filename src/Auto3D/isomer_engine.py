@@ -291,8 +291,9 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-maxconfs", oechem.OEParamVisibility_Simple)
     
+    omegaOpts.SetRMSRange("0.8, 1.0, 1.2, 1.4")
     if mode == "classic":
-        omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
+        # omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
         omegaOpts.SetStrictStereo(False)
         omegaOpts.SetWarts(True)
         omegaOpts.SetMaxConfs(max_confs)
