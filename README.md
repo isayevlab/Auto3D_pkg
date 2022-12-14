@@ -115,7 +115,7 @@ python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
 |isomer enumeration|optional argument|--tauto_engine|By default, rdkit. Programs to enumerate tautomers, either 'rdkit' or 'oechem'. This argument only works when `--enumerate_tautomer=True`|
 |isomer enumeration|optional argument|--isomer_engine|By default, rdkit. The program for generating 3D conformers for each SMILES. This parameter is either rdkit or omega. RDKit is free for everyone, while Omega reuqires a license.))|
 |isomer enumeration|optional argument|--max_confs|Maximum number of conformers for each configuration of the SMILES.  The default number depends on the isomer engine: up to 1000 conformers will be generated for each SMILES if isomer engine is omega; The number of conformers for each SMILES is the number of heavey atoms in the SMILES minus 1 if isomer engine is rdkit.|
-|isomer enumeration|optional argument|--enumerate_isomer|By default, False. When True, unspecified cis/trans and r/s centers are enumerated|
+|isomer enumeration|optional argument|--enumerate_isomer|By default, True. When True, unspecified cis/trans and r/s centers are enumerated|
 |isomer enumeration|optional argument|--mode_oe|By default, classic. The mode that omega program will take. It can be either 'classic' or 'macrocycle'. Only works when `--isomer_engine=omega`|
 |isomer enumeration|optional argument|--mpi_np|By default, 4. The number of CPU cores for the isomer generation step.|
 |optimization|optional argument|--optimizing_engine|By default, AIMNET. Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization.|
@@ -124,6 +124,7 @@ python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
 |optimization|optional argument|--opt_steps|By deafult, 5000. Maximum optimization steps for each structure|
 |optimization|optional argument|--convergence_threshold|By deafult, 0.003 eV/Å. Optimization is considered as converged if maximum force is below this threshold|
 |optimization |optional argument|--patience|If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop. By default, patience=1000|
+|optimization|optional argument|--batchsize_atoms|The number of atoms in 1 optimization batch for 1GB, default=1024|
 |duplicate removing|optional argument|--threshold|By default, 0.3. If the RMSD between two conformers are within the threhold, they are considered as duplicates. One of them will be removed. Duplicate removing are excuted after conformer enumeration and geometry optimization|
 |  housekeeping     |optional argument| --verbose |By default, False. When True, save all meta data while running|
 |  housekeeping     |optional argument|--job_name |A folder that stores all the results. By default, the name is the current date and time|
