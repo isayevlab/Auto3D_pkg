@@ -108,7 +108,7 @@ python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
 |---|---|---|---|
 |       |required argument|path   |a path of `.smi` file to store all SMILES and IDs|
 |ranking|required argument|--k    |Outputs the top-k structures for each SMILES. Only one of `--k` and `--window` need to be specified. |
-|ranking|required argument|--window|Outputs the structures whose energies are within a window (Hatree) from the lowest energy. Only one of `--k` and `--window` need to be specified. |
+|ranking|required argument|--window|Outputs the structures whose energies are within a window (kcal/mol) from the lowest energy. Only one of `--k` and `--window` need to be specified. |
 |job segmentation|optioinal argument|--memory|The RAM size assigned to Auto3D (unit GB). By default `None`, and Auto3D can automatically detect the RAM size in the system.|
 |job segmentation|optional argument|--capacity|By default, 40. This is the number of SMILES that each 1 GB of memory can handle.|
 |isomer enumeration|optional argument|--enumerate_tautomer|By default, False. When True, enumerate tautomers for the input|
