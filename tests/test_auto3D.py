@@ -95,7 +95,7 @@ def test_auto3D_config1():
 
 def test_auto3D_config2():
     """Check that the program runs"""
-    args = options(path, window=1, use_gpu=False, convergence_threshold=0.1,
+    args = options(path, window=1, use_gpu=True, convergence_threshold=0.1,
                    isomer_engine="rdkit", optimizing_engine="AIMNET", memory=2)
     out = main(args)
     out_folder = os.path.dirname(os.path.abspath(out))
