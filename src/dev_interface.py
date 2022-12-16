@@ -37,7 +37,8 @@ if __name__ == "__main__":
         patience = parameters["patience"]
         threshold = parameters["threshold"]
         verbose = parameters["verbose"]
-        job_name = parameters["job_name"]      
+        job_name = parameters["job_name"]
+        batchsize_atoms = parameters["batchsize_atoms"]      
 
     else:
         # using argparse
@@ -89,6 +90,8 @@ if __name__ == "__main__":
                             help="Optimization is considered as converged if maximum force is below this threshold.")
         parser.add_argument('--patience', type=int, default=1000,
                             help="If the force does not decrease for a continuous patience steps, the conformer will be dropped out of the optimization loop.")
+        parser.add_argument('--batchsize_atoms', type=int, default=1024,
+                            help="Number of atoms in 1 optimization batch for every 1GB memory")
         parser.add_argument('--threshold', type=float, default=0.3,
                             help=("If the RMSD between two conformers are within threhold, "
                                 "they are considered as duplicates. One of them will be removed."))
@@ -121,6 +124,7 @@ if __name__ == "__main__":
         threshold = args.threshold
         verbose = args.verbose
         job_name = args.job_name
+        batchsize_atoms = args.batchsize_atoms
 
     arguments = options(
         path,
@@ -144,7 +148,8 @@ if __name__ == "__main__":
         convergence_threshold=convergence_threshold,
         patience=patience,
         threshold=threshold,
-        memory=memory
+        memory=memory,
+        batchsize_atoms=batchsize_atoms
     )
 
     print(f"""
