@@ -1,3 +1,4 @@
+"""selecting the most stable tautomers"""
 import argparse
 import sys
 import yaml
@@ -66,7 +67,7 @@ if __name__ == "__main__":
                             help='The RAM size assigned to Auto3D (unit GB)')
         parser.add_argument('--capacity', type=int, default=40,
                             help='This is the number of SMILES that each 1 GB of memory can handle')
-        parser.add_argument('--enumerate_tautomer', default=False, type=lambda x: (str(x).lower() == 'true'),
+        parser.add_argument('--enumerate_tautomer', default=True, type=lambda x: (str(x).lower() == 'true'),
                             help="When True, enumerate tautomers for the input")
         parser.add_argument('--tauto_engine', type=str, default='rdkit',
                             help="Programs to enumerate tautomers, either 'rdkit' or 'oechem'")
@@ -85,7 +86,7 @@ if __name__ == "__main__":
                             help=("The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used."))
         parser.add_argument('--mpi_np', type=int, default=4,
                             help="Number of CPU cores for the isomer generation step.")
-        parser.add_argument('--optimizing_engine', type=str, default='AIMNET',
+        parser.add_argument('--optimizing_engine', type=str, default='ANI2xt',
                             help=("Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy "
                                 "calculation and geometry optimization."))
         parser.add_argument('--use_gpu', default=True, type=lambda x: (str(x).lower() == 'true'),

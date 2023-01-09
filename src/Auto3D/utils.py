@@ -77,11 +77,11 @@ def check_input(args):
         except:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
 
-    if args.optimizing_engine == "ANI2xt":
-        try:
-            from torchani.repulsion import StandaloneRepulsionCalculator
-        except:
-            sys.exit("ANI2xt is used as optimizing engine, but TorchANI with repulsion calculator is not installed.")
+    # if args.optimizing_engine == "ANI2xt":
+    #     try:
+    #         from torchani.repulsion import StandaloneRepulsionCalculator
+    #     except:
+    #         sys.exit("ANI2xt is used as optimizing engine, but TorchANI with repulsion calculator is not installed.")
 
     if int(args.opt_steps) < 10:
         sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")

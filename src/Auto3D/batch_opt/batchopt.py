@@ -11,7 +11,7 @@ except:
 from collections import defaultdict
 from openbabel import pybel
 try:
-    from .ANI2xt import ANI2xt
+    from .ANI2xt_no_rep import ANI2xt
 except:
     pass
 from tqdm import tqdm
@@ -356,7 +356,7 @@ class optimizing(object):
         if model == "AIMNET":
             self.ani = torch.jit.load(os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt"), map_location=device) # Return a ScriptModule object
         elif model == "ANI2xt":
-            self.ani = ANI2xt(device, state_dict=os.path.join(root, "models/ani2xt_seed0.pt"))
+            self.ani = ANI2xt(device)
         elif model == "ANI2x":
             self.ani = torchani.models.ANI2x(periodic_table_index=True).to(device)
         else:

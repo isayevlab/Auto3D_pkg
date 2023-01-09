@@ -16,13 +16,13 @@ enumerate_tautomer: False
 tauto_engine: 'rdkit'
 pKaNorm: True
 #stereoisomer-related parameters
-isomer_engine: 'omega'
+isomer_engine: 'rdkit'
 max_confs: 10
 enumerate_isomer: True
 mode_oe: 'classic'
 mpi_np: 4
 #optimization-related parameters
-optimizing_engine: 'AIMNET'
+optimizing_engine: 'ANI2xt'
 use_gpu: True
 gpu_idx: 0
 opt_steps: 5000

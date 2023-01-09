@@ -13,7 +13,7 @@ if __name__ == "__main__":
     path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
     args = options(path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
                    isomer_engine="omega", enumerate_isomer=True, 
-                   optimizing_engine="AIMNET", gpu_idx=0, verbose=True,
+                   optimizing_engine="ANI2x", gpu_idx=0, verbose=True,
                    max_confs=10, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)
     print(tautomer_out)
