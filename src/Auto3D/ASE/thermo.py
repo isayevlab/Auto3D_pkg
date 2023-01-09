@@ -15,7 +15,7 @@ from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
 import ase.calculators.calculator
 try:
-    from ..batch_opt.ANI2xt import ANI2xt
+    from ..batch_opt.ANI2xt_no_rep import ANI2xt
 except:
     pass
 import torchani
