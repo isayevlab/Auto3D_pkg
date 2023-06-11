@@ -8,7 +8,6 @@ import shutil
 import os
 import glob
 import collections
-# from openbabel import pybel
 from send2trash import send2trash
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -338,7 +337,6 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     print("Enumerating conformers.", flush=True)
     # logger.info("Enumerating conformers.")
     for mol in tqdm(ifs.GetOEMols()):
-        # oechem.OEThrow.Info("Title: %s" % mol.GetTitle())
         ret_code = omega.Build(mol)
         if ret_code == oeomega.OEOmegaReturnCode_Success:
             oechem.OEWriteMolecule(ofs, mol)

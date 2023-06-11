@@ -1,7 +1,6 @@
 import os
 import shutil
 import time
-# from openbabel import pybel
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 from Auto3D.isomer_engine import rd_isomer
