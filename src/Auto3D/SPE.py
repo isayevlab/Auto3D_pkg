@@ -14,7 +14,6 @@ try:
 except:
     pass
 import torchani
-# from openbabel import pybel
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm

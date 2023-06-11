@@ -1,6 +1,5 @@
 import os
 import pytest
-# from openbabel import pybel
 from rdkit import Chem
 import Auto3D
 from Auto3D.ASE.thermo import calc_thermo
@@ -17,13 +16,6 @@ def test_calc_thermo_aimnet():
     reference_Gs = {"diene": -230.17, "dieneophile": -359.67, "product": -589.84}
 
     #compare Auto3D output with the above
-    # mols = list(pybel.readfile("sdf", out))
-    # for mol in mols:
-    #     thermo_out = float(mol.data["G_hartree"])
-    #     idx = mol.title.strip()
-    #     ref = reference_Gs[idx]
-    #     diff = abs(thermo_out - ref)
-    #     assert(diff <= 0.02)
     mols = list(Chem.SDMolSupplier(out, removeHs=False))
     for mol in mols:
         thermo_out = float(mol.GetProp("G_hartree"))

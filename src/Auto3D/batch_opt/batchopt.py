@@ -9,7 +9,6 @@ try:
 except:
     pass
 from collections import defaultdict
-# from openbabel import pybel
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 try:
@@ -385,7 +384,6 @@ class optimizing(object):
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
         # logging.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
-        # mols = list(pybel.readfile('sdf', self.in_f))
         mols = list(Chem.SDMolSupplier(self.in_f, removeHs=False))
         print(f"Total 3D conformers: {len(mols)}", flush=True)
         # logging.info(f"Total 3D conformers: {len(mols)}")
@@ -408,19 +406,7 @@ class optimizing(object):
         energies = optdict['energy']
         fmax = optdict['fmax']
         convergence_mask = list(map(lambda x: (x <= self.config['opttol']), fmax))
-        # with open(self.out_f, 'w') as f:
-        #     for i in range(len(mols)):
-        #         mol = mols[i]
-        #         idx = mol.title
-        #         fmax_i = fmax[i]
-        #         mol.data['E_tot'] = energies[i]
-        #         mol.data['fmax'] = fmax_i
-        #         mol.data['Converged'] = str(convergence_mask[i])
-        #         mol.data['ID'] = idx
-        #         coord = optdict['coord'][i]  #2D list
-        #         for atom, c in zip(mol.atoms, coord):
-        #             atom.OBAtom.SetVector(*c)
-        #         f.write(mol.write('sdf'))
+
         with Chem.SDWriter(self.out_f) as f:
             for i in range((len(mols))):
                 mol = mols[i]

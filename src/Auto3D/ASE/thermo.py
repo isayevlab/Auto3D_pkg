@@ -10,7 +10,6 @@ import warnings
 import torch
 from ase import Atoms
 from ase.optimize import BFGS
-# from openbabel import pybel
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 from ase.vibrations import Vibrations
@@ -180,7 +179,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     else:
         raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
 
-    # mols = pybel.readfile("sdf", path)
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in mols:
         coord = mol.GetConformer().GetPositions()
@@ -198,7 +196,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         e = atoms.get_potential_energy()
 
         if get_mol_idx_t is None:
-            # idx = mol.title.strip()
             idx = mol.GetProp("_Name").strip()
             T = 298
         else:
@@ -219,13 +216,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
             G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
             vib.clean()
-            # print(G)
 
-            # mol.data['H_hartree'] = H
-            # mol.data['S_hartree'] = S
-            # mol.data['T_K'] = T
-            # mol.data['G_hartree'] = G
-            # mol.data['E_hartree'] = e * ev2hatree
             mol.SetProp("H_hartree", str(H))
             mol.SetProp("S_hartree", str(S))
             mol.SetProp("T_K", str(T))
@@ -234,8 +225,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             
             #Updating ASE atoms coordinates into pybel mol
             coord = atoms.get_positions()
-            # for atom, c in zip(mol.atoms, coord):
-            #     atom.OBAtom.SetVector(*c)
             for i, atom in enumerate(mol.GetAtoms()):
                 mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
             out_mols.append(mol)
@@ -247,10 +236,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
 
     print("Number of failed thermo calculations: ", len(mols_failed), flush=True)
     print("Number of successful thermo calculations: ", len(out_mols), flush=True)
-    # with open(outpath, 'w+') as f:
-    #     all_mols = out_mols + mols_failed
-    #     for mol in all_mols:
-    #         f.write(mol.write('sdf'))
     with Chem.SDWriter(outpath) as w:
         all_mols = out_mols + mols_failed
         for mol in all_mols:

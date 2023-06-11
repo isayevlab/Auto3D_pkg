@@ -5,7 +5,6 @@ Finding 3D structures that satisfy the input requirement.
 import os
 import logging
 import pandas as pd
-from openbabel import pybel
 from rdkit import Chem
 from .utils import guess_file_type, filter_unique
 from .utils import hartree2ev, ev2kcalpermol
@@ -173,18 +172,6 @@ class ranking(object):
                                     'only want one structure per SMILES'))
             results += top_results
 
-        # f = pybel.Outputfile('sdf', self.out_path)
-        # for mol in results:
-        #     # Change the energy unit from eV back to Hartree
-        #     mol.data['E_tot'] = (float(mol.data['E_tot'])/hartree2ev)
-        #     mol.data['E_rel(kcal/mol)'] = (float(mol.data['E_rel(eV)']) * ev2kcalpermol)
-        #     del mol.data['E_rel(eV)']
-        #     #Remove _ in the molecule title
-        #     t = mol.title
-        #     t_simplified = t.split("_")[0].strip()
-        #     mol.title = t_simplified
-        #     f.write(mol)
-        # f.close()
         with Chem.SDWriter(self.out_path) as f:
             for mol in results:
                 # Change the energy unit from eV back to Hartree

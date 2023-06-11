@@ -13,8 +13,6 @@ import torch
 import collections
 from collections import defaultdict, OrderedDict
 import shutil
-# from openbabel import openbabel as ob
-# from openbabel import pybel
 from tqdm import tqdm
 import numpy as np
 from io import StringIO
@@ -352,53 +350,6 @@ def hash_taut_smi(smi, out):
             f.write(molecule)
 
 
-# def sort_helper(mol):
-#     '''
-#     Converting the pybel mol object into an array containing
-#     atomic number and coordinates.
-#     '''
-#     num2symbol = {1: 'H', 6: 'C', 8: 'O', 7: 'N', 9: 'F', 16: 'S', 17: 'Cl'}
-#     unit = []
-#     for atom in mol.atoms:
-#         num = atom.atomicnum
-#         symbol = num2symbol[num]
-#         x, y, z = atom.coords
-#         symbol_coord = [symbol, x, y, z]
-#         unit.append(symbol_coord)
-#     return unit
-
-
-# def sort_enumerated_xyz(xyz, out):
-#     '''
-#     Sort an xyz file based on the IDs of SMILES in the input file.
-
-#     Arguments:
-#         xyz: the input xyz file.
-#         out: the path for the sorted xyz file
-#     Returns:
-#         writes the sorted molecules into out.
-#     '''
-#     dict0 = {}
-#     mols = pybel.readfile('xyz', xyz)
-#     for mol in tqdm(mols):
-#         id = str(mol).strip().split('\t')[1].strip()
-#         unit = sort_helper(mol)
-#         dict0[id] = unit
-#     dict0 = collections.OrderedDict(sorted(dict0.items()))
-
-#     # new_xyz = out[:-4] + '_ordered.xyz'
-#     with open(out, 'w+') as f:
-#         for id, unit in dict0.items():
-#             length = str(len(unit)) + '\n'
-#             id = id.strip() + '\n'
-#             f.write(length)
-#             f.write(id)
-#             for line in unit:
-#                 s, x, y, z = line
-#                 atom = (str(s).strip() + '\t' + str(x) + '\t' +
-#                         str(y) + '\t' + str(z) + '\n')
-#                 f.write(atom)
-
 # def sort_enumerated_sdf(sdf, out):
 #     """
 #     Sort an SDF file based on the IDs of SMILES in the input file.
@@ -676,15 +627,10 @@ def filter_unique(mols, crit=0.3):
 
     #Remove similar structures
     unique_mols = []
-    # aligner = pybel.ob.OBAlign()
     for mol_i in mols:
-        # aligner.SetRefMol(mol_i.OBMol)
         unique = True
         for mol_j in unique_mols:
-            # aligner.SetTargetMol(mol_j.OBMol)
-            # aligner.Align()
-            # rmsd = aligner.GetRMSD()
-            rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_j), Chem.RemoveHs(mol_i))  #removing Hs speeds up the calculation
+            rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))  #removing Hs speeds up the calculation
             if rmsd < crit:
                 unique = False
                 break
