@@ -33,7 +33,7 @@ def test_check_input():
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list4:
         check_input(args4)
-    print(warnings_list4)
+    print(warnings_list4, flush=True)
     assert(len(warnings_list4) == 0)
 
 

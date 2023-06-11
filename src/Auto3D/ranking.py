@@ -6,6 +6,7 @@ import os
 import logging
 import pandas as pd
 from openbabel import pybel
+from rdkit import Chem
 from .utils import guess_file_type, filter_unique
 from .utils import hartree2ev, ev2kcalpermol
 
@@ -62,17 +63,20 @@ class ranking(object):
             list0_.append((idx_i, name_i, e_i, e_relative))
         return list0_
 
-    def top_k(self, energies, names, mols, k=1):
+
+    def top_k(self, df_group, k=1):
         '''
         Given a group of energy_name_idxes,
         return the top-k lowest name-energies pairs with idxes as keys.
         '''
-        assert(len(energies) == len(names))
-        assert(len(energies) == len(mols))
+        # assert(len(energies) == len(names))
+        # assert(len(energies) == len(mols))
+        names = list(df_group["names"])
         assert(len(set(names)) == 1)
 
-        df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
-        df2 = df.sort_values(by=['energies'])
+
+        # df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+        df2 = df_group.sort_values(by=['energies'])
         
         out_mols_ = filter_unique(list(df2["mols"]), self.threshold)
         if k < len(out_mols_):
@@ -82,18 +86,19 @@ class ranking(object):
 
         if len(out_mols) == 0:
             name = names[0].split("_")[0].strip()
-            print(f"No structure converged for {name}, try a larger convergence threshold.")
-            logging.info(f"No structure converged for {name}, try a larger convergence threshold.")
+            print(f"No structure converged for {name}.", flush=True)
+            logging.info(f"No structure converged for {name}.")
         else:
             #Adding relative energies
-            ref_energy = out_mols[0].data['E_tot']
+            ref_energy = float(out_mols[0].GetProp('E_tot'))
             for mol in out_mols:
-                my_energy = mol.data['E_tot']
-                rel_energy = float(my_energy) - float(ref_energy)
-                mol.data['E_rel(eV)'] = rel_energy
+                my_energy = float(mol.GetProp('E_tot'))
+                rel_energy = my_energy - ref_energy
+                mol.SetProp('E_rel(eV)', str(rel_energy))
         return out_mols
 
-    def top_window(self, energies, names, mols, window=1):
+
+    def top_window(self, df_group, window=1):
         '''
         Given a group of energy_name_idxes,
         return all (idx, name, e) tuples whose energies are within
@@ -101,29 +106,30 @@ class ranking(object):
         http://wild.life.nctu.edu.tw/class/common/energy-unit-conv-table.html
         '''
         window = (window/ev2kcalpermol)  # convert energy window into eV unit
-        assert(len(energies) == len(names))
-        assert(len(energies) == len(mols))
+        # assert(len(energies) == len(names))
+        # assert(len(energies) == len(mols))
+        names = list(df_group["names"])
         assert(window >= 0)
         assert(len(set(names)) == 1)
 
 
-        df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
-        df2 = df.sort_values(by=['energies'])
+        # df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+        df2 = df_group.sort_values(by=['energies'])
 
         out_mols_ = filter_unique(list(df2['mols']), self.threshold)
         out_mols = []
 
         if len(out_mols_) == 0:
             name = names[0].split("_")[0].strip()
-            print(f"No structure converged for {name}.")
+            print(f"No structure converged for {name}.", flush=True)
             logging.info(f"No structure converged for {name}.")
         else:
-            ref_energy = float(out_mols_[0].data['E_tot'])
+            ref_energy = float(out_mols_[0].GetProp('E_tot'))
             for mol in out_mols_:
-                my_energy = float(mol.data['E_tot'])
+                my_energy = float(mol.GetProp('E_tot'))
                 rel_energy = my_energy - ref_energy
                 if rel_energy <= window:
-                    mol.data['E_rel(eV)'] = rel_energy
+                    mol.SetProp('E_rel(eV)', str(rel_energy))
                     out_mols.append(mol)
                 else:
                     break
@@ -133,18 +139,22 @@ class ranking(object):
         """
         When runs, lowest-energy structure will be stored in out_path folder.
         """
-        print("Beggin to slelect structures that satisfy the requirements...")
+        print("Begin to slelect structures that satisfy the requirements...", flush=True)
         logging.info("Beggin to slelect structures that satisfy the requirements...")
         results = []
 
-        file_type = guess_file_type(self.input_path)
-        data2 = pybel.readfile(file_type, self.input_path)
+        # file_type = guess_file_type(self.input_path)
+        # data2 = pybel.readfile(file_type, self.input_path)
+        data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
 
-        mols = [mol for mol in data2 if mol.data["Converged"].lower() == "true"]
-        names = [mol.title.strip() for mol in mols]
-        energies = [float(mol.data['E_tot']) for mol in mols]
-        assert(len(mols) == len(names))
-        assert(len(mols) == len(energies))
+        # mols = [mol for mol in data2 if mol.data["Converged"].lower() == "true"]
+        mols = [mol for mol in data2 if mol.GetProp("Converged").lower() == "true"]
+        # names = [mol.title.strip() for mol in mols]
+        # energies = [float(mol.data['E_tot']) for mol in mols]
+        # assert(len(mols) == len(names))
+        # assert(len(mols) == len(energies))
+        names = [mol.GetProp("_Name").strip() for mol in mols]
+        energies = [float(mol.GetProp("E_tot")) for mol in mols]
 
         #Grouping, ranking
         names2 = map(lambda x: x.strip().split("_")[0].strip(), names)
@@ -152,32 +162,38 @@ class ranking(object):
         df2 = df.groupby("names")
         for group_name in df2.indices:
             group = df2.get_group(group_name)
-            # Filter similar structures
-            g_mols = list(group.loc[:, 'mols'])
-            g_names = list(group.loc[:, 'names'])
-            g_energies = list(group.loc[:, 'energies'])
 
             if self.k:
-                top_results = self.top_k(g_energies, g_names,
-                                            g_mols, self.k)
+                top_results = self.top_k(group, self.k)
             elif self.window:
-                top_results = self.top_window(g_energies, g_names,
-                                                g_mols, self.window)
+                top_results = self.top_window(group, self.window)
             else:
                 raise ValueError(('Parameter k or window needs to be '
                                     'specified. Append "--k=1" if you'
                                     'only want one structure per SMILES'))
             results += top_results
 
-        f = pybel.Outputfile('sdf', self.out_path)
-        for mol in results:
-            # Change the energy unit from eV back to Hartree
-            mol.data['E_tot'] = (float(mol.data['E_tot'])/hartree2ev)
-            mol.data['E_rel(kcal/mol)'] = (float(mol.data['E_rel(eV)']) * ev2kcalpermol)
-            del mol.data['E_rel(eV)']
-            #Remove _ in the molecule title
-            t = mol.title
-            t_simplified = t.split("_")[0].strip()
-            mol.title = t_simplified
-            f.write(mol)
-        f.close()
+        # f = pybel.Outputfile('sdf', self.out_path)
+        # for mol in results:
+        #     # Change the energy unit from eV back to Hartree
+        #     mol.data['E_tot'] = (float(mol.data['E_tot'])/hartree2ev)
+        #     mol.data['E_rel(kcal/mol)'] = (float(mol.data['E_rel(eV)']) * ev2kcalpermol)
+        #     del mol.data['E_rel(eV)']
+        #     #Remove _ in the molecule title
+        #     t = mol.title
+        #     t_simplified = t.split("_")[0].strip()
+        #     mol.title = t_simplified
+        #     f.write(mol)
+        # f.close()
+        with Chem.SDWriter(self.out_path) as f:
+            for mol in results:
+                # Change the energy unit from eV back to Hartree
+                mol.SetProp('E_tot', str(float(mol.GetProp('E_tot'))/hartree2ev))
+                mol.SetProp('E_rel(kcal/mol)', str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol))
+                mol.ClearProp('E_rel(eV)')
+                #Remove _ in the molecule title
+                t = mol.GetProp("_Name")
+                t_simplified = t.split("_")[0].strip()
+                mol.SetProp("_Name", t_simplified)
+                f.write(mol)
+
