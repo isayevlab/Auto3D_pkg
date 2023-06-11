@@ -9,7 +9,9 @@ try:
 except:
     pass
 from collections import defaultdict
-from openbabel import pybel
+# from openbabel import pybel
+from rdkit import Chem
+from rdkit.Chem import rdmolops
 try:
     from .ANI2xt_no_rep import ANI2xt
 except:
@@ -179,7 +181,7 @@ def print_stats(state, patience):
     num_converged = num_converged_dropped - num_dropped
     num_active = num_total - num_converged_dropped
     print("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" % 
-          (num_total, num_converged, num_dropped, num_active))
+          (num_total, num_converged, num_dropped, num_active), flush=True)
     # logging.info("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" % 
     #       (num_total, num_converged, num_dropped, num_active))
 
@@ -332,16 +334,34 @@ def padding_species(lists, pad_value=-1):
         lists_padded.append(lst_i_padded)
     return lists_padded
 
+# def mols2lists(mols, model):
+#     species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
+#     # ani2xt_index = {1:0, 6:1, 7:2, 8:3, 16:4, 9:5, 17:6}
+#     ani2xt_index = {1:0, 6:1, 7:2, 8:3, 9:4, 16:5, 17:6}
+#     coord = [[a.coords for a in mol.atoms] for mol in mols]
+#     charges = [mol.charge for mol in mols]
+#     if model == "ANI2xt":
+#         numbers = [[ani2xt_index[a.atomicnum] for a in mol.atoms] for mol in mols]
+#     else:
+#         numbers = [[a.atomicnum for a in mol.atoms] for mol in mols]
+#     return coord, numbers, charges
+
 def mols2lists(mols, model):
+    '''mols: rdkit mol object'''
     species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
-    # ani2xt_index = {1:0, 6:1, 7:2, 8:3, 16:4, 9:5, 17:6}
     ani2xt_index = {1:0, 6:1, 7:2, 8:3, 9:4, 16:5, 17:6}
-    coord = [[a.coords for a in mol.atoms] for mol in mols]
-    charges = [mol.charge for mol in mols]
+    # coord = [[a.coords for a in mol.atoms] for mol in mols]
+    coord = [mol.GetConformer().GetPositions().tolist() for mol in mols]
+    coord = [[tuple(xyz) for xyz in inner] for inner in coord]  #to be consistent with legacy code
+    # charges = [mol.charge for mol in mols]
+    charges = [rdmolops.GetFormalCharge(mol) for mol in mols]
+    
     if model == "ANI2xt":
-        numbers = [[ani2xt_index[a.atomicnum] for a in mol.atoms] for mol in mols]
+        # numbers = [[ani2xt_index[a.atomicnum] for a in mol.atoms] for mol in mols]
+        numbers = [[ani2xt_index[a.GetAtomicNum()] for a in mol.GetAtoms()] for mol in mols]
     else:
-        numbers = [[a.atomicnum for a in mol.atoms] for mol in mols]
+        # numbers = [[a.atomicnum for a in mol.atoms] for mol in mols]
+        numbers = [[a.GetAtomicNum() for a in mol.GetAtoms()] for mol in mols]
     return coord, numbers, charges
 
 
@@ -365,8 +385,9 @@ class optimizing(object):
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
         # logging.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
-        mols = list(pybel.readfile('sdf', self.in_f))
-        print(f"Total 3D conformers: {len(mols)}")
+        # mols = list(pybel.readfile('sdf', self.in_f))
+        mols = list(Chem.SDMolSupplier(self.in_f, removeHs=False))
+        print(f"Total 3D conformers: {len(mols)}", flush=True)
         # logging.info(f"Total 3D conformers: {len(mols)}")
         coord, numbers, charges = mols2lists(mols, self.model)
         if self.model == "AIMNET":
@@ -387,16 +408,29 @@ class optimizing(object):
         energies = optdict['energy']
         fmax = optdict['fmax']
         convergence_mask = list(map(lambda x: (x <= self.config['opttol']), fmax))
-        with open(self.out_f, 'w') as f:
-            for i in range(len(mols)):
+        # with open(self.out_f, 'w') as f:
+        #     for i in range(len(mols)):
+        #         mol = mols[i]
+        #         idx = mol.title
+        #         fmax_i = fmax[i]
+        #         mol.data['E_tot'] = energies[i]
+        #         mol.data['fmax'] = fmax_i
+        #         mol.data['Converged'] = str(convergence_mask[i])
+        #         mol.data['ID'] = idx
+        #         coord = optdict['coord'][i]  #2D list
+        #         for atom, c in zip(mol.atoms, coord):
+        #             atom.OBAtom.SetVector(*c)
+        #         f.write(mol.write('sdf'))
+        with Chem.SDWriter(self.out_f) as f:
+            for i in range((len(mols))):
                 mol = mols[i]
-                idx = mol.title
+                idx = mol.GetProp('_Name')
                 fmax_i = fmax[i]
-                mol.data['E_tot'] = energies[i]
-                mol.data['fmax'] = fmax_i
-                mol.data['Converged'] = str(convergence_mask[i])
-                mol.data['ID'] = idx
+                mol.SetProp('E_tot', str(energies[i]))
+                mol.SetProp('fmax', str(fmax_i))
+                mol.SetProp('Converged', str(convergence_mask[i]))
+                mol.SetProp('ID', idx)
                 coord = optdict['coord'][i]
-                for atom, c in zip(mol.atoms, coord):
-                    atom.OBAtom.SetVector(*c)
-                f.write(mol.write('sdf'))
+                for i, atom in enumerate(mol.GetAtoms()):
+                    mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+                f.write(mol)
