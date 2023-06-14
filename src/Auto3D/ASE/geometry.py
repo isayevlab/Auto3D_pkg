@@ -16,7 +16,8 @@ try:
 except:
     pass
 import torchani
-from openbabel import pybel
+from rdkit import Chem
+from rdkit.Chem import rdmolops
 from ..utils import hartree2ev
 
 
@@ -138,11 +139,11 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
     else:
         raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
 
-    mols = pybel.readfile("sdf", path)
+    mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in mols:
-        coord = [a.coords for a in mol.atoms]
-        charge = mol.charge
-        species = [numbers2species[a.atomicnum] for a in mol.atoms]
+        coord = mol.GetConformer().GetPositions()
+        species = [numbers2species[a.GetAtomicNum()] for a in mol.GetAtoms()]
+        charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
         
         if model_name != "ANI2x":
@@ -152,16 +153,16 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
         opt = BFGS(atoms)
         opt.run(fmax=opt_tol, steps=opt_steps)
         e = atoms.get_potential_energy()
-        mol.data['E_hartree'] = e * ev2hatree
+        mol.SetProp('E_hartree', str(e * ev2hatree))
 
-        #Updating ASE atoms coordinates into pybel mol
+        #Updating ASE atoms coordinates into rdkit mol
         coord = atoms.get_positions()
-        for atom, c in zip(mol.atoms, coord):
-            atom.OBAtom.SetVector(*c)
+        for i, atom in enumerate(mol.GetAtoms()):
+            mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
         out_mols.append(mol)
 
-    print(len(out_mols))
-    with open(outpath, 'w+') as f:
+    print('number of molecules', len(out_mols), flush=True)
+    with Chem.SDWriter(outpath) as f:
         for mol in out_mols:
-            f.write(mol.write('sdf'))
+            f.write(mol)
     return outpath

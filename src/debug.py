@@ -11,11 +11,12 @@ from Auto3D.utils import my_name_space
 if __name__ == "__main__":
     # path = "/storage/users/jack/cache/LRRK2_merged_selection.smi"
     path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
-    args = options(path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
-                   isomer_engine="omega", enumerate_isomer=True, 
-                   optimizing_engine="ANI2x", gpu_idx=0, verbose=True,
-                   max_confs=10, patience=200)
-    tautomer_out = get_stable_tautomers(args, tauto_k=1)
+    args = options(path, window=10, enumerate_tautomer=True, tauto_engine="rdkit",
+                   isomer_engine="rdkit", enumerate_isomer=True, 
+                   optimizing_engine="AIMNET", gpu_idx=0, verbose=True,
+                   max_confs=10, patience=200, use_gpu=False)
+    # tautomer_out = get_stable_tautomers(args, tauto_k=1)
+    tautomer_out = get_stable_tautomers(args, tauto_window=5)
     print(tautomer_out)
 
 

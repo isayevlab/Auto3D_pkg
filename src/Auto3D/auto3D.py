@@ -76,7 +76,7 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
     logger.setLevel(logging.INFO)
 
     for i, path_dir in enumerate(chunk_info):
-        print(f"\n\nIsomer generation for job{i+1}")
+        print(f"\n\nIsomer generation for job{i+1}", flush=True)
         logger.info(f"\n\nIsomer generation for job{i+1}")
         path, dir = path_dir
         meta = create_chunk_meta_names(path, dir)
@@ -91,7 +91,7 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
             taut_engine.run()
             hash_taut_smi(output_taut, output_taut)
             path = output_taut
-            print(f"Tautomers are saved in {output_taut}")
+            print(f"Tautomers are saved in {output_taut}", flush=True)
             logger.info(f"Tautomers are saved in {output_taut}")
 
         smiles_enumerated = meta["smiles_enumerated"]
@@ -133,7 +133,7 @@ def optim_rank_wrapper(args, queue, logging_queue):
         sdf_path_dir = queue.get()
         if sdf_path_dir == "Done":
             break
-        print(f"\n\nOptimizing on job{job}")
+        print(f"\n\nOptimizing on job{job}", flush=True)
         logger.info(f"\n\nOptimizing on job{job}")
         enumerated_sdf, path, dir = sdf_path_dir
         meta = create_chunk_meta_names(path, dir)
@@ -339,8 +339,8 @@ def main(args:dict):
     df = pd.read_csv(path, sep='\s+', header=None)
     data_size = len(df)
     num_chunks = int(data_size // chunk_size + 1)
-    print(f"The available memory is {t} GB.")
-    print(f"The task will be divided into {num_chunks} jobs.")
+    print(f"The available memory is {t} GB.", flush=True)
+    print(f"The task will be divided into {num_chunks} jobs.", flush=True)
     logger.info(f"The available memory is {t} GB.")
     logger.info(f"The task will be divided into {num_chunks} jobs.")
     chunk_idxes = [[] for _ in range(num_chunks)]
@@ -362,7 +362,7 @@ def main(args:dict):
         df_i.to_csv(new_name, header=None, index=None, sep=" ")
         path = new_name
 
-        print(f"Job{i+1}, number of inputs: {len(df_i)}")
+        print(f"Job{i+1}, number of inputs: {len(df_i)}", flush=True)
         logger.info(f"Job{i+1}, number of inputs: {len(df_i)}")
         chunk_info.append((path, dir))
 
@@ -381,7 +381,7 @@ def main(args:dict):
         msg = """The optimization engine did not run, or no 3D structure converged.
                  The reason might be one of the following: 
                  1. Allocated memory is not enough;
-                 2. The input SMILES encodes valid chemical structures;
+                 2. The input SMILES encodes invalid chemical structures;
                  3. Patience is too small"""
         sys.exit(msg)
     for file in files:
@@ -396,18 +396,18 @@ def main(args:dict):
 
     # Program ends
     end = time.time()
-    print("Energy unit: Hartree if implicit.")
+    print("Energy unit: Hartree if implicit.", flush=True)
     logger.info("Energy unit: Hartree if implicit.")
     running_time_m = int((end - start)/60)
     if running_time_m <= 60:
-        print(f'Program running time: {running_time_m} minutes')
-        logger.info(f'Program running time: {running_time_m} minutes')
+        print(f'Program running time: {running_time_m + 1} minutes', flush=True)
+        logger.info(f'Program running time: {running_time_m + 1} minutes')
     else:
         running_time_h = running_time_m // 60
         remaining_minutes = running_time_m - running_time_h*60
-        print(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes')
+        print(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes', flush=True)
         logger.info(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes')
-    print(f"Output path: {path_combined}")
+    print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
     # logger_p.join()  #set it as the daemon process, so it will be closed when the main process closes.

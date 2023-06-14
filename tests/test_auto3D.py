@@ -130,4 +130,5 @@ def test_auto3D_config4():
 
 
 # if __name__ == "__main__":
-#     test_auto3D_omega_aimnet()
+    # test_auto3D_omega_aimnet()
+    # test_auto3D_rdkit_aimnet()
