@@ -14,7 +14,7 @@ def select_tautomers(sdf: str, k: Optional[int]=None, window:Optional[float]=Non
     sdf: main function output
     
     Output: the path of the low-energy tautomer 3D conformers"""
-    print(f"\nBegin to select stable tautomers based on their conformer energies...")
+    print(f"\nBegin to select stable tautomers based on their conformer energies...", flush=True)
     results = []
     if (k is not None) and (window is not None):
         raise ValueError("Only k OR window needs to be specified")        
@@ -65,8 +65,8 @@ def select_tautomers(sdf: str, k: Optional[int]=None, window:Optional[float]=Non
     with Chem.SDWriter(output_path) as w:
         for mol in results:
             w.write(mol)
-    print("Done.")
-    print("The stable tautomers are stored in: %s" % output_path)
+    print("Done.", flush=True)
+    print("The stable tautomers are stored in: %s" % output_path, flush=True)
     return output_path
 
 

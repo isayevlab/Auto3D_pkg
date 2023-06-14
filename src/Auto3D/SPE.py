@@ -14,7 +14,8 @@ try:
 except:
     pass
 import torchani
-from openbabel import pybel
+from rdkit import Chem
+from rdkit.Chem import rdmolops
 from tqdm import tqdm
 from .utils import hartree2ev
 
@@ -135,11 +136,11 @@ def calc_spe(path:str, model_name:str, gpu_idx=0):
     else:
         raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
 
-    mols = pybel.readfile("sdf", path)
+    mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in tqdm(mols):
-        coord = [a.coords for a in mol.atoms]
-        charge = mol.charge
-        species = [numbers2species[a.atomicnum] for a in mol.atoms]
+        coord = mol.GetConformer().GetPositions()
+        species = [numbers2species[a.GetAtomicNum()] for a in mol.GetAtoms()]
+        charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
         
         if model_name != "ANI2x":
@@ -147,10 +148,11 @@ def calc_spe(path:str, model_name:str, gpu_idx=0):
         atoms.set_calculator(calculator)
 
         e = atoms.get_potential_energy()
-        mol.data['E_hartree'] = e * ev2hatree
+        # mol.data['E_hartree'] = e * ev2hatree
+        mol.SetProp('E_hartree', str(e * ev2hatree))
         out_mols.append(mol)
 
-    with open(outpath, 'w+') as f:
+    with Chem.SDWriter(outpath) as f:
         for mol in out_mols:
-            f.write(mol.write('sdf'))
+            f.write(mol)
     return outpath

@@ -10,7 +10,8 @@ import warnings
 import torch
 from ase import Atoms
 from ase.optimize import BFGS
-from openbabel import pybel
+from rdkit import Chem
+from rdkit.Chem import rdmolops
 from ase.vibrations import Vibrations
 from ase.thermochemistry import IdealGasThermo
 import ase.calculators.calculator
@@ -178,11 +179,11 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     else:
         raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
 
-    mols = pybel.readfile("sdf", path)
+    mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in mols:
-        coord = [a.coords for a in mol.atoms]
-        charge = mol.charge
-        species = [numbers2species[a.atomicnum] for a in mol.atoms]
+        coord = mol.GetConformer().GetPositions()
+        species = [numbers2species[a.GetAtomicNum()] for a in mol.GetAtoms()]
+        charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
         
         if model_name != "ANI2x":
@@ -195,7 +196,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         e = atoms.get_potential_energy()
 
         if get_mol_idx_t is None:
-            idx = mol.title.strip()
+            idx = mol.GetProp("_Name").strip()
             T = 298
         else:
             idx, T = get_mol_idx_t(mol)
@@ -215,29 +216,28 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
             G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
             vib.clean()
-            print(G)
 
-            mol.data['H_hartree'] = H
-            mol.data['S_hartree'] = S
-            mol.data['T_K'] = T
-            mol.data['G_hartree'] = G
-            mol.data['E_hartree'] = e * ev2hatree
-            out_mols.append(mol)
-
+            mol.SetProp("H_hartree", str(H))
+            mol.SetProp("S_hartree", str(S))
+            mol.SetProp("T_K", str(T))
+            mol.SetProp("G_hartree", str(G))
+            mol.SetProp("E_hartree", str(e * ev2hatree))
+            
             #Updating ASE atoms coordinates into pybel mol
             coord = atoms.get_positions()
-            for atom, c in zip(mol.atoms, coord):
-                atom.OBAtom.SetVector(*c)
+            for i, atom in enumerate(mol.GetAtoms()):
+                mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+            out_mols.append(mol)
         
         except:
-            print("Failed: ", idx)
+            print("Failed: ", idx, flush=True)
             vib.clean()
             mols_failed.append(mol)
 
-    print("Number of failed thermo calculations: ", len(mols_failed))
-    print("Number of successful thermo calculations: ", len(out_mols))
-    with open(outpath, 'w+') as f:
+    print("Number of failed thermo calculations: ", len(mols_failed), flush=True)
+    print("Number of successful thermo calculations: ", len(out_mols), flush=True)
+    with Chem.SDWriter(outpath) as w:
         all_mols = out_mols + mols_failed
         for mol in all_mols:
-            f.write(mol.write('sdf'))
+            w.write(mol)
     return outpath

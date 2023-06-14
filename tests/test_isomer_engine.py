@@ -1,7 +1,8 @@
 import os
 import shutil
 import time
-from openbabel import pybel
+from rdkit import Chem
+from rdkit.Chem import rdMolAlign
 from Auto3D.isomer_engine import rd_isomer
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,16 +16,28 @@ threshold = 0.3
 n_process = 4
 
 
+# def rmsd_greater(mols, rmsd=0.3):
+#     """Returns True if all conformer pairs in the mols have rmsd greater or equal to rmsd
+#     The users need to make sure that the mols are the same molecules"""
+#     aligner = pybel.ob.OBAlign()
+#     for i in range(len(mols)):
+#         aligner.SetRefMol(mols[i].OBMol)
+#         for j in range(i+1, len(mols), 1):
+#             aligner.SetTargetMol(mols[j].OBMol)
+#             aligner.Align()
+#             rmsd_ij = aligner.GetRMSD()
+#             if rmsd_ij < rmsd:
+#                 return False
+#     return True
 def rmsd_greater(mols, rmsd=0.3):
     """Returns True if all conformer pairs in the mols have rmsd greater or equal to rmsd
     The users need to make sure that the mols are the same molecules"""
-    aligner = pybel.ob.OBAlign()
     for i in range(len(mols)):
-        aligner.SetRefMol(mols[i].OBMol)
+        # aligner.SetRefMol(mols[i].OBMol)
         for j in range(i+1, len(mols), 1):
-            aligner.SetTargetMol(mols[j].OBMol)
-            aligner.Align()
-            rmsd_ij = aligner.GetRMSD()
+            # aligner.SetTargetMol(mols[j].OBMol)
+            # aligner.Align()
+            rmsd_ij = rdMolAlign.GetBestRMS(Chem.RemoveHs(mols[j]), Chem.RemoveHs(mols[i]))
             if rmsd_ij < rmsd:
                 return False
     return True
@@ -35,7 +48,8 @@ def test_rd_isomer_class():
     engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                         sdf_enumerated, job_name, max_confs, threshold, n_process)
     out = engine.run()
-    mols = list(pybel.readfile("sdf", out))
+    # mols = list(pybel.readfile("sdf", out))
+    mols = list(Chem.SDMolSupplier(out, removeHs=False))
     assert(rmsd_greater(mols) == True)
     try:
         os.remove(smiles_enumerated)

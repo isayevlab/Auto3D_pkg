@@ -8,7 +8,6 @@ import shutil
 import os
 import glob
 import collections
-from openbabel import pybel
 from send2trash import send2trash
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -189,17 +188,25 @@ class rd_isomer(object):
         files = glob.glob(paths)
         dict0 = {}
         for file in files:
-            mols = pybel.readfile('sdf', file)
-            for mol in mols:
-                idx = mol.data['ID']
-                mol.title = idx
-                dict0[idx] = mol
-            dict0 = collections.OrderedDict(sorted(dict0.items()))
+            # mols = pybel.readfile('sdf', file)
+            # for mol in mols:
+            #     idx = mol.data['ID']
+            #     mol.title = idx
+            #     dict0[idx] = mol
+            supp = Chem.SDMolSupplier(file, removeHs=False)
+            for mol in supp:
+                idx = mol.GetProp('ID')
+                mol.SetProp('_Name', idx)
+                dict0[idx] =mol
 
-        f = pybel.Outputfile('sdf', out)
-        for idx, mol in sorted(dict0.items()):
-            f.write(mol)
-        f.close()  
+        dict0 = collections.OrderedDict(sorted(dict0.items()))
+        # f = pybel.Outputfile('sdf', out)
+        # for idx, mol in sorted(dict0.items()):
+        #     f.write(mol)
+        # f.close()
+        with Chem.SDWriter(out) as f:
+            for idx, mol in sorted(dict0.items()):
+                f.write(mol)
 
     def run(self):
         """
@@ -207,8 +214,8 @@ class rd_isomer(object):
         writes all structures in 'job_name/smiles_enumerated.sdf'
         """
         if self.flipper:
-            print("Enumerating cis/tran isomers for unspecified double bonds...")
-            print("Enumerating R/S isomers for unspecified atomic centers...")
+            print("Enumerating cis/tran isomers for unspecified double bonds...", flush=True)
+            print("Enumerating R/S isomers for unspecified atomic centers...", flush=True)
             # logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
             # logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input)
@@ -218,7 +225,7 @@ class rd_isomer(object):
                 isomers = self.enumerate_func(mol)
                 self.enumerate[name] = isomers
             self.write_enumerated_smi()
-            print("Removing enantiomers...")
+            print("Removing enantiomers...", flush=True)
             # logger.info("Removing enantiomers...")
             amend_configuration_w(self.enumerated_smi_path)
             remove_enantiomers(self.enumerated_smi_path, self.enumerated_smi_path_reduced)
@@ -228,7 +235,7 @@ class rd_isomer(object):
             hash_enumerated_smi_IDs(self.input,
                                     self.enumerated_smi_hashed_path)
 
-        print("Enumerating conformers/rotamers, removing duplicates...")
+        print("Enumerating conformers/rotamers, removing duplicates...", flush=True)
         # logger.info("Enumerating conformers/rotamers, removing duplicates...")
         smiles2 = self.read(self.enumerated_smi_hashed_path)
 
@@ -314,7 +321,7 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         omega = oeomega.OEOmega(omegaOpts)
 
     if flipper:
-        print("Enumerating stereoisomers.")
+        print("Enumerating stereoisomers.", flush=True)
         # logger.info("Enumerating stereoisomers.")
         oe_flipper(input, smiles_enumerated)
         amend_configuration_w(smiles_enumerated)
@@ -327,10 +334,9 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     ofs = oechem.oemolostream()
     ofs.open(output)
 
-    print("Enumerating conformers.")
+    print("Enumerating conformers.", flush=True)
     # logger.info("Enumerating conformers.")
     for mol in tqdm(ifs.GetOEMols()):
-        # oechem.OEThrow.Info("Title: %s" % mol.GetTitle())
         ret_code = omega.Build(mol)
         if ret_code == oeomega.OEOmegaReturnCode_Success:
             oechem.OEWriteMolecule(ofs, mol)
