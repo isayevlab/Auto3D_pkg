@@ -10,14 +10,17 @@ from Auto3D.utils import my_name_space
 
 if __name__ == "__main__":
     # path = "/storage/users/jack/cache/LRRK2_merged_selection.smi"
-    path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
-    args = options(path, window=10, enumerate_tautomer=True, tauto_engine="rdkit",
+    # path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
+    path = '/home/liucmu/Auto3D_pkg/tests/files/wb97x_dz.sdf'
+    args = options(path, window=10, enumerate_tautomer=False, tauto_engine="rdkit",
                    isomer_engine="rdkit", enumerate_isomer=True, 
-                   optimizing_engine="AIMNET", gpu_idx=0, verbose=True,
-                   max_confs=10, patience=200, use_gpu=False)
+                   optimizing_engine="AIMNET", gpu_idx=1, verbose=True,
+                   max_confs=10, patience=200, use_gpu=True)
+    out = main(args)
+    print(out)
     # tautomer_out = get_stable_tautomers(args, tauto_k=1)
-    tautomer_out = get_stable_tautomers(args, tauto_window=5)
-    print(tautomer_out)
+    # tautomer_out = get_stable_tautomers(args, tauto_window=5)
+    # print(tautomer_out)
 
 
     # out = main(args)

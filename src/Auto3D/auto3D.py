@@ -19,11 +19,14 @@ from multiprocessing import Queue
 from logging.handlers import QueueHandler
 import Auto3D
 from Auto3D.isomer_engine import rd_isomer, tautomer_engine
+from Auto3D.isomer_engine import rd_isomer_sdf
 from Auto3D.isomer_engine import oe_isomer
 from Auto3D.ranking import ranking
-from Auto3D.utils import housekeeping, check_input
-from Auto3D.utils import hash_taut_smi,  my_name_space
 from Auto3D.batch_opt.batchopt import optimizing
+from Auto3D.utils import housekeeping
+from Auto3D.utils import check_input, check_input_sdf
+from Auto3D.utils import hash_taut_smi,  my_name_space
+from Auto3D.utils import SDF2chunks
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -109,9 +112,13 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
             oe_isomer(mode_oe, path, smiles_enumerated, smiles_reduced, smiles_hashed,
                     enumerated_sdf, max_confs, duplicate_threshold, enumerate_isomer)
         elif isomer_program == 'rdkit':
-            engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed, 
-                            enumerated_sdf, dir, max_confs, duplicate_threshold, mpi_np, enumerate_isomer)
-            engine.run()
+            if args.input_format == 'smi':
+                engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed, 
+                                enumerated_sdf, dir, max_confs, duplicate_threshold, mpi_np, enumerate_isomer)
+                engine.run()
+            elif args.input_format == 'sdf':
+                engine = rd_isomer_sdf(path, enumerated_sdf, max_confs, duplicate_threshold, mpi_np)
+                engine.run()
         else: 
             raise ValueError('The isomer enumeration engine must be "omega" or "rdkit", '
                             f'but {args.isomer_engine} was parsed. '
@@ -263,6 +270,10 @@ def main(args:dict):
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
     path = args.path
+    input_format = os.path.splitext(path)[1][1:]
+    if (input_format != "smi") and (input_format != "sdf"):
+        sys.exit("Input file type is not supported. Only .smi and .sdf are supported. But the input file is " + input_format + ".")
+    args['input_format'] = input_format
     k = args.k
     window = args.window
     if (not k) and (not window):
@@ -320,7 +331,10 @@ def main(args:dict):
     logger.info("================================================================================")
     logger.info("                               RUNNING PROCESS")
     logger.info("================================================================================")
-    check_input(args)
+    if input_format == "smi":
+        check_input(args)
+    else:
+        check_input_sdf(args)
     ## Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
     if args.memory is not None:
@@ -336,7 +350,10 @@ def main(args:dict):
     args.batchsize_atoms = args.batchsize_atoms * t
 
     #Get indexes for each chunk
-    df = pd.read_csv(path, sep='\s+', header=None)
+    if input_format == "smi":
+        df = pd.read_csv(path, sep='\s+', header=None)
+    elif input_format == "sdf":
+        df = SDF2chunks(path)
     data_size = len(df)
     num_chunks = int(data_size // chunk_size + 1)
     print(f"The available memory is {t} GB.", flush=True)
@@ -353,18 +370,34 @@ def main(args:dict):
     #Save each chunk as smi
     chunk_info = []
     basename = os.path.basename(path).split(".")[0].strip()
-    for i in range(num_chunks):
-        dir = os.path.join(job_name, f"job{i+1}")
-        os.mkdir(dir)
-        new_basename = basename + "_" + str(i+1) + ".smi"
-        new_name = os.path.join(dir, new_basename)
-        df_i = df.iloc[chunk_idxes[i], :]
-        df_i.to_csv(new_name, header=None, index=None, sep=" ")
-        path = new_name
+    if input_format == "smi":
+        for i in range(num_chunks):
+            dir = os.path.join(job_name, f"job{i+1}")
+            os.mkdir(dir)
+            new_basename = basename + "_" + str(i+1) + ".smi"
+            new_name = os.path.join(dir, new_basename)
+            df_i = df.iloc[chunk_idxes[i], :]
+            df_i.to_csv(new_name, header=None, index=None, sep=" ")
+            path = new_name
 
-        print(f"Job{i+1}, number of inputs: {len(df_i)}", flush=True)
-        logger.info(f"Job{i+1}, number of inputs: {len(df_i)}")
-        chunk_info.append((path, dir))
+            print(f"Job{i+1}, number of inputs: {len(df_i)}", flush=True)
+            logger.info(f"Job{i+1}, number of inputs: {len(df_i)}")
+            chunk_info.append((path, dir))
+    elif input_format == "sdf":
+        for i in range(num_chunks):
+            dir = os.path.join(job_name, f"job{i+1}")
+            os.mkdir(dir)
+            new_basename = basename + "_" + str(i+1) + ".sdf"
+            new_name = os.path.join(dir, new_basename)
+            chunks_i = [df[j] for j in chunk_idxes[i]]
+            with open(new_name, "w") as f:
+                for chunk in chunks_i:
+                    for line in chunk:
+                        f.write(line)
+            path = new_name    
+            print(f"Job{i+1}, number of inputs: {len(chunks_i)}", flush=True)
+            logger.info(f"Job{i+1}, number of inputs: {len(chunks_i)}")
+            chunk_info.append((path, dir))
 
     p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line, logging_queue,))
     p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line, logging_queue,))
@@ -400,13 +433,13 @@ def main(args:dict):
     logger.info("Energy unit: Hartree if implicit.")
     running_time_m = int((end - start)/60)
     if running_time_m <= 60:
-        print(f'Program running time: {running_time_m + 1} minutes', flush=True)
-        logger.info(f'Program running time: {running_time_m + 1} minutes')
+        print(f'Program running time: {running_time_m + 1} minute(s)', flush=True)
+        logger.info(f'Program running time: {running_time_m + 1} minute(s)')
     else:
         running_time_h = running_time_m // 60
         remaining_minutes = running_time_m - running_time_h*60
-        print(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes', flush=True)
-        logger.info(f'Program running time: {running_time_h} hours and {remaining_minutes} minutes')
+        print(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)', flush=True)
+        logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
