@@ -22,6 +22,7 @@ from rdkit.Chem import rdMolAlign
 from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 from rdkit.Chem import rdMolDescriptors
+from typing import List, Tuple, Dict, Union, Optional, Callable
 
 #CODATA 2018 energy conversion factor
 hartree2ev = 27.211386245988
@@ -137,6 +138,19 @@ def check_input(args):
         if optimizing_engine != "AIMNET":
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
             logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
+
+def check_input_sdf(args):
+    """
+    Check the input file and give recommendations.
+
+    Arguments:
+        args: Arguments to auto3d.
+
+    Returns:
+        This function checks the format of the input file, the properties for
+        each molecule in the input file.
+    """
+    pass
 
 def to_smiles(path, fomat="sdf"):
     """converting a file from a given format to smi file
@@ -272,26 +286,29 @@ class NullIO(StringIO):
     def write(self, txt):
         pass
 
-# def countXYZ(xyz):
-#     """Counting the number of structures in XYZ file"""
-#     c = 0
-#     for _ in pybel.readfile('xyz', xyz):
-#         c += 1
-#     return c
 
-
-# def countSDF(sdf):
-#     """Counting the number of structures in SDF file"""
-#     mols = pybel.readfile('sdf', sdf)
-#     mols2 = [mol for mol in mols]
-#     c = len(mols2)
-#     return c
 def countSDF(sdf):
     """Counting the number of structures in SDF file"""
     mols = Chem.SDMolSupplier(sdf)
     mols2 = [mol for mol in mols]
     c = len(mols2)
     return c
+
+def SDF2chunks(sdf:str)->List[List[str]]:
+    """given a sdf file, return a list of chunks,
+    each chunk consists of lines of a molecule as they appear in the original file"""
+    chunks = []
+    with open(sdf, "r") as f:
+        data = f.readlines()
+    chunk = []
+    for line in data:
+        if line.strip() == "$$$$":
+            chunk.append(line)
+            chunks.append(chunk)
+            chunk = []
+        else:
+            chunk.append(line)
+    return chunks
 
 def hash_enumerated_smi_IDs(smi, out):
     '''
@@ -349,30 +366,6 @@ def hash_taut_smi(smi, out):
             molecule = smiles.strip() + ' ' + id.strip() + '\n'
             f.write(molecule)
 
-
-# def sort_enumerated_sdf(sdf, out):
-#     """
-#     Sort an SDF file based on the IDs of SMILES in the input file.
-
-#     Arguments:
-#         sdf: the input SDF file.
-#         out: the path for the sorted SDF file
-#     Returns:
-#         writes the sorted molecules into out.
-#     """
-#     dict0 = {}
-    
-#     mols = pybel.readfile('sdf', sdf)
-#     for mol in mols:
-#         idx = str(mol).split('\t')[1].strip().split(' ')[0].strip()
-#         mol.data['ID'] = idx
-#         dict0[idx] = mol
-#     dict0 = collections.OrderedDict(sorted(dict0.items()))
-    
-#     f = pybel.Outputfile('sdf', out)
-#     for idx, mol in dict0.items():
-#         f.write(mol)
-#     f.close()
 
 def combine_xyz(in_folder, out_path):
     """
@@ -517,31 +510,7 @@ def remove_enantiomers(inpath, out):
                 f.write(line)
     return smiles
 
-# def atomType(mol, atomIdx):
-#     """get the atomic type given an atom index, both in pybel mol object"""
-#     atom_num = mol.OBMol.GetAtom(atomIdx).GetAtomicNum()
-#     return atom_num
 
-
-# def check_bonds(mol):
-#     """Check if a pybel mol object has valid bond lengths"""
-#     # Initialize UFF bond radii (Rappe et al. JACS 1992)
-#     # Units of angstroms 
-#     # These radii neglect the bond-order and electronegativity corrections in the original paper. Where several values exist for the same atom, the largest was used. 
-#     Radii = {1:0.354, 
-#              5:0.838, 6:0.757, 7:0.700,  8:0.658,  9:0.668,
-#              14:1.117, 15:1.117, 16:1.064, 17:1.044,
-#              32: 1.197, 33:1.211, 34:1.190, 35:1.192,
-#              51:1.407, 52:1.386,  53:1.382}
-
-#     for bond in ob.OBMolBondIter(mol.OBMol):
-#         length = bond.GetLength()
-#         begin = atomType(mol, bond.GetBeginAtomIdx())
-#         end = atomType(mol, bond.GetEndAtomIdx())
-#         reference_length = (Radii[begin] + Radii[end]) * 1.25
-#         if length > reference_length:
-#             return False
-#     return True
 def check_bonds(mol):
     """Check if a rdkit mol object has valid bond lengths"""
     # Initialize UFF bond radii (Rappe et al. JACS 1992)
@@ -570,41 +539,6 @@ def check_bonds(mol):
     return True
 
 
-# def filter_unique(mols, crit=0.3):
-#     """Remove structures that are very similar.
-#        Remove unconverged structures.
-    
-#     Arguments:
-#         mols: pybel mol objects
-#     Returns:
-#         unique_mols: unique molecules
-#     """
-
-#     #Remove unconverged structures
-#     mols_ = []
-#     for mol in mols:
-#         convergence_flag = str(mol.data['Converged']).lower() == "true"
-#         has_valid_bonds = check_bonds(mol)
-#         if convergence_flag and has_valid_bonds:
-#             mols_.append(mol)
-#     mols = mols_
-
-#     #Remove similar structures
-#     unique_mols = []
-#     aligner = pybel.ob.OBAlign()
-#     for mol_i in mols:
-#         aligner.SetRefMol(mol_i.OBMol)
-#         unique = True
-#         for mol_j in unique_mols:
-#             aligner.SetTargetMol(mol_j.OBMol)
-#             aligner.Align()
-#             rmsd = aligner.GetRMSD()
-#             if rmsd < crit:
-#                 unique = False
-#                 break
-#         if unique:
-#             unique_mols.append(mol_i)
-#     return unique_mols
 def filter_unique(mols, crit=0.3):
     """Remove structures that are very similar.
        Remove unconverged structures.
@@ -638,58 +572,6 @@ def filter_unique(mols, crit=0.3):
             unique_mols.append(mol_i)
     return unique_mols
 
-# def unique_conformers(files, crit=0.5):
-#     """Removing conformers whose RMSD is within crit
-    
-#     Arguments:
-#         files: sdf files
-#     """
-#     unique_files = []
-#     duplicate_files = []
-#     aligner = pybel.ob.OBAlign()
-#     for file in files:
-#         mol = next(pybel.readfile("sdf", file))
-#         aligner.SetRefMol(mol.OBMol)
-#         unique = True
-#         for f in unique_files:
-#             mol_j = next(pybel.readfile("sdf", f))
-#             aligner.SetTargetMol(mol_j.OBMol)
-#             aligner.Align()
-#             rmsd = aligner.GetRMSD()
-#             if rmsd < crit:
-#                 unique = False
-#                 break
-#         if unique:
-#             unique_files.append(file)
-#         else:
-#             duplicate_files.append(file)
-#     c = len(unique_files) + len(duplicate_files)
-#     assert(c == len(files))
-#     for file in duplicate_files:
-#         os.remove(file)
-
-# def sort_output(mols, out):
-#     """Sort molecules based on energies
-    
-#     Arguments:
-#         mols: a list of pybel mol objects
-#         out: a SDF file to store the molecules
-#     """
-#     l = []
-#     for mol in mols:
-#         name = mol.data['ID'].split('_')[0].strip()
-#         e = mol.data['E_tot']
-#         e_rel = mol.data['E_relative']
-
-#         l.append((name, e_rel, mol))
-
-#     l = sorted(l)
-
-#     f = pybel.Outputfile('sdf', out)
-#     for n_er_m in l:
-#         name, e_relative, mol = n_er_m
-#         f.write(mol)
-#     f.close()
 
 def no_enantiomer_helper(info1, info2):
     """Return true if info1 and info2 are enantiomers"""
