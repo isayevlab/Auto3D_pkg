@@ -1,4 +1,5 @@
 import os
+import torch
 import pytest
 import shutil
 from send2trash import send2trash
@@ -92,7 +93,7 @@ def test_auto3D_config1():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_config2():
     """Check that the program runs"""
     args = options(path, window=1, use_gpu=True, convergence_threshold=0.1,
