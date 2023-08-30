@@ -287,7 +287,10 @@ class rd_isomer_sdf(object):
                 #set conformer names
                 name = mol.GetProp('_Name')
                 for i, conf in enumerate(mol2.GetConformers()):
-                    conf.SetProp('_Name', f'{name}_{i}')
+                    # mol2.ClearProp('ID')
+                    # mol2.ClearProp('_Name')
+                    mol2.SetProp('_Name', f'{name}_{i}')
+                    mol2.SetProp('ID', f'{name}_{i}')
                     writer.write(mol2, confId=i)
         return self.enumerated_sdf
 

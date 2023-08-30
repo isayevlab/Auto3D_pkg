@@ -1,3 +1,4 @@
+import os
 import argparse
 import sys
 import yaml
@@ -9,13 +10,14 @@ from Auto3D.tautomer import get_stable_tautomers
 from Auto3D.utils import my_name_space
 
 if __name__ == "__main__":
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     # path = "/storage/users/jack/cache/LRRK2_merged_selection.smi"
     # path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
-    path = '/home/liucmu/Auto3D_pkg/tests/files/wb97x_dz.sdf'
-    args = options(path, window=10, enumerate_tautomer=False, tauto_engine="rdkit",
+    path = os.path.join(root, 'tests/files/example.sdf')
+    args = options(path, k=10, enumerate_tautomer=False, tauto_engine="rdkit",
                    isomer_engine="rdkit", enumerate_isomer=True, 
                    optimizing_engine="AIMNET", gpu_idx=1, verbose=True,
-                   max_confs=10, patience=200, use_gpu=True)
+                   max_confs=10, patience=200, use_gpu=False)
     out = main(args)
     print(out)
     # tautomer_out = get_stable_tautomers(args, tauto_k=1)
@@ -30,7 +32,6 @@ if __name__ == "__main__":
     # path = "/storage/users/jack/cache/20221215-232056-512927_LRRK2_merged_selection/LRRK2_merged_selection_out.sdf"
     # tautomer_path = select_tautomers(path, window=5)
     # print(tautomer_path)
-
 
 
     # path = "/storage/users/jack/o_acylisourea/part_0.smi"

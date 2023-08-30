@@ -48,79 +48,35 @@ def check_input(args):
     """
     print("Checking input file...", flush=True)
     logger.info("Checking input file...")
-    # logger.info("================================================================================")
-    # logger.info("                               Check Input")
-    # logger.info("================================================================================")
-    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
-    ANI = True
+    # ANI_elements = {1, 6, 7, 8, 9, 16, 17}
+    # ANI = True
     # Check --use_gpu
     gpu_flag = args.use_gpu
     if gpu_flag:
         if torch.cuda.is_available() == False:
             sys.exit("No cuda device was detected. Please set --use_gpu=False.")
-    # Check the availability of omega
-    # if "OE_LICENSE" not in os.environ:
-    #     warnings.warn("OpenEye software license is not detected. Please use RDKit for your program where applicable.")
     isomer_engine = args.isomer_engine
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
         sys.exit("Omega is used as the isomer engine, but OE_LICENSE is not detected. Please use rdkit.")
-
     # Check the installation for open toolkits, torchani
     if args.isomer_engine == "omega":
         try:
             from openeye import oechem
         except:
             sys.exit("Omega is used as isomer engine, but openeye toolkits are not installed.")
-    
     if args.optimizing_engine == "ANI2x":
         try:
             import torchani
         except:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
-
-    # if args.optimizing_engine == "ANI2xt":
-    #     try:
-    #         from torchani.repulsion import StandaloneRepulsionCalculator
-    #     except:
-    #         sys.exit("ANI2xt is used as optimizing engine, but TorchANI with repulsion calculator is not installed.")
-
     if int(args.opt_steps) < 10:
         sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")
 
     # Check the input format
-    smiles_all = []
-    with open(args.path, 'r') as f:
-        data = f.readlines()
-    for line in data:
-        smiles, id = tuple(line.strip().split())
-        assert len(smiles) > 0, \
-               "Empty SMILES string"
-        assert len(id) > 0, \
-               "Empty ID"
-        assert "_" not in id, \
-                f"Sorry, SMILES ID cannot contain underscore: {smiles}"
-        smiles_all.append(smiles)
-    print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
-    print("\tAll SMILES and IDs are valid.", flush=True)
-    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
-
-    # Check number of unspecified atomic stereo center
-    if args.enumerate_isomer == False:
-        for smiles in smiles_all:
-            c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
-            if c > 0:
-                msg = f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. Please use cis_tras=True so that Auto3D can enumerate the unspecified atomic stereo centers."
-                warnings.warn(msg, UserWarning)
-
-    # Check the properties of molecules
-    only_aimnet_smiles = []
-    for smiles in smiles_all:
-        mol = Chem.MolFromSmiles(smiles)
-        charge = Chem.rdmolops.GetFormalCharge(mol)
-        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
-        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
-            ANI = False
-            only_aimnet_smiles.append(smiles)
+    if args.input_format == "smi":
+        ANI, only_aimnet_smiles = check_smi_format(args)
+    elif args.input_format == "sdf":
+        ANI, only_aimnet_smiles = check_sdf_format(args)
 
     print("Suggestions for choosing isomer_engine and optimizing_engine: ", flush=True)
     logger.info(f"Suggestions for choosing isomer_engine and optimizing_engine: ")
@@ -139,7 +95,48 @@ def check_input(args):
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
             logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
 
-def check_input_sdf(args):
+def check_smi_format(args):
+    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
+    ANI = True
+
+    smiles_all = []
+    with open(args.path, 'r') as f:
+        data = f.readlines()
+    for line in data:
+        smiles, id = tuple(line.strip().split())
+        assert len(smiles) > 0, \
+            "Empty SMILES string"
+        assert len(id) > 0, \
+            "Empty ID"
+        assert "_" not in id, \
+                f"Sorry, SMILES ID cannot contain underscore: {smiles}"
+        assert "." not in id, \
+                f"Sorry, SMILES ID cannot contain period: {smiles}"
+        smiles_all.append(smiles)
+    print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
+    print("\tAll SMILES and IDs are valid.", flush=True)
+    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
+
+    # Check number of unspecified atomic stereo center
+    if args.enumerate_isomer == False:
+        for smiles in smiles_all:
+            c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
+            if c > 0:
+                msg = f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. Please use enumerate_isomer=True so that Auto3D can enumerate the unspecified atomic stereo centers."
+                warnings.warn(msg, UserWarning)
+
+    # Check the properties of molecules
+    only_aimnet_smiles = []
+    for smiles in smiles_all:
+        mol = Chem.MolFromSmiles(smiles)
+        charge = Chem.rdmolops.GetFormalCharge(mol)
+        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
+        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
+            ANI = False
+            only_aimnet_smiles.append(smiles)
+    return ANI, only_aimnet_smiles
+
+def check_sdf_format(args):
     """
     Check the input file and give recommendations.
 
@@ -150,7 +147,35 @@ def check_input_sdf(args):
         This function checks the format of the input file, the properties for
         each molecule in the input file.
     """
-    pass
+    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
+    ANI = True
+
+    supp = Chem.SDMolSupplier(args.path, removeHs=False)
+    mols, only_aimnet_ids = [], []
+    for mol in supp:
+        id = mol.GetProp("_Name")
+        assert len(id) > 0, \
+            "Empty ID"
+        assert "_" not in id, \
+                f"Sorry, molecule ID cannot contain underscore: {id}"
+        assert "." not in id, \
+                f"Sorry, molecule ID cannot contain period: {id}"
+        mols.append(mol)    
+
+        charge = Chem.rdmolops.GetFormalCharge(mol)
+        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
+        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
+            ANI = False
+            only_aimnet_ids.append(id)
+    print(f"\tThere are {len(mols)} conformers in the input file {args.path}. ", flush=True)
+    print("\tAll conformers and IDs are valid.", flush=True)
+    logger.info(f"\tThere are {len(mols)} conformers in the input file {args.path}. \n\tAll conformers and IDs are valid.")
+
+    if args.enumerate_isomer:
+        msg = "Enumerating stereocenters of an SDF file could change the conformers of the input file. Please use enumerate_isomer=False."
+        warnings.warn(msg, UserWarning)
+    return ANI, only_aimnet_ids
+       
 
 def to_smiles(path, fomat="sdf"):
     """converting a file from a given format to smi file
@@ -332,8 +357,9 @@ def hash_enumerated_smi_IDs(smi, out):
 
     dict0 = collections.OrderedDict(sorted(dict0.items()))
 
-    new_smi = out
-    with open(new_smi, 'w+') as f:
+    # new_smi = out
+    # with open(new_smi, 'w+') as f:
+    with open(out, 'w+') as f:
         for id, smiles in dict0.items():
             molecule = smiles.strip() + ' ' + id.strip() + '\n'
             f.write(molecule)

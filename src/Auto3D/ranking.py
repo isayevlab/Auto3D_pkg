@@ -183,4 +183,3 @@ class ranking(object):
                 t_simplified = t.split("_")[0].strip()
                 mol.SetProp("_Name", t_simplified)
                 f.write(mol)
-
