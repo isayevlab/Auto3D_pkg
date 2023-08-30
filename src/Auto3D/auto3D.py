@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-Generating 3-dimensional structures from SMILES based on user's demands.
+Generating low-energy conformers from SMILES.
 """
 import logging
-import argparse
+# import argparse
 import os
 import shutil
 import sys
@@ -24,7 +24,7 @@ from Auto3D.isomer_engine import oe_isomer
 from Auto3D.ranking import ranking
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.utils import housekeeping
-from Auto3D.utils import check_input, check_input_sdf
+from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
 from Auto3D.utils import SDF2chunks
 from send2trash import send2trash
@@ -266,7 +266,6 @@ def main(args:dict):
     chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
 
     start = time.time()
-    # job_name = time.strftime('%Y%m%d-%H%M%S-%f')
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
     path = args.path
@@ -290,9 +289,8 @@ def main(args:dict):
     job_name = os.path.join(dir, job_name)
     os.mkdir(job_name)
 
-    # initialize logging file
+    # initialize the logging process
     logging_path = os.path.join(job_name, "Auto3D.log")
-    # logging_queue = Queue()
     logging_queue = mp.Manager().Queue(999)
     logger_p = mp.Process(target=logger_process, args=(logging_queue, logging_path), daemon=True)
     logger_p.start()
@@ -327,14 +325,14 @@ def main(args:dict):
         line = str(key) + ": " + str(val)
         logger.info(line)
 
-
     logger.info("================================================================================")
     logger.info("                               RUNNING PROCESS")
     logger.info("================================================================================")
-    if input_format == "smi":
-        check_input(args)
-    else:
-        check_input_sdf(args)
+    # if input_format == "smi":
+    #     check_input(args)
+    # else:
+    #     check_input_sdf(args)
+    check_input(args)
     ## Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
     if args.memory is not None:
@@ -443,6 +441,5 @@ def main(args:dict):
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
-    # logger_p.join()  #set it as the daemon process, so it will be closed when the main process closes.
     time.sleep(3)  #wait the daemon process for 3 seconds
     return path_combined
