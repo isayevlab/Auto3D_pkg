@@ -41,4 +41,4 @@ def test_calc_spe_ani2x():
 
 if __name__ == "__main__":
     test_calc_spe_ani2xt()
-    # test_calc_spe_ani2x()
+    test_calc_spe_ani2x()
