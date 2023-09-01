@@ -16,7 +16,7 @@ if torch.cuda.is_available():
 else:
     no_gpu = True
 
-@pytest.mark.skipif(no_gpu, reason="GPU setting can only be tested when GPU is availabel")
+@pytest.mark.skipif(no_gpu, reason="No GPU")
 def test_get_stable_tautomers1():
     args = options(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
                    isomer_engine="omega", enumerate_isomer=True, 

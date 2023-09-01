@@ -1,4 +1,5 @@
 import os
+import torch
 import pytest
 import shutil
 from send2trash import send2trash
@@ -7,7 +8,7 @@ from tests import skip_ani2xt_test
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path = os.path.join(folder, "tests/files/smiles2.smi")
-
+sdf_path = os.path.join(folder, "tests/files/example.sdf")
 
 def test_auto3D_rdkit_aimnet():
     """Check that the program runs"""
@@ -92,7 +93,7 @@ def test_auto3D_config1():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_config2():
     """Check that the program runs"""
     args = options(path, window=1, use_gpu=True, convergence_threshold=0.1,
@@ -128,7 +129,49 @@ def test_auto3D_config4():
     except:
         shutil.rmtree(out_folder)
 
+def test_auto3D_sdf_omega_aimnet():
+    """Check that the program runs"""
+    args = options(sdf_path, window=2, use_gpu=False, convergence_threshold=0.1,
+                   isomer_engine="omega", optimizing_engine="AIMNET", max_confs=10)
+    out = main(args)
+    out_folder = os.path.dirname(os.path.abspath(out))
+    try:
+        send2trash(out_folder)
+    except:
+        shutil.rmtree(out_folder)
 
+def test_auto3D_sdf_rdkit_aimnet():
+    """Check that the program runs"""
+    args = options(sdf_path, window=2, use_gpu=False, convergence_threshold=0.1,
+                   isomer_engine="rdkit", optimizing_engine="AIMNET", max_confs=10)
+    out = main(args)
+    out_folder = os.path.dirname(os.path.abspath(out))
+    try:
+        send2trash(out_folder)
+    except:
+        shutil.rmtree(out_folder)
+
+def test_auto3D_sdf_rdkit_ani2x():
+    """Check that the program runs"""
+    args = options(sdf_path, window=2, use_gpu=False, convergence_threshold=0.1,
+                   isomer_engine="rdkit", optimizing_engine="ANI2x", max_confs=10)
+    out = main(args)
+    out_folder = os.path.dirname(os.path.abspath(out))
+    try:
+        send2trash(out_folder)
+    except:
+        shutil.rmtree(out_folder)
+
+def test_auto3D_sdf_rdkit_ani2xt():
+    """Check that the program runs"""
+    args = options(sdf_path, window=2, use_gpu=False, convergence_threshold=0.1,
+                   isomer_engine="rdkit", optimizing_engine="ANI2xt", max_confs=10)
+    out = main(args)
+    out_folder = os.path.dirname(os.path.abspath(out))
+    try:
+        send2trash(out_folder)
+    except:
+        shutil.rmtree(out_folder)
 # if __name__ == "__main__":
     # test_auto3D_omega_aimnet()
     # test_auto3D_rdkit_aimnet()
