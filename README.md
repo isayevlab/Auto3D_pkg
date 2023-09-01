@@ -9,7 +9,7 @@
 
 
 # Introduction
-**Auto3D** is a Python package for generating low-energy conformers from SMILES. It automatizes the stereoisomer enumeration and duplicate filtering process, 3D building process, fast geometry optimization and ranking process using ANI and AIMNet neural network atomistic potentials. Auto3D can be imported as a Python library, or be excuted from the terminal.
+**Auto3D** is a Python package for generating low-energy conformers from SMILES/SDF. It automatizes the stereoisomer enumeration and duplicate filtering process, 3D building process, fast geometry optimization and ranking process using ANI and AIMNet neural network atomistic potentials. Auto3D can be imported as a Python library, or be excuted from the terminal.
 
 
 # Installatioin

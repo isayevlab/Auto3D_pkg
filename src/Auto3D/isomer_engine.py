@@ -321,6 +321,7 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         input: input smi file
         output: output SDF file
         flipper: optional R/S and cis/trans enumeration"""
+    input_format = input.split(".")[-1].strip()
     if max_confs is None:
         max_confs = 1000
     if mode == "classic":
@@ -363,18 +364,21 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         omega = oeomega.OEMacrocycleOmega(omegaOpts)
     else:
         omega = oeomega.OEOmega(omegaOpts)
-
-    if flipper:
-        print("Enumerating stereoisomers.", flush=True)
-        # logger.info("Enumerating stereoisomers.")
-        oe_flipper(input, smiles_enumerated)
-        amend_configuration_w(smiles_enumerated)
-        remove_enantiomers(smiles_enumerated, smiles_reduced)
-        ifs = oechem.oemolistream()
-        ifs.open(smiles_reduced)
-    else:
-        ifs = oechem.oemolistream()
-        ifs.open(input)
+    if input_format == "smi":
+        if flipper:
+            print("Enumerating stereoisomers.", flush=True)
+            # logger.info("Enumerating stereoisomers.")
+            oe_flipper(input, smiles_enumerated)
+            amend_configuration_w(smiles_enumerated)
+            remove_enantiomers(smiles_enumerated, smiles_reduced)
+            ifs = oechem.oemolistream()
+            ifs.open(smiles_reduced)
+        else:
+            ifs = oechem.oemolistream()
+            ifs.open(input)
+    elif input_format == "sdf":
+            ifs = oechem.oemolistream()
+            ifs.open(input)        
     ofs = oechem.oemolostream()
     ofs.open(output)
 
