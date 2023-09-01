@@ -14,6 +14,7 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 from rdkit.Chem.EnumerateStereoisomers import StereoEnumerationOptions
 from rdkit.Chem.MolStandardize import rdMolStandardize
+from rdkit.Chem import rdMolDescriptors
 from .utils import hash_enumerated_smi_IDs, combine_smi, amend_configuration_w
 from .utils import remove_enantiomers
 try:
@@ -251,6 +252,49 @@ class rd_isomer(object):
         return self.enumerated_sdf
 
 
+class rd_isomer_sdf(object):
+    """
+    enumerating conformers starting from an SDF file.
+    The specified stereo centers are preserved as in the input file.
+    The unspecified stereo centers are enumerated.
+    """
+    def __init__(self, sdf: str, enumerated_sdf: str, max_confs:int, threshold:float, np:int):
+        """
+        sdf: the path to the input sdf file
+        enumerated_sdf: the path to the output sdf file
+        max_confs: the maximum number of conformers to be enumerated for each molecule
+        threshold: the RMSD threshold for removing duplicate conformers for each molecule
+        np: the number of threads to be used for parallelization
+        """
+        self.sdf = sdf
+        self.enumerated_sdf = enumerated_sdf
+        self.n_conformers = max_confs
+        self.threshold = threshold
+        self.np = np
+
+    def run(self):
+        supp = Chem.SDMolSupplier(self.sdf, removeHs=False)
+        with Chem.SDWriter(self.enumerated_sdf) as writer:
+            for mol in tqdm(supp):
+                #enumerate conformers
+                mol2 = Chem.AddHs(mol)
+                if self.n_conformers is None:
+                    num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
+                    n_conformers = min(3 ** num_rotatable_bonds, 100)
+                else:
+                    n_conformers = self.n_conformers
+                AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=42, numThreads=self.np, pruneRmsThresh=self.threshold)
+                #set conformer names
+                name = mol.GetProp('_Name')
+                for i, conf in enumerate(mol2.GetConformers()):
+                    # mol2.ClearProp('ID')
+                    # mol2.ClearProp('_Name')
+                    mol2.SetProp('_Name', f'{name}_{i}')
+                    mol2.SetProp('ID', f'{name}_{i}')
+                    writer.write(mol2, confId=i)
+        return self.enumerated_sdf
+
+
 def oe_flipper(input, out):
     """helper function for oe_isomer"""
     ifs = oechem.oemolistream()
@@ -277,6 +321,7 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         input: input smi file
         output: output SDF file
         flipper: optional R/S and cis/trans enumeration"""
+    input_format = input.split(".")[-1].strip()
     if max_confs is None:
         max_confs = 1000
     if mode == "classic":
@@ -319,18 +364,21 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         omega = oeomega.OEMacrocycleOmega(omegaOpts)
     else:
         omega = oeomega.OEOmega(omegaOpts)
-
-    if flipper:
-        print("Enumerating stereoisomers.", flush=True)
-        # logger.info("Enumerating stereoisomers.")
-        oe_flipper(input, smiles_enumerated)
-        amend_configuration_w(smiles_enumerated)
-        remove_enantiomers(smiles_enumerated, smiles_reduced)
-        ifs = oechem.oemolistream()
-        ifs.open(smiles_reduced)
-    else:
-        ifs = oechem.oemolistream()
-        ifs.open(input)
+    if input_format == "smi":
+        if flipper:
+            print("Enumerating stereoisomers.", flush=True)
+            # logger.info("Enumerating stereoisomers.")
+            oe_flipper(input, smiles_enumerated)
+            amend_configuration_w(smiles_enumerated)
+            remove_enantiomers(smiles_enumerated, smiles_reduced)
+            ifs = oechem.oemolistream()
+            ifs.open(smiles_reduced)
+        else:
+            ifs = oechem.oemolistream()
+            ifs.open(input)
+    elif input_format == "sdf":
+            ifs = oechem.oemolistream()
+            ifs.open(input)        
     ofs = oechem.oemolostream()
     ofs.open(output)
 

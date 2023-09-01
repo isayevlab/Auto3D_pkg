@@ -22,6 +22,7 @@ from rdkit.Chem import rdMolAlign
 from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 from rdkit.Chem import rdMolDescriptors
+from typing import List, Tuple, Dict, Union, Optional, Callable
 
 #CODATA 2018 energy conversion factor
 hartree2ev = 27.211386245988
@@ -47,79 +48,35 @@ def check_input(args):
     """
     print("Checking input file...", flush=True)
     logger.info("Checking input file...")
-    # logger.info("================================================================================")
-    # logger.info("                               Check Input")
-    # logger.info("================================================================================")
-    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
-    ANI = True
+    # ANI_elements = {1, 6, 7, 8, 9, 16, 17}
+    # ANI = True
     # Check --use_gpu
     gpu_flag = args.use_gpu
     if gpu_flag:
         if torch.cuda.is_available() == False:
             sys.exit("No cuda device was detected. Please set --use_gpu=False.")
-    # Check the availability of omega
-    # if "OE_LICENSE" not in os.environ:
-    #     warnings.warn("OpenEye software license is not detected. Please use RDKit for your program where applicable.")
     isomer_engine = args.isomer_engine
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
         sys.exit("Omega is used as the isomer engine, but OE_LICENSE is not detected. Please use rdkit.")
-
     # Check the installation for open toolkits, torchani
     if args.isomer_engine == "omega":
         try:
             from openeye import oechem
         except:
             sys.exit("Omega is used as isomer engine, but openeye toolkits are not installed.")
-    
     if args.optimizing_engine == "ANI2x":
         try:
             import torchani
         except:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
-
-    # if args.optimizing_engine == "ANI2xt":
-    #     try:
-    #         from torchani.repulsion import StandaloneRepulsionCalculator
-    #     except:
-    #         sys.exit("ANI2xt is used as optimizing engine, but TorchANI with repulsion calculator is not installed.")
-
     if int(args.opt_steps) < 10:
         sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")
 
     # Check the input format
-    smiles_all = []
-    with open(args.path, 'r') as f:
-        data = f.readlines()
-    for line in data:
-        smiles, id = tuple(line.strip().split())
-        assert len(smiles) > 0, \
-               "Empty SMILES string"
-        assert len(id) > 0, \
-               "Empty ID"
-        assert "_" not in id, \
-                f"Sorry, SMILES ID cannot contain underscore: {smiles}"
-        smiles_all.append(smiles)
-    print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
-    print("\tAll SMILES and IDs are valid.", flush=True)
-    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
-
-    # Check number of unspecified atomic stereo center
-    if args.enumerate_isomer == False:
-        for smiles in smiles_all:
-            c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
-            if c > 0:
-                msg = f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. Please use cis_tras=True so that Auto3D can enumerate the unspecified atomic stereo centers."
-                warnings.warn(msg, UserWarning)
-
-    # Check the properties of molecules
-    only_aimnet_smiles = []
-    for smiles in smiles_all:
-        mol = Chem.MolFromSmiles(smiles)
-        charge = Chem.rdmolops.GetFormalCharge(mol)
-        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
-        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
-            ANI = False
-            only_aimnet_smiles.append(smiles)
+    if args.input_format == "smi":
+        ANI, only_aimnet_smiles = check_smi_format(args)
+    elif args.input_format == "sdf":
+        ANI, only_aimnet_smiles = check_sdf_format(args)
 
     print("Suggestions for choosing isomer_engine and optimizing_engine: ", flush=True)
     logger.info(f"Suggestions for choosing isomer_engine and optimizing_engine: ")
@@ -137,6 +94,88 @@ def check_input(args):
         if optimizing_engine != "AIMNET":
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
             logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
+
+def check_smi_format(args):
+    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
+    ANI = True
+
+    smiles_all = []
+    with open(args.path, 'r') as f:
+        data = f.readlines()
+    for line in data:
+        smiles, id = tuple(line.strip().split())
+        assert len(smiles) > 0, \
+            "Empty SMILES string"
+        assert len(id) > 0, \
+            "Empty ID"
+        assert "_" not in id, \
+                f"Sorry, SMILES ID cannot contain underscore: {smiles}"
+        assert "." not in id, \
+                f"Sorry, SMILES ID cannot contain period: {smiles}"
+        smiles_all.append(smiles)
+    print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
+    print("\tAll SMILES and IDs are valid.", flush=True)
+    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
+
+    # Check number of unspecified atomic stereo center
+    if args.enumerate_isomer == False:
+        for smiles in smiles_all:
+            c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
+            if c > 0:
+                msg = f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. Please use enumerate_isomer=True so that Auto3D can enumerate the unspecified atomic stereo centers."
+                warnings.warn(msg, UserWarning)
+
+    # Check the properties of molecules
+    only_aimnet_smiles = []
+    for smiles in smiles_all:
+        mol = Chem.MolFromSmiles(smiles)
+        charge = Chem.rdmolops.GetFormalCharge(mol)
+        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
+        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
+            ANI = False
+            only_aimnet_smiles.append(smiles)
+    return ANI, only_aimnet_smiles
+
+def check_sdf_format(args):
+    """
+    Check the input file and give recommendations.
+
+    Arguments:
+        args: Arguments to auto3d.
+
+    Returns:
+        This function checks the format of the input file, the properties for
+        each molecule in the input file.
+    """
+    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
+    ANI = True
+
+    supp = Chem.SDMolSupplier(args.path, removeHs=False)
+    mols, only_aimnet_ids = [], []
+    for mol in supp:
+        id = mol.GetProp("_Name")
+        assert len(id) > 0, \
+            "Empty ID"
+        assert "_" not in id, \
+                f"Sorry, molecule ID cannot contain underscore: {id}"
+        assert "." not in id, \
+                f"Sorry, molecule ID cannot contain period: {id}"
+        mols.append(mol)    
+
+        charge = Chem.rdmolops.GetFormalCharge(mol)
+        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
+        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
+            ANI = False
+            only_aimnet_ids.append(id)
+    print(f"\tThere are {len(mols)} conformers in the input file {args.path}. ", flush=True)
+    print("\tAll conformers and IDs are valid.", flush=True)
+    logger.info(f"\tThere are {len(mols)} conformers in the input file {args.path}. \n\tAll conformers and IDs are valid.")
+
+    if args.enumerate_isomer:
+        msg = "Enumerating stereocenters of an SDF file could change the conformers of the input file. Please use enumerate_isomer=False."
+        warnings.warn(msg, UserWarning)
+    return ANI, only_aimnet_ids
+       
 
 def to_smiles(path, fomat="sdf"):
     """converting a file from a given format to smi file
@@ -272,26 +311,29 @@ class NullIO(StringIO):
     def write(self, txt):
         pass
 
-# def countXYZ(xyz):
-#     """Counting the number of structures in XYZ file"""
-#     c = 0
-#     for _ in pybel.readfile('xyz', xyz):
-#         c += 1
-#     return c
 
-
-# def countSDF(sdf):
-#     """Counting the number of structures in SDF file"""
-#     mols = pybel.readfile('sdf', sdf)
-#     mols2 = [mol for mol in mols]
-#     c = len(mols2)
-#     return c
 def countSDF(sdf):
     """Counting the number of structures in SDF file"""
     mols = Chem.SDMolSupplier(sdf)
     mols2 = [mol for mol in mols]
     c = len(mols2)
     return c
+
+def SDF2chunks(sdf:str)->List[List[str]]:
+    """given a sdf file, return a list of chunks,
+    each chunk consists of lines of a molecule as they appear in the original file"""
+    chunks = []
+    with open(sdf, "r") as f:
+        data = f.readlines()
+    chunk = []
+    for line in data:
+        if line.strip() == "$$$$":
+            chunk.append(line)
+            chunks.append(chunk)
+            chunk = []
+        else:
+            chunk.append(line)
+    return chunks
 
 def hash_enumerated_smi_IDs(smi, out):
     '''
@@ -315,8 +357,9 @@ def hash_enumerated_smi_IDs(smi, out):
 
     dict0 = collections.OrderedDict(sorted(dict0.items()))
 
-    new_smi = out
-    with open(new_smi, 'w+') as f:
+    # new_smi = out
+    # with open(new_smi, 'w+') as f:
+    with open(out, 'w+') as f:
         for id, smiles in dict0.items():
             molecule = smiles.strip() + ' ' + id.strip() + '\n'
             f.write(molecule)
@@ -349,30 +392,6 @@ def hash_taut_smi(smi, out):
             molecule = smiles.strip() + ' ' + id.strip() + '\n'
             f.write(molecule)
 
-
-# def sort_enumerated_sdf(sdf, out):
-#     """
-#     Sort an SDF file based on the IDs of SMILES in the input file.
-
-#     Arguments:
-#         sdf: the input SDF file.
-#         out: the path for the sorted SDF file
-#     Returns:
-#         writes the sorted molecules into out.
-#     """
-#     dict0 = {}
-    
-#     mols = pybel.readfile('sdf', sdf)
-#     for mol in mols:
-#         idx = str(mol).split('\t')[1].strip().split(' ')[0].strip()
-#         mol.data['ID'] = idx
-#         dict0[idx] = mol
-#     dict0 = collections.OrderedDict(sorted(dict0.items()))
-    
-#     f = pybel.Outputfile('sdf', out)
-#     for idx, mol in dict0.items():
-#         f.write(mol)
-#     f.close()
 
 def combine_xyz(in_folder, out_path):
     """
@@ -517,31 +536,7 @@ def remove_enantiomers(inpath, out):
                 f.write(line)
     return smiles
 
-# def atomType(mol, atomIdx):
-#     """get the atomic type given an atom index, both in pybel mol object"""
-#     atom_num = mol.OBMol.GetAtom(atomIdx).GetAtomicNum()
-#     return atom_num
 
-
-# def check_bonds(mol):
-#     """Check if a pybel mol object has valid bond lengths"""
-#     # Initialize UFF bond radii (Rappe et al. JACS 1992)
-#     # Units of angstroms 
-#     # These radii neglect the bond-order and electronegativity corrections in the original paper. Where several values exist for the same atom, the largest was used. 
-#     Radii = {1:0.354, 
-#              5:0.838, 6:0.757, 7:0.700,  8:0.658,  9:0.668,
-#              14:1.117, 15:1.117, 16:1.064, 17:1.044,
-#              32: 1.197, 33:1.211, 34:1.190, 35:1.192,
-#              51:1.407, 52:1.386,  53:1.382}
-
-#     for bond in ob.OBMolBondIter(mol.OBMol):
-#         length = bond.GetLength()
-#         begin = atomType(mol, bond.GetBeginAtomIdx())
-#         end = atomType(mol, bond.GetEndAtomIdx())
-#         reference_length = (Radii[begin] + Radii[end]) * 1.25
-#         if length > reference_length:
-#             return False
-#     return True
 def check_bonds(mol):
     """Check if a rdkit mol object has valid bond lengths"""
     # Initialize UFF bond radii (Rappe et al. JACS 1992)
@@ -570,41 +565,6 @@ def check_bonds(mol):
     return True
 
 
-# def filter_unique(mols, crit=0.3):
-#     """Remove structures that are very similar.
-#        Remove unconverged structures.
-    
-#     Arguments:
-#         mols: pybel mol objects
-#     Returns:
-#         unique_mols: unique molecules
-#     """
-
-#     #Remove unconverged structures
-#     mols_ = []
-#     for mol in mols:
-#         convergence_flag = str(mol.data['Converged']).lower() == "true"
-#         has_valid_bonds = check_bonds(mol)
-#         if convergence_flag and has_valid_bonds:
-#             mols_.append(mol)
-#     mols = mols_
-
-#     #Remove similar structures
-#     unique_mols = []
-#     aligner = pybel.ob.OBAlign()
-#     for mol_i in mols:
-#         aligner.SetRefMol(mol_i.OBMol)
-#         unique = True
-#         for mol_j in unique_mols:
-#             aligner.SetTargetMol(mol_j.OBMol)
-#             aligner.Align()
-#             rmsd = aligner.GetRMSD()
-#             if rmsd < crit:
-#                 unique = False
-#                 break
-#         if unique:
-#             unique_mols.append(mol_i)
-#     return unique_mols
 def filter_unique(mols, crit=0.3):
     """Remove structures that are very similar.
        Remove unconverged structures.
@@ -638,58 +598,6 @@ def filter_unique(mols, crit=0.3):
             unique_mols.append(mol_i)
     return unique_mols
 
-# def unique_conformers(files, crit=0.5):
-#     """Removing conformers whose RMSD is within crit
-    
-#     Arguments:
-#         files: sdf files
-#     """
-#     unique_files = []
-#     duplicate_files = []
-#     aligner = pybel.ob.OBAlign()
-#     for file in files:
-#         mol = next(pybel.readfile("sdf", file))
-#         aligner.SetRefMol(mol.OBMol)
-#         unique = True
-#         for f in unique_files:
-#             mol_j = next(pybel.readfile("sdf", f))
-#             aligner.SetTargetMol(mol_j.OBMol)
-#             aligner.Align()
-#             rmsd = aligner.GetRMSD()
-#             if rmsd < crit:
-#                 unique = False
-#                 break
-#         if unique:
-#             unique_files.append(file)
-#         else:
-#             duplicate_files.append(file)
-#     c = len(unique_files) + len(duplicate_files)
-#     assert(c == len(files))
-#     for file in duplicate_files:
-#         os.remove(file)
-
-# def sort_output(mols, out):
-#     """Sort molecules based on energies
-    
-#     Arguments:
-#         mols: a list of pybel mol objects
-#         out: a SDF file to store the molecules
-#     """
-#     l = []
-#     for mol in mols:
-#         name = mol.data['ID'].split('_')[0].strip()
-#         e = mol.data['E_tot']
-#         e_rel = mol.data['E_relative']
-
-#         l.append((name, e_rel, mol))
-
-#     l = sorted(l)
-
-#     f = pybel.Outputfile('sdf', out)
-#     for n_er_m in l:
-#         name, e_relative, mol = n_er_m
-#         f.write(mol)
-#     f.close()
 
 def no_enantiomer_helper(info1, info2):
     """Return true if info1 and info2 are enantiomers"""

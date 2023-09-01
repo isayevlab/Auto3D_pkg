@@ -4,6 +4,8 @@ import time
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 from Auto3D.isomer_engine import rd_isomer
+from Auto3D.utils import SDF2chunks
+from Auto3D.utils import countSDF
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path = os.path.join(folder, "tests/files/single_smiles.smi")
@@ -11,6 +13,7 @@ smiles_enumerated = os.path.join(folder, "tests/files/single_smiles_enumerated.s
 smiles_reduced = os.path.join(folder, "tests/files/single_smiles_enumerated.smi")
 smiles_hashed = os.path.join(folder, "tests/files/single_smiles_hashed.smi")
 sdf_enumerated = os.path.join(folder, "tests/files/single_smiles_enumerated.sdf")
+example_sdf = os.path.join(folder, "tests/files/wb97x_dz.sdf")
 max_confs = None
 threshold = 0.3
 n_process = 4
@@ -91,6 +94,11 @@ def test_rd_isomer_conformer_func():
     assert(num_conformers[1] >= num_conformers[2])
 
 
+def test_SDF2chunks():
+    chunks = SDF2chunks(example_sdf)
+    assert(len(chunks) == countSDF(example_sdf))
+
 
 if __name__ == "__main__":
-    test_rd_isomer_conformer_func()
+    # test_rd_isomer_conformer_func()
+    test_SDF2chunks()

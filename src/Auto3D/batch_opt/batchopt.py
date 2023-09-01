@@ -128,7 +128,7 @@ class EnForce_ANI(torch.nn.Module):
             energies
             forces
         """
-        charge = torch.zeros_like(numbers[:, 0])
+        # charge = torch.zeros_like(numbers[:, 0])
 
         if self.name == "AIMNET":
             d = self.ani(dict(coord=coord, numbers=numbers, charge=charges))  #Output from the model
