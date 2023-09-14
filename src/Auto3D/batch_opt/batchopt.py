@@ -123,6 +123,7 @@ class EnForce_ANI(torch.nn.Module):
                   B is the number of structures in coord, N is the number of
                   atoms in each structure, 3 represents xyz dimensions.
             numbers: the periodic numbers for all atoms.
+            charges: tensor size (B)
             
         Returns:
             energies
@@ -131,11 +132,15 @@ class EnForce_ANI(torch.nn.Module):
         # charge = torch.zeros_like(numbers[:, 0])
 
         if self.name == "AIMNET":
+            # torch.set_grad_enabled(True)
+            # torch._C._set_grad_enabled(True)
             d = self.ani(dict(coord=coord, numbers=numbers, charge=charges))  #Output from the model
-            e = (d['energy'] + d['disp_energy']).to(torch.double)
-            g = torch.autograd.grad([e.sum()], [coord])[0]  # size(100, 23, 3)
-            assert g is not None
-            f = -g
+            # e = (d['energy'] + d['disp_energy']).to(torch.double)
+            e = d['energy'].to(torch.double)
+            # g = torch.autograd.grad([e.sum()], [coord])[0]  # size(100, 23, 3)
+            # assert g is not None
+            # f = -g
+            f = d['forces']
         elif self.name == "ANI2xt":
             e, f = self.ani(numbers, coord)
         elif self.name == "ANI2x":
@@ -373,7 +378,8 @@ class optimizing(object):
         self.config = config
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if model == "AIMNET":
-            self.ani = torch.jit.load(os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt"), map_location=device) # Return a ScriptModule object
+            # self.ani = torch.jit.load(os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt"), map_location=device) # Return a ScriptModule object
+            self.ani = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
         elif model == "ANI2xt":
             self.ani = ANI2xt(device)
         elif model == "ANI2x":
