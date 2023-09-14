@@ -11,7 +11,7 @@ from ase import Atoms
 import ase.calculators.calculator
 try:
     import torchani
-    from .batch_opt.ANI2xt_no_rep import ANI2xt
+    from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 except:
     pass
 from rdkit import Chem
@@ -45,8 +45,9 @@ def calc_spe(path:str, model_name:str, gpu_idx=0):
     if model_name == "ANI2xt":
         model = EnForce_ANI(ANI2xt(device), model_name)
     elif model_name == "AIMNET":
-        dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
-        aimnet = torch.jit.load(dict_path, map_location=device)
+        # dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
+        # aimnet = torch.jit.load(dict_path, map_location=device)
+        aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
         model = EnForce_ANI(aimnet, model_name)
     elif model_name == "ANI2x":
         calculator = torchani.models.ANI2x(periodic_table_index=True).to(device)

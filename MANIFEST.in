@@ -1,2 +1,3 @@
 graft src/Auto3D
 include src/Auto3D/models/aimnet2nqed_pc14iall_b97m_sae.jpt
+include src/Auto3D/models/aimnet2_wb97m_ens_f.jpt
