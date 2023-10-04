@@ -43,11 +43,11 @@ def create_chunk_meta_names(path, dir):
     dct = {}
     output_name = os.path.basename(path).split('.')[0].strip() + '_3d.sdf'
     output = os.path.join(dir, output_name)
-    optimized_og = output.split('.')[0] + '0.sdf'
+    optimized_og = os.path.join(dir, os.path.basename(output).split('.')[0] + '0.sdf')
 
     output_taut = os.path.join(dir, 'smi_taut.smi')
     smiles_enumerated = os.path.join(dir, 'smiles_enumerated.smi')
-    smiles_reduced = smiles_enumerated.split('.')[0] + '_reduced.smi'
+    smiles_reduced = os.path.join(dir, os.path.basename(smiles_enumerated).split('.')[0] + '_reduced.smi')
     smiles_hashed = os.path.join(dir, 'smiles_enumerated_hashed.smi')
     enumerated_sdf = os.path.join(dir, 'smiles_enumerated.sdf')
     sorted_sdf = os.path.join(dir, 'enumerated_sorted.sdf')
