@@ -276,9 +276,6 @@ def find_smiles_not_in_sdf(smi, sdf):
         smi, id = tuple(line.strip().split())
         smi_names.append((smi.strip(), id.strip()))
     
-    #find the titles of the SDF file
-    # with open(sdf, "r") as f:
-    #     sdf_data = f.readlines()
     sdf_data = []
     mols = Chem.SDMolSupplier(sdf)
     for mol in mols:
@@ -288,9 +285,11 @@ def find_smiles_not_in_sdf(smi, sdf):
     bad = []
     for smi, id in smi_names:
         has_3D_structure = False
-        for line in sdf_data:
-            if id in line:
-                has_3D_structure = True
+        # for line in sdf_data:
+        #     if id in line:
+        #         has_3D_structure = True
+        if id in sdf_data:
+            has_3D_structure = True
         if not has_3D_structure:
             bad.append((id, smi))
 
