@@ -1,12 +1,14 @@
 import os
 import warnings
 from Auto3D.auto3D import options
-from Auto3D.utils import check_input
+from Auto3D.utils import check_input, find_smiles_not_in_sdf
 
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path1 = os.path.join(folder, "tests/files/all_stereo_centers_specified.smi")
 path2 = os.path.join(folder, "tests/files/contain_unspecified_centers.smi")
+path3 = os.path.join(folder, "tests/files/util_test.smi")
+path4 = os.path.join(folder, "tests/files/util_test.sdf")
 
 
 def test_check_input():
@@ -39,6 +41,15 @@ def test_check_input():
         check_input(args4)
     print(warnings_list4, flush=True)
     assert(len(warnings_list4) == 0)
+
+
+def test_find_smiles_not_in_sdf():
+    """Test find_smiles_not_in_sdf"""
+    bad = find_smiles_not_in_sdf(path3, path4)
+    assert (len(bad) == 2)
+    bad_ids = [id for id, _ in bad]
+    assert ('9' in bad_ids)
+    assert ('9b' in bad_ids)
 
 
 # if __name__ == "__main__":
