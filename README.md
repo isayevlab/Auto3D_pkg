@@ -17,7 +17,7 @@
 ## Minimum Dependencies Installatioin
 1. Python >= 3.7
 2. [RDKit](https://www.rdkit.org/docs/Install.html) >= 2022.03.1(For the isomer engine)
-3. [PyTorch](https://pytorch.org/get-started/locally/) (For the optimization engine)
+3. [PyTorch](https://pytorch.org/get-started/locally/) >= 2.1.0 (For the optimization engine)
 
 If you have an environment with the above dependencies, Auto3D can be installed by
 ```{bash}

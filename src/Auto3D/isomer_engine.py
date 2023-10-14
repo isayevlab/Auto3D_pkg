@@ -28,17 +28,17 @@ from tqdm import tqdm
 
 # logger = logging.getLogger("auto3d")
 class tautomer_engine(object):
-    """Enemerate possible tautomers for the input
+    """Enemerate possible tautomers for the input_f
     
     Arguments:
         mode: rdkit or oechem
-        input: smi file
+        input_f: smi file
         output: smi file
         
     """
-    def __init__(self, mode, input, out, pKaNorm):
+    def __init__(self, mode, input_f, out, pKaNorm):
         self.mode = mode
-        self.input = input
+        self.input_f = input_f
         self.output = out
         self.pKaNorm = pKaNorm
 
@@ -46,7 +46,7 @@ class tautomer_engine(object):
         """OEChem enumerating tautomers, modified from
         https://docs.eyesopen.com/toolkits/python/quacpactk/examples_summary_getreasonabletautomers.html"""
         ifs = oechem.oemolistream()
-        ifs.open(self.input)
+        ifs.open(self.input_f)
 
         ofs = oechem.oemolostream()
         ofs.open(self.output)
@@ -57,14 +57,14 @@ class tautomer_engine(object):
             for tautomer in oequacpac.OEGetReasonableTautomers(mol, tautomerOptions, self.pKaNorm):
                 oechem.OEWriteMolecule(ofs, tautomer)
         
-        # Appending input smiles into output
-        combine_smi([self.input, self.output], self.output)
+        # Appending input_f smiles into output
+        combine_smi([self.input_f, self.output], self.output)
 
     def rd_taut(self):
         """RDKit enumerating tautomers"""
         enumerator = rdMolStandardize.TautomerEnumerator()
         smiles = []
-        with open(self.input, 'r') as f:
+        with open(self.input_f, 'r') as f:
             data = f.readlines()
             for line in data:
                 line = line.strip().split()
@@ -107,7 +107,7 @@ class rd_isomer(object):
     def __init__(self, smi, smiles_enumerated, smiles_enumerated_reduced,
                  smiles_hashed, enumerated_sdf, job_name, max_confs, threshold, np,
                  flipper=True):
-        self.input = smi
+        self.input_f = smi
         self.n_conformers = max_confs
         self.enumerate = {}
         self.enumerated_smi_path = smiles_enumerated
@@ -123,9 +123,9 @@ class rd_isomer(object):
         self.flipper = flipper
 
     @staticmethod
-    def read(input):
+    def read(input_f):
         outputs = {}
-        with open(input, 'r') as f:
+        with open(input_f, 'r') as f:
             data = f.readlines()
         for line in data:
             smiles, name = tuple(line.strip().split())
@@ -211,7 +211,7 @@ class rd_isomer(object):
 
     def run(self):
         """
-        When called, enumerate 3 dimensional structures for the input file and
+        When called, enumerate 3 dimensional structures for the input_f file and
         writes all structures in 'job_name/smiles_enumerated.sdf'
         """
         if self.flipper:
@@ -219,7 +219,7 @@ class rd_isomer(object):
             print("Enumerating R/S isomers for unspecified atomic centers...", flush=True)
             # logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
             # logger.info("Enumerating R/S isomers for unspecified atomic centers...")
-            smiles_og = self.read(self.input)
+            smiles_og = self.read(self.input_f)
             for name, smiles in smiles_og.items():
                 # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
                 mol = Chem.MolFromSmiles(smiles)
@@ -233,7 +233,7 @@ class rd_isomer(object):
             hash_enumerated_smi_IDs(self.enumerated_smi_path_reduced,
                                     self.enumerated_smi_hashed_path)
         else:
-            hash_enumerated_smi_IDs(self.input,
+            hash_enumerated_smi_IDs(self.input_f,
                                     self.enumerated_smi_hashed_path)
 
         print("Enumerating conformers/rotamers, removing duplicates...", flush=True)
@@ -255,12 +255,12 @@ class rd_isomer(object):
 class rd_isomer_sdf(object):
     """
     enumerating conformers starting from an SDF file.
-    The specified stereo centers are preserved as in the input file.
+    The specified stereo centers are preserved as in the input_f file.
     The unspecified stereo centers are enumerated.
     """
     def __init__(self, sdf: str, enumerated_sdf: str, max_confs:int, threshold:float, np:int):
         """
-        sdf: the path to the input sdf file
+        sdf: the path to the input_f sdf file
         enumerated_sdf: the path to the output sdf file
         max_confs: the maximum number of conformers to be enumerated for each molecule
         threshold: the RMSD threshold for removing duplicate conformers for each molecule
@@ -295,10 +295,10 @@ class rd_isomer_sdf(object):
         return self.enumerated_sdf
 
 
-def oe_flipper(input, out):
+def oe_flipper(input_f, out):
     """helper function for oe_isomer"""
     ifs = oechem.oemolistream()
-    ifs.open(input)
+    ifs.open(input_f)
     ofs = oechem.oemolostream()
     ofs.open(out)
 
@@ -314,14 +314,14 @@ def oe_flipper(input, out):
             enantiomer = oechem.OEMol(enantiomer)
             oechem.OEWriteMolecule(ofs, enantiomer)
 
-def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, output, max_confs, threshold, flipper=True):
+def oe_isomer(mode, input_f, smiles_enumerated, smiles_reduced, smiles_hashed, output, max_confs, threshold, flipper=True):
     """Generating R/S, cis/trans and conformers using omega
     Arguments:
         mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'
-        input: input smi file
+        input_f: input_f smi file
         output: output SDF file
         flipper: optional R/S and cis/trans enumeration"""
-    input_format = input.split(".")[-1].strip()
+    input_format = os.path.basename(input_f).split(".")[-1].strip()
     if max_confs is None:
         max_confs = 1000
     if mode == "classic":
@@ -343,24 +343,36 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-maxconfs", oechem.OEParamVisibility_Simple)
     
-    omegaOpts.SetRMSRange("0.8, 1.0, 1.2, 1.4")
-    if mode == "classic":
-        # omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
-        omegaOpts.SetStrictStereo(False)
-        omegaOpts.SetWarts(True)
-        omegaOpts.SetMaxConfs(max_confs)
-        omegaOpts.SetEnergyWindow(999)
-    elif mode == "macrocycle":
+    # omegaOpts.SetRMSRange("0.8, 1.0, 1.2, 1.4")
+    # if mode == "classic":
+    #     # omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
+    #     omegaOpts.SetStrictStereo(False)
+    #     omegaOpts.SetWarts(True)
+    #     omegaOpts.SetMaxConfs(max_confs)
+    #     omegaOpts.SetEnergyWindow(999)
+    # elif mode == "macrocycle":
+    #     omegaOpts.SetIterCycleSize(1000)
+    #     omegaOpts.SetMaxIter(2000)   
+    #     omegaOpts.SetMaxConfs(max_confs)
+    #     omegaOpts.SetEnergyWindow(999)
+
+    if mode == 'macrocycle':
         omegaOpts.SetIterCycleSize(1000)
         omegaOpts.SetMaxIter(2000)   
         omegaOpts.SetMaxConfs(max_confs)
         omegaOpts.SetEnergyWindow(999)
+    else:
+        omegaOpts.SetStrictStereo(False)
+        omegaOpts.SetWarts(True)
+        omegaOpts.SetMaxConfs(max_confs)
+        omegaOpts.SetEnergyWindow(999)   
+        omegaOpts.SetRMSRange("0.8, 1.0, 1.2, 1.4")             
     # dense, pose, rocs, fast_rocs mdoes use the default parameters from OEOMEGA:
     # https://docs.eyesopen.com/toolkits/python/omegatk/OEConfGenConstants/OEOmegaSampling.html 
     opts = oechem.OESimpleAppOptions(omegaOpts, "Omega", oechem.OEFileStringType_Mol, oechem.OEFileStringType_Mol3D)
 
     omegaOpts.UpdateValues(opts)
-    if mode == "macrocyce":
+    if mode == "macrocycle":
         omega = oeomega.OEMacrocycleOmega(omegaOpts)
     else:
         omega = oeomega.OEOmega(omegaOpts)
@@ -368,17 +380,17 @@ def oe_isomer(mode, input, smiles_enumerated, smiles_reduced, smiles_hashed, out
         if flipper:
             print("Enumerating stereoisomers.", flush=True)
             # logger.info("Enumerating stereoisomers.")
-            oe_flipper(input, smiles_enumerated)
+            oe_flipper(input_f, smiles_enumerated)
             amend_configuration_w(smiles_enumerated)
             remove_enantiomers(smiles_enumerated, smiles_reduced)
             ifs = oechem.oemolistream()
             ifs.open(smiles_reduced)
         else:
             ifs = oechem.oemolistream()
-            ifs.open(input)
+            ifs.open(input_f)
     elif input_format == "sdf":
             ifs = oechem.oemolistream()
-            ifs.open(input)        
+            ifs.open(input_f)        
     ofs = oechem.oemolostream()
     ofs.open(output)
 

@@ -138,8 +138,8 @@ class ranking(object):
         """
         When runs, lowest-energy structure will be stored in out_path folder.
         """
-        print("Begin to slelect structures that satisfy the requirements...", flush=True)
-        logging.info("Beggin to slelect structures that satisfy the requirements...")
+        print("Begin to select structures that satisfy the requirements...", flush=True)
+        logging.info("Begin to select structures that satisfy the requirements...")
         results = []
 
         # file_type = guess_file_type(self.input_path)
