@@ -4,18 +4,30 @@ import sys
 import yaml
 import logging
 from rdkit import Chem
+import send2trash
+import shutil
 import Auto3D
 from Auto3D.auto3D import options, main
 from Auto3D.tautomer import get_stable_tautomers
 from Auto3D.utils import my_name_space, find_smiles_not_in_sdf
 
+
 if __name__ == "__main__":
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    path1 = '/storage/users/jack/rse/ene_str/processed.smi'
-    path2 = '/storage/users/jack/rse/ene_str/20230928-170525-481242_processed/processed_out.sdf'
-    bad = find_smiles_not_in_sdf(path1, path2)
-    print(bad)
+    path = os.path.join(root, "tests/files/smiles2.smi")
+    args = options(path, k=1, use_gpu=False, convergence_threshold=0.1,
+                   isomer_engine="omega", optimizing_engine="AIMNET")
+    out = main(args)
+    out_folder = os.path.dirname(os.path.abspath(out))
+    try:
+        send2trash(out_folder)
+    except:
+        shutil.rmtree(out_folder)
+    # path1 = '/storage/users/jack/rse/ene_str/processed.smi'
+    # path2 = '/storage/users/jack/rse/ene_str/20230928-170525-481242_processed/processed_out.sdf'
+    # bad = find_smiles_not_in_sdf(path1, path2)
+    # print(bad)
     # path = "/storage/users/jack/cache/LRRK2_merged_selection.smi"
     # path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
     # path = os.path.join(root, 'tests/files/example.sdf')
