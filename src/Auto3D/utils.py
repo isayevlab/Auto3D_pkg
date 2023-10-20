@@ -18,7 +18,7 @@ import numpy as np
 from io import StringIO
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
-from rdkit.Chem import rdMolAlign
+from rdkit.Chem import rdMolAlign, inchi
 from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 from rdkit.Chem import rdMolDescriptors
@@ -93,7 +93,7 @@ def check_input(args):
         optimizing_engine = args.optimizing_engine
         if optimizing_engine != "AIMNET":
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
-            logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
+            # logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
 
 def check_smi_format(args):
     ANI_elements = {1, 6, 7, 8, 9, 16, 17}
@@ -432,6 +432,18 @@ def combine_smi(smies, out):
             if not line.isspace():
                 f2.write((line.strip() + '\n'))
 
+def smiles2smi(smiles: List[str], path: str) -> str:
+    """Converting a list of smiles into a smi file,
+    naming each SMILES using inchikey"""
+    lines = []
+    for smi in smiles:
+        mol = Chem.MolFromSmiles(smi)
+        inchikey = inchi.MolToInchiKey(mol)
+        lines.append(f"{smi}  {inchikey}\n")
+    with open(path, "w+") as f:
+        for line in lines:
+            f.write(line)
+    return path
 
 def housekeeping_helper(folder, file):
     basename = os.path.basename(file)
@@ -499,8 +511,7 @@ def enantiomer_helper(smiles):
         if indicator:
             non_centers.append(stereo)
             non_enantiomers.append(smi)
-    return non_enantiomers
-            
+    return non_enantiomers      
 
 def remove_enantiomers(inpath, out):
     """Removing enantiomers for the input file

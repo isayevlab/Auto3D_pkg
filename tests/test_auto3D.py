@@ -3,7 +3,7 @@ import torch
 import pytest
 import shutil
 from send2trash import send2trash
-from Auto3D.auto3D import options, main
+from Auto3D.auto3D import options, main, smiles2mols
 from tests import skip_ani2xt_test
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -172,6 +172,14 @@ def test_auto3D_sdf_rdkit_ani2xt():
         send2trash(out_folder)
     except:
         shutil.rmtree(out_folder)
+
+def test_auto3D_smiles2mols():
+    """Check that the program runs"""
+    smiles = ['CCNCC', 'CCC']
+    args = options(k=1, use_gpu=False)
+    mols = smiles2mols(smiles, args)
+    assert (len(mols) == 2)
+
 # if __name__ == "__main__":
     # test_auto3D_omega_aimnet()
     # test_auto3D_rdkit_aimnet()
