@@ -15,7 +15,6 @@ import psutil, tarfile
 import glob
 import pandas as pd
 import multiprocessing as mp
-import queue
 import tempfile
 from logging.handlers import QueueHandler
 from typing import List, Optional
@@ -448,37 +447,46 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
     Both the input and output are returned as variables within python.
 
     It's recommended only when the number of SMILES is less than 150;
-    Otherwise using the main function will be faster"""
-    # initialiazation
+    Otherwise using the main function will be faster.
+    """
     with tempfile.TemporaryDirectory() as tmpdirname:
         basename = 'smiles.smi'
         path = os.path.join(tmpdirname, basename)
         smiles2smi(smiles, path)  # save all SMILES into a smi file
         args['path'] = path
-
-        chunk_line = queue.Queue(1)  
-        job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
-        args['input_format'] = 'smi'
         k = args.k
         window = args.window
         if (not k) and (not window):
             sys.exit("Either k or window needs to be specified. "
                     "Usually, setting '--k=1' satisfies most needs.")
-        if args.job_name == "":
-            args.job_name = job_name
-        job_name = args.job_name
-        job_name = job_name + "_" + basename.split('.')[0].strip()
-        dir = os.path.dirname(os.path.abspath(path))
-        job_name = os.path.join(dir, job_name)
-        os.mkdir(job_name)
-
+        args.input_format = 'smi'
         check_input(args)
-        chunk_info = [(path, job_name)]
-        # smiles to conformers
-        isomer_wraper(chunk_info, args, chunk_line)
-        # optimize conformers
-        conformers = optim_rank_wrapper(args, chunk_line)
 
-        # shutil.rmtree(dir)
+        # smi to sdf
+        meta = create_chunk_meta_names(path, tmpdirname)
+        isomer_engine = rd_isomer(path, meta["smiles_enumerated"],
+                                  meta["smiles_reduced"], meta["smiles_hashed"], 
+                                  meta["enumerated_sdf"], tmpdirname,
+                                  args.max_confs, args.threshold,
+                                  args.mpi_np, args.enumerate_isomer)
+        isomer_engine.run()
+
+        # optimize conformers
+        if args.use_gpu:
+            idx = args.gpu_idx
+            device = torch.device(f"cuda:{idx}")
+        else:
+            device = torch.device("cpu")
+        config = {"opt_steps": args.opt_steps, "opttol": args.convergence_threshold,
+                  "patience": args.patience, "batchsize_atoms": args.batchsize_atoms}
+        opt_engine = optimizing(meta["enumerated_sdf"], meta["optimized_og"],
+                                args.optimizing_engine, device, config)
+        opt_engine.run()
+
+        # Ranking step
+        rank_engine = ranking(meta["optimized_og"], meta["output"],
+                              args.threshold, k=k, window=window)
+        conformers = rank_engine.run()
+
         print("Energy unit: Hartree if implicit.", flush=True)
     return conformers
