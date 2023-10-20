@@ -162,7 +162,11 @@ class rd_isomer(object):
         num_atoms = len(atom_list)
         mol = Chem.AddHs(Chem.MolFromSmiles(smi))
         if self.n_conformers is None:
-            n_conformers = num_atoms - 1
+            # n_conformers = num_atoms - 1
+            
+            # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
+            num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
+            n_conformers = max(1, int(8.481 * (num_rotatable_bonds **1.642)))
             AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
                                     randomSeed=42, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
@@ -279,8 +283,11 @@ class rd_isomer_sdf(object):
                 #enumerate conformers
                 mol2 = Chem.AddHs(mol)
                 if self.n_conformers is None:
+                    # n_conformers = min(3 ** num_rotatable_bonds, 100)
+
+                    # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
                     num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
-                    n_conformers = min(3 ** num_rotatable_bonds, 100)
+                    n_conformers = max(1, int(8.481 * (num_rotatable_bonds **1.642)))
                 else:
                     n_conformers = self.n_conformers
                 AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=42, numThreads=self.np, pruneRmsThresh=self.threshold)
@@ -342,19 +349,6 @@ def oe_isomer(mode, input_f, smiles_enumerated, smiles_reduced, smiles_hashed, o
     omegaOpts.SetParameterVisibility("-rms", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-maxconfs", oechem.OEParamVisibility_Simple)
-    
-    # omegaOpts.SetRMSRange("0.8, 1.0, 1.2, 1.4")
-    # if mode == "classic":
-    #     # omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
-    #     omegaOpts.SetStrictStereo(False)
-    #     omegaOpts.SetWarts(True)
-    #     omegaOpts.SetMaxConfs(max_confs)
-    #     omegaOpts.SetEnergyWindow(999)
-    # elif mode == "macrocycle":
-    #     omegaOpts.SetIterCycleSize(1000)
-    #     omegaOpts.SetMaxIter(2000)   
-    #     omegaOpts.SetMaxConfs(max_confs)
-    #     omegaOpts.SetEnergyWindow(999)
 
     if mode == 'macrocycle':
         omegaOpts.SetIterCycleSize(1000)
@@ -362,6 +356,7 @@ def oe_isomer(mode, input_f, smiles_enumerated, smiles_reduced, smiles_hashed, o
         omegaOpts.SetMaxConfs(max_confs)
         omegaOpts.SetEnergyWindow(999)
     else:
+        omegaOpts.SetFixRMS(threshold)  #macrocycle mode does not have the attribute 'SetFixRMS'
         omegaOpts.SetStrictStereo(False)
         omegaOpts.SetWarts(True)
         omegaOpts.SetMaxConfs(max_confs)
