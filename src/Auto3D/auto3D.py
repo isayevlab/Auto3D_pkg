@@ -328,12 +328,9 @@ def main(args:dict):
     logger.info("================================================================================")
     logger.info("                               RUNNING PROCESS")
     logger.info("================================================================================")
-    # if input_format == "smi":
-    #     check_input(args)
-    # else:
-    #     check_input_sdf(args)
+
     check_input(args)
-    ## Devide jobs based on memory
+    # Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
     if args.memory is not None:
         t = int(args.memory)
