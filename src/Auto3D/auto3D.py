@@ -15,8 +15,10 @@ import psutil, tarfile
 import glob
 import pandas as pd
 import multiprocessing as mp
-from multiprocessing import Queue
+import tempfile
 from logging.handlers import QueueHandler
+from typing import List, Optional
+from rdkit import Chem
 import Auto3D
 from Auto3D.isomer_engine import rd_isomer, tautomer_engine
 from Auto3D.isomer_engine import rd_isomer_sdf
@@ -27,6 +29,7 @@ from Auto3D.utils import housekeeping
 from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
 from Auto3D.utils import SDF2chunks
+from Auto3D.utils import smiles2smi
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -129,13 +132,14 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
     queue.put("Done")
 
 
-def optim_rank_wrapper(args, queue, logging_queue):
+def optim_rank_wrapper(args, queue, logging_queue) -> List[Chem.Mol]:
     #prepare logging
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
 
     job = 1
+    conformers = []
     while True:
         sdf_path_dir = queue.get()
         if sdf_path_dir == "Done":
@@ -169,7 +173,7 @@ def optim_rank_wrapper(args, queue, logging_queue):
         window = args.window
         rank_engine = ranking(optimized_og,
                               output, duplicate_threshold, k=k, window=window)
-        rank_engine.run()
+        conformers.append(rank_engine.run())
 
         # Housekeeping
         housekeeping_folder = meta["housekeeping_folder"]
@@ -186,9 +190,9 @@ def optim_rank_wrapper(args, queue, logging_queue):
             except:
                 os.remove(housekeeping_folder_gz)
         job += 1
+    return conformers
 
-
-def options(path, k=False, window=False, verbose=False, job_name="",
+def options(path:Optional[str]=None, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
@@ -261,14 +265,13 @@ def logger_process(queue, logging_path):
 
 def main(args:dict):
     """Take the arguments from options and run Auto3D"""
-
-
     chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
-
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
     path = args.path
+    if path is None:
+        sys.exit("Please specify the input file path.")
     input_format = os.path.splitext(path)[1][1:]
     if (input_format != "smi") and (input_format != "sdf"):
         sys.exit("Input file type is not supported. Only .smi and .sdf are supported. But the input file is " + input_format + ".")
@@ -282,8 +285,8 @@ def main(args:dict):
         args.job_name = job_name
     job_name = args.job_name
 
-    basename = os.path.basename(path)
     # initialiazation
+    basename = os.path.basename(path)
     dir = os.path.dirname(os.path.abspath(path))
     job_name = job_name + "_" + basename.split('.')[0].strip()
     job_name = os.path.join(dir, job_name)
@@ -299,25 +302,15 @@ def main(args:dict):
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
+    logger.info(f"""
+         _              _             _____   ____  
+        / \     _   _  | |_    ___   |___ /  |  _ \ 
+       / _ \   | | | | | __|  / _ \    |_ \  | | | |
+      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
+              // Generating low-energy 3D structures                                      
+    """)
 
-    try:
-        logger.info(f"""
-             _              _             _____   ____  
-            / \     _   _  | |_    ___   |___ /  |  _ \ 
-           / _ \   | | | | | __|  / _ \    |_ \  | | | |
-          / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-         /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
-                // Automatic generation of the low-energy 3D structures                                      
-        """)
-    except:
-        logger.info(f"""
-             _              _             _____   ____  
-            / \     _   _  | |_    ___   |___ /  |  _ \ 
-           / _ \   | | | | | __|  / _ \    |_ \  | | | |
-          / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-         /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
-               // Automatic generation of the low-energy 3D structures                                      
-        """)    
     logger.info("================================================================================")
     logger.info("                               INPUT PARAMETERS")
     logger.info("================================================================================")
@@ -328,12 +321,9 @@ def main(args:dict):
     logger.info("================================================================================")
     logger.info("                               RUNNING PROCESS")
     logger.info("================================================================================")
-    # if input_format == "smi":
-    #     check_input(args)
-    # else:
-    #     check_input_sdf(args)
+
     check_input(args)
-    ## Devide jobs based on memory
+    # Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
     if args.memory is not None:
         t = int(args.memory)
@@ -443,3 +433,54 @@ def main(args:dict):
     logging_queue.put(None)
     time.sleep(3)  #wait the daemon process for 3 seconds
     return path_combined
+
+def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
+    """A handy tool for finding the low-energy conformers for a list of SMILES.
+    Compared with the main function, it sacrifies efficiency for convinience.
+    smiles2mols uses only 1 process. 
+    Both the input and output are returned as variables within python.
+
+    It's recommended only when the number of SMILES is less than 150;
+    Otherwise using the main function will be faster.
+    """
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        basename = 'smiles.smi'
+        path = os.path.join(tmpdirname, basename)
+        smiles2smi(smiles, path)  # save all SMILES into a smi file
+        args['path'] = path
+        k = args.k
+        window = args.window
+        if (not k) and (not window):
+            sys.exit("Either k or window needs to be specified. "
+                    "Usually, setting '--k=1' satisfies most needs.")
+        args.input_format = 'smi'
+        check_input(args)
+
+        # smi to sdf
+        meta = create_chunk_meta_names(path, tmpdirname)
+        isomer_engine = rd_isomer(path, meta["smiles_enumerated"],
+                                  meta["smiles_reduced"], meta["smiles_hashed"], 
+                                  meta["enumerated_sdf"], tmpdirname,
+                                  args.max_confs, args.threshold,
+                                  args.mpi_np, args.enumerate_isomer)
+        isomer_engine.run()
+
+        # optimize conformers
+        if args.use_gpu:
+            idx = args.gpu_idx
+            device = torch.device(f"cuda:{idx}")
+        else:
+            device = torch.device("cpu")
+        config = {"opt_steps": args.opt_steps, "opttol": args.convergence_threshold,
+                  "patience": args.patience, "batchsize_atoms": args.batchsize_atoms}
+        opt_engine = optimizing(meta["enumerated_sdf"], meta["optimized_og"],
+                                args.optimizing_engine, device, config)
+        opt_engine.run()
+
+        # Ranking step
+        rank_engine = ranking(meta["optimized_og"], meta["output"],
+                              args.threshold, k=k, window=window)
+        conformers = rank_engine.run()
+
+        print("Energy unit: Hartree if implicit.", flush=True)
+    return conformers

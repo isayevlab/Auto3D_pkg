@@ -7,111 +7,22 @@ from rdkit import Chem
 import send2trash
 import shutil
 import Auto3D
-from Auto3D.auto3D import options, main
+from Auto3D.auto3D import options, main, smiles2mols
 from Auto3D.tautomer import get_stable_tautomers
 from Auto3D.utils import my_name_space, find_smiles_not_in_sdf
 
 
 if __name__ == "__main__":
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    print(Auto3D.__version__)
 
-    path = os.path.join(root, "tests/files/smiles2.smi")
-    args = options(path, k=1, use_gpu=False, convergence_threshold=0.1,
-                   isomer_engine="omega", optimizing_engine="AIMNET")
-    out = main(args)
-    out_folder = os.path.dirname(os.path.abspath(out))
-    try:
-        send2trash(out_folder)
-    except:
-        shutil.rmtree(out_folder)
-    # path1 = '/storage/users/jack/rse/ene_str/processed.smi'
-    # path2 = '/storage/users/jack/rse/ene_str/20230928-170525-481242_processed/processed_out.sdf'
-    # bad = find_smiles_not_in_sdf(path1, path2)
-    # print(bad)
-    # path = "/storage/users/jack/cache/LRRK2_merged_selection.smi"
-    # path = "/home/jack/Auto3D_pkg/tests/files/example.smi"
-    # path = os.path.join(root, 'tests/files/example.sdf')
-    # args = options(path, k=10, enumerate_tautomer=False, tauto_engine="rdkit",
-    #                isomer_engine="rdkit", enumerate_isomer=True, 
-    #                optimizing_engine="AIMNET", gpu_idx=1, verbose=True,
-    #                max_confs=10, patience=200, use_gpu=False)
-    # out = main(args)
-    # print(out)
-    # tautomer_out = get_stable_tautomers(args, tauto_k=1)
-    # tautomer_out = get_stable_tautomers(args, tauto_window=5)
-    # print(tautomer_out)
-
-
-    # out = main(args)
-    # print(out)
-    # print(type(args), isinstance(args, dict))
-
-    # path = "/storage/users/jack/cache/20221215-232056-512927_LRRK2_merged_selection/LRRK2_merged_selection_out.sdf"
-    # tautomer_path = select_tautomers(path, window=5)
-    # print(tautomer_path)
-
-
-    # path = "/storage/users/jack/o_acylisourea/part_0.smi"
-    # path = "/home/jack/Auto3D_pkg/tests/files/smiles2.smi"
-    # path = "/storage/users/jack/cache/LRRK2_merged_selection.smi"
-    # k = 1
-    # window = False
-    # memory = 8
-    # capacity = 40
-    # enumerate_tautomer = False
-    # tauto_engine = 'rdkit'
-    # pKaNorm = True
-    # isomer_engine = 'omega'
-    # max_confs = None
-    # enumerate_isomer = True
-    # mode_oe = 'classic'
-    # mpi_np = 4
-    # optimizing_engine = 'AIMNET'
-    # use_gpu = False
-    # gpu_idx = 0
-    # opt_steps = 5000
-    # convergence_threshold = 0.003
-    # patience = 1000
-    # batchsize_atoms = 1024
-    # threshold = 0.3
-    # verbose = True
-    # job_name = ""
-    
-
-
-
-    # arguments = options(
-    #     path,
-    #     k=k,
-    #     window=window,
-    #     verbose=verbose,
-    #     job_name=job_name,
-    #     enumerate_tautomer=enumerate_tautomer,
-    #     tauto_engine=tauto_engine,
-    #     pKaNorm=pKaNorm,
-    #     isomer_engine=isomer_engine,
-    #     enumerate_isomer=enumerate_isomer,
-    #     mode_oe=mode_oe,
-    #     mpi_np=mpi_np,
-    #     max_confs=max_confs,
-    #     use_gpu=use_gpu,
-    #     gpu_idx=gpu_idx,
-    #     capacity=capacity,
-    #     optimizing_engine=optimizing_engine,
-    #     opt_steps=opt_steps,
-    #     convergence_threshold=convergence_threshold,
-    #     patience=patience,
-    #     threshold=threshold,
-    #     memory=memory,
-    #     batchsize_atoms=batchsize_atoms
-    # )
-
-    # print(f"""
-    #      _              _             _____   ____  
-    #     / \     _   _  | |_    ___   |___ /  |  _ \ 
-    #    / _ \   | | | | | __|  / _ \    |_ \  | | | |
-    #   / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-    #  /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
-    #     // Automatic generation of the low-energy 3D structures                                      
-    # """)
-    # out = main(arguments)
+    smiles = ['CCNCC', 'O=C(C1=CC=CO1)N2CCNCC2']
+    args = options(k=1, gpu_idx=2)
+    mols = smiles2mols(smiles, args)
+    for mol in mols:
+        print(mol.GetProp('_Name'))
+        print('Energy: ', mol.GetProp('E_tot'))
+        conf = mol.GetConformer()
+        for i in range(conf.GetNumAtoms()):
+            atom = mol.GetAtomWithIdx(i)
+            pos = conf.GetAtomPosition(i)
+            print(f'{atom.GetSymbol()} {pos.x:.3f} {pos.y:.3f} {pos.z:.3f}')
