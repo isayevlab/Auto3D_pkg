@@ -15,8 +15,11 @@ import psutil, tarfile
 import glob
 import pandas as pd
 import multiprocessing as mp
-from multiprocessing import Queue
+import queue
+import tempfile
 from logging.handlers import QueueHandler
+from typing import List, Optional
+from rdkit import Chem
 import Auto3D
 from Auto3D.isomer_engine import rd_isomer, tautomer_engine
 from Auto3D.isomer_engine import rd_isomer_sdf
@@ -27,6 +30,7 @@ from Auto3D.utils import housekeeping
 from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
 from Auto3D.utils import SDF2chunks
+from Auto3D.utils import smiles2smi
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -66,21 +70,23 @@ def create_chunk_meta_names(path, dir):
     dct["dir"] = dir
     return dct
 
-def isomer_wraper(chunk_info, args, queue, logging_queue):
+def isomer_wraper(chunk_info, args, queue, logging_queue=None):
     """
     chunk_info: (path, dir) tuple for the chunk
     args: auto3D arguments
-    queue: mp.queue
+    queue: mp.queue/normal queue
     logging_queue
     """
     #prepare logging
-    logger = logging.getLogger("auto3d")
-    logger.addHandler(QueueHandler(logging_queue))
-    logger.setLevel(logging.INFO)
+    if logging_queue is not None:
+        logger = logging.getLogger("auto3d")
+        logger.addHandler(QueueHandler(logging_queue))
+        logger.setLevel(logging.INFO)
 
     for i, path_dir in enumerate(chunk_info):
         print(f"\n\nIsomer generation for job{i+1}", flush=True)
-        logger.info(f"\n\nIsomer generation for job{i+1}")
+        if logging_queue is not None:
+            logger.info(f"\n\nIsomer generation for job{i+1}")
         path, dir = path_dir
         meta = create_chunk_meta_names(path, dir)
 
@@ -89,13 +95,15 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
             output_taut = meta["output_taut"]
             taut_mode = args.tauto_engine
             print("Enumerating tautomers for the input...", end='')
-            logger.info("Enumerating tautomers for the input...")
+            if logging_queue is not None:
+                logger.info("Enumerating tautomers for the input...")
             taut_engine = tautomer_engine(taut_mode, path, output_taut, args.pKaNorm)
             taut_engine.run()
             hash_taut_smi(output_taut, output_taut)
             path = output_taut
             print(f"Tautomers are saved in {output_taut}", flush=True)
-            logger.info(f"Tautomers are saved in {output_taut}")
+            if logging_queue is not None:
+                logger.info(f"Tautomers are saved in {output_taut}")
 
         smiles_enumerated = meta["smiles_enumerated"]
         smiles_reduced = meta["smiles_reduced"]
@@ -129,19 +137,22 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
     queue.put("Done")
 
 
-def optim_rank_wrapper(args, queue, logging_queue):
+def optim_rank_wrapper(args, queue, logging_queue=None) -> List[Chem.Mol]:
     #prepare logging
-    logger = logging.getLogger("auto3d")
-    logger.addHandler(QueueHandler(logging_queue))
-    logger.setLevel(logging.INFO)
+    if logging_queue is not None:
+        logger = logging.getLogger("auto3d")
+        logger.addHandler(QueueHandler(logging_queue))
+        logger.setLevel(logging.INFO)
 
     job = 1
+    conformers = []
     while True:
         sdf_path_dir = queue.get()
         if sdf_path_dir == "Done":
             break
         print(f"\n\nOptimizing on job{job}", flush=True)
-        logger.info(f"\n\nOptimizing on job{job}")
+        if logging_queue is not None:
+            logger.info(f"\n\nOptimizing on job{job}")
         enumerated_sdf, path, dir = sdf_path_dir
         meta = create_chunk_meta_names(path, dir)
 
@@ -169,7 +180,7 @@ def optim_rank_wrapper(args, queue, logging_queue):
         window = args.window
         rank_engine = ranking(optimized_og,
                               output, duplicate_threshold, k=k, window=window)
-        rank_engine.run()
+        conformers.append(rank_engine.run())
 
         # Housekeeping
         housekeeping_folder = meta["housekeeping_folder"]
@@ -186,9 +197,9 @@ def optim_rank_wrapper(args, queue, logging_queue):
             except:
                 os.remove(housekeeping_folder_gz)
         job += 1
+    return conformers
 
-
-def options(path, k=False, window=False, verbose=False, job_name="",
+def options(path:Optional[str]=None, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
@@ -261,14 +272,13 @@ def logger_process(queue, logging_path):
 
 def main(args:dict):
     """Take the arguments from options and run Auto3D"""
-
-
     chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
-
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
     path = args.path
+    if path is None:
+        sys.exit("Please specify the input file path.")
     input_format = os.path.splitext(path)[1][1:]
     if (input_format != "smi") and (input_format != "sdf"):
         sys.exit("Input file type is not supported. Only .smi and .sdf are supported. But the input file is " + input_format + ".")
@@ -282,8 +292,8 @@ def main(args:dict):
         args.job_name = job_name
     job_name = args.job_name
 
-    basename = os.path.basename(path)
     # initialiazation
+    basename = os.path.basename(path)
     dir = os.path.dirname(os.path.abspath(path))
     job_name = job_name + "_" + basename.split('.')[0].strip()
     job_name = os.path.join(dir, job_name)
@@ -299,25 +309,15 @@ def main(args:dict):
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
+    logger.info(f"""
+         _              _             _____   ____  
+        / \     _   _  | |_    ___   |___ /  |  _ \ 
+       / _ \   | | | | | __|  / _ \    |_ \  | | | |
+      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
+     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
+              // Generating low-energy 3D structures                                      
+    """)
 
-    try:
-        logger.info(f"""
-             _              _             _____   ____  
-            / \     _   _  | |_    ___   |___ /  |  _ \ 
-           / _ \   | | | | | __|  / _ \    |_ \  | | | |
-          / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-         /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
-                // Automatic generation of the low-energy 3D structures                                      
-        """)
-    except:
-        logger.info(f"""
-             _              _             _____   ____  
-            / \     _   _  | |_    ___   |___ /  |  _ \ 
-           / _ \   | | | | | __|  / _ \    |_ \  | | | |
-          / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-         /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {'development'}
-               // Automatic generation of the low-energy 3D structures                                      
-        """)    
     logger.info("================================================================================")
     logger.info("                               INPUT PARAMETERS")
     logger.info("================================================================================")
@@ -440,3 +440,45 @@ def main(args:dict):
     logging_queue.put(None)
     time.sleep(3)  #wait the daemon process for 3 seconds
     return path_combined
+
+def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
+    """A handy tool for finding the low-energy conformers for a list of SMILES.
+    Compared with the main function, it sacrifies efficiency for convinience.
+    smiles2mols uses only 1 process. 
+    Both the input and output are returned as variables within python.
+
+    It's recommended only when the number of SMILES is less than 150;
+    Otherwise using the main function will be faster"""
+    # initialiazation
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        basename = 'smiles.smi'
+        path = os.path.join(tmpdirname, basename)
+        smiles2smi(smiles, path)  # save all SMILES into a smi file
+        args['path'] = path
+
+        chunk_line = queue.Queue(1)  
+        job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
+        args['input_format'] = 'smi'
+        k = args.k
+        window = args.window
+        if (not k) and (not window):
+            sys.exit("Either k or window needs to be specified. "
+                    "Usually, setting '--k=1' satisfies most needs.")
+        if args.job_name == "":
+            args.job_name = job_name
+        job_name = args.job_name
+        job_name = job_name + "_" + basename.split('.')[0].strip()
+        dir = os.path.dirname(os.path.abspath(path))
+        job_name = os.path.join(dir, job_name)
+        os.mkdir(job_name)
+
+        check_input(args)
+        chunk_info = [(path, job_name)]
+        # smiles to conformers
+        isomer_wraper(chunk_info, args, chunk_line)
+        # optimize conformers
+        conformers = optim_rank_wrapper(args, chunk_line)
+
+        # shutil.rmtree(dir)
+        print("Energy unit: Hartree if implicit.", flush=True)
+    return conformers
