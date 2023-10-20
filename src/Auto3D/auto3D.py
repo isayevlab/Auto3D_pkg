@@ -69,23 +69,21 @@ def create_chunk_meta_names(path, dir):
     dct["dir"] = dir
     return dct
 
-def isomer_wraper(chunk_info, args, queue, logging_queue=None):
+def isomer_wraper(chunk_info, args, queue, logging_queue):
     """
     chunk_info: (path, dir) tuple for the chunk
     args: auto3D arguments
-    queue: mp.queue/normal queue
+    queue: mp.queue
     logging_queue
     """
     #prepare logging
-    if logging_queue is not None:
-        logger = logging.getLogger("auto3d")
-        logger.addHandler(QueueHandler(logging_queue))
-        logger.setLevel(logging.INFO)
+    logger = logging.getLogger("auto3d")
+    logger.addHandler(QueueHandler(logging_queue))
+    logger.setLevel(logging.INFO)
 
     for i, path_dir in enumerate(chunk_info):
         print(f"\n\nIsomer generation for job{i+1}", flush=True)
-        if logging_queue is not None:
-            logger.info(f"\n\nIsomer generation for job{i+1}")
+        logger.info(f"\n\nIsomer generation for job{i+1}")
         path, dir = path_dir
         meta = create_chunk_meta_names(path, dir)
 
@@ -94,15 +92,13 @@ def isomer_wraper(chunk_info, args, queue, logging_queue=None):
             output_taut = meta["output_taut"]
             taut_mode = args.tauto_engine
             print("Enumerating tautomers for the input...", end='')
-            if logging_queue is not None:
-                logger.info("Enumerating tautomers for the input...")
+            logger.info("Enumerating tautomers for the input...")
             taut_engine = tautomer_engine(taut_mode, path, output_taut, args.pKaNorm)
             taut_engine.run()
             hash_taut_smi(output_taut, output_taut)
             path = output_taut
             print(f"Tautomers are saved in {output_taut}", flush=True)
-            if logging_queue is not None:
-                logger.info(f"Tautomers are saved in {output_taut}")
+            logger.info(f"Tautomers are saved in {output_taut}")
 
         smiles_enumerated = meta["smiles_enumerated"]
         smiles_reduced = meta["smiles_reduced"]
@@ -136,12 +132,11 @@ def isomer_wraper(chunk_info, args, queue, logging_queue=None):
     queue.put("Done")
 
 
-def optim_rank_wrapper(args, queue, logging_queue=None) -> List[Chem.Mol]:
+def optim_rank_wrapper(args, queue, logging_queue) -> List[Chem.Mol]:
     #prepare logging
-    if logging_queue is not None:
-        logger = logging.getLogger("auto3d")
-        logger.addHandler(QueueHandler(logging_queue))
-        logger.setLevel(logging.INFO)
+    logger = logging.getLogger("auto3d")
+    logger.addHandler(QueueHandler(logging_queue))
+    logger.setLevel(logging.INFO)
 
     job = 1
     conformers = []
@@ -150,8 +145,7 @@ def optim_rank_wrapper(args, queue, logging_queue=None) -> List[Chem.Mol]:
         if sdf_path_dir == "Done":
             break
         print(f"\n\nOptimizing on job{job}", flush=True)
-        if logging_queue is not None:
-            logger.info(f"\n\nOptimizing on job{job}")
+        logger.info(f"\n\nOptimizing on job{job}")
         enumerated_sdf, path, dir = sdf_path_dir
         meta = create_chunk_meta_names(path, dir)
 
