@@ -6,6 +6,7 @@ import os
 import logging
 import pandas as pd
 from rdkit import Chem
+from typing import List
 from .utils import guess_file_type, filter_unique
 from .utils import hartree2ev, ev2kcalpermol
 
@@ -134,7 +135,7 @@ class ranking(object):
                     break
         return out_mols
 
-    def run(self):
+    def run(self) -> List[Chem.Mol]:
         """
         When runs, lowest-energy structure will be stored in out_path folder.
         """
@@ -183,3 +184,4 @@ class ranking(object):
                 t_simplified = t.split("_")[0].strip()
                 mol.SetProp("_Name", t_simplified)
                 f.write(mol)
+        return results
