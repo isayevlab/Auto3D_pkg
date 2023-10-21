@@ -99,7 +99,7 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
                             'You can set the parameter by appending the following:'
                             '--isomer_engine=rdkit')
 
-        queue.put((enumerated_sdf, path, dir))
+        queue.put((enumerated_sdf, path, dir, i+1))
     if isinstance(args.gpu_idx, int) or len(args.gpu_idx) == 1:
         queue.put("Done")
     else:
@@ -113,15 +113,14 @@ def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
 
-    job = 1
     conformers = []
     while True:
-        sdf_path_dir = queue.get()
-        if sdf_path_dir == "Done":
+        sdf_path_dir_job = queue.get()
+        if sdf_path_dir_job == "Done":
             break
+        enumerated_sdf, path, dir, job = sdf_path_dir_job
         print(f"\n\nOptimizing on job{job}", flush=True)
         logger.info(f"\n\nOptimizing on job{job}")
-        enumerated_sdf, path, dir = sdf_path_dir
         meta = create_chunk_meta_names(path, dir)
 
         # Optimizing step
@@ -163,7 +162,6 @@ def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol
                 send2trash(housekeeping_folder_gz)
             except:
                 os.remove(housekeeping_folder_gz)
-        job += 1
     return conformers
 
 def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_name="",
