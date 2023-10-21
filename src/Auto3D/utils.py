@@ -632,7 +632,12 @@ def filter_unique(mols, crit=0.3):
     for mol_i in mols:
         unique = True
         for mol_j in unique_mols:
-            rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))  #removing Hs speeds up the calculation
+            try:
+                # temperoray bug fix for https://github.com/rdkit/rdkit/issues/6826 
+                #removing Hs speeds up the calculation
+                rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))  
+            except RuntimeError:
+                rmsd = 0
             if rmsd < crit:
                 unique = False
                 break
