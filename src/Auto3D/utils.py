@@ -30,6 +30,38 @@ hartree2kcalpermol = 627.50947337481
 ev2kcalpermol = 23.060547830619026
 
 logger = logging.getLogger("auto3d")
+
+def create_chunk_meta_names(path, dir):
+    """Output name is based on chunk input path and directory
+    path: chunck input smi path
+    dir: chunck job folder
+    """
+    dct = {}
+    output_name = os.path.basename(path).split('.')[0].strip() + '_3d.sdf'
+    output = os.path.join(dir, output_name)
+    optimized_og = os.path.join(dir, os.path.basename(output).split('.')[0] + '0.sdf')
+
+    output_taut = os.path.join(dir, 'smi_taut.smi')
+    smiles_enumerated = os.path.join(dir, 'smiles_enumerated.smi')
+    smiles_reduced = os.path.join(dir, os.path.basename(smiles_enumerated).split('.')[0] + '_reduced.smi')
+    smiles_hashed = os.path.join(dir, 'smiles_enumerated_hashed.smi')
+    enumerated_sdf = os.path.join(dir, 'smiles_enumerated.sdf')
+    sorted_sdf = os.path.join(dir, 'enumerated_sorted.sdf')
+    housekeeping_folder = os.path.join(dir, 'verbose')
+    # dct["output_name"] = output_name
+    dct["output"] = output
+    dct["optimized_og"] = optimized_og
+    dct["output_taut"] = output_taut
+    dct["smiles_enumerated"] = smiles_enumerated
+    dct["smiles_reduced"] = smiles_reduced
+    dct["smiles_hashed"] = smiles_hashed
+    dct["enumerated_sdf"] = enumerated_sdf
+    dct["sorted_sdf"] = sorted_sdf
+    dct["housekeeping_folder"] = housekeeping_folder
+    dct["path"] = path
+    dct["dir"] = dir
+    return dct
+
 def guess_file_type(filename):
     """Returns the extension for the filename"""
     assert '.' in filename
@@ -600,7 +632,12 @@ def filter_unique(mols, crit=0.3):
     for mol_i in mols:
         unique = True
         for mol_j in unique_mols:
-            rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))  #removing Hs speeds up the calculation
+            try:
+                # temperoray bug fix for https://github.com/rdkit/rdkit/issues/6826 
+                #removing Hs speeds up the calculation
+                rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))  
+            except RuntimeError:
+                rmsd = 0
             if rmsd < crit:
                 unique = False
                 break

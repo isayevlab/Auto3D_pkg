@@ -17,7 +17,7 @@ import pandas as pd
 import multiprocessing as mp
 import tempfile
 from logging.handlers import QueueHandler
-from typing import List, Optional
+from typing import List, Optional, Union
 from rdkit import Chem
 import Auto3D
 from Auto3D.isomer_engine import rd_isomer, tautomer_engine
@@ -30,6 +30,7 @@ from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
 from Auto3D.utils import SDF2chunks
 from Auto3D.utils import smiles2smi
+from Auto3D.utils import create_chunk_meta_names
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -38,36 +39,6 @@ except:
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-def create_chunk_meta_names(path, dir):
-    """Output name is based on chunk input path and directory
-    path: chunck input smi path
-    dir: chunck job folder
-    """
-    dct = {}
-    output_name = os.path.basename(path).split('.')[0].strip() + '_3d.sdf'
-    output = os.path.join(dir, output_name)
-    optimized_og = os.path.join(dir, os.path.basename(output).split('.')[0] + '0.sdf')
-
-    output_taut = os.path.join(dir, 'smi_taut.smi')
-    smiles_enumerated = os.path.join(dir, 'smiles_enumerated.smi')
-    smiles_reduced = os.path.join(dir, os.path.basename(smiles_enumerated).split('.')[0] + '_reduced.smi')
-    smiles_hashed = os.path.join(dir, 'smiles_enumerated_hashed.smi')
-    enumerated_sdf = os.path.join(dir, 'smiles_enumerated.sdf')
-    sorted_sdf = os.path.join(dir, 'enumerated_sorted.sdf')
-    housekeeping_folder = os.path.join(dir, 'verbose')
-    # dct["output_name"] = output_name
-    dct["output"] = output
-    dct["optimized_og"] = optimized_og
-    dct["output_taut"] = output_taut
-    dct["smiles_enumerated"] = smiles_enumerated
-    dct["smiles_reduced"] = smiles_reduced
-    dct["smiles_hashed"] = smiles_hashed
-    dct["enumerated_sdf"] = enumerated_sdf
-    dct["sorted_sdf"] = sorted_sdf
-    dct["housekeeping_folder"] = housekeeping_folder
-    dct["path"] = path
-    dct["dir"] = dir
-    return dct
 
 def isomer_wraper(chunk_info, args, queue, logging_queue):
     """
@@ -128,25 +99,28 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
                             'You can set the parameter by appending the following:'
                             '--isomer_engine=rdkit')
 
-        queue.put((enumerated_sdf, path, dir))
-    queue.put("Done")
+        queue.put((enumerated_sdf, path, dir, i+1))
+    if isinstance(args.gpu_idx, int) or len(args.gpu_idx) == 1:
+        queue.put("Done")
+    else:
+        for _ in range(len(args.gpu_idx)):
+            queue.put("Done")
 
 
-def optim_rank_wrapper(args, queue, logging_queue) -> List[Chem.Mol]:
+def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol]:
     #prepare logging
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
 
-    job = 1
     conformers = []
     while True:
-        sdf_path_dir = queue.get()
-        if sdf_path_dir == "Done":
+        sdf_path_dir_job = queue.get()
+        if sdf_path_dir_job == "Done":
             break
+        enumerated_sdf, path, dir, job = sdf_path_dir_job
         print(f"\n\nOptimizing on job{job}", flush=True)
         logger.info(f"\n\nOptimizing on job{job}")
-        enumerated_sdf, path, dir = sdf_path_dir
         meta = create_chunk_meta_names(path, dir)
 
         # Optimizing step
@@ -158,8 +132,7 @@ def optim_rank_wrapper(args, queue, logging_queue) -> List[Chem.Mol]:
         optimized_og = meta["optimized_og"]
         optimizing_engine = args.optimizing_engine
         if args.use_gpu:
-            idx = args.gpu_idx
-            device = torch.device(f"cuda:{idx}")
+            device = torch.device(f"cuda:{gpu_idx}")
         else:
             device = torch.device("cpu")
         optimizer = optimizing(enumerated_sdf, optimized_og,
@@ -189,13 +162,12 @@ def optim_rank_wrapper(args, queue, logging_queue) -> List[Chem.Mol]:
                 send2trash(housekeeping_folder_gz)
             except:
                 os.remove(housekeeping_folder_gz)
-        job += 1
     return conformers
 
-def options(path:Optional[str]=None, k=False, window=False, verbose=False, job_name="",
+def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
-    use_gpu=True, gpu_idx=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
+    use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
     """Arguments for Auto3D main program
     path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
@@ -265,7 +237,7 @@ def logger_process(queue, logging_path):
 
 def main(args:dict):
     """Take the arguments from options and run Auto3D"""
-    chunk_line = mp.Manager().Queue(1)   #A queue managing two wrappers
+    chunk_line = mp.Manager().Queue()   #A queue managing two wrappers
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
@@ -329,7 +301,10 @@ def main(args:dict):
         t = int(args.memory)
     else:
         if args.use_gpu:
-            gpu_idx = int(args.gpu_idx)
+            if isinstance(args.gpu_idx, int):
+                gpu_idx = int(args.gpu_idx)
+            else:
+                gpu_idx = args.gpu_idx[0]
             t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
         else:
             t = int(psutil.virtual_memory().total/(1024**3))
@@ -388,11 +363,18 @@ def main(args:dict):
             chunk_info.append((path, dir))
 
     p1 = mp.Process(target=isomer_wraper, args=(chunk_info, args, chunk_line, logging_queue,))
-    p2 = mp.Process(target=optim_rank_wrapper, args=(args, chunk_line, logging_queue,))
+    p2s =  []
+    if isinstance(args.gpu_idx, int):
+        p2s.append(mp.Process(target=optim_rank_wrapper, args=(args, chunk_line, logging_queue, args.gpu_idx)))
+    else:
+        for idx in args.gpu_idx:
+            p2s.append(mp.Process(target=optim_rank_wrapper, args=(args, chunk_line, logging_queue, idx)))
     p1.start()
-    p2.start()
+    for p2 in p2s:
+        p2.start()
     p1.join()
-    p2.join()
+    for p2 in p2s:
+        p2.join()
 
     #Combine jobs into a single sdf
     data = []
@@ -467,7 +449,10 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
 
         # optimize conformers
         if args.use_gpu:
-            idx = args.gpu_idx
+            if isinstance(args.gpu_idx, int):
+                idx = args.gpu_idx
+            else:
+                idx = args.gpu_idx[0]
             device = torch.device(f"cuda:{idx}")
         else:
             device = torch.device("cpu")
