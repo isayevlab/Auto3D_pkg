@@ -166,7 +166,7 @@ class rd_isomer(object):
             
             # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
             num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
-            n_conformers = max(1, int(8.481 * (num_rotatable_bonds **1.642)))
+            n_conformers = min(max(1, int(8.481 * (num_rotatable_bonds **1.642))), 1000)
             AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
                                     randomSeed=42, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
@@ -287,7 +287,7 @@ class rd_isomer_sdf(object):
 
                     # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
                     num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
-                    n_conformers = max(1, int(8.481 * (num_rotatable_bonds **1.642)))
+                    n_conformers = min(max(1, int(8.481 * (num_rotatable_bonds **1.642))), 1000)
                 else:
                     n_conformers = self.n_conformers
                 AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=42, numThreads=self.np, pruneRmsThresh=self.threshold)
