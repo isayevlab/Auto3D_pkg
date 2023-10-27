@@ -26,54 +26,6 @@ from Auto3D.utils import hartree2ev
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 ev2hatree = 1/hartree2ev  
-# class EnForce_ANI(torch.nn.Module):
-#     """Takes in an torch model, then defines forward functions for it.
-#     Especially useful for AIMNET (class torch.jit)
-#     Arguments:
-#         name: ['ANI2xt', 'AIMNET']
-#         model_parameters: path to the state dictionary
-#     Returns:
-#         the energies and forces for the input molecules.
-#     """
-#     def __init__(self, name, model_parameters=None, device=torch.device("cpu")):
-#         super().__init__()
-#         self.name = name
-#         self.model_parameters = model_parameters
-#         if self.name == 'ANI2xt':
-#             model = ANI2xt(device)
-#         elif self.name == "AIMNET":
-#             model = torch.jit.load(model_parameters, map_location=device)
-#         self.model = model
-#         self.device = device
-
-#     def forward(self, coord, numbers, charge=0):
-#         """Calculate the energies and forces for input molecules. Called by self.forward_batched
-        
-#         Arguments:
-#             coord: coordinates for all input structures. size (B, N, 3), where
-#                   B is the number of structures in coord, N is the number of
-#                   atoms in each structure, 3 represents xyz dimensions.
-#             numbers: the atomic numbers
-            
-#         Returns:
-#             energies
-#             forces
-#         """
-
-#         if self.name == "AIMNET":
-#             charge = torch.tensor(charge, dtype=torch.float, device=self.device)
-#             d = self.model(dict(coord=coord, numbers=numbers, charge=charge))
-#             e = (d['energy'] + d['disp_energy']).to(torch.double)
-#             g = torch.autograd.grad([e.sum()], [coord])[0]
-#             assert g is not None
-#             f = -g
-#         elif self.name == "ANI2xt":
-#             # d = {1:0, 6:1, 7:2, 8:3, 16:4, 9:5, 17:6}
-#             d = {1:0, 6:1, 7:2, 8:3, 9:4, 16:5, 17:6}
-#             numbers2 = numbers.to('cpu').apply_(d.get).to(self.device)
-#             e, f = self.model(numbers2, coord)
-
-#         return e, f
 
 class Calculator(ase.calculators.calculator.Calculator):
     """ASE calculator interface for AIMNET and ANI2xt"""
