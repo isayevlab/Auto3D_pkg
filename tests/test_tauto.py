@@ -59,3 +59,6 @@ def test_get_stable_tautomers2():
         send2trash(out_folder)
     except:
         shutil.rmtree(out_folder)
+
+if __name__ == '__main__':
+    test_get_stable_tautomers1()

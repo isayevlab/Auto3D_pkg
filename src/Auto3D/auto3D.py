@@ -28,9 +28,10 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.utils import housekeeping
 from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
-from Auto3D.utils import SDF2chunks
-from Auto3D.utils import smiles2smi
 from Auto3D.utils import create_chunk_meta_names
+from Auto3D.utils import reorder_sdf
+from Auto3D.utils_file import SDF2chunks
+from Auto3D.utils_file import smiles2smi
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -241,10 +242,10 @@ def main(args:dict):
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
-    path = args.path
-    if path is None:
+    path0 = args.path
+    if path0 is None:
         sys.exit("Please specify the input file path.")
-    input_format = os.path.splitext(path)[1][1:]
+    input_format = os.path.splitext(path0)[1][1:]
     if (input_format != "smi") and (input_format != "sdf"):
         sys.exit("Input file type is not supported. Only .smi and .sdf are supported. But the input file is " + input_format + ".")
     args['input_format'] = input_format
@@ -258,8 +259,8 @@ def main(args:dict):
     job_name = args.job_name
 
     # initialiazation
-    basename = os.path.basename(path)
-    dir = os.path.dirname(os.path.abspath(path))
+    basename = os.path.basename(path0)
+    dir = os.path.dirname(os.path.abspath(path0))
     job_name = job_name + "_" + basename.split('.')[0].strip()
     job_name = os.path.join(dir, job_name)
     os.mkdir(job_name)
@@ -314,9 +315,9 @@ def main(args:dict):
 
     #Get indexes for each chunk
     if input_format == "smi":
-        df = pd.read_csv(path, sep='\s+', header=None)
+        df = pd.read_csv(path0, sep='\s+', header=None)
     elif input_format == "sdf":
-        df = SDF2chunks(path)
+        df = SDF2chunks(path0)
     data_size = len(df)
     num_chunks = int(data_size // chunk_size + 1)
     print(f"The available memory is {t} GB.", flush=True)
@@ -332,7 +333,7 @@ def main(args:dict):
 
     #Save each chunk as smi
     chunk_info = []
-    basename = os.path.basename(path).split(".")[0].strip()
+    basename = os.path.basename(path0).split(".")[0].strip()
     if input_format == "smi":
         for i in range(num_chunks):
             dir = os.path.join(job_name, f"job{i+1}")
@@ -410,6 +411,7 @@ def main(args:dict):
         remaining_minutes = running_time_m - running_time_h*60
         print(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)', flush=True)
         logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
+    reorder_sdf(path_combined, path0)
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
@@ -427,9 +429,9 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
         basename = 'smiles.smi'
-        path = os.path.join(tmpdirname, basename)
-        smiles2smi(smiles, path)  # save all SMILES into a smi file
-        args['path'] = path
+        path0 = os.path.join(tmpdirname, basename)
+        smiles2smi(smiles, path0)  # save all SMILES into a smi file
+        args['path'] = path0
         k = args.k
         window = args.window
         if (not k) and (not window):
@@ -439,8 +441,8 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
         check_input(args)
 
         # smi to sdf
-        meta = create_chunk_meta_names(path, tmpdirname)
-        isomer_engine = rd_isomer(path, meta["smiles_enumerated"],
+        meta = create_chunk_meta_names(path0, tmpdirname)
+        isomer_engine = rd_isomer(path0, meta["smiles_enumerated"],
                                   meta["smiles_reduced"], meta["smiles_hashed"], 
                                   meta["enumerated_sdf"], tmpdirname,
                                   args.max_confs, args.threshold,
@@ -465,7 +467,8 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
         # Ranking step
         rank_engine = ranking(meta["optimized_og"], meta["output"],
                               args.threshold, k=k, window=window)
-        conformers = rank_engine.run()
+        _ = rank_engine.run()
+        conformers = reorder_sdf(meta["output"], path0)
 
         print("Energy unit: Hartree if implicit.", flush=True)
     return conformers

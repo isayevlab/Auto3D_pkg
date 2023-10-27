@@ -16,7 +16,7 @@ try:
 except:
     pass
 from tqdm import tqdm
-from ..utils import hartree2ev
+from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
