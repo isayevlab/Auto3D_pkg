@@ -4,7 +4,7 @@ import torchani
 import os
 import math
 from torchani.units import hartree2kcalmol
-from ..utils import hartree2ev
+from Auto3D.utils import hartree2ev
 
 
 torch.manual_seed(0)

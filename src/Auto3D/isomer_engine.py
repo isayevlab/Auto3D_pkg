@@ -15,8 +15,10 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 from rdkit.Chem.EnumerateStereoisomers import StereoEnumerationOptions
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem import rdMolDescriptors
-from .utils import hash_enumerated_smi_IDs, combine_smi, amend_configuration_w
-from .utils import remove_enantiomers
+from Auto3D.utils import hash_enumerated_smi_IDs, amend_configuration_w
+from Auto3D.utils import remove_enantiomers
+from Auto3D.utils import min_pairwise_distance
+from Auto3D.utils_file import combine_smi
 try:
     from openeye import oechem
     from openeye import oequacpac
@@ -193,11 +195,6 @@ class rd_isomer(object):
         files = glob.glob(paths)
         dict0 = {}
         for file in files:
-            # mols = pybel.readfile('sdf', file)
-            # for mol in mols:
-            #     idx = mol.data['ID']
-            #     mol.title = idx
-            #     dict0[idx] = mol
             supp = Chem.SDMolSupplier(file, removeHs=False)
             for mol in supp:
                 idx = mol.GetProp('ID')
@@ -205,13 +202,12 @@ class rd_isomer(object):
                 dict0[idx] =mol
 
         dict0 = collections.OrderedDict(sorted(dict0.items()))
-        # f = pybel.Outputfile('sdf', out)
-        # for idx, mol in sorted(dict0.items()):
-        #     f.write(mol)
-        # f.close()
         with Chem.SDWriter(out) as f:
             for idx, mol in sorted(dict0.items()):
-                f.write(mol)
+                positions = mol.GetConformer().GetPositions()
+                # atoms clashes if distance is smaller than 0.9 Angstrom
+                if min_pairwise_distance(positions) > 0.9:
+                    f.write(mol)
 
     def run(self):
         """

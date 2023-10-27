@@ -7,11 +7,10 @@ import logging
 import pandas as pd
 from rdkit import Chem
 from typing import List
-from .utils import guess_file_type, filter_unique
-from .utils import hartree2ev, ev2kcalpermol
+from Auto3D.utils import filter_unique
+from Auto3D.utils import hartree2ev, ev2kcalpermol
 
-# eV2kcalmol = 23.06055  #1 eV = 23.06055 kcal/mol
-# hartree2eV = 27.211385
+
 class ranking(object):
     '''
     Finding 3D structures that satisfy the user-defined requirements.
@@ -143,16 +142,9 @@ class ranking(object):
         logging.info("Begin to select structures that satisfy the requirements...")
         results = []
 
-        # file_type = guess_file_type(self.input_path)
-        # data2 = pybel.readfile(file_type, self.input_path)
         data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
-
-        # mols = [mol for mol in data2 if mol.data["Converged"].lower() == "true"]
-        mols = [mol for mol in data2 if mol.GetProp("Converged").lower() == "true"]
-        # names = [mol.title.strip() for mol in mols]
-        # energies = [float(mol.data['E_tot']) for mol in mols]
-        # assert(len(mols) == len(names))
-        # assert(len(mols) == len(energies))
+        mols_ = [mol for mol in data2 if mol is not None]
+        mols = [mol for mol in mols_ if mol.GetProp("Converged").lower() == "true"]
         names = [mol.GetProp("_Name").strip() for mol in mols]
         energies = [float(mol.GetProp("E_tot")) for mol in mols]
 

@@ -4,8 +4,8 @@ import time
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 from Auto3D.isomer_engine import rd_isomer
-from Auto3D.utils import SDF2chunks
-from Auto3D.utils import countSDF
+from Auto3D.utils_file import SDF2chunks
+from Auto3D.utils_file import countSDF
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path = os.path.join(folder, "tests/files/single_smiles.smi")

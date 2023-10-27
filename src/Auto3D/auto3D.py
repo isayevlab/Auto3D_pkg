@@ -28,8 +28,8 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.utils import housekeeping
 from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
-from Auto3D.utils import SDF2chunks
-from Auto3D.utils import smiles2smi
+from Auto3D.utils_file import SDF2chunks
+from Auto3D.utils_file import smiles2smi
 from Auto3D.utils import create_chunk_meta_names
 from send2trash import send2trash
 try:
