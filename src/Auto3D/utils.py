@@ -23,6 +23,7 @@ from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 from rdkit.Chem import rdMolDescriptors
 from typing import List, Tuple, Dict, Union, Optional, Callable
+from Auto3D.utils_file import guess_file_type
 
 #CODATA 2018 energy conversion factor
 hartree2ev = 27.211386245988
@@ -641,3 +642,44 @@ def min_pairwise_distance(points: np.array) -> float:
     
     # Return the square root of the minimum squared distance
     return np.sqrt(min_squared_distance)
+
+def reorder_sdf(sdf:str, source:str) -> List[Chem.Mol]:
+    """Reorder the conformer order in the output SDF file such that 
+    it's consistent with the order in the input source file"""
+    # convert smi/sdf to a list of ids with correct order
+    ids = []
+    format = guess_file_type(source)
+    if format == 'smi':
+        with open(source, 'r') as f:
+                data = f.readlines()
+        for line in data:
+            smiles, id = tuple(line.strip().split())
+            ids.append(id)
+    elif format == 'sdf':
+        supp = Chem.SDMolSupplier(source, removeHs=False)
+        for mol in supp:
+            id = mol.GetProp('_Name')
+            ids.append(id)
+    else:
+        print('Unsupported file format: %s' % format)
+        return 
+
+    # convert sdf to a Dict[id, List[mols]]
+    id_mols = defaultdict(lambda: [])
+    supp = Chem.SDMolSupplier(sdf, removeHs=False)
+    for mol in supp:
+        id = mol.GetProp('_Name')
+        if '@taut' in id:
+            id = id.split('@taut')[0]
+        id_mols[id].append(mol)
+    
+    # write the mols in the correct order to a new sdf file
+    ordered_mols = []
+    with Chem.SDWriter(sdf) as f:
+        for id in ids:
+            mols = id_mols[id]
+            if len(mols) >= 1:
+                ordered_mols.extend(mols)
+                for mol in mols:
+                    f.write(mol)
+    return ordered_mols
