@@ -8,6 +8,7 @@ root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root)
 import warnings
 import torch
+import ase
 from ase import Atoms
 from ase.optimize import BFGS
 from rdkit import Chem
@@ -72,33 +73,61 @@ def get_mol_idx_t1(mol):
     T = int(idx.split("-")[-1])
     return (idx, T)
 
-def get_mol_idx_t2(mol):
-    """Get idx and temperature from openbabel molecule"""
-    idx = mol.data['ID']
-    ref_idx_t = idx.split("_")[0].strip()
-    T = round(float(ref_idx_t.split("-")[-1]))
-    return (idx, T)
-
 def get_mol_idx_t3(mol):
     "Setting default index and temperature"
     idx = ""
     T = 298
     return (idx, T)
 
-def get_mol_idx_t4(mol):
-    idx = mol.title.strip()
-    T = 298
-    return (idx, T)
+def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu')) -> dict:
+    """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
+    conf = mol.GetConformer()
+    coord = torch.tensor(conf.GetPositions(), device=device).unsqueeze(0)
+    numbers = torch.tensor([atom.GetAtomicNum() for atom in mol.GetAtoms()], device=device).unsqueeze(0)
+    charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
+    return dict(coord=coord, numbers=numbers, charge=charge)
 
-def get_mol_idx_t5(mol):
-    idx = mol.data["ID"].strip()
-    T = 298
-    return (idx, T)
+def do_mol_thermo(mol: Chem.Mol,
+                  atoms: ase.Atoms,
+                  model: torch.nn.Module,
+                  device=torch.device('cpu'),
+                  T=298.0):
+    """For a RDKit mol object, calculate its thermochemistry properties"""
+    coord = torch.tensor(mol.GetConformer().GetPositions()).to(device).unsqueeze(0)
+    num_atoms = coord.shape[1]
+    numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
+    charge = torch.tensor(rdmolops.GetFormalCharge(mol)).to(device)
 
-def get_mol_idx_t6(mol):
-    idx = mol.data["ID"].strip()
-    T = float(mol.data["T"])
-    return (idx, T)
+    hess_helper = partial(aimnet_hessian_helper,
+                          numbers=numbers,
+                          charge=charge,
+                          model=model)
+    hess = torch.autograd.functional.hessian(hess_helper,
+                                             coord)
+    hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
+    vib = VibrationsData(atoms, hess)
+    vib_e = vib.get_energies()
+    e = atoms.get_potential_energy()
+    thermo = IdealGasThermo(vib_energies=vib_e,
+                            potentialenergy=e,
+                            atoms=atoms,
+                            geometry='nonlinear',
+                            symmetrynumber=1, spin=0)
+    H = thermo.get_enthalpy(temperature=T) * ev2hatree
+    S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
+    G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
+
+    mol.SetProp("H_hartree", str(H))
+    mol.SetProp("S_hartree", str(S))
+    mol.SetProp("T_K", str(T))
+    mol.SetProp("G_hartree", str(G))
+    mol.SetProp("E_hartree", str(e * ev2hatree))
+    
+    #Updating ASE atoms coordinates into pybel mol
+    coord = atoms.get_positions()
+    for i, atom in enumerate(mol.GetAtoms()):
+        mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+    return mol
 
 def aimnet_hessian_helper(coord:torch.tensor, 
                           numbers:Optional[torch.Tensor]=None,
@@ -152,12 +181,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
 
         if model_name != "ANI2x":
             calculator = Calculator(model, charge)
-        atoms.set_calculator(calculator)
-
-
-        opt = BFGS(atoms)
-        opt.run(fmax=opt_tol, steps=opt_steps)
-        e = atoms.get_potential_energy()
+        atoms.set_calculator(calculator)        
 
         if get_mol_idx_t is None:
             idx = mol.GetProp("_Name").strip()
@@ -166,35 +190,23 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             idx, T = get_mol_idx_t(mol)
 
         try:
-            hess_helper = partial(aimnet_hessian_helper,
-                                  numbers=torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device),
-                                  charge=torch.tensor([charge]).to(device),
-                                  model=aimnet_0)
-            hess = torch.autograd.functional.hessian(hess_helper,
-                                                    torch.tensor(coord).to(device))
-            hess = hess.detach().cpu().numpy()
-            vib = VibrationsData(atoms, hess)
-            vib_e = vib.get_energies()
-
-            thermo = IdealGasThermo(vib_energies=vib_e,
-                                    potentialenergy=e,
-                                    atoms=atoms,
-                                    geometry='nonlinear',
-                                    symmetrynumber=1, spin=0)
-            H = thermo.get_enthalpy(temperature=T) * ev2hatree
-            S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
-            G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
-
-            mol.SetProp("H_hartree", str(H))
-            mol.SetProp("S_hartree", str(S))
-            mol.SetProp("T_K", str(T))
-            mol.SetProp("G_hartree", str(G))
-            mol.SetProp("E_hartree", str(e * ev2hatree))
-            
-            #Updating ASE atoms coordinates into pybel mol
-            coord = atoms.get_positions()
-            for i, atom in enumerate(mol.GetAtoms()):
-                mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+            aimnet_in = mol2aimnet_input(mol, device)
+            _, f_ = model(aimnet_in['coord'], aimnet_in['numbers'], aimnet_in['charge'])
+            fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+            assert fmax <= 3e-3
+            mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
+            out_mols.append(mol)
+        except AssertionError:
+            print('optiimize the input geometry')
+            opt = BFGS(atoms)
+            opt.run(fmax=3e-3, steps=opt_steps)
+            mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
+            out_mols.append(mol)
+        except ValueError:
+            print('use tighter convergence threshold for geometry optimization')
+            opt = BFGS(atoms)
+            opt.run(fmax=opt_tol, steps=opt_steps)
+            mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
             out_mols.append(mol)
         except:
             print("Failed: ", idx, flush=True)
