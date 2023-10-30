@@ -12,9 +12,12 @@ from ase import Atoms
 from ase.optimize import BFGS
 from rdkit import Chem
 from rdkit.Chem import rdmolops
-from ase.vibrations import Vibrations
+# from ase.vibrations import Vibrations
+from ase.vibrations import VibrationsData
 from ase.thermochemistry import IdealGasThermo
 import ase.calculators.calculator
+from functools import partial
+from typing import Optional
 try:
     from ..batch_opt.ANI2xt_no_rep import ANI2xt
 except:
@@ -97,6 +100,12 @@ def get_mol_idx_t6(mol):
     T = float(mol.data["T"])
     return (idx, T)
 
+def aimnet_hessian_helper(coord:torch.tensor, 
+                          numbers:Optional[torch.Tensor]=None,
+                          charge: Optional[torch.Tensor]=None,
+                          model: Optional[torch.nn.Module]=None):
+    dct = dict(coord=coord, numbers=numbers, charge=charge)
+    return model(dct)['energy']
 
 def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.001, opt_steps=5000):
     """ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET
@@ -122,12 +131,11 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     else:
         device = torch.device("cpu")
     if model_name == "ANI2xt":
-        # dict_path = None
-        # model = EnForce_ANI('ANI2xt', dict_path, device=device)
         model = EnForce_ANI(ANI2xt(device), model_name)
     elif model_name == "AIMNET":
-        # dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
-        # model = EnForce_ANI('AIMNET', dict_path, device=device)
+        # Using a single AIMNet2 model for computing Hessian
+        aimnet_0 = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m-d3_0.jpt"), map_location=device)
+        # Using the ensemble AIMNet2 model for computing energy and forces
         aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
         model = EnForce_ANI(aimnet, model_name)
     elif model_name == "ANI2x":
@@ -141,7 +149,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         species = [numbers2species[a.GetAtomicNum()] for a in mol.GetAtoms()]
         charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
-        
+
         if model_name != "ANI2x":
             calculator = Calculator(model, charge)
         atoms.set_calculator(calculator)
@@ -157,10 +165,15 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         else:
             idx, T = get_mol_idx_t(mol)
 
-        vib = Vibrations(atoms)
         try:
-            vib.clean()
-            vib.run()
+            hess_helper = partial(aimnet_hessian_helper,
+                                  numbers=torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device),
+                                  charge=torch.tensor([charge]).to(device),
+                                  model=aimnet_0)
+            hess = torch.autograd.functional.hessian(hess_helper,
+                                                    torch.tensor(coord).to(device))
+            hess = hess.detach().cpu().numpy()
+            vib = VibrationsData(atoms, hess)
             vib_e = vib.get_energies()
 
             thermo = IdealGasThermo(vib_energies=vib_e,
@@ -171,7 +184,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             H = thermo.get_enthalpy(temperature=T) * ev2hatree
             S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
             G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
-            vib.clean()
 
             mol.SetProp("H_hartree", str(H))
             mol.SetProp("S_hartree", str(S))
@@ -184,10 +196,8 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             for i, atom in enumerate(mol.GetAtoms()):
                 mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
             out_mols.append(mol)
-        
         except:
             print("Failed: ", idx, flush=True)
-            vib.clean()
             mols_failed.append(mol)
 
     print("Number of failed thermo calculations: ", len(mols_failed), flush=True)
@@ -197,3 +207,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         for mol in all_mols:
             w.write(mol)
     return outpath
+
+if __name__ == "__main__":
+    path = '/home/jack/run_auto3d/20231030-101405-214461_methane/imaginary/methane_out.sdf'
+    out = calc_thermo(path, 'AIMNET', get_mol_idx_t3, gpu_idx=2)
