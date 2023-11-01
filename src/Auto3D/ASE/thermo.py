@@ -8,6 +8,7 @@ root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root)
 import warnings
 import torch
+from tqdm import tqdm
 import ase
 from ase import Atoms
 from ase.optimize import BFGS
@@ -173,7 +174,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
-    for mol in mols:
+    for mol in tqdm(mols):
         coord = mol.GetConformer().GetPositions()
         species = [numbers2species[a.GetAtomicNum()] for a in mol.GetAtoms()]
         charge = rdmolops.GetFormalCharge(mol)
@@ -188,26 +189,28 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             T = 298
         else:
             idx, T = get_mol_idx_t(mol)
-
+        print(idx)
         try:
-            aimnet_in = mol2aimnet_input(mol, device)
-            _, f_ = model(aimnet_in['coord'], aimnet_in['numbers'], aimnet_in['charge'])
-            fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
-            assert fmax <= 3e-3
-            mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
-            out_mols.append(mol)
-        except AssertionError:
-            print('optiimize the input geometry')
-            opt = BFGS(atoms)
-            opt.run(fmax=3e-3, steps=opt_steps)
-            mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
-            out_mols.append(mol)
-        except ValueError:
-            print('use tighter convergence threshold for geometry optimization')
-            opt = BFGS(atoms)
-            opt.run(fmax=opt_tol, steps=opt_steps)
-            mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
-            out_mols.append(mol)
+            try:
+                try:
+                    aimnet_in = mol2aimnet_input(mol, device)
+                    _, f_ = model(aimnet_in['coord'], aimnet_in['numbers'], aimnet_in['charge'])
+                    fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+                    assert fmax <= 0.01
+                    mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
+                    out_mols.append(mol)
+                except AssertionError:
+                    print('optiimize the input geometry')
+                    opt = BFGS(atoms)
+                    opt.run(fmax=3e-3, steps=opt_steps)
+                    mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
+                    out_mols.append(mol)
+            except ValueError:
+                print('use tighter convergence threshold for geometry optimization')
+                opt = BFGS(atoms)
+                opt.run(fmax=opt_tol, steps=opt_steps)
+                mol = do_mol_thermo(mol, atoms, aimnet_0, device, T)
+                out_mols.append(mol)
         except:
             print("Failed: ", idx, flush=True)
             mols_failed.append(mol)
