@@ -15,7 +15,7 @@ from ase.optimize import BFGS
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 # from ase.vibrations import Vibrations
-from ase.vibrations import VibrationsData
+from ase.vibrations import VibrationsData, Vibrations
 from ase.thermochemistry import IdealGasThermo
 import ase.calculators.calculator
 from functools import partial
@@ -47,6 +47,9 @@ class Calculator(ase.calculators.calculator.Calculator):
         self.species = {'H':1, 'C':6, 'N':7, 'O':8, 'F':9, 'Si':14, 'P':15,
                         'S':16, 'Cl':17, 'As':33, 'Se':34, 'Br':35, 'I':53,
                         'B':5}
+
+    def set_charge(self, charge:int):
+        self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
 
     def calculate(self, atoms=None, properties=['energy'],
                   system_changes=ase.calculators.calculator.all_changes):
@@ -88,16 +91,48 @@ def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu')) -> dict:
     charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
     return dict(coord=coord, numbers=numbers, charge=charge)
 
-def do_mol_thermo(mol: Chem.Mol,
-                  atoms: ase.Atoms,
-                  model: torch.nn.Module,
-                  device=torch.device('cpu'),
-                  T=298.0):
-    """For a RDKit mol object, calculate its thermochemistry properties"""
-    coord = torch.tensor(mol.GetConformer().GetPositions()).to(device).unsqueeze(0)
+def model_name2model_calculator(model_name: str, device=torch.device('cpu'), charge=0):
+    """Return a model and the ASE calculator object for a molecule"""
+    if model_name == "ANI2xt":
+        model = EnForce_ANI(ANI2xt(device), model_name)
+        calculator = Calculator(model, charge)
+    elif model_name == "AIMNET":
+        # Using a single AIMNet2 model for computing Hessian
+        # aimnet_0 = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m-d3_0.jpt"), map_location=device)
+
+        # Using the ensemble AIMNet2 model for computing energy and forces
+        aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
+        model = EnForce_ANI(aimnet, model_name)
+        calculator = Calculator(model, charge)
+    elif model_name == "ANI2x":
+        model = torchani.models.ANI2x().to(device)
+        calculator = model.ase()
+    else:
+        raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
+    return model, calculator
+
+def mol2atoms(mol: Chem.Mol):
+    '''convert a RDKit mol object to ASE atoms object'''
+    coord = mol.GetConformer().GetPositions()
+    species = [a.GetSymbol() for a in mol.GetAtoms()]
+    atoms = Atoms(species, coord)
+    return atoms
+    
+def vib_hessian(mol: Chem.Mol, ase_calculator, model, device=torch.device('cpu')):
+    '''return a VibrationsData object
+    model: ANI2xt or AIMNet2 model with EnForce_ANI wrapper'''
+    # get the ASE atoms object
+    coord = mol.GetConformer().GetPositions()
+    species = [a.GetSymbol() for a in mol.GetAtoms()]
+    charge = rdmolops.GetFormalCharge(mol)
+    atoms = Atoms(species, coord)
+    atoms.set_calculator(ase_calculator)
+
+    # get the Hessian
+    coord = torch.tensor(coord).to(device).unsqueeze(0)
     num_atoms = coord.shape[1]
     numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
-    charge = torch.tensor(rdmolops.GetFormalCharge(mol)).to(device)
+    charge = torch.tensor(charge).to(device)
 
     hess_helper = partial(aimnet_hessian_helper,
                           numbers=numbers,
@@ -105,8 +140,32 @@ def do_mol_thermo(mol: Chem.Mol,
                           model=model)
     hess = torch.autograd.functional.hessian(hess_helper,
                                              coord)
-    hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
+    hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()    
+
+    # get the VibrationsData object
     vib = VibrationsData(atoms, hess)
+    return vib
+
+def vib_ase(mol: Chem.Mol, ase_calculator):
+    '''return a VibrationsData object
+    model: ANI2xt or AIMNet2 model with EnForce_ANI wrapper'''
+    # get the ASE atoms object
+    atoms = mol2atoms(mol)
+    atoms.set_calculator(ase_calculator)
+
+    # get the VibrationsData object
+    vib = Vibrations(atoms)
+    vib.clean()
+    vib.run()
+    return vib
+
+def do_mol_thermo(mol: Chem.Mol,
+                  atoms: ase.Atoms,
+                  model: torch.nn.Module,
+                  device=torch.device('cpu'),
+                  T=298.0):
+    """For a RDKit mol object, calculate its thermochemistry properties"""
+    vib = vib_hessian(mol, atoms.get_calculator(), model, device)
     vib_e = vib.get_energies()
     e = atoms.get_potential_energy()
     thermo = IdealGasThermo(vib_energies=vib_e,
@@ -160,18 +219,10 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         device = torch.device(f"cuda:{gpu_idx}")
     else:
         device = torch.device("cpu")
-    if model_name == "ANI2xt":
-        model = EnForce_ANI(ANI2xt(device), model_name)
-    elif model_name == "AIMNET":
-        # Using a single AIMNet2 model for computing Hessian
+
+    if model_name == 'AIMNET':
         aimnet_0 = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m-d3_0.jpt"), map_location=device)
-        # Using the ensemble AIMNet2 model for computing energy and forces
-        aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
-        model = EnForce_ANI(aimnet, model_name)
-    elif model_name == "ANI2x":
-        calculator = torchani.models.ANI2x().to(device).ase()
-    else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
+    model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in tqdm(mols):
@@ -180,8 +231,8 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
 
-        if model_name != "ANI2x":
-            calculator = Calculator(model, charge)
+        if model_name == 'AIMNET':
+            calculator.set_charge(charge)
         atoms.set_calculator(calculator)        
 
         if get_mol_idx_t is None:
@@ -193,6 +244,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         try:
             try:
                 try:
+                    # THE FOLLOWING CODE ONLY WORKS FOR AIMNET2
                     aimnet_in = mol2aimnet_input(mol, device)
                     _, f_ = model(aimnet_in['coord'], aimnet_in['numbers'], aimnet_in['charge'])
                     fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
