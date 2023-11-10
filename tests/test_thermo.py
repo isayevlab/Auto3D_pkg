@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from rdkit import Chem
 import Auto3D
+from Auto3D.ASE.geometry import opt_geometry
 from Auto3D.ASE.thermo import model_name2model_calculator, vib_hessian
 from Auto3D.ASE.thermo import calc_thermo
 
@@ -46,6 +47,31 @@ def test_vib_hessian():
     mean_diff = np.mean(np.abs(hessian_freq[6:] - ase_freq[6:]))
     assert(mean_diff <= 10)  # 10 cm-1 error is acceptable
 
+def test_opt_geometry1():
+    path = os.path.join(folder, "tests/files/DA.sdf")
+    out = opt_geometry(path, 'ANI2x', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+    try:
+        os.remove(out)
+    except:
+        pass
+
+def test_opt_geometry2():
+    path = os.path.join(folder, "tests/files/DA.sdf")
+    out = opt_geometry(path, 'ANI2xt', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+    try:
+        os.remove(out)
+    except:
+        pass
+
+def test_opt_geometry3():
+    path = os.path.join(folder, "tests/files/DA.sdf")
+    out = opt_geometry(path, 'AIMNET', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+    try:
+        os.remove(out)
+    except:
+        pass  
+
 if __name__ == "__main__":
-    test_calc_thermo_aimnet()
-    test_vib_hessian()
+    test_opt_geometry1()
+    test_opt_geometry2()
+    test_opt_geometry3()
