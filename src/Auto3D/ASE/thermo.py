@@ -196,7 +196,7 @@ def aimnet_hessian_helper(coord:torch.tensor,
     dct = dict(coord=coord, numbers=numbers, charge=charge)
     return model(dct)['energy']
 
-def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.001, opt_steps=5000):
+def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.0005, opt_steps=5000):
     """ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET
     path: Input sdf file
     model_name: ANI2x, ANI2xt or AIMNET
