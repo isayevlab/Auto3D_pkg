@@ -9,6 +9,7 @@
 project = 'Auto3D'
 copyright = 'IsayevLab'
 author = 'Zhen Liu; Tetiana Zubatiuk; Adrian Roitberg; Olexandr Isayev'
+version = '2.2.5'
 release = '2.2.5'
 
 # -- General configuration ---------------------------------------------------
