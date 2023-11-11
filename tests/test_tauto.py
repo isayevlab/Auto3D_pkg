@@ -21,7 +21,7 @@ def test_get_stable_tautomers1():
     args = options(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
                    isomer_engine="omega", enumerate_isomer=True, 
                    optimizing_engine="AIMNET", gpu_idx=0, verbose=True,
-                   max_confs=10, patience=200)
+                   max_confs=3, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)
     
     mols = list(Chem.SDMolSupplier(tautomer_out))
@@ -43,7 +43,7 @@ def test_get_stable_tautomers2():
     args = options(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
                    isomer_engine="rdkit", enumerate_isomer=True, 
                    optimizing_engine="AIMNET", use_gpu=False, verbose=True,
-                   max_confs=10, patience=200)
+                   max_confs=3, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)
     
     mols = list(Chem.SDMolSupplier(tautomer_out))

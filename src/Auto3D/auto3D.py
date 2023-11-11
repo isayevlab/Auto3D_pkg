@@ -170,31 +170,55 @@ def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
-    """Arguments for Auto3D main program
-    path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
-    k: Outputs the top-k structures for each SMILES.
-    window: Outputs the structures whose energies are within x (kcal/mol) from the lowest energy conformer
-    verbose: When True, save all meta data while running.
-    job_name: A folder name to save all meta data.
-    
-    enumerate_tautomer: When True, enumerate tautomers for the input
-    tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
-    pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem')
-    isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
-    enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
-    mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
-    mpi_np: Number of CPU cores for the isomer generation engine.
-    max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.
-    use_gpu: If True, the program will use GPU when available
-    gpu_idx: GPU index. It only works when --use_gpu=True
-    capacity: Number of SMILES that the model will handle for 1 G memory
-    optimizing_engine: Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization.
-    patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop.
-    opt_steps: Maximum optimization steps for each structure.
-    convergence_threshold: Optimization is considered as converged if maximum force is below this threshold.
-    threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed.
-    memory: The RAM size assigned to Auto3D (unit GB).
-    batchsize_atoms: The number of atoms in 1 optimization batch for 1GB
+    """
+    Generating arguments for the Auto3D ``main`` function.
+
+    :param path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
+    :type path: str, optional
+    :param k: Outputs the top-k structures for each SMILES, defaults to False
+    :type k: bool, optional
+    :param window: Outputs the structures whose energies are within x (kcal/mol) from the lowest energy conformer, defaults to False
+    :type window: bool, optional
+    :param verbose: When True, save all meta data while running, defaults to False
+    :type verbose: bool, optional
+    :param job_name: A folder name to save all meta data, defaults to ""
+    :type job_name: str, optional
+    :param enumerate_tautomer: When True, enumerate tautomers for the input, defaults to False
+    :type enumerate_tautomer: bool, optional
+    :param tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem', defaults to "rdkit"
+    :type tauto_engine: str, optional
+    :param pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem'), defaults to True
+    :type pKaNorm: bool, optional
+    :param isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega, defaults to "rdkit"
+    :type isomer_engine: str, optional
+    :param enumerate_isomer: When True, cis/trans and r/s isomers are enumerated, defaults to True
+    :type enumerate_isomer: bool, optional
+    :param mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html, defaults to "classic"
+    :type mode_oe: str, optional
+    :param mpi_np: Number of CPU cores for the isomer generation engine, defaults to 4
+    :type mpi_np: int, optional
+    :param max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1, defaults to None
+    :type max_confs: int, optional
+    :param use_gpu: If True, the program will use GPU when available, defaults to True
+    :type use_gpu: bool, optional
+    :param gpu_idx: GPU index. It only works when --use_gpu=True, defaults to 0
+    :type gpu_idx: int or list of int, optional
+    :param capacity: Number of SMILES that the model will handle for 1 G memory, defaults to 42
+    :type capacity: int, optional
+    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization, defaults to "AIMNET"
+    :type optimizing_engine: str, optional
+    :param patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop, defaults to 1000
+    :type patience: int, optional
+    :param opt_steps: Maximum optimization steps for each structure, defaults to 5000
+    :type opt_steps: int, optional
+    :param convergence_threshold: Optimization is considered as converged if maximum force is below this threshold, defaults to 0.003
+    :type convergence_threshold: float, optional
+    :param threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed, defaults to 0.3
+    :type threshold: float, optional
+    :param memory: The RAM size assigned to Auto3D (unit GB), defaults to None
+    :type memory: int, optional
+    :param batchsize_atoms: The number of atoms in 1 optimization batch for 1GB, defaults to 1024
+    :type batchsize_atoms: int, optional
     """
     d = {}
     args = my_name_space(d)
@@ -237,7 +261,7 @@ def logger_process(queue, logging_path):
 
 
 def main(args:dict):
-    """Take the arguments from options and run Auto3D"""
+    """Take the arguments from the ``options`` function and run Auto3D."""
     chunk_line = mp.Manager().Queue()   #A queue managing two wrappers
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
@@ -419,13 +443,21 @@ def main(args:dict):
     return path_combined
 
 def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
-    """A handy tool for finding the low-energy conformers for a list of SMILES.
-    Compared with the main function, it sacrifies efficiency for convinience.
-    smiles2mols uses only 1 process. 
-    Both the input and output are returned as variables within python.
+    """
+    A handy tool for finding the low-energy conformers for a list of SMILES.
+    Compared with the ``main`` function, it sacrifices efficiency for convenience.
+    because ``smiles2mols`` uses only 1 process. 
+    Both the input and output are returned as variables within Python.
 
     It's recommended only when the number of SMILES is less than 150;
     Otherwise using the main function will be faster.
+
+    :param smiles: A list of SMILES strings for which to find low-energy conformers.
+    :type smiles: List[str]
+    :param args: A dictionary of arguments as returned by the ``option`` function.
+    :type args: dict
+    :return: A list of RDKit Mol objects representing the low-energy conformers of the input SMILES.
+    :rtype: List[Chem.Mol]
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
         basename = 'smiles.smi'

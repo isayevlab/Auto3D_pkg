@@ -84,11 +84,6 @@ def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMN
     """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
     conf = mol.GetConformer()
     coord = torch.tensor(conf.GetPositions(), device=device).unsqueeze(0)
-    # if model_name == 'ANI2xt':
-    #     periodict2idx = {1:0, 6:1, 7:2, 8:3, 9:4, 16:5, 17:6}
-    #     numbers = torch.tensor([periodict2idx[a.GetAtomicNum()] for a in mol.GetAtoms()],
-    #                            device=device).unsqueeze(0)
-    # else:
     numbers = torch.tensor([a.GetAtomicNum() for a in mol.GetAtoms()],
                             device=device).unsqueeze(0)
     charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
@@ -215,13 +210,22 @@ def aimnet_hessian_helper(coord:torch.tensor,
         return e  # energy unit: eV
 
 def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.0002, opt_steps=5000):
-    """ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET
-    path: Input sdf file
-    model_name: ANI2x, ANI2xt or AIMNET
-    get_mol_idx_t: a functioin that returns (idx, T) from a pybel mol object, by default using the 298 K temperature
-    gpu_idx: GPU cuda index
-    opt_tol: Convergence_threshold for geometry optimization
-    opt_steps: Maximum geometry optimizaiton steps"""
+    """
+    ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET.
+
+    :param path: Input sdf file
+    :type path: str
+    :param model_name: ANI2x, ANI2xt or AIMNET
+    :type model_name: str
+    :param get_mol_idx_t: A function that returns (idx, T) from a pybel mol object, by default using the 298 K temperature, defaults to None
+    :type get_mol_idx_t: function, optional
+    :param gpu_idx: GPU cuda index, defaults to 0
+    :type gpu_idx: int, optional
+    :param opt_tol: Convergence_threshold for geometry optimization, defaults to 0.0002
+    :type opt_tol: float, optional
+    :param opt_steps: Maximum geometry optimization steps, defaults to 5000
+    :type opt_steps: int, optional
+    """
     #Prepare output name
     out_mols, mols_failed = [], []
     dir = os.path.dirname(path)

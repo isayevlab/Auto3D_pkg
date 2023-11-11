@@ -17,12 +17,19 @@ torch.backends.cudnn.allow_tf32 = False
 
 
 def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=5000):
-    """Geometry optimization interface with Auto3D
-    path: Input sdf file
-    model_name: ANI2x, ANI2xt or AIMNET
-    gpu_idx: GPU cuda index
-    opt_tol: Convergence_threshold for geometry optimization (eV/A)
-    opt_steps: Maximum geometry optimizaiton steps
+    """
+    Geometry optimization interface with FIRE optimizer.
+
+    :param path: Input sdf file
+    :type path: str
+    :param model_name: ANI2x, ANI2xt or AIMNET
+    :type model_name: str
+    :param gpu_idx: GPU cuda index, defaults to 0
+    :type gpu_idx: int, optional
+    :param opt_tol: Convergence_threshold for geometry optimization (eV/A), defaults to 0.003
+    :type opt_tol: float, optional
+    :param opt_steps: Maximum geometry optimization steps, defaults to 5000
+    :type opt_steps: int, optional
     """
     ev2hatree = 1/hartree2ev
     #create output path that is in the same directory as the input file

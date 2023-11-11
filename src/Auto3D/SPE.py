@@ -27,11 +27,17 @@ torch.backends.cudnn.allow_tf32 = False
 ev2hatree = 1/hartree2ev
 
 
-def calc_spe(path:str, model_name:str, gpu_idx=0):
-    """Calculating single point energy
-    path: Input sdf file
-    model_name: ANI2x, ANI2xt or AIMNET
-    gpu_idx: GPU cuda index"""
+def calc_spe(path: str, model_name: str, gpu_idx=0):
+    """
+    Calculates single point energy.
+
+    :param path: Input sdf file
+    :type path: str
+    :param model_name: AIMNET, ANI2x or ANI2xt
+    :type model_name: str
+    :param gpu_idx: GPU cuda index, defaults to 0
+    :type gpu_idx: int, optional
+    """
     #Create a output path that is the in the same directory as the input
     dir = os.path.dirname(path)
     basename = os.path.basename(path).split(".")[0] + f"_{model_name}_E.sdf"
