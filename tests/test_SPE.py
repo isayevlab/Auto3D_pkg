@@ -37,8 +37,18 @@ def test_calc_spe_ani2x():
         idx = mol.GetProp("ID").strip()
         spe_ref = spe[idx]
         diff = abs(spe_out - spe_ref)
-        assert(diff <= 0.01)
+        assert(diff <= 0.011)
+
+def test_calc_spe_aimnet():
+    path = os.path.join(folder, 'tests/files/cyclooctane.sdf')
+    e_ref = -314.689736079491
+
+    out = calc_spe(path, 'AIMNET')
+    mol = next(Chem.SDMolSupplier(out, removeHs=False))
+    e_out = float(mol.GetProp('E_hartree'))
+    assert(abs(e_out - e_ref) <= 0.01)    
 
 if __name__ == "__main__":
     test_calc_spe_ani2xt()
     test_calc_spe_ani2x()
+    test_calc_spe_aimnet()

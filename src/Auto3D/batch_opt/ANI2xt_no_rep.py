@@ -18,10 +18,8 @@ root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ani_2xt_dict = os.path.join(root, "models/ani2xt_no_repulsion.pt")
 
 class ANI2xt(nn.Module):
-    def __init__(self, device, state_dict=ani_2xt_dict):
+    def __init__(self, device, state_dict=ani_2xt_dict, periodic_table_index=False):
         super().__init__()
-        # self.device = device
-        # self.state_dict = state_dict
         # setup constants and construct an AEV computer
         Rcr = 5.2000e+00
         Rca = 3.5000e+00
@@ -114,10 +112,15 @@ class ANI2xt(nn.Module):
             [-0.5984,  -38.0826,  -54.7031,  -75.1901, -99.8006, -398.1224,  -460.1387], 
             device=device, dtype=torch.float64))        
         self.model = torchani.nn.Sequential(aev_computer, nn).to(device)
-
+        self.periodic = periodic_table_index
+        self.periodict2idx = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
 
     def forward(self, species, coords):
+        if self.periodic:
+            for key, val in self.periodict2idx.items():
+                species[species == key] = val
         energy = self.shifter(self.model((species, coords))).energies * hartree2ev
-        gradient = torch.autograd.grad([energy.sum()], [coords])[0]
-        force = -gradient
-        return (energy, force)
+        # gradient = torch.autograd.grad([energy.sum()], [coords])[0]
+        # force = -gradient
+        # return (energy, force)
+        return energy
