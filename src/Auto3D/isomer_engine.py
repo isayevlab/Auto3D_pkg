@@ -1,7 +1,4 @@
 #!/usr/bin/env python
-"""
-Enumerating stereoisomers for each SMILES representation with RDKit.
-"""
 import logging
 import warnings
 import shutil

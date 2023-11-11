@@ -1,5 +1,5 @@
 Installation
-=====
+============
 
 Minimum Dependencies Installatioin
 ----------------------------------
@@ -13,7 +13,7 @@ Minimum Dependencies Installatioin
 If you have an environment with the above dependencies, Auto3D can be
 installed by
 
-.. code:: {bash}
+.. code:: console
 
    pip install Auto3D
 
@@ -21,7 +21,7 @@ Otherwise, you can create an environment and install Auto3D. In a
 terminal, the following code will create a environment named ``auto3D``
 with Auto3D and its minimum dependencies installed.
 
-.. code:: {bash}
+.. code:: console
 
    git clone https://github.com/isayevlab/Auto3D_pkg.git
    cd Auto3D_pkg
@@ -39,7 +39,7 @@ optimization engines are available: ANI-2x and ANI-2xt, which can be
 installed by (ANI-2xt will be incorporated into the ``TorchANI`` package
 soon):
 
-.. code:: {bash}
+.. code:: console
 
    conda activate auto3D
    conda install -c conda-forge torchani
@@ -48,7 +48,7 @@ One additional isomer engine is availabel: OpenEye toolkit. It's a
 commercial software from `OpenEye
 Software <https://www.eyesopen.com/omega>`__. It can be installed by
 
-.. code:: {bash}
+.. code:: console
 
    conda activate auto3D
    conda install -c openeye openeye-toolkits
@@ -57,7 +57,7 @@ To calculate thermodynamical properties (such as Gibbs free energy,
 enthalpy, entropy, geometry optimization) with Auto3D,
 `ASE <https://wiki.fysik.dtu.dk/ase/>`__ needs to be installed:
 
-.. code:: {bash}
+.. code:: console
 
    conda activate auto3D
    conda install -c conda-forge ase

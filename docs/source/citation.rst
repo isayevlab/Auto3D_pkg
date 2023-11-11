@@ -38,7 +38,7 @@ If you used ``AIMNET`` for your research, we would appreciate it if the followin
     }
 
 Cite ANI-2x
-----------
+-----------
 
 If you used ``ANI2x`` for your research, we would appreciate it if the following paper is cited:
 
@@ -56,7 +56,7 @@ If you used ``ANI2x`` for your research, we would appreciate it if the following
     }
 
 Cite ANI-2xt
------------
+------------
 
 If you used ``ANI2xt`` for your research, we would appreciate it if the following paper is cited:
 

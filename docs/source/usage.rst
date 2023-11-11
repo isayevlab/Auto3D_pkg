@@ -14,7 +14,7 @@ Using Auto3D as a Python library
 --------------------------------
 If you just have a handful of SMILES, it's easy to use the ``smiles2mols`` function. It is a handy tool for finding the low-energy conformers for a list of SMILES. Compared with the ``main`` function, it sacrifices efficiency for convenience. Because ``smiles2mols`` uses only 1 process.  Both the input and output are returned as variables within Python. It's recommended only when the number of SMILES is less than 150; Otherwise using the combination of the ``options`` and ``main`` function will be faster.
 
-.. code:: {Python}
+.. code:: python
 
    from rdkit import Chem
    from Auto3D.auto3D import options, smiles2mols
@@ -36,7 +36,7 @@ If you just have a handful of SMILES, it's easy to use the ``smiles2mols`` funct
 
 The following examples uses the ``options`` and the ``main`` function.  It's suitable for a large input, and stores the 3D structures in a file with the name ``<input_file_name>_3d.sdf``. Note that the ``smi`` file can be replaced with an ``SDF`` file. That means Auto3D starts to seaerch for low-energy conformers with a given starting geometry. Because the ``main`` function uses multiprocessing, it has to be called in a ``if __name__ == "__main__":`` block.
 
-.. code:: {Python}
+.. code:: python
 
    from Auto3D.auto3D import options, main
 
@@ -52,7 +52,7 @@ Using Auto3D in a terminal command line
 
 Alternatively, you can run Auto3D through CLI.
 
-.. code:: {Bash}
+.. code:: console
 
    cd <replace with your path_folder_with_auto3D.py>
    python auto3D.py "example/files/smiles.smi" --k=1
@@ -60,7 +60,7 @@ Alternatively, you can run Auto3D through CLI.
 The parameter can also be provided via a yaml file (for example
 ``parameters.yaml``). So the above example is equivalent to
 
-.. code:: {Bash}
+.. code:: console
 
    cd <replace with your path_folder_with_auto3D.py>
    python auto3D.py parameters.yaml
@@ -93,7 +93,7 @@ Please note that ``--`` is only required for CLI. For example, to use
 ``ANI2x`` as the optimizing engine, you need the following block if you
 are writing a custom Python script;
 
-.. code:: {Pythoon}
+.. code:: python
 
    from Auto3D.auto3D import options, main
 
@@ -104,7 +104,7 @@ are writing a custom Python script;
 
 You need the following block if you use the CLI.
 
-.. code:: {Bash}
+.. code:: console
 
    cd <replace with your path_folder_with_Auto3D_pkg>
    python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
