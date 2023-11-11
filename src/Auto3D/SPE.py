@@ -76,3 +76,12 @@ def calc_spe(path:str, model_name:str, gpu_idx=0):
             mol.SetProp('E_hartree', str(es[i] * ev2hatree))
             f.write(mol)
     return outpath
+
+if __name__ == '__main__':
+    path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
+    e_ref = -314.689736079491
+    out = calc_spe(path, 'AIMNET')
+    mol = next(Chem.SDMolSupplier(out, removeHs=False))
+    e_out = float(mol.GetProp('E_hartree'))
+    print(e_out)
+    assert(abs(e_out - e_ref) <= 0.01)
