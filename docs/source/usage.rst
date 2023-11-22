@@ -41,7 +41,7 @@ The following examples uses the ``options`` and the ``main`` function.  It's sui
    from Auto3D.auto3D import options, main
 
    if __name__ == "__main__":
-       input_path = "example/files/smiles.smi"
+       input_path = "example/files/smiles.smi"  # this can also be an SDF file
        args = options(input_path, k=1)   #args specify the parameters for Auto3D 
        out = main(args)                  #main accepts the parameters and runs Auto3D
 
@@ -109,236 +109,99 @@ You need the following block if you use the CLI.
    cd <replace with your path_folder_with_Auto3D_pkg>
    python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
 
-+----------------+----------------+----------------+----------------+
-| State          | Type           | Name           | Explanation    |
-+================+================+================+================+
-|                | required       | path           | a path of      |
-|                | argument       |                | ``.smi`` file  |
-|                |                |                | to store all   |
-|                |                |                | SMILES and IDs |
-+----------------+----------------+----------------+----------------+
-| ranking        | required       | --k            | Outputs the    |
-|                | argument       |                | top-k          |
-|                |                |                | structures for |
-|                |                |                | each SMILES.   |
-|                |                |                | Only one of    |
-|                |                |                | ``--k`` and    |
-|                |                |                | ``--window``   |
-|                |                |                | need to be     |
-|                |                |                | specified.     |
-+----------------+----------------+----------------+----------------+
-| ranking        | required       | --window       | Outputs the    |
-|                | argument       |                | structures     |
-|                |                |                | whose energies |
-|                |                |                | are within a   |
-|                |                |                | window         |
-|                |                |                | (kcal/mol)     |
-|                |                |                | from the       |
-|                |                |                | lowest energy. |
-|                |                |                | Only one of    |
-|                |                |                | ``--k`` and    |
-|                |                |                | ``--window``   |
-|                |                |                | need to be     |
-|                |                |                | specified.     |
-+----------------+----------------+----------------+----------------+
-| job            | optioinal      | --memory       | The RAM size   |
-| segmentation   | argument       |                | assigned to    |
-|                |                |                | Auto3D (unit   |
-|                |                |                | GB). By        |
-|                |                |                | default        |
-|                |                |                | ``None``, and  |
-|                |                |                | Auto3D can     |
-|                |                |                | automatically  |
-|                |                |                | detect the RAM |
-|                |                |                | size in the    |
-|                |                |                | system.        |
-+----------------+----------------+----------------+----------------+
-| job            | optional       | --capacity     | By default,    |
-| segmentation   | argument       |                | 40. This is    |
-|                |                |                | the number of  |
-|                |                |                | SMILES that    |
-|                |                |                | each 1 GB of   |
-|                |                |                | memory can     |
-|                |                |                | handle.        |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       | --enum         | By default,    |
-| enumeration    | argument       | erate_tautomer | False. When    |
-|                |                |                | True,          |
-|                |                |                | enumerate      |
-|                |                |                | tautomers for  |
-|                |                |                | the input      |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       | --tauto_engine | By default,    |
-| enumeration    | argument       |                | rdkit.         |
-|                |                |                | Programs to    |
-|                |                |                | enumerate      |
-|                |                |                | tautomers,     |
-|                |                |                | either 'rdkit' |
-|                |                |                | or 'oechem'.   |
-|                |                |                | This argument  |
-|                |                |                | only works     |
-|                |                |                | when           |
-|                |                |                | `              |
-|                |                |                | `--enumerate_t |
-|                |                |                | automer=True`` |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       |                | By default,    |
-| enumeration    | argument       | --isomer_engine| rdkit. The     |
-|                |                |                | program for    |
-|                |                |                | generating 3D  |
-|                |                |                | conformers for |
-|                |                |                | each SMILES.   |
-|                |                |                | This parameter |
-|                |                |                | is either      |
-|                |                |                | rdkit or       |
-|                |                |                | omega. RDKit   |
-|                |                |                | is free for    |
-|                |                |                | everyone,      |
-|                |                |                | while Omega    |
-|                |                |                | reuqires a     |
-|                |                |                | license.))     |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       | --max_confs    | Maximum number |
-| enumeration    | argument       |                | of conformers  |
-|                |                |                | for each       |
-|                |                |                | configuration  |
-|                |                |                | of the SMILES. |
-|                |                |                | The default    |
-|                |                |                | number depends |
-|                |                |                | on the isomer  |
-|                |                |                | engine: up to  |
-|                |                |                | 1000           |
-|                |                |                | conformers     |
-|                |                |                | will be        |
-|                |                |                | generated for  |
-|                |                |                | each SMILES if |
-|                |                |                | isomer engine  |
-|                |                |                | is omega; The  |
-|                |                |                | number of      |
-|                |                |                | conformers for |
-|                |                |                | each SMILES is |
-|                |                |                | the number of  |
-|                |                |                | heavey atoms   |
-|                |                |                | in the SMILES  |
-|                |                |                | minus 1 if     |
-|                |                |                | isomer engine  |
-|                |                |                | is rdkit.      |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       | --en           | By default,    |
-| enumeration    | argument       | umerate_isomer | True. When     |
-|                |                |                | True,          |
-|                |                |                | unspecified    |
-|                |                |                | cis/trans and  |
-|                |                |                | r/s centers    |
-|                |                |                | are enumerated |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       | --mode_oe      | By default,    |
-| enumeration    | argument       |                | classic. The   |
-|                |                |                | mode that      |
-|                |                |                | omega program  |
-|                |                |                | will take. It  |
-|                |                |                | can be either  |
-|                |                |                | 'classic' or   |
-|                |                |                | 'macrocycle'.  |
-|                |                |                | Only works     |
-|                |                |                | when           |
-|                |                |                | ``--isomer_    |
-|                |                |                | engine=omega`` |
-+----------------+----------------+----------------+----------------+
-| isomer         | optional       | --mpi_np       | By default, 4. |
-| enumeration    | argument       |                | The number of  |
-|                |                |                | CPU cores for  |
-|                |                |                | the isomer     |
-|                |                |                | generation     |
-|                |                |                | step.          |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --opt          | By default,    |
-|                | argument       | imizing_engine | AIMNET. Choose |
-|                |                |                | either         |
-|                |                |                | 'ANI2x',       |
-|                |                |                | 'ANI2xt', or   |
-|                |                |                | 'AIMNET' for   |
-|                |                |                | energy         |
-|                |                |                | calculation    |
-|                |                |                | and geometry   |
-|                |                |                | optimization.  |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --use_gpu      | By deafult,    |
-|                | argument       |                | True. If True, |
-|                |                |                | the program    |
-|                |                |                | will use GPU   |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --gpu_idx      | By defalt, 0.  |
-|                | argument       |                | It's the GPU   |
-|                |                |                | index. It only |
-|                |                |                | works when     |
-|                |                |                | --use_gpu=True |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --opt_steps    | By deafult,    |
-|                | argument       |                | 5000. Maximum  |
-|                |                |                | optimization   |
-|                |                |                | steps for each |
-|                |                |                | structure      |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --converg      | By deafult,    |
-|                | argument       | ence_threshold | 0.003 eV/Å.    |
-|                |                |                | Optimization   |
-|                |                |                | is considered  |
-|                |                |                | as converged   |
-|                |                |                | if maximum     |
-|                |                |                | force is below |
-|                |                |                | this threshold |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --patience     | If the force   |
-|                | argument       |                | does not       |
-|                |                |                | decrease for a |
-|                |                |                | continuous     |
-|                |                |                | patience       |
-|                |                |                | steps, the     |
-|                |                |                | conformer will |
-|                |                |                | drop out of    |
-|                |                |                | the            |
-|                |                |                | optimization   |
-|                |                |                | loop. By       |
-|                |                |                | default,       |
-|                |                |                | patience=1000  |
-+----------------+----------------+----------------+----------------+
-| optimization   | optional       | --b            | The number of  |
-|                | argument       | atchsize_atoms | atoms in 1     |
-|                |                |                | optimization   |
-|                |                |                | batch for 1GB, |
-|                |                |                | default=1024   |
-+----------------+----------------+----------------+----------------+
-| duplicate      | optional       | --threshold    | By default,    |
-| removing       | argument       |                | 0.3. If the    |
-|                |                |                | RMSD between   |
-|                |                |                | two conformers |
-|                |                |                | are within the |
-|                |                |                | threhold, they |
-|                |                |                | are considered |
-|                |                |                | as duplicates. |
-|                |                |                | One of them    |
-|                |                |                | will be        |
-|                |                |                | removed.       |
-|                |                |                | Duplicate      |
-|                |                |                | removing are   |
-|                |                |                | excuted after  |
-|                |                |                | conformer      |
-|                |                |                | enumeration    |
-|                |                |                | and geometry   |
-|                |                |                | optimization   |
-+----------------+----------------+----------------+----------------+
-| housekeeping   | optional       | --verbose      | By default,    |
-|                | argument       |                | False. When    |
-|                |                |                | True, save all |
-|                |                |                | meta data      |
-|                |                |                | while running  |
-+----------------+----------------+----------------+----------------+
-| housekeeping   | optional       | --job_name     | A folder that  |
-|                | argument       |                | stores all the |
-|                |                |                | results. By    |
-|                |                |                | default, the   |
-|                |                |                | name is the    |
-|                |                |                | current date   |
-|                |                |                | and time       |
-+----------------+----------------+----------------+----------------+
+.. list-table::
+   :widths: 15 15 15 55
+   :header-rows: 1
+
+   * - State
+     - Type
+     - Name
+     - Explanation
+   * - 
+     - required argument
+     - path
+     - A path of ``.smi`` or ``.SDF`` file to store all molecules and IDs.
+   * - ranking
+     - required argument
+     - --k
+     - Outputs the top-k structures for each molecule. Only one of ``--k`` and ``--window`` need to be specified.
+   * - ranking
+     - required argument
+     - --window
+     - Outputs the structures whose energies are within a window (kcal/mol) from the lowest energy. Only one of ``--k`` and ``--window`` need to be specified.
+   * - job segmentation
+     - optional argument
+     - --memory
+     - The RAM size assigned to Auto3D (unit GB). By default ``None``, and Auto3D can automatically detect the RAM size in the system.
+   * - job segmentation
+     - optional argument
+     - --capacity
+     - By default, 40. This is the number of molecule that each 1 GB of memory can handle.
+   * - isomer enumeration
+     - optional argument
+     - --enum erate_tautomer
+     - By default, False. When True, enumerate tautomers for the input.
+   * - isomer enumeration
+     - optional argument
+     - --tauto_engine
+     - By default, rdkit. Programs to enumerate tautomers, either 'rdkit' or 'oechem'. This argument only works when ``--enumerate_tautomer=True``.
+   * - isomer enumeration
+     - optional argument
+     - --isomer_engine
+     - By default, rdkit. The program for generating 3D conformers for each molecule. This parameter is either rdkit or omega. RDKit is free for everyone, while Omega requires a license.
+   * - isomer enumeration
+     - optional argument
+     - --max_confs
+     - Maximum number of conformers for each configuration of the molecule. The default number depends on the isomer engine: up to 1000 conformers will be generated for each molecule if isomer engine is omega; The number of conformers for each SMILES is 8.481*(num_ratatable_bonds^1.642) if isomer engine is rdkit.
+   * - isomer enumeration
+     - optional argument
+     - --enumerate_isomer
+     - By default, True. When True, unspecified cis/trans and r/s centers are enumerated.
+   * - isomer enumeration
+     - optional argument
+     - --mode_oe
+     - By default, classic. The mode that omega program will take. It can be either 'classic' or 'macrocycle'. Only works when ``--isomer_engine=omega``.
+   * - isomer enumeration
+     - optional argument
+     - --mpi_np
+     - By default, 4. The number of CPU cores for the isomer generation step.
+   * - optimization
+     - optional argument
+     - --optimizing_engine
+     - By default, AIMNET. Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization.
+   * - optimization
+     - optional argument
+     - --use_gpu
+     - By default, True. If True, the program will use GPU.
+   * - optimization
+     - optional argument
+     - --gpu_idx
+     - By default, 0. If you want to use multiple GPUs, specify the list of GPU indexes. For example, ``[0, 1]``. It only works when --use_gpu=True.
+   * - optimization
+     - optional argument
+     - --opt_steps
+     - By default, 5000. Maximum optimization steps for each structure.
+   * - optimization
+     - optional argument
+     - --convergence_threshold
+     - By default, 0.003 eV/Å. Optimization is considered as converged if maximum force is below this threshold.
+   * - optimization
+     - optional argument
+     - --patience
+     - If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop. By default, patience=1000.
+   * - optimization
+     - optional argument
+     - --batchsize_atoms
+     - The number of atoms in 1 optimization batch for 1GB, default=1024.
+   * - duplicate removing
+     - optional argument
+     - --threshold
+     - By default, 0.3. If the RMSD between two conformers are within the threshold, they are considered as duplicates. One of them will be removed. Duplicate removing are executed after conformer enumeration and geometry optimization.
+   * - housekeeping
+     - optional argument
+     - --verbose
+     - By default, False. When True, save all meta data while running.
+   * - housekeeping
+     - optional argument
+     - --job_name
+     - A folder that stores all the results. By default, the name is the current date and time.
