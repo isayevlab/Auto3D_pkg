@@ -322,6 +322,7 @@ def main(args:dict):
     check_input(args)
     # Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
+    num_jobs = 1
     if args.memory is not None:
         t = int(args.memory)
     else:
@@ -330,6 +331,7 @@ def main(args:dict):
                 gpu_idx = int(args.gpu_idx)
             else:
                 gpu_idx = args.gpu_idx[0]
+                num_jobs = len(args.gpu_idx)
             t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
         else:
             t = int(psutil.virtual_memory().total/(1024**3))
@@ -343,7 +345,7 @@ def main(args:dict):
     elif input_format == "sdf":
         df = SDF2chunks(path0)
     data_size = len(df)
-    num_chunks = int(data_size // chunk_size + 1)
+    num_chunks = max(int(data_size // chunk_size + 1), num_jobs)
     print(f"The available memory is {t} GB.", flush=True)
     print(f"The task will be divided into {num_chunks} jobs.", flush=True)
     logger.info(f"The available memory is {t} GB.")
