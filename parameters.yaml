@@ -21,7 +21,7 @@ mpi_np: 4
 #optimization-related parameters
 optimizing_engine: 'AIMNET'
 use_gpu: True
-gpu_idx: 0
+gpu_idx: [0]
 opt_steps: 5000
 convergence_threshold: 0.003
 patience: 1000
