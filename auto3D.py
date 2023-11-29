@@ -6,6 +6,15 @@ import Auto3D
 from Auto3D.auto3D import options, main
 
 
+def int_or_intlist(string):
+    try:
+        # Try to convert the entire string to an integer
+        return int(string)
+    except ValueError:
+        # If it fails, assume it's a comma-separated list of integers
+        return [int(item) for item in string.split(',')]
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 2:
         # using yaml input
@@ -31,7 +40,7 @@ if __name__ == "__main__":
         mpi_np = parameters["mpi_np"]
         optimizing_engine = parameters["optimizing_engine"]
         use_gpu = parameters["use_gpu"]
-        gpu_idx = parameters["gpu_idx"]
+        gpu_idx = parameters["gpu_idx"]  #YAML supports integer and lists natively
         opt_steps = parameters["opt_steps"]
         convergence_threshold = parameters["convergence_threshold"]
         patience = parameters["patience"]
@@ -47,7 +56,7 @@ if __name__ == "__main__":
         )
 
         parser.add_argument('path', type=str,
-                            help='a path of .smi file to store all SMILES and IDs')
+                            help='a path of smi/SDF file to store all SMILES and IDs')
         parser.add_argument('--k', type=int, default=False,
                             help='Outputs the top-k structures for each SMILES.')
         parser.add_argument('--window', type=float, default=False,
@@ -71,7 +80,7 @@ if __name__ == "__main__":
                             help=("Maximum number of isomers for each configuration of the SMILES.",
                                 "Default is None, and Auto3D will uses a dynamic conformer number for each SMILES."))
         parser.add_argument('--enumerate_isomer', default=True, type=lambda x: (str(x).lower() == 'true'),
-                            help='When True, cis/trans and r/s isomers are enumerated.')
+                            help='When True, unspecified cis/trans and r/s isomers are enumerated.')
         parser.add_argument('--mode_oe', type=str, default='classic',
                             help=("The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used."))
         parser.add_argument('--mpi_np', type=int, default=4,
@@ -81,12 +90,12 @@ if __name__ == "__main__":
                                 "calculation and geometry optimization."))
         parser.add_argument('--use_gpu', default=True, type=lambda x: (str(x).lower() == 'true'),
                             help="If True, the program will use GPU.")
-        parser.add_argument('--gpu_idx', default=0, type=int, 
-                            help="GPU index. It only works when --use_gpu=True")
+        parser.add_argument('--gpu_idx', default=0, type=int_or_intlist, 
+                            help="GPU index or indices as a single value or comma-separated list (e.g., 0,1,2)")
         parser.add_argument('--opt_steps', type=int, default=5000,
                             help="Maximum optimization steps for each structure.")
         parser.add_argument('--convergence_threshold', type=float, default=0.003,
-                            help="Optimization is considered as converged if maximum force is below this threshold.")
+                            help="Optimization is considered as converged if maximum force is below this threshold. Unit eV/Angstrom.")
         parser.add_argument('--patience', type=int, default=1000,
                             help="If the force does not decrease for a continuous patience steps, the conformer will be dropped out of the optimization loop.")
         parser.add_argument('--threshold', type=float, default=0.3,
