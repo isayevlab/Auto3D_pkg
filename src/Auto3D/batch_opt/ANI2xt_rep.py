@@ -4,7 +4,7 @@ import os
 import torch.nn as nn
 import torchani
 from torchani.repulsion import StandaloneRepulsionCalculator
-from ..utils import hartree2ev
+from Auto3D.utils import hartree2ev
 
 
 torch.backends.cuda.matmul.allow_tf32 = False

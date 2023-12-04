@@ -28,9 +28,10 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.utils import housekeeping
 from Auto3D.utils import check_input
 from Auto3D.utils import hash_taut_smi,  my_name_space
-from Auto3D.utils import SDF2chunks
-from Auto3D.utils import smiles2smi
 from Auto3D.utils import create_chunk_meta_names
+from Auto3D.utils import reorder_sdf
+from Auto3D.utils_file import SDF2chunks
+from Auto3D.utils_file import smiles2smi
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -169,31 +170,55 @@ def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
     use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
-    """Arguments for Auto3D main program
-    path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
-    k: Outputs the top-k structures for each SMILES.
-    window: Outputs the structures whose energies are within x (kcal/mol) from the lowest energy conformer
-    verbose: When True, save all meta data while running.
-    job_name: A folder name to save all meta data.
-    
-    enumerate_tautomer: When True, enumerate tautomers for the input
-    tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem'
-    pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem')
-    isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega.
-    enumerate_isomer: When True, cis/trans and r/s isomers are enumerated.
-    mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html
-    mpi_np: Number of CPU cores for the isomer generation engine.
-    max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1.
-    use_gpu: If True, the program will use GPU when available
-    gpu_idx: GPU index. It only works when --use_gpu=True
-    capacity: Number of SMILES that the model will handle for 1 G memory
-    optimizing_engine: Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization.
-    patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop.
-    opt_steps: Maximum optimization steps for each structure.
-    convergence_threshold: Optimization is considered as converged if maximum force is below this threshold.
-    threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed.
-    memory: The RAM size assigned to Auto3D (unit GB).
-    batchsize_atoms: The number of atoms in 1 optimization batch for 1GB
+    """
+    Generating arguments for the Auto3D ``main`` function.
+
+    :param path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
+    :type path: str, optional
+    :param k: Outputs the top-k structures for each SMILES, defaults to False
+    :type k: bool, optional
+    :param window: Outputs the structures whose energies are within x (kcal/mol) from the lowest energy conformer, defaults to False
+    :type window: bool, optional
+    :param verbose: When True, save all meta data while running, defaults to False
+    :type verbose: bool, optional
+    :param job_name: A folder name to save all meta data, defaults to ""
+    :type job_name: str, optional
+    :param enumerate_tautomer: When True, enumerate tautomers for the input, defaults to False
+    :type enumerate_tautomer: bool, optional
+    :param tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem', defaults to "rdkit"
+    :type tauto_engine: str, optional
+    :param pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem'), defaults to True
+    :type pKaNorm: bool, optional
+    :param isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega, defaults to "rdkit"
+    :type isomer_engine: str, optional
+    :param enumerate_isomer: When True, cis/trans and r/s isomers are enumerated, defaults to True
+    :type enumerate_isomer: bool, optional
+    :param mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html, defaults to "classic"
+    :type mode_oe: str, optional
+    :param mpi_np: Number of CPU cores for the isomer generation engine, defaults to 4
+    :type mpi_np: int, optional
+    :param max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1, defaults to None
+    :type max_confs: int, optional
+    :param use_gpu: If True, the program will use GPU when available, defaults to True
+    :type use_gpu: bool, optional
+    :param gpu_idx: GPU index. It only works when --use_gpu=True, defaults to 0
+    :type gpu_idx: int or list of int, optional
+    :param capacity: Number of SMILES that the model will handle for 1 G memory, defaults to 42
+    :type capacity: int, optional
+    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization, defaults to "AIMNET"
+    :type optimizing_engine: str, optional
+    :param patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop, defaults to 1000
+    :type patience: int, optional
+    :param opt_steps: Maximum optimization steps for each structure, defaults to 5000
+    :type opt_steps: int, optional
+    :param convergence_threshold: Optimization is considered as converged if maximum force is below this threshold, defaults to 0.003
+    :type convergence_threshold: float, optional
+    :param threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed, defaults to 0.3
+    :type threshold: float, optional
+    :param memory: The RAM size assigned to Auto3D (unit GB), defaults to None
+    :type memory: int, optional
+    :param batchsize_atoms: The number of atoms in 1 optimization batch for 1GB, defaults to 1024
+    :type batchsize_atoms: int, optional
     """
     d = {}
     args = my_name_space(d)
@@ -236,15 +261,15 @@ def logger_process(queue, logging_path):
 
 
 def main(args:dict):
-    """Take the arguments from options and run Auto3D"""
+    """Take the arguments from the ``options`` function and run Auto3D."""
     chunk_line = mp.Manager().Queue()   #A queue managing two wrappers
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
-    path = args.path
-    if path is None:
+    path0 = args.path
+    if path0 is None:
         sys.exit("Please specify the input file path.")
-    input_format = os.path.splitext(path)[1][1:]
+    input_format = os.path.splitext(path0)[1][1:]
     if (input_format != "smi") and (input_format != "sdf"):
         sys.exit("Input file type is not supported. Only .smi and .sdf are supported. But the input file is " + input_format + ".")
     args['input_format'] = input_format
@@ -258,8 +283,8 @@ def main(args:dict):
     job_name = args.job_name
 
     # initialiazation
-    basename = os.path.basename(path)
-    dir = os.path.dirname(os.path.abspath(path))
+    basename = os.path.basename(path0)
+    dir = os.path.dirname(os.path.abspath(path0))
     job_name = job_name + "_" + basename.split('.')[0].strip()
     job_name = os.path.join(dir, job_name)
     os.mkdir(job_name)
@@ -297,6 +322,7 @@ def main(args:dict):
     check_input(args)
     # Devide jobs based on memory
     smiles_per_G = args.capacity  #Allow 40 SMILES per GB memory
+    num_jobs = 1
     if args.memory is not None:
         t = int(args.memory)
     else:
@@ -305,6 +331,7 @@ def main(args:dict):
                 gpu_idx = int(args.gpu_idx)
             else:
                 gpu_idx = args.gpu_idx[0]
+                num_jobs = len(args.gpu_idx)
             t = int(math.ceil(torch.cuda.get_device_properties(gpu_idx).total_memory/(1024**3)))
         else:
             t = int(psutil.virtual_memory().total/(1024**3))
@@ -314,11 +341,11 @@ def main(args:dict):
 
     #Get indexes for each chunk
     if input_format == "smi":
-        df = pd.read_csv(path, sep='\s+', header=None)
+        df = pd.read_csv(path0, sep='\s+', header=None)
     elif input_format == "sdf":
-        df = SDF2chunks(path)
+        df = SDF2chunks(path0)
     data_size = len(df)
-    num_chunks = int(data_size // chunk_size + 1)
+    num_chunks = max(int(data_size // chunk_size + 1), num_jobs)
     print(f"The available memory is {t} GB.", flush=True)
     print(f"The task will be divided into {num_chunks} jobs.", flush=True)
     logger.info(f"The available memory is {t} GB.")
@@ -332,7 +359,7 @@ def main(args:dict):
 
     #Save each chunk as smi
     chunk_info = []
-    basename = os.path.basename(path).split(".")[0].strip()
+    basename = os.path.basename(path0).split(".")[0].strip()
     if input_format == "smi":
         for i in range(num_chunks):
             dir = os.path.join(job_name, f"job{i+1}")
@@ -410,6 +437,7 @@ def main(args:dict):
         remaining_minutes = running_time_m - running_time_h*60
         print(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)', flush=True)
         logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
+    reorder_sdf(path_combined, path0)
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
@@ -417,19 +445,27 @@ def main(args:dict):
     return path_combined
 
 def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
-    """A handy tool for finding the low-energy conformers for a list of SMILES.
-    Compared with the main function, it sacrifies efficiency for convinience.
-    smiles2mols uses only 1 process. 
-    Both the input and output are returned as variables within python.
+    """
+    A handy tool for finding the low-energy conformers for a list of SMILES.
+    Compared with the ``main`` function, it sacrifices efficiency for convenience.
+    because ``smiles2mols`` uses only 1 process. 
+    Both the input and output are returned as variables within Python.
 
     It's recommended only when the number of SMILES is less than 150;
     Otherwise using the main function will be faster.
+
+    :param smiles: A list of SMILES strings for which to find low-energy conformers.
+    :type smiles: List[str]
+    :param args: A dictionary of arguments as returned by the ``option`` function.
+    :type args: dict
+    :return: A list of RDKit Mol objects representing the low-energy conformers of the input SMILES.
+    :rtype: List[Chem.Mol]
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
         basename = 'smiles.smi'
-        path = os.path.join(tmpdirname, basename)
-        smiles2smi(smiles, path)  # save all SMILES into a smi file
-        args['path'] = path
+        path0 = os.path.join(tmpdirname, basename)
+        smiles2smi(smiles, path0)  # save all SMILES into a smi file
+        args['path'] = path0
         k = args.k
         window = args.window
         if (not k) and (not window):
@@ -439,8 +475,8 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
         check_input(args)
 
         # smi to sdf
-        meta = create_chunk_meta_names(path, tmpdirname)
-        isomer_engine = rd_isomer(path, meta["smiles_enumerated"],
+        meta = create_chunk_meta_names(path0, tmpdirname)
+        isomer_engine = rd_isomer(path0, meta["smiles_enumerated"],
                                   meta["smiles_reduced"], meta["smiles_hashed"], 
                                   meta["enumerated_sdf"], tmpdirname,
                                   args.max_confs, args.threshold,
@@ -465,7 +501,8 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
         # Ranking step
         rank_engine = ranking(meta["optimized_og"], meta["output"],
                               args.threshold, k=k, window=window)
-        conformers = rank_engine.run()
+        _ = rank_engine.run()
+        conformers = reorder_sdf(meta["output"], path0)
 
         print("Energy unit: Hartree if implicit.", flush=True)
     return conformers

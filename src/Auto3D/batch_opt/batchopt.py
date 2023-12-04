@@ -16,7 +16,7 @@ try:
 except:
     pass
 from tqdm import tqdm
-from ..utils import hartree2ev
+from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
@@ -142,7 +142,9 @@ class EnForce_ANI(torch.nn.Module):
             # f = -g
             f = d['forces']
         elif self.name == "ANI2xt":
-            e, f = self.ani(numbers, coord)
+            e = self.ani(numbers, coord)
+            g = torch.autograd.grad([e.sum()], [coord])[0]
+            f = -g
         elif self.name == "ANI2x":
             e = self.ani((numbers, coord)).energies
             e = e * hartree2ev  #ANI2x (torch.models.ANI2x()) output energy unit is Hatree;
@@ -326,17 +328,6 @@ def padding_species(lists, pad_value=-1):
         b[i][0:len(j)] = j
     return b
 
-# def mols2lists(mols, model):
-#     species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
-#     # ani2xt_index = {1:0, 6:1, 7:2, 8:3, 16:4, 9:5, 17:6}
-#     ani2xt_index = {1:0, 6:1, 7:2, 8:3, 9:4, 16:5, 17:6}
-#     coord = [[a.coords for a in mol.atoms] for mol in mols]
-#     charges = [mol.charge for mol in mols]
-#     if model == "ANI2xt":
-#         numbers = [[ani2xt_index[a.atomicnum] for a in mol.atoms] for mol in mols]
-#     else:
-#         numbers = [[a.atomicnum for a in mol.atoms] for mol in mols]
-#     return coord, numbers, charges
 
 def mols2lists(mols, model):
     '''mols: rdkit mol object'''
