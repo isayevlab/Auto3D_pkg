@@ -313,30 +313,18 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
 
 
 def padding_coords(lists, pad_value=0.0):
-    lengths = [len(lst) for lst in lists]
-    pad_length = [max(lengths) - len(lst) for lst in lists]
-    assert (len(pad_length) == len(lists))
-    
-    lists_padded = []
-    for i in range(len(pad_length)):
-        lst_i = lists[i]
-        pad_i = [(pad_value, pad_value, pad_value) for _ in range(pad_length[i])]
-        lst_i_padded = lst_i + pad_i
-        lists_padded.append(lst_i_padded)
-    return lists_padded
+    b = np.ones([len(lists), max(map(len, lists)), 3], ) * pad_value
+    for i, j in enumerate(lists):
+        b[i, :len(j)] = j
+    return b
+
 
 def padding_species(lists, pad_value=-1):
-    lengths = [len(lst) for lst in lists]
-    pad_length = [max(lengths) - len(lst) for lst in lists]
-    assert (len(pad_length) == len(lists))
-    
-    lists_padded = []
-    for i in range(len(pad_length)):
-        lst_i = lists[i]
-        pad_i = [pad_value for _ in range(pad_length[i])]
-        lst_i_padded = lst_i + pad_i
-        lists_padded.append(lst_i_padded)
-    return lists_padded
+    b = np.ones([len(lists), max(map(len, lists))],
+                dtype=np.int8) * pad_value
+    for i, j in enumerate(lists):
+        b[i][0:len(j)] = j
+    return b
 
 # def mols2lists(mols, model):
 #     species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
