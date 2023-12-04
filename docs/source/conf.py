@@ -7,9 +7,10 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Auto3D'
-copyright = '2023, Zhen Liu; Tetiana Zubatiuk; Adrian Roitberg; Olexandr Isayev'
+copyright = 'IsayevLab'
 author = 'Zhen Liu; Tetiana Zubatiuk; Adrian Roitberg; Olexandr Isayev'
-release = '2.1.0'
+version = '2.2.5'
+release = '2.2.5'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

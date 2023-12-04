@@ -1,7 +1,8 @@
 import os
 import warnings
 from Auto3D.auto3D import options
-from Auto3D.utils import check_input, find_smiles_not_in_sdf
+from Auto3D.utils import check_input
+from Auto3D.utils_file import find_smiles_not_in_sdf
 
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
