@@ -5,3 +5,4 @@ rdkit >= 2022.9.5
 pandas >= 2.1.0
 ase >= 3.22.1
 torchani
+nbsphinx

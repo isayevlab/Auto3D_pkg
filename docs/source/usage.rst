@@ -83,7 +83,7 @@ Wrapper functions
 
 Auto3D provides some wrapper functions for single point energy
 calculation, geometry optimization and thermodynamic analysis. Please
-see the ``example`` folder for details.
+see the `example <https://github.com/isayevlab/Auto3D_pkg/tree/main/example>`_ folder for details.
 
 Parameters in Auto3D
 --------------------
