@@ -252,3 +252,11 @@ def find_smiles_not_in_sdf(smi, sdf):
     else:
         print("Every SMILES has at least an 3D structure in the SDF file.", flush=True)
     return bad
+
+def encode_ids(path: str) -> Tuple[str, dict]:
+    '''For a smi/SDF Files, encode the ids into numbers,
+    return the new smi files path and a dictionary containing the mapping'''
+    extension = os.path.basename(path).split('.')[-1].strip()
+
+def decode_ids(path: str, mapping: dict) -> str:
+    '''For a smi/SDF file, decode the ids using the mapping'''

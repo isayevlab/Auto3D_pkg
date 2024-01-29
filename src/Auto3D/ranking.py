@@ -143,14 +143,21 @@ class ranking(object):
         results = []
 
         data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
-        mols_ = [mol for mol in data2 if mol is not None]
-        mols = [mol for mol in mols_ if mol.GetProp("Converged").lower() == "true"]
-        names = [mol.GetProp("_Name").strip() for mol in mols]
-        energies = [float(mol.GetProp("E_tot")) for mol in mols]
+        mols, names, energies = [], [], []
+        for mol in data2:
+            if (mol is not None) and (mol.GetProp('Converged').lower() == 'true'):
+                mols.append(mol)
+                names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
+                energies.append(float(mol.GetProp('E_tot')))
 
+        # mols_ = [mol for mol in data2 if mol is not None]
+        # mols = [mol for mol in mols_ if mol.GetProp("Converged").lower() == "true"]
+        # names = [mol.GetProp("_Name").strip() for mol in mols]
+        # energies = [float(mol.GetProp("E_tot")) for mol in mols]
         #Grouping, ranking
-        names2 = map(lambda x: x.strip().split("_")[0].strip(), names)
-        df = pd.DataFrame({"names": names2, "energies": energies, "mols": mols})
+        # names2 = map(lambda x: x.strip().split("_")[0].strip(), names)
+
+        df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         df2 = df.groupby("names")
         for group_name in df2.indices:
             group = df2.get_group(group_name)

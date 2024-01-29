@@ -19,7 +19,8 @@ def select_tautomers(sdf: str, k: Optional[int]=None, window:Optional[float]=Non
     if (k is not None) and (window is not None):
         raise ValueError("Only k OR window needs to be specified")        
     
-    mols = list(Chem.SDMolSupplier(sdf, removeHs=False))
+    # mols = list(Chem.SDMolSupplier(sdf, removeHs=False))
+    mols = Chem.SDMolSupplier(sdf, removeHs=False)
     for mol in mols:
         mol.ClearProp("E_rel(kcal/mol)")  #this is relative energies of conformers
 
