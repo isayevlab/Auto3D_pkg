@@ -32,6 +32,7 @@ from Auto3D.utils import create_chunk_meta_names
 from Auto3D.utils import reorder_sdf
 from Auto3D.utils_file import SDF2chunks
 from Auto3D.utils_file import smiles2smi
+from Auto3D.utils_file import encode_ids, decode_ids
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -266,7 +267,7 @@ def main(args:dict):
     start = time.time()
     job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
-    path0 = args.path
+    path0, mapping = encode_ids(args.path)
     if path0 is None:
         sys.exit("Please specify the input file path.")
     input_format = os.path.splitext(path0)[1][1:]
@@ -438,6 +439,7 @@ def main(args:dict):
         print(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)', flush=True)
         logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
     reorder_sdf(path_combined, path0)
+    path_combined = decode_ids(path_combined, mapping)
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)

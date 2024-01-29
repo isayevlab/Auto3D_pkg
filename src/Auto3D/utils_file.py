@@ -11,7 +11,7 @@ from rdkit import Chem
 from rdkit.Chem import rdMolAlign, inchi
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 from typing import List, Tuple, Dict, Union, Optional, Callable
-
+from collections import defaultdict
 
 def guess_file_type(filename):
     """Returns the extension for the filename"""
@@ -256,7 +256,59 @@ def find_smiles_not_in_sdf(smi, sdf):
 def encode_ids(path: str) -> Tuple[str, dict]:
     '''For a smi/SDF Files, encode the ids into numbers,
     return the new smi files path and a dictionary containing the mapping'''
-    extension = os.path.basename(path).split('.')[-1].strip()
+    basename = os.path.basename(path)
+    dir = os.path.dirname(os.path.abspath(path))
+    extension = basename.split('.')[-1].strip()
+    new_path = os.path.join(dir, basename.split('.')[0].strip() + '_encoded.' + extension)
+
+    if extension == 'smi':
+        new_data = []
+        with open(path, 'r') as f:
+            data = f.readlines()
+        mapping = {}
+        for i, line in enumerate(data):
+            smi, id = line.strip().split()
+            mapping[id] = i
+            new_data.append(f"{smi} {i}\n")
+        with open(new_path, 'w') as f:
+            for line in new_data:
+                f.write(line)
+        return new_path, mapping
+    
+    elif extension == 'sdf':
+        suppl = Chem.SDMolSupplier(path)
+        mapping = {}
+        for i, mol in enumerate(suppl):
+            id = mol.GetProp("_Name").strip()
+            mapping[id] = i
+            mol.SetProp("_Name", str(i))
+        with Chem.SDWriter(new_path) as w:
+            for mol in suppl:
+                w.write(mol)
+        return new_path, mapping
+
+    else:
+        raise ValueError("The input file should be either smi or sdf")
 
 def decode_ids(path: str, mapping: dict) -> str:
-    '''For a smi/SDF file, decode the ids using the mapping'''
+    '''For an SDF file, decode the ids using the mapping'''
+    mapping = {v: k for k, v in mapping.items()}
+    basename = os.path.basename(path)
+    dir = os.path.dirname(os.path.abspath(path))
+    extension = basename.split('.')[-1].strip()
+    new_path = os.path.join(dir,
+                            '_'.join(basename.split('.')[0].strip().split('_')[:-2]) + '_out.' + extension)
+    
+    suppl = Chem.SDMolSupplier(path)
+    with Chem.SDWriter(new_path) as w:
+        for mol in suppl:
+            name = int(mol.GetProp("_Name").strip())
+            new_name = mapping[name]
+            mol.SetProp("_Name", new_name)
+
+            id = '_'.join(mol.GetProp("ID").strip().split('_')[1:])
+            new_id = new_name + '_' + id
+            mol.SetProp("ID", new_id)
+
+            w.write(mol)
+    return new_path

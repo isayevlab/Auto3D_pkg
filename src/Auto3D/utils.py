@@ -136,10 +136,10 @@ def check_smi_format(args):
             "Empty SMILES string"
         assert len(id) > 0, \
             "Empty ID"
-        assert "_" not in id, \
-                f"Sorry, SMILES ID cannot contain underscore: {smiles}"
-        assert "." not in id, \
-                f"Sorry, SMILES ID cannot contain period: {smiles}"
+        # assert "_" not in id, \
+        #         f"Sorry, SMILES ID cannot contain underscore: {smiles}"
+        # assert "." not in id, \
+        #         f"Sorry, SMILES ID cannot contain period: {smiles}"
         smiles_all.append(smiles)
     print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
     print("\tAll SMILES and IDs are valid.", flush=True)
@@ -184,10 +184,10 @@ def check_sdf_format(args):
         id = mol.GetProp("_Name")
         assert len(id) > 0, \
             "Empty ID"
-        assert "_" not in id, \
-                f"Sorry, molecule ID cannot contain underscore: {id}"
-        assert "." not in id, \
-                f"Sorry, molecule ID cannot contain period: {id}"
+        # assert "_" not in id, \
+        #         f"Sorry, molecule ID cannot contain underscore: {id}"
+        # assert "." not in id, \
+        #         f"Sorry, molecule ID cannot contain period: {id}"
         mols.append(mol)    
 
         charge = Chem.rdmolops.GetFormalCharge(mol)
