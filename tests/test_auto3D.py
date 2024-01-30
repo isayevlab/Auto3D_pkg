@@ -215,6 +215,7 @@ def test_auto3D_smiles2mols():
     assert (len(mols) == 2)
 
 if __name__ == "__main__":
-    test_auto3D_omega_aimnet()
-    test_auto3D_config5()
-    test_auto3D_config6()
+    test_auto3D_sdf_rdkit_aimnet()
+    # test_auto3D_omega_aimnet()
+    # test_auto3D_config5()
+    # test_auto3D_config6()

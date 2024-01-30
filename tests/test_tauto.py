@@ -67,4 +67,4 @@ def test_get_stable_tautomers2():
         shutil.rmtree(out_folder)
 
 if __name__ == '__main__':
-    test_get_stable_tautomers1()
+    test_get_stable_tautomers2()
