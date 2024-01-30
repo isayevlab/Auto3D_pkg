@@ -276,14 +276,13 @@ def encode_ids(path: str) -> Tuple[str, dict]:
         return new_path, mapping
     
     elif extension == 'sdf':
-        suppl = Chem.SDMolSupplier(path)
+        suppl = Chem.SDMolSupplier(path, removeHs=False)
         mapping = {}
-        for i, mol in enumerate(suppl):
-            id = mol.GetProp("_Name").strip()
-            mapping[id] = i
-            mol.SetProp("_Name", str(i))
         with Chem.SDWriter(new_path) as w:
-            for mol in suppl:
+            for i, mol in enumerate(suppl):
+                id = mol.GetProp("_Name").strip()
+                mapping[id] = i
+                mol.SetProp("_Name", str(i))
                 w.write(mol)
         return new_path, mapping
 
@@ -299,11 +298,15 @@ def decode_ids(path: str, mapping: dict) -> str:
     new_path = os.path.join(dir,
                             '_'.join(basename.split('.')[0].strip().split('_')[:-2]) + '_out.' + extension)
     
-    suppl = Chem.SDMolSupplier(path)
+    suppl = Chem.SDMolSupplier(path, removeHs=False)
     with Chem.SDWriter(new_path) as w:
         for mol in suppl:
-            name = int(mol.GetProp("_Name").strip())
-            new_name = mapping[name]
+            name = mol.GetProp("_Name").strip()
+            if '@taut' in name:
+                components = name.split('@taut')
+                new_name = mapping[int(components[0])] + '@taut' + ''.join(components[1:])
+            else:
+                new_name = mapping[int(name)]
             mol.SetProp("_Name", new_name)
 
             id = '_'.join(mol.GetProp("ID").strip().split('_')[1:])
@@ -311,4 +314,5 @@ def decode_ids(path: str, mapping: dict) -> str:
             mol.SetProp("ID", new_id)
 
             w.write(mol)
+    os.remove(path)
     return new_path
