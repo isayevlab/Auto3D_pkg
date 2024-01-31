@@ -15,7 +15,7 @@ def test_calc_spe_ani2xt():
     out = calc_spe(path, "ANI2xt")
     spe = {"817-2-473": -386.111, "510-2-443":-1253.812}
 
-    mols = list(Chem.SDMolSupplier(out, removeHs=False))
+    mols = Chem.SDMolSupplier(out, removeHs=False)
     for mol in mols:
         spe_out = float(mol.GetProp("E_hartree"))
         idx = mol.GetProp("ID").strip()
@@ -31,7 +31,7 @@ def test_calc_spe_ani2x():
     out = calc_spe(path, "ANI2x")
 
     #compare Auto3D output with the above
-    mols = list(Chem.SDMolSupplier(out, removeHs=False))
+    mols = Chem.SDMolSupplier(out, removeHs=False)
     for mol in mols:
         spe_out = float(mol.GetProp("E_hartree"))
         idx = mol.GetProp("ID").strip()

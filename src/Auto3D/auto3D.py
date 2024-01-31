@@ -32,6 +32,7 @@ from Auto3D.utils import create_chunk_meta_names
 from Auto3D.utils import reorder_sdf
 from Auto3D.utils_file import SDF2chunks
 from Auto3D.utils_file import smiles2smi
+from Auto3D.utils_file import encode_ids, decode_ids
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
@@ -264,9 +265,9 @@ def main(args:dict):
     """Take the arguments from the ``options`` function and run Auto3D."""
     chunk_line = mp.Manager().Queue()   #A queue managing two wrappers
     start = time.time()
-    job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
+    # job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
-    path0 = args.path
+    path0, mapping = encode_ids(args.path)
     if path0 is None:
         sys.exit("Please specify the input file path.")
     input_format = os.path.splitext(path0)[1][1:]
@@ -279,13 +280,14 @@ def main(args:dict):
         sys.exit("Either k or window needs to be specified. "
                 "Usually, setting '--k=1' satisfies most needs.")
     if args.job_name == "":
-        args.job_name = job_name
+        args.job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
     job_name = args.job_name
 
     # initialiazation
     basename = os.path.basename(path0)
     dir = os.path.dirname(os.path.abspath(path0))
-    job_name = job_name + "_" + basename.split('.')[0].strip()
+    # job_name = job_name + "_" + basename.split('.')[0].strip()
+    job_name =  basename.split('.')[0].strip()[:-8] + '_' + job_name  #remove '_encoded'
     job_name = os.path.join(dir, job_name)
     os.mkdir(job_name)
 
@@ -438,6 +440,7 @@ def main(args:dict):
         print(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)', flush=True)
         logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
     reorder_sdf(path_combined, path0)
+    path_combined = decode_ids(path_combined, mapping)
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
