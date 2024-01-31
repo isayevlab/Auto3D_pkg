@@ -16,7 +16,13 @@ if torch.cuda.is_available():
 else:
     no_gpu = True
 
+if ('OE_LICENSE' in os.environ) and (os.environ['OE_LICENSE'] != ''):
+    skip_omega = False
+else:
+    skip_omega = True
+
 @pytest.mark.skipif(no_gpu, reason="No GPU")
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_get_stable_tautomers1():
     args = options(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
                    isomer_engine="omega", enumerate_isomer=True, 
@@ -24,7 +30,7 @@ def test_get_stable_tautomers1():
                    max_confs=3, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)
     
-    mols = list(Chem.SDMolSupplier(tautomer_out))
+    mols = Chem.SDMolSupplier(tautomer_out)
     for mol in mols:
         name = mol.GetProp("_Name")
         if name == "smi0":
@@ -46,7 +52,7 @@ def test_get_stable_tautomers2():
                    max_confs=3, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)
     
-    mols = list(Chem.SDMolSupplier(tautomer_out))
+    mols = Chem.SDMolSupplier(tautomer_out)
     for mol in mols:
         name = mol.GetProp("_Name")
         if name == "smi0":
@@ -61,4 +67,4 @@ def test_get_stable_tautomers2():
         shutil.rmtree(out_folder)
 
 if __name__ == '__main__':
-    test_get_stable_tautomers1()
+    test_get_stable_tautomers2()

@@ -11,6 +11,11 @@ path = os.path.join(folder, "tests/files/smiles2.smi")
 path_large = os.path.join(folder, "tests/files/smiles10.smi")
 sdf_path = os.path.join(folder, "tests/files/example.sdf")
 
+if ('OE_LICENSE' in os.environ) and (os.environ['OE_LICENSE'] != ''):
+    skip_omega = False  
+else:
+    skip_omega = True
+
 def test_auto3D_rdkit_aimnet():
     """Check that the program runs"""
     args = options(path, k=1, use_gpu=False, convergence_threshold=1,
@@ -45,7 +50,7 @@ def test_auto3D_rdkit_ani2x():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_omega_aimnet():
     """Check that the program runs"""
     args = options(path, k=1, use_gpu=False, convergence_threshold=1,
@@ -59,6 +64,7 @@ def test_auto3D_omega_aimnet():
 
 
 # @pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_omega_ani2xt():
     """Check that the program runs"""
     args = options(path, k=1, use_gpu=False, convergence_threshold=1,
@@ -70,7 +76,7 @@ def test_auto3D_omega_ani2xt():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_omega_ani2x():
     """Check that the program runs"""
     args = options(path, k=1, use_gpu=False, convergence_threshold=1,
@@ -82,7 +88,7 @@ def test_auto3D_omega_ani2x():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_config1():
     """Check that the program runs"""
     args = options(path, window=1, use_gpu=False, convergence_threshold=1,
@@ -118,7 +124,7 @@ def test_auto3D_config3():
     except:
         shutil.rmtree(out_folder)
 
-
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_config4():
     """Check that the program runs"""
     args = options(path, window=2, use_gpu=False, convergence_threshold=1,
@@ -156,6 +162,7 @@ def test_auto3D_config6():
     except:
         shutil.rmtree(out_folder)
 
+@pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_sdf_omega_aimnet():
     """Check that the program runs"""
     args = options(sdf_path, window=2, use_gpu=False, convergence_threshold=1,
@@ -208,5 +215,7 @@ def test_auto3D_smiles2mols():
     assert (len(mols) == 2)
 
 if __name__ == "__main__":
-    test_auto3D_config5()
-    test_auto3D_config6()
+    test_auto3D_sdf_rdkit_aimnet()
+    # test_auto3D_omega_aimnet()
+    # test_auto3D_config5()
+    # test_auto3D_config6()

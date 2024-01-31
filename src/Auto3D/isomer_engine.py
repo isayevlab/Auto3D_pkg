@@ -156,13 +156,8 @@ class rd_isomer(object):
     def conformer_func(self, smi_name):
         """smi_name is a tuple (smiles, name)"""
         smi, name = smi_name
-        mol = Chem.MolFromSmiles(smi)
-        atom_list = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
-        num_atoms = len(atom_list)
         mol = Chem.AddHs(Chem.MolFromSmiles(smi))
         if self.n_conformers is None:
-            # n_conformers = num_atoms - 1
-            
             # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
             num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
             n_conformers = min(max(1, int(8.481 * (num_rotatable_bonds **1.642))), 1000)
@@ -205,6 +200,11 @@ class rd_isomer(object):
                 # atoms clashes if distance is smaller than 0.9 Angstrom
                 if min_pairwise_distance(positions) > 0.9:
                     f.write(mol)
+                else:
+                    AllChem.MMFFOptimizeMolecule(mol)
+                    positions = mol.GetConformer().GetPositions()
+                    if min_pairwise_distance(positions) > 0.9:
+                        f.write(mol)
 
     def run(self):
         """
