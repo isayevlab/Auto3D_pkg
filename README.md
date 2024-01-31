@@ -13,6 +13,9 @@
 
 Please check out the information at [**documentation**](https://auto3d.readthedocs.io/en/latest/index.html), including [installation](https://auto3d.readthedocs.io/en/latest/installation.html), [usage](https://auto3d.readthedocs.io/en/latest/usage.html), [API](https://auto3d.readthedocs.io/en/latest/api.html) and [citation](https://auto3d.readthedocs.io/en/latest/citation.html).
 
+- **Jupyter notebook examples** can be found [here](https://github.com/isayevlab/Auto3D_pkg/tree/main/example)
+- To-do list for **improvement and new features** can be found [here](https://github.com/isayevlab/Auto3D_pkg/discussions). You are welcomed to share your thoughts.
+- Bugs go to the [issues](https://github.com/isayevlab/Auto3D_pkg/issues)
 
 ## Minimum Dependencies Installatioin
 1. Python >= 3.7
