@@ -267,9 +267,9 @@ def main(args:dict):
     start = time.time()
     # job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
 
-    path0, mapping = encode_ids(args.path)
-    if path0 is None:
+    if args.path is None:
         sys.exit("Please specify the input file path.")
+    path0, mapping = encode_ids(args.path)
     input_format = os.path.splitext(path0)[1][1:]
     if (input_format != "smi") and (input_format != "sdf"):
         sys.exit("Input file type is not supported. Only .smi and .sdf are supported. But the input file is " + input_format + ".")
@@ -441,6 +441,7 @@ def main(args:dict):
         logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
     reorder_sdf(path_combined, path0)
     path_combined = decode_ids(path_combined, mapping)
+    os.remove(path0)
     print(f"Output path: {path_combined}", flush=True)
     logger.info(f"Output path: {path_combined}")
     logging_queue.put(None)
