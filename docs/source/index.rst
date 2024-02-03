@@ -43,8 +43,15 @@ from the terminal.
 
 Contents
 ==================
-.. toctree::
+.. toctree:: 
+   :maxdepth: 2
+
    installation
    usage
+   example/tutorial
+   example/single_point_energy
+   example/geometry_optimization
+   example/thermodynamic_calculation
+   example/tautomer
    api
    citation
