@@ -12,6 +12,7 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 from rdkit.Chem.EnumerateStereoisomers import StereoEnumerationOptions
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem import rdMolDescriptors
+from typing import Tuple
 from Auto3D.utils import hash_enumerated_smi_IDs, amend_configuration_w
 from Auto3D.utils import remove_enantiomers
 from Auto3D.utils import min_pairwise_distance
@@ -153,9 +154,8 @@ class rd_isomer(object):
                     line = isomer.strip() + '\t' + new_name + '\n'
                     f.write(line)
 
-    def conformer_func(self, smi_name):
-        """smi_name is a tuple (smiles, name)"""
-        smi, name = smi_name
+    def embed_conformer(self, smi: str) -> Chem.Mol:
+        '''Embed conformers for a smi'''
         mol = Chem.AddHs(Chem.MolFromSmiles(smi))
         if self.n_conformers is None:
             # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
@@ -168,43 +168,7 @@ class rd_isomer(object):
             AllChem.EmbedMultipleConfs(mol, numConfs=self.n_conformers,
                                     randomSeed=42, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
-        files = []
-        for i in range(mol.GetNumConformers()):
-            basename = name.strip() + f"_{i}.sdf"
-            mol_ID = basename.split(".")[0].strip()
-            mol.SetProp('ID', mol_ID)
-            file_path = os.path.join(self.rdk_tmp, basename)
-            
-            writer = Chem.SDWriter(file_path)
-            writer.write(mol, confId=i)
-            writer.close()
-            files.append(file_path)
-        return len(files)
-
-    def combine_SDF(self, SDFs, out):
-        """Combine and sort SDF files in folder into a single file"""
-        paths = os.path.join(SDFs, '*.sdf')
-        files = glob.glob(paths)
-        dict0 = {}
-        for file in files:
-            supp = Chem.SDMolSupplier(file, removeHs=False)
-            for mol in supp:
-                idx = mol.GetProp('ID')
-                mol.SetProp('_Name', idx)
-                dict0[idx] =mol
-
-        dict0 = collections.OrderedDict(sorted(dict0.items()))
-        with Chem.SDWriter(out) as f:
-            for idx, mol in sorted(dict0.items()):
-                positions = mol.GetConformer().GetPositions()
-                # atoms clashes if distance is smaller than 0.9 Angstrom
-                if min_pairwise_distance(positions) > 0.9:
-                    f.write(mol)
-                else:
-                    AllChem.MMFFOptimizeMolecule(mol)
-                    positions = mol.GetConformer().GetPositions()
-                    if min_pairwise_distance(positions) > 0.9:
-                        f.write(mol)
+        return mol
 
     def run(self):
         """
@@ -238,15 +202,125 @@ class rd_isomer(object):
         smiles2 = self.read(self.enumerated_smi_hashed_path)
 
         smi_name_tuples = [(smi, name) for name, smi in smiles2.items()]
-        for smi_name in tqdm(smi_name_tuples):
-            self.conformer_func(smi_name)
 
-        self.combine_SDF(self.rdk_tmp, self.enumerated_sdf)
-        try:
-            send2trash(self.rdk_tmp)
-        except:
-            shutil.rmtree(self.rdk_tmp)
+        with Chem.SDWriter(self.enumerated_sdf) as writer:
+            for smi, name in tqdm(smi_name_tuples):
+                mol = self.embed_conformer(smi)
+                for i in range(mol.GetNumConformers()):
+                    positions = mol.GetConformer(i).GetPositions()
+                    # atoms clashes if distance is smaller than 0.9 Angstrom
+                    if min_pairwise_distance(positions) < 0.9:
+                        AllChem.MMFFOptimizeMolecule(mol, confId=i)
+                    positions = mol.GetConformer(i).GetPositions()
+                    if min_pairwise_distance(positions) > 0.9:
+                        conf_id = name.strip() + f"_{i}"
+                        mol.SetProp('ID', conf_id)
+                        mol.SetProp('_Name', conf_id)
+                        writer.write(mol, confId=i)
+
         return self.enumerated_sdf
+
+        # self.combine_SDF(self.rdk_tmp, self.enumerated_sdf)
+        # try:
+        #     send2trash(self.rdk_tmp)
+        # except:
+        #     shutil.rmtree(self.rdk_tmp)
+        # return self.enumerated_sdf
+
+    # def conformer_func(self, smi_name):
+    #     """smi_name is a tuple (smiles, name)"""
+    #     smi, name = smi_name
+    #     mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+    #     if self.n_conformers is None:
+    #         # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
+    #         num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
+    #         n_conformers = min(max(1, int(8.481 * (num_rotatable_bonds **1.642))), 1000)
+    #         AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
+    #                                 randomSeed=42, numThreads=self.np,
+    #                                 pruneRmsThresh=self.threshold)
+    #     else:         
+    #         AllChem.EmbedMultipleConfs(mol, numConfs=self.n_conformers,
+    #                                 randomSeed=42, numThreads=self.np,
+    #                                 pruneRmsThresh=self.threshold)
+    #     files = []
+    #     for i in range(mol.GetNumConformers()):
+    #         basename = name.strip() + f"_{i}.sdf"
+    #         mol_ID = basename.split(".")[0].strip()
+    #         mol.SetProp('ID', mol_ID)
+    #         file_path = os.path.join(self.rdk_tmp, basename)
+            
+    #         writer = Chem.SDWriter(file_path)
+    #         writer.write(mol, confId=i)
+    #         writer.close()
+    #         files.append(file_path)
+    #     return len(files)
+
+    # def combine_SDF(self, SDFs, out):
+    #     """Combine and sort SDF files in folder into a single file"""
+    #     paths = os.path.join(SDFs, '*.sdf')
+    #     files = glob.glob(paths)
+    #     dict0 = {}
+    #     for file in files:
+    #         supp = Chem.SDMolSupplier(file, removeHs=False)
+    #         for mol in supp:
+    #             idx = mol.GetProp('ID')
+    #             mol.SetProp('_Name', idx)
+    #             dict0[idx] =mol
+
+    #     dict0 = collections.OrderedDict(sorted(dict0.items()))
+    #     with Chem.SDWriter(out) as f:
+    #         for idx, mol in sorted(dict0.items()):
+    #             positions = mol.GetConformer().GetPositions()
+    #             # atoms clashes if distance is smaller than 0.9 Angstrom
+    #             if min_pairwise_distance(positions) > 0.9:
+    #                 f.write(mol)
+    #             else:
+    #                 AllChem.MMFFOptimizeMolecule(mol)
+    #                 positions = mol.GetConformer().GetPositions()
+    #                 if min_pairwise_distance(positions) > 0.9:
+    #                     f.write(mol)
+
+    # def run(self):
+    #     """
+    #     When called, enumerate 3 dimensional structures for the input_f file and
+    #     writes all structures in 'job_name/smiles_enumerated.sdf'
+    #     """
+    #     if self.flipper:
+    #         print("Enumerating cis/tran isomers for unspecified double bonds...", flush=True)
+    #         print("Enumerating R/S isomers for unspecified atomic centers...", flush=True)
+    #         # logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
+    #         # logger.info("Enumerating R/S isomers for unspecified atomic centers...")
+    #         smiles_og = self.read(self.input_f)
+    #         for name, smiles in smiles_og.items():
+    #             # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    #             mol = Chem.MolFromSmiles(smiles)
+    #             isomers = self.enumerate_func(mol)
+    #             self.enumerate[name] = isomers
+    #         self.write_enumerated_smi()
+    #         print("Removing enantiomers...", flush=True)
+    #         # logger.info("Removing enantiomers...")
+    #         amend_configuration_w(self.enumerated_smi_path)
+    #         remove_enantiomers(self.enumerated_smi_path, self.enumerated_smi_path_reduced)
+    #         hash_enumerated_smi_IDs(self.enumerated_smi_path_reduced,
+    #                                 self.enumerated_smi_hashed_path)
+    #     else:
+    #         hash_enumerated_smi_IDs(self.input_f,
+    #                                 self.enumerated_smi_hashed_path)
+
+    #     print("Enumerating conformers/rotamers, removing duplicates...", flush=True)
+    #     # logger.info("Enumerating conformers/rotamers, removing duplicates...")
+    #     smiles2 = self.read(self.enumerated_smi_hashed_path)
+
+    #     smi_name_tuples = [(smi, name) for name, smi in smiles2.items()]
+    #     for smi_name in tqdm(smi_name_tuples):
+    #         self.conformer_func(smi_name)
+
+    #     self.combine_SDF(self.rdk_tmp, self.enumerated_sdf)
+    #     try:
+    #         send2trash(self.rdk_tmp)
+    #     except:
+    #         shutil.rmtree(self.rdk_tmp)
+    #     return self.enumerated_sdf
 
 
 class rd_isomer_sdf(object):
