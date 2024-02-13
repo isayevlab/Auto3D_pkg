@@ -78,7 +78,7 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
         smiles_hashed = meta["smiles_hashed"]
         enumerated_sdf = meta["enumerated_sdf"]
         max_confs = args.max_confs
-        duplicate_threshold = args.threshold
+        duplicate_threshold = 0.03
         mpi_np = args.mpi_np
         enumerate_isomer = args.enumerate_isomer
         isomer_program = args.isomer_engine
@@ -483,7 +483,7 @@ def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
         isomer_engine = rd_isomer(path0, meta["smiles_enumerated"],
                                   meta["smiles_reduced"], meta["smiles_hashed"], 
                                   meta["enumerated_sdf"], tmpdirname,
-                                  args.max_confs, args.threshold,
+                                  args.max_confs, 0.03,
                                   args.mpi_np, args.enumerate_isomer)
         isomer_engine.run()
 

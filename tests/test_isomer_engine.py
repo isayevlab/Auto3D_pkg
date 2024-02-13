@@ -53,7 +53,7 @@ def test_rd_isomer_class():
     out = engine.run()
     # mols = list(pybel.readfile("sdf", out))
     mols = list(Chem.SDMolSupplier(out, removeHs=False))
-    assert(rmsd_greater(mols) == True)
+    assert(rmsd_greater(mols, threshold) == True)
     try:
         os.remove(smiles_enumerated)
     except:
@@ -84,7 +84,7 @@ def test_rd_isomer_conformer_func():
         os.mkdir(job_name)
         engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                             sdf_enumerated, job_name, max_confs, threshold, n_process)
-        num_conformers_ = engine.conformer_func(smi_name)
+        num_conformers_ = engine.embed_conformer(smi_name[0]).GetNumConformers()
         num_conformers.append(num_conformers_)
         try:
             shutil.rmtree(job_name)
@@ -100,5 +100,5 @@ def test_SDF2chunks():
 
 
 if __name__ == "__main__":
-    # test_rd_isomer_conformer_func()
-    test_SDF2chunks()
+    test_rd_isomer_conformer_func()
+    # test_SDF2chunks()
