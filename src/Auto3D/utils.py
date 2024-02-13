@@ -381,8 +381,8 @@ def remove_enantiomers(inpath, out):
                 f.write(line)
     return smiles
 
-def check_bonds(mol):
-    """Check if a rdkit mol object has valid bond lengths"""
+def check_connectivity(mol:Chem.Mol) -> bool:
+    """Check if there is a new bond formed or a bond broken in the molecule"""
     # Initialize UFF bond radii (Rappe et al. JACS 1992)
     # Units of angstroms 
     # These radii neglect the bond-order and electronegativity corrections in the original paper. Where several values exist for the same atom, the largest was used. 
@@ -392,21 +392,35 @@ def check_bonds(mol):
              32: 1.197, 33:1.211, 34:1.190, 35:1.192,
              51:1.407, 52:1.386,  53:1.382}
 
-    for bond in mol.GetBonds():
-        idx1 = bond.GetBeginAtomIdx()
-        idx2 = bond.GetEndAtomIdx()
-        length = rdMolTransforms.GetBondLength(mol.GetConformers()[0], idx1, idx2)
+    atoms = [atom for atom in mol.GetAtoms()]
+    n = len(atoms)
+    for i in range(n):
+        for j in range(i+1, n, 1):
+            atom_i = atoms[i]
+            atom_i_idx = atom_i.GetIdx()
+            atomic_num_i = atom_i.GetAtomicNum()
+            pos_i = mol.GetConformer().GetAtomPosition(atom_i_idx)
 
-        begin = mol.GetAtomWithIdx(idx1).GetAtomicNum()
-        end = mol.GetAtomWithIdx(idx2).GetAtomicNum()
-        reference_length = (Radii[begin] + Radii[end]) * 1.25
-        # length = bond.GetLength()
-        # begin = atomType(mol, bond.GetBeginAtomIdx())
-        # end = atomType(mol, bond.GetEndAtomIdx())
-        # reference_length = (Radii[begin] + Radii[end]) * 1.25
-        if length > reference_length:
-            return False
+            atom_j = atoms[j]
+            atom_j_idx = atom_j.GetIdx()
+            atomic_num_j = atom_j.GetAtomicNum()
+            pos_j = mol.GetConformer().GetAtomPosition(atom_j_idx)
+
+            bond = mol.GetBondBetweenAtoms(atom_i_idx, atom_j_idx)
+            reference_length = Radii[atomic_num_i] + Radii[atomic_num_j]
+            if bond:
+                # make sure the bond is not broken
+                length = rdMolTransforms.GetBondLength(mol.GetConformers()[0], atom_i_idx, atom_j_idx)
+                if length > reference_length * 1.25:
+                    return False
+            else:
+                # make sure the bond is not formed
+                dist = np.linalg.norm(np.array(pos_i) - np.array(pos_j))
+                if dist < reference_length * 1.1:
+                    return False
     return True
+
+
 
 def filter_unique(mols, crit=0.3):
     """Remove structures that are very similar.
@@ -423,7 +437,7 @@ def filter_unique(mols, crit=0.3):
     for mol in mols:
         # convergence_flag = str(mol.data['Converged']).lower() == "true"
         convergence_flag = mol.GetProp('Converged').lower() == "true"
-        has_valid_bonds = check_bonds(mol)
+        has_valid_bonds = check_connectivity(mol)
         if convergence_flag and has_valid_bonds:
             mols_.append(mol)
     mols = mols_

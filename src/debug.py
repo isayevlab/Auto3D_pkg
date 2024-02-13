@@ -18,6 +18,6 @@ if __name__ == "__main__":
     print(Auto3D.__version__)
 
     path = '/home/jack/Auto3D_pkg/tests/files/tmp.smi'
-    args = options(path, k=1, gpu_idx=0, verbose=True)
+    args = options(path, k=1, gpu_idx=0, verbose=True, use_gpu=False)
     out = main(args)
     print(out)
