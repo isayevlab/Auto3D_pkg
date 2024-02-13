@@ -53,7 +53,7 @@ def test_rd_isomer_class():
     out = engine.run()
     # mols = list(pybel.readfile("sdf", out))
     mols = list(Chem.SDMolSupplier(out, removeHs=False))
-    assert(rmsd_greater(mols) == True)
+    assert(rmsd_greater(mols, threshold) == True)
     try:
         os.remove(smiles_enumerated)
     except:
