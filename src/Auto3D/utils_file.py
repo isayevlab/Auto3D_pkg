@@ -4,6 +4,7 @@ Providing general utilities for working with different formats of molecular file
 """
 import os
 import glob
+import time
 from collections import defaultdict, OrderedDict
 from tqdm import tqdm
 import numpy as np
@@ -314,5 +315,4 @@ def decode_ids(path: str, mapping: dict) -> str:
             mol.SetProp("ID", new_id)
 
             w.write(mol)
-    os.remove(path)
     return new_path
