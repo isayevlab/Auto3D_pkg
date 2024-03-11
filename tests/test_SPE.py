@@ -49,6 +49,6 @@ def test_calc_spe_aimnet():
     assert(abs(e_out - e_ref) <= 0.01)    
 
 if __name__ == "__main__":
-    test_calc_spe_ani2xt()
-    test_calc_spe_ani2x()
+    # test_calc_spe_ani2xt()
+    # test_calc_spe_ani2x()
     test_calc_spe_aimnet()
