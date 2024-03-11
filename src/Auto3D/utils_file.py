@@ -268,6 +268,8 @@ def encode_ids(path: str) -> Tuple[str, dict]:
             data = f.readlines()
         mapping = {}
         for i, line in enumerate(data):
+            if line.isspace():
+                continue
             smi, id = line.strip().split()
             mapping[id] = i
             new_data.append(f"{smi} {i}\n")
