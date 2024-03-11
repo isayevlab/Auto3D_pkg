@@ -131,6 +131,8 @@ def check_smi_format(args):
     with open(args.path, 'r') as f:
         data = f.readlines()
     for line in data:
+        if line.isspace():
+            continue
         smiles, id = tuple(line.strip().split())
         assert len(smiles) > 0, \
             "Empty SMILES string"
