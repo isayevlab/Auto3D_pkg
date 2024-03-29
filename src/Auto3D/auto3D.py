@@ -440,13 +440,14 @@ def main(args:dict):
         print(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)', flush=True)
         logger.info(f'Program running time: {running_time_h} hour(s) and {remaining_minutes} minute(s)')
     reorder_sdf(path_combined, path0)
-    path_combined = decode_ids(path_combined, mapping)
+    path_output = decode_ids(path_combined, mapping)
     os.remove(path0)
-    print(f"Output path: {path_combined}", flush=True)
-    logger.info(f"Output path: {path_combined}")
+    os.remove(path_combined)
+    print(f"Output path: {path_output}", flush=True)
+    logger.info(f"Output path: {path_output}")
     logging_queue.put(None)
     time.sleep(3)  #wait the daemon process for 3 seconds
-    return path_combined
+    return path_output
 
 def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
     """
