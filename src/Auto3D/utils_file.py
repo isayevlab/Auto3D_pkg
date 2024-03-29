@@ -4,6 +4,7 @@ Providing general utilities for working with different formats of molecular file
 """
 import os
 import glob
+import time
 from collections import defaultdict, OrderedDict
 from tqdm import tqdm
 import numpy as np
@@ -267,6 +268,8 @@ def encode_ids(path: str) -> Tuple[str, dict]:
             data = f.readlines()
         mapping = {}
         for i, line in enumerate(data):
+            if line.isspace():
+                continue
             smi, id = line.strip().split()
             mapping[id] = i
             new_data.append(f"{smi} {i}\n")
@@ -314,5 +317,4 @@ def decode_ids(path: str, mapping: dict) -> str:
             mol.SetProp("ID", new_id)
 
             w.write(mol)
-    os.remove(path)
     return new_path
