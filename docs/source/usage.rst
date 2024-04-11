@@ -50,20 +50,19 @@ The following examples uses the ``options`` and the ``main`` function.  It's sui
 Using Auto3D in a terminal command line
 ---------------------------------------
 
-Alternatively, you can run Auto3D through CLI.
+Alternatively, you can run Auto3D through CLI. Example:
 
 .. code:: console
 
-   cd <replace with your path_folder_with_auto3D.py>
-   python auto3D.py "example/files/smiles.smi" --k=1
+   auto3d smiles.smi --k=1
 
-The parameter can also be provided via a yaml file (for example
-``parameters.yaml``). So the above example is equivalent to
+There are example files present at ``example/files``. The parameter can also be
+provided via a yaml file (for example ``parameters.yaml``). So the above example
+is equivalent to
 
 .. code:: console
 
-   cd <replace with your path_folder_with_auto3D.py>
-   python auto3D.py parameters.yaml
+   auto3D parameters.yaml
 
 The above 3 examples will do the same thing: run Auto3D and keep 1
 lowest-energy structure for each SMILES in the input file. It uses RDKit
