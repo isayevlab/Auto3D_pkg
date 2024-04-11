@@ -16,6 +16,7 @@ Please check out the information at [**documentation**](https://auto3d.readthedo
 - **Jupyter notebook examples** can be found [here](https://github.com/isayevlab/Auto3D_pkg/tree/main/example)
 - To-do list for **improvement and new features** can be found [here](https://github.com/isayevlab/Auto3D_pkg/discussions). You are welcomed to share your thoughts.
 - Bugs go to the [issues](https://github.com/isayevlab/Auto3D_pkg/issues)
+- **AIMNet2**: The default model in Auto3D is AIMNet2 since 2.2.1. If you specify optimizing_engine="AIMNET", it actually uses AIMNet2. The old AIMNet model has been deprecated since Auto3D 2.2.1, and every call to “AIMNET” refers to the AIMNet2 model.
 
 ## Minimum Dependencies Installatioin
 1. Python >= 3.7

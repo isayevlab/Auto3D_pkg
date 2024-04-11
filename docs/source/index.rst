@@ -10,6 +10,9 @@ Welcome to Auto3D's documentation!
 
    This documentation is under active development.
 
+.. note::
+   **AIMNet2 clarification**: The default model in Auto3D is AIMNet2 since 2.2.1. If you specify optimizing_engine="AIMNET", it actually uses AIMNet2. The old AIMNet model has been deprecated since Auto3D 2.2.1, and every call to “AIMNET” refers to the AIMNet2 model.
+
 **Auto3D**
 ==========
 
