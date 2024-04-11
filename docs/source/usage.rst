@@ -3,9 +3,7 @@ Usage
 
 An ``smi`` or ``SDF`` file that stores the molecules is needed as the input for the
 package. You can find an example input files in the ``examples/files``
-folder. Basically, an ``smi`` file contains SMILES and their IDs. **ID
-can contain anything like numbers or letters, but not "_", the
-underscore.** You can import Auto3D as a library in any Python script,
+folder. You can import Auto3D as a library in any Python script,
 or run Auto3D through the commalnd line interface (CLI). They are
 equivalent in findig the low-energy 3D conformers.
 
@@ -34,7 +32,7 @@ If you just have a handful of SMILES, it's easy to use the ``smiles2mols`` funct
          print(f'{atom.GetSymbol()} {pos.x:.3f} {pos.y:.3f} {pos.z:.3f}')
 
 
-The following examples uses the ``options`` and the ``main`` function.  It's suitable for a large input, and stores the 3D structures in a file with the name ``<input_file_name>_3d.sdf``. Note that the ``smi`` file can be replaced with an ``SDF`` file. That means Auto3D starts to seaerch for low-energy conformers with a given starting geometry. Because the ``main`` function uses multiprocessing, it has to be called in a ``if __name__ == "__main__":`` block.
+If you have a large number of molecuels, using the ``options`` and the ``main`` functions is recommended.  It's suitable for a large input, and stores the 3D structures in a file with the name ``<input_file_name>_3d.sdf``, of which the path will be printed out when ``auto3d`` finishes running. Note that the ``smi`` file can be replaced with an ``SDF`` file. That means Auto3D starts to seaerch for low-energy conformers with a given starting geometry. Because the ``main`` function uses multiprocessing, it has to be called in a ``if __name__ == "__main__":`` block.
 
 .. code:: python
 
@@ -72,6 +70,9 @@ you want to keep n structures for each SMILES, simply set ``k=n``\ or
 the lowest-energy structure for each SMILES if you replace ``k=1`` with
 ``window=x``.
 
+.. note::
+   **AIMNet2 clarification**: The default model in Auto3D is AIMNet2 since 2.2.1. If you specify optimizing_engine="AIMNET", it actually uses AIMNet2. The old AIMNet model has been deprecated since Auto3D 2.2.1, and every call to “AIMNET” refers to the AIMNet2 model.
+
 When the running process finishes, there will be folder with the name of
 year-date-time. In the folder, you can find an SDF file containing the
 optimized low-energy 3D structures for the input SMILES. There is also a
@@ -105,8 +106,7 @@ You need the following block if you use the CLI.
 
 .. code:: console
 
-   cd <replace with your path_folder_with_Auto3D_pkg>
-   python auto3D.py "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
+   auto3D "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
 
 .. list-table::
    :widths: 15 15 15 55
