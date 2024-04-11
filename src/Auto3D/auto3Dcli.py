@@ -14,8 +14,7 @@ def int_or_intlist(string):
         # If it fails, assume it's a comma-separated list of integers
         return [int(item) for item in string.split(',')]
 
-
-if __name__ == "__main__":
+def cli():
     if len(sys.argv) == 2:
         # using yaml input
         parameters_yaml = sys.argv[1]
@@ -165,3 +164,7 @@ if __name__ == "__main__":
         // Automatic generation of the low-energy 3D structures                                      
     """)
     out = main(arguments)
+
+
+if __name__ == "__main__":
+    cli()
