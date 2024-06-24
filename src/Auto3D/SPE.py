@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Calculating single point energy using ANI2xt, ANI2x or AIMNET"""
+"""Calculating single point energy using ANI2xt, ANI2x, 'userNNP' or AIMNET"""
 import sys
 import os
 root = os.path.dirname(os.path.abspath(__file__))
@@ -33,7 +33,7 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
 
     :param path: Input sdf file
     :type path: str
-    :param model_name: AIMNET, ANI2x or ANI2xt
+    :param model_name: AIMNET, ANI2x, userNNP, or ANI2xt
     :type model_name: str
     :param gpu_idx: GPU cuda index, defaults to 0
     :type gpu_idx: int, optional
@@ -58,8 +58,12 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     elif model_name == "ANI2x":
         calculator = torchani.models.ANI2x(periodic_table_index=True).to(device)
         model = EnForce_ANI(calculator, model_name)
+    elif model_name == "userNNP":
+        from userNNP import userNNP
+        calculator = userNNP().to(device)
+        model = EnForce_ANI(calculator, model_name)
     else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
+        raise ValueError("model has to be 'ANI2x', 'ANI2xt' 'userNNP' or 'AIMNET'")
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     coord, numbers, charges = mols2lists(mols, model_name)

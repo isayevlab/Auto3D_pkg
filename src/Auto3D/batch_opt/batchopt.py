@@ -16,6 +16,12 @@ try:
     from .ANI2xt_no_rep import ANI2xt
 except:
     pass
+
+try:
+    from userNNP import userNNP
+except:
+    pass
+
 from tqdm import tqdm
 from Auto3D.utils import hartree2ev
 
@@ -161,6 +167,14 @@ class EnForce_ANI(torch.nn.Module):
             # ANI ASE interface unit is eV
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
+        elif self.name == "userNNP":
+            # use userNNP as genetic name for a ANI type NNP
+            e = self.ani((numbers, coord)).energies
+            e = e * hartree2ev  # ANI type NNP output energy unit is Hatree;
+            # ANI ASE interface unit is eV
+            g = torch.autograd.grad([e.sum()], [coord])[0]
+            f = -g
+
         return e, f
 
     #    @torch.jit.script_method
@@ -298,7 +312,7 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
     numbers: atomic numbers in the molecule (include H). (N, m)
     charges: (N,)
     param: a dictionary containing parameters
-    model: "AIMNET", "ANI2xt" or "ANI2x"
+    model: "AIMNET", "ANI2xt", "ANI2x" or "userNNP"
     device
     """
     coord = torch.tensor(coord, dtype=torch.float, device=device)
@@ -399,8 +413,10 @@ class optimizing(object):
             self.ani = ANI2xt(device)
         elif model == "ANI2x":
             self.ani = torchani.models.ANI2x(periodic_table_index=True).to(device)
+        elif model == "userNNP":
+            self.ani = userNNP().to(device)
         else:
-            raise ValueError("Model has to be ANI2x, ANI2xt or AIMNET.")
+            raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
 
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
