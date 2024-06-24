@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Geometry optimization with ANI2xt, AIMNET or ANI2x
+Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 """
 import sys
 import os
@@ -22,7 +22,7 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
 
     :param path: Input sdf file
     :type path: str
-    :param model_name: ANI2x, ANI2xt or AIMNET
+    :param model_name: ANI2x, ANI2xt, userNNP or AIMNET
     :type model_name: str
     :param gpu_idx: GPU cuda index, defaults to 0
     :type gpu_idx: int, optional
@@ -60,6 +60,8 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
 if __name__ == '__main__':
     path = '/home/jack/Auto3D_pkg/tests/files/DA.sdf'
     out = opt_geometry(path, 'ANI2x', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
+    print(out)
+    out = opt_geometry(path, 'userNNP', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
     print(out)
     out = opt_geometry(path, 'AIMNET', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
     print(out)
