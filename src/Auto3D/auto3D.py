@@ -206,7 +206,7 @@ def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_
     :type gpu_idx: int or list of int, optional
     :param capacity: Number of SMILES that the model will handle for 1 G memory, defaults to 42
     :type capacity: int, optional
-    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', or 'AIMNET' for energy calculation and geometry optimization, defaults to "AIMNET"
+    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', 'userNNP', or 'AIMNET' for energy calculation and geometry optimization, defaults to "AIMNET"
     :type optimizing_engine: str, optional
     :param patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop, defaults to 1000
     :type patience: int, optional
