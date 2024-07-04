@@ -97,11 +97,11 @@ def check_input(args):
             import torchani
         except:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
-    if args.optimizing_engine == "userNNP":
+    if os.path.exists(args.optimizing_engine):
         try:
-            from userNNP import userNNP
+            model_ = torch.load(args.optimizing_engine)
         except:
-            sys.exit("userNNP is used as optimizing engine, but userNNP is not installed.")
+            sys.exit("A path to a user NNP is used as optimizing engine, but it cannot be loaded by torch.load. See this link for information about saving and loading models: https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model")
     if int(args.opt_steps) < 10:
         sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")
 
@@ -115,16 +115,16 @@ def check_input(args):
     logger.info(f"Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
         print("\tIsomer engine options: RDKit and Omega.\n"
-              "\tOptimizing engine options: ANI2x, ANI2xt, userNNP and AIMNET.", flush=True)
+              "\tOptimizing engine options: ANI2x, ANI2xt, AIMNET or your own NNP.", flush=True)
         logger.info("\tIsomer engine options: RDKit and Omega.")
-        logger.info("\tOptimizing engine options: ANI2x, ANI2xt, userNNP and AIMNET.")
+        logger.info("\tOptimizing engine options: ANI2x, ANI2xt, AIMNET or your own NNP.")
     else:
         print("\tIsomer engine options: RDKit and Omega.\n"
-              "\tOptimizing engine options: AIMNET.", flush=True)
+              "\tOptimizing engine options: AIMNET or your own NNP.", flush=True)
         logger.info("\tIsomer engine options: RDKit and Omega.")
-        logger.info("\tOptimizing engine options: AIMNET.")
+        logger.info("\tOptimizing engine options: AIMNET or your own NNP.")
         optimizing_engine = args.optimizing_engine
-        if optimizing_engine != "AIMNET":
+        if optimizing_engine in {"ANI2x", "ANI2xt"}:
             sys.exit(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
             # logger.critical(f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D.")
 

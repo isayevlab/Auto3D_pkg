@@ -14,7 +14,6 @@ from ase import Atoms
 from ase.optimize import BFGS
 from rdkit import Chem
 from rdkit.Chem import rdmolops
-# from ase.vibrations import Vibrations
 from ase.vibrations import VibrationsData, Vibrations
 from ase.thermochemistry import IdealGasThermo
 import ase.calculators.calculator
@@ -23,10 +22,10 @@ from typing import Optional
 import torchani
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
-try:
-    from userNNP import userNNP
-except:
-    pass
+# try:
+#     from userNNP import userNNP
+# except:
+#     pass
 from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -107,13 +106,12 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         ani2x = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
         model = EnForce_ANI(ani2x, model_name)
         calculator = ani2x.ase()
-    elif model_name == "userNNP":
-        user_nnp = userNNP().to(device).double()
+    elif os.path.exists(model_name):
+        user_nnp = torch.load(model_name, map_location=device)
         model = EnForce_ANI(user_nnp, model_name)
-        calculator = user_nnp.ase()
-
+        calculator = Calculator(model, charge)
     else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'userNNP' or 'AIMNET'")
+        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
     return model, calculator
 
 def mol2atoms(mol: Chem.Mol):
@@ -214,8 +212,11 @@ def aimnet_hessian_helper(coord:torch.tensor,
         numbers2 = torch.tensor([periodict2idx[num.item()] for num in numbers.squeeze()], device=device).unsqueeze(0)
         e = model(numbers2, coord)
         return e  # energy unit: eV
-    elif model_name == 'ANI2x' or model_name == 'userNNP':
+    elif model_name == 'ANI2x':
         e = model((numbers, coord)).energies * hartree2ev
+        return e  # energy unit: eV
+    elif os.path.exists(model_name):
+        e, f = model.forward(coord, numbers, charge)
         return e  # energy unit: eV
 
 def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.0002, opt_steps=5000):
@@ -224,7 +225,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
 
     :param path: Input sdf file
     :type path: str
-    :param model_name: ANI2x, ANI2xt or AIMNET
+    :param model_name: ANI2x, ANI2xt, AIMNET or a path to a userNNP model
     :type model_name: str
     :param get_mol_idx_t: A function that returns (idx, T) from a pybel mol object, by default using the 298 K temperature, defaults to None
     :type get_mol_idx_t: function, optional
@@ -238,7 +239,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     #Prepare output name
     out_mols, mols_failed = [], []
     dir = os.path.dirname(path)
-    basename = os.path.basename(path).split(".")[0] + f"_{model_name}_G.sdf"
+    basename = os.path.basename(path).split(".")[0] + f"_userNNP_G.sdf"
     outpath = os.path.join(dir, basename)
 
     if torch.cuda.is_available():
@@ -253,8 +254,8 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         hessian_model = ANI2xt(device).double()
     elif model_name == 'ANI2x':
         hessian_model = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
-    elif model_name == 'userNNP':
-        hessian_model = userNNP().to(device).double()
+    elif os.path.exists(model_name):
+        hessian_model = torch.load(model_name, map_location=device).double()
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
@@ -311,8 +312,49 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     return outpath
 
 if __name__ == "__main__":
-    # path = '/home/jack/run_auto3d/20231030-101405-214461_methane/imaginary/methane_out.sdf'
+
+    class userNNP(torch.nn.Module):
+        def __init__(self):
+            super(userNNP, self).__init__()
+            """This is an example NNP model that can be used with Auto3D.
+            You can initialize an NNP model however you want,
+            just make sure that:
+                - It contains the coord_pad and species_pad attributes 
+                (These values will be used when processing the molecules in batch.)
+                - The signature of the forward method is the same as below.
+            """
+            # I use ANI2x as an example NNP here
+            self.model = torchani.models.ANI2x(periodic_table_index=True)
+
+            self.coord_pad = 0  # int, the padding value for coordinates
+            self.species_pad = -1  # int, the padding value for species.
+            self.state_dict = None
+
+        def forward(self,
+                    species: torch.Tensor,
+                    coords: torch.Tensor,
+                    charges: Optional[torch.Tensor]=None) -> torch.Tensor:
+            """
+            Your NNP should take species, coords, and charges as input and return the energies of the molecules.
+
+            species contains the atomic numbers of the atoms in the molecule: [B, N]
+            where B is the batch size, N is the number of atoms in the largest molecule.
+            
+            coords contains the coordinates of the atoms in the molecule: [B, N, 3]
+            where B is the batch size, N is the number of atoms in the largest molecule,
+            and 3 is the number of coordinates.
+            
+            charges contains the molecular charges: [B]
+            
+            return the energies of the molecules: [B], unit in Hartree"""
+
+            # random example for computing molecular energy, replace with your NNP model
+            energies = self.model((species, coords)).energies
+            return energies
+    
     path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
+    model_path =  '/home/jack/Auto3D_pkg/example/myNNP.pt'
+    # model = torch.load(model_path)
     # out = calc_thermo(path, 'AIMNET', gpu_idx=1)
-    out = calc_thermo(path, 'ANI2xt', gpu_idx=1)
-    # out = calc_thermo(path, 'ANI2x', gpu_idx=1)
+    out = calc_thermo(path, model_path, gpu_idx=1)
+
