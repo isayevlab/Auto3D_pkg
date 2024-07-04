@@ -161,7 +161,8 @@ class EnForce_ANI(torch.nn.Module):
             # ANI ASE interface unit is eV
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
-        elif self.name == "userNNP":
+        else:
+            # user NNP that was loaded from a file
             e = self.ani(numbers, coord, charges)
             e = e * hartree2ev 
             # ANI ASE interface unit is eV
@@ -398,27 +399,27 @@ class optimizing(object):
         self.device = device
         self.config = config
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if isinstance(name, str):
-            if name == "AIMNET":
-                self.model = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"),
-                                        map_location=device)
-                self.coord_pad = 0
-                self.species_pad = 0
-            elif name == "ANI2xt":
-                self.model = ANI2xt(device)
-                self.coord_pad = 0
-                self.species_pad = -1
-            elif name == "ANI2x":
-                self.model = torchani.models.ANI2x(periodic_table_index=True).to(device)
-                self.coord_pad = 0
-                self.species_pad = -1
-            else:
-                raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
-        elif isinstance(name, torch.nn.Module):
-            self.model = name
-            self.name = "userNNP"
+        # if isinstance(name, str):
+        if name == "AIMNET":
+            self.model = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"),
+                                    map_location=device)
+            self.coord_pad = 0
+            self.species_pad = 0
+        elif name == "ANI2xt":
+            self.model = ANI2xt(device)
+            self.coord_pad = 0
+            self.species_pad = -1
+        elif name == "ANI2x":
+            self.model = torchani.models.ANI2x(periodic_table_index=True).to(device)
+            self.coord_pad = 0
+            self.species_pad = -1
+        elif os.path.exists(name):
+            print(f"Loading model from {name}", flush=True)
+            self.model = torch.load(name, map_location=device)
             self.coord_pad = self.model.coord_pad
-            self.species_pad = self.model.species_pad
+            self.species_pad = self.model.species_pad            
+        else:
+            raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
 
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
