@@ -85,7 +85,7 @@ def cli():
         parser.add_argument('--mpi_np', type=int, default=4,
                             help="Number of CPU cores for the isomer generation step.")
         parser.add_argument('--optimizing_engine', type=str, default='AIMNET',
-                            help=("Choose either 'ANI2x', 'ANI2xt', 'userNNP', or 'AIMNET' for energy "
+                            help=("Choose either 'ANI2x', 'ANI2xt' or 'AIMNET' for energy "
                                 "calculation and geometry optimization."))
         parser.add_argument('--use_gpu', default=True, type=lambda x: (str(x).lower() == 'true'),
                             help="If True, the program will use GPU.")

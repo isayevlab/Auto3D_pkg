@@ -147,15 +147,9 @@ class EnForce_ANI(torch.nn.Module):
         # charge = torch.zeros_like(numbers[:, 0])
 
         if self.name == "AIMNET":
-            # torch.set_grad_enabled(True)
-            # torch._C._set_grad_enabled(True)
             d = self.ani(
                 dict(coord=coord, numbers=numbers, charge=charges))  # Output from the model
-            # e = (d['energy'] + d['disp_energy']).to(torch.double)
             e = d['energy'].to(torch.double)
-            # g = torch.autograd.grad([e.sum()], [coord])[0]  # size(100, 23, 3)
-            # assert g is not None
-            # f = -g
             f = d['forces']
         elif self.name == "ANI2xt":
             e = self.ani(numbers, coord)
@@ -168,9 +162,8 @@ class EnForce_ANI(torch.nn.Module):
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
         elif self.name == "userNNP":
-            # use userNNP as genetic name for a ANI type NNP
-            e = self.ani((numbers, coord)).energies
-            e = e * hartree2ev  # ANI type NNP output energy unit is Hatree;
+            e = self.ani(numbers, coord, charges)
+            e = e * hartree2ev 
             # ANI ASE interface unit is eV
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
@@ -195,7 +188,7 @@ class EnForce_ANI(torch.nn.Module):
         e = []
         f = []
         idx = torch.arange(B, device=coord.device)
-        for batch in idx.split(self.batchsize_atoms // N):  # How was the batchsize_atoms decided?
+        for batch in idx.split(self.batchsize_atoms // N):
             _e, _f = self(coord[batch], numbers[batch], charges[batch])
             e.append(_e)
             f.append(_f)
@@ -398,25 +391,34 @@ def mols2lists(mols, model):
 
 
 class optimizing(object):
-    def __init__(self, in_f, out_f, model, device, config):
+    def __init__(self, in_f, out_f, name, device, config):
         self.in_f = in_f
         self.out_f = out_f
-        self.model = model
+        self.name = name
         self.device = device
         self.config = config
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if model == "AIMNET":
-            # self.ani = torch.jit.load(os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt"), map_location=device) # Return a ScriptModule object
-            self.ani = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"),
-                                      map_location=device)
-        elif model == "ANI2xt":
-            self.ani = ANI2xt(device)
-        elif model == "ANI2x":
-            self.ani = torchani.models.ANI2x(periodic_table_index=True).to(device)
-        elif model == "userNNP":
-            self.ani = userNNP().to(device)
-        else:
-            raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
+        if isinstance(name, str):
+            if name == "AIMNET":
+                self.model = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"),
+                                        map_location=device)
+                self.coord_pad = 0
+                self.species_pad = 0
+            elif name == "ANI2xt":
+                self.model = ANI2xt(device)
+                self.coord_pad = 0
+                self.species_pad = -1
+            elif name == "ANI2x":
+                self.model = torchani.models.ANI2x(periodic_table_index=True).to(device)
+                self.coord_pad = 0
+                self.species_pad = -1
+            else:
+                raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
+        elif isinstance(name, torch.nn.Module):
+            self.model = name
+            self.name = "userNNP"
+            self.coord_pad = self.model.coord_pad
+            self.species_pad = self.model.species_pad
 
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
@@ -425,22 +427,22 @@ class optimizing(object):
         mols = list(Chem.SDMolSupplier(self.in_f, removeHs=False))
         print(f"Total 3D conformers: {len(mols)}", flush=True)
         # logging.info(f"Total 3D conformers: {len(mols)}")
-        coord, numbers, charges = mols2lists(mols, self.model)
-        if self.model == "AIMNET":
-            coord_padded = padding_coords(coord, 0)
-            numbers_padded = padding_species(numbers, 0)
-        else:
-            coord_padded = padding_coords(coord, 0)
-            numbers_padded = padding_species(numbers, -1)
+        coord, numbers, charges = mols2lists(mols, self.name)
+        # if self.name == "AIMNET":
+        #     coord_padded = padding_coords(coord, self.coord_pad)
+        #     numbers_padded = padding_species(numbers, self.species_pad)
+        # else:
+        coord_padded = padding_coords(coord, self.coord_pad)
+        numbers_padded = padding_species(numbers, self.species_pad)
 
-        for p in self.ani.parameters():
+        for p in self.model.parameters():
             p.requires_grad_(False)
-        ani = EnForce_ANI(self.ani, self.model, self.config[
+        model = EnForce_ANI(self.model, self.name, self.config[
             "batchsize_atoms"])  # Interesting, EnForce_ANI inherites nn.module, bu can still accept a ScriptModule object as the input
 
         with torch.jit.optimized_execution(False):
-            optdict = ensemble_opt(ani, coord_padded, numbers_padded, charges,
-                                   self.config, self.model, self.device)  # Magic step
+            optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
+                                   self.config, self.name, self.device)  # Magic step
 
         energies = optdict['energy']
         fmax = optdict['fmax']

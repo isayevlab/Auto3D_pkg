@@ -10,6 +10,7 @@ import sys
 import time
 from datetime import datetime
 import torch
+import torch.nn as nn
 import math
 import psutil, tarfile
 import glob
@@ -169,7 +170,7 @@ def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol
 def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
-    use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
+    use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine:Union[str, nn.Module]="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
     """
     Generating arguments for the Auto3D ``main`` function.
@@ -206,8 +207,8 @@ def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_
     :type gpu_idx: int or list of int, optional
     :param capacity: Number of SMILES that the model will handle for 1 G memory, defaults to 42
     :type capacity: int, optional
-    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', 'userNNP', or 'AIMNET' for energy calculation and geometry optimization, defaults to "AIMNET"
-    :type optimizing_engine: str, optional
+    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', 'AIMNET' or a torch.nn.Module for energy calculation and geometry optimization, defaults to "AIMNET"
+    :type optimizing_engine: Union[str, torch.nn.Module], optional
     :param patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop, defaults to 1000
     :type patience: int, optional
     :param opt_steps: Maximum optimization steps for each structure, defaults to 5000
@@ -263,6 +264,12 @@ def logger_process(queue, logging_path):
 
 def main(args:dict):
     """Take the arguments from the ``options`` function and run Auto3D."""
+    # Ensure spawn method is used
+    try:
+        mp.set_start_method('fork')
+    except RuntimeError:
+        pass
+
     chunk_line = mp.Manager().Queue()   #A queue managing two wrappers
     start = time.time()
     # job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  #adds microsecond in the end
