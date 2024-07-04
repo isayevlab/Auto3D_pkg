@@ -57,6 +57,7 @@ class userNNP(torch.nn.Module):
 
         self.coord_pad = 0  # int, the padding value for coordinates
         self.species_pad = -1  # int, the padding value for species.
+        self.state_dict = None
 
     def forward(self,
                 species: torch.Tensor,

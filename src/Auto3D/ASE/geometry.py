@@ -22,7 +22,7 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
 
     :param path: Input sdf file
     :type path: str
-    :param model_name: ANI2x, ANI2xt, userNNP or AIMNET
+    :param model_name: ANI2x, ANI2xt, AIMNET or a path to userNNP model
     :type model_name: str
     :param gpu_idx: GPU cuda index, defaults to 0
     :type gpu_idx: int, optional
@@ -34,7 +34,10 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
     ev2hatree = 1/hartree2ev
     #create output path that is in the same directory as the input file
     dir = os.path.dirname(path)
-    basename = os.path.basename(path).split(".")[0] + f"_{model_name}_opt.sdf"
+    if os.path.exists(path):
+        basename = os.path.basename(path).split(".")[0] + f"_userNNP_opt.sdf"
+    else:
+        basename = os.path.basename(path).split(".")[0] + f"_{model_name}_opt.sdf"
     outpath = os.path.join(dir, basename)
 
     if torch.cuda.is_available():
@@ -60,8 +63,6 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
 if __name__ == '__main__':
     path = '/home/jack/Auto3D_pkg/tests/files/DA.sdf'
     out = opt_geometry(path, 'ANI2x', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
-    print(out)
-    out = opt_geometry(path, 'userNNP', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
     print(out)
     out = opt_geometry(path, 'AIMNET', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
     print(out)

@@ -17,11 +17,6 @@ try:
 except:
     pass
 
-try:
-    from userNNP import userNNP
-except:
-    pass
-
 from tqdm import tqdm
 from Auto3D.utils import hartree2ev
 
@@ -29,7 +24,6 @@ torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
 
-# hartree2eV = 27.211385
 @torch.jit.script
 class FIRE():
     """a general optimization program """
@@ -144,8 +138,6 @@ class EnForce_ANI(torch.nn.Module):
             energies
             forces
         """
-        # charge = torch.zeros_like(numbers[:, 0])
-
         if self.name == "AIMNET":
             d = self.ani(
                 dict(coord=coord, numbers=numbers, charge=charges))  # Output from the model
@@ -165,7 +157,6 @@ class EnForce_ANI(torch.nn.Module):
             # user NNP that was loaded from a file
             e = self.ani(numbers, coord, charges)
             e = e * hartree2ev 
-            # ANI ASE interface unit is eV
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
 
@@ -222,7 +213,6 @@ def n_steps(state, n, opttol, patience):
     # t0 = perf_counter()
     numbers = state['numbers']
     charges = state['charges']
-    # num_total = numbers.size()[0]
     coord = state['coord']
     optimizer = FIRE(coord)
     # the following two terms are used to detect oscillating conformers
@@ -376,17 +366,14 @@ def mols2lists(mols, model):
     '''mols: rdkit mol object'''
     species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
     ani2xt_index = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
-    # coord = [[a.coords for a in mol.atoms] for mol in mols]
     coord = [mol.GetConformer().GetPositions().tolist() for mol in mols]
     coord = [[tuple(xyz) for xyz in inner] for inner in coord]  # to be consistent with legacy code
     # charges = [mol.charge for mol in mols]
     charges = [rdmolops.GetFormalCharge(mol) for mol in mols]
 
     if model == "ANI2xt":
-        # numbers = [[ani2xt_index[a.atomicnum] for a in mol.atoms] for mol in mols]
         numbers = [[ani2xt_index[a.GetAtomicNum()] for a in mol.GetAtoms()] for mol in mols]
     else:
-        # numbers = [[a.atomicnum for a in mol.atoms] for mol in mols]
         numbers = [[a.GetAtomicNum() for a in mol.GetAtoms()] for mol in mols]
     return coord, numbers, charges
 
@@ -399,7 +386,7 @@ class optimizing(object):
         self.device = device
         self.config = config
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # if isinstance(name, str):
+
         if name == "AIMNET":
             self.model = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"),
                                     map_location=device)
@@ -429,10 +416,6 @@ class optimizing(object):
         print(f"Total 3D conformers: {len(mols)}", flush=True)
         # logging.info(f"Total 3D conformers: {len(mols)}")
         coord, numbers, charges = mols2lists(mols, self.name)
-        # if self.name == "AIMNET":
-        #     coord_padded = padding_coords(coord, self.coord_pad)
-        #     numbers_padded = padding_species(numbers, self.species_pad)
-        # else:
         coord_padded = padding_coords(coord, self.coord_pad)
         numbers_padded = padding_species(numbers, self.species_pad)
 

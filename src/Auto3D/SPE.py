@@ -51,19 +51,18 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     if model_name == "ANI2xt":
         model = EnForce_ANI(ANI2xt(device), model_name)
     elif model_name == "AIMNET":
-        # dict_path = os.path.join(root, "models/aimnet2nqed_pc14iall_b97m_sae.jpt")
-        # aimnet = torch.jit.load(dict_path, map_location=device)
         aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
         model = EnForce_ANI(aimnet, model_name)
     elif model_name == "ANI2x":
         calculator = torchani.models.ANI2x(periodic_table_index=True).to(device)
         model = EnForce_ANI(calculator, model_name)
-    elif model_name == "userNNP":
-        from userNNP import userNNP
-        calculator = userNNP().to(device)
+    # elif model_name == "userNNP":
+    #     from userNNP import userNNP
+    elif os.path.exists(model_name):
+        calculator = torch.load(model_name, map_location=device)
         model = EnForce_ANI(calculator, model_name)
     else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt' 'userNNP' or 'AIMNET'")
+        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     coord, numbers, charges = mols2lists(mols, model_name)
