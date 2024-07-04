@@ -170,7 +170,7 @@ def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol
 def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_name="",
     enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
     isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
-    use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine:Union[str, nn.Module]="AIMNET", patience=1000,
+    use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
     opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
     """
     Generating arguments for the Auto3D ``main`` function.
