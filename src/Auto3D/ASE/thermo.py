@@ -107,7 +107,7 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         model = EnForce_ANI(ani2x, model_name)
         calculator = ani2x.ase()
     elif os.path.exists(model_name):
-        user_nnp = torch.load(model_name, map_location=device)
+        user_nnp = torch.jit.load(model_name, map_location=device)
         model = EnForce_ANI(user_nnp, model_name)
         calculator = Calculator(model, charge)
     else:
@@ -255,7 +255,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     elif model_name == 'ANI2x':
         hessian_model = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
     elif os.path.exists(model_name):
-        hessian_model = torch.load(model_name, map_location=device).double()
+        hessian_model = torch.jit.load(model_name, map_location=device).double()
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
@@ -313,48 +313,10 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
 
 if __name__ == "__main__":
 
-    class userNNP(torch.nn.Module):
-        def __init__(self):
-            super(userNNP, self).__init__()
-            """This is an example NNP model that can be used with Auto3D.
-            You can initialize an NNP model however you want,
-            just make sure that:
-                - It contains the coord_pad and species_pad attributes 
-                (These values will be used when processing the molecules in batch.)
-                - The signature of the forward method is the same as below.
-            """
-            # I use ANI2x as an example NNP here
-            self.model = torchani.models.ANI2x(periodic_table_index=True)
-
-            self.coord_pad = 0  # int, the padding value for coordinates
-            self.species_pad = -1  # int, the padding value for species.
-            self.state_dict = None
-
-        def forward(self,
-                    species: torch.Tensor,
-                    coords: torch.Tensor,
-                    charges: Optional[torch.Tensor]=None) -> torch.Tensor:
-            """
-            Your NNP should take species, coords, and charges as input and return the energies of the molecules.
-
-            species contains the atomic numbers of the atoms in the molecule: [B, N]
-            where B is the batch size, N is the number of atoms in the largest molecule.
-            
-            coords contains the coordinates of the atoms in the molecule: [B, N, 3]
-            where B is the batch size, N is the number of atoms in the largest molecule,
-            and 3 is the number of coordinates.
-            
-            charges contains the molecular charges: [B]
-            
-            return the energies of the molecules: [B], unit in Hartree"""
-
-            # random example for computing molecular energy, replace with your NNP model
-            energies = self.model((species, coords)).energies
-            return energies
     
     path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
     model_path =  '/home/jack/Auto3D_pkg/example/myNNP.pt'
     # model = torch.load(model_path)
     # out = calc_thermo(path, 'AIMNET', gpu_idx=1)
-    out = calc_thermo(path, model_path, gpu_idx=1)
+    out = calc_thermo(path, model_path, gpu_idx=2)
 

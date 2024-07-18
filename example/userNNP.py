@@ -83,11 +83,15 @@ class userNNP(torch.nn.Module):
 
 if __name__ == '__main__':
     model_path =  '/home/jack/Auto3D_pkg/example/myNNP.pt'
-    myNNP = userNNP()
-    torch.save(myNNP, model_path)
+    # myNNP = userNNP()
+    # myNNP_jit = torch.jit.script(myNNP)
+    # myNNP_jit.save(model_path)
+    # torch.save(myNNP, model_path)
     
+    # myNNP_jit = torch.jit.load(model_path)
+    # print(myNNP_jit.code)
     path = '/home/jack/Auto3D_pkg/example/files/smiles.smi'
     # args = options(path, k=1, optimizing_engine='ANI2xt', use_gpu=False)
-    args = options(path, k=1, optimizing_engine=model_path, use_gpu=False)
+    args = options(path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=2)
     out = main(args)
     print(out)
