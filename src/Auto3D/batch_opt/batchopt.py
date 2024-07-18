@@ -402,7 +402,7 @@ class optimizing(object):
             self.species_pad = -1
         elif os.path.exists(name):
             print(f"Loading model from {name}", flush=True)
-            self.model = torch.load(name, map_location=device)
+            self.model = torch.jit.load(name, map_location=device)
             self.coord_pad = self.model.coord_pad
             self.species_pad = self.model.species_pad            
         else:

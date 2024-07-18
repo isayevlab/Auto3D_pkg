@@ -40,7 +40,10 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     """
     #Create a output path that is the in the same directory as the input
     dir = os.path.dirname(path)
-    basename = os.path.basename(path).split(".")[0] + f"_{model_name}_E.sdf"
+    if os.path.exists(model_name):
+        basename = os.path.basename(path).split(".")[0] + f"_userNNP_E.sdf"
+    else:
+        basename = os.path.basename(path).split(".")[0] + f"_{model_name}_E.sdf"
     outpath = os.path.join(dir, basename)
 
     if torch.cuda.is_available():
@@ -59,7 +62,7 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     # elif model_name == "userNNP":
     #     from userNNP import userNNP
     elif os.path.exists(model_name):
-        calculator = torch.load(model_name, map_location=device)
+        calculator = torch.jit.load(model_name, map_location=device)
         model = EnForce_ANI(calculator, model_name)
     else:
         raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
@@ -69,9 +72,14 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     if model_name == "AIMNET":
         coord_padded = padding_coords(coord, 0)
         numbers_padded = padding_species(numbers, 0)
-    else:
+    elif model_name in {'ANI2xt', 'ANI2x'}:
         coord_padded = padding_coords(coord, 0)
         numbers_padded = padding_species(numbers, -1)
+    elif os.path.exists(model_name):
+        coord_padded = padding_coords(coord, model.ani.coord_pad)
+        numbers_padded = padding_species(numbers, model.ani.species_pad)
+    else:
+        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
     
     # if model_name != "ANI2x":
     coord_padded = torch.tensor(coord_padded, device=device, requires_grad=True)
@@ -87,10 +95,18 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     return outpath
 
 if __name__ == '__main__':
+    # path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
+    # e_ref = -314.689736079491
+    # out = calc_spe(path, 'AIMNET')
+    # mol = next(Chem.SDMolSupplier(out, removeHs=False))
+    # e_out = float(mol.GetProp('E_hartree'))
+    # print(e_out)
+    # assert(abs(e_out - e_ref) <= 0.01)
+
     path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
     e_ref = -314.689736079491
-    out = calc_spe(path, 'AIMNET')
+    out = calc_spe(path, '/home/jack/Auto3D_pkg/example/myNNP.pt')
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
     e_out = float(mol.GetProp('E_hartree'))
     print(e_out)
-    assert(abs(e_out - e_ref) <= 0.01)
+    # assert(abs(e_out - e_ref) <= 0.01)
