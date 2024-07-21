@@ -107,7 +107,7 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         model = EnForce_ANI(ani2x, model_name)
         calculator = ani2x.ase()
     elif os.path.exists(model_name):
-        user_nnp = torch.jit.load(model_name, map_location=device)
+        user_nnp = torch.jit.load(model_name, map_location=device).double()
         model = EnForce_ANI(user_nnp, model_name)
         calculator = Calculator(model, charge)
     else:
@@ -216,7 +216,7 @@ def aimnet_hessian_helper(coord:torch.tensor,
         e = model((numbers, coord)).energies * hartree2ev
         return e  # energy unit: eV
     elif os.path.exists(model_name):
-        e, f = model.forward(coord, numbers, charge)
+        e = model.forward(numbers, coord, charge)
         return e  # energy unit: eV
 
 def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.0002, opt_steps=5000):
@@ -274,7 +274,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
             T = 298
         else:
             idx, T = get_mol_idx_t(mol)
-        print(idx)
 
         try:
             try:
@@ -318,5 +317,5 @@ if __name__ == "__main__":
     model_path =  '/home/jack/Auto3D_pkg/example/myNNP.pt'
     # model = torch.load(model_path)
     # out = calc_thermo(path, 'AIMNET', gpu_idx=1)
-    out = calc_thermo(path, model_path, gpu_idx=2)
+    out = calc_thermo(path, model_path, gpu_idx=0)
 
