@@ -1,10 +1,9 @@
 import os
 from rdkit import Chem
 import pandas as pd
-import numpy as np
 from typing import Optional
-from Auto3D.auto3D import options, main
-from Auto3D.utils import hartree2kcalpermol, my_name_space
+from Auto3D.auto3D import main
+from Auto3D.utils import hartree2kcalpermol
 
 
 def select_tautomers(sdf: str, k: Optional[int]=None, window:Optional[float]=None) -> str:
@@ -19,7 +18,6 @@ def select_tautomers(sdf: str, k: Optional[int]=None, window:Optional[float]=Non
     if (k is not None) and (window is not None):
         raise ValueError("Only k OR window needs to be specified")        
     
-    # mols = list(Chem.SDMolSupplier(sdf, removeHs=False))
     mols = Chem.SDMolSupplier(sdf, removeHs=False)
     for mol in mols:
         mol.ClearProp("E_rel(kcal/mol)")  #this is relative energies of conformers
