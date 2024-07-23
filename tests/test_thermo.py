@@ -218,6 +218,34 @@ def test_calc_thermo_userNNP2():
         pass
 
 
+def debug_calc_thermo_userNNP2():
+    #load wB97m-D4/Def2-TZVPP output file
+    path = os.path.join(folder, "tests/files/cyclooctane.sdf")
+    reference_G = -314.49236715
+    reference_H = -314.45168666
+
+    #compare Auto3D output with the above
+    tmpdir = '/home/jack/Auto3D_pkg/example'
+    model_path = os.path.join(tmpdir, 'myNNP2.pt')
+
+    
+    # myNNP = userNNP2()
+    # myNNP_jit = torch.jit.script(myNNP)
+    # myNNP_jit.save(model_path)
+    # out = calc_thermo(path, model_path, opt_tol=0.003)
+    # mol = next(Chem.SDMolSupplier(out, removeHs=False))
+
+    # G_out = float(mol.GetProp("G_hartree"))
+    # H_out = float(mol.GetProp("H_hartree"))
+    # assert(abs(reference_G - G_out) <= 0.02)
+    # assert(abs(reference_H - H_out) <= 0.02)
+    # try:
+    #     os.remove(out)
+    # except:
+    #     pass
+
+
 if __name__ == "__main__":
-    test_calc_thermo_aimnet()
+    # test_calc_thermo_aimnet()
     test_calc_thermo_userNNP2()
+    # debug_calc_thermo_userNNP2()
