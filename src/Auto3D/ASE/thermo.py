@@ -239,7 +239,10 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     #Prepare output name
     out_mols, mols_failed = [], []
     dir = os.path.dirname(path)
-    basename = os.path.basename(path).split(".")[0] + f"_userNNP_G.sdf"
+    if os.path.exists(path):
+        basename = os.path.basename(path).split(".")[0] + "_userNNP_G.sdf"
+    else:
+        basename = os.path.basename(path).split(".")[0] + f"_{model_name}_G.sdf"
     outpath = os.path.join(dir, basename)
 
     if torch.cuda.is_available():
@@ -265,8 +268,8 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
 
-        if model_name == 'AIMNET':
-            calculator.set_charge(charge)
+        # if model_name == 'AIMNET':
+        calculator.set_charge(charge)
         atoms.set_calculator(calculator)        
 
         if get_mol_idx_t is None:

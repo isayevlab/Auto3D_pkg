@@ -26,7 +26,7 @@ class userNNP(torch.nn.Module):
     def forward(self,
                 species: torch.Tensor,
                 coords: torch.Tensor,
-                charges: Optional[torch.Tensor]=None) -> torch.Tensor:
+                charges: torch.Tensor) -> torch.Tensor:
         """
         Your NNP should take species, coords, and charges as input
         and return the energies of the molecules.
@@ -53,13 +53,13 @@ if __name__ == '__main__':
 
     curr_dir = os.path.dirname(os.path.abspath(__file__))
     model_path =  os.path.join(curr_dir, 'myNNP.pt')
-    # myNNP = userNNP()
-    # myNNP_jit = torch.jit.script(myNNP)
-    # myNNP_jit.save(model_path)
+    myNNP = userNNP()
+    myNNP_jit = torch.jit.script(myNNP)
+    myNNP_jit.save(model_path)
     
-    myNNP_jit = torch.jit.load(model_path)
-    print(myNNP_jit.code)
-    path = os.path.join(curr_dir, 'files/smiles.smi')
-    args = options(path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
-    out = main(args)
-    print(out)
+    # myNNP_jit = torch.jit.load(model_path)
+    # print(myNNP_jit.code)
+    # path = os.path.join(curr_dir, 'files/smiles.smi')
+    # args = options(path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
+    # out = main(args)
+    # print(out)
