@@ -68,5 +68,5 @@ if __name__ == '__main__':
     # print(out)
     # out = opt_geometry(path, 'ANI2xt', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
     # print(out)
-    # out = opt_geometry(path, '/home/jack/Auto3D_pkg/example/myNNP.pt', gpu_idx=2, opt_tol=0.003, opt_steps=5000)
-    # print(out)
+    out = opt_geometry(path, '/home/jack/Auto3D_pkg/example/myNNP.pt', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
+    print(out)

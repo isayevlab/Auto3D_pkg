@@ -41,7 +41,7 @@ try:
         def forward(self,
                     species: torch.Tensor,
                     coords: torch.Tensor,
-                    charges: Optional[torch.Tensor]=None) -> torch.Tensor:
+                    charges: torch.Tensor) -> torch.Tensor:
             """
             Your NNP should take species, coords, and charges as input
             and return the energies of the molecules.
@@ -353,7 +353,19 @@ def test_auto3D_userNNP3():
 
 
 if __name__ == "__main__":
-    # test_auto3D_userNNP1()
-    # test_auto3D_userNNP2()
+    import time
+
+
+    start = time.time()
+    test_auto3D_userNNP1()
+    end1 = time.time()
+    print(f"Time taken: {end1 - start}")
+
+    test_auto3D_userNNP2()
+    end2 = time.time()
+    print(f"Time taken: {end2 - end1}")
+
     test_auto3D_userNNP3()
+    end3 = time.time()
+    print(f"Time taken: {end3 - end2}")
 
