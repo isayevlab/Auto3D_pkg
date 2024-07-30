@@ -17,7 +17,7 @@ from Auto3D.utils_file import find_smiles_not_in_sdf
 if __name__ == "__main__":
     print(Auto3D.__version__)
 
-    path = r"C:\Users\liuzhen\Documents\run_auto3d\test.smi"
-    args = options(path, k=1, gpu_idx=0, verbose=True, use_gpu=False)
+    path = '/home/jack/Auto3D_pkg/src/debug.smi'
+    args = options(path, k=1, gpu_idx=0, verbose=True, use_gpu=True)
     out = main(args)
     print(out)
