@@ -26,9 +26,10 @@ torch.backends.cudnn.allow_tf32 = False
 
 @torch.jit.script
 class FIRE():
-    """a general optimization program """
-
-    # For a list of documentation for different optimization programs: https://wiki.fysik.dtu.dk/ase/ase/optimize.html
+    """a general optimization program 
+    # Implementation based on:
+    # Guénolé, Julien, et al. Computational Materials Science 175 (2020): 109584.
+    """
     def __init__(self, coord):
         ## default parameters
         self.dt_max = 0.1
@@ -156,7 +157,7 @@ class EnForce_ANI(torch.nn.Module):
         else:
             # user NNP that was loaded from a file
             e = self.ani(numbers, coord, charges)
-            e = e * hartree2ev 
+            # e = e * hartree2ev 
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
 

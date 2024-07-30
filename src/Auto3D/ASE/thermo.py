@@ -266,7 +266,6 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         charge = rdmolops.GetFormalCharge(mol)
         atoms = Atoms(species, coord)
 
-        # if model_name == 'AIMNET':
         calculator.set_charge(charge)
         atoms.set_calculator(calculator)        
 
@@ -319,4 +318,3 @@ if __name__ == "__main__":
     # model = torch.load(model_path)
     # out = calc_thermo(path, 'AIMNET', gpu_idx=1)
     out = calc_thermo(path, model_path, gpu_idx=0)
-

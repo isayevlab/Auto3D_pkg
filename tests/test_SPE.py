@@ -47,10 +47,10 @@ try:
             charges contains the molecular charges: [B]
             
             The forward function returns the energies of the molecules: [B],
-            output energy unit: Hartree"""
+            output energy unit: eV"""
 
             # an example for computing molecular energy, replace with your NNP model
-            energies = self.model((species, coords)).energies
+            energies = self.model((species, coords)).energies * 27.211386245988
             return energies
     test_userNNP1 = True
 except:
@@ -92,11 +92,11 @@ class userNNP2(torch.nn.Module):
         charges contains the molecular charges: [B]
         
         The forward function returns the energies of the molecules: [B],
-        output energy unit: Hartree"""
+        output energy unit: eV"""
 
         # an example for computing molecular energy, replace with your NNP model
         dct = dict(coord=coords, numbers=species, charge=charges)
-        energies = self.model(dct)['energy']/27.211386245988
+        energies = self.model(dct)['energy']
         return energies
 
 
@@ -181,6 +181,7 @@ def test_calc_spe_userNNP2():
 
 
 if __name__ == "__main__":
+    print()
     # test_calc_spe_ani2xt()
     # test_calc_spe_ani2x()
     # test_calc_spe_aimnet()

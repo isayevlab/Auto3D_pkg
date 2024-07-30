@@ -51,10 +51,10 @@ try:
             charges contains the molecular charges: [B]
             
             The forward function returns the energies of the molecules: [B],
-            output energy unit: Hartree"""
+            output energy unit: eV"""
 
             # an example for computing molecular energy, replace with your NNP model
-            energies = self.model((species, coords)).energies
+            energies = self.model((species, coords)).energies * 27.211386245988
             return energies
     test_userNNP1 = True
 except:
@@ -96,11 +96,11 @@ class userNNP2(torch.nn.Module):
         charges contains the molecular charges: [B]
         
         The forward function returns the energies of the molecules: [B],
-        output energy unit: Hartree"""
+        output energy unit: eV"""
 
         # an example for computing molecular energy, replace with your NNP model
         dct = dict(coord=coords, numbers=species, charge=charges)
-        energies = self.model(dct)['energy']/27.211386245988
+        energies = self.model(dct)['energy']
         return energies
 
 
@@ -218,34 +218,44 @@ def test_calc_thermo_userNNP2():
         pass
 
 
-def debug_calc_thermo_userNNP2():
-    #load wB97m-D4/Def2-TZVPP output file
-    path = os.path.join(folder, "tests/files/cyclooctane.sdf")
-    reference_G = -314.49236715
-    reference_H = -314.45168666
-
-    #compare Auto3D output with the above
-    tmpdir = '/home/jack/Auto3D_pkg/example'
-    model_path = os.path.join(tmpdir, 'myNNP2.pt')
-
-    
-    # myNNP = userNNP2()
-    # myNNP_jit = torch.jit.script(myNNP)
-    # myNNP_jit.save(model_path)
-    # out = calc_thermo(path, model_path, opt_tol=0.003)
-    # mol = next(Chem.SDMolSupplier(out, removeHs=False))
-
-    # G_out = float(mol.GetProp("G_hartree"))
-    # H_out = float(mol.GetProp("H_hartree"))
-    # assert(abs(reference_G - G_out) <= 0.02)
-    # assert(abs(reference_H - H_out) <= 0.02)
-    # try:
-    #     os.remove(out)
-    # except:
-    #     pass
-
-
 if __name__ == "__main__":
+    print()
     # test_calc_thermo_aimnet()
     test_calc_thermo_userNNP2()
-    # debug_calc_thermo_userNNP2()
+
+    # from Auto3D.ASE.thermo import mol2aimnet_input
+
+    # device = torch.device('cpu')
+    # path = os.path.join(folder, 'tests/files/cyclooctane.sdf')
+    # e_ref = -314.689736079491
+    # supp = Chem.SDMolSupplier(path, removeHs=False)
+    # print(f'Number of conformers: {len(supp)}')
+    # mol = supp[0]
+    
+
+    # # original aimnet2
+    # aimnet2 = torch.jit.load('/home/jack/Auto3D_pkg/src/Auto3D/models/aimnet2_wb97m-d3_0.jpt')
+    # dct = mol2aimnet_input(mol, device)
+    # dct['coord'].requires_grad = True
+    # out = aimnet2(dct)
+    # e = out['energy']
+    # f = - torch.autograd.grad(e, dct['coord'])[0]
+    # print(e)
+    # print(f)
+
+
+    # myNNP2
+    # myNNP = userNNP2()
+    # myNNP_jit = torch.jit.script(myNNP)
+    # myNNP_jit.save('/home/jack/Auto3D_pkg/example/myNNP2.pt')
+
+    # myNNP = torch.jit.load('/home/jack/Auto3D_pkg/example/myNNP2.pt', map_location=device).double()
+    
+    # my_e = myNNP(dct['numbers'], dct['coord'], dct['charge'])
+    # print(my_e)
+
+    # my_f = - torch.autograd.grad(my_e, dct['coord'])[0]
+    # print(my_f)
+
+    # f_diff = torch.sum(torch.abs(f - my_f))
+    # print(f_diff)

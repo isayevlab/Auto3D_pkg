@@ -41,10 +41,10 @@ class userNNP(torch.nn.Module):
         charges contains the molecular charges: [B]
         
         The forward function returns the energies of the molecules: [B],
-        output energy unit: Hartree"""
+        output energy unit: eV"""
 
         # an example for computing molecular energy, replace with your NNP model
-        energies = self.model((species, coords)).energies
+        energies = self.model((species, coords)).energies * 27.211386245988
         return energies
 
 if __name__ == '__main__':
