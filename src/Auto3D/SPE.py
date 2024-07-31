@@ -59,7 +59,7 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
         calculator = torchani.models.ANI2x(periodic_table_index=True).to(device)
         model = EnForce_ANI(calculator, model_name)
     elif model_name == "userNNP":
-        from userNNP import userNNP
+        from userModel import userNNP
         calculator = userNNP().to(device)
         model = EnForce_ANI(calculator, model_name)
     else:

@@ -99,7 +99,7 @@ def check_input(args):
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
     if args.optimizing_engine == "userNNP":
         try:
-            from userNNP import userNNP
+            from userModel import userNNP
         except:
             sys.exit("userNNP is used as optimizing engine, but userNNP is not installed.")
     if int(args.opt_steps) < 10:

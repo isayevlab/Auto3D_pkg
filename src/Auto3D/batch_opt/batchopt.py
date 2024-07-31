@@ -18,7 +18,7 @@ except:
     pass
 
 try:
-    from userNNP import userNNP
+    from userModel import userNNP
 except:
     pass
 

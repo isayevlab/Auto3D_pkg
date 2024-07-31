@@ -24,7 +24,7 @@ import torchani
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 try:
-    from userNNP import userNNP
+    from userModel import userNNP
 except:
     pass
 from Auto3D.utils import hartree2ev
