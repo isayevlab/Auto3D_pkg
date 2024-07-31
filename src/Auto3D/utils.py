@@ -97,6 +97,11 @@ def check_input(args):
             import torchani
         except:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
+    if args.optimizing_engine == "userNNP":
+        try:
+            from userModel import userNNP
+        except:
+            sys.exit("userNNP is used as optimizing engine, but userNNP is not installed.")
     if int(args.opt_steps) < 10:
         sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")
 
@@ -110,9 +115,9 @@ def check_input(args):
     logger.info(f"Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
         print("\tIsomer engine options: RDKit and Omega.\n"
-              "\tOptimizing engine options: ANI2x, ANI2xt and AIMNET.", flush=True)
+              "\tOptimizing engine options: ANI2x, ANI2xt, userNNP and AIMNET.", flush=True)
         logger.info("\tIsomer engine options: RDKit and Omega.")
-        logger.info("\tOptimizing engine options: ANI2x, ANI2xt and AIMNET.")
+        logger.info("\tOptimizing engine options: ANI2x, ANI2xt, userNNP and AIMNET.")
     else:
         print("\tIsomer engine options: RDKit and Omega.\n"
               "\tOptimizing engine options: AIMNET.", flush=True)

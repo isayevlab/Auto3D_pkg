@@ -23,6 +23,10 @@ from typing import Optional
 import torchani
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
+try:
+    from userModel import userNNP
+except:
+    pass
 from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -103,8 +107,13 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         ani2x = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
         model = EnForce_ANI(ani2x, model_name)
         calculator = ani2x.ase()
+    elif model_name == "userNNP":
+        user_nnp = userNNP().to(device).double()
+        model = EnForce_ANI(user_nnp, model_name)
+        calculator = user_nnp.ase()
+
     else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt' or 'AIMNET'")
+        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'userNNP' or 'AIMNET'")
     return model, calculator
 
 def mol2atoms(mol: Chem.Mol):
@@ -117,7 +126,7 @@ def mol2atoms(mol: Chem.Mol):
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,
                 device=torch.device('cpu'), model_name='AIMNET'):
     '''return a VibrationsData object
-    model: ANI2xt or AIMNet2 or ANI2x that can be used to calculate Hessian'''
+    model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian'''
     # get the ASE atoms object
     coord = mol.GetConformer().GetPositions()
     species = [a.GetSymbol() for a in mol.GetAtoms()]
@@ -163,7 +172,7 @@ def do_mol_thermo(mol: Chem.Mol,
                   device=torch.device('cpu'),
                   T=298.0, model_name='AIMNET'):
     """For a RDKit mol object, calculate its thermochemistry properties.
-    model: ANI2xt or AIMNet2 or ANI2x that can be used to calculate Hessian"""
+    model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian"""
     vib = vib_hessian(mol, atoms.get_calculator(), model, device, model_name=model_name)
     vib_e = vib.get_energies()
     e = atoms.get_potential_energy()
@@ -205,7 +214,7 @@ def aimnet_hessian_helper(coord:torch.tensor,
         numbers2 = torch.tensor([periodict2idx[num.item()] for num in numbers.squeeze()], device=device).unsqueeze(0)
         e = model(numbers2, coord)
         return e  # energy unit: eV
-    elif model_name == 'ANI2x':
+    elif model_name == 'ANI2x' or model_name == 'userNNP':
         e = model((numbers, coord)).energies * hartree2ev
         return e  # energy unit: eV
 
@@ -244,6 +253,8 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         hessian_model = ANI2xt(device).double()
     elif model_name == 'ANI2x':
         hessian_model = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
+    elif model_name == 'userNNP':
+        hessian_model = userNNP().to(device).double()
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
