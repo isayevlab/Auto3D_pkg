@@ -68,13 +68,9 @@ class ranking(object):
         Given a group of energy_name_idxes,
         return the top-k lowest name-energies pairs with idxes as keys.
         '''
-        # assert(len(energies) == len(names))
-        # assert(len(energies) == len(mols))
         names = list(df_group["names"])
         assert(len(set(names)) == 1)
 
-
-        # df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         df2 = df_group.sort_values(by=['energies'])
         
         out_mols_ = filter_unique(list(df2["mols"]), self.threshold)
@@ -105,16 +101,11 @@ class ranking(object):
         http://wild.life.nctu.edu.tw/class/common/energy-unit-conv-table.html
         '''
         window = (window/ev2kcalpermol)  # convert energy window into eV unit
-        # assert(len(energies) == len(names))
-        # assert(len(energies) == len(mols))
         names = list(df_group["names"])
         assert(window >= 0)
         assert(len(set(names)) == 1)
 
-
-        # df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         df2 = df_group.sort_values(by=['energies'])
-
         out_mols_ = filter_unique(list(df2['mols']), self.threshold)
         out_mols = []
 
@@ -136,7 +127,7 @@ class ranking(object):
 
     def run(self) -> List[Chem.Mol]:
         """
-        When runs, lowest-energy structure will be stored in out_path folder.
+        When runs, lowest-energy structure will be stored in out_path.
         """
         print("Begin to select structures that satisfy the requirements...", flush=True)
         logging.info("Begin to select structures that satisfy the requirements...")
@@ -149,13 +140,6 @@ class ranking(object):
                 mols.append(mol)
                 names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
                 energies.append(float(mol.GetProp('E_tot')))
-
-        # mols_ = [mol for mol in data2 if mol is not None]
-        # mols = [mol for mol in mols_ if mol.GetProp("Converged").lower() == "true"]
-        # names = [mol.GetProp("_Name").strip() for mol in mols]
-        # energies = [float(mol.GetProp("E_tot")) for mol in mols]
-        #Grouping, ranking
-        # names2 = map(lambda x: x.strip().split("_")[0].strip(), names)
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         df2 = df.groupby("names")

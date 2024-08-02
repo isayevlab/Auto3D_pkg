@@ -79,7 +79,7 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
         smiles_hashed = meta["smiles_hashed"]
         enumerated_sdf = meta["enumerated_sdf"]
         max_confs = args.max_confs
-        duplicate_threshold = 0.03
+        duplicate_threshold = args.threshold
         mpi_np = args.mpi_np
         enumerate_isomer = args.enumerate_isomer
         isomer_program = args.isomer_engine
