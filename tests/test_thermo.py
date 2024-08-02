@@ -193,6 +193,43 @@ def test_opt_geometry5():
         pass
 
 
+@pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
+def test_calc_thermo_userNNP1():
+    #load wB97m-D4/Def2-TZVPP output file
+    # Note that this is not the target DFT level for ANI2x
+    # The purpose is just to verify the correctness of ani2x_jit
+    path = os.path.join(folder, "tests/files/cyclooctane.sdf")
+
+    #compute thermodynamic properties with ani2x_jit
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = os.path.join(tmpdir, 'myNNP.pt')
+        myNNP = userNNP1()
+        myNNP_jit = torch.jit.script(myNNP)
+        myNNP_jit.save(model_path)
+        out = calc_thermo(path, model_path, opt_tol=0.003)
+    mol = next(Chem.SDMolSupplier(out, removeHs=False))
+
+    G_out = float(mol.GetProp("G_hartree"))
+    H_out = float(mol.GetProp("H_hartree"))
+
+    # compute thermodynamic properties with ani2x
+    out2 = calc_thermo(path, "ANI2x", opt_tol=0.003)
+    mol2 = next(Chem.SDMolSupplier(out2, removeHs=False))
+    G_out2 = float(mol2.GetProp("G_hartree"))
+    H_out2 = float(mol2.GetProp("H_hartree"))
+
+    assert(abs(G_out - G_out2) <= 0.02)
+    assert(abs(H_out - H_out2) <= 0.02)
+    try:
+        os.remove(out)
+    except:
+        pass
+    try:
+        os.remove(out2)
+    except:
+        pass
+
+
 def test_calc_thermo_userNNP2():
     #load wB97m-D4/Def2-TZVPP output file
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")
@@ -221,6 +258,7 @@ def test_calc_thermo_userNNP2():
 if __name__ == "__main__":
     print()
     # test_calc_thermo_aimnet()
+    test_calc_thermo_userNNP1()
     test_calc_thermo_userNNP2()
 
     # from Auto3D.ASE.thermo import mol2aimnet_input
@@ -233,8 +271,8 @@ if __name__ == "__main__":
     # mol = supp[0]
     
 
-    # # original aimnet2
-    # aimnet2 = torch.jit.load('/home/jack/Auto3D_pkg/src/Auto3D/models/aimnet2_wb97m-d3_0.jpt')
+    # # original ani2x
+    # ani2x = torchani.models.ANI2x()
     # dct = mol2aimnet_input(mol, device)
     # dct['coord'].requires_grad = True
     # out = aimnet2(dct)

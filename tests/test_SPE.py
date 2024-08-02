@@ -129,6 +129,7 @@ def test_calc_spe_ani2x():
         idx = mol.GetProp("ID").strip()
         spe_ref = spe[idx]
         diff = abs(spe_out - spe_ref)
+        print(idx, spe_out, diff)
         assert(diff <= 0.011)
 
 def test_calc_spe_aimnet():
@@ -183,7 +184,7 @@ def test_calc_spe_userNNP2():
 if __name__ == "__main__":
     print()
     # test_calc_spe_ani2xt()
-    # test_calc_spe_ani2x()
+    test_calc_spe_ani2x()
     # test_calc_spe_aimnet()
     # test_calc_spe_userNNP1()
-    test_calc_spe_userNNP2()
+    # test_calc_spe_userNNP2()

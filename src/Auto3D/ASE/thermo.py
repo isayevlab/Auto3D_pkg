@@ -103,7 +103,8 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
     elif model_name == "ANI2x":
         ani2x = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
         model = EnForce_ANI(ani2x, model_name)
-        calculator = ani2x.ase()
+        # calculator = ani2x.ase()
+        calculator = Calculator(model, charge)
     elif os.path.exists(model_name):
         user_nnp = torch.jit.load(model_name, map_location=device).double()
         model = EnForce_ANI(user_nnp, model_name)
