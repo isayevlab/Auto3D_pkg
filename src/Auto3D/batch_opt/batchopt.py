@@ -157,7 +157,6 @@ class EnForce_ANI(torch.nn.Module):
         else:
             # user NNP that was loaded from a file
             e = self.ani(numbers, coord, charges)
-            # e = e * hartree2ev 
             g = torch.autograd.grad([e.sum()], [coord])[0]
             f = -g
 
