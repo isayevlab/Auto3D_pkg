@@ -4,10 +4,7 @@
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/Auto3D)
 ![PyPI - License](https://img.shields.io/pypi/l/Auto3D)
 
-<img width="1109" alt="image" src="https://user-images.githubusercontent.com/60156077/180329514-c72d7b92-91a8-431b-9339-1445d5cacd20.png">
-
-
-
+![auto3d-white](https://github.com/user-attachments/assets/3184d31b-fb21-42d5-a1e0-611ccbf66ad2)
 
 **Auto3D** is a Python package for generating low-energy conformers from SMILES/SDF. Over the development process, we also added the APIs for computing single point energies, optimizing geometries, find stable tautomers. Auto3D can be imported as a Python library, or be excuted from the terminal.
 
