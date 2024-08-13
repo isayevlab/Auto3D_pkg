@@ -218,7 +218,8 @@ def aimnet_hessian_helper(coord:torch.tensor,
         e = model.forward(numbers, coord, charge)
         return e  # energy unit: eV
 
-def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_tol=0.0002, opt_steps=5000):
+def calc_thermo(path: str, model_name: str, mol_info_func=None,
+                gpu_idx=0, opt_tol=0.0002, opt_steps=5000):
     """
     ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET.
 
@@ -226,8 +227,10 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     :type path: str
     :param model_name: ANI2x, ANI2xt, AIMNET or a path to a userNNP model
     :type model_name: str
-    :param get_mol_idx_t: A function that returns (idx, T) from a pybel mol object, by default using the 298 K temperature, defaults to None
-    :type get_mol_idx_t: function, optional
+    :param mol_info_func: A function that returns the name and temperature (idx, T)
+                          from a rdkit mol object. If not provided, the 
+                          thermodynamic properties will be calculated at 298 K
+    :type mol_info_func: function, optional
     :param gpu_idx: GPU cuda index, defaults to 0
     :type gpu_idx: int, optional
     :param opt_tol: Convergence_threshold for geometry optimization, defaults to 0.0002
@@ -238,7 +241,7 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
     #Prepare output name
     out_mols, mols_failed = [], []
     dir = os.path.dirname(path)
-    if os.path.exists(path):
+    if os.path.exists(model_name):
         basename = os.path.basename(path).split(".")[0] + "_userNNP_G.sdf"
     else:
         basename = os.path.basename(path).split(".")[0] + f"_{model_name}_G.sdf"
@@ -270,11 +273,11 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
         calculator.set_charge(charge)
         atoms.set_calculator(calculator)        
 
-        if get_mol_idx_t is None:
+        if mol_info_func is None:
             idx = mol.GetProp("_Name").strip()
             T = 298
         else:
-            idx, T = get_mol_idx_t(mol)
+            idx, T = mol_info_func(mol)
 
         try:
             try:
@@ -285,19 +288,22 @@ def calc_thermo(path: str, model_name: str, get_mol_idx_t=None, gpu_idx=0, opt_t
                                     EnForce_in['charge'])
                     fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
                     assert fmax <= 0.01
-                    mol = do_mol_thermo(mol, atoms, hessian_model, device, T, model_name=model_name)
+                    mol = do_mol_thermo(mol, atoms, hessian_model,
+                                        device, T, model_name=model_name)
                     out_mols.append(mol)
                 except AssertionError:
                     print('optiimize the input geometry')
                     opt = BFGS(atoms)
                     opt.run(fmax=3e-3, steps=opt_steps)
-                    mol = do_mol_thermo(mol, atoms, hessian_model, device, T, model_name=model_name)
+                    mol = do_mol_thermo(mol, atoms, hessian_model,
+                                        device, T, model_name=model_name)
                     out_mols.append(mol)
             except ValueError:
                 print('use tighter convergence threshold for geometry optimization')
                 opt = BFGS(atoms)
                 opt.run(fmax=opt_tol, steps=opt_steps)
-                mol = do_mol_thermo(mol, atoms, hessian_model, device, T, model_name=model_name)
+                mol = do_mol_thermo(mol, atoms, hessian_model,
+                                    device, T, model_name=model_name)
                 out_mols.append(mol)
         except:
             print("Failed: ", idx, flush=True)
