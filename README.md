@@ -14,3 +14,18 @@ Please check out the information at [**documentation**](https://auto3d.readthedo
 - To-do list for **improvement and new features** can be found [here](https://github.com/isayevlab/Auto3D_pkg/discussions). You are welcomed to share your thoughts.
 - Bugs go to the [issues](https://github.com/isayevlab/Auto3D_pkg/issues)
 - **AIMNet2**: The default model in Auto3D is AIMNet2 since 2.2.1. If you specify optimizing_engine="AIMNET", it actually uses AIMNet2. The old AIMNet model has been deprecated since Auto3D 2.2.1, and every call to “AIMNET” refers to the AIMNet2 model.
+
+Auto3D is published on [JCIM](https://doi.org/10.1021/acs.jcim.2c00817). For citation, please use:
+```
+@article{
+    liu2022auto3d,
+    title={Auto3d: Automatic generation of the low-energy 3d structures with ANI neural network potentials},
+    author={Liu, Zhen and Zubatiuk, Tetiana and Roitberg, Adrian and Isayev, Olexandr},
+    journal={Journal of Chemical Information and Modeling},
+    volume={62},
+    number={22},
+    pages={5373--5382},
+    year={2022},
+    publisher={ACS Publications}
+}
+```
