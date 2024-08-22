@@ -68,16 +68,25 @@ class ranking(object):
         Given a group of energy_name_idxes,
         return the top-k lowest name-energies pairs with idxes as keys.
         '''
+        # assert(len(energies) == len(names))
+        # assert(len(energies) == len(mols))
         names = list(df_group["names"])
         assert(len(set(names)) == 1)
 
+
+        # df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         df2 = df_group.sort_values(by=['energies'])
-        
-        out_mols_ = filter_unique(list(df2["mols"]), self.threshold)
-        if k < len(out_mols_):
-            out_mols = out_mols_[:k]
+        if k==1:
+            if len(df2)==0:
+                out_mols = []
+            else:
+                out_mols = list(df2["mols"])[0]
         else:
-            out_mols = out_mols_
+            out_mols_ = filter_unique(list(df2["mols"]), self.threshold)
+            if k < len(out_mols_):
+                out_mols = out_mols_[:k]
+            else:
+                out_mols = out_mols_
 
         if len(out_mols) == 0:
             name = names[0].split("_")[0].strip()
@@ -101,13 +110,18 @@ class ranking(object):
         http://wild.life.nctu.edu.tw/class/common/energy-unit-conv-table.html
         '''
         window = (window/ev2kcalpermol)  # convert energy window into eV unit
+        # assert(len(energies) == len(names))
+        # assert(len(energies) == len(mols))
         names = list(df_group["names"])
         assert(window >= 0)
         assert(len(set(names)) == 1)
 
+
+        # df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         df2 = df_group.sort_values(by=['energies'])
+
         out_mols_ = filter_unique(list(df2['mols']), self.threshold)
-        out_mols = []
+        out_mols = list()
 
         if len(out_mols_) == 0:
             name = names[0].split("_")[0].strip()
@@ -127,21 +141,21 @@ class ranking(object):
 
     def run(self) -> List[Chem.Mol]:
         """
-        When runs, lowest-energy structure will be stored in out_path.
+        When runs, lowest-energy structure will be stored in out_path folder.
         """
         print("Begin to select structures that satisfy the requirements...", flush=True)
         logging.info("Begin to select structures that satisfy the requirements...")
         results = []
 
         data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
-        mols, names, energies = [], [], []
-        for mol in data2:
-            if (mol is not None) and (mol.GetProp('Converged').lower() == 'true'):
-                mols.append(mol)
-                names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
-                energies.append(float(mol.GetProp('E_tot')))
+        mols_ = [mol for mol in data2 if mol is not None]
+        mols = [mol for mol in mols_ if mol.GetProp("Converged").lower() == "true"]
+        names = [mol.GetProp("_Name").strip() for mol in mols]
+        energies = [float(mol.GetProp("E_tot")) for mol in mols]
 
-        df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+        #Grouping, ranking
+        names2 = map(lambda x: x.strip().split("_")[0].strip(), names)
+        df = pd.DataFrame({"names": names2, "energies": energies, "mols": mols})
         df2 = df.groupby("names")
         for group_name in df2.indices:
             group = df2.get_group(group_name)
