@@ -16,7 +16,8 @@ torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
 
-def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=5000):
+def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=5000,
+                 patience=None, batchsize_atoms=4096):
     """
     Geometry optimization interface with FIRE optimizer.
 
@@ -30,6 +31,10 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
     :type opt_tol: float, optional
     :param opt_steps: Maximum geometry optimization steps, defaults to 5000
     :type opt_steps: int, optional
+    :param patience: A conformer will be dropped if the force does not decrease after patience steps, defaults to None
+    :type patience: int, optional
+    :param batchsize_atoms: Batch size for the atoms, defaults to 4096. Recommended to be 1024 * memory_size (in GB)
+    :type batchsize_atoms: int, optional
     """
     ev2hatree = 1/hartree2ev
     #create output path that is in the same directory as the input file
@@ -45,8 +50,12 @@ def opt_geometry(path: str, model_name:str, gpu_idx=0, opt_tol=0.003, opt_steps=
     else:
         device = torch.device("cpu")
 
-    opt_config = {"opt_steps": opt_steps, "opttol": opt_tol,
-                "patience": opt_steps, "batchsize_atoms": 1024}
+    if patience:
+        opt_config = {"opt_steps": opt_steps, "opttol": opt_tol,
+                      "patience": patience, "batchsize_atoms": batchsize_atoms}
+    else:
+        opt_config = {"opt_steps": opt_steps, "opttol": opt_tol,
+                    "patience": opt_steps, "batchsize_atoms": batchsize_atoms}
     opt_engine = optimizing(path, outpath, model_name, device, opt_config)
     opt_engine.run()
 
