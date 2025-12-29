@@ -21,7 +21,7 @@ try:
     from openeye import oechem
     from openeye import oequacpac
     from openeye import oeomega
-except:
+except ImportError:
     pass
 from tqdm import tqdm
 
