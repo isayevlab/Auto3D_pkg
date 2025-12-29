@@ -1,50 +1,50 @@
 #!/usr/bin/env python
-import logging
-import warnings
-import shutil
+"""Isomer enumeration engines for stereoisomer and conformer generation."""
+from __future__ import annotations
+
 import os
-import glob
-import collections
-from send2trash import send2trash
+
 from rdkit import Chem
-from rdkit.Chem import AllChem
-from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
-from rdkit.Chem.EnumerateStereoisomers import StereoEnumerationOptions
+from rdkit.Chem import AllChem, rdMolDescriptors
+from rdkit.Chem.EnumerateStereoisomers import (
+    EnumerateStereoisomers,
+    StereoEnumerationOptions,
+)
 from rdkit.Chem.MolStandardize import rdMolStandardize
-from rdkit.Chem import rdMolDescriptors
-from typing import Tuple
-from Auto3D.utils import hash_enumerated_smi_IDs, amend_configuration_w
-from Auto3D.utils import remove_enantiomers
-from Auto3D.utils import min_pairwise_distance
-from Auto3D.utils_file import combine_smi
-try:
-    from openeye import oechem
-    from openeye import oequacpac
-    from openeye import oeomega
-except ImportError:
-    pass
 from tqdm import tqdm
 
+from Auto3D.utils import (
+    amend_configuration_w,
+    hash_enumerated_smi_IDs,
+    min_pairwise_distance,
+    remove_enantiomers,
+)
+from Auto3D.utils_file import combine_smi
 
-# logger = logging.getLogger("auto3d")
-class tautomer_engine(object):
-    """Enemerate possible tautomers for the input_f
-    
-    Arguments:
-        mode: rdkit or oechem
-        input_f: smi file
-        output: smi file
-        
+try:
+    from openeye import oechem, oeomega, oequacpac
+except ImportError:
+    pass
+
+
+class TautomerEngine:
+    """Enumerate possible tautomers for input molecules.
+
+    Args:
+        mode: Tautomer engine to use: 'rdkit' or 'oechem'.
+        input_f: Path to input SMI file.
+        out: Path for output SMI file.
+        pKaNorm: Normalize ionization state to pH ~7.4 (oechem only).
     """
-    def __init__(self, mode, input_f, out, pKaNorm):
+
+    def __init__(self, mode: str, input_f: str, out: str, pKaNorm: bool) -> None:
         self.mode = mode
         self.input_f = input_f
         self.output = out
         self.pKaNorm = pKaNorm
 
-    def oe_taut(self):
-        """OEChem enumerating tautomers, modified from
-        https://docs.eyesopen.com/toolkits/python/quacpactk/examples_summary_getreasonabletautomers.html"""
+    def oe_taut(self) -> None:
+        """Enumerate tautomers using OEChem."""
         ifs = oechem.oemolistream()
         ifs.open(self.input_f)
 
@@ -60,8 +60,8 @@ class tautomer_engine(object):
         # Appending input_f smiles into output
         combine_smi([self.input_f, self.output], self.output)
 
-    def rd_taut(self):
-        """RDKit enumerating tautomers"""
+    def rd_taut(self) -> None:
+        """Enumerate tautomers using RDKit."""
         enumerator = rdMolStandardize.TautomerEnumerator()
         smiles = []
         with open(self.input_f, 'r') as f:
@@ -83,30 +83,44 @@ class tautomer_engine(object):
                 line = smi.strip() + ' ' + str(idx.strip()) + '\n'
                 f.write(line)
 
-    def run(self):
-        if self.mode == 'oechem':
+    def run(self) -> None:
+        """Execute tautomer enumeration."""
+        if self.mode == "oechem":
             self.oe_taut()
-        elif self.mode == 'rdkit':
+        elif self.mode == "rdkit":
             self.rd_taut()
         else:
             raise ValueError(f'{self.mode} must be one of "oechem" or "rdkit".')
 
-class rd_isomer(object):
-    """
-    Enumerating stereoisomers for each SMILES representation with RDKit.
+class RDKitIsomer:
+    """Enumerate stereoisomers and conformers using RDKit.
 
-    Arguments:
-        smi: A smi file containing SMILES and IDs.
-        smiles_enumerated: A smi containing cis/trans isomers for the smi file.
-        smiles_hashed: For smiles_enumerated, each ID is hashed.
-        enumerated_sdf: for smiles_hashed, generating possible 3D structures.
-        job_name: as the name suggests.
-        max_confs: maximum number of conformers for each smi.
-        threshold: Maximum RMSD to be considered as duplicates.
+    Args:
+        smi: Path to SMI file containing SMILES and IDs.
+        smiles_enumerated: Output path for enumerated cis/trans isomers.
+        smiles_enumerated_reduced: Output path for reduced isomers (no enantiomers).
+        smiles_hashed: Output path for hashed SMILES IDs.
+        enumerated_sdf: Output path for 3D conformers.
+        job_name: Working directory for temporary files.
+        max_confs: Maximum conformers per SMILES. None for dynamic.
+        threshold: RMSD threshold for duplicate removal (Å).
+        np: Number of CPU threads for conformer generation.
+        flipper: Whether to enumerate R/S and cis/trans isomers.
     """
-    def __init__(self, smi, smiles_enumerated, smiles_enumerated_reduced,
-                 smiles_hashed, enumerated_sdf, job_name, max_confs, threshold, np,
-                 flipper=True):
+
+    def __init__(
+        self,
+        smi: str,
+        smiles_enumerated: str,
+        smiles_enumerated_reduced: str,
+        smiles_hashed: str,
+        enumerated_sdf: str,
+        job_name: str,
+        max_confs: int | None,
+        threshold: float,
+        np: int,
+        flipper: bool = True,
+    ) -> None:
         self.input_f = smi
         self.n_conformers = max_confs
         self.enumerate = {}
@@ -123,9 +137,10 @@ class rd_isomer(object):
         self.flipper = flipper
 
     @staticmethod
-    def read(input_f):
+    def read(input_f: str) -> dict[str, str]:
+        """Read SMILES file and return name->SMILES mapping."""
         outputs = {}
-        with open(input_f, 'r') as f:
+        with open(input_f, "r") as f:
             data = f.readlines()
         for line in data:
             smiles, name = tuple(line.strip().split())
@@ -133,20 +148,23 @@ class rd_isomer(object):
         return outputs
 
     @staticmethod
-    def enumerate_func(mol):
-        """Enumerate the R/S and cis/trans isomers
-        
-        Argument:
-            mol: rd mol object
-            
-        Return:
-            isomers: a list of SMILES"""
+    def enumerate_func(mol: Chem.Mol) -> list[str]:
+        """Enumerate R/S and cis/trans isomers for a molecule.
+
+        Args:
+            mol: RDKit molecule object.
+
+        Returns:
+            Sorted list of isomer SMILES strings.
+        """
         opts = StereoEnumerationOptions(unique=True)
         isomers = tuple(EnumerateStereoisomers(mol, options=opts))
-        isomers = sorted(Chem.MolToSmiles(x, isomericSmiles=True, doRandom=False) for x in isomers)
+        isomers = sorted(
+            Chem.MolToSmiles(x, isomericSmiles=True, doRandom=False) for x in isomers
+        )
         return isomers
 
-    def write_enumerated_smi(self):
+    def write_enumerated_smi(self) -> None:
         with open(self.enumerated_smi_path, 'w+') as f:
             for name, smi in self.enumerate.items():
                 for i, isomer in enumerate(smi):
@@ -155,7 +173,7 @@ class rd_isomer(object):
                     f.write(line)
 
     def embed_conformer(self, smi: str) -> Chem.Mol:
-        '''Embed conformers for a smi'''
+        """Embed multiple 3D conformers for a SMILES string."""
         mol = Chem.AddHs(Chem.MolFromSmiles(smi))
         if self.n_conformers is None:
             # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
@@ -171,10 +189,11 @@ class rd_isomer(object):
                                     pruneRmsThresh=self.threshold)
         return mol
 
-    def run(self):
-        """
-        When called, enumerate 3 dimensional structures for the input_f file and
-        writes all structures in 'job_name/smiles_enumerated.sdf'
+    def run(self) -> str:
+        """Enumerate 3D structures and write to output SDF file.
+
+        Returns:
+            Path to the enumerated SDF file.
         """
         if self.flipper:
             print("Enumerating cis/tran isomers for unspecified double bonds...", flush=True)
@@ -222,27 +241,39 @@ class rd_isomer(object):
         return self.enumerated_sdf
 
 
-class rd_isomer_sdf(object):
+class RDKitSdfIsomer:
+    """Enumerate conformers from an SDF file.
+
+    Preserves specified stereo centers and enumerates unspecified ones.
+
+    Args:
+        sdf: Path to input SDF file.
+        enumerated_sdf: Path for output SDF file.
+        max_confs: Maximum conformers per molecule. None for dynamic.
+        threshold: RMSD threshold for duplicate removal (Å).
+        np: Number of CPU threads for parallelization.
     """
-    enumerating conformers starting from an SDF file.
-    The specified stereo centers are preserved as in the input_f file.
-    The unspecified stereo centers are enumerated.
-    """
-    def __init__(self, sdf: str, enumerated_sdf: str, max_confs:int, threshold:float, np:int):
-        """
-        sdf: the path to the input_f sdf file
-        enumerated_sdf: the path to the output sdf file
-        max_confs: the maximum number of conformers to be enumerated for each molecule
-        threshold: the RMSD threshold for removing duplicate conformers for each molecule
-        np: the number of threads to be used for parallelization
-        """
+
+    def __init__(
+        self,
+        sdf: str,
+        enumerated_sdf: str,
+        max_confs: int | None,
+        threshold: float,
+        np: int,
+    ) -> None:
         self.sdf = sdf
         self.enumerated_sdf = enumerated_sdf
         self.n_conformers = max_confs
         self.threshold = threshold
         self.np = np
 
-    def run(self):
+    def run(self) -> str:
+        """Enumerate conformers and write to output SDF file.
+
+        Returns:
+            Path to the enumerated SDF file.
+        """
         supp = Chem.SDMolSupplier(self.sdf, removeHs=False)
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for mol in tqdm(supp):
@@ -269,8 +300,8 @@ class rd_isomer_sdf(object):
         return self.enumerated_sdf
 
 
-def oe_flipper(input_f, out):
-    """helper function for oe_isomer"""
+def oe_flipper(input_f: str, out: str) -> None:
+    """Enumerate stereoisomers using OpenEye Flipper."""
     ifs = oechem.oemolistream()
     ifs.open(input_f)
     ofs = oechem.oemolostream()
@@ -288,13 +319,33 @@ def oe_flipper(input_f, out):
             enantiomer = oechem.OEMol(enantiomer)
             oechem.OEWriteMolecule(ofs, enantiomer)
 
-def oe_isomer(mode, input_f, smiles_enumerated, smiles_reduced, smiles_hashed, output, max_confs, threshold, flipper=True):
-    """Generating R/S, cis/trans and conformers using omega
-    Arguments:
-        mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'
-        input_f: input_f smi file
-        output: output SDF file
-        flipper: optional R/S and cis/trans enumeration"""
+def oe_isomer(
+    mode: str,
+    input_f: str,
+    smiles_enumerated: str,
+    smiles_reduced: str,
+    smiles_hashed: str,
+    output: str,
+    max_confs: int | None,
+    threshold: float,
+    flipper: bool = True,
+) -> int:
+    """Generate R/S, cis/trans isomers and conformers using OpenEye Omega.
+
+    Args:
+        mode: Omega mode ('classic', 'macrocycle', 'dense', 'pose', 'rocs', 'fast_rocs').
+        input_f: Path to input SMI or SDF file.
+        smiles_enumerated: Path for enumerated stereoisomers.
+        smiles_reduced: Path for reduced isomers (no enantiomers).
+        smiles_hashed: Path for hashed SMILES IDs.
+        output: Path for output SDF file.
+        max_confs: Maximum conformers per molecule. None for default (1000).
+        threshold: RMSD threshold for duplicate removal.
+        flipper: Whether to enumerate stereoisomers.
+
+    Returns:
+        0 on success.
+    """
     input_format = os.path.basename(input_f).split(".")[-1].strip()
     if max_confs is None:
         max_confs = 1000
@@ -366,3 +417,9 @@ def oe_isomer(mode, input_f, smiles_enumerated, smiles_reduced, smiles_hashed, o
             oechem.OEThrow.Warning("%s: %s" % (mol.GetTitle(), oeomega.OEGetOmegaError(ret_code)))
 
     return 0
+
+
+# Backward compatibility aliases
+tautomer_engine = TautomerEngine
+rd_isomer = RDKitIsomer
+rd_isomer_sdf = RDKitSdfIsomer

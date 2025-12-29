@@ -2,39 +2,45 @@
 """
 Generating low-energy conformers from SMILES.
 """
+from __future__ import annotations
+
+import glob
 import logging
-# import argparse
+import math
+import multiprocessing as mp
 import os
 import shutil
 import sys
+import tarfile
+import tempfile
 import time
 from datetime import datetime
-import torch
-import torch.nn as nn
-import math
-import psutil, tarfile
-import glob
-import pandas as pd
-import multiprocessing as mp
-import tempfile
 from logging.handlers import QueueHandler
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING
+
+import pandas as pd
+import psutil
+import torch
 from rdkit import Chem
-import Auto3D
-from Auto3D.isomer_engine import rd_isomer, tautomer_engine
-from Auto3D.isomer_engine import rd_isomer_sdf
-from Auto3D.isomer_engine import oe_isomer
-from Auto3D.ranking import ranking
-from Auto3D.batch_opt.batchopt import optimizing
-from Auto3D.utils import housekeeping
-from Auto3D.utils import check_input
-from Auto3D.utils import hash_taut_smi,  my_name_space
-from Auto3D.utils import create_chunk_meta_names
-from Auto3D.utils import reorder_sdf
-from Auto3D.utils_file import SDF2chunks
-from Auto3D.utils_file import smiles2smi
-from Auto3D.utils_file import encode_ids, decode_ids
 from send2trash import send2trash
+
+import Auto3D
+from Auto3D.batch_opt.batchopt import optimizing
+from Auto3D.config import Auto3DOptions
+from Auto3D.isomer_engine import oe_isomer, rd_isomer, rd_isomer_sdf, tautomer_engine
+from Auto3D.ranking import ranking
+from Auto3D.utils import (
+    check_input,
+    create_chunk_meta_names,
+    hash_taut_smi,
+    housekeeping,
+    reorder_sdf,
+)
+from Auto3D.utils_file import SDF2chunks, decode_ids, encode_ids, smiles2smi
+
+if TYPE_CHECKING:
+    from logging import LogRecord
+    from multiprocessing import Queue
 try:
     mp.set_start_method('spawn')
 except RuntimeError:
@@ -43,12 +49,19 @@ except RuntimeError:
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
-def isomer_wraper(chunk_info, args, queue, logging_queue):
-    """
-    chunk_info: (path, dir) tuple for the chunk
-    args: auto3D arguments
-    queue: mp.queue
-    logging_queue
+def isomer_wraper(
+    chunk_info: list[tuple[str, str]],
+    args: Auto3DOptions,
+    queue: Queue[tuple[str, str, str, int] | str],
+    logging_queue: Queue[LogRecord | None],
+) -> None:
+    """Generate isomers for chunks and put results in queue.
+
+    Args:
+        chunk_info: List of (path, dir) tuples for each chunk.
+        args: Auto3D configuration options.
+        queue: Queue for passing enumerated SDF paths to optimizer.
+        logging_queue: Queue for centralized logging.
     """
     #prepare logging
     logger = logging.getLogger("auto3d")
@@ -110,7 +123,12 @@ def isomer_wraper(chunk_info, args, queue, logging_queue):
             queue.put("Done")
 
 
-def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol]:
+def optim_rank_wrapper(
+    args: Auto3DOptions,
+    queue: Queue[tuple[str, str, str, int] | str],
+    logging_queue: Queue[LogRecord | None],
+    gpu_idx: int,
+) -> list[list[Chem.Mol]]:
     #prepare logging
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
@@ -167,91 +185,90 @@ def optim_rank_wrapper(args, queue, logging_queue, gpu_idx:int) -> List[Chem.Mol
                 os.remove(housekeeping_folder_gz)
     return conformers
 
-def options(path: Optional[str]=None, k=False, window=False, verbose=False, job_name="",
-    enumerate_tautomer=False, tauto_engine="rdkit", pKaNorm=True,
-    isomer_engine="rdkit", enumerate_isomer=True, mode_oe="classic", mpi_np=4, max_confs=None,
-    use_gpu=True, gpu_idx: Union[int, List[int]]=0, capacity=42, optimizing_engine="AIMNET", patience=1000,
-    opt_steps=5000, convergence_threshold=0.003, threshold=0.3, memory=None, batchsize_atoms=1024):
+def options(
+    path: str | None = None,
+    k: int | bool = False,
+    window: float | bool = False,
+    verbose: bool = False,
+    job_name: str = "",
+    enumerate_tautomer: bool = False,
+    tauto_engine: str = "rdkit",
+    pKaNorm: bool = True,
+    isomer_engine: str = "rdkit",
+    enumerate_isomer: bool = True,
+    mode_oe: str = "classic",
+    mpi_np: int = 4,
+    max_confs: int | None = None,
+    use_gpu: bool = True,
+    gpu_idx: int | list[int] = 0,
+    capacity: int = 42,
+    optimizing_engine: str = "AIMNET",
+    patience: int = 1000,
+    opt_steps: int = 5000,
+    convergence_threshold: float = 0.003,
+    threshold: float = 0.3,
+    memory: int | None = None,
+    batchsize_atoms: int = 1024,
+) -> Auto3DOptions:
+    """Create configuration options for the Auto3D main function.
+
+    Args:
+        path: Input .smi or .sdf file path containing SMILES/molecules.
+        k: Output top-k structures per SMILES. Set to int or False.
+        window: Output structures within x kcal/mol of lowest energy. Set to float or False.
+        verbose: When True, save all metadata while running.
+        job_name: Folder name to save all metadata.
+        enumerate_tautomer: When True, enumerate tautomers for the input.
+        tauto_engine: Program for tautomer enumeration: 'rdkit' or 'oechem'.
+        pKaNorm: Normalize ionization to pH ~7.4 (only with tauto_engine='oechem').
+        isomer_engine: Program for 3D isomers: 'rdkit' or 'omega'.
+        enumerate_isomer: When True, enumerate cis/trans and R/S isomers.
+        mode_oe: Omega mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs', 'fast_rocs'.
+        mpi_np: Number of CPU cores for isomer generation.
+        max_confs: Maximum conformers per SMILES. None uses dynamic number.
+        use_gpu: Use GPU when available.
+        gpu_idx: GPU device index or list of indices.
+        capacity: Number of SMILES handled per 1GB memory.
+        optimizing_engine: Model: 'ANI2x', 'ANI2xt', 'AIMNET', or path to custom NNP.
+        patience: Drop conformer if force doesn't decrease for this many steps.
+        opt_steps: Maximum optimization steps per structure.
+        convergence_threshold: Converge when max force is below this (eV/Å).
+        threshold: RMSD threshold for duplicate removal (Å).
+        memory: RAM size in GB. None for automatic detection.
+        batchsize_atoms: Number of atoms per optimization batch per GB.
+
+    Returns:
+        Auto3DOptions configuration object.
     """
-    Generating arguments for the Auto3D ``main`` function.
-
-    :param path: A input.smi containing SMILES and IDs. Examples are listed in the example/files folder
-    :type path: str, optional
-    :param k: Outputs the top-k structures for each SMILES, defaults to False
-    :type k: bool, optional
-    :param window: Outputs the structures whose energies are within x (kcal/mol) from the lowest energy conformer, defaults to False
-    :type window: bool, optional
-    :param verbose: When True, save all meta data while running, defaults to False
-    :type verbose: bool, optional
-    :param job_name: A folder name to save all meta data, defaults to ""
-    :type job_name: str, optional
-    :param enumerate_tautomer: When True, enumerate tautomers for the input, defaults to False
-    :type enumerate_tautomer: bool, optional
-    :param tauto_engine: Programs to enumerate tautomers, either 'rdkit' or 'oechem', defaults to "rdkit"
-    :type tauto_engine: str, optional
-    :param pKaNorm: When True, the ionization state of each tautomer will be assigned to a predominant state at ~7.4 (Only works when tauto_engine='oechem'), defaults to True
-    :type pKaNorm: bool, optional
-    :param isomer_engine: The program for generating 3D isomers for each SMILES. This parameter is either rdkit or omega, defaults to "rdkit"
-    :type isomer_engine: str, optional
-    :param enumerate_isomer: When True, cis/trans and r/s isomers are enumerated, defaults to True
-    :type enumerate_isomer: bool, optional
-    :param mode_oe: The mode that omega program will take. It can be either 'classic', 'macrocycle', 'dense', 'pose', 'rocs' or 'fast_rocs'. By default, the 'classic' mode is used. For detailed information about each mode, see https://docs.eyesopen.com/applications/omega/omega/omega_overview.html, defaults to "classic"
-    :type mode_oe: str, optional
-    :param mpi_np: Number of CPU cores for the isomer generation engine, defaults to 4
-    :type mpi_np: int, optional
-    :param max_confs: Maximum number of isomers for each SMILES. Default is None, and Auto3D will uses a dynamic conformer number for each SMILES. The number of conformer for each SMILES is the number of heavey atoms in the SMILES minus 1, defaults to None
-    :type max_confs: int, optional
-    :param use_gpu: If True, the program will use GPU when available, defaults to True
-    :type use_gpu: bool, optional
-    :param gpu_idx: GPU index. It only works when --use_gpu=True, defaults to 0
-    :type gpu_idx: int or list of int, optional
-    :param capacity: Number of SMILES that the model will handle for 1 G memory, defaults to 42
-    :type capacity: int, optional
-    :param optimizing_engine: Choose either 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a custom NNP for energy calculation and geometry optimization, defaults to "AIMNET"
-    :type optimizing_engine: str, optional
-    :param patience: If the force does not decrease for a continuous patience steps, the conformer will drop out of the optimization loop, defaults to 1000
-    :type patience: int, optional
-    :param opt_steps: Maximum optimization steps for each structure, defaults to 5000
-    :type opt_steps: int, optional
-    :param convergence_threshold: Optimization is considered as converged if maximum force is below this threshold, defaults to 0.003
-    :type convergence_threshold: float, optional
-    :param threshold: If the RMSD between two conformers are within threhold, they are considered as duplicates. One of them will be removed, defaults to 0.3
-    :type threshold: float, optional
-    :param memory: The RAM size assigned to Auto3D (unit GB), defaults to None
-    :type memory: int, optional
-    :param batchsize_atoms: The number of atoms in 1 optimization batch for 1GB, defaults to 1024
-    :type batchsize_atoms: int, optional
-    """
-    d = {}
-    args = my_name_space(d)
-    args['path'] = path
-    args['k'] = k
-    args['window'] = window
-    args['verbose'] = verbose
-    args['job_name'] = job_name
-    args["enumerate_tautomer"] = enumerate_tautomer
-    args["tauto_engine"] = tauto_engine.lower()
-    args["pKaNorm"] = pKaNorm
-    args["isomer_engine"] = isomer_engine.lower()
-    args["enumerate_isomer"] = enumerate_isomer
-    args["mode_oe"] = mode_oe.lower()
-    args["mpi_np"] = mpi_np
-    args["max_confs"] = max_confs
-    args["use_gpu"] = use_gpu
-    args["capacity"] = capacity
-    args["gpu_idx"] = gpu_idx
-    args["optimizing_engine"] = optimizing_engine
-    args["patience"] = patience
-    args["opt_steps"] = opt_steps
-    args["convergence_threshold"] = convergence_threshold
-    args["threshold"] = threshold
-    args["memory"] = memory
-    args["batchsize_atoms"] = batchsize_atoms
-    return args
+    return Auto3DOptions(
+        path=path,
+        k=k,
+        window=window,
+        verbose=verbose,
+        job_name=job_name,
+        enumerate_tautomer=enumerate_tautomer,
+        tauto_engine=tauto_engine,
+        pKaNorm=pKaNorm,
+        isomer_engine=isomer_engine,
+        enumerate_isomer=enumerate_isomer,
+        mode_oe=mode_oe,
+        mpi_np=mpi_np,
+        max_confs=max_confs,
+        use_gpu=use_gpu,
+        gpu_idx=gpu_idx,
+        capacity=capacity,
+        optimizing_engine=optimizing_engine,
+        patience=patience,
+        opt_steps=opt_steps,
+        convergence_threshold=convergence_threshold,
+        threshold=threshold,
+        memory=memory,
+        batchsize_atoms=batchsize_atoms,
+    )
 
 
-def logger_process(queue, logging_path):
-    """A child process for logging all information from other processes"""
+def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
+    """A child process for logging all information from other processes."""
     logger = logging.getLogger("auto3d")
     logger.addHandler(logging.FileHandler(logging_path))
     logger.setLevel(logging.INFO)
@@ -262,8 +279,19 @@ def logger_process(queue, logging_path):
         logger.handle(message)
 
 
-def main(args:dict):
-    """Take the arguments from the ``options`` function and run Auto3D."""
+def main(args: Auto3DOptions) -> str:
+    """Run the Auto3D conformer generation pipeline.
+
+    Args:
+        args: Configuration options from the ``options()`` function
+              or an ``Auto3DOptions`` instance.
+
+    Returns:
+        Path to the output SDF file containing generated conformers.
+
+    Raises:
+        SystemExit: If input validation fails or no structures converge.
+    """
     # Ensure spawn method is used
     try:
         mp.set_start_method('fork')
@@ -308,14 +336,14 @@ def main(args:dict):
     logger = logging.getLogger("auto3d")
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
-    logger.info(f"""
-         _              _             _____   ____  
-        / \     _   _  | |_    ___   |___ /  |  _ \ 
-       / _ \   | | | | | __|  / _ \    |_ \  | | | |
-      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {Auto3D.__version__}
-              // Generating low-energy 3D structures                                      
-    """)
+    logger.info(
+        f"         _              _             _____   ____  \n"
+        f"        / \\     _   _  | |_    ___   |___ /  |  _ \\ \n"
+        f"       / _ \\   | | | | | __|  / _ \\    |_ \\  | | | |\n"
+        f"      / ___ \\  | |_| | | |_  | (_) |  ___) | | |_| |\n"
+        f"     /_/   \\_\\  \\__,_|  \\__|  \\___/  |____/  |____/  {Auto3D.__version__}\n"
+        f"              // Generating low-energy 3D structures"
+    )
 
     logger.info("================================================================================")
     logger.info("                               INPUT PARAMETERS")
@@ -350,7 +378,7 @@ def main(args:dict):
 
     #Get indexes for each chunk
     if input_format == "smi":
-        df = pd.read_csv(path0, sep='\s+', header=None)
+        df = pd.read_csv(path0, sep=r"\s+", header=None)
     elif input_format == "sdf":
         df = SDF2chunks(path0)
     data_size = len(df)
@@ -456,22 +484,21 @@ def main(args:dict):
     time.sleep(3)  #wait the daemon process for 3 seconds
     return path_output
 
-def smiles2mols(smiles: List[str], args:dict) -> List[Chem.Mol]:
-    """
-    A handy tool for finding the low-energy conformers for a list of SMILES.
-    Compared with the ``main`` function, it sacrifices efficiency for convenience.
-    because ``smiles2mols`` uses only 1 process. 
-    Both the input and output are returned as variables within Python.
+def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
+    """Find low-energy conformers for a list of SMILES.
 
-    It's recommended only when the number of SMILES is less than 150;
-    Otherwise using the main function will be faster.
+    A convenient single-process function for small batches. For larger batches
+    (>150 SMILES), use the ``main()`` function for better performance.
 
-    :param smiles: A list of SMILES strings for which to find low-energy conformers.
-    :type smiles: List[str]
-    :param args: A dictionary of arguments as returned by the ``option`` function.
-    :type args: dict
-    :return: A list of RDKit Mol objects representing the low-energy conformers of the input SMILES.
-    :rtype: List[Chem.Mol]
+    Args:
+        smiles: List of SMILES strings to generate conformers for.
+        args: Configuration options from ``options()`` or ``Auto3DOptions``.
+
+    Returns:
+        List of RDKit Mol objects representing low-energy conformers.
+
+    Raises:
+        SystemExit: If neither k nor window is specified.
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
         basename = 'smiles.smi'
