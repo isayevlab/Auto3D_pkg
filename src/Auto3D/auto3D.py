@@ -37,8 +37,8 @@ from Auto3D.utils_file import encode_ids, decode_ids
 from send2trash import send2trash
 try:
     mp.set_start_method('spawn')
-except:
-    pass
+except RuntimeError:
+    pass  # Already set
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False

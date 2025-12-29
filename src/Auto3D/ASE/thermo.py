@@ -305,7 +305,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 mol = do_mol_thermo(mol, atoms, hessian_model,
                                     device, T, model_name=model_name)
                 out_mols.append(mol)
-        except:
+        except Exception:
             print("Failed: ", idx, flush=True)
             mols_failed.append(mol)
 

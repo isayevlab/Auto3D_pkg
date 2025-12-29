@@ -6,7 +6,7 @@ import torch
 
 try:
     import torchani
-except:
+except ImportError:
     pass
 from collections import defaultdict
 from rdkit import Chem
@@ -14,7 +14,7 @@ from rdkit.Chem import rdmolops
 
 try:
     from .ANI2xt_no_rep import ANI2xt
-except:
+except ImportError:
     pass
 
 from tqdm import tqdm

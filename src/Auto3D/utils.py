@@ -81,7 +81,7 @@ def check_input(args):
     # Check --use_gpu
     gpu_flag = args.use_gpu
     if gpu_flag:
-        if torch.cuda.is_available() == False:
+        if not torch.cuda.is_available():
             sys.exit("No cuda device was detected. Please set --use_gpu=False.")
     isomer_engine = args.isomer_engine
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
@@ -90,17 +90,17 @@ def check_input(args):
     if args.isomer_engine == "omega":
         try:
             from openeye import oechem
-        except:
+        except ImportError:
             sys.exit("Omega is used as isomer engine, but openeye toolkits are not installed.")
     if args.optimizing_engine == "ANI2x":
         try:
             import torchani
-        except:
+        except ImportError:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
     if os.path.exists(args.optimizing_engine):
         try:
             model_ = torch.jit.load(args.optimizing_engine)
-        except:
+        except Exception:
             sys.exit("A path to a user NNP is used as optimizing engine, but it cannot be loaded by torch.load. See this link for information about saving and loading models: https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model")
     if int(args.opt_steps) < 10:
         sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")
@@ -153,7 +153,7 @@ def check_smi_format(args):
     logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
 
     # Check number of unspecified atomic stereo center
-    if args.enumerate_isomer == False:
+    if not args.enumerate_isomer:
         for smiles in smiles_all:
             c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
             if c > 0:
@@ -166,7 +166,7 @@ def check_smi_format(args):
         mol = Chem.MolFromSmiles(smiles)
         charge = Chem.rdmolops.GetFormalCharge(mol)
         elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
-        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
+        if not elements.issubset(ANI_elements) or charge != 0:
             ANI = False
             only_aimnet_smiles.append(smiles)
     return ANI, only_aimnet_smiles
@@ -199,7 +199,7 @@ def check_sdf_format(args):
 
         charge = Chem.rdmolops.GetFormalCharge(mol)
         elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
-        if ((elements.issubset(ANI_elements) is False) or (charge != 0)):
+        if not elements.issubset(ANI_elements) or charge != 0:
             ANI = False
             only_aimnet_ids.append(id)
     print(f"\tThere are {len(mols)} conformers in the input file {args.path}. ", flush=True)
@@ -318,7 +318,7 @@ def housekeeping(job_name, folder, optimized_structures):
         files = files1 + files2
         for file in files:
             shutil.move(file, folder)
-    except:
+    except OSError:
         pass
 
 def enantiomer(l1,  l2):
@@ -373,7 +373,7 @@ def remove_enantiomers(inpath, out):
     for key, values in smiles.items():
         try:
             new_values = enantiomer_helper(values)
-        except:
+        except Exception:
             new_values = values
             print(f"Enantiomers not removed for {key}", flush=True)
             logger.info(f"Enantiomers not removed for {key}")
@@ -583,7 +583,7 @@ def amend_configuration(smis):
         num_configurations = 2 ** num_centers
         num = len(value)/num_configurations
 
-        if ((check_value(num) == False) and ("@" in smi)):  # Missing configurations
+        if not check_value(num) and "@" in smi:  # Missing configurations
             try:
                 new_value = []
                 for val in value:
@@ -594,9 +594,9 @@ def amend_configuration(smis):
                 
                 # assert 
                 new_num = len(value)/num_configurations
-                assert (check_value(new_num) == True)
+                assert check_value(new_num)
                 dct[key] = value
-            except:
+            except (AssertionError, Exception):
                 print(f"Stereo centers for {key} are not fully enumerated.", flush=True)
                 logger.info(f"Stereo centers for {key} are not fully enumerated.")
     return dct

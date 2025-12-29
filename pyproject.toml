@@ -1,3 +1,151 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "Auto3D"
+version = "2.3.1"
+description = "Generating Low-energy 3D Conformers from SMILES/SDF"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Zhen Liu", email = "liu5@andrew.cmu.edu"},
+    {name = "Tetiana Zubatiuk", email = "tetiana@zubatyuk.com"},
+    {name = "Adrian Roitberg", email = "roitberg@ufl.edu"},
+    {name = "Olexandr Isayev", email = "olexandr@olexandrisayev.com"},
+]
+maintainers = [
+    {name = "Olexandr Isayev", email = "olexandr@olexandrisayev.com"},
+]
+keywords = [
+    "chemistry",
+    "molecular-dynamics",
+    "conformer-generation",
+    "neural-network-potentials",
+    "cheminformatics",
+    "drug-discovery",
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "tqdm>=4.60.0",
+    "psutil>=5.8.0",
+    "Send2Trash>=1.8.0",
+    "pyyaml>=6.0",
+    "numpy>=1.21.0",
+    "pandas>=1.3.0",
+    "rdkit>=2022.9.5",
+    "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+ani = [
+    "torchani>=2.2",
+]
+ase = [
+    "ase>=3.22.1",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.0",
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "nbsphinx>=0.9.0",
+    "myst-parser>=2.0",
+]
+all = [
+    "Auto3D[ani,ase,dev,docs]",
+]
+
+[project.scripts]
+auto3d = "Auto3D.auto3Dcli:cli"
+
+[project.urls]
+Homepage = "https://github.com/isayevlab/Auto3D_pkg"
+Documentation = "https://auto3d.readthedocs.io"
+Repository = "https://github.com/isayevlab/Auto3D_pkg"
+"Bug Tracker" = "https://github.com/isayevlab/Auto3D_pkg/issues"
+Changelog = "https://github.com/isayevlab/Auto3D_pkg/releases"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+Auto3D = ["models/*.jpt", "models/*.pt"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # Pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "N803",   # argument name should be lowercase (scientific computing conventions)
+    "N806",   # variable name should be lowercase (scientific computing conventions)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["Auto3D"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "tests/",
+    "docs/",
+    "example/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+
+[tool.coverage.run]
+source = ["src/Auto3D"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
