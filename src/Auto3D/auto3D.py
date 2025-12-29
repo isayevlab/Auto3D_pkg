@@ -4,7 +4,6 @@ Generating low-energy conformers from SMILES.
 """
 from __future__ import annotations
 
-import glob
 import logging
 import math
 import multiprocessing as mp
@@ -16,6 +15,7 @@ import tempfile
 import time
 from datetime import datetime
 from logging.handlers import QueueHandler
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -176,7 +176,7 @@ def optim_rank_wrapper(
         #Conpress verbose folder
         housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
         with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
-            tar.add(housekeeping_folder, arcname=os.path.basename(housekeeping_folder))
+            tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
         shutil.rmtree(housekeeping_folder)
         if not args.verbose:
             try:  #Clusters does not support send2trash
@@ -320,8 +320,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         SystemExit: If neither k nor window is specified.
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
-        basename = 'smiles.smi'
-        path0 = os.path.join(tmpdirname, basename)
+        path0 = str(Path(tmpdirname) / "smiles.smi")
         smiles2smi(smiles, path0)  # save all SMILES into a smi file
         args['path'] = path0
         k = args.k

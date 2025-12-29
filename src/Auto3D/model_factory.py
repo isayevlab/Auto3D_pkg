@@ -1,13 +1,13 @@
 """Factory for creating neural network potential models."""
 from __future__ import annotations
 
-import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 import torch.nn as nn
 
-from Auto3D.constants import HARTREE_TO_EV, MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
+from Auto3D.constants import MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -73,7 +73,7 @@ class ModelFactory:
             return cls._registry[name_upper](device=device, **kwargs)
 
         # Check if it's a path to a custom model
-        if os.path.exists(name):
+        if Path(name).exists():
             return cls._load_custom_model(name, device, **kwargs)
 
         raise ValueError(
@@ -112,12 +112,8 @@ class ModelFactory:
 @ModelFactory.register(MODEL_AIMNET)
 def _create_aimnet(device: torch.device, **kwargs: Any) -> nn.Module:
     """Create AIMNet2 model."""
-    model_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "models",
-        "aimnet2_wb97m-d3_ens.jpt",
-    )
-    model = torch.jit.load(model_path, map_location=device)
+    model_path = Path(__file__).resolve().parent / "models" / "aimnet2_wb97m-d3_ens.jpt"
+    model = torch.jit.load(str(model_path), map_location=device)
     model.eval()
     return model
 
@@ -196,4 +192,4 @@ def is_custom_model(name: str) -> bool:
     Returns:
         True if the name is a path to an existing file.
     """
-    return os.path.exists(name)
+    return Path(name).exists()

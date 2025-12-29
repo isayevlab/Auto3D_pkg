@@ -13,6 +13,7 @@ import sys
 import warnings
 from collections import OrderedDict, defaultdict
 from io import StringIO
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -40,23 +41,29 @@ ev2kcalpermol = EV_TO_KCAL_PER_MOL
 
 logger = logging.getLogger("auto3d")
 
-def create_chunk_meta_names(path, dir):
-    """Output name is based on chunk input path and directory
-    path: chunck input smi path
-    dir: chunck job folder
-    """
-    dct = {}
-    output_name = os.path.basename(path).split('.')[0].strip() + '_3d.sdf'
-    output = os.path.join(dir, output_name)
-    optimized_og = os.path.join(dir, os.path.basename(output).split('.')[0] + '0.sdf')
+def create_chunk_meta_names(path: str, dir: str) -> dict[str, str]:
+    """Output name is based on chunk input path and directory.
 
-    output_taut = os.path.join(dir, 'smi_taut.smi')
-    smiles_enumerated = os.path.join(dir, 'smiles_enumerated.smi')
-    smiles_reduced = os.path.join(dir, os.path.basename(smiles_enumerated).split('.')[0] + '_reduced.smi')
-    smiles_hashed = os.path.join(dir, 'smiles_enumerated_hashed.smi')
-    enumerated_sdf = os.path.join(dir, 'smiles_enumerated.sdf')
-    sorted_sdf = os.path.join(dir, 'enumerated_sorted.sdf')
-    housekeeping_folder = os.path.join(dir, 'verbose')
+    Args:
+        path: Chunk input smi path.
+        dir: Chunk job folder.
+
+    Returns:
+        Dictionary mapping meta names to file paths.
+    """
+    dct: dict[str, str] = {}
+    dir_path = Path(dir)
+    stem = Path(path).stem
+
+    output = str(dir_path / f"{stem}_3d.sdf")
+    optimized_og = str(dir_path / f"{stem}_3d0.sdf")
+    output_taut = str(dir_path / "smi_taut.smi")
+    smiles_enumerated = str(dir_path / "smiles_enumerated.smi")
+    smiles_reduced = str(dir_path / "smiles_enumerated_reduced.smi")
+    smiles_hashed = str(dir_path / "smiles_enumerated_hashed.smi")
+    enumerated_sdf = str(dir_path / "smiles_enumerated.sdf")
+    sorted_sdf = str(dir_path / "enumerated_sorted.sdf")
+    housekeeping_folder = str(dir_path / "verbose")
     # dct["output_name"] = output_name
     dct["output"] = output
     dct["optimized_og"] = optimized_og
@@ -105,7 +112,7 @@ def check_input(args):
             import torchani
         except ImportError:
             sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
-    if os.path.exists(args.optimizing_engine):
+    if Path(args.optimizing_engine).exists():
         try:
             model_ = torch.jit.load(args.optimizing_engine)
         except Exception:
@@ -297,10 +304,10 @@ def hash_taut_smi(smi, out):
             molecule = smiles.strip() + ' ' + id.strip() + '\n'
             f.write(molecule)
 
-def housekeeping_helper(folder, file):
-    basename = os.path.basename(file)
-    new_name = os.path.join(folder, basename)
-    shutil.move(file, new_name)
+def housekeeping_helper(folder: str, file: str) -> None:
+    """Move a file into the specified folder."""
+    new_name = Path(folder) / Path(file).name
+    shutil.move(file, str(new_name))
 
 def housekeeping(job_name, folder, optimized_structures):
     """
@@ -312,20 +319,17 @@ def housekeeping(job_name, folder, optimized_structures):
     Returns:
         whe the function is called, it moves all meta data into a folder.
     """
-    paths = os.path.join(job_name, '*')
-    files = glob.glob(paths)
+    files = list(Path(job_name).glob("*"))
     for file in files:
-        if file != optimized_structures:
-            shutil.move(file, folder)
+        if str(file) != optimized_structures:
+            shutil.move(str(file), folder)
 
     try:
-        paths1 = os.path.join('', 'oeomega_*')
-        files1 = glob.glob(paths1)
-        paths2 = os.path.join('', 'flipper_*')
-        files2 = glob.glob(paths2)
+        files1 = list(Path(".").glob("oeomega_*"))
+        files2 = list(Path(".").glob("flipper_*"))
         files = files1 + files2
         for file in files:
-            shutil.move(file, folder)
+            shutil.move(str(file), folder)
     except OSError:
         pass
 
