@@ -2,25 +2,26 @@
 """
 Providing general utilities for working with different formats of molecular files
 """
-import os
+from __future__ import annotations
+
 import glob
 import time
-from collections import defaultdict, OrderedDict
-from tqdm import tqdm
+from collections import OrderedDict, defaultdict
+from pathlib import Path
+
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import rdMolAlign, inchi
+from rdkit.Chem import inchi, rdMolAlign
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
-from typing import List, Tuple, Dict, Union, Optional, Callable
-from collections import defaultdict
+from tqdm import tqdm
 
-def guess_file_type(filename):
+
+def guess_file_type(filename: str) -> str:
     """Returns the extension for the filename"""
-    assert '.' in filename
-    return os.path.splitext(filename)[1][1:]
+    return Path(filename).suffix[1:]
 
 # Functions related to smi files
-def smiles2smi(smiles: List[str], path: str) -> str:
+def smiles2smi(smiles: list[str], path: str) -> str:
     """Converting a list of smiles into a smi file,
     naming each SMILES using inchikey"""
     lines = []
@@ -80,7 +81,7 @@ def report(path: str):
         print(f"    charge={str(charge)} total: {str(c_c)} percent: {str(round(c_c/c, 3))}", flush=True)
     print(f"Number of molecules with unspecified atomic centers: {str(num_unspecified_mols)}", flush=True)
 
-def combine_smi(smies: List[str], out: str):
+def combine_smi(smies: list[str], out: str) -> None:
     """Combine smi files into a single file"""
     data = []
     for smi in smies:
@@ -104,17 +105,15 @@ def is_macrocycle(smiles:str, size=10):
             return True
     return False
 
-def split_smi(smi):
+def split_smi(smi: str) -> None:
     """Split an input .smi file into two files:
     one contains small SMILES, the other contain macrocycle smiles
     """
-    #Prepare out file path
-    dir = os.path.dirname(os.path.realpath(smi))
-    basename = os.path.basename(smi)
-    normal_name = basename.split(".")[0].strip() + "_normal.smi"
-    macrocycle_name = basename.split(".")[0].strip() + "_macrocycle.smi"
-    normal_path = os.path.join(dir, normal_name)
-    macrocycle_path = os.path.join(dir, macrocycle_name)
+    # Prepare out file path
+    smi_path = Path(smi).resolve()
+    stem = smi_path.stem
+    normal_path = smi_path.parent / f"{stem}_normal.smi"
+    macrocycle_path = smi_path.parent / f"{stem}_macrocycle.smi"
 
     normal = []
     macrocycle = []
@@ -132,13 +131,8 @@ def split_smi(smi):
     l = len(data)
     assert(l == l_)
 
-    with open(normal_path, "w+") as f:
-        for line in normal:
-            f.write(line)
-
-    with open(macrocycle_path, "w+") as f:
-        for line in macrocycle:
-            f.write(line)
+    normal_path.write_text("".join(normal))
+    macrocycle_path.write_text("".join(macrocycle))
 
 # Functions related to SDF files
 def countSDF(sdf):
@@ -148,7 +142,7 @@ def countSDF(sdf):
     c = len(mols2)
     return c
 
-def SDF2chunks(sdf:str)->List[List[str]]:
+def SDF2chunks(sdf: str) -> list[list[str]]:
     """given a sdf file, return a list of chunks,
     each chunk consists of lines of a molecule as they appear in the original file"""
     chunks = []
@@ -176,7 +170,7 @@ def combine_xyz(in_folder, out_path):
     Returns:
         Combining all xyz files in the in_folder into out_path.
     """
-    file_paths = os.path.join(f"{in_folder}/*.xyz")
+    file_paths = str(Path(in_folder) / "*.xyz")
     files = glob.glob(file_paths)
     # print(f'There are {len(files)} single xyz files...')
 
@@ -207,14 +201,13 @@ def to_smiles(path, fomat="sdf"):
             name = str(i)
         smiles.append((Chem.MolToSmiles(mol, isomericSmiles=True, canonical=True), name))
     
-    #write
-    folder = os.path.dirname(os.path.abspath(path))
-    new_base = os.path.basename(path).split(".")[0].strip() + ".smi"
-    new_path = os.path.join(folder, new_base)
+    # write
+    path_obj = Path(path).resolve()
+    new_path = path_obj.parent / f"{path_obj.stem}.smi"
     with open(new_path, "w") as f:
         for smi, name in smiles:
             f.write(f"{smi} {name}\n")
-    return new_path
+    return str(new_path)
 
 def find_smiles_not_in_sdf(smi, sdf):
     """Find the SMILES who doesn't have a 3D structure in the SDF file
@@ -254,13 +247,12 @@ def find_smiles_not_in_sdf(smi, sdf):
         print("Every SMILES has at least an 3D structure in the SDF file.", flush=True)
     return bad
 
-def encode_ids(path: str) -> Tuple[str, dict]:
+def encode_ids(path: str) -> tuple[str, dict]:
     '''For a smi/SDF Files, encode the ids into numbers,
     return the new smi files path and a dictionary containing the mapping'''
-    basename = os.path.basename(path)
-    dir = os.path.dirname(os.path.abspath(path))
-    extension = basename.split('.')[-1].strip()
-    new_path = os.path.join(dir, basename.split('.')[0].strip() + '_encoded.' + extension)
+    path_obj = Path(path).resolve()
+    extension = path_obj.suffix[1:]
+    new_path = path_obj.parent / f"{path_obj.stem}_encoded.{extension}"
 
     if extension == 'smi':
         new_data = []
@@ -276,18 +268,18 @@ def encode_ids(path: str) -> Tuple[str, dict]:
         with open(new_path, 'w') as f:
             for line in new_data:
                 f.write(line)
-        return new_path, mapping
-    
+        return str(new_path), mapping
+
     elif extension == 'sdf':
         suppl = Chem.SDMolSupplier(path, removeHs=False)
         mapping = {}
-        with Chem.SDWriter(new_path) as w:
+        with Chem.SDWriter(str(new_path)) as w:
             for i, mol in enumerate(suppl):
                 id = mol.GetProp("_Name").strip()
                 mapping[id] = i
                 mol.SetProp("_Name", str(i))
                 w.write(mol)
-        return new_path, mapping
+        return str(new_path), mapping
 
     else:
         raise ValueError("The input file should be either smi or sdf")
@@ -295,14 +287,15 @@ def encode_ids(path: str) -> Tuple[str, dict]:
 def decode_ids(path: str, mapping: dict) -> str:
     '''For an SDF file, decode the ids using the mapping'''
     mapping = {v: k for k, v in mapping.items()}
-    basename = os.path.basename(path)
-    dir = os.path.dirname(os.path.abspath(path))
-    extension = basename.split('.')[-1].strip()
-    new_path = os.path.join(dir,
-                            '_'.join(basename.split('.')[0].strip().split('_')[:-2]) + '_out.' + extension)
+    path_obj = Path(path).resolve()
+    extension = path_obj.suffix[1:]
+    # Reconstruct base name: remove last two underscore-separated parts
+    stem_parts = path_obj.stem.split('_')[:-2]
+    new_stem = '_'.join(stem_parts) + '_out'
+    new_path = path_obj.parent / f"{new_stem}.{extension}"
     
     suppl = Chem.SDMolSupplier(path, removeHs=False)
-    with Chem.SDWriter(new_path) as w:
+    with Chem.SDWriter(str(new_path)) as w:
         for mol in suppl:
             name = mol.GetProp("_Name").strip()
             if '@taut' in name:
@@ -317,4 +310,4 @@ def decode_ids(path: str, mapping: dict) -> str:
             mol.SetProp("ID", new_id)
 
             w.write(mol)
-    return new_path
+    return str(new_path)

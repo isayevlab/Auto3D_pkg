@@ -2,7 +2,7 @@
 """Isomer enumeration engines for stereoisomer and conformer generation."""
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolDescriptors
@@ -130,8 +130,8 @@ class RDKitIsomer:
         self.enumerated_sdf = enumerated_sdf
         self.num2sym = {1: 'H', 6: 'C', 8: 'O', 7: 'N',
                         9: 'F', 16: 'S', 17: 'Cl'}
-        self.rdk_tmp = os.path.join(job_name, 'rdk_tmp')
-        os.mkdir(self.rdk_tmp)
+        self.rdk_tmp = Path(job_name) / 'rdk_tmp'
+        self.rdk_tmp.mkdir()
         self.threshold = threshold
         self.np = np
         self.flipper = flipper
@@ -346,23 +346,25 @@ def oe_isomer(
     Returns:
         0 on success.
     """
-    input_format = os.path.basename(input_f).split(".")[-1].strip()
+    input_format = Path(input_f).suffix[1:].strip()
     if max_confs is None:
         max_confs = 1000
-    if mode == "classic":
-        omegaOpts = oeomega.OEOmegaOptions()
-    elif mode == "dense":
-        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Dense)
-    elif mode == "pose":
-        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Pose)
-    elif mode == "rocs":
-        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_ROCS)
-    elif mode == "fast_rocs":
-        omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_FastROCS)
-    elif mode == "macrocycle":
-        omegaOpts = oeomega.OEMacrocycleOmegaOptions()
-    else:
-        raise ValueError(f"mode has to be 'classic' or 'macrocycle', but received {mode}.")
+
+    match mode:
+        case "classic":
+            omegaOpts = oeomega.OEOmegaOptions()
+        case "dense":
+            omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Dense)
+        case "pose":
+            omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_Pose)
+        case "rocs":
+            omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_ROCS)
+        case "fast_rocs":
+            omegaOpts = oeomega.OEOmegaOptions(oeomega.OEOmegaSampling_FastROCS)
+        case "macrocycle":
+            omegaOpts = oeomega.OEMacrocycleOmegaOptions()
+        case _:
+            raise ValueError(f"mode has to be 'classic' or 'macrocycle', but received {mode}.")
     omegaOpts.SetParameterVisibility(oechem.OEParamVisibility_Hidden) 
     omegaOpts.SetParameterVisibility("-rms", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)

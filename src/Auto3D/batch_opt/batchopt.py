@@ -1,5 +1,5 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
-import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -139,26 +139,26 @@ class EnForce_ANI(torch.nn.Module):
             energies
             forces
         """
-        if self.name == "AIMNET":
-            d = self.ani(
-                dict(coord=coord, numbers=numbers, charge=charges))  # Output from the model
-            e = d['energy'].to(torch.double)
-            f = d['forces']
-        elif self.name == "ANI2xt":
-            e = self.ani(numbers, coord)
-            g = torch.autograd.grad([e.sum()], [coord])[0]
-            f = -g
-        elif self.name == "ANI2x":
-            e = self.ani((numbers, coord)).energies
-            e = e * hartree2ev  # ANI2x (torch.models.ANI2x()) output energy unit is Hatree;
-            # ANI ASE interface unit is eV
-            g = torch.autograd.grad([e.sum()], [coord])[0]
-            f = -g
-        else:
-            # user NNP that was loaded from a file
-            e = self.ani(numbers, coord, charges)
-            g = torch.autograd.grad([e.sum()], [coord])[0]
-            f = -g
+        match self.name:
+            case "AIMNET":
+                d = self.ani(
+                    dict(coord=coord, numbers=numbers, charge=charges))
+                e = d['energy'].to(torch.double)
+                f = d['forces']
+            case "ANI2xt":
+                e = self.ani(numbers, coord)
+                g = torch.autograd.grad([e.sum()], [coord])[0]
+                f = -g
+            case "ANI2x":
+                e = self.ani((numbers, coord)).energies
+                e = e * hartree2ev  # ANI2x output is Hartree; ANI ASE interface is eV
+                g = torch.autograd.grad([e.sum()], [coord])[0]
+                f = -g
+            case _:
+                # user NNP that was loaded from a file
+                e = self.ani(numbers, coord, charges)
+                g = torch.autograd.grad([e.sum()], [coord])[0]
+                f = -g
 
         return e, f
 
@@ -385,28 +385,29 @@ class optimizing(object):
         self.name = name
         self.device = device
         self.config = config
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root = Path(__file__).resolve().parent.parent
 
-        if name == "AIMNET":
-            self.model = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"),
-                                    map_location=device)
-            self.coord_pad = 0
-            self.species_pad = 0
-        elif name == "ANI2xt":
-            self.model = ANI2xt(device)
-            self.coord_pad = 0
-            self.species_pad = -1
-        elif name == "ANI2x":
-            self.model = torchani.models.ANI2x(periodic_table_index=True).to(device)
-            self.coord_pad = 0
-            self.species_pad = -1
-        elif os.path.exists(name):
-            print(f"Loading model from {name}", flush=True)
-            self.model = torch.jit.load(name, map_location=device)
-            self.coord_pad = self.model.coord_pad
-            self.species_pad = self.model.species_pad            
-        else:
-            raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
+        match name:
+            case "AIMNET":
+                model_path = root / "models" / "aimnet2_wb97m_ens_f.jpt"
+                self.model = torch.jit.load(str(model_path), map_location=device)
+                self.coord_pad = 0
+                self.species_pad = 0
+            case "ANI2xt":
+                self.model = ANI2xt(device)
+                self.coord_pad = 0
+                self.species_pad = -1
+            case "ANI2x":
+                self.model = torchani.models.ANI2x(periodic_table_index=True).to(device)
+                self.coord_pad = 0
+                self.species_pad = -1
+            case _ if Path(name).exists():
+                print(f"Loading model from {name}", flush=True)
+                self.model = torch.jit.load(name, map_location=device)
+                self.coord_pad = self.model.coord_pad
+                self.species_pad = self.model.species_pad
+            case _:
+                raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
 
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[

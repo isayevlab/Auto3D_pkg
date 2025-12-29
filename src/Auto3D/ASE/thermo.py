@@ -1,25 +1,28 @@
 #!/usr/bin/env python
 """
-Calculating thermodynamic perperties using Auto3D output
+Calculating thermodynamic properties using Auto3D output
 """
+from __future__ import annotations
+
 import sys
-import os
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(root)
 import warnings
-import torch
-from tqdm import tqdm
+from functools import partial
+from pathlib import Path
+
 import ase
+import ase.calculators.calculator
+import torch
+import torchani
 from ase import Atoms
 from ase.optimize import BFGS
+from ase.thermochemistry import IdealGasThermo
+from ase.vibrations import Vibrations, VibrationsData
 from rdkit import Chem
 from rdkit.Chem import rdmolops
-from ase.vibrations import VibrationsData, Vibrations
-from ase.thermochemistry import IdealGasThermo
-import ase.calculators.calculator
-from functools import partial
-from typing import Optional
-import torchani
+from tqdm import tqdm
+
+root = Path(__file__).resolve().parent.parent
+sys.path.append(str(root))
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.utils import hartree2ev
@@ -194,11 +197,13 @@ def do_mol_thermo(mol: Chem.Mol,
         mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
     return mol
 
-def aimnet_hessian_helper(coord:torch.tensor, 
-                          numbers:Optional[torch.Tensor]=None,
-                          charge: Optional[torch.Tensor]=None,
-                          model: Optional[torch.nn.Module]=None,
-                          model_name='AIMNET'):
+def aimnet_hessian_helper(
+    coord: torch.Tensor,
+    numbers: torch.Tensor | None = None,
+    charge: torch.Tensor | None = None,
+    model: torch.nn.Module | None = None,
+    model_name: str = 'AIMNET',
+) -> torch.Tensor:
     '''coord shape: (1, num_atoms, 3)
     numbers shape: (1, num_atoms)
     charge shape: (1,)'''

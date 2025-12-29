@@ -1,15 +1,14 @@
 """Workflow orchestration for Auto3D conformer generation pipeline."""
 from __future__ import annotations
 
-import glob
 import logging
 import math
 import multiprocessing as mp
-import os
 import sys
 import time
 from datetime import datetime
 from logging.handlers import QueueHandler
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -46,8 +45,8 @@ class WorkflowOrchestrator:
         """
         self.config = config
         self.job_name: str = ""
-        self.job_dir: str = ""
-        self.input_path: str = ""
+        self.job_dir: Path = Path()
+        self.input_path: Path = Path()
         self.input_format: str = ""
         self.id_mapping: dict[str, str] = {}
         self.logging_queue: Queue[LogRecord | None] | None = None
@@ -86,10 +85,11 @@ class WorkflowOrchestrator:
             sys.exit("Please specify the input file path.")
 
         # Encode IDs for internal processing
-        self.input_path, self.id_mapping = encode_ids(self.config.path)
+        encoded_path, self.id_mapping = encode_ids(self.config.path)
+        self.input_path = Path(encoded_path)
 
         # Validate file format
-        self.input_format = os.path.splitext(self.input_path)[1][1:]
+        self.input_format = self.input_path.suffix[1:]  # Remove leading dot
         if self.input_format not in ("smi", "sdf"):
             sys.exit(
                 f"Input file type is not supported. Only .smi and .sdf are supported. "
@@ -114,27 +114,24 @@ class WorkflowOrchestrator:
 
     def _setup_job_directory(self) -> None:
         """Create the job directory for output files."""
-        basename = os.path.basename(self.input_path)
-        parent_dir = os.path.dirname(os.path.abspath(self.input_path))
-
-        # Remove '_encoded' suffix from basename
-        job_basename = basename.split(".")[0].strip()[:-8]
+        # Remove '_encoded' suffix from stem
+        job_basename = self.input_path.stem[:-8]  # Remove '_encoded'
         self.job_name = f"{job_basename}_{self.config.job_name}"
-        self.job_dir = os.path.join(parent_dir, self.job_name)
+        self.job_dir = self.input_path.resolve().parent / self.job_name
 
-        os.mkdir(self.job_dir)
+        self.job_dir.mkdir()
 
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""
         from Auto3D.auto3D import logger_process
 
-        logging_path = os.path.join(self.job_dir, "Auto3D.log")
+        logging_path = self.job_dir / "Auto3D.log"
         self.logging_queue = mp.Manager().Queue(999)
 
         # Start logging process
         logger_p = mp.Process(
             target=logger_process,
-            args=(self.logging_queue, logging_path),
+            args=(self.logging_queue, str(logging_path)),
             daemon=True,
         )
         logger_p.start()
@@ -217,9 +214,9 @@ class WorkflowOrchestrator:
 
         # Read input data
         if self.input_format == "smi":
-            df = pd.read_csv(self.input_path, sep=r"\s+", header=None)
+            df = pd.read_csv(str(self.input_path), sep=r"\s+", header=None)
         else:  # sdf
-            df = SDF2chunks(self.input_path)
+            df = SDF2chunks(str(self.input_path))
 
         data_size = len(df)
         num_chunks = max(int(data_size // chunk_size + 1), num_jobs)
@@ -259,33 +256,28 @@ class WorkflowOrchestrator:
             List of (chunk_path, chunk_dir) tuples.
         """
         chunk_info: list[tuple[str, str]] = []
-        basename = os.path.basename(self.input_path).split(".")[0].strip()
+        basename = self.input_path.stem
 
         for i in range(num_chunks):
-            chunk_dir = os.path.join(self.job_dir, f"job{i + 1}")
-            os.mkdir(chunk_dir)
+            chunk_dir = self.job_dir / f"job{i + 1}"
+            chunk_dir.mkdir()
 
             if self.input_format == "smi":
-                new_basename = f"{basename}_{i + 1}.smi"
-                chunk_path = os.path.join(chunk_dir, new_basename)
+                chunk_path = chunk_dir / f"{basename}_{i + 1}.smi"
                 df_chunk = df.iloc[chunk_idxes[i], :]
-                df_chunk.to_csv(chunk_path, header=None, index=None, sep=" ")
+                df_chunk.to_csv(str(chunk_path), header=None, index=None, sep=" ")
                 count = len(df_chunk)
             else:  # sdf
-                new_basename = f"{basename}_{i + 1}.sdf"
-                chunk_path = os.path.join(chunk_dir, new_basename)
+                chunk_path = chunk_dir / f"{basename}_{i + 1}.sdf"
                 chunks = [df[j] for j in chunk_idxes[i]]
-                with open(chunk_path, "w") as f:
-                    for chunk in chunks:
-                        for line in chunk:
-                            f.write(line)
+                chunk_path.write_text("".join(line for chunk in chunks for line in chunk))
                 count = len(chunks)
 
             print(f"Job{i + 1}, number of inputs: {count}", flush=True)
             if self.logger:
                 self.logger.info(f"Job{i + 1}, number of inputs: {count}")
 
-            chunk_info.append((chunk_path, chunk_dir))
+            chunk_info.append((str(chunk_path), str(chunk_dir)))
 
         return chunk_info
 
@@ -342,8 +334,8 @@ class WorkflowOrchestrator:
         Returns:
             Path to the final output SDF file.
         """
-        # Combine all job outputs
-        output_files = glob.glob(os.path.join(self.job_dir, "job*/*_3d.sdf"))
+        # Combine all job outputs using pathlib glob
+        output_files = list(self.job_dir.glob("job*/*_3d.sdf"))
 
         if not output_files:
             sys.exit(
@@ -356,28 +348,23 @@ class WorkflowOrchestrator:
 
         # Combine output data
         combined_data: list[str] = []
-        for file in output_files:
-            with open(file, "r") as f:
-                combined_data.extend(f.readlines())
+        for file_path in output_files:
+            combined_data.extend(file_path.read_text().splitlines(keepends=True))
 
         # Write combined output
-        basename = os.path.basename(self.input_path).split(".")[0].strip()
-        combined_basename = f"{basename}_out.sdf"
-        path_combined = os.path.join(self.job_dir, combined_basename)
-
-        with open(path_combined, "w") as f:
-            f.writelines(combined_data)
+        path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
+        path_combined.write_text("".join(combined_data))
 
         # Log timing
         self._log_timing(start_time)
 
         # Reorder and decode IDs
-        reorder_sdf(path_combined, self.input_path)
-        path_output = decode_ids(path_combined, self.id_mapping)
+        reorder_sdf(str(path_combined), str(self.input_path))
+        path_output = decode_ids(str(path_combined), self.id_mapping)
 
         # Cleanup temporary files
-        os.remove(self.input_path)
-        os.remove(path_combined)
+        self.input_path.unlink()
+        path_combined.unlink()
 
         print(f"Output path: {path_output}", flush=True)
         if self.logger:

@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 import os
-from rdkit import Chem
+
 import pandas as pd
-from typing import Optional
+from rdkit import Chem
+
 from Auto3D.auto3D import main
 from Auto3D.utils import hartree2kcalpermol
 
 
-def select_tautomers(sdf: str, k: Optional[int]=None, window:Optional[float]=None) -> str:
+def select_tautomers(sdf: str, k: int | None = None, window: float | None = None) -> str:
     """Select and Write the top-k or E <= window tautomers for each input SMILES
     Only k or window needs to be specified, NOT both.
 
