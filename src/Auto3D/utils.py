@@ -1,34 +1,42 @@
 #!/usr/bin/env python
-"""
-Providing utilities for the workflow package.
-"""
+"""Providing utilities for the workflow package."""
+from __future__ import annotations
+
+import collections
+import glob
 import logging
 import math
-import warnings
 import os
-import sys
 import re
-import glob
-import torch
-import collections
-from collections import defaultdict, OrderedDict
 import shutil
-from tqdm import tqdm
-import numpy as np
+import sys
+import warnings
+from collections import OrderedDict, defaultdict
 from io import StringIO
+from typing import Callable
+
+import numpy as np
+import torch
 from rdkit import Chem
-from rdkit.Chem import rdMolTransforms
-from rdkit.Chem import rdMolAlign, inchi
-from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
-from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
-from rdkit.Chem import rdMolDescriptors
-from typing import List, Tuple, Dict, Union, Optional, Callable
+from rdkit.Chem import inchi, rdMolAlign, rdMolDescriptors, rdMolTransforms
+from rdkit.Chem.rdMolDescriptors import (
+    CalcNumAtomStereoCenters,
+    CalcNumUnspecifiedAtomStereoCenters,
+)
+from tqdm import tqdm
+
+from Auto3D.constants import (
+    HARTREE_TO_EV,
+    HARTREE_TO_KCAL_PER_MOL,
+    EV_TO_KCAL_PER_MOL,
+    MIN_ATOM_DISTANCE,
+)
 from Auto3D.utils_file import guess_file_type
 
-#CODATA 2018 energy conversion factor
-hartree2ev = 27.211386245988
-hartree2kcalpermol = 627.50947337481
-ev2kcalpermol = 23.060547830619026
+# Backward compatibility aliases for energy conversion factors
+hartree2ev = HARTREE_TO_EV
+hartree2kcalpermol = HARTREE_TO_KCAL_PER_MOL
+ev2kcalpermol = EV_TO_KCAL_PER_MOL
 
 logger = logging.getLogger("auto3d")
 

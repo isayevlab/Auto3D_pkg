@@ -1,32 +1,38 @@
 #!/usr/bin/env python
-'''
-Finding 3D structures that satisfy the input requirement.
-'''
-import os
+"""Finding 3D structures that satisfy the input requirement."""
+from __future__ import annotations
+
 import logging
+
 import pandas as pd
 from rdkit import Chem
-from typing import List
-from Auto3D.utils import filter_unique
-from Auto3D.utils import hartree2ev, ev2kcalpermol
+
+from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
 
 
-class ranking(object):
-    '''
-    Finding 3D structures that satisfy the user-defined requirements.
+class ConformerRanker:
+    """Select conformers that satisfy user-defined energy criteria.
 
-    Arguments:
-        input_path: An SDF file that contains all isomers.
-        energies: A txt file that contains the IDs and energies.
-        out_path: An SDF file that stores the optimical structures.
-        k: Outputs the top-k structures for each SMILES.
-        window: Outputs the structures whose energies are within
-                window (kcal/mol) from the lowest energy
-    Returns:
-        None
-    '''
-    def __init__(self, input_path,
-                 out_path, threshold, k=False, window=False):
+    Filters and ranks optimized conformers based on either top-k selection
+    or an energy window from the lowest-energy structure.
+
+    Args:
+        input_path: Path to SDF file containing optimized isomers.
+        out_path: Path for output SDF file with selected structures.
+        threshold: RMSD threshold for duplicate removal (Å).
+        k: Select top-k structures per SMILES. False to disable.
+        window: Select structures within window kcal/mol of minimum.
+                False to disable.
+    """
+
+    def __init__(
+        self,
+        input_path: str,
+        out_path: str,
+        threshold: float,
+        k: int | bool = False,
+        window: float | bool = False,
+    ) -> None:
         self.input_path = input_path
         self.out_path = out_path
         self.threshold = threshold
@@ -39,20 +45,23 @@ class ranking(object):
         self.window = window
 
     @staticmethod
-    def similar(name, names):
+    def similar(name: str, names: list[str]) -> bool:
+        """Check if name matches the first name in the list (ignoring suffixes)."""
         name2 = name.strip().split("_")[0]
-        names2 = names[0].strip().split('_')[0]
-        return (name2 == names2)
+        names2 = names[0].strip().split("_")[0]
+        return name2 == names2
 
     @staticmethod
-    def add_relative_e(list0):
-        """Adding relative energies compared with lowest-energy structure
-        
-        Argument:
-            list: a list of tuple (idx, name, energy)
-            
-        Return:
-            list of tuple (idx, name, energy, relative_energy)
+    def add_relative_e(
+        list0: list[tuple[int, str, float]],
+    ) -> list[tuple[int, str, float, float]]:
+        """Add relative energies compared with lowest-energy structure.
+
+        Args:
+            list0: List of (idx, name, energy) tuples.
+
+        Returns:
+            List of (idx, name, energy, relative_energy) tuples.
         """
         list0_ = []
         _, _, e_m = list0[0]
@@ -62,12 +71,16 @@ class ranking(object):
             list0_.append((idx_i, name_i, e_i, e_relative))
         return list0_
 
+    def top_k(self, df_group: pd.DataFrame, k: int = 1) -> list[Chem.Mol]:
+        """Select top-k lowest-energy structures from a group.
 
-    def top_k(self, df_group, k=1):
-        '''
-        Given a group of energy_name_idxes,
-        return the top-k lowest name-energies pairs with idxes as keys.
-        '''
+        Args:
+            df_group: DataFrame group with 'names', 'energies', 'mols' columns.
+            k: Number of top structures to return.
+
+        Returns:
+            List of RDKit Mol objects for top-k structures.
+        """
         names = list(df_group["names"])
         assert(len(set(names)) == 1)
 
@@ -93,13 +106,16 @@ class ranking(object):
         return out_mols
 
 
-    def top_window(self, df_group, window=1):
-        '''
-        Given a group of energy_name_idxes,
-        return all (idx, name, e) tuples whose energies are within
-        window (Hatree) from the lowest energy. Unit table is based on: 
-        http://wild.life.nctu.edu.tw/class/common/energy-unit-conv-table.html
-        '''
+    def top_window(self, df_group: pd.DataFrame, window: float = 1.0) -> list[Chem.Mol]:
+        """Select structures within energy window of the minimum.
+
+        Args:
+            df_group: DataFrame group with 'names', 'energies', 'mols' columns.
+            window: Energy window in kcal/mol from lowest energy.
+
+        Returns:
+            List of RDKit Mol objects within the energy window.
+        """
         window = (window/ev2kcalpermol)  # convert energy window into eV unit
         names = list(df_group["names"])
         assert(window >= 0)
@@ -125,9 +141,14 @@ class ranking(object):
                     break
         return out_mols
 
-    def run(self) -> List[Chem.Mol]:
-        """
-        When runs, lowest-energy structure will be stored in out_path.
+    def run(self) -> list[Chem.Mol]:
+        """Execute ranking and write selected conformers to output file.
+
+        Returns:
+            List of selected RDKit Mol objects.
+
+        Raises:
+            ValueError: If neither k nor window is specified.
         """
         print("Begin to select structures that satisfy the requirements...", flush=True)
         logging.info("Begin to select structures that satisfy the requirements...")
@@ -168,3 +189,7 @@ class ranking(object):
                 mol.SetProp("_Name", t_simplified)
                 f.write(mol)
         return results
+
+
+# Backward compatibility alias
+ranking = ConformerRanker

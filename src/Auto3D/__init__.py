@@ -36,9 +36,17 @@ with warnings.catch_warnings():
 
 __all__ = [
     "__version__",
+    # Core API
     "main",
+    "options",
     "smiles2mols",
+    # Configuration
     "Auto3DOptions",
+    "NNPModel",
+    # Model creation
+    "create_model",
+    "ModelFactory",
+    # Utilities
     "calc_spe",
     "opt_geometry",
     "calc_thermo",
@@ -50,12 +58,24 @@ def __getattr__(name: str):
     if name == "main":
         from Auto3D.auto3D import main
         return main
+    elif name == "options":
+        from Auto3D.auto3D import options
+        return options
     elif name == "smiles2mols":
         from Auto3D.auto3D import smiles2mols
         return smiles2mols
     elif name == "Auto3DOptions":
-        from Auto3D.auto3D import options as Auto3DOptions
+        from Auto3D.config import Auto3DOptions
         return Auto3DOptions
+    elif name == "NNPModel":
+        from Auto3D.config import NNPModel
+        return NNPModel
+    elif name == "create_model":
+        from Auto3D.model_factory import create_model
+        return create_model
+    elif name == "ModelFactory":
+        from Auto3D.model_factory import ModelFactory
+        return ModelFactory
     elif name == "calc_spe":
         from Auto3D.SPE import calc_spe
         return calc_spe
