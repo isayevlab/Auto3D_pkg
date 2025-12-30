@@ -10,10 +10,9 @@ from Auto3D.utils.validation import (
     check_input,
     check_smi_format,
     check_sdf_format,
-    check_connectivity,
-    filter_unique,
     check_valid_configuration,
 )
+from Auto3D.utils.chemistry import check_connectivity, filter_unique
 
 
 # Set up test file paths

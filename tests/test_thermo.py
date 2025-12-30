@@ -11,6 +11,8 @@ from Auto3D.ASE.geometry import opt_geometry
 from Auto3D.ASE.thermo import model_name2model_calculator, vib_hessian
 from Auto3D.ASE.thermo import calc_thermo
 
+# Mark all tests in this module as slow (thermodynamic calculations)
+pytestmark = pytest.mark.slow
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

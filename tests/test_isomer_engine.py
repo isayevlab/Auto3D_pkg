@@ -1,11 +1,15 @@
 import os
 import shutil
 import time
+import pytest
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 from Auto3D.isomer_engine import rd_isomer
 from Auto3D.utils_file import SDF2chunks
 from Auto3D.utils_file import countSDF
+
+# Mark all tests in this module as slow (isomer embedding)
+pytestmark = pytest.mark.slow
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 path = os.path.join(folder, "tests/files/single_smiles.smi")
