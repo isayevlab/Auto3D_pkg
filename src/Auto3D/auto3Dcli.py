@@ -92,11 +92,11 @@ def cli():
                             help="If True, the program will use GPU.")
         parser.add_argument('--gpu_idx', default=0, type=int_or_intlist, 
                             help="GPU index or indices as a single value or comma-separated list (e.g., 0,1,2)")
-        parser.add_argument('--opt_steps', type=int, default=5000,
+        parser.add_argument('--opt_steps', type=int, default=2000,
                             help="Maximum optimization steps for each structure.")
-        parser.add_argument('--convergence_threshold', type=float, default=0.003,
+        parser.add_argument('--convergence_threshold', type=float, default=0.01,
                             help="Optimization is considered as converged if maximum force is below this threshold. Unit eV/Angstrom.")
-        parser.add_argument('--patience', type=int, default=1000,
+        parser.add_argument('--patience', type=int, default=250,
                             help="If the force does not decrease for a continuous patience steps, the conformer will be dropped out of the optimization loop.")
         parser.add_argument('--threshold', type=float, default=0.3,
                             help=("If the RMSD between two conformers are within threhold, "

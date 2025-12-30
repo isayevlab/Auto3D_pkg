@@ -230,7 +230,7 @@ def check_valid_configuration(
     gpu_idx: int | list[int] = 0,
     optimizing_engine: str = "AIMNET",
     isomer_engine: str = "rdkit",
-    opt_steps: int = 5000,
+    opt_steps: int = 2000,
     enumerate_tautomer: bool = False,
     tauto_engine: str = "rdkit",
 ) -> list[str]:
