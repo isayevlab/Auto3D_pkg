@@ -95,13 +95,3 @@ def opt_geometry(
     return outpath
 
 
-if __name__ == '__main__':
-    path = '/home/jack/Auto3D_pkg/tests/files/DA.sdf'
-    # out = opt_geometry(path, 'ANI2x', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
-    # print(out)
-    # out = opt_geometry(path, 'AIMNET', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
-    # print(out)
-    # out = opt_geometry(path, 'ANI2xt', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
-    # print(out)
-    out = opt_geometry(path, '/home/jack/Auto3D_pkg/example/myNNP.pt', gpu_idx=0, opt_tol=0.003, opt_steps=5000)
-    print(out)

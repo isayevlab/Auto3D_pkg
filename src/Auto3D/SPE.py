@@ -65,19 +65,3 @@ def calc_spe(path: str, model_name: str, gpu_idx: int = 0) -> str:
             f.write(mol)
     return str(outpath)
 
-if __name__ == '__main__':
-    # path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
-    # e_ref = -314.689736079491
-    # out = calc_spe(path, 'AIMNET')
-    # mol = next(Chem.SDMolSupplier(out, removeHs=False))
-    # e_out = float(mol.GetProp('E_hartree'))
-    # print(e_out)
-    # assert(abs(e_out - e_ref) <= 0.01)
-
-    path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
-    e_ref = -314.689736079491
-    out = calc_spe(path, '/home/jack/Auto3D_pkg/example/myNNP.pt')
-    mol = next(Chem.SDMolSupplier(out, removeHs=False))
-    e_out = float(mol.GetProp('E_hartree'))
-    print(e_out)
-    # assert(abs(e_out - e_ref) <= 0.01)

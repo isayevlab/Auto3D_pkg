@@ -1,5 +1,5 @@
 #replace with your input file
-path: "/home/jack/Auto3D_pkg/tests/files/example.smi"
+path: "tests/files/example.smi"
 
 #k and window are mutually exclusive parameters. Just specify one of them.
 k: 1  
