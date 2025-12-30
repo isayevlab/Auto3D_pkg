@@ -27,8 +27,8 @@ from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+# TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
+# and the allow_tf32 option in Auto3DOptions.
 ev2hatree = 1/hartree2ev  
 
 
