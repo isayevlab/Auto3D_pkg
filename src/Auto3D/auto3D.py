@@ -21,6 +21,7 @@ from send2trash import send2trash
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomer_engine import oe_isomer, rd_isomer, rd_isomer_sdf, tautomer_engine
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
@@ -311,7 +312,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         List of RDKit Mol objects representing low-energy conformers.
 
     Raises:
-        SystemExit: If neither k nor window is specified.
+        ConfigurationError: If neither k nor window is specified.
     """
     with tempfile.TemporaryDirectory() as tmpdirname:
         path0 = str(Path(tmpdirname) / "smiles.smi")
@@ -320,8 +321,10 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         k = args.k
         window = args.window
         if (not k) and (not window):
-            sys.exit("Either k or window needs to be specified. "
-                    "Usually, setting '--k=1' satisfies most needs.")
+            raise ConfigurationError(
+                "Either k or window needs to be specified. "
+                "Usually, setting '--k=1' satisfies most needs."
+            )
         args.input_format = 'smi'
         check_input(args)
 
