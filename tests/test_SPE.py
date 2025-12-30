@@ -8,6 +8,9 @@ from Auto3D.SPE import calc_spe
 # from tests import skip_ani2xt_test
 skip_ani2xt_test = False
 
+# Mark all tests in this module as slow (single-point energy calculations)
+pytestmark = pytest.mark.slow
+
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 try:

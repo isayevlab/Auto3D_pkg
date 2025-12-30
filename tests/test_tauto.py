@@ -7,7 +7,8 @@ from rdkit import Chem
 from Auto3D.auto3D import options
 from Auto3D.tautomer import get_stable_tautomers
 
-
+# Mark all tests in this module as slow (tautomer enumeration + optimization)
+pytestmark = pytest.mark.slow
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 input_path = os.path.join(folder, "tests", "files", "example_tauto.smi")

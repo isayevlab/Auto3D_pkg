@@ -6,6 +6,9 @@ import tempfile
 from typing import Optional
 from send2trash import send2trash
 from Auto3D.auto3D import options, main, smiles2mols
+
+# Mark all tests in this module as slow (full pipeline tests)
+pytestmark = pytest.mark.slow
 # from tests import skip_ani2xt_test
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
