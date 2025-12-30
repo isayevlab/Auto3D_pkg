@@ -111,11 +111,17 @@ class ConformerRanker:
 
         df2 = df_group.sort_values(by=['energies'])
 
-        out_mols_ = self._filter_mols(list(df2["mols"]))
-        if k < len(out_mols_):
-            out_mols = out_mols_[:k]
+        # Optimization: when k=1, skip RMSD filtering entirely
+        # Just return the lowest-energy conformer (first after sorting)
+        if k == 1:
+            mols_sorted = list(df2["mols"])
+            out_mols = mols_sorted[:1] if mols_sorted else []
         else:
-            out_mols = out_mols_
+            out_mols_ = self._filter_mols(list(df2["mols"]))
+            if k < len(out_mols_):
+                out_mols = out_mols_[:k]
+            else:
+                out_mols = out_mols_
 
         if len(out_mols) == 0:
             name = names[0].split("_")[0].strip()
