@@ -25,8 +25,9 @@ from tqdm import tqdm
 from Auto3D.model_factory import create_model
 from Auto3D.utils import hartree2ev
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+# Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
+# and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
+# removed to allow user configuration.
 
 
 @torch.jit.script

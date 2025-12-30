@@ -17,6 +17,7 @@ import torch
 import Auto3D
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
+from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
 from Auto3D.utils_file import SDF2chunks, decode_ids, encode_ids
 
@@ -64,6 +65,10 @@ class WorkflowOrchestrator:
             OptimizationError: If no structures converge.
         """
         start_time = time.time()
+
+        # Configure PyTorch settings (TF32, cuDNN benchmark)
+        torch_config = TorchConfig(allow_tf32=self.config.allow_tf32)
+        configure_torch(torch_config)
 
         # Phase 1: Validation and setup
         self._validate_input()

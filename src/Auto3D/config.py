@@ -98,6 +98,10 @@ class Auto3DOptions:
     batchsize_atoms: int = 1024
     """Number of atoms per optimization batch per GB."""
 
+    # Performance options
+    allow_tf32: bool = False
+    """Enable TF32 for faster matmul on Ampere+ GPUs (less precise). Default False."""
+
     def __post_init__(self):
         """Normalize string values to lowercase."""
         self.tauto_engine = self.tauto_engine.lower()

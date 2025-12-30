@@ -12,8 +12,8 @@ from Auto3D.batch_opt.padding import pad_from_mols
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+# TF32 settings are now configurable via Auto3DOptions.allow_tf32
+# and applied in workflow.py/auto3D.py entry points
 ev2hatree = 1/hartree2ev
 
 

@@ -41,8 +41,9 @@ try:
 except RuntimeError:
     pass  # Already set
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+# Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
+# and the allow_tf32 option in Auto3DOptions. Configuration is applied at pipeline start.
+
 
 def isomer_wraper(
     chunk_info: list[tuple[str, str]],
@@ -314,6 +315,11 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     Raises:
         ConfigurationError: If neither k nor window is specified.
     """
+    # Configure PyTorch settings (TF32, cuDNN benchmark)
+    from Auto3D.torch_config import TorchConfig, configure_torch
+    torch_config = TorchConfig(allow_tf32=args.allow_tf32)
+    configure_torch(torch_config)
+
     with tempfile.TemporaryDirectory() as tmpdirname:
         path0 = str(Path(tmpdirname) / "smiles.smi")
         smiles2smi(smiles, path0)  # save all SMILES into a smi file
