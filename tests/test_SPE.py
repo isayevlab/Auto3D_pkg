@@ -1,6 +1,7 @@
 import os
 import tempfile
 import pytest
+from unittest.mock import patch, MagicMock
 from rdkit import Chem
 import torch
 from Auto3D.SPE import calc_spe
@@ -179,6 +180,27 @@ def test_calc_spe_userNNP2():
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
     e_out = float(mol.GetProp('E_hartree'))
     assert(abs(e_out - e_ref) <= 0.01)
+
+
+def test_calc_spe_uses_model_factory():
+    """calc_spe should use ModelFactory for model creation."""
+    with patch('Auto3D.SPE.create_model') as mock_factory:
+        mock_adapter = MagicMock()
+        mock_adapter.coord_pad = 0.0
+        mock_adapter.species_pad = 0
+        # Mock the forward method to return energies and forces
+        mock_adapter.forward.return_value = (
+            torch.tensor([0.0, 0.0]),  # energies
+            torch.zeros(2, 5, 3)  # forces
+        )
+        mock_factory.return_value = mock_adapter
+
+        # This will fail early but we just want to verify factory is called
+        with pytest.raises(Exception):  # Will fail on file not found
+            calc_spe("nonexistent.sdf", "AIMNET", gpu_idx=0)
+
+        # Verify factory was called
+        assert mock_factory.called
 
 
 if __name__ == "__main__":

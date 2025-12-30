@@ -1,23 +1,14 @@
 #!/usr/bin/env python
 """Calculating single point energy using ANI2xt, ANI2x, 'userNNP' or AIMNET"""
-import os
-import sys
+from __future__ import annotations
 
-root = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(root)
-
+from pathlib import Path
 
 import torch
-
-try:
-    import torchani
-
-    from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
-except ImportError:
-    pass
 from rdkit import Chem
 
 from Auto3D.batch_opt.batchopt import EnForce_ANI, mols2lists, padding_coords, padding_species
+from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -25,7 +16,7 @@ torch.backends.cudnn.allow_tf32 = False
 ev2hatree = 1/hartree2ev
 
 
-def calc_spe(path: str, model_name: str, gpu_idx=0):
+def calc_spe(path: str, model_name: str, gpu_idx: int = 0) -> str:
     """
     Calculates single point energy.
 
@@ -35,62 +26,45 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     :type model_name: str
     :param gpu_idx: GPU cuda index, defaults to 0
     :type gpu_idx: int, optional
+    :return: Path to output SDF file with energies
+    :rtype: str
     """
-    #Create a output path that is the in the same directory as the input
-    dir = os.path.dirname(path)
-    if os.path.exists(model_name):
-        basename = os.path.basename(path).split(".")[0] + "_userNNP_E.sdf"
+    # Create output path in the same directory as the input
+    dir_path = Path(path).parent
+    stem = Path(path).stem
+    if Path(model_name).exists():
+        basename = f"{stem}_userNNP_E.sdf"
     else:
-        basename = os.path.basename(path).split(".")[0] + f"_{model_name}_E.sdf"
-    outpath = os.path.join(dir, basename)
+        basename = f"{stem}_{model_name}_E.sdf"
+    outpath = dir_path / basename
 
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{gpu_idx}")
-    else:
-        device = torch.device("cpu")
+    # Use get_device from model_factory
+    device = get_device(gpu_idx)
 
-    if model_name == "ANI2xt":
-        model = EnForce_ANI(ANI2xt(device), model_name)
-    elif model_name == "AIMNET":
-        aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
-        model = EnForce_ANI(aimnet, model_name)
-    elif model_name == "ANI2x":
-        calculator = torchani.models.ANI2x(periodic_table_index=True).to(device)
-        model = EnForce_ANI(calculator, model_name)
-    # elif model_name == "userNNP":
-    #     from userNNP import userNNP
-    elif os.path.exists(model_name):
-        calculator = torch.jit.load(model_name, map_location=device)
-        model = EnForce_ANI(calculator, model_name)
-    else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
+    # Use ModelFactory to create model adapter
+    model_adapter = create_model(model_name, device)
+
+    # Create EnForce_ANI wrapper for batched forward support (new API without name)
+    model = EnForce_ANI(model_adapter)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     coord, numbers, charges = mols2lists(mols, model_name)
-    if model_name == "AIMNET":
-        coord_padded = padding_coords(coord, 0)
-        numbers_padded = padding_species(numbers, 0)
-    elif model_name in {'ANI2xt', 'ANI2x'}:
-        coord_padded = padding_coords(coord, 0)
-        numbers_padded = padding_species(numbers, -1)
-    elif os.path.exists(model_name):
-        coord_padded = padding_coords(coord, model.ani.coord_pad)
-        numbers_padded = padding_species(numbers, model.ani.species_pad)
-    else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
-    
-    # if model_name != "ANI2x":
+
+    # Use adapter's padding values
+    coord_padded = padding_coords(coord, model_adapter.coord_pad)
+    numbers_padded = padding_species(numbers, model_adapter.species_pad)
+
     coord_padded = torch.tensor(coord_padded, device=device, requires_grad=True)
     numbers_padded = torch.tensor(numbers_padded, device=device)
     charges = torch.tensor(charges, device=device)
     es, fs = model.forward_batched(coord_padded, numbers_padded, charges)
     es = es.to('cpu').detach().numpy()
 
-    with Chem.SDWriter(outpath) as f:
+    with Chem.SDWriter(str(outpath)) as f:
         for i, mol in enumerate(mols):
             mol.SetProp('E_hartree', str(es[i] * ev2hatree))
             f.write(mol)
-    return outpath
+    return str(outpath)
 
 if __name__ == '__main__':
     # path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'

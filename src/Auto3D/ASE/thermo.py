@@ -24,6 +24,7 @@ root = Path(__file__).resolve().parent.parent
 sys.path.append(str(root))
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
+from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -94,28 +95,26 @@ def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMN
     return dict(coord=coord, numbers=numbers, charge=charge)
 
 def model_name2model_calculator(model_name: str, device=torch.device('cpu'), charge=0):
-    """Return a model and the ASE calculator object for a molecule"""
-    if model_name == "ANI2xt":
-        model = EnForce_ANI(ANI2xt(device, periodic_table_index=True), model_name).double()
-        calculator = Calculator(model, charge)
-    elif model_name == "AIMNET":
-        # Using the ensemble AIMNet2 model for computing energy and forces
-        aimnet_path = root / "models" / "aimnet2_wb97m_ens_f.jpt"
-        aimnet = torch.jit.load(str(aimnet_path), map_location=device)
-        model = EnForce_ANI(aimnet, model_name)
-        calculator = Calculator(model, charge)
-    elif model_name == "ANI2x":
-        ani2x = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
-        model = EnForce_ANI(ani2x, model_name)
-        # calculator = ani2x.ase()
-        calculator = Calculator(model, charge)
-    elif Path(model_name).exists():
-        user_nnp = torch.jit.load(model_name, map_location=device).double()
-        model = EnForce_ANI(user_nnp, model_name)
-        calculator = Calculator(model, charge)
-    else:
-        raise ValueError("model has to be 'ANI2x', 'ANI2xt', 'AIMNET' or a path to a userNNP model.")
-    return model, calculator
+    """Return a model adapter and ASE calculator.
+
+    Uses ModelFactory to create the model adapter, eliminating
+    code duplication with batchopt.py and SPE.py.
+
+    Args:
+        model_name: Model name ('AIMNET', 'ANI2x', 'ANI2xt') or path to custom model.
+        device: Target device for the model.
+        charge: Molecular charge for the calculator.
+
+    Returns:
+        Tuple of (model_adapter, calculator).
+    """
+    model_adapter = create_model(model_name, device)
+
+    # Wrap in EnForce_ANI for compatibility with existing code
+    model = EnForce_ANI(model_adapter)
+    calculator = Calculator(model, charge)
+
+    return model_adapter, calculator
 
 def mol2atoms(mol: Chem.Mol):
     '''convert a RDKit mol object to ASE atoms object'''
