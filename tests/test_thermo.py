@@ -4,6 +4,7 @@ import pickle
 import pytest
 import numpy as np
 import torch
+from unittest.mock import patch, MagicMock
 from rdkit import Chem
 import Auto3D
 from Auto3D.ASE.geometry import opt_geometry
@@ -102,6 +103,31 @@ class userNNP2(torch.nn.Module):
         dct = dict(coord=coords, numbers=species, charge=charges)
         energies = self.model(dct)['energy']
         return energies
+
+
+def test_model_name2model_calculator_uses_factory():
+    """model_name2model_calculator should use ModelFactory."""
+    with patch('Auto3D.ASE.thermo.create_model') as mock_factory:
+        # Create a realistic mock adapter with a real parameter
+        mock_adapter = MagicMock(spec=['coord_pad', 'species_pad', 'forward'])
+        mock_adapter.coord_pad = 0.0
+        mock_adapter.species_pad = 0
+        mock_factory.return_value = mock_adapter
+
+        # Also patch EnForce_ANI to avoid it trying to call methods on the mock
+        with patch('Auto3D.ASE.thermo.EnForce_ANI') as mock_enforce:
+            # Create a mock EnForce_ANI instance with a real parameter
+            mock_model_instance = MagicMock()
+            mock_param = torch.nn.Parameter(torch.zeros(1))
+            mock_model_instance.parameters.return_value = iter([mock_param])
+            mock_enforce.return_value = mock_model_instance
+
+            model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
+
+            # Verify factory was called with correct arguments
+            mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))
+            # Verify EnForce_ANI was created with the adapter
+            mock_enforce.assert_called_once_with(mock_adapter)
 
 
 def test_calc_thermo_aimnet():
