@@ -164,6 +164,13 @@ class EnForce_ANI(torch.nn.Module):
         Delegates to the model adapter's forward method, or uses legacy
         logic for backward compatibility with raw models.
 
+        Note on torch.inference_mode():
+            This method CANNOT use torch.inference_mode() because force
+            calculation requires computing gradients of energy with respect
+            to atomic coordinates via torch.autograd.grad(). Model parameters
+            have requires_grad=False (frozen weights), but coordinates must
+            have requires_grad=True for force computation.
+
         Arguments:
             coord: coordinates for all input structures. size (B, N, 3), where
                   B is the number of structures in coord, N is the number of
@@ -183,6 +190,11 @@ class EnForce_ANI(torch.nn.Module):
         """Legacy forward implementation for backward compatibility.
 
         Handles raw models that were passed with the old API.
+
+        Note: Cannot use torch.inference_mode() because force calculation
+        requires computing gradients via torch.autograd.grad(). Model parameters
+        are already frozen (requires_grad=False), but coordinates must have
+        requires_grad=True for force computation.
         """
         if self.name == "AIMNET":
             d = self.ani(
@@ -191,17 +203,20 @@ class EnForce_ANI(torch.nn.Module):
             f = d['forces']
         elif self.name == "ANI2xt":
             e = self.ani(numbers, coord)
-            g = torch.autograd.grad([e.sum()], [coord])[0]
+            # create_graph=False avoids building second-order gradient graph
+            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
             f = -g
         elif self.name == "ANI2x":
             e = self.ani((numbers, coord)).energies
             e = e * hartree2ev  # ANI2x output energy unit is Hartree; convert to eV
-            g = torch.autograd.grad([e.sum()], [coord])[0]
+            # create_graph=False avoids building second-order gradient graph
+            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
             f = -g
         else:
             # user NNP that was loaded from a file
             e = self.ani(numbers, coord, charges)
-            g = torch.autograd.grad([e.sum()], [coord])[0]
+            # create_graph=False avoids building second-order gradient graph
+            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
             f = -g
         return e, f
 
