@@ -620,28 +620,6 @@ def amend_configuration_w(smi):
                 line = smi + ' ' + idx + '\n'
                 f.write(line)
 
-class my_name_space(dict):
-    """A modified dictionary whose keys can be accessed via dot. This dict is
-    similar to a NameSpace object from parser.
-    """
-    def __getattr__(self, key):
-        try:
-            return self[key]
-        except KeyError as k:
-            raise AttributeError(k)
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-    def __delattr__(self, key):
-        try:
-            del self[key]
-        except KeyError as k:
-            raise AttributeError(k)
-
-    def __repr__(self):
-        return '<my_name_space ' + dict.__repr__(self) + '>'
-
 def min_pairwise_distance(points: np.array) -> float:
     """
     Finds the minimum pairwise distance among the n points provided in a n x 3 matrix.
