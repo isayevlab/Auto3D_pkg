@@ -8,6 +8,8 @@
 
 **Auto3D** is a Python package for generating low-energy conformers from SMILES/SDF. Over the development process, we also added the APIs for computing single point energies, optimizing geometries, find stable tautomers. Auto3D can be imported as a Python library, or be excuted from the terminal.
 
+> **Note**: The current version requires Python 3.10+. If you need Python 3.7/3.8/3.9 support, version 2.3.1 is available on the [`legacy-python37`](https://github.com/isayevlab/Auto3D_pkg/tree/legacy-python37) branch.
+
 Please check out the information at [**documentation**](https://auto3d.readthedocs.io/en/latest/index.html), including [installation](https://auto3d.readthedocs.io/en/latest/installation.html), [usage](https://auto3d.readthedocs.io/en/latest/usage.html), [API](https://auto3d.readthedocs.io/en/latest/api.html) and [citation](https://auto3d.readthedocs.io/en/latest/citation.html).
 
 - **Jupyter notebook examples** can be found [here](https://github.com/isayevlab/Auto3D_pkg/tree/main/example)
