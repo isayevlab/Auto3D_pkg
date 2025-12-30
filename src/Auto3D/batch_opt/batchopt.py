@@ -20,6 +20,7 @@ except ImportError:
 
 from tqdm import tqdm
 
+from Auto3D.model_factory import create_model
 from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -109,71 +110,52 @@ class FIRE:
 
 
 class EnForce_ANI(torch.nn.Module):
-    """Takes in an torch model, then defines two forward functions for it.
-    The input model should be able to calculate energy and disp_energy given
-    coordiantes, species and charges of a molecule. 
+    """Wrapper for model adapters with batched forward support.
+
+    Takes in a model adapter and provides batched forward functionality
+    for calculating energies and forces.
 
     Arguments:
-        ani: model
-        batchsize_atoms: the maximum nmber atoms that can be handled in one batch.
+        model_adapter: A model adapter implementing the forward(coords, species, charges) interface.
+        batchsize_atoms: Maximum number of atoms that can be handled in one batch.
 
     Returns:
-        the energies and forces for the input molecules. One time calculation.
+        The energies and forces for the input molecules.
     """
 
-    def __init__(self, ani, name, batchsize_atoms=1024 * 16):
+    def __init__(self, model_adapter, batchsize_atoms=1024 * 16):
         super().__init__()
-        self.add_module('ani', ani)
-        self.name = name
+        self.model = model_adapter
         self.batchsize_atoms = batchsize_atoms
 
     def forward(self, coord, numbers, charges):
-        """Calculate the energies and forces for input molecules. Called by self.forward_batched
-        
+        """Calculate the energies and forces for input molecules.
+
+        Delegates to the model adapter's forward method.
+
         Arguments:
             coord: coordinates for all input structures. size (B, N, 3), where
                   B is the number of structures in coord, N is the number of
                   atoms in each structure, 3 represents xyz dimensions.
             numbers: the periodic numbers for all atoms.
             charges: tensor size (B)
-            
+
         Returns:
             energies
             forces
         """
-        match self.name:
-            case "AIMNET":
-                d = self.ani(
-                    dict(coord=coord, numbers=numbers, charge=charges))
-                e = d['energy'].to(torch.double)
-                f = d['forces']
-            case "ANI2xt":
-                e = self.ani(numbers, coord)
-                g = torch.autograd.grad([e.sum()], [coord])[0]
-                f = -g
-            case "ANI2x":
-                e = self.ani((numbers, coord)).energies
-                e = e * hartree2ev  # ANI2x output is Hartree; ANI ASE interface is eV
-                g = torch.autograd.grad([e.sum()], [coord])[0]
-                f = -g
-            case _:
-                # user NNP that was loaded from a file
-                e = self.ani(numbers, coord, charges)
-                g = torch.autograd.grad([e.sum()], [coord])[0]
-                f = -g
+        return self.model.forward(coord, numbers, charges)
 
-        return e, f
-
-    #    @torch.jit.script_method
     def forward_batched(self, coord, numbers, charges):
-        """Calculate the energies and forces for input molecules.
-        
+        """Calculate the energies and forces for input molecules in batches.
+
         Arguments:
             coord: coordinates for all input structures. size (B, N, 3), where
                   B is the number of structures in coord, N is the number of
                   atoms in each structure, 3 represents xyz dimensions.
             numbers: the periodic numbers for all atoms. size (B, N)
-            
+            charges: tensor size (B)
+
         Returns:
             energies
             forces
@@ -387,29 +369,11 @@ class optimizing:
         self.name = name
         self.device = device
         self.config = config
-        root = Path(__file__).resolve().parent.parent
 
-        match name:
-            case "AIMNET":
-                model_path = root / "models" / "aimnet2_wb97m_ens_f.jpt"
-                self.model = torch.jit.load(str(model_path), map_location=device)
-                self.coord_pad = 0
-                self.species_pad = 0
-            case "ANI2xt":
-                self.model = ANI2xt(device)
-                self.coord_pad = 0
-                self.species_pad = -1
-            case "ANI2x":
-                self.model = torchani.models.ANI2x(periodic_table_index=True).to(device)
-                self.coord_pad = 0
-                self.species_pad = -1
-            case _ if Path(name).exists():
-                print(f"Loading model from {name}", flush=True)
-                self.model = torch.jit.load(name, map_location=device)
-                self.coord_pad = self.model.coord_pad
-                self.species_pad = self.model.species_pad
-            case _:
-                raise ValueError("Model has to be ANI2x, ANI2xt, userNNP or AIMNET.")
+        # Use ModelFactory to create the model adapter
+        self.model = create_model(name, device)
+        self.coord_pad = self.model.coord_pad
+        self.species_pad = self.model.species_pad
 
     def run(self):
         print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
@@ -422,10 +386,9 @@ class optimizing:
         coord_padded = padding_coords(coord, self.coord_pad)
         numbers_padded = padding_species(numbers, self.species_pad)
 
-        for p in self.model.parameters():
-            p.requires_grad_(False)
-        model = EnForce_ANI(self.model, self.name, self.config[
-            "batchsize_atoms"])  # Interesting, EnForce_ANI inherites nn.module, bu can still accept a ScriptModule object as the input
+        # The model adapter already disables gradients in BaseModelAdapter.__init__
+        # Create EnForce_ANI wrapper for batched forward support
+        model = EnForce_ANI(self.model, self.config["batchsize_atoms"])
 
         with torch.jit.optimized_execution(False):
             optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
