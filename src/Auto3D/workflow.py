@@ -259,6 +259,13 @@ class WorkflowOrchestrator:
         basename = self.input_path.stem
 
         for i in range(num_chunks):
+            # Skip empty chunks (can happen with multi-GPU and few molecules)
+            if not chunk_idxes[i]:
+                print(f"Job{i + 1}, number of inputs: 0 (skipped)", flush=True)
+                if self.logger:
+                    self.logger.info(f"Job{i + 1}, number of inputs: 0 (skipped)")
+                continue
+
             chunk_dir = self.job_dir / f"job{i + 1}"
             chunk_dir.mkdir()
 
