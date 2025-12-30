@@ -69,8 +69,16 @@ class BaseModelAdapter(ABC, nn.Module):
     Provides common functionality for all NNP model adapters including:
     - Model storage and device management
     - Padding value configuration
-    - Gradient disabling for inference mode
+    - Gradient disabling for model parameters (weights are frozen)
     - Optional torch.compile() for performance optimization
+
+    Note on torch.inference_mode():
+        This class CANNOT use torch.inference_mode() or torch.no_grad() in forward
+        methods because force calculations require computing gradients of energy
+        with respect to atomic coordinates via torch.autograd.grad(). Model parameters
+        have requires_grad=False (frozen weights), but coordinates must have
+        requires_grad=True for force computation. All autograd.grad() calls use
+        create_graph=False to avoid building second-order gradient graphs.
     """
 
     def __init__(
@@ -198,7 +206,8 @@ class AIMNetAdapter(BaseModelAdapter):
         if 'forces' in result:
             forces = result['forces']
         else:
-            grad = torch.autograd.grad([energy.sum()], [coords])[0]
+            # create_graph=False (default) avoids building second-order gradient graph
+            grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
             forces = -grad
 
         return energy, forces
@@ -242,7 +251,8 @@ class ANI2xtAdapter(BaseModelAdapter):
         """
         coords = coords.requires_grad_(True)
         energy = self.model(species, coords)
-        grad = torch.autograd.grad([energy.sum()], [coords])[0]
+        # create_graph=False (default) avoids building second-order gradient graph
+        grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
         forces = -grad
         return energy, forces
 
@@ -288,7 +298,8 @@ class ANI2xAdapter(BaseModelAdapter):
         coords_f32 = coords.float().requires_grad_(True)
 
         energy = self.model((species, coords_f32)).energies * HARTREE_TO_EV
-        grad = torch.autograd.grad([energy.sum()], [coords_f32])[0]
+        # create_graph=False (default) avoids building second-order gradient graph
+        grad = torch.autograd.grad([energy.sum()], [coords_f32], create_graph=False)[0]
         forces = -grad
 
         # Convert back to input dtype for consistency
@@ -350,7 +361,8 @@ class CustomModelAdapter(BaseModelAdapter):
 
         energy = self.model(species, coords_f32, charges_f32)
 
-        grad = torch.autograd.grad([energy.sum()], [coords_f32])[0]
+        # create_graph=False (default) avoids building second-order gradient graph
+        grad = torch.autograd.grad([energy.sum()], [coords_f32], create_graph=False)[0]
         forces = -grad
 
         # Convert output back to input dtype for consistency
