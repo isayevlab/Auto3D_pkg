@@ -213,11 +213,16 @@ class ANI2xAdapter(BaseModelAdapter):
         Returns:
             Tuple of (energies, forces) in eV units.
         """
-        coords = coords.requires_grad_(True)
-        energy = self.model((species, coords)).energies * HARTREE_TO_EV
-        grad = torch.autograd.grad([energy.sum()], [coords])[0]
+        # Convert to float32 for ANI2x (it uses float32 internally)
+        input_dtype = coords.dtype
+        coords_f32 = coords.float().requires_grad_(True)
+
+        energy = self.model((species, coords_f32)).energies * HARTREE_TO_EV
+        grad = torch.autograd.grad([energy.sum()], [coords_f32])[0]
         forces = -grad
-        return energy, forces
+
+        # Convert back to input dtype for consistency
+        return energy.to(input_dtype), forces.to(input_dtype)
 
 
 class CustomModelAdapter(BaseModelAdapter):
@@ -258,8 +263,15 @@ class CustomModelAdapter(BaseModelAdapter):
         Returns:
             Tuple of (energies, forces) in eV units.
         """
-        coords = coords.requires_grad_(True)
-        energy = self.model(species, coords, charges)
-        grad = torch.autograd.grad([energy.sum()], [coords])[0]
+        # Convert to float32 for compatibility with most NNP models (e.g., ANI2x)
+        input_dtype = coords.dtype
+        coords_f32 = coords.float().requires_grad_(True)
+        charges_f32 = charges.float()
+
+        energy = self.model(species, coords_f32, charges_f32)
+
+        grad = torch.autograd.grad([energy.sum()], [coords_f32])[0]
         forces = -grad
-        return energy, forces
+
+        # Convert output back to input dtype for consistency
+        return energy.to(input_dtype), forces.to(input_dtype)

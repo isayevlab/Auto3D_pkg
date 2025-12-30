@@ -309,7 +309,7 @@ def n_steps(state, n, opttol, patience):
         state['fmax'][
             not_converged] = fmax  # Update fmax for conformers that are optimized in this iteration
         state['energy'][
-            not_converged] = e.detach()  # Update energy for conformers that are optimized in this iteration
+            not_converged] = e.detach().to(state['energy'].dtype)  # Update energy for conformers that are optimized in this iteration
         state['coord'][
             not_converged] = coord  # Update coordinates for conformers that are optimized in this iteration
         smallest_fmax0[not_converged] = smallest_fmax  # update smalles_fmax for each conformer
