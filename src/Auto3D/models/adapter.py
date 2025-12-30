@@ -5,7 +5,7 @@ from __future__ import annotations
 import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import torch
 import torch.nn as nn
@@ -32,11 +32,14 @@ def _try_compile(model: nn.Module, mode: str = "reduce-overhead") -> nn.Module:
         return model
 
 
+@runtime_checkable
 class ModelAdapter(Protocol):
     """Protocol defining the standard interface for NNP model adapters.
 
     All model adapters must implement this interface to ensure consistent
     behavior across different neural network potential backends.
+
+    This protocol is runtime_checkable, allowing isinstance() checks.
     """
 
     coord_pad: float
