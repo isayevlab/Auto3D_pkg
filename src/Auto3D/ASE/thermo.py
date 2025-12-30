@@ -15,7 +15,7 @@ import torchani
 from ase import Atoms
 from ase.optimize import BFGS
 from ase.thermochemistry import IdealGasThermo
-from ase.vibrations import Vibrations, VibrationsData
+from ase.vibrations import VibrationsData
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
@@ -69,21 +69,6 @@ class Calculator(ase.calculators.calculator.Calculator):
         self.results['energy'] = energy.item()
         self.results['forces'] = forces.squeeze(0).to('cpu').numpy()
 
-
-def get_mol_idx_t1(mol):
-    """Get idx and temperature from openbabel molecule
-    example: /Users/liu5/Documents/tautomer/dG/dG3/DFT_output_analyze2/817-2-473.xyz
-    """
-
-    idx = str(mol).split()[1].strip().split("/")[-1].strip().split(".")[0]
-    T = int(idx.split("-")[-1])
-    return (idx, T)
-
-def get_mol_idx_t3(mol):
-    "Setting default index and temperature"
-    idx = ""
-    T = 298
-    return (idx, T)
 
 def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMNET') -> dict:
     """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
@@ -151,19 +136,6 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
 
     # get the VibrationsData object
     vib = VibrationsData(atoms, hess)
-    return vib
-
-def vib_ase(mol: Chem.Mol, ase_calculator):
-    '''return a VibrationsData object
-    model: ANI2xt or AIMNet2 model with EnForce_ANI wrapper'''
-    # get the ASE atoms object
-    atoms = mol2atoms(mol)
-    atoms.set_calculator(ase_calculator)
-
-    # get the VibrationsData object
-    vib = Vibrations(atoms)
-    vib.clean()
-    vib.run()
     return vib
 
 def do_mol_thermo(mol: Chem.Mol,

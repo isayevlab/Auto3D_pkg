@@ -4,15 +4,10 @@ Providing general utilities for working with different formats of molecular file
 """
 from __future__ import annotations
 
-import glob
-from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 from rdkit import Chem
 from rdkit.Chem import inchi
-from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
-from tqdm import tqdm
 
 
 def guess_file_type(filename: str) -> str:
@@ -33,53 +28,6 @@ def smiles2smi(smiles: list[str], path: str) -> str:
             f.write(line)
     return path
 
-def report(path: str):
-    """Given a smi file, reports the following:
-    - number of SMILES
-    - SMILES size distribution
-    - element type and percent of molecules with this types
-    - number of charged molecules
-    - number of SMILES with unspecified stereo center
-    """
-    suppl = Chem.SmilesMolSupplier(path, titleLine=False)
-    c = 0  #count number of SMILES
-    sizes = []
-    element_counts = defaultdict(lambda: 0)
-    charges = []
-    charge_counts = defaultdict(lambda: 0)
-    num_charged_mols = 0
-    unspecified_atom_centers = []
-    num_unspecified_mols = 0
-    for mol in suppl:
-        c += 1
-        atoms = [a.GetAtomicNum() for a in mol.GetAtoms()]  #H not included
-        elements = list(set(atoms))
-        sizes.append(len(atoms))
-        for e in elements:
-            element_counts[e] += 1
-        
-        charge = Chem.rdmolops.GetFormalCharge(mol)
-        charge_counts[charge] += 1
-        charges.append(charge)
-        if charge != 0:
-            num_charged_mols += 1
-        
-        unspecified_centers = CalcNumUnspecifiedAtomStereoCenters(mol)
-        unspecified_atom_centers.append(unspecified_centers)
-        if unspecified_centers > 0:
-            num_unspecified_mols += 1
-    
-    print("Total number of SMILES: ", c, flush=True)
-    print(f"SMILES size distribution: mean={str(np.mean(sizes))} std={str(np.std(sizes))} min={str(min(sizes))} max={str(max(sizes))}", flush=True)    
-    print("Breakdown of element types and its prevailance: ", flush=True)
-    for e, c_e in sorted(element_counts.items()):
-        print(f"    {str(e)} total: {str(c_e)}  percent: {str(round(c_e/c, 3))}", flush=True)
-    print(f"Number of charged molecules: {str(num_charged_mols)}", flush=True)
-    print("Breakdown of charge distribution", flush=True)
-    for charge, c_c in sorted(charge_counts.items()):
-        print(f"    charge={str(charge)} total: {str(c_c)} percent: {str(round(c_c/c, 3))}", flush=True)
-    print(f"Number of molecules with unspecified atomic centers: {str(num_unspecified_mols)}", flush=True)
-
 def combine_smi(smies: list[str], out: str) -> None:
     """Combine smi files into a single file"""
     data = []
@@ -92,46 +40,6 @@ def combine_smi(smies: list[str], out: str) -> None:
         for line in data:
             if not line.isspace():
                 f2.write(line.strip() + '\n')
-
-def is_macrocycle(smiles:str, size=10):
-    """Check if a SMIELS contains a macrocycle part (a 10-membered or large 
-    ring regardless of their aromaticity and hetero atoms content)"""
-    mol = Chem.MolFromSmiles(smiles)
-    ring = mol.GetRingInfo()
-    ring_bonds = ring.BondRings()
-    for bonds in ring_bonds:
-        if len(bonds) >= size:
-            return True
-    return False
-
-def split_smi(smi: str) -> None:
-    """Split an input .smi file into two files:
-    one contains small SMILES, the other contain macrocycle smiles
-    """
-    # Prepare out file path
-    smi_path = Path(smi).resolve()
-    stem = smi_path.stem
-    normal_path = smi_path.parent / f"{stem}_normal.smi"
-    macrocycle_path = smi_path.parent / f"{stem}_macrocycle.smi"
-
-    normal = []
-    macrocycle = []
-    with open(smi) as f:
-        data = f.readlines()
-    for line in tqdm(data):
-        smi_idx = line.strip().split()
-        smi = smi_idx[0]
-        if is_macrocycle(smi):
-            macrocycle.append(line)
-        else:
-            normal.append(line)
-    
-    l_ = len(normal) + len(macrocycle)
-    l = len(data)
-    assert(l == l_)
-
-    normal_path.write_text("".join(normal))
-    macrocycle_path.write_text("".join(macrocycle))
 
 # Functions related to SDF files
 def countSDF(sdf):
@@ -157,57 +65,6 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
             chunk.append(line)
     return chunks
        
-# Functions related to XYZ files
-def combine_xyz(in_folder, out_path):
-    """
-    Combining all xyz files in the in_folder into a single xyz file (out_path).
-
-    Arguemnts:
-        in_folder: a folder contains all xyz files.
-        out_path: a path of xyz file to store every structure in the in_folder
-
-    Returns:
-        Combining all xyz files in the in_folder into out_path.
-    """
-    file_paths = str(Path(in_folder) / "*.xyz")
-    files = glob.glob(file_paths)
-    # print(f'There are {len(files)} single xyz files...')
-
-    results = []
-    for file in files:
-        with open(file) as f:
-            data = f.readlines()
-        assert(len(data) == (int(data[0]) + 2))
-        results += data
-
-    with open(out_path, 'w+') as f:
-        for line in results:
-            f.write(line)
-    # print(f'Combined in a singl file {out_path}!')
-
-# Functions involving multiple molecular file formats
-def to_smiles(path, fomat="sdf"):
-    """converting a file from a given format to smi file
-    input: path
-    format: [optional] sdf
-    
-    returns: a path of smi file containing the same molecules as in the sdf"""
-    suppl = Chem.SDMolSupplier(path)
-    smiles = []
-    for i, mol in enumerate(suppl):
-        name = mol.GetProp("_Name").strip()
-        if len(name) == 0:  #len("") == 0
-            name = str(i)
-        smiles.append((Chem.MolToSmiles(mol, isomericSmiles=True, canonical=True), name))
-    
-    # write
-    path_obj = Path(path).resolve()
-    new_path = path_obj.parent / f"{path_obj.stem}.smi"
-    with open(new_path, "w") as f:
-        for smi, name in smiles:
-            f.write(f"{smi} {name}\n")
-    return str(new_path)
-
 def find_smiles_not_in_sdf(smi, sdf):
     """Find the SMILES who doesn't have a 3D structure in the SDF file
     smi: path to an smi file (the input path for Auto3D)
