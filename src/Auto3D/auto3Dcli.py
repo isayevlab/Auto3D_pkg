@@ -37,7 +37,7 @@ def int_or_intlist(string: str) -> int | list[int]:
 
 
 def load_yaml_config(yaml_path: str) -> dict[str, Any]:
-    """Load and parse a YAML configuration file.
+    """Load configuration from a YAML file.
 
     Args:
         yaml_path: Path to the YAML configuration file.
@@ -45,9 +45,13 @@ def load_yaml_config(yaml_path: str) -> dict[str, Any]:
     Returns:
         Dictionary containing configuration parameters with 'None' strings
         converted to actual None values.
+
+    Note:
+        Uses yaml.safe_load for security - prevents arbitrary code execution.
     """
     with open(yaml_path) as f:
-        parameters: dict[str, Any] = yaml.load(f, Loader=yaml.FullLoader)
+        # SECURITY: Use safe_load instead of FullLoader to prevent code execution
+        parameters: dict[str, Any] = yaml.safe_load(f)
 
     # change 'None' to None
     for key, val in parameters.items():
