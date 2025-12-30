@@ -5,6 +5,7 @@ import yaml
 
 import Auto3D
 from Auto3D.auto3D import main, options
+from Auto3D.exceptions import Auto3DError
 
 
 def int_or_intlist(string):
@@ -157,14 +158,20 @@ def cli():
     )
 
     print(f"""
-         _              _             _____   ____  
-        / \     _   _  | |_    ___   |___ /  |  _ \ 
-       / _ \   | | | | | __|  / _ \    |_ \  | | | |
-      / ___ \  | |_| | | |_  | (_) |  ___) | | |_| |
-     /_/   \_\  \__,_|  \__|  \___/  |____/  |____/  {str(Auto3D.__version__)}
-        // Automatic generation of the low-energy 3D structures                                      
+         _              _             _____   ____
+        / \\     _   _  | |_    ___   |___ /  |  _ \\
+       / _ \\   | | | | | __|  / _ \\    |_ \\  | | | |
+      / ___ \\  | |_| | | |_  | (_) |  ___) | | |_| |
+     /_/   \\_\\  \\__,_|  \\__|  \\___/  |____/  |____/  {str(Auto3D.__version__)}
+        // Automatic generation of the low-energy 3D structures
     """)
-    out = main(arguments)
+
+    try:
+        out = main(arguments)
+        return out
+    except Auto3DError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
