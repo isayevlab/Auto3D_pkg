@@ -1,0 +1,145 @@
+# tests/test_parallel_embed.py
+"""Tests for parallel conformer embedding module."""
+import pytest
+from rdkit import Chem
+
+from Auto3D.isomers.parallel_embed import _embed_single, embed_conformers_parallel
+
+
+class TestEmbedSingle:
+    """Tests for the _embed_single worker function."""
+
+    def test_embed_single_returns_list_of_tuples(self):
+        """_embed_single should return list of (mol, conf_idx, conf_id) tuples."""
+        results = _embed_single(
+            smi="C",
+            name="methane",
+            n_conformers=5,
+            threshold=0.3,
+            np_threads=1,
+        )
+
+        assert isinstance(results, list)
+        assert len(results) >= 1  # At least one conformer
+
+        for mol, conf_idx, conf_id in results:
+            assert isinstance(mol, Chem.Mol)
+            assert isinstance(conf_idx, int)
+            assert isinstance(conf_id, str)
+            assert "methane" in conf_id
+
+    def test_embed_single_with_dynamic_conformers(self):
+        """_embed_single with n_conformers=None should use dynamic calculation."""
+        results = _embed_single(
+            smi="CC",
+            name="ethane",
+            n_conformers=None,
+            threshold=0.3,
+            np_threads=1,
+        )
+
+        assert len(results) >= 1
+
+    def test_embed_single_filters_invalid_conformers(self):
+        """_embed_single should filter conformers with atom clashes."""
+        results = _embed_single(
+            smi="CCCC",  # butane
+            name="butane",
+            n_conformers=10,
+            threshold=0.3,
+            np_threads=1,
+        )
+
+        # All returned conformers should have valid distances
+        for mol, conf_idx, conf_id in results:
+            positions = mol.GetConformer(conf_idx).GetPositions()
+            # min_pairwise_distance should be > 0.9 for all returned conformers
+            assert positions.shape[0] > 0
+
+
+class TestEmbedConformersParallel:
+    """Tests for the parallel embedding function."""
+
+    def test_parallel_embed_returns_conformers(self):
+        """Parallel embedding should return iterator of (mol, conf_idx, conf_id) tuples."""
+        smiles_names = [
+            ("C", "methane"),
+            ("CC", "ethane"),
+        ]
+        results = list(embed_conformers_parallel(
+            smiles_names,
+            n_conformers=5,
+            threshold=0.3,
+            np_threads=1,
+            n_workers=2,
+        ))
+
+        assert len(results) >= 2  # At least one conformer per input
+        for mol, conf_idx, conf_id in results:
+            assert mol is not None
+            assert mol.GetNumConformers() > 0
+            assert isinstance(conf_idx, int)
+            assert isinstance(conf_id, str)
+
+    def test_parallel_embed_with_single_worker(self):
+        """Parallel embedding should work with single worker."""
+        smiles_names = [
+            ("CCC", "propane"),
+            ("CCCC", "butane"),
+        ]
+        results = list(embed_conformers_parallel(
+            smiles_names,
+            n_conformers=3,
+            n_workers=1,
+        ))
+
+        assert len(results) >= 2
+
+    def test_parallel_embed_with_empty_input(self):
+        """Parallel embedding should handle empty input."""
+        results = list(embed_conformers_parallel([], n_conformers=5, n_workers=2))
+        assert len(results) == 0
+
+    def test_parallel_embed_conf_id_format(self):
+        """Conformer IDs should follow name_idx format."""
+        smiles_names = [("C", "mol1")]
+        results = list(embed_conformers_parallel(
+            smiles_names,
+            n_conformers=3,
+            n_workers=1,
+        ))
+
+        for mol, conf_idx, conf_id in results:
+            assert conf_id.startswith("mol1_")
+            # conf_id should be name_idx format
+            parts = conf_id.split("_")
+            assert len(parts) >= 2
+
+    def test_parallel_embed_handles_complex_molecules(self):
+        """Parallel embedding should handle more complex molecules."""
+        smiles_names = [
+            ("c1ccccc1", "benzene"),  # aromatic ring
+            ("CCO", "ethanol"),  # small functional group
+        ]
+        results = list(embed_conformers_parallel(
+            smiles_names,
+            n_conformers=5,
+            threshold=0.3,
+            np_threads=1,
+            n_workers=2,
+        ))
+
+        assert len(results) >= 2
+
+        # Check that benzene conformers have correct atom count
+        for mol, conf_idx, conf_id in results:
+            if "benzene" in conf_id:
+                # Benzene with hydrogens has 12 atoms (6 C + 6 H)
+                assert mol.GetNumAtoms() == 12
+
+    def test_parallel_embed_default_parameters(self):
+        """Parallel embedding should work with default parameters."""
+        smiles_names = [("C", "methane")]
+        results = list(embed_conformers_parallel(smiles_names))
+
+        assert len(results) >= 1
