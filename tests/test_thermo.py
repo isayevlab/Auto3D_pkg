@@ -119,7 +119,8 @@ def test_model_name2model_calculator_uses_factory():
             # Create a mock EnForce_ANI instance with a real parameter
             mock_model_instance = MagicMock()
             mock_param = torch.nn.Parameter(torch.zeros(1))
-            mock_model_instance.parameters.return_value = iter([mock_param])
+            # Return a fresh iterator each time parameters() is called
+            mock_model_instance.parameters.side_effect = lambda: iter([mock_param])
             mock_enforce.return_value = mock_model_instance
 
             model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
