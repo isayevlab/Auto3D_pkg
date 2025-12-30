@@ -15,6 +15,38 @@ from tqdm import tqdm
 from Auto3D.batch_opt.fire_optimizer import FIRE
 
 
+def _validate_state(state: dict[str, Any]) -> None:
+    """Validate optimization state tensors.
+
+    Validates that the input tensors have the correct dimensionality:
+    - coord: 3D tensor (batch, atoms, 3)
+    - numbers: 2D tensor (batch, atoms)
+    - charges: 1D tensor (batch,)
+
+    Args:
+        state: Optimization state dictionary containing coord, numbers, and charges.
+
+    Raises:
+        ValueError: If tensor shapes are invalid.
+    """
+    coord = state['coord']
+    numbers = state['numbers']
+    charges = state['charges']
+
+    if len(coord.shape) != 3:
+        raise ValueError(
+            f"coord must be 3D tensor (batch, atoms, 3), got shape {tuple(coord.shape)}"
+        )
+    if len(numbers.shape) != 2:
+        raise ValueError(
+            f"numbers must be 2D tensor (batch, atoms), got shape {tuple(numbers.shape)}"
+        )
+    if len(charges.shape) != 1:
+        raise ValueError(
+            f"charges must be 1D tensor (batch,), got shape {tuple(charges.shape)}"
+        )
+
+
 def print_stats(state: dict[str, Any], patience: int) -> None:
     """Print the optimization status.
 
@@ -77,6 +109,10 @@ def n_steps(
     numbers = state['numbers']
     charges = state['charges']
     coord = state['coord']
+
+    # Validate input state tensors before processing
+    _validate_state(state)
+
     optimizer = FIRE(coord)
 
     # The following two terms are used to detect oscillating conformers
@@ -90,11 +126,6 @@ def n_steps(
     energy_stable_count = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
 
     state["oscillating_count"] = oscillating_count0
-    assert (len(coord.shape) == 3)
-    assert (len(numbers.shape) == 2)
-    assert (len(charges.shape) == 1)
-    assert (len(smallest_fmax0.shape) == 2)
-    assert (len(oscillating_count0.shape) == 2)
 
     for istep in tqdm(range(1, (n + 1), 1)):
         not_converged = ~ state['converged_mask']  # Essential tracker handle, size fixed
@@ -118,7 +149,6 @@ def n_steps(
         coord = optimizer(coord, f)
         fmax = f.norm(dim=-1).max(dim=-1)[
             0]  # Tensor, Norm is the length of each vector. Here it returns the maximum force length for each conformer. Size (100)
-        assert (len(fmax.shape) == 1)
         not_converged_post1 = fmax > opttol
 
         # Update smallest_fmax for each molecule
