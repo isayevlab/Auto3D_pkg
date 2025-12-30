@@ -1,8 +1,8 @@
 """Repository pattern implementations for molecule file I/O."""
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Iterator, Protocol, runtime_checkable
+from collections.abc import Iterator
+from typing import Protocol, runtime_checkable
 
 from rdkit import Chem
 
@@ -127,7 +127,7 @@ class SMIRepository:
         Yields:
             RDKit Mol objects with _Name property set.
         """
-        with open(path, "r") as f:
+        with open(path) as f:
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:
@@ -165,7 +165,7 @@ class SMIRepository:
         Yields:
             Tuples of (smiles, id).
         """
-        with open(path, "r") as f:
+        with open(path) as f:
             for line in f:
                 parts = line.strip().split()
                 if len(parts) >= 2:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import collections
-import glob
 import logging
 import math
 import os
@@ -14,23 +13,20 @@ import warnings
 from collections import OrderedDict, defaultdict
 from io import StringIO
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import torch
 from rdkit import Chem
-from rdkit.Chem import inchi, rdMolAlign, rdMolDescriptors, rdMolTransforms
+from rdkit.Chem import rdMolAlign, rdMolTransforms
 from rdkit.Chem.rdMolDescriptors import (
     CalcNumAtomStereoCenters,
     CalcNumUnspecifiedAtomStereoCenters,
 )
-from tqdm import tqdm
 
 from Auto3D.constants import (
+    EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
-    EV_TO_KCAL_PER_MOL,
-    MIN_ATOM_DISTANCE,
 )
 from Auto3D.utils_file import guess_file_type
 
@@ -127,7 +123,7 @@ def check_input(args):
         ANI, only_aimnet_smiles = check_sdf_format(args)
 
     print("Suggestions for choosing isomer_engine and optimizing_engine: ", flush=True)
-    logger.info(f"Suggestions for choosing isomer_engine and optimizing_engine: ")
+    logger.info("Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
         print("\tIsomer engine options: RDKit and Omega.\n"
               "\tOptimizing engine options: ANI2x, ANI2xt, AIMNET or your own NNP.", flush=True)
@@ -148,7 +144,7 @@ def check_smi_format(args):
     ANI = True
 
     smiles_all = []
-    with open(args.path, 'r') as f:
+    with open(args.path) as f:
         data = f.readlines()
     for line in data:
         if line.isspace():
@@ -257,13 +253,13 @@ def hash_enumerated_smi_IDs(smi, out):
     Returns:
         writes all SMILES with hashed IDs into smiles_enumerated_hashed.smi
     '''
-    with open(smi, 'r') as f:
+    with open(smi) as f:
         data = f.readlines()
 
     dict0 = {}
     for line in data:
         smiles, id = line.strip().split()
-        while (id in dict0.keys()):
+        while (id in dict0):
             id += '_0'
         dict0[id] = smiles
 
@@ -284,7 +280,7 @@ def hash_taut_smi(smi, out):
         smi: a .smi File path
         out: the path for the new .smi file where original IDs are hashed.
     '''
-    with open(smi, 'r') as f:
+    with open(smi) as f:
         data = f.readlines()
 
     dict0 = {}
@@ -292,7 +288,7 @@ def hash_taut_smi(smi, out):
         smiles, id = line.strip().split()
         c = 1
         id_ = id
-        while (('taut' not in id_) or (id_ in dict0.keys())):
+        while (('taut' not in id_) or (id_ in dict0)):
             id_ = id + f"@taut{c}"
             c += 1
         dict0[id_] = smiles
@@ -373,7 +369,7 @@ def remove_enantiomers(inpath, out):
         inpath: input smi
         output: output smi
     """
-    with open(inpath, 'r') as f:
+    with open(inpath) as f:
         data = f.readlines()
     
     smiles = defaultdict(lambda: [])
@@ -577,7 +573,7 @@ def amend_configuration(smis):
     """Adding the missing configurations. 
     Example: N=C1OC(CN2CC(C)OC(C)C2)CN1"""
 
-    with open(smis, 'r') as f:
+    with open(smis) as f:
         data = f.readlines()
     dct = defaultdict(lambda: [])
     for line in data:
@@ -676,14 +672,14 @@ def min_pairwise_distance(points: np.array) -> float:
     # Return the square root of the minimum squared distance
     return np.sqrt(min_squared_distance)
 
-def reorder_sdf(sdf:str, source:str) -> List[Chem.Mol]:
+def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
     """Reorder the conformer order in the output SDF file such that 
     it's consistent with the order in the input source file"""
     # convert smi/sdf to a list of ids with correct order
     ids = []
     format = guess_file_type(source)
     if format == 'smi':
-        with open(source, 'r') as f:
+        with open(source) as f:
                 data = f.readlines()
         for line in data:
             smiles, id = tuple(line.strip().split())

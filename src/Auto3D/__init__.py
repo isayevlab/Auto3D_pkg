@@ -6,7 +6,7 @@ using neural network potentials (AIMNet2, ANI2x, ANI2xt).
 """
 
 import warnings
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version(__name__)
@@ -18,9 +18,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore")
 
     try:
-        from openeye import oechem
-        from openeye import oequacpac
-        from openeye import oeomega
+        from openeye import oechem, oeomega, oequacpac
     except ImportError:
         pass  # OpenEye is optional
 

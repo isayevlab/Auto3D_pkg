@@ -16,7 +16,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     sdf: main function output
     
     Output: the path of the low-energy tautomer 3D conformers"""
-    print(f"\nBegin to select stable tautomers based on their conformer energies...", flush=True)
+    print("\nBegin to select stable tautomers based on their conformer energies...", flush=True)
     results = []
     if (k is not None) and (window is not None):
         raise ValueError("Only k OR window needs to be specified")        
@@ -72,7 +72,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     return output_path
 
 
-def get_stable_tautomers(args: dict,  tauto_k: Optional[int]=None, tauto_window:Optional[float]=None) -> str:
+def get_stable_tautomers(args: dict, tauto_k: int | None = None, tauto_window: float | None = None) -> str:
     """
     args: the `options` function output, it's used for generating low-energy conformers
     tauto_k: keep the top-k tautomers

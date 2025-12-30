@@ -172,9 +172,9 @@ class ConformerRanker:
             elif self.window:
                 top_results = self.top_window(group, self.window)
             else:
-                raise ValueError(('Parameter k or window needs to be '
+                raise ValueError('Parameter k or window needs to be '
                                     'specified. Append "--k=1" if you'
-                                    'only want one structure per SMILES'))
+                                    'only want one structure per SMILES')
             results += top_results
 
         with Chem.SDWriter(self.out_path) as f:

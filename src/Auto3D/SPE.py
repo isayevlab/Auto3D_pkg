@@ -1,26 +1,24 @@
 #!/usr/bin/env python
 """Calculating single point energy using ANI2xt, ANI2x, 'userNNP' or AIMNET"""
-import sys
 import os
+import sys
+
 root = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(root)
 
+
 import torch
-import warnings
-from ase import Atoms
-import ase.calculators.calculator
+
 try:
     import torchani
+
     from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
-except:
+except ImportError:
     pass
 from rdkit import Chem
-from rdkit.Chem import rdmolops
-from tqdm import tqdm
-from Auto3D.batch_opt.batchopt import mols2lists, EnForce_ANI
-from Auto3D.batch_opt.batchopt import padding_coords, padding_species
-from Auto3D.utils import hartree2ev
 
+from Auto3D.batch_opt.batchopt import EnForce_ANI, mols2lists, padding_coords, padding_species
+from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
@@ -41,7 +39,7 @@ def calc_spe(path: str, model_name: str, gpu_idx=0):
     #Create a output path that is the in the same directory as the input
     dir = os.path.dirname(path)
     if os.path.exists(model_name):
-        basename = os.path.basename(path).split(".")[0] + f"_userNNP_E.sdf"
+        basename = os.path.basename(path).split(".")[0] + "_userNNP_E.sdf"
     else:
         basename = os.path.basename(path).split(".")[0] + f"_{model_name}_E.sdf"
     outpath = os.path.join(dir, basename)

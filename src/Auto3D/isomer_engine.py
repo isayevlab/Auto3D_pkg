@@ -64,7 +64,7 @@ class TautomerEngine:
         """Enumerate tautomers using RDKit."""
         enumerator = rdMolStandardize.TautomerEnumerator()
         smiles = []
-        with open(self.input_f, 'r') as f:
+        with open(self.input_f) as f:
             data = f.readlines()
             for line in data:
                 line = line.strip().split()
@@ -140,7 +140,7 @@ class RDKitIsomer:
     def read(input_f: str) -> dict[str, str]:
         """Read SMILES file and return name->SMILES mapping."""
         outputs = {}
-        with open(input_f, "r") as f:
+        with open(input_f) as f:
             data = f.readlines()
         for line in data:
             smiles, name = tuple(line.strip().split())

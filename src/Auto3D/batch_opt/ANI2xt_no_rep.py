@@ -1,11 +1,10 @@
+import os
+
 import torch
 import torch.nn as nn
 import torchani
-import os
-import math
-from torchani.units import hartree2kcalmol
-from Auto3D.utils import hartree2ev
 
+from Auto3D.utils import hartree2ev
 
 torch.manual_seed(0)
 torch.backends.cuda.matmul.allow_tf32 = False

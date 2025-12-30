@@ -1,9 +1,10 @@
 import argparse
 import sys
+
 import yaml
-import logging
+
 import Auto3D
-from Auto3D.auto3D import options, main
+from Auto3D.auto3D import main, options
 
 
 def int_or_intlist(string):
@@ -18,7 +19,7 @@ def cli():
     if len(sys.argv) == 2:
         # using yaml input
         parameters_yaml = sys.argv[1]
-        parameters = yaml.load(open(parameters_yaml, "r"), Loader=yaml.FullLoader)
+        parameters = yaml.load(open(parameters_yaml), Loader=yaml.FullLoader)
         # change 'None' to None
         for key, val in parameters.items():
             if val == "None":

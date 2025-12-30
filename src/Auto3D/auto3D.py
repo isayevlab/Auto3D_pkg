@@ -5,26 +5,20 @@ Generating low-energy conformers from SMILES.
 from __future__ import annotations
 
 import logging
-import math
 import multiprocessing as mp
 import os
 import shutil
 import sys
 import tarfile
 import tempfile
-import time
-from datetime import datetime
 from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pandas as pd
-import psutil
 import torch
 from rdkit import Chem
 from send2trash import send2trash
 
-import Auto3D
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
 from Auto3D.isomer_engine import oe_isomer, rd_isomer, rd_isomer_sdf, tautomer_engine
@@ -36,7 +30,7 @@ from Auto3D.utils import (
     housekeeping,
     reorder_sdf,
 )
-from Auto3D.utils_file import SDF2chunks, decode_ids, encode_ids, smiles2smi
+from Auto3D.utils_file import smiles2smi
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -179,9 +173,9 @@ def optim_rank_wrapper(
             tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
         shutil.rmtree(housekeeping_folder)
         if not args.verbose:
-            try:  #Clusters does not support send2trash
+            try:  # Clusters does not support send2trash
                 send2trash(housekeeping_folder_gz)
-            except:
+            except OSError:
                 os.remove(housekeeping_folder_gz)
     return conformers
 

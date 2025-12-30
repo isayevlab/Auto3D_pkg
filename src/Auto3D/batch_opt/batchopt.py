@@ -9,6 +9,7 @@ try:
 except ImportError:
     pass
 from collections import defaultdict
+
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 
@@ -18,6 +19,7 @@ except ImportError:
     pass
 
 from tqdm import tqdm
+
 from Auto3D.utils import hartree2ev
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -25,7 +27,7 @@ torch.backends.cudnn.allow_tf32 = False
 
 
 @torch.jit.script
-class FIRE():
+class FIRE:
     """a general optimization program 
     # Implementation based on:
     # Guénolé, Julien, et al. Computational Materials Science 175 (2020): 109584.
@@ -378,7 +380,7 @@ def mols2lists(mols, model):
     return coord, numbers, charges
 
 
-class optimizing(object):
+class optimizing:
     def __init__(self, in_f, out_f, name, device, config):
         self.in_f = in_f
         self.out_f = out_f
@@ -434,7 +436,7 @@ class optimizing(object):
         convergence_mask = list(map(lambda x: (x <= self.config['opttol']), fmax))
 
         with Chem.SDWriter(self.out_f) as f:
-            for i in range((len(mols))):
+            for i in range(len(mols)):
                 mol = mols[i]
                 idx = mol.GetProp('_Name')
                 fmax_i = fmax[i]
