@@ -1,6 +1,7 @@
 """Factory for creating neural network potential models."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,11 @@ from Auto3D.models.adapter import (
     BaseModelAdapter,
     CustomModelAdapter,
 )
+
+# Environment variable to enable torch.compile() by default
+_COMPILE_ENV_VAR = "AUTO3D_COMPILE_MODEL"
+# Environment variable to disable ensemble for faster optimization
+_ENSEMBLE_ENV_VAR = "AUTO3D_USE_ENSEMBLE"
 
 
 class ModelFactory:
@@ -41,6 +47,8 @@ class ModelFactory:
         cls,
         name: str,
         device: torch.device | None = None,
+        compile_model: bool | None = None,
+        use_ensemble: bool | None = None,
         **kwargs: Any,
     ) -> BaseModelAdapter:
         """Create a model adapter by name.
@@ -48,6 +56,11 @@ class ModelFactory:
         Args:
             name: Model name ('AIMNET', 'ANI2x', 'ANI2xt') or path to custom model.
             device: Target device for the model.
+            compile_model: Whether to use torch.compile() for optimization.
+                If None, checks AUTO3D_COMPILE_MODEL environment variable.
+            use_ensemble: For AIMNET only: whether to use ensemble model (default False).
+                Single model is ~35x faster and accurate enough for geometry optimization.
+                Set True for highest accuracy. If None, checks AUTO3D_USE_ENSEMBLE env var.
             **kwargs: Additional arguments passed to the adapter constructor.
 
         Returns:
@@ -59,13 +72,27 @@ class ModelFactory:
         if device is None:
             device = torch.device("cpu")
 
+        # Check environment variable if compile_model not explicitly set
+        if compile_model is None:
+            compile_model = os.environ.get(_COMPILE_ENV_VAR, "").lower() in ("1", "true", "yes")
+
+        # Check environment variable for use_ensemble (default False for speed)
+        if use_ensemble is None:
+            env_val = os.environ.get(_ENSEMBLE_ENV_VAR, "").lower()
+            use_ensemble = env_val in ("1", "true", "yes") if env_val else False
+
         name_upper = name.upper()
 
         if name_upper in cls._adapters:
-            return cls._adapters[name_upper](device, **kwargs)
+            # Pass use_ensemble only to AIMNET adapter
+            if name_upper == MODEL_AIMNET.upper():
+                return cls._adapters[name_upper](
+                    device, compile_model=compile_model, use_ensemble=use_ensemble, **kwargs
+                )
+            return cls._adapters[name_upper](device, compile_model=compile_model, **kwargs)
 
         if Path(name).exists():
-            return CustomModelAdapter(name, device)
+            return CustomModelAdapter(name, device, compile_model=compile_model)
 
         raise ValueError(
             f"Model '{name}' not found. Available models: {list(cls._adapters.keys())}. "
@@ -81,6 +108,8 @@ class ModelFactory:
 def create_model(
     name: str,
     device: torch.device | None = None,
+    compile_model: bool | None = None,
+    use_ensemble: bool | None = None,
     **kwargs: Any,
 ) -> BaseModelAdapter:
     """Convenience function to create a model adapter.
@@ -88,15 +117,25 @@ def create_model(
     Args:
         name: Model name or path to custom model.
         device: Target device (default: CPU).
+        compile_model: Whether to use torch.compile() for optimization.
+            If None, checks AUTO3D_COMPILE_MODEL environment variable.
+        use_ensemble: For AIMNET: use ensemble model (default False).
+            Single model is ~35x faster. Set True for highest accuracy.
         **kwargs: Additional model arguments.
 
     Returns:
         Initialized model adapter.
 
     Example:
-        >>> model = create_model("AIMNET", device=torch.device("cuda:0"))
+        >>> model = create_model("AIMNET", device=torch.device("cuda:0"))  # Fast single model (default)
+        >>> # Use ensemble for highest accuracy (slower)
+        >>> model = create_model("AIMNET", device=torch.device("cuda:0"), use_ensemble=True)
+        >>> # Enable torch.compile for ANI models
+        >>> model = create_model("ANI2xt", device=torch.device("cuda:0"), compile_model=True)
     """
-    return ModelFactory.create(name, device, **kwargs)
+    return ModelFactory.create(
+        name, device, compile_model=compile_model, use_ensemble=use_ensemble, **kwargs
+    )
 
 
 def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device:
