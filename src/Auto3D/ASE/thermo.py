@@ -5,7 +5,6 @@ Calculating thermodynamic properties using Auto3D output
 from __future__ import annotations
 
 import sys
-import warnings
 from functools import partial
 from pathlib import Path
 
@@ -23,10 +22,9 @@ from tqdm import tqdm
 
 root = Path(__file__).resolve().parent.parent
 sys.path.append(str(root))
-from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
+from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.utils import hartree2ev
-
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
@@ -52,8 +50,10 @@ class Calculator(ase.calculators.calculator.Calculator):
     def set_charge(self, charge:int):
         self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
 
-    def calculate(self, atoms=None, properties=['energy'],
+    def calculate(self, atoms=None, properties=None,
                   system_changes=ase.calculators.calculator.all_changes):
+        if properties is None:
+            properties = ['energy']
         super().calculate(atoms, properties, system_changes)
 
         species = torch.tensor([self.species[symbol] for symbol in self.atoms.get_chemical_symbols()],
@@ -100,7 +100,8 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         calculator = Calculator(model, charge)
     elif model_name == "AIMNET":
         # Using the ensemble AIMNet2 model for computing energy and forces
-        aimnet = torch.jit.load(os.path.join(root, "models/aimnet2_wb97m_ens_f.jpt"), map_location=device)
+        aimnet_path = root / "models" / "aimnet2_wb97m_ens_f.jpt"
+        aimnet = torch.jit.load(str(aimnet_path), map_location=device)
         model = EnForce_ANI(aimnet, model_name)
         calculator = Calculator(model, charge)
     elif model_name == "ANI2x":
@@ -108,7 +109,7 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         model = EnForce_ANI(ani2x, model_name)
         # calculator = ani2x.ase()
         calculator = Calculator(model, charge)
-    elif os.path.exists(model_name):
+    elif Path(model_name).exists():
         user_nnp = torch.jit.load(model_name, map_location=device).double()
         model = EnForce_ANI(user_nnp, model_name)
         calculator = Calculator(model, charge)
@@ -219,7 +220,7 @@ def aimnet_hessian_helper(
     elif model_name == 'ANI2x':
         e = model((numbers, coord)).energies * hartree2ev
         return e  # energy unit: eV
-    elif os.path.exists(model_name):
+    elif Path(model_name).exists():
         e = model.forward(numbers, coord, charge)
         return e  # energy unit: eV
 
@@ -243,14 +244,13 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     :param opt_steps: Maximum geometry optimization steps, defaults to 5000
     :type opt_steps: int, optional
     """
-    #Prepare output name
+    # Prepare output name
     out_mols, mols_failed = [], []
-    dir = os.path.dirname(path)
-    if os.path.exists(model_name):
-        basename = os.path.basename(path).split(".")[0] + "_userNNP_G.sdf"
+    path_obj = Path(path)
+    if Path(model_name).exists():
+        outpath = path_obj.parent / f"{path_obj.stem}_userNNP_G.sdf"
     else:
-        basename = os.path.basename(path).split(".")[0] + f"_{model_name}_G.sdf"
-    outpath = os.path.join(dir, basename)
+        outpath = path_obj.parent / f"{path_obj.stem}_{model_name}_G.sdf"
 
     if torch.cuda.is_available():
         device = torch.device(f"cuda:{gpu_idx}")
@@ -258,13 +258,13 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         device = torch.device("cpu")
 
     if model_name == 'AIMNET':
-        aimnet0_path = os.path.join(root, "models/aimnet2_wb97m-d3_0.jpt")
-        hessian_model = torch.jit.load(aimnet0_path, map_location=device)
+        aimnet0_path = root / "models" / "aimnet2_wb97m-d3_0.jpt"
+        hessian_model = torch.jit.load(str(aimnet0_path), map_location=device)
     elif model_name == 'ANI2xt':
         hessian_model = ANI2xt(device).double()
     elif model_name == 'ANI2x':
         hessian_model = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
-    elif os.path.exists(model_name):
+    elif Path(model_name).exists():
         hessian_model = torch.jit.load(model_name, map_location=device).double()
     model, calculator = model_name2model_calculator(model_name, device)
 
@@ -316,11 +316,11 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     print("Number of failed thermo calculations: ", len(mols_failed), flush=True)
     print("Number of successful thermo calculations: ", len(out_mols), flush=True)
-    with Chem.SDWriter(outpath) as w:
+    with Chem.SDWriter(str(outpath)) as w:
         all_mols = out_mols + mols_failed
         for mol in all_mols:
             w.write(mol)
-    return outpath
+    return str(outpath)
 
 if __name__ == "__main__":
 

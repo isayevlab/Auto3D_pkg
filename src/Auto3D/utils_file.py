@@ -5,13 +5,12 @@ Providing general utilities for working with different formats of molecular file
 from __future__ import annotations
 
 import glob
-import time
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import inchi, rdMolAlign
+from rdkit.Chem import inchi
 from rdkit.Chem.rdMolDescriptors import CalcNumUnspecifiedAtomStereoCenters
 from tqdm import tqdm
 
@@ -85,14 +84,14 @@ def combine_smi(smies: list[str], out: str) -> None:
     """Combine smi files into a single file"""
     data = []
     for smi in smies:
-        with open(smi, 'r') as f:
+        with open(smi) as f:
             datai = f.readlines()
         data += datai
     data = list(set(data))
     with open(out, 'w+') as f2:
         for line in data:
             if not line.isspace():
-                f2.write((line.strip() + '\n'))
+                f2.write(line.strip() + '\n')
 
 def is_macrocycle(smiles:str, size=10):
     """Check if a SMIELS contains a macrocycle part (a 10-membered or large 
@@ -117,7 +116,7 @@ def split_smi(smi: str) -> None:
 
     normal = []
     macrocycle = []
-    with open(smi, "r") as f:
+    with open(smi) as f:
         data = f.readlines()
     for line in tqdm(data):
         smi_idx = line.strip().split()
@@ -146,7 +145,7 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     """given a sdf file, return a list of chunks,
     each chunk consists of lines of a molecule as they appear in the original file"""
     chunks = []
-    with open(sdf, "r") as f:
+    with open(sdf) as f:
         data = f.readlines()
     chunk = []
     for line in data:
@@ -176,7 +175,7 @@ def combine_xyz(in_folder, out_path):
 
     results = []
     for file in files:
-        with open(file, 'r') as f:
+        with open(file) as f:
             data = f.readlines()
         assert(len(data) == (int(data[0]) + 2))
         results += data
@@ -215,7 +214,7 @@ def find_smiles_not_in_sdf(smi, sdf):
     sdf: path to an SDF file"""
     #find all SMILES ids
     smi_names = []
-    with open(smi, "r") as f:
+    with open(smi) as f:
         data = f.readlines()
     for line in data:
         smi, id = tuple(line.strip().split())
@@ -256,7 +255,7 @@ def encode_ids(path: str) -> tuple[str, dict]:
 
     if extension == 'smi':
         new_data = []
-        with open(path, 'r') as f:
+        with open(path) as f:
             data = f.readlines()
         mapping = {}
         for i, line in enumerate(data):

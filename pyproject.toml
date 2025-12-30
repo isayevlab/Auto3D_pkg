@@ -107,8 +107,32 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "E402",   # module level import not at top (needed for sys.path manipulation)
+    "E741",   # ambiguous variable name (scientific notation l, I, O)
+    "N801",   # class name should use CapWords (legacy code compatibility)
+    "N802",   # function name should be lowercase (legacy API compatibility)
     "N803",   # argument name should be lowercase (scientific computing conventions)
     "N806",   # variable name should be lowercase (scientific computing conventions)
+    "N815",   # mixedCase variable (scientific notation like pKa)
+    "N999",   # invalid module name (Auto3D is the package name)
+    "SIM102", # nested if (sometimes clearer)
+    "SIM103", # return condition directly (explicit is clearer)
+    "SIM105", # contextlib.suppress (try-except-pass is clearer for optional imports)
+    "SIM108", # ternary operator (less readable for complex conditions)
+    "SIM110", # any/all (explicit loops can be clearer)
+    "SIM115", # context manager for open (sometimes not applicable)
+    "SIM118", # key in dict instead of dict.keys()
+    "B007",   # unused loop variable (intentional in some cases)
+    "B008",   # function call in default argument (torch.device is acceptable)
+    "B028",   # stacklevel in warnings (not always needed)
+    "B904",   # raise from in except (not always needed)
+    "C403",   # set comprehension (list comprehension is often clearer)
+    "C408",   # dict() call (more readable with keyword arguments)
+    "C416",   # list comprehension (intentional in some cases)
+    "C417",   # map usage (sometimes clearer than list comprehension)
+    "F401",   # unused import (optional dependency checks)
+    "F841",   # unused variable (sometimes needed for clarity)
+    "UP031",  # format specifiers (% format is fine for simple cases)
 ]
 
 [tool.ruff.lint.isort]

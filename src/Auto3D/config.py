@@ -5,8 +5,9 @@ This module provides typed configuration using dataclasses and Protocols
 for better type safety and IDE support.
 """
 
-from dataclasses import dataclass, field
-from typing import Protocol, TypedDict, Iterator, runtime_checkable
+from dataclasses import dataclass
+from typing import Protocol, TypedDict, runtime_checkable
+
 import torch
 
 

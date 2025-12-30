@@ -1,8 +1,9 @@
 """Factory for creating neural network potential models."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
@@ -10,7 +11,7 @@ import torch.nn as nn
 from Auto3D.constants import MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
 
 if TYPE_CHECKING:
-    from torch import Tensor
+    pass
 
 
 class ModelFactory:
