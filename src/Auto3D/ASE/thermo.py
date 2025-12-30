@@ -196,7 +196,7 @@ def aimnet_hessian_helper(
         return e  # energy unit: eV
 
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
-                gpu_idx=0, opt_tol=0.0002, opt_steps=5000):
+                gpu_idx=0, opt_tol=0.0002, opt_steps=2000):
     """
     ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET.
 
@@ -212,7 +212,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     :type gpu_idx: int, optional
     :param opt_tol: Convergence_threshold for geometry optimization, defaults to 0.0002
     :type opt_tol: float, optional
-    :param opt_steps: Maximum geometry optimization steps, defaults to 5000
+    :param opt_steps: Maximum geometry optimization steps, defaults to 2000
     :type opt_steps: int, optional
     """
     # Prepare output name

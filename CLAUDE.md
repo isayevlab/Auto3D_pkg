@@ -64,9 +64,15 @@ The optimization loop uses several strategies to maximize speed:
 
 1. **Single Model by Default**: AIMNet uses a single model instead of 8-model ensemble, providing ~35x speedup while maintaining accuracy sufficient for geometry optimization. Use `use_ensemble=True` for highest accuracy.
 
-2. **Energy-Based Early Termination**: Structures converge early when energy stabilizes (change < 1e-5 eV for 3 steps), reducing unnecessary NN calls.
+2. **Relaxed Convergence Criteria**: Based on computational chemistry best practices, convergence thresholds are tuned for conformer generation (not final refinement):
+   - Force threshold: 0.01 eV/Å (vs typical 0.05 eV/Å in ASE)
+   - Energy stability: 1e-4 eV (~0.002 kcal/mol) for 3 steps
+   - Max steps: 2000 (most structures converge in 100-500)
+   - Patience: 250 steps before dropping oscillating conformers
 
-3. **torch.compile() Support**: ANI2x/ANI2xt models can use `torch.compile()` for ~1.25x speedup. Enable via `compile_model=True` or `AUTO3D_COMPILE_MODEL=1`.
+3. **Energy-Based Early Termination**: Structures converge early when energy stabilizes, reducing unnecessary NN calls.
+
+4. **torch.compile() Support**: ANI2x/ANI2xt models can use `torch.compile()` for ~1.25x speedup. Enable via `compile_model=True` or `AUTO3D_COMPILE_MODEL=1`.
 
 ```python
 from Auto3D.model_factory import create_model

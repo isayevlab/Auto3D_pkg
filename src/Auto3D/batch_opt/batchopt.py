@@ -245,7 +245,7 @@ def print_stats(state, patience):
     #       (num_total, num_converged, num_dropped, num_active))
 
 
-def n_steps(state, n, opttol, patience, energy_tol=1e-5, energy_patience=3):
+def n_steps(state, n, opttol, patience, energy_tol=1e-4, energy_patience=3):
     """Doing n steps optimization for each input. Only converged structures are
     modified at each step. n_steps does not change input conformer order.
 
@@ -253,7 +253,7 @@ def n_steps(state, n, opttol, patience, energy_tol=1e-5, energy_patience=3):
         state: an dictionary containing all information about this optimization step
         n: optimization step
         patience: optimization stops for a conformer if the force does not decrease for a continuous patience steps
-        energy_tol: energy convergence threshold in eV (default 1e-5 eV = ~0.001 kcal/mol)
+        energy_tol: energy convergence threshold in eV (default 1e-4 eV = ~0.002 kcal/mol)
         energy_patience: number of steps energy must be stable before considering converged"""
     # t0 = perf_counter()
     numbers = state['numbers']
@@ -363,7 +363,7 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
         - opt_steps: maximum optimization steps
         - opttol: force convergence tolerance
         - patience: oscillation patience
-        - energy_tol: (optional) energy convergence tolerance in eV, default 1e-5
+        - energy_tol: (optional) energy convergence tolerance in eV, default 1e-4
         - energy_patience: (optional) steps energy must be stable, default 3
     model: "AIMNET", "ANI2xt", "ANI2x" or "userNNP"
     device
@@ -400,7 +400,7 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
     )
 
     # Get optional early termination parameters with defaults
-    energy_tol = param.get('energy_tol', 1e-5)
+    energy_tol = param.get('energy_tol', 1e-4)
     energy_patience = param.get('energy_patience', 3)
     n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
             energy_tol=energy_tol, energy_patience=energy_patience)

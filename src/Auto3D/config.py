@@ -80,13 +80,13 @@ class Auto3DOptions:
     optimizing_engine: str = "AIMNET"
     """Model for optimization: 'ANI2x', 'ANI2xt', 'AIMNET', or path to custom NNP."""
 
-    patience: int = 1000
+    patience: int = 250
     """Drop conformer from optimization if force doesn't decrease for this many steps."""
 
-    opt_steps: int = 5000
+    opt_steps: int = 2000
     """Maximum optimization steps per structure."""
 
-    convergence_threshold: float = 0.003
+    convergence_threshold: float = 0.01
     """Optimization converges when max force is below this (eV/Å)."""
 
     threshold: float = 0.3

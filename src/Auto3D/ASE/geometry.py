@@ -23,8 +23,8 @@ def opt_geometry(
     path: str,
     model_name: str,
     gpu_idx: int = 0,
-    opt_tol: float = 0.003,
-    opt_steps: int = 5000,
+    opt_tol: float = 0.01,
+    opt_steps: int = 2000,
     patience: int | None = None,
     batchsize_atoms: int = 1024,
 ) -> str:
@@ -41,8 +41,8 @@ def opt_geometry(
             - 'AIMNET': AIMNet2 model (default in Auto3D)
             - Path to custom NNP model file (.pt)
         gpu_idx: CUDA device index. Defaults to 0.
-        opt_tol: Convergence threshold for max force (eV/Å). Defaults to 0.003.
-        opt_steps: Maximum optimization steps per structure. Defaults to 5000.
+        opt_tol: Convergence threshold for max force (eV/Å). Defaults to 0.01.
+        opt_steps: Maximum optimization steps per structure. Defaults to 2000.
         patience: Drop conformer if force doesn't decrease for this many
             consecutive steps. Defaults to None (uses opt_steps value).
         batchsize_atoms: Number of atoms per optimization batch. Larger values
@@ -58,7 +58,7 @@ def opt_geometry(
         ...     "molecules.sdf",
         ...     "AIMNET",
         ...     gpu_idx=0,
-        ...     patience=1000,
+        ...     patience=250,
         ...     batchsize_atoms=2048,
         ... )
     """

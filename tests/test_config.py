@@ -29,9 +29,9 @@ class TestAuto3DOptions:
         assert config.use_gpu is True
         assert config.gpu_idx == 0
         assert config.optimizing_engine == "AIMNET"
-        assert config.patience == 1000
-        assert config.opt_steps == 5000
-        assert config.convergence_threshold == 0.003
+        assert config.patience == 250
+        assert config.opt_steps == 2000
+        assert config.convergence_threshold == 0.01
         assert config.threshold == 0.3
         assert config.memory is None
         assert config.capacity == 42
