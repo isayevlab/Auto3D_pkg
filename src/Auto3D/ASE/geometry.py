@@ -15,8 +15,8 @@ from rdkit import Chem
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.utils import hartree2ev
 
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+# TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
+# and the allow_tf32 option in Auto3DOptions.
 
 
 def opt_geometry(
