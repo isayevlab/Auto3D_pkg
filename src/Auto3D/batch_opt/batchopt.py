@@ -51,12 +51,12 @@ class FIRE:
 
     def __call__(self, coord, forces):
         """Moving atoms based on forces
-        
+
         Arguments:
             coord: coordinates of atoms. Size (Batch, N, 3), where Batch is
                    the number of structures, N is the number of atom in each structure.
             forces: forces on each atom. Size (Batch, N, 3).
-            
+
         Return:
             new coordinates that are moved based on input forces. Size (Batch, N, 3)"""
         vf = (forces * self.v).flatten(-2, -1).sum(-1)
@@ -65,17 +65,19 @@ class FIRE:
             a = self.a.unsqueeze(-1).unsqueeze(-1)
             v = self.v
             f = forces
-            self.v = (1.0 - a) * v + a * v.flatten(-2, -1).norm(p=2, dim=-1).unsqueeze(
-                -1).unsqueeze(-1) * f / f.flatten(-2, -1).norm(p=2, dim=-1).unsqueeze(-1).unsqueeze(
-                -1)
+            # Cache norms to avoid redundant computation
+            v_norm = v.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
+            f_norm = f.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
+            self.v = (1.0 - a) * v + a * v_norm * f / f_norm
             self.Nsteps += 1
         elif w_vf.any():
             a = self.a[w_vf].unsqueeze(-1).unsqueeze(-1)
             v = self.v[w_vf]
             f = forces[w_vf]
-            self.v[w_vf] = (1.0 - a) * v + a * v.flatten(-2, -1).norm(p=2, dim=-1).unsqueeze(
-                -1).unsqueeze(-1) * f / f.flatten(-2, -1).norm(p=2, dim=-1).unsqueeze(-1).unsqueeze(
-                -1)
+            # Cache norms to avoid redundant computation
+            v_norm = v.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
+            f_norm = f.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
+            self.v[w_vf] = (1.0 - a) * v + a * v_norm * f / f_norm
 
             w_N = self.Nsteps > self.Nmin
             w_vfN = w_vf & w_N
@@ -86,19 +88,19 @@ class FIRE:
         w_vf = ~w_vf
         if w_vf.all():
             self.v[:] = 0.0
-            self.a[:] = torch.tensor(self.astart, device=self.a.device)
+            self.a[:] = self.astart
             self.dt[:] *= self.fdec
             self.Nsteps[:] = 0
         elif w_vf.any():
-            self.v[w_vf] = torch.tensor(0.0, device=self.v.device)
-            self.a[w_vf] = torch.tensor(self.astart, device=self.a.device)
+            self.v[w_vf] = 0.0
+            self.a[w_vf] = self.astart
             self.dt[w_vf] *= self.fdec
-            self.Nsteps[w_vf] = torch.tensor(0, device=self.v.device)
+            self.Nsteps[w_vf] = 0
 
         dt = self.dt.unsqueeze(-1).unsqueeze(-1)
         self.v += dt * forces
         dr = dt * self.v
-        normdr = dr.flatten(-2, -1).norm(p=2, dim=-1).unsqueeze(-1).unsqueeze(-1)
+        normdr = dr.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
         dr *= (self.maxstep / normdr).clamp(max=1.0)
         return coord + dr
 
@@ -243,14 +245,16 @@ def print_stats(state, patience):
     #       (num_total, num_converged, num_dropped, num_active))
 
 
-def n_steps(state, n, opttol, patience):
-    """Doing n steps optimization for each input. Only converged structures are 
+def n_steps(state, n, opttol, patience, energy_tol=1e-5, energy_patience=3):
+    """Doing n steps optimization for each input. Only converged structures are
     modified at each step. n_steps does not change input conformer order.
-    
+
     Argument:
         state: an dictionary containing all information about this optimization step
         n: optimization step
-        patience: optimization stops for a conformer if the force does not decrease for a continuous patience steps"""
+        patience: optimization stops for a conformer if the force does not decrease for a continuous patience steps
+        energy_tol: energy convergence threshold in eV (default 1e-5 eV = ~0.001 kcal/mol)
+        energy_patience: number of steps energy must be stable before considering converged"""
     # t0 = perf_counter()
     numbers = state['numbers']
     charges = state['charges']
@@ -261,6 +265,10 @@ def n_steps(state, n, opttol, patience):
                                   dtype=torch.float).to(coord.device)
     oscilating_count0 = torch.tensor(np.zeros((len(coord), 1)),
                                      dtype=torch.float).to(coord.device)
+    # Energy-based convergence tracking
+    prev_energy = torch.full((len(coord),), float('inf'), dtype=torch.double, device=coord.device)
+    energy_stable_count = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
+
     state["oscilating_count"] = oscilating_count0
     assert (len(coord.shape) == 3)
     assert (len(numbers.shape) == 2)
@@ -278,6 +286,8 @@ def n_steps(state, n, opttol, patience):
         charges = state['charges'][not_converged]
         smallest_fmax = smallest_fmax0[not_converged]
         oscilating_count = state["oscilating_count"][not_converged]
+        prev_e_subset = prev_energy[not_converged]
+        energy_stable_subset = energy_stable_count[not_converged]
 
         coord.requires_grad_(True)
         e, f = state['nn'].forward_batched(coord, numbers,
@@ -300,7 +310,18 @@ def n_steps(state, n, opttol, patience):
         oscilating_count += fmax_not_reduced.reshape(-1, 1)
         not_oscilating = oscilating_count < patience
         not_oscilating = not_oscilating.reshape(-1, )
-        not_converged_post = not_converged_post1 & not_oscilating
+
+        # Energy-based convergence: check if energy change is below threshold
+        e_double = e.detach().to(torch.double)
+        energy_change = torch.abs(e_double - prev_e_subset)
+        energy_stable = energy_change < energy_tol
+        # Increment count where energy is stable, reset where not
+        energy_stable_subset = torch.where(energy_stable, energy_stable_subset + 1, torch.zeros_like(energy_stable_subset))
+        # Consider converged if energy stable for energy_patience steps AND force is reasonable (< 10x opttol)
+        energy_converged = (energy_stable_subset >= energy_patience) & (fmax < opttol * 10)
+
+        # Combine all convergence criteria
+        not_converged_post = not_converged_post1 & not_oscilating & ~energy_converged
 
         optimizer.clean(not_converged_post)  # Subset v, a in FIRE for next optimization
 
@@ -315,6 +336,8 @@ def n_steps(state, n, opttol, patience):
         smallest_fmax0[not_converged] = smallest_fmax  # update smalles_fmax for each conformer
         state["oscilating_count"][
             not_converged] = oscilating_count  # update counts for continuous no reduction in fmax
+        prev_energy[not_converged] = e_double  # update previous energy for next iteration
+        energy_stable_count[not_converged] = energy_stable_subset  # update energy stability count
 
         if (istep % (n // 10)) == 0:
             print_stats(state, patience)
@@ -336,7 +359,12 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
            m is the number of atoms in each structure. Can be a list or torch.Tensor.
     numbers: atomic numbers in the molecule (include H). (N, m). Can be a list or torch.Tensor.
     charges: (N,). Can be a list or torch.Tensor.
-    param: a dictionary containing parameters
+    param: a dictionary containing parameters. Supports:
+        - opt_steps: maximum optimization steps
+        - opttol: force convergence tolerance
+        - patience: oscillation patience
+        - energy_tol: (optional) energy convergence tolerance in eV, default 1e-5
+        - energy_patience: (optional) steps energy must be stable, default 3
     model: "AIMNET", "ANI2xt", "ANI2x" or "userNNP"
     device
     """
@@ -371,7 +399,11 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
         he=list(), close=list()  # !!! he and close?
     )
 
-    n_steps(state, param['opt_steps'], param['opttol'], param['patience'])
+    # Get optional early termination parameters with defaults
+    energy_tol = param.get('energy_tol', 1e-5)
+    energy_patience = param.get('energy_patience', 3)
+    n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
+            energy_tol=energy_tol, energy_patience=energy_patience)
 
     return dict(
         coord=state['coord'].tolist(),
@@ -460,7 +492,18 @@ def mols2lists(mols, model):
 
 
 class optimizing:
-    def __init__(self, in_f, out_f, name, device, config):
+    def __init__(self, in_f, out_f, name, device, config, use_ensemble=False):
+        """Initialize optimization runner.
+
+        Args:
+            in_f: Input SDF file path.
+            out_f: Output SDF file path.
+            name: Model name ('AIMNET', 'ANI2x', 'ANI2xt', or path to custom model).
+            device: Torch device for computation.
+            config: Configuration dictionary with optimization parameters.
+            use_ensemble: For AIMNET only - whether to use ensemble (default False).
+                Single model is ~35x faster. Set True for highest accuracy.
+        """
         self.in_f = in_f
         self.out_f = out_f
         self.name = name
@@ -468,7 +511,7 @@ class optimizing:
         self.config = config
 
         # Use ModelFactory to create the model adapter
-        self.model = create_model(name, device)
+        self.model = create_model(name, device, use_ensemble=use_ensemble)
         self.coord_pad = self.model.coord_pad
         self.species_pad = self.model.species_pad
 

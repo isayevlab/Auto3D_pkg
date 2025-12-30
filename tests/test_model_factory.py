@@ -55,8 +55,8 @@ class TestModelFactory:
 
         # Check the path contains expected components
         assert "models" in path_arg
-        # AIMNetAdapter uses aimnet2_wb97m_ens_f.jpt
-        assert "aimnet2_wb97m_ens_f.jpt" in path_arg
+        # AIMNetAdapter uses single model by default (aimnet2_wb97m-d3_0.jpt)
+        assert "aimnet2_wb97m-d3_0.jpt" in path_arg
 
     @patch("Auto3D.model_factory.Path.exists")
     @patch("Auto3D.models.adapter.torch.jit.load")

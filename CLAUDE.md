@@ -54,9 +54,36 @@ Input (SMILES/SDF) → Tautomer Enumeration (optional) → Stereoisomer Generati
 | `ASE/geometry.py` | Geometry optimization wrapper |
 
 ### Neural Network Models (`src/Auto3D/models/`)
-- `aimnet2_wb97m_ens_f.jpt` - Default AIMNet2 model
-- `aimnet2_wb97m-d3_0.jpt` - AIMNet2 with D3 dispersion
+- `aimnet2_wb97m-d3_0.jpt` - Fast single AIMNet2 model (default, ~35x faster)
+- `aimnet2_wb97m_ens_f.jpt` - AIMNet2 8-model ensemble (highest accuracy)
 - `ani2xt_no_repulsion.pt` - ANI2xt variant
+
+### Performance Optimization
+
+The optimization loop uses several strategies to maximize speed:
+
+1. **Single Model by Default**: AIMNet uses a single model instead of 8-model ensemble, providing ~35x speedup while maintaining accuracy sufficient for geometry optimization. Use `use_ensemble=True` for highest accuracy.
+
+2. **Energy-Based Early Termination**: Structures converge early when energy stabilizes (change < 1e-5 eV for 3 steps), reducing unnecessary NN calls.
+
+3. **torch.compile() Support**: ANI2x/ANI2xt models can use `torch.compile()` for ~1.25x speedup. Enable via `compile_model=True` or `AUTO3D_COMPILE_MODEL=1`.
+
+```python
+from Auto3D.model_factory import create_model
+
+# Default: fast single model
+model = create_model("AIMNET", device)
+
+# Ensemble for highest accuracy (slower)
+model = create_model("AIMNET", device, use_ensemble=True)
+
+# Enable torch.compile for ANI models
+model = create_model("ANI2xt", device, compile_model=True)
+```
+
+Environment variables:
+- `AUTO3D_USE_ENSEMBLE=1` - Use ensemble model (default: off)
+- `AUTO3D_COMPILE_MODEL=1` - Enable torch.compile (default: off)
 
 ### Key Design Patterns
 

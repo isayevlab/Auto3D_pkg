@@ -88,7 +88,8 @@ class TestAIMNetAdapter:
 
         # Check the path contains expected components
         assert "models" in path_arg
-        assert "aimnet2_wb97m_ens_f.jpt" in path_arg
+        # Single model is now the default (aimnet2_wb97m-d3_0.jpt)
+        assert "aimnet2_wb97m-d3_0.jpt" in path_arg
 
     @patch("Auto3D.models.adapter.torch.jit.load")
     def test_aimnet_adapter_has_correct_padding(self, mock_load):
