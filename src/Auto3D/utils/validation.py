@@ -13,13 +13,9 @@ from typing import Any, TYPE_CHECKING
 
 import torch
 from rdkit import Chem
-from rdkit.Chem import rdMolAlign
 from rdkit.Chem.rdMolDescriptors import (
     CalcNumUnspecifiedAtomStereoCenters,
 )
-
-# Import check_connectivity from chemistry module to avoid duplication
-from Auto3D.utils.chemistry import check_connectivity
 
 if TYPE_CHECKING:
     pass
@@ -224,50 +220,6 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
         )
         warnings.warn(msg, UserWarning)
     return ANI, only_aimnet_ids
-
-
-def filter_unique(mols: list[Chem.Mol], crit: float = 0.3) -> list[Chem.Mol]:
-    """Remove structures that are very similar and remove unconverged structures.
-
-    This function filters a list of molecules to keep only unique, converged structures.
-    It first removes unconverged structures and those with invalid connectivity,
-    then removes similar structures based on RMSD comparison.
-
-    Args:
-        mols: List of RDKit molecule objects with 'Converged' property set.
-        crit: RMSD threshold for considering two structures as identical.
-            Structures with RMSD below this value are considered duplicates.
-            Defaults to 0.3 Angstroms.
-
-    Returns:
-        List of unique, converged molecules with valid connectivity.
-    """
-    # Remove unconverged structures
-    mols_ = []
-    for mol in mols:
-        convergence_flag = mol.GetProp("Converged").lower() == "true"
-        has_valid_bonds = check_connectivity(mol)
-        if convergence_flag and has_valid_bonds:
-            mols_.append(mol)
-    mols = mols_
-
-    # Remove similar structures
-    unique_mols = []
-    for mol_i in mols:
-        unique = True
-        for mol_j in unique_mols:
-            try:
-                # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
-                # removing Hs speeds up the calculation
-                rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))
-            except RuntimeError:
-                rmsd = 0
-            if rmsd < crit:
-                unique = False
-                break
-        if unique:
-            unique_mols.append(mol_i)
-    return unique_mols
 
 
 def check_valid_configuration(
