@@ -13,6 +13,7 @@ from Auto3D.model_factory import (
     get_device,
     is_custom_model,
 )
+from Auto3D.models.adapter import ModelAdapter
 
 
 class TestModelFactory:
@@ -37,10 +38,11 @@ class TestModelFactory:
         models = ModelFactory.available_models()
         assert all(name.isupper() for name in models)
 
-    @patch("Auto3D.model_factory.torch.jit.load")
+    @patch("Auto3D.models.adapter.torch.jit.load")
     def test_create_aimnet_loads_correct_path(self, mock_load):
         """Test that AIMNET model loads from correct path."""
         mock_model = MagicMock()
+        mock_model.parameters.return_value = iter([])
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")
@@ -53,22 +55,26 @@ class TestModelFactory:
 
         # Check the path contains expected components
         assert "models" in path_arg
-        assert "aimnet2_wb97m-d3_ens.jpt" in path_arg
+        # AIMNetAdapter uses aimnet2_wb97m_ens_f.jpt
+        assert "aimnet2_wb97m_ens_f.jpt" in path_arg
 
     @patch("Auto3D.model_factory.Path.exists")
-    @patch("Auto3D.model_factory.torch.jit.load")
+    @patch("Auto3D.models.adapter.torch.jit.load")
     def test_create_custom_model_from_path(self, mock_load, mock_exists):
         """Test that custom model paths are loaded correctly."""
+        from Auto3D.models.adapter import CustomModelAdapter
+
         mock_exists.return_value = True
         mock_model = MagicMock()
+        mock_model.parameters.return_value = iter([])
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")
         result = ModelFactory.create("/path/to/custom_model.pt", device=device)
 
         mock_load.assert_called_once()
-        mock_model.eval.assert_called_once()
-        assert result == mock_model
+        # Result should be a CustomModelAdapter instance
+        assert isinstance(result, CustomModelAdapter)
 
 
 class TestCreateModel:
@@ -129,3 +135,80 @@ class TestIsCustomModel:
     def test_is_custom_model_false_for_nonexistent_path(self):
         """Test that non-existent paths return False."""
         assert not is_custom_model("/nonexistent/path/model.pt")
+
+
+class TestFactoryReturnsAdapter:
+    """Tests for ModelFactory returning adapter instances."""
+
+    @patch("Auto3D.models.adapter.torch.jit.load")
+    def test_factory_returns_adapter(self, mock_load):
+        """Factory should return ModelAdapter instances."""
+        mock_model = MagicMock()
+        mock_model.parameters.return_value = iter([])
+        mock_load.return_value = mock_model
+
+        device = torch.device("cpu")
+        model = create_model("AIMNET", device)
+
+        # Check it's an adapter with the right interface
+        assert hasattr(model, 'coord_pad')
+        assert hasattr(model, 'species_pad')
+        assert hasattr(model, 'forward')
+        assert model.coord_pad == 0.0
+        assert model.species_pad == 0
+
+    @patch("Auto3D.models.adapter.torch.jit.load")
+    def test_factory_returns_aimnet_adapter(self, mock_load):
+        """Factory should return AIMNetAdapter for AIMNET."""
+        from Auto3D.models.adapter import AIMNetAdapter
+
+        mock_model = MagicMock()
+        mock_model.parameters.return_value = iter([])
+        mock_load.return_value = mock_model
+
+        device = torch.device("cpu")
+        model = create_model("AIMNET", device)
+
+        assert isinstance(model, AIMNetAdapter)
+
+    def test_factory_returns_ani2xt_adapter(self):
+        """Factory should return ANI2xtAdapter for ANI2xt."""
+        pytest.importorskip("torchani")
+        from Auto3D.models.adapter import ANI2xtAdapter
+
+        device = torch.device("cpu")
+        model = create_model("ANI2xt", device)
+
+        assert isinstance(model, ANI2xtAdapter)
+        assert model.species_pad == -1
+
+    def test_factory_returns_ani2x_adapter(self):
+        """Factory should return ANI2xAdapter for ANI2x."""
+        pytest.importorskip("torchani")
+        from Auto3D.models.adapter import ANI2xAdapter
+
+        device = torch.device("cpu")
+        model = create_model("ANI2x", device)
+
+        assert isinstance(model, ANI2xAdapter)
+        assert model.species_pad == -1
+
+    @patch("Auto3D.model_factory.Path.exists")
+    @patch("Auto3D.models.adapter.torch.jit.load")
+    def test_factory_returns_custom_adapter(self, mock_load, mock_exists):
+        """Factory should return CustomModelAdapter for custom model paths."""
+        from Auto3D.models.adapter import CustomModelAdapter
+
+        mock_exists.return_value = True
+        mock_model = MagicMock()
+        mock_model.parameters.return_value = iter([])
+        mock_model.coord_pad = 1.5
+        mock_model.species_pad = -2
+        mock_load.return_value = mock_model
+
+        device = torch.device("cpu")
+        model = create_model("/path/to/custom_model.pt", device)
+
+        assert isinstance(model, CustomModelAdapter)
+        assert model.coord_pad == 1.5
+        assert model.species_pad == -2
