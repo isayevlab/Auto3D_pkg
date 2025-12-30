@@ -60,7 +60,8 @@ class EnForce_ANI(nn.Module):
         if isinstance(name_or_batchsize, str):
             # Old API: EnForce_ANI(model, name, batchsize_atoms)
             warnings.warn(
-                "Passing 'name' to EnForce_ANI is deprecated. Use model adapters instead.",
+                "Passing 'name' to EnForce_ANI is deprecated and will be removed in Auto3D v2.0. "
+                "Use model adapters from Auto3D.model_factory instead.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -123,6 +124,10 @@ class EnForce_ANI(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Legacy forward implementation for backward compatibility.
 
+        .. deprecated:: 1.0
+            This method is deprecated and will be removed in Auto3D v2.0.
+            Use model adapters from :mod:`Auto3D.model_factory` instead.
+
         Handles raw models that were passed with the old API.
 
         Note: Cannot use torch.inference_mode() because force calculation
@@ -138,6 +143,12 @@ class EnForce_ANI(nn.Module):
         Returns:
             Tuple of (energies, forces).
         """
+        warnings.warn(
+            "_legacy_forward is deprecated and will be removed in Auto3D v2.0. "
+            "Use model adapters from Auto3D.model_factory instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self.name == "AIMNET":
             d = self.ani(dict(coord=coord, numbers=numbers, charge=charges))
             e = d["energy"].to(torch.double)

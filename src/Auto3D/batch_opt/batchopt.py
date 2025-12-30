@@ -111,15 +111,16 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
 def padding_coords(lists, pad_value=0.0):
     """Pad coordinate lists to uniform length.
 
-    .. deprecated::
+    .. deprecated:: 1.0
+        This function is deprecated and will be removed in Auto3D v2.0.
         Use :func:`Auto3D.batch_opt.padding.pad_molecular_batch` or
         :func:`Auto3D.batch_opt.padding.pad_from_mols` instead.
         These functions return PyTorch tensors directly and are more efficient.
     """
     import warnings
     warnings.warn(
-        "padding_coords is deprecated. Use pad_molecular_batch or pad_from_mols "
-        "from Auto3D.batch_opt.padding instead.",
+        "padding_coords is deprecated and will be removed in Auto3D v2.0. "
+        "Use pad_molecular_batch or pad_from_mols from Auto3D.batch_opt.padding instead.",
         DeprecationWarning,
         stacklevel=2
     )
@@ -140,15 +141,16 @@ def padding_coords(lists, pad_value=0.0):
 def padding_species(lists, pad_value=-1):
     """Pad species lists to uniform length.
 
-    .. deprecated::
+    .. deprecated:: 1.0
+        This function is deprecated and will be removed in Auto3D v2.0.
         Use :func:`Auto3D.batch_opt.padding.pad_molecular_batch` or
         :func:`Auto3D.batch_opt.padding.pad_from_mols` instead.
         These functions return PyTorch tensors directly and are more efficient.
     """
     import warnings
     warnings.warn(
-        "padding_species is deprecated. Use pad_molecular_batch or pad_from_mols "
-        "from Auto3D.batch_opt.padding instead.",
+        "padding_species is deprecated and will be removed in Auto3D v2.0. "
+        "Use pad_molecular_batch or pad_from_mols from Auto3D.batch_opt.padding instead.",
         DeprecationWarning,
         stacklevel=2
     )
