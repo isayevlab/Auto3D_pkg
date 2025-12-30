@@ -116,22 +116,49 @@ class EnForce_ANI(torch.nn.Module):
     for calculating energies and forces.
 
     Arguments:
-        model_adapter: A model adapter implementing the forward(coords, species, charges) interface.
+        model_adapter: A model adapter implementing the forward(coords, species, charges) interface,
+                       or a raw model (for backward compatibility).
+        name_or_batchsize: Either a string name (deprecated old API) or an int batchsize_atoms.
         batchsize_atoms: Maximum number of atoms that can be handled in one batch.
 
     Returns:
         The energies and forces for the input molecules.
     """
 
-    def __init__(self, model_adapter, batchsize_atoms=1024 * 16):
+    def __init__(self, model_adapter, name_or_batchsize=None, batchsize_atoms=1024 * 16):
         super().__init__()
-        self.model = model_adapter
-        self.batchsize_atoms = batchsize_atoms
+        # Handle backward compatibility
+        if isinstance(name_or_batchsize, str):
+            # Old API: EnForce_ANI(model, name, batchsize_atoms)
+            import warnings
+            warnings.warn(
+                "Passing 'name' to EnForce_ANI is deprecated. Use model adapters instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            self.add_module('ani', model_adapter)
+            self.model = model_adapter
+            self.name = name_or_batchsize
+            self.batchsize_atoms = batchsize_atoms
+            self._use_legacy_forward = True
+        elif isinstance(name_or_batchsize, int):
+            # New API with explicit batchsize: EnForce_ANI(model_adapter, batchsize_atoms)
+            self.model = model_adapter
+            self.batchsize_atoms = name_or_batchsize
+            self.name = None
+            self._use_legacy_forward = False
+        else:
+            # New API: EnForce_ANI(model_adapter) or EnForce_ANI(model_adapter, None, batchsize)
+            self.model = model_adapter
+            self.batchsize_atoms = batchsize_atoms
+            self.name = None
+            self._use_legacy_forward = False
 
     def forward(self, coord, numbers, charges):
         """Calculate the energies and forces for input molecules.
 
-        Delegates to the model adapter's forward method.
+        Delegates to the model adapter's forward method, or uses legacy
+        logic for backward compatibility with raw models.
 
         Arguments:
             coord: coordinates for all input structures. size (B, N, 3), where
@@ -144,7 +171,35 @@ class EnForce_ANI(torch.nn.Module):
             energies
             forces
         """
+        if self._use_legacy_forward:
+            return self._legacy_forward(coord, numbers, charges)
         return self.model.forward(coord, numbers, charges)
+
+    def _legacy_forward(self, coord, numbers, charges):
+        """Legacy forward implementation for backward compatibility.
+
+        Handles raw models that were passed with the old API.
+        """
+        if self.name == "AIMNET":
+            d = self.ani(
+                dict(coord=coord, numbers=numbers, charge=charges))
+            e = d['energy'].to(torch.double)
+            f = d['forces']
+        elif self.name == "ANI2xt":
+            e = self.ani(numbers, coord)
+            g = torch.autograd.grad([e.sum()], [coord])[0]
+            f = -g
+        elif self.name == "ANI2x":
+            e = self.ani((numbers, coord)).energies
+            e = e * hartree2ev  # ANI2x output energy unit is Hartree; convert to eV
+            g = torch.autograd.grad([e.sum()], [coord])[0]
+            f = -g
+        else:
+            # user NNP that was loaded from a file
+            e = self.ani(numbers, coord, charges)
+            g = torch.autograd.grad([e.sum()], [coord])[0]
+            f = -g
+        return e, f
 
     def forward_batched(self, coord, numbers, charges):
         """Calculate the energies and forces for input molecules in batches.
