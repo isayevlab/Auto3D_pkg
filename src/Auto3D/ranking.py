@@ -56,13 +56,6 @@ class ConformerRanker:
         self.energy_cluster_window = energy_cluster_window
 
     @staticmethod
-    def similar(name: str, names: list[str]) -> bool:
-        """Check if name matches the first name in the list (ignoring suffixes)."""
-        name2 = name.strip().split("_")[0]
-        names2 = names[0].strip().split("_")[0]
-        return name2 == names2
-
-    @staticmethod
     def add_relative_e(
         list0: list[tuple[int, str, float]],
     ) -> list[tuple[int, str, float, float]]:

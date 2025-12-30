@@ -136,8 +136,6 @@ class RDKitIsomer:
         self.enumerated_smi_path_reduced = smiles_enumerated_reduced
         self.enumerated_smi_hashed_path = smiles_hashed
         self.enumerated_sdf = enumerated_sdf
-        self.num2sym = {1: 'H', 6: 'C', 8: 'O', 7: 'N',
-                        9: 'F', 16: 'S', 17: 'Cl'}
         self.rdk_tmp = Path(job_name) / 'rdk_tmp'
         self.rdk_tmp.mkdir()
         self.threshold = threshold
