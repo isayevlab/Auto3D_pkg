@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import math
 import multiprocessing as mp
-import sys
 import time
 from datetime import datetime
 from logging.handlers import QueueHandler
@@ -17,6 +16,7 @@ import torch
 
 import Auto3D
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.utils import check_input, reorder_sdf
 from Auto3D.utils_file import SDF2chunks, decode_ids, encode_ids
 
@@ -59,7 +59,9 @@ class WorkflowOrchestrator:
             Path to the output SDF file.
 
         Raises:
-            SystemExit: If validation fails or no structures converge.
+            ConfigurationError: If configuration is invalid.
+            FileFormatError: If input file format is not supported.
+            OptimizationError: If no structures converge.
         """
         start_time = time.time()
 
@@ -80,9 +82,14 @@ class WorkflowOrchestrator:
         return output_path
 
     def _validate_input(self) -> None:
-        """Validate input configuration and prepare encoded input file."""
+        """Validate input configuration and prepare encoded input file.
+
+        Raises:
+            ConfigurationError: If path is None or k/window not specified.
+            FileFormatError: If input file format is not supported.
+        """
         if self.config.path is None:
-            sys.exit("Please specify the input file path.")
+            raise ConfigurationError("Please specify the input file path.")
 
         # Encode IDs for internal processing
         encoded_path, self.id_mapping = encode_ids(self.config.path)
@@ -91,7 +98,7 @@ class WorkflowOrchestrator:
         # Validate file format
         self.input_format = self.input_path.suffix[1:]  # Remove leading dot
         if self.input_format not in ("smi", "sdf"):
-            sys.exit(
+            raise FileFormatError(
                 f"Input file type is not supported. Only .smi and .sdf are supported. "
                 f"But the input file is {self.input_format}."
             )
@@ -101,7 +108,7 @@ class WorkflowOrchestrator:
 
         # Validate output selection
         if not self.config.k and not self.config.window:
-            sys.exit(
+            raise ConfigurationError(
                 "Either k or window needs to be specified. "
                 "Usually, setting '--k=1' satisfies most needs."
             )
@@ -345,7 +352,7 @@ class WorkflowOrchestrator:
         output_files = list(self.job_dir.glob("job*/*_3d.sdf"))
 
         if not output_files:
-            sys.exit(
+            raise OptimizationError(
                 "The optimization engine did not run, or no 3D structure converged.\n"
                 "The reason might be one of the following:\n"
                 "1. Allocated memory is not enough;\n"
