@@ -1,0 +1,636 @@
+"""Tests for Auto3D.utils.file_ops module."""
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from Auto3D.utils.file_ops import (
+    guess_file_type,
+    encode_smiles,
+    decode_smiles,
+    hash_enumerated_smi_IDs,
+    hash_taut_smi,
+    housekeeping_helper,
+    housekeeping,
+    create_chunk_meta_names,
+    combine_smi,
+    SDF2chunks,
+    encode_ids,
+    decode_ids,
+    reorder_sdf,
+)
+
+
+# Get the test files directory
+TEST_DIR = Path(__file__).parent
+FILES_DIR = TEST_DIR / "files"
+
+
+class TestGuessFileType:
+    """Tests for guess_file_type function."""
+
+    def test_smi_extension(self):
+        """Test detection of .smi files."""
+        assert guess_file_type("molecules.smi") == "smi"
+        assert guess_file_type("/path/to/input.smi") == "smi"
+
+    def test_sdf_extension(self):
+        """Test detection of .sdf files."""
+        assert guess_file_type("molecules.sdf") == "sdf"
+        assert guess_file_type("/data/output/result.sdf") == "sdf"
+
+    def test_mol2_extension(self):
+        """Test detection of .mol2 files."""
+        assert guess_file_type("molecule.mol2") == "mol2"
+
+    def test_xyz_extension(self):
+        """Test detection of .xyz files."""
+        assert guess_file_type("geometry.xyz") == "xyz"
+
+    def test_complex_path(self):
+        """Test with complex file paths."""
+        assert guess_file_type("/home/user/data.2024/molecules.sdf") == "sdf"
+        assert guess_file_type("./relative/path/file.smi") == "smi"
+
+    def test_no_extension(self):
+        """Test file without extension returns empty string."""
+        assert guess_file_type("filename") == ""
+
+    def test_hidden_file(self):
+        """Test hidden files with extension."""
+        assert guess_file_type(".hidden.sdf") == "sdf"
+
+
+class TestEncodeSmiles:
+    """Tests for encode_smiles function."""
+
+    def test_simple_smiles(self):
+        """Test that simple SMILES without special chars are unchanged."""
+        assert encode_smiles("CCO") == "CCO"
+        assert encode_smiles("CCCC") == "CCCC"
+        assert encode_smiles("c1ccccc1") == "c1ccccc1"
+
+    def test_double_bond(self):
+        """Test encoding of double bonds."""
+        assert encode_smiles("C=C") == "CdC"
+        assert encode_smiles("CC=CC") == "CCdCC"
+
+    def test_triple_bond(self):
+        """Test encoding of triple bonds."""
+        assert encode_smiles("C#N") == "CtN"
+        assert encode_smiles("C#C") == "CtC"
+
+    def test_stereochemistry(self):
+        """Test encoding of stereochemistry markers."""
+        assert encode_smiles("C/C=C/C") == "CsCdCsC"
+        assert encode_smiles("C/C=C\\C") == "CsCdCbC"
+
+    def test_chiral_center(self):
+        """Test encoding of chiral centers."""
+        encoded = encode_smiles("[C@H](F)(Cl)Br")
+        assert "a" in encoded  # @ becomes 'a'
+        assert "K" in encoded  # [ becomes 'K'
+        assert "J" in encoded  # ] becomes 'J'
+
+    def test_charged_species(self):
+        """Test encoding of charged molecules."""
+        encoded = encode_smiles("[NH4+]")
+        assert encoded == "KNH4pJ"
+
+        encoded = encode_smiles("[O-]")
+        assert encoded == "KOmJ"
+
+    def test_parentheses(self):
+        """Test encoding of parentheses."""
+        encoded = encode_smiles("CC(C)C")
+        assert encoded == "CCLCRC"
+
+    def test_brackets(self):
+        """Test encoding of brackets."""
+        encoded = encode_smiles("[Na]")
+        assert encoded == "KNaJ"
+
+    def test_ring_numbers_with_percent(self):
+        """Test encoding of large ring numbers."""
+        encoded = encode_smiles("C%12CCCCC%12")
+        assert "X12" in encoded
+
+    def test_long_smiles_uses_hash(self):
+        """Test that very long SMILES are hash-encoded."""
+        # Create a SMILES longer than 50 characters
+        long_smiles = "C" * 100
+        encoded = encode_smiles(long_smiles, max_length=50)
+        assert len(encoded) <= 50
+        assert "_" in encoded  # Hash separator
+
+    def test_max_length_parameter(self):
+        """Test that max_length parameter controls output length."""
+        long_smiles = "C=C" * 20  # 60 chars when encoded
+        encoded = encode_smiles(long_smiles, max_length=30)
+        assert len(encoded) <= 30
+
+    def test_deterministic_encoding(self):
+        """Test that same input always produces same output."""
+        smiles = "CC(=O)OC1=CC=CC=C1C(=O)O"  # Aspirin
+        encoded1 = encode_smiles(smiles)
+        encoded2 = encode_smiles(smiles)
+        assert encoded1 == encoded2
+
+    def test_different_smiles_different_encodings(self):
+        """Test that different SMILES produce different encodings."""
+        encoded1 = encode_smiles("CCO")
+        encoded2 = encode_smiles("OCC")
+        assert encoded1 != encoded2
+
+
+class TestDecodeSmiles:
+    """Tests for decode_smiles function."""
+
+    def test_simple_decode(self):
+        """Test decoding simple SMILES."""
+        assert decode_smiles("CCO") == "CCO"
+
+    def test_decode_double_bond(self):
+        """Test decoding double bonds."""
+        assert decode_smiles("CdC") == "C=C"
+
+    def test_decode_triple_bond(self):
+        """Test decoding triple bonds."""
+        assert decode_smiles("CtN") == "C#N"
+
+    def test_decode_charged(self):
+        """Test decoding charged species."""
+        assert decode_smiles("KNH4pJ") == "[NH4+]"
+        assert decode_smiles("KOmJ") == "[O-]"
+
+    def test_decode_parentheses(self):
+        """Test decoding parentheses."""
+        assert decode_smiles("CCLCRC") == "CC(C)C"
+
+    def test_roundtrip_simple(self):
+        """Test encode/decode roundtrip for simple SMILES."""
+        original = "CCO"
+        assert decode_smiles(encode_smiles(original)) == original
+
+    def test_roundtrip_complex(self):
+        """Test encode/decode roundtrip for complex SMILES."""
+        original = "C=C(C)C"
+        assert decode_smiles(encode_smiles(original)) == original
+
+    def test_roundtrip_charged(self):
+        """Test encode/decode roundtrip for charged species."""
+        original = "[NH4+]"
+        assert decode_smiles(encode_smiles(original)) == original
+
+    def test_hash_encoded_not_decoded(self):
+        """Test that hash-encoded strings are returned unchanged."""
+        # Simulate a hash-encoded string
+        hash_encoded = "CCCCC_abc123def456"
+        result = decode_smiles(hash_encoded)
+        # Should not try to decode the hash portion
+        assert "_" in result
+
+
+class TestHashEnumeratedSmiIDs:
+    """Tests for hash_enumerated_smi_IDs function."""
+
+    def test_basic_hashing(self, tmp_path):
+        """Test basic hashing with simple SMILES file."""
+        input_file = tmp_path / "input.smi"
+        output_file = tmp_path / "output.smi"
+
+        # Create input file with unsorted IDs
+        input_file.write_text("CCO mol_b\nCC mol_a\nCCC mol_c\n")
+
+        hash_enumerated_smi_IDs(str(input_file), str(output_file))
+
+        # Read and verify output
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 3
+        # Should be sorted by ID
+        assert "mol_a" in lines[0]
+        assert "mol_b" in lines[1]
+        assert "mol_c" in lines[2]
+
+    def test_duplicate_id_handling(self, tmp_path):
+        """Test that duplicate IDs get '_0' suffix."""
+        input_file = tmp_path / "input.smi"
+        output_file = tmp_path / "output.smi"
+
+        # Create input file with duplicate IDs
+        input_file.write_text("CCO mol1\nCC mol1\nCCC mol1\n")
+
+        hash_enumerated_smi_IDs(str(input_file), str(output_file))
+
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 3
+
+        # Check that duplicates were renamed
+        ids = [line.split()[1] for line in lines]
+        assert "mol1" in ids
+        assert "mol1_0" in ids
+        assert "mol1_0_0" in ids
+
+    def test_preserves_smiles(self, tmp_path):
+        """Test that SMILES strings are preserved correctly."""
+        input_file = tmp_path / "input.smi"
+        output_file = tmp_path / "output.smi"
+
+        input_file.write_text("C#N id1\nC=C id2\n")
+
+        hash_enumerated_smi_IDs(str(input_file), str(output_file))
+
+        content = output_file.read_text()
+        assert "C#N" in content
+        assert "C=C" in content
+
+
+class TestHashTautSmi:
+    """Tests for hash_taut_smi function."""
+
+    def test_tautomer_suffix_added(self, tmp_path):
+        """Test that @taut suffix is added to IDs."""
+        input_file = tmp_path / "input.smi"
+        output_file = tmp_path / "output.smi"
+
+        input_file.write_text("CCO mol1\nCC mol2\n")
+
+        hash_taut_smi(str(input_file), str(output_file))
+
+        content = output_file.read_text()
+        assert "@taut" in content
+
+    def test_incremental_taut_suffix(self, tmp_path):
+        """Test that duplicate base IDs get incrementing taut numbers."""
+        input_file = tmp_path / "input.smi"
+        output_file = tmp_path / "output.smi"
+
+        # Same ID for multiple SMILES
+        input_file.write_text("CCO mol1\nCC mol1\n")
+
+        hash_taut_smi(str(input_file), str(output_file))
+
+        lines = output_file.read_text().strip().split("\n")
+        ids = [line.split()[1] for line in lines]
+
+        # Should have different taut numbers
+        assert len(set(ids)) == 2
+        assert all("@taut" in id for id in ids)
+
+
+class TestHousekeepingHelper:
+    """Tests for housekeeping_helper function."""
+
+    def test_moves_file_to_folder(self, tmp_path):
+        """Test that file is moved to the specified folder."""
+        folder = tmp_path / "output"
+        folder.mkdir()
+
+        source_file = tmp_path / "test.txt"
+        source_file.write_text("test content")
+
+        housekeeping_helper(str(folder), str(source_file))
+
+        # File should be in folder now
+        assert (folder / "test.txt").exists()
+        assert not source_file.exists()
+
+
+class TestHousekeeping:
+    """Tests for housekeeping function."""
+
+    def test_moves_files_except_output(self, tmp_path):
+        """Test that files are moved except for the output file."""
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        verbose_folder = tmp_path / "verbose"
+        verbose_folder.mkdir()
+
+        # Create test files
+        (job_dir / "meta1.txt").write_text("meta1")
+        (job_dir / "meta2.txt").write_text("meta2")
+        output_file = job_dir / "output.sdf"
+        output_file.write_text("output")
+
+        housekeeping(str(job_dir), str(verbose_folder), str(output_file))
+
+        # Output should still be in job_dir
+        assert output_file.exists()
+        # Meta files should be moved
+        assert (verbose_folder / "meta1.txt").exists()
+        assert (verbose_folder / "meta2.txt").exists()
+
+
+class TestCreateChunkMetaNames:
+    """Tests for create_chunk_meta_names function."""
+
+    def test_generates_expected_paths(self):
+        """Test that all expected paths are generated."""
+        result = create_chunk_meta_names("chunk1.smi", "/tmp/job")
+
+        assert result["output"] == "/tmp/job/chunk1_3d.sdf"
+        assert result["optimized_og"] == "/tmp/job/chunk1_3d0.sdf"
+        assert result["output_taut"] == "/tmp/job/smi_taut.smi"
+        assert result["smiles_enumerated"] == "/tmp/job/smiles_enumerated.smi"
+        assert result["smiles_reduced"] == "/tmp/job/smiles_enumerated_reduced.smi"
+        assert result["smiles_hashed"] == "/tmp/job/smiles_enumerated_hashed.smi"
+        assert result["enumerated_sdf"] == "/tmp/job/smiles_enumerated.sdf"
+        assert result["sorted_sdf"] == "/tmp/job/enumerated_sorted.sdf"
+        assert result["housekeeping_folder"] == "/tmp/job/verbose"
+        assert result["path"] == "chunk1.smi"
+        assert result["dir"] == "/tmp/job"
+
+    def test_handles_path_with_directory(self):
+        """Test that paths with directories work correctly."""
+        result = create_chunk_meta_names("/data/input/chunk1.smi", "/output/job")
+
+        assert result["output"] == "/output/job/chunk1_3d.sdf"
+        assert result["path"] == "/data/input/chunk1.smi"
+
+
+class TestCombineSmi:
+    """Tests for combine_smi function."""
+
+    def test_combines_files(self, tmp_path):
+        """Test that multiple SMILES files are combined."""
+        file1 = tmp_path / "file1.smi"
+        file2 = tmp_path / "file2.smi"
+        output = tmp_path / "combined.smi"
+
+        file1.write_text("CCO mol1\nCC mol2\n")
+        file2.write_text("CCC mol3\nCCCC mol4\n")
+
+        combine_smi([str(file1), str(file2)], str(output))
+
+        content = output.read_text()
+        assert "mol1" in content
+        assert "mol2" in content
+        assert "mol3" in content
+        assert "mol4" in content
+
+    def test_removes_duplicates(self, tmp_path):
+        """Test that duplicate entries are removed."""
+        file1 = tmp_path / "file1.smi"
+        file2 = tmp_path / "file2.smi"
+        output = tmp_path / "combined.smi"
+
+        file1.write_text("CCO mol1\n")
+        file2.write_text("CCO mol1\n")  # Same entry
+
+        combine_smi([str(file1), str(file2)], str(output))
+
+        lines = output.read_text().strip().split("\n")
+        assert len(lines) == 1
+
+    def test_ignores_blank_lines(self, tmp_path):
+        """Test that blank lines are ignored."""
+        file1 = tmp_path / "file1.smi"
+        output = tmp_path / "combined.smi"
+
+        file1.write_text("CCO mol1\n\n\nCC mol2\n   \n")
+
+        combine_smi([str(file1)], str(output))
+
+        lines = output.read_text().strip().split("\n")
+        assert len(lines) == 2
+
+
+class TestSDF2chunks:
+    """Tests for SDF2chunks function."""
+
+    def test_splits_sdf_into_chunks(self):
+        """Test that SDF file is split into molecule chunks."""
+        sdf_path = str(FILES_DIR / "example.sdf")
+
+        chunks = SDF2chunks(sdf_path)
+
+        # example.sdf has 2 molecules
+        assert len(chunks) == 2
+
+        # Each chunk should end with $$$$
+        for chunk in chunks:
+            assert chunk[-1].strip() == "$$$$"
+
+    def test_chunk_contains_molecule_lines(self):
+        """Test that chunks contain all molecule lines."""
+        sdf_path = str(FILES_DIR / "example.sdf")
+
+        chunks = SDF2chunks(sdf_path)
+
+        # First chunk should start with molecule name
+        assert chunks[0][0].strip() == "mol1"
+        assert chunks[1][0].strip() == "mol2"
+
+    def test_preserves_all_content(self):
+        """Test that all content from original file is preserved."""
+        sdf_path = str(FILES_DIR / "example.sdf")
+
+        chunks = SDF2chunks(sdf_path)
+
+        # Reconstruct file from chunks
+        reconstructed = "".join(line for chunk in chunks for line in chunk)
+
+        with open(sdf_path) as f:
+            original = f.read()
+
+        assert reconstructed == original
+
+
+class TestEncodeDecodeIds:
+    """Tests for encode_ids and decode_ids functions."""
+
+    def test_encode_smi_file(self, tmp_path):
+        """Test encoding IDs in a SMILES file."""
+        input_file = tmp_path / "input.smi"
+        input_file.write_text("CCO mol_alpha\nCC mol_beta\nCCC mol_gamma\n")
+
+        new_path, mapping = encode_ids(str(input_file))
+
+        assert mapping == {"mol_alpha": 0, "mol_beta": 1, "mol_gamma": 2}
+        assert Path(new_path).name == "input_encoded.smi"
+
+        # Check encoded file content
+        content = Path(new_path).read_text()
+        assert "CCO 0" in content
+        assert "CC 1" in content
+        assert "CCC 2" in content
+
+    def test_encode_sdf_file(self):
+        """Test encoding IDs in an SDF file."""
+        sdf_path = str(FILES_DIR / "example.sdf")
+
+        new_path, mapping = encode_ids(sdf_path)
+
+        assert "mol1" in mapping
+        assert "mol2" in mapping
+        assert mapping["mol1"] == 0
+        assert mapping["mol2"] == 1
+
+        # Clean up
+        Path(new_path).unlink(missing_ok=True)
+
+    def test_encode_invalid_extension_raises(self, tmp_path):
+        """Test that invalid file extension raises ValueError."""
+        input_file = tmp_path / "input.xyz"
+        input_file.write_text("invalid")
+
+        with pytest.raises(ValueError, match="smi or sdf"):
+            encode_ids(str(input_file))
+
+    def test_encode_skips_blank_lines(self, tmp_path):
+        """Test that blank lines in SMILES file are skipped."""
+        input_file = tmp_path / "input.smi"
+        input_file.write_text("CCO mol1\n\n   \nCC mol2\n")
+
+        new_path, mapping = encode_ids(str(input_file))
+
+        # mapping indices may not be sequential if blank lines are in between
+        assert len(mapping) == 2
+
+        # Clean up
+        Path(new_path).unlink(missing_ok=True)
+
+
+class TestReorderSdf:
+    """Tests for reorder_sdf function."""
+
+    def test_reorder_sdf_from_smi(self, tmp_path):
+        """Test reordering SDF file based on SMILES file order."""
+        from rdkit import Chem
+
+        # Create source SMILES file with specific order
+        smi_file = tmp_path / "source.smi"
+        smi_file.write_text("CCO mol_b\nCC mol_a\nCCC mol_c\n")
+
+        # Create SDF file with different order
+        sdf_file = tmp_path / "mols.sdf"
+        writer = Chem.SDWriter(str(sdf_file))
+        for name in ["mol_a", "mol_c", "mol_b"]:
+            mol = Chem.MolFromSmiles("C")
+            mol.SetProp("_Name", name)
+            writer.write(mol)
+        writer.close()
+
+        # Reorder
+        result = reorder_sdf(str(sdf_file), str(smi_file))
+
+        # Verify order matches source
+        assert len(result) == 3
+        assert result[0].GetProp("_Name") == "mol_b"
+        assert result[1].GetProp("_Name") == "mol_a"
+        assert result[2].GetProp("_Name") == "mol_c"
+
+    def test_reorder_sdf_from_sdf(self, tmp_path):
+        """Test reordering SDF file based on another SDF file order."""
+        from rdkit import Chem
+
+        # Create source SDF file with specific order
+        source_sdf = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source_sdf))
+        for name in ["mol_x", "mol_y", "mol_z"]:
+            mol = Chem.MolFromSmiles("C")
+            mol.SetProp("_Name", name)
+            writer.write(mol)
+        writer.close()
+
+        # Create target SDF file with different order
+        target_sdf = tmp_path / "target.sdf"
+        writer = Chem.SDWriter(str(target_sdf))
+        for name in ["mol_z", "mol_x", "mol_y"]:
+            mol = Chem.MolFromSmiles("C")
+            mol.SetProp("_Name", name)
+            writer.write(mol)
+        writer.close()
+
+        # Reorder
+        result = reorder_sdf(str(target_sdf), str(source_sdf))
+
+        # Verify order matches source
+        assert len(result) == 3
+        assert result[0].GetProp("_Name") == "mol_x"
+        assert result[1].GetProp("_Name") == "mol_y"
+        assert result[2].GetProp("_Name") == "mol_z"
+
+    def test_reorder_sdf_with_tautomers(self, tmp_path):
+        """Test reordering handles tautomer IDs correctly."""
+        from rdkit import Chem
+
+        # Create source SMILES file
+        smi_file = tmp_path / "source.smi"
+        smi_file.write_text("CCO mol1\nCC mol2\n")
+
+        # Create SDF file with tautomer variants
+        sdf_file = tmp_path / "mols.sdf"
+        writer = Chem.SDWriter(str(sdf_file))
+        for name in ["mol2@taut1", "mol1@taut1", "mol1@taut2"]:
+            mol = Chem.MolFromSmiles("C")
+            mol.SetProp("_Name", name)
+            writer.write(mol)
+        writer.close()
+
+        # Reorder
+        result = reorder_sdf(str(sdf_file), str(smi_file))
+
+        # Verify mol1 variants come before mol2 variants
+        assert len(result) == 3
+        # mol1 should be first (2 tautomers)
+        assert "mol1" in result[0].GetProp("_Name")
+        assert "mol1" in result[1].GetProp("_Name")
+        # mol2 should be last
+        assert "mol2" in result[2].GetProp("_Name")
+
+    def test_reorder_sdf_unsupported_format(self, tmp_path, capsys):
+        """Test that unsupported format returns None."""
+        xyz_file = tmp_path / "source.xyz"
+        xyz_file.write_text("invalid")
+
+        sdf_file = tmp_path / "mols.sdf"
+        sdf_file.write_text("dummy")
+
+        result = reorder_sdf(str(sdf_file), str(xyz_file))
+
+        assert result is None
+        captured = capsys.readouterr()
+        assert "Unsupported file format" in captured.out
+
+
+class TestFileOpsIntegration:
+    """Integration tests for file_ops module."""
+
+    def test_create_chunks_and_housekeeping_workflow(self, tmp_path):
+        """Test a typical workflow using multiple file_ops functions."""
+        # Create job directory structure
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        # Create meta names
+        meta = create_chunk_meta_names("input.smi", str(job_dir))
+
+        # Verify structure
+        assert "verbose" in meta["housekeeping_folder"]
+
+        # Create verbose folder
+        Path(meta["housekeeping_folder"]).mkdir()
+
+        # Create some intermediate files
+        Path(meta["smiles_enumerated"]).write_text("CCO mol1\n")
+        Path(meta["output"]).write_text("fake sdf output")
+
+        # Run housekeeping - should move enumerated but not output
+        housekeeping(
+            str(job_dir),
+            meta["housekeeping_folder"],
+            meta["output"]
+        )
+
+        # Output should still exist
+        assert Path(meta["output"]).exists()
+        # Enumerated should be moved to verbose folder
+        assert (Path(meta["housekeeping_folder"]) / "smiles_enumerated.smi").exists()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
