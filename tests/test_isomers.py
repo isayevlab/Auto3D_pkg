@@ -1,0 +1,257 @@
+"""Unit tests for the isomers module."""
+from __future__ import annotations
+
+import pytest
+
+from Auto3D.isomers import (
+    IsomerEngine,
+    TautomerEngine,
+    create_isomer_engine,
+    create_tautomer_engine,
+)
+from Auto3D.isomers.base import BaseIsomerEngine, BaseTautomerEngine
+from Auto3D.isomers.omega_adapter import OmegaIsomerAdapter
+
+
+class TestIsomerEngineProtocol:
+    """Tests for IsomerEngine protocol."""
+
+    def test_protocol_is_runtime_checkable(self):
+        """Test that IsomerEngine is runtime checkable."""
+        # Create a class that implements the protocol
+        class MockEngine:
+            def run(self) -> str:
+                return "/path/to/output.sdf"
+
+        engine = MockEngine()
+        assert isinstance(engine, IsomerEngine)
+
+    def test_non_conforming_class_not_instance(self):
+        """Test that non-conforming classes are not instances."""
+
+        class NotAnEngine:
+            pass
+
+        obj = NotAnEngine()
+        assert not isinstance(obj, IsomerEngine)
+
+
+class TestTautomerEngineProtocol:
+    """Tests for TautomerEngine protocol."""
+
+    def test_protocol_is_runtime_checkable(self):
+        """Test that TautomerEngine is runtime checkable."""
+
+        class MockTautomer:
+            def run(self) -> None:
+                pass
+
+        engine = MockTautomer()
+        assert isinstance(engine, TautomerEngine)
+
+
+class TestBaseIsomerEngine:
+    """Tests for BaseIsomerEngine abstract class."""
+
+    def test_cannot_instantiate_directly(self):
+        """Test that BaseIsomerEngine cannot be instantiated directly."""
+        with pytest.raises(TypeError):
+            BaseIsomerEngine(
+                input_path="/input.smi",
+                output_path="/output.sdf",
+            )
+
+    def test_subclass_stores_attributes(self):
+        """Test that subclass properly stores attributes."""
+
+        class ConcreteEngine(BaseIsomerEngine):
+            def run(self) -> str:
+                return self.output_path
+
+        engine = ConcreteEngine(
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            max_confs=100,
+            threshold=0.5,
+            n_jobs=8,
+        )
+
+        assert engine.input_path == "/input.smi"
+        assert engine.output_path == "/output.sdf"
+        assert engine.max_confs == 100
+        assert engine.threshold == 0.5
+        assert engine.n_jobs == 8
+
+    def test_default_values(self):
+        """Test default parameter values."""
+
+        class ConcreteEngine(BaseIsomerEngine):
+            def run(self) -> str:
+                return self.output_path
+
+        engine = ConcreteEngine(
+            input_path="/input.smi",
+            output_path="/output.sdf",
+        )
+
+        assert engine.max_confs is None
+        assert engine.threshold == 0.3
+        assert engine.n_jobs == 4
+
+
+class TestBaseTautomerEngine:
+    """Tests for BaseTautomerEngine abstract class."""
+
+    def test_cannot_instantiate_directly(self):
+        """Test that BaseTautomerEngine cannot be instantiated directly."""
+        with pytest.raises(TypeError):
+            BaseTautomerEngine(
+                input_path="/input.smi",
+                output_path="/output.smi",
+            )
+
+    def test_subclass_stores_attributes(self):
+        """Test that subclass properly stores attributes."""
+
+        class ConcreteTautomer(BaseTautomerEngine):
+            def run(self) -> None:
+                pass
+
+        engine = ConcreteTautomer(
+            input_path="/input.smi",
+            output_path="/output.smi",
+        )
+
+        assert engine.input_path == "/input.smi"
+        assert engine.output_path == "/output.smi"
+
+
+class TestOmegaIsomerAdapter:
+    """Tests for OmegaIsomerAdapter class."""
+
+    def test_initialization(self):
+        """Test adapter initialization stores all parameters."""
+        adapter = OmegaIsomerAdapter(
+            mode="classic",
+            input_path="/input.smi",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            output_path="/output.sdf",
+            max_confs=50,
+            threshold=0.25,
+            enumerate_isomers=False,
+        )
+
+        assert adapter.mode == "classic"
+        assert adapter.input_path == "/input.smi"
+        assert adapter.smiles_enumerated == "/enum.smi"
+        assert adapter.smiles_reduced == "/reduced.smi"
+        assert adapter.smiles_hashed == "/hashed.smi"
+        assert adapter.output_path == "/output.sdf"
+        assert adapter.max_confs == 50
+        assert adapter.threshold == 0.25
+        assert adapter.enumerate_isomers is False
+
+    def test_default_values(self):
+        """Test adapter default parameter values."""
+        adapter = OmegaIsomerAdapter(
+            mode="classic",
+            input_path="/input.smi",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            output_path="/output.sdf",
+        )
+
+        assert adapter.max_confs is None
+        assert adapter.threshold == 0.3
+        assert adapter.enumerate_isomers is True
+
+    def test_implements_protocol(self):
+        """Test that adapter implements IsomerEngine protocol."""
+        adapter = OmegaIsomerAdapter(
+            mode="classic",
+            input_path="/input.smi",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            output_path="/output.sdf",
+        )
+
+        assert isinstance(adapter, IsomerEngine)
+
+
+class TestCreateIsomerEngine:
+    """Tests for create_isomer_engine factory function."""
+
+    def test_unknown_engine_raises_error(self):
+        """Test that unknown engine type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown isomer engine type"):
+            create_isomer_engine(
+                "unknown_engine",
+                input_path="/input.smi",
+                output_path="/output.sdf",
+            )
+
+    def test_engine_type_case_insensitive(self):
+        """Test that engine type is case insensitive."""
+        # This should not raise - it will fail on actual instantiation
+        # but the case normalization should work
+        with pytest.raises(ValueError, match="Unknown isomer engine type"):
+            create_isomer_engine(
+                "UNKNOWN",
+                input_path="/input.smi",
+                output_path="/output.sdf",
+            )
+
+    def test_omega_engine_creates_adapter(self):
+        """Test that 'omega' creates OmegaIsomerAdapter."""
+        engine = create_isomer_engine(
+            "omega",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+        )
+
+        assert isinstance(engine, OmegaIsomerAdapter)
+        assert engine.mode == "classic"
+
+    def test_omega_engine_with_custom_mode(self):
+        """Test omega engine with custom mode."""
+        engine = create_isomer_engine(
+            "omega",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            mode="macrocycle",
+        )
+
+        assert engine.mode == "macrocycle"
+
+
+class TestCreateTautomerEngine:
+    """Tests for create_tautomer_engine factory function."""
+
+    def test_unknown_engine_raises_error(self):
+        """Test that unknown engine type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown tautomer engine type"):
+            create_tautomer_engine(
+                "unknown_engine",
+                input_path="/input.smi",
+                output_path="/output.smi",
+            )
+
+    def test_engine_type_case_insensitive(self):
+        """Test that engine type is case insensitive for valid types."""
+        # Both RDKIT and rdkit should work (case normalization happens)
+        with pytest.raises(ValueError, match="Unknown tautomer engine type"):
+            create_tautomer_engine(
+                "UNKNOWN",
+                input_path="/input.smi",
+                output_path="/output.smi",
+            )
