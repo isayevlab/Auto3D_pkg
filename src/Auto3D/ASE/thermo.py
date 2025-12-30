@@ -293,11 +293,3 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             w.write(mol)
     return str(outpath)
 
-if __name__ == "__main__":
-
-    
-    path = '/home/jack/Auto3D_pkg/tests/files/cyclooctane.sdf'
-    model_path =  '/home/jack/Auto3D_pkg/example/myNNP.pt'
-    # model = torch.load(model_path)
-    # out = calc_thermo(path, 'AIMNET', gpu_idx=1)
-    out = calc_thermo(path, model_path, gpu_idx=0)
