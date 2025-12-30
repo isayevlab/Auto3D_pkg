@@ -195,6 +195,68 @@ class TestConformerRankerTopK:
         # All are same molecule, so should get 1 unique
         assert len(results) <= 2
 
+    def test_top_k_equals_1_skips_rmsd_filtering(self, tmp_path):
+        """When k=1, RMSD filtering should be skipped for performance.
+
+        This optimization returns the lowest-energy conformer directly
+        without calculating RMSD distances between conformers.
+        """
+        from Auto3D.ranking import ConformerRanker
+        import pandas as pd
+
+        # Create multiple identical molecules with different energies
+        mol1 = _create_mol_with_energy("C", -10.0, "mol")  # Lowest energy
+        mol2 = _create_mol_with_energy("C", -9.0, "mol")
+        mol3 = _create_mol_with_energy("C", -8.0, "mol")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=1,
+        )
+
+        df = pd.DataFrame({
+            "names": ["mol", "mol", "mol"],
+            "energies": [-10.0, -9.0, -8.0],
+            "mols": [mol1, mol2, mol3],
+        })
+
+        results = ranker.top_k(df, k=1)
+
+        # Should return exactly 1 molecule
+        assert len(results) == 1
+        # Should be the lowest energy one
+        assert float(results[0].GetProp('E_tot')) == -10.0
+
+    def test_top_k_equals_1_full_integration(self, tmp_path):
+        """Integration test: k=1 should return single lowest-energy conformer."""
+        from Auto3D.ranking import ConformerRanker
+
+        # Create multiple molecules with different energies
+        mol1 = _create_mol_with_energy("C", -8.0, "mol_1")
+        mol2 = _create_mol_with_energy("C", -10.0, "mol_2")  # Lowest energy
+        mol3 = _create_mol_with_energy("C", -9.0, "mol_3")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf([mol1, mol2, mol3], input_path)
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=1,
+        )
+
+        results = ranker.run()
+
+        # Should return exactly 1 molecule (the lowest energy one)
+        assert len(results) == 1
+
 
 class TestConformerRankerTopWindow:
     """Tests for top_window method with different filtering modes."""

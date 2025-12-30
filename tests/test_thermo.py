@@ -190,6 +190,25 @@ def test_opt_geometry3():
     except:
         pass
 
+
+def test_opt_geometry_with_patience_and_batchsize():
+    """Test opt_geometry with explicit patience and batchsize_atoms parameters."""
+    path = os.path.join(folder, "tests/files/DA.sdf")
+    out = opt_geometry(
+        path,
+        'AIMNET',
+        gpu_idx=0,
+        opt_tol=0.1,
+        opt_steps=100,
+        patience=50,
+        batchsize_atoms=512,
+    )
+    assert os.path.exists(out)
+    try:
+        os.remove(out)
+    except:
+        pass
+
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
 def test_opt_geometry4():
     path = os.path.join(folder, "tests/files/DA.sdf")
