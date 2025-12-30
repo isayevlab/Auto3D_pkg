@@ -23,7 +23,6 @@ from .padding import pad_from_mols
 from tqdm import tqdm
 
 from Auto3D.model_factory import create_model
-from Auto3D.utils import hartree2ev
 
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
@@ -32,137 +31,10 @@ from Auto3D.utils import hartree2ev
 # FIRE optimizer extracted to separate module for better modularity
 from Auto3D.batch_opt.fire_optimizer import FIRE
 
-
-class EnForce_ANI(torch.nn.Module):
-    """Wrapper for model adapters with batched forward support.
-
-    Takes in a model adapter and provides batched forward functionality
-    for calculating energies and forces.
-
-    Arguments:
-        model_adapter: A model adapter implementing the forward(coords, species, charges) interface,
-                       or a raw model (for backward compatibility).
-        name_or_batchsize: Either a string name (deprecated old API) or an int batchsize_atoms.
-        batchsize_atoms: Maximum number of atoms that can be handled in one batch.
-
-    Returns:
-        The energies and forces for the input molecules.
-    """
-
-    def __init__(self, model_adapter, name_or_batchsize=None, batchsize_atoms=1024 * 16):
-        super().__init__()
-        # Handle backward compatibility
-        if isinstance(name_or_batchsize, str):
-            # Old API: EnForce_ANI(model, name, batchsize_atoms)
-            import warnings
-            warnings.warn(
-                "Passing 'name' to EnForce_ANI is deprecated. Use model adapters instead.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-            self.add_module('ani', model_adapter)
-            self.model = model_adapter
-            self.name = name_or_batchsize
-            self.batchsize_atoms = batchsize_atoms
-            self._use_legacy_forward = True
-        elif isinstance(name_or_batchsize, int):
-            # New API with explicit batchsize: EnForce_ANI(model_adapter, batchsize_atoms)
-            self.model = model_adapter
-            self.batchsize_atoms = name_or_batchsize
-            self.name = None
-            self._use_legacy_forward = False
-        else:
-            # New API: EnForce_ANI(model_adapter) or EnForce_ANI(model_adapter, None, batchsize)
-            self.model = model_adapter
-            self.batchsize_atoms = batchsize_atoms
-            self.name = None
-            self._use_legacy_forward = False
-
-    def forward(self, coord, numbers, charges):
-        """Calculate the energies and forces for input molecules.
-
-        Delegates to the model adapter's forward method, or uses legacy
-        logic for backward compatibility with raw models.
-
-        Note on torch.inference_mode():
-            This method CANNOT use torch.inference_mode() because force
-            calculation requires computing gradients of energy with respect
-            to atomic coordinates via torch.autograd.grad(). Model parameters
-            have requires_grad=False (frozen weights), but coordinates must
-            have requires_grad=True for force computation.
-
-        Arguments:
-            coord: coordinates for all input structures. size (B, N, 3), where
-                  B is the number of structures in coord, N is the number of
-                  atoms in each structure, 3 represents xyz dimensions.
-            numbers: the periodic numbers for all atoms.
-            charges: tensor size (B)
-
-        Returns:
-            energies
-            forces
-        """
-        if self._use_legacy_forward:
-            return self._legacy_forward(coord, numbers, charges)
-        return self.model.forward(coord, numbers, charges)
-
-    def _legacy_forward(self, coord, numbers, charges):
-        """Legacy forward implementation for backward compatibility.
-
-        Handles raw models that were passed with the old API.
-
-        Note: Cannot use torch.inference_mode() because force calculation
-        requires computing gradients via torch.autograd.grad(). Model parameters
-        are already frozen (requires_grad=False), but coordinates must have
-        requires_grad=True for force computation.
-        """
-        if self.name == "AIMNET":
-            d = self.ani(
-                dict(coord=coord, numbers=numbers, charge=charges))
-            e = d['energy'].to(torch.double)
-            f = d['forces']
-        elif self.name == "ANI2xt":
-            e = self.ani(numbers, coord)
-            # create_graph=False avoids building second-order gradient graph
-            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
-            f = -g
-        elif self.name == "ANI2x":
-            e = self.ani((numbers, coord)).energies
-            e = e * hartree2ev  # ANI2x output energy unit is Hartree; convert to eV
-            # create_graph=False avoids building second-order gradient graph
-            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
-            f = -g
-        else:
-            # user NNP that was loaded from a file
-            e = self.ani(numbers, coord, charges)
-            # create_graph=False avoids building second-order gradient graph
-            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
-            f = -g
-        return e, f
-
-    def forward_batched(self, coord, numbers, charges):
-        """Calculate the energies and forces for input molecules in batches.
-
-        Arguments:
-            coord: coordinates for all input structures. size (B, N, 3), where
-                  B is the number of structures in coord, N is the number of
-                  atoms in each structure, 3 represents xyz dimensions.
-            numbers: the periodic numbers for all atoms. size (B, N)
-            charges: tensor size (B)
-
-        Returns:
-            energies
-            forces
-        """
-        B, N = coord.shape[:2]
-        e = []
-        f = []
-        idx = torch.arange(B, device=coord.device)
-        for batch in idx.split(self.batchsize_atoms // N):
-            _e, _f = self(coord[batch], numbers[batch], charges[batch])
-            e.append(_e)
-            f.append(_f)
-        return torch.cat(e, dim=0), torch.cat(f, dim=0)
+# EnForce_ANI extracted to separate module for better modularity
+# Re-export for backward compatibility - modules like SPE.py and ASE/thermo.py
+# import EnForce_ANI from this module
+from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 
 
 def print_stats(state, patience):
