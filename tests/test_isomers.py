@@ -234,6 +234,55 @@ class TestCreateIsomerEngine:
         assert engine.mode == "macrocycle"
 
 
+class TestCreateIsomerEngineParallelEmbedding:
+    """Tests for parallel embedding support in create_isomer_engine."""
+
+    def test_rdkit_engine_parallel_embedding_default_off(self, tmp_path):
+        """Test that parallel embedding is off by default."""
+        from Auto3D.isomer_engine import RDKitIsomer
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        engine = create_isomer_engine(
+            "rdkit",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            job_dir=str(job_dir),
+        )
+
+        assert isinstance(engine, RDKitIsomer)
+        assert engine.use_parallel_embedding is False
+
+    def test_rdkit_engine_parallel_embedding_enabled(self, tmp_path):
+        """Test that parallel embedding can be enabled."""
+        from Auto3D.isomer_engine import RDKitIsomer
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        engine = create_isomer_engine(
+            "rdkit",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            job_dir=str(job_dir),
+            use_parallel_embedding=True,
+            parallel_embedding_threshold=5,
+            parallel_workers=2,
+        )
+
+        assert isinstance(engine, RDKitIsomer)
+        assert engine.use_parallel_embedding is True
+        assert engine.parallel_embedding_threshold == 5
+        assert engine.parallel_workers == 2
+
+
 class TestCreateTautomerEngine:
     """Tests for create_tautomer_engine factory function."""
 

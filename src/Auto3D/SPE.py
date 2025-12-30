@@ -7,7 +7,8 @@ from pathlib import Path
 import torch
 from rdkit import Chem
 
-from Auto3D.batch_opt.batchopt import EnForce_ANI, mols2lists, padding_coords, padding_species
+from Auto3D.batch_opt.batchopt import EnForce_ANI, mols2lists
+from Auto3D.batch_opt.padding import pad_from_mols
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
 
@@ -48,15 +49,13 @@ def calc_spe(path: str, model_name: str, gpu_idx: int = 0) -> str:
     model = EnForce_ANI(model_adapter)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
-    coord, numbers, charges = mols2lists(mols, model_name)
 
-    # Use adapter's padding values
-    coord_padded = padding_coords(coord, model_adapter.coord_pad)
-    numbers_padded = padding_species(numbers, model_adapter.species_pad)
+    # Use new vectorized padding that returns tensors directly
+    coord_padded, numbers_padded, charges = pad_from_mols(
+        mols, model_name, device,
+        coord_pad=model_adapter.coord_pad, species_pad=model_adapter.species_pad
+    )
 
-    coord_padded = torch.tensor(coord_padded, device=device, requires_grad=True)
-    numbers_padded = torch.tensor(numbers_padded, device=device)
-    charges = torch.tensor(charges, device=device)
     es, fs = model.forward_batched(coord_padded, numbers_padded, charges)
     es = es.to('cpu').detach().numpy()
 

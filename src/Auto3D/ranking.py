@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 from rdkit import Chem
 
+from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
 
 
@@ -19,10 +20,16 @@ class ConformerRanker:
     Args:
         input_path: Path to SDF file containing optimized isomers.
         out_path: Path for output SDF file with selected structures.
-        threshold: RMSD threshold for duplicate removal (Å).
+        threshold: RMSD threshold for duplicate removal (Angstrom).
         k: Select top-k structures per SMILES. False to disable.
         window: Select structures within window kcal/mol of minimum.
                 False to disable.
+        use_optimized_filtering: If True (default), use energy-clustered
+            RMSD filtering which has O(n*k) complexity instead of O(n^2).
+            Set to False to use legacy O(n^2) filtering.
+        energy_cluster_window: Energy window in eV for clustering molecules
+            before RMSD comparison. Only used when use_optimized_filtering
+            is True. Default is 0.1 eV.
     """
 
     def __init__(
@@ -32,17 +39,21 @@ class ConformerRanker:
         threshold: float,
         k: int | bool = False,
         window: float | bool = False,
+        use_optimized_filtering: bool = True,
+        energy_cluster_window: float = 0.1,
     ) -> None:
         self.input_path = input_path
         self.out_path = out_path
         self.threshold = threshold
-        self.atomic_number2symbol = {1: 'H', 
-                                     5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 
+        self.atomic_number2symbol = {1: 'H',
+                                     5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F',
                                      14: 'Si', 15: 'P', 16: 'S', 17: 'Cl',
                                      32: 'Ge', 33: 'As', 34: 'Se', 35: 'Br',
                                      51: 'Sb', 52: 'Te', 53: 'I'}
         self.k = k
         self.window = window
+        self.use_optimized_filtering = use_optimized_filtering
+        self.energy_cluster_window = energy_cluster_window
 
     @staticmethod
     def similar(name: str, names: list[str]) -> bool:
@@ -71,6 +82,27 @@ class ConformerRanker:
             list0_.append((idx_i, name_i, e_i, e_relative))
         return list0_
 
+    def _filter_mols(self, mols: list[Chem.Mol]) -> list[Chem.Mol]:
+        """Filter molecules to remove duplicates based on RMSD.
+
+        Uses either the optimized energy-clustered approach or the legacy
+        O(n^2) comparison, depending on the use_optimized_filtering setting.
+
+        Args:
+            mols: List of RDKit Mol objects to filter.
+
+        Returns:
+            List of unique molecules, sorted by energy.
+        """
+        if self.use_optimized_filtering:
+            return filter_unique_optimized(
+                mols,
+                rmsd_threshold=self.threshold,
+                energy_cluster_window=self.energy_cluster_window,
+            )
+        else:
+            return filter_unique(mols, crit=self.threshold)
+
     def top_k(self, df_group: pd.DataFrame, k: int = 1) -> list[Chem.Mol]:
         """Select top-k lowest-energy structures from a group.
 
@@ -85,8 +117,8 @@ class ConformerRanker:
         assert(len(set(names)) == 1)
 
         df2 = df_group.sort_values(by=['energies'])
-        
-        out_mols_ = filter_unique(list(df2["mols"]), self.threshold)
+
+        out_mols_ = self._filter_mols(list(df2["mols"]))
         if k < len(out_mols_):
             out_mols = out_mols_[:k]
         else:
@@ -122,7 +154,7 @@ class ConformerRanker:
         assert(len(set(names)) == 1)
 
         df2 = df_group.sort_values(by=['energies'])
-        out_mols_ = filter_unique(list(df2['mols']), self.threshold)
+        out_mols_ = self._filter_mols(list(df2['mols']))
         out_mols = []
 
         if len(out_mols_) == 0:

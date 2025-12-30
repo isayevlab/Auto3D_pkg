@@ -23,6 +23,9 @@ def create_isomer_engine(
     n_jobs: int = 4,
     enumerate_isomers: bool = True,
     mode: str = "classic",
+    use_parallel_embedding: bool = False,
+    parallel_embedding_threshold: int = 10,
+    parallel_workers: int = 4,
 ) -> IsomerEngine:
     """Create an isomer engine based on the specified type.
 
@@ -39,6 +42,12 @@ def create_isomer_engine(
         n_jobs: Number of parallel jobs.
         enumerate_isomers: Whether to enumerate stereoisomers.
         mode: Omega mode ('classic', 'macrocycle', etc.) for omega engine.
+        use_parallel_embedding: Whether to use parallel conformer embedding
+            (rdkit only). Default False.
+        parallel_embedding_threshold: Minimum molecules for parallel embedding
+            (rdkit only). Default 10.
+        parallel_workers: Number of worker processes for parallel embedding
+            (rdkit only). Default 4.
 
     Returns:
         Configured isomer engine instance.
@@ -74,6 +83,9 @@ def create_isomer_engine(
             threshold=threshold,
             np=n_jobs,
             flipper=enumerate_isomers,
+            use_parallel_embedding=use_parallel_embedding,
+            parallel_embedding_threshold=parallel_embedding_threshold,
+            parallel_workers=parallel_workers,
         )
 
     elif engine_type == "rdkit_sdf":

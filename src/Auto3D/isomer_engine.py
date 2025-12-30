@@ -106,6 +106,11 @@ class RDKitIsomer:
         threshold: RMSD threshold for duplicate removal (Å).
         np: Number of CPU threads for conformer generation.
         flipper: Whether to enumerate R/S and cis/trans isomers.
+        use_parallel_embedding: Whether to use parallel conformer embedding.
+        parallel_embedding_threshold: Minimum number of molecules to trigger
+            parallel embedding. Default 10.
+        parallel_workers: Number of worker processes for parallel embedding.
+            Default 4.
     """
 
     def __init__(
@@ -120,6 +125,9 @@ class RDKitIsomer:
         threshold: float,
         np: int,
         flipper: bool = True,
+        use_parallel_embedding: bool = False,
+        parallel_embedding_threshold: int = 10,
+        parallel_workers: int = 4,
     ) -> None:
         self.input_f = smi
         self.n_conformers = max_confs
@@ -135,6 +143,9 @@ class RDKitIsomer:
         self.threshold = threshold
         self.np = np
         self.flipper = flipper
+        self.use_parallel_embedding = use_parallel_embedding
+        self.parallel_embedding_threshold = parallel_embedding_threshold
+        self.parallel_workers = parallel_workers
 
     @staticmethod
     def read(input_f: str) -> dict[str, str]:
@@ -223,6 +234,23 @@ class RDKitIsomer:
 
         smi_name_tuples = [(smi, name) for name, smi in smiles2.items()]
 
+        # Decide whether to use parallel embedding
+        use_parallel = (
+            self.use_parallel_embedding
+            and len(smi_name_tuples) >= self.parallel_embedding_threshold
+        )
+
+        if use_parallel:
+            self._run_parallel_embedding(smi_name_tuples)
+        else:
+            self._run_serial_embedding(smi_name_tuples)
+
+        return self.enumerated_sdf
+
+    def _run_serial_embedding(
+        self, smi_name_tuples: list[tuple[str, str]]
+    ) -> None:
+        """Run serial conformer embedding."""
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for smi, name in tqdm(smi_name_tuples):
                 mol = self.embed_conformer(smi)
@@ -238,7 +266,25 @@ class RDKitIsomer:
                         mol.SetProp('_Name', conf_id)
                         writer.write(mol, confId=i)
 
-        return self.enumerated_sdf
+    def _run_parallel_embedding(
+        self, smi_name_tuples: list[tuple[str, str]]
+    ) -> None:
+        """Run parallel conformer embedding using ProcessPoolExecutor."""
+        from Auto3D.isomers.parallel_embed import embed_conformers_parallel
+
+        print(f"Using parallel embedding with {self.parallel_workers} workers...", flush=True)
+
+        with Chem.SDWriter(self.enumerated_sdf) as writer:
+            for mol, conf_idx, conf_id in embed_conformers_parallel(
+                smiles_names=smi_name_tuples,
+                n_conformers=self.n_conformers,
+                threshold=self.threshold,
+                np_threads=self.np,
+                n_workers=self.parallel_workers,
+            ):
+                mol.SetProp('ID', conf_id)
+                mol.SetProp('_Name', conf_id)
+                writer.write(mol, confId=conf_idx)
 
 
 class RDKitSdfIsomer:

@@ -18,6 +18,8 @@ try:
 except ImportError:
     pass
 
+from .padding import pad_from_mols
+
 from tqdm import tqdm
 
 from Auto3D.model_factory import create_model
@@ -327,20 +329,32 @@ def n_steps(state, n, opttol, patience):
 
 def ensemble_opt(net, coord, numbers, charges, param, model, device):
     """Optimizing a group of molecules
-    
+
     Arguments:
     net: an EnForce_ANI object
     coord: coordinates of input molecules (N, m, 3). N is the number of structures
-           m is the number of atoms in each structure.
-    numbers: atomic numbers in the molecule (include H). (N, m)
-    charges: (N,)
+           m is the number of atoms in each structure. Can be a list or torch.Tensor.
+    numbers: atomic numbers in the molecule (include H). (N, m). Can be a list or torch.Tensor.
+    charges: (N,). Can be a list or torch.Tensor.
     param: a dictionary containing parameters
     model: "AIMNET", "ANI2xt", "ANI2x" or "userNNP"
     device
     """
-    coord = torch.tensor(coord, dtype=torch.float, device=device)
-    numbers = torch.tensor(numbers, dtype=torch.long, device=device)
-    charges = torch.tensor(charges, dtype=torch.long, device=device)
+    # Handle both tensor and list inputs for backward compatibility
+    # Ensure coords are leaf tensors (detach from any computation graph)
+    # so that requires_grad_ can be toggled in n_steps
+    if not isinstance(coord, torch.Tensor):
+        coord = torch.tensor(coord, dtype=torch.float, device=device)
+    else:
+        coord = coord.detach().to(dtype=torch.float, device=device)
+    if not isinstance(numbers, torch.Tensor):
+        numbers = torch.tensor(numbers, dtype=torch.long, device=device)
+    else:
+        numbers = numbers.detach().to(dtype=torch.long, device=device)
+    if not isinstance(charges, torch.Tensor):
+        charges = torch.tensor(charges, dtype=torch.long, device=device)
+    else:
+        charges = charges.detach().to(dtype=torch.long, device=device)
     converged_mask = torch.zeros(coord.shape[0], dtype=torch.bool, device=device)
     fmax = torch.full(coord.shape[:1], 999.0,
                       device=coord.device)  # size=N, a tensored filled with 999.0, representing the current maximum forces at each conformer.
@@ -372,6 +386,20 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
 
 
 def padding_coords(lists, pad_value=0.0):
+    """Pad coordinate lists to uniform length.
+
+    .. deprecated::
+        Use :func:`Auto3D.batch_opt.padding.pad_molecular_batch` or
+        :func:`Auto3D.batch_opt.padding.pad_from_mols` instead.
+        These functions return PyTorch tensors directly and are more efficient.
+    """
+    import warnings
+    warnings.warn(
+        "padding_coords is deprecated. Use pad_molecular_batch or pad_from_mols "
+        "from Auto3D.batch_opt.padding instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     lengths = [len(lst) for lst in lists]
     max_length = max(lengths)
     pad_length = [max_length - len(lst) for lst in lists]
@@ -387,6 +415,20 @@ def padding_coords(lists, pad_value=0.0):
 
 
 def padding_species(lists, pad_value=-1):
+    """Pad species lists to uniform length.
+
+    .. deprecated::
+        Use :func:`Auto3D.batch_opt.padding.pad_molecular_batch` or
+        :func:`Auto3D.batch_opt.padding.pad_from_mols` instead.
+        These functions return PyTorch tensors directly and are more efficient.
+    """
+    import warnings
+    warnings.warn(
+        "padding_species is deprecated. Use pad_molecular_batch or pad_from_mols "
+        "from Auto3D.batch_opt.padding instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     lengths = [len(lst) for lst in lists]
     max_length = max(lengths)
     pad_length = [max_length - len(lst) for lst in lists]
@@ -437,9 +479,12 @@ class optimizing:
         mols = list(Chem.SDMolSupplier(self.in_f, removeHs=False))
         print(f"Total 3D conformers: {len(mols)}", flush=True)
         # logging.info(f"Total 3D conformers: {len(mols)}")
-        coord, numbers, charges = mols2lists(mols, self.name)
-        coord_padded = padding_coords(coord, self.coord_pad)
-        numbers_padded = padding_species(numbers, self.species_pad)
+
+        # Use new vectorized padding that returns tensors directly
+        coord_padded, numbers_padded, charges = pad_from_mols(
+            mols, self.name, self.device,
+            coord_pad=self.coord_pad, species_pad=self.species_pad
+        )
 
         # The model adapter already disables gradients in BaseModelAdapter.__init__
         # Create EnForce_ANI wrapper for batched forward support
