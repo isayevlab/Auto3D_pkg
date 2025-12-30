@@ -7,8 +7,8 @@ import torchani
 from Auto3D.utils import hartree2ev
 
 torch.manual_seed(0)
-torch.backends.cuda.matmul.allow_tf32 = False
-torch.backends.cudnn.allow_tf32 = False
+# TF32 settings are now configurable via Auto3DOptions.allow_tf32
+# and applied in workflow.py/auto3D.py entry points
 """
 training process
 https://wandb.ai/oilab/retraiin_ani_no_repulsion/runs/3u1gsp8r?workspace=user-liu97
