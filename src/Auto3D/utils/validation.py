@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import warnings
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -15,6 +14,13 @@ import torch
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import (
     CalcNumUnspecifiedAtomStereoCenters,
+)
+
+from Auto3D.exceptions import (
+    GPUError,
+    DependencyError,
+    ConfigurationError,
+    ModelLoadError,
 )
 
 if TYPE_CHECKING:
@@ -41,12 +47,13 @@ def check_input(args: Any) -> None:
             - enumerate_isomer: Whether to enumerate stereoisomers
 
     Returns:
-        None. The function prints recommendations and may exit if critical errors are found.
+        None. The function prints recommendations.
 
     Raises:
-        SystemExit: If GPU is requested but not available, if OpenEye license is missing
-            but omega is selected, if TorchANI is not installed but ANI2x is selected,
-            if a custom NNP cannot be loaded, or if opt_steps < 10.
+        GPUError: If GPU is requested but not available.
+        DependencyError: If required dependency not available (OpenEye, TorchANI).
+        ConfigurationError: If configuration parameters are invalid (opt_steps, engine mismatch).
+        ModelLoadError: If custom NNP cannot be loaded.
     """
     print("Checking input file...", flush=True)
     logger.info("Checking input file...")
@@ -55,37 +62,46 @@ def check_input(args: Any) -> None:
     gpu_flag = args.use_gpu
     if gpu_flag:
         if not torch.cuda.is_available():
-            sys.exit("No cuda device was detected. Please set --use_gpu=False.")
+            raise GPUError("No cuda device was detected. Please set use_gpu=False.")
 
     isomer_engine = args.isomer_engine
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
-        sys.exit("Omega is used as the isomer engine, but OE_LICENSE is not detected. Please use rdkit.")
+        raise DependencyError(
+            "Omega is used as the isomer engine, but OE_LICENSE is not detected. "
+            "Please use rdkit."
+        )
 
     # Check the installation for open toolkits, torchani
     if args.isomer_engine == "omega":
         try:
             from openeye import oechem  # noqa: F401
         except ImportError:
-            sys.exit("Omega is used as isomer engine, but openeye toolkits are not installed.")
+            raise DependencyError(
+                "Omega is used as isomer engine, but openeye toolkits are not installed."
+            )
 
     if args.optimizing_engine == "ANI2x":
         try:
             import torchani  # noqa: F401
         except ImportError:
-            sys.exit("ANI2x is used as optimizing engine, but TorchANI is not installed.")
+            raise DependencyError(
+                "ANI2x is used as optimizing engine, but TorchANI is not installed."
+            )
 
     if Path(args.optimizing_engine).exists():
         try:
             model_ = torch.jit.load(args.optimizing_engine)  # noqa: F841
-        except Exception:
-            sys.exit(
-                "A path to a user NNP is used as optimizing engine, but it cannot be loaded by torch.load. "
-                "See this link for information about saving and loading models: "
+        except Exception as e:
+            raise ModelLoadError(
+                "A path to a user NNP is used as optimizing engine, but it cannot be loaded. "
+                f"Error: {e}. See this link for information about saving and loading models: "
                 "https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model"
             )
 
     if int(args.opt_steps) < 10:
-        sys.exit(f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}")
+        raise ConfigurationError(
+            f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}"
+        )
 
     # Check the input format
     if args.input_format == "smi":
@@ -113,7 +129,7 @@ def check_input(args: Any) -> None:
         logger.info("\tOptimizing engine options: AIMNET or your own NNP.")
         optimizing_engine = args.optimizing_engine
         if optimizing_engine in {"ANI2x", "ANI2xt"}:
-            sys.exit(
+            raise ConfigurationError(
                 f"Only AIMNET can handle: {only_aimnet_smiles}, but {optimizing_engine} was parsed to Auto3D."
             )
 
