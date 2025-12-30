@@ -86,6 +86,92 @@ def test_SDF2chunks():
     assert(len(chunks) == countSDF(example_sdf))
 
 
+def test_rd_isomer_with_parallel_embedding():
+    """Test RDKitIsomer with parallel embedding enabled."""
+    job_name = time.strftime('%Y%m%d-%H%M%S') + '_parallel'
+    os.mkdir(job_name)
+
+    # Test file paths
+    smiles_enum_par = os.path.join(folder, "tests/files/single_smiles_enumerated_parallel.smi")
+    smiles_reduced_par = os.path.join(folder, "tests/files/single_smiles_reduced_parallel.smi")
+    smiles_hashed_par = os.path.join(folder, "tests/files/single_smiles_hashed_parallel.smi")
+    sdf_enum_par = os.path.join(folder, "tests/files/single_smiles_enumerated_parallel.sdf")
+
+    # Create engine with parallel embedding enabled
+    engine = rd_isomer(
+        path, smiles_enum_par, smiles_reduced_par, smiles_hashed_par,
+        sdf_enum_par, job_name, max_confs, threshold, n_process,
+        use_parallel_embedding=True,
+        parallel_embedding_threshold=1,  # Use parallel for 1+ molecules
+        parallel_workers=2
+    )
+
+    # Verify the parallel embedding parameters are stored
+    assert engine.use_parallel_embedding == True
+    assert engine.parallel_embedding_threshold == 1
+    assert engine.parallel_workers == 2
+
+    out = engine.run()
+    mols = list(Chem.SDMolSupplier(out, removeHs=False))
+
+    # Should produce valid conformers
+    assert len(mols) > 0
+    assert rmsd_greater(mols, threshold) == True
+
+    # Cleanup
+    for f in [smiles_enum_par, smiles_reduced_par, smiles_hashed_par, sdf_enum_par]:
+        try:
+            os.remove(f)
+        except:
+            pass
+    try:
+        shutil.rmtree(job_name)
+    except:
+        pass
+
+
+def test_rd_isomer_parallel_embedding_default_off():
+    """Test that parallel embedding is disabled by default."""
+    job_name = time.strftime('%Y%m%d-%H%M%S') + '_default'
+    os.mkdir(job_name)
+
+    engine = rd_isomer(
+        path, smiles_enumerated, smiles_reduced, smiles_hashed,
+        sdf_enumerated, job_name, max_confs, threshold, n_process
+    )
+
+    # Default should be disabled
+    assert engine.use_parallel_embedding == False
+
+    try:
+        shutil.rmtree(job_name)
+    except:
+        pass
+
+
+def test_rd_isomer_parallel_embedding_threshold():
+    """Test that parallel embedding only activates above threshold."""
+    job_name = time.strftime('%Y%m%d-%H%M%S') + '_threshold'
+    os.mkdir(job_name)
+
+    # Create engine with high threshold (10 molecules)
+    engine = rd_isomer(
+        path, smiles_enumerated, smiles_reduced, smiles_hashed,
+        sdf_enumerated, job_name, max_confs, threshold, n_process,
+        use_parallel_embedding=True,
+        parallel_embedding_threshold=10  # High threshold
+    )
+
+    # With only 1 molecule in the test file, should use serial embedding
+    assert engine.use_parallel_embedding == True
+    assert engine.parallel_embedding_threshold == 10
+
+    try:
+        shutil.rmtree(job_name)
+    except:
+        pass
+
+
 if __name__ == "__main__":
     test_rd_isomer_conformer_func()
     # test_SDF2chunks()
