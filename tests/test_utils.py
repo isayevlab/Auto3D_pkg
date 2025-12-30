@@ -22,6 +22,7 @@ def test_check_input():
     args1['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list:
+        warnings.simplefilter("always")  # Override pytest's filterwarnings
         check_input(args1)
     assert(len(warnings_list) == 0)
 
@@ -29,6 +30,7 @@ def test_check_input():
     args2['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list2:
+        warnings.simplefilter("always")  # Override pytest's filterwarnings
         check_input(args2)
     assert(len(warnings_list2) == 0)
 
@@ -36,6 +38,7 @@ def test_check_input():
     args3['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list3:
+        warnings.simplefilter("always")  # Override pytest's filterwarnings
         check_input(args3)
     assert(len(warnings_list3) >= 1)
 
@@ -43,6 +46,7 @@ def test_check_input():
     args4['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list4:
+        warnings.simplefilter("always")  # Override pytest's filterwarnings
         check_input(args4)
     print(warnings_list4, flush=True)
     assert(len(warnings_list4) == 0)
