@@ -19,3 +19,16 @@ def test_thermo_module_no_hardcoded_tf32():
     # Note: This test documents expected behavior after fix
     assert torch.backends.cuda.matmul.allow_tf32 == True
     assert torch.backends.cudnn.allow_tf32 == True
+
+
+def test_geometry_module_no_hardcoded_tf32():
+    """ASE geometry module should not override TF32 settings."""
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+    import importlib
+    import Auto3D.ASE.geometry as geometry_module
+    importlib.reload(geometry_module)
+
+    assert torch.backends.cuda.matmul.allow_tf32 == True
+    assert torch.backends.cudnn.allow_tf32 == True
