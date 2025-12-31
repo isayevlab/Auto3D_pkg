@@ -271,3 +271,7 @@ class optimizing:
                 for i, atom in enumerate(mol.GetAtoms()):
                     mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
                 f.write(mol)
+
+        # Clean up GPU memory after optimization
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
