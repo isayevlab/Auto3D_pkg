@@ -10,6 +10,14 @@ from typing import Protocol, TypedDict, runtime_checkable
 
 import torch
 
+from Auto3D.constants import (
+    DEFAULT_BATCHSIZE_ATOMS,
+    DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_OPT_STEPS,
+    DEFAULT_PATIENCE,
+    DEFAULT_RMSD_THRESHOLD,
+)
+
 
 @dataclass
 class Auto3DOptions:
@@ -80,22 +88,22 @@ class Auto3DOptions:
     optimizing_engine: str = "AIMNET"
     """Model for optimization: 'ANI2x', 'ANI2xt', 'AIMNET', or path to custom NNP."""
 
-    patience: int = 250
+    patience: int = DEFAULT_PATIENCE
     """Drop conformer from optimization if force doesn't decrease for this many steps."""
 
-    opt_steps: int = 2000
+    opt_steps: int = DEFAULT_OPT_STEPS
     """Maximum optimization steps per structure."""
 
-    convergence_threshold: float = 0.01
+    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD
     """Optimization converges when max force is below this (eV/Å)."""
 
-    threshold: float = 0.3
+    threshold: float = DEFAULT_RMSD_THRESHOLD
     """RMSD threshold for duplicate removal (Å)."""
 
     memory: int | None = None
     """RAM size assigned to Auto3D in GB. None for automatic detection."""
 
-    batchsize_atoms: int = 1024
+    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
     """Number of atoms per optimization batch per GB."""
 
     # Performance options
