@@ -42,8 +42,15 @@ def combine_smi(smies: list[str], out: str) -> None:
                 f2.write(line.strip() + '\n')
 
 # Functions related to SDF files
-def countSDF(sdf):
-    """Counting the number of structures in SDF file"""
+def countSDF(sdf: str) -> int:
+    """Count the number of molecules in an SDF file.
+
+    Args:
+        sdf: Path to the SDF file.
+
+    Returns:
+        Number of molecules in the file.
+    """
     mols = Chem.SDMolSupplier(sdf)
     mols2 = [mol for mol in mols]
     c = len(mols2)
@@ -65,10 +72,16 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
             chunk.append(line)
     return chunks
        
-def find_smiles_not_in_sdf(smi, sdf):
-    """Find the SMILES who doesn't have a 3D structure in the SDF file
-    smi: path to an smi file (the input path for Auto3D)
-    sdf: path to an SDF file"""
+def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
+    """Find SMILES that failed to generate 3D conformers.
+
+    Args:
+        smi: Path to input SMILES file.
+        sdf: Path to output SDF file.
+
+    Returns:
+        List of (id, smiles) tuples for molecules not in SDF.
+    """
     #find all SMILES ids
     smi_names = []
     with open(smi) as f:
