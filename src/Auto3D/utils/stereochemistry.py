@@ -262,6 +262,9 @@ def create_enantiomer(smi: str) -> str:
     stereo_info = get_stereo_info(smi)
     new_smi = ""
     keys = list(stereo_info.keys())
+    if len(keys) == 0:
+        # No stereo centers to invert
+        return smi
     if len(keys) == 1:
         key = keys[0]
         val = stereo_info[key]

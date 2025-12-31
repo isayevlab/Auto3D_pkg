@@ -1,6 +1,5 @@
 import os
 import tempfile
-import pickle
 import pytest
 import numpy as np
 import torch
@@ -164,7 +163,7 @@ def test_vib_hessian():
     hessian_vib = vib_hessian(mol, calculator, model)
     hessian_freq = hessian_vib.get_frequencies()
 
-    ase_freq = pickle.load(open(os.path.join(folder, "tests/files/cyclooctane_ase_freq.pkl"), "rb"))
+    ase_freq = np.load(os.path.join(folder, "tests/files/cyclooctane_ase_freq.npy"))
     mean_diff = np.mean(np.abs(hessian_freq[6:] - ase_freq[6:]))
     assert(mean_diff <= 10)  # 10 cm-1 error is acceptable
 

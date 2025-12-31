@@ -501,6 +501,9 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
         mapping = {}
         with Chem.SDWriter(str(new_path)) as w:
             for i, mol in enumerate(suppl):
+                if mol is None:
+                    logger.warning(f"Skipping molecule at index {i}: failed to parse")
+                    continue
                 id = mol.GetProp("_Name").strip()
                 mapping[id] = i
                 mol.SetProp("_Name", str(i))

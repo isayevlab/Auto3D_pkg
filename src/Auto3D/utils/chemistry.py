@@ -136,6 +136,11 @@ def min_pairwise_distance(points: np.ndarray) -> float:
     points = points.astype(np.float32)
     n = points.shape[0]
 
+    # Guard for single atom or empty input
+    if n < 2:
+        # Single atom: no pairwise distance exists
+        return float('inf')
+
     # Expand dimensions of points to enable broadcasting
     points_expanded = np.expand_dims(points, axis=1).repeat(n, axis=1)
 

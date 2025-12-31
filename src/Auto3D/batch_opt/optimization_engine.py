@@ -130,6 +130,7 @@ def n_steps(
 
     state["oscillating_count"] = oscillating_count0
 
+    istep = 0  # Initialize in case loop doesn't execute (n=0)
     for istep in tqdm(range(1, (n + 1), 1)):
         not_converged = ~ state['converged_mask']  # Essential tracker handle, size fixed
         # Stop optimization if all structures converged.

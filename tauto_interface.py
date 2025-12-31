@@ -12,7 +12,8 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         # using yaml input
         parameters_yaml = sys.argv[1]
-        parameters = yaml.load(open(parameters_yaml, "r"), Loader=yaml.FullLoader)
+        # Security: use safe_load to prevent arbitrary code execution
+        parameters = yaml.safe_load(open(parameters_yaml, "r"))
         # change 'None' to None
         for key, val in parameters.items():
             if val == "None":
