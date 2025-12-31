@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from Auto3D.utils.file_ops import (
+    smiles2smi,
     guess_file_type,
     encode_smiles,
     decode_smiles,
@@ -26,6 +27,71 @@ from Auto3D.utils.file_ops import (
 # Get the test files directory
 TEST_DIR = Path(__file__).parent
 FILES_DIR = TEST_DIR / "files"
+
+
+class TestSmiles2Smi:
+    """Tests for smiles2smi function."""
+
+    def test_creates_file_with_inchikeys(self, tmp_path):
+        """smiles2smi should create a .smi file with SMILES and InChIKey IDs."""
+        smiles = ["CCO", "CCC"]
+        output = tmp_path / "test.smi"
+
+        result = smiles2smi(smiles, str(output))
+
+        assert result == str(output)
+        assert output.exists()
+        content = output.read_text()
+        lines = content.strip().split('\n')
+        assert len(lines) == 2
+        # Each line should have SMILES and InChIKey
+        for line in lines:
+            parts = line.split()
+            assert len(parts) == 2
+
+    def test_returns_output_path(self, tmp_path):
+        """smiles2smi should return the output file path."""
+        smiles = ["CCO"]
+        output = tmp_path / "output.smi"
+
+        result = smiles2smi(smiles, str(output))
+
+        assert result == str(output)
+
+    def test_inchikey_format(self, tmp_path):
+        """InChIKeys should have the standard 27-character format."""
+        smiles = ["CCO"]
+        output = tmp_path / "test.smi"
+
+        smiles2smi(smiles, str(output))
+
+        content = output.read_text().strip()
+        parts = content.split()
+        inchikey = parts[1]
+        # InChIKey format: 14 chars + hyphen + 10 chars + hyphen + 1 char = 27 chars
+        assert len(inchikey) == 27
+        assert inchikey.count('-') == 2
+
+    def test_preserves_smiles_string(self, tmp_path):
+        """Original SMILES strings should be preserved in output."""
+        smiles = ["C#N", "C=C", "[NH4+]"]
+        output = tmp_path / "test.smi"
+
+        smiles2smi(smiles, str(output))
+
+        content = output.read_text()
+        for smi in smiles:
+            assert smi in content
+
+    def test_empty_list(self, tmp_path):
+        """Empty input list should create empty file."""
+        output = tmp_path / "test.smi"
+
+        result = smiles2smi([], str(output))
+
+        assert result == str(output)
+        assert output.exists()
+        assert output.read_text() == ""
 
 
 class TestGuessFileType:
