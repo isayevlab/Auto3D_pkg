@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from rdkit import Chem
+
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 from rdkit.Chem import AllChem, rdMolDescriptors
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
@@ -204,10 +208,8 @@ class RDKitIsomer:
             Path to the enumerated SDF file.
         """
         if self.flipper:
-            print("Enumerating cis/tran isomers for unspecified double bonds...", flush=True)
-            print("Enumerating R/S isomers for unspecified atomic centers...", flush=True)
-            # logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
-            # logger.info("Enumerating R/S isomers for unspecified atomic centers...")
+            logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
+            logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input_f)
             for name, smiles in smiles_og.items():
                 # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
@@ -215,8 +217,7 @@ class RDKitIsomer:
                 isomers = self.enumerate_func(mol)
                 self.enumerate[name] = isomers
             self.write_enumerated_smi()
-            print("Removing enantiomers...", flush=True)
-            # logger.info("Removing enantiomers...")
+            logger.info("Removing enantiomers...")
             amend_configuration_w(self.enumerated_smi_path)
             remove_enantiomers(self.enumerated_smi_path, self.enumerated_smi_path_reduced)
             hash_enumerated_smi_IDs(self.enumerated_smi_path_reduced,
@@ -225,8 +226,7 @@ class RDKitIsomer:
             hash_enumerated_smi_IDs(self.input_f,
                                     self.enumerated_smi_hashed_path)
 
-        print("Enumerating conformers/rotamers, removing duplicates...", flush=True)
-        # logger.info("Enumerating conformers/rotamers, removing duplicates...")
+        logger.info("Enumerating conformers/rotamers, removing duplicates...")
         smiles2 = self.read(self.enumerated_smi_hashed_path)
 
         smi_name_tuples = [(smi, name) for name, smi in smiles2.items()]
@@ -269,7 +269,7 @@ class RDKitIsomer:
         """Run parallel conformer embedding using ProcessPoolExecutor."""
         from Auto3D.isomers.parallel_embed import embed_conformers_parallel
 
-        print(f"Using parallel embedding with {self.parallel_workers} workers...", flush=True)
+        logger.info(f"Using parallel embedding with {self.parallel_workers} workers...")
 
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for mol, conf_idx, conf_id in embed_conformers_parallel(
@@ -431,8 +431,7 @@ def oe_isomer(
         omega = oeomega.OEOmega(omegaOpts)
     if input_format == "smi":
         if flipper:
-            print("Enumerating stereoisomers.", flush=True)
-            # logger.info("Enumerating stereoisomers.")
+            logger.info("Enumerating stereoisomers.")
             oe_flipper(input_f, smiles_enumerated)
             amend_configuration_w(smiles_enumerated)
             remove_enantiomers(smiles_enumerated, smiles_reduced)
@@ -447,8 +446,7 @@ def oe_isomer(
     ofs = oechem.oemolostream()
     ofs.open(output)
 
-    print("Enumerating conformers.", flush=True)
-    # logger.info("Enumerating conformers.")
+    logger.info("Enumerating conformers.")
     for mol in tqdm(ifs.GetOEMols()):
         ret_code = omega.Build(mol)
         if ret_code == oeomega.OEOmegaReturnCode_Success:
