@@ -10,11 +10,14 @@ This module provides:
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional, Union
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign, rdMolTransforms, rdmolops
+
+logger = logging.getLogger("auto3d")
 
 from Auto3D.constants import (
     EV_TO_KCAL_PER_MOL,
@@ -293,7 +296,11 @@ def amend_mol(
                     return None
 
         return mol
-    except Exception:
+    except (ValueError, RuntimeError, KeyError) as e:
+        # ValueError: from RDKit SanitizeMol validation errors
+        # RuntimeError: from RDKit internal errors during molecule processing
+        # KeyError: from check_connectivity if atom's atomic number not in Radii dict
+        logger.debug(f"Molecule amendment failed: {type(e).__name__}: {e}")
         return None
 
 
