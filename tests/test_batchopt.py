@@ -108,3 +108,14 @@ class TestEnForceANI:
         assert mock_adapter.forward.call_count >= 1
         assert energy.shape == (4,)
         assert forces.shape == (4, 5, 3)
+
+
+class TestGPUCleanup:
+    """Tests for GPU memory cleanup in batchopt."""
+
+    def test_run_method_includes_gpu_cleanup(self):
+        """Verify run() method includes GPU memory cleanup code."""
+        import inspect
+        source = inspect.getsource(optimizing.run)
+        assert 'empty_cache' in source, "GPU cleanup missing from run() method"
+        assert 'cuda.is_available' in source, "CUDA availability check missing"
