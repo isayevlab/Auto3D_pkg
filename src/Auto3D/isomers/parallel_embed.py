@@ -7,9 +7,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Iterator
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolDescriptors
+from rdkit.Chem import AllChem
 
+from Auto3D.constants import CONFORMER_RANDOM_SEED
 from Auto3D.utils import min_pairwise_distance
+from Auto3D.utils.chemistry import calculate_conformer_count
 
 
 def _embed_single(
@@ -46,18 +48,12 @@ def _embed_single(
     mol = Chem.AddHs(mol)
 
     if n_conformers is None:
-        # Dynamic formula based on: https://doi.org/10.1021/acs.jctc.0c01213
-        num_rotatable = rdMolDescriptors.CalcNumRotatableBonds(mol)
-        num_heavy = len([a for a in mol.GetAtoms() if a.GetAtomicNum() > 1])
-        n_conformers = min(
-            max(num_heavy, int(2 * 8.481 * (num_rotatable ** 1.642))),
-            1000
-        )
+        n_conformers = calculate_conformer_count(mol)
 
     AllChem.EmbedMultipleConfs(
         mol,
         numConfs=n_conformers,
-        randomSeed=42,
+        randomSeed=CONFORMER_RANDOM_SEED,
         numThreads=np_threads,
         pruneRmsThresh=threshold,
     )
