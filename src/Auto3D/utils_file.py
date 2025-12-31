@@ -26,13 +26,35 @@ def _emit_deprecation_warning(old_name: str, new_location: str) -> None:
 
 
 def guess_file_type(filename: str) -> str:
-    """Returns the extension for the filename"""
+    """Return the file extension for a given filename.
+
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.guess_file_type` instead.
+
+    Args:
+        filename: Path or filename to analyze.
+
+    Returns:
+        The file extension without the leading dot.
+    """
+    _emit_deprecation_warning("guess_file_type", "Auto3D.utils.file_ops.guess_file_type")
     return Path(filename).suffix[1:]
 
 # Functions related to smi files
 def smiles2smi(smiles: list[str], path: str) -> str:
-    """Converting a list of smiles into a smi file,
-    naming each SMILES using inchikey"""
+    """Convert a list of SMILES strings to a .smi file with InChIKey IDs.
+
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.smiles2smi` instead.
+
+    Args:
+        smiles: List of SMILES strings to convert.
+        path: Output file path for the .smi file.
+
+    Returns:
+        The output file path.
+    """
+    _emit_deprecation_warning("smiles2smi", "Auto3D.utils.file_ops.smiles2smi")
     lines = []
     for smi in smiles:
         mol = Chem.MolFromSmiles(smi)
@@ -44,7 +66,19 @@ def smiles2smi(smiles: list[str], path: str) -> str:
     return path
 
 def combine_smi(smies: list[str], out: str) -> None:
-    """Combine smi files into a single file"""
+    """Combine multiple SMILES files into a single file.
+
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.combine_smi` instead.
+
+    Args:
+        smies: List of paths to input .smi files.
+        out: Path for the combined output .smi file.
+
+    Returns:
+        None. Writes the combined result to the output file.
+    """
+    _emit_deprecation_warning("combine_smi", "Auto3D.utils.file_ops.combine_smi")
     data = []
     for smi in smies:
         with open(smi) as f:
@@ -76,8 +110,19 @@ def countSDF(sdf: str) -> int:
     return c
 
 def SDF2chunks(sdf: str) -> list[list[str]]:
-    """given a sdf file, return a list of chunks,
-    each chunk consists of lines of a molecule as they appear in the original file"""
+    """Split an SDF file into chunks, one per molecule.
+
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.SDF2chunks` instead.
+
+    Args:
+        sdf: Path to the input SDF file.
+
+    Returns:
+        List of chunks, where each chunk is a list of strings (lines)
+        representing one molecule including the '$$$$' terminator.
+    """
+    _emit_deprecation_warning("SDF2chunks", "Auto3D.utils.file_ops.SDF2chunks")
     chunks = []
     with open(sdf) as f:
         data = f.readlines()
@@ -143,8 +188,23 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     return bad
 
 def encode_ids(path: str) -> tuple[str, dict]:
-    '''For a smi/SDF Files, encode the ids into numbers,
-    return the new smi files path and a dictionary containing the mapping'''
+    """Encode molecule IDs to numeric indices.
+
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.encode_ids` instead.
+
+    Args:
+        path: Path to the input .smi or .sdf file.
+
+    Returns:
+        Tuple containing:
+        - Path to the new file with encoded IDs (adds '_encoded' suffix)
+        - Dictionary mapping original IDs to their numeric indices
+
+    Raises:
+        ValueError: If the input file is neither .smi nor .sdf format.
+    """
+    _emit_deprecation_warning("encode_ids", "Auto3D.utils.file_ops.encode_ids")
     path_obj = Path(path).resolve()
     extension = path_obj.suffix[1:]
     new_path = path_obj.parent / f"{path_obj.stem}_encoded.{extension}"
@@ -180,7 +240,20 @@ def encode_ids(path: str) -> tuple[str, dict]:
         raise ValueError("The input file should be either smi or sdf")
 
 def decode_ids(path: str, mapping: dict) -> str:
-    '''For an SDF file, decode the ids using the mapping'''
+    """Decode numeric IDs back to original molecule IDs.
+
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.decode_ids` instead.
+
+    Args:
+        path: Path to the input SDF file with encoded (numeric) IDs.
+        mapping: Dictionary mapping original IDs to their numeric indices
+                 (as returned by encode_ids).
+
+    Returns:
+        Path to the new SDF file with decoded IDs (adds '_out' suffix).
+    """
+    _emit_deprecation_warning("decode_ids", "Auto3D.utils.file_ops.decode_ids")
     mapping = {v: k for k, v in mapping.items()}
     path_obj = Path(path).resolve()
     extension = path_obj.suffix[1:]
@@ -188,7 +261,7 @@ def decode_ids(path: str, mapping: dict) -> str:
     stem_parts = path_obj.stem.split('_')[:-2]
     new_stem = '_'.join(stem_parts) + '_out'
     new_path = path_obj.parent / f"{new_stem}.{extension}"
-    
+
     suppl = Chem.SDMolSupplier(path, removeHs=False)
     with Chem.SDWriter(str(new_path)) as w:
         for mol in suppl:
