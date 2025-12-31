@@ -105,8 +105,15 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     return model_adapter, calculator
 
-def mol2atoms(mol: Chem.Mol):
-    '''convert a RDKit mol object to ASE atoms object'''
+def mol2atoms(mol: Chem.Mol) -> Atoms:
+    """Convert an RDKit molecule to an ASE Atoms object.
+
+    Args:
+        mol: RDKit molecule with a conformer.
+
+    Returns:
+        ASE Atoms object with the same coordinates and species.
+    """
     coord = mol.GetConformer().GetPositions()
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     atoms = Atoms(species, coord)
