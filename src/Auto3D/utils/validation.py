@@ -162,7 +162,11 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # Check number of unspecified atomic stereo center
     if not args.enumerate_isomer:
         for smiles in smiles_all:
-            c = CalcNumUnspecifiedAtomStereoCenters(Chem.MolFromSmiles(smiles))
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                warnings.warn(f"Failed to parse SMILES: {smiles}", UserWarning)
+                continue
+            c = CalcNumUnspecifiedAtomStereoCenters(mol)
             if c > 0:
                 msg = (
                     f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. "
@@ -175,6 +179,9 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     only_aimnet_smiles = []
     for smiles in smiles_all:
         mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            logger.warning(f"Skipping invalid SMILES: {smiles}")
+            continue
         charge = Chem.rdmolops.GetFormalCharge(mol)
         elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
         if not elements.issubset(ANI_elements) or charge != 0:
@@ -208,7 +215,10 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
 
     supp = Chem.SDMolSupplier(args.path, removeHs=False)
     mols, only_aimnet_ids = [], []
-    for mol in supp:
+    for i, mol in enumerate(supp):
+        if mol is None:
+            logger.warning(f"Skipping invalid molecule at index {i} in SDF")
+            continue
         id = mol.GetProp("_Name")
         if len(id) == 0:
             raise ValueError("Empty molecule ID (empty _Name property)")
