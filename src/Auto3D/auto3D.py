@@ -39,10 +39,6 @@ logger = get_logger(__name__)
 if TYPE_CHECKING:
     from logging import LogRecord
     from multiprocessing import Queue
-try:
-    mp.set_start_method('spawn')
-except RuntimeError:
-    pass  # Already set
 
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. Configuration is applied at pipeline start.
@@ -292,11 +288,11 @@ def main(args: Auto3DOptions) -> str:
 
     from Auto3D.workflow import WorkflowOrchestrator
 
-    # Ensure fork method is used for multiprocessing
+    # Set multiprocessing start method (spawn is safer for CUDA)
     try:
-        mp.set_start_method("fork")
+        mp.set_start_method("spawn")
     except RuntimeError:
-        pass  # Already set
+        pass  # Already set by another call
 
     orchestrator = WorkflowOrchestrator(args)
     return orchestrator.run()
