@@ -21,6 +21,41 @@ from pathlib import Path
 from typing import Any
 
 from rdkit import Chem
+from rdkit.Chem import inchi
+
+
+def smiles2smi(smiles: list[str], path: str) -> str:
+    """Convert a list of SMILES strings to a .smi file with InChIKey IDs.
+
+    Each SMILES string is converted to a molecule, and its InChIKey is computed
+    to serve as a unique identifier. The output file contains one molecule per
+    line in the format: "SMILES  InChIKey".
+
+    Args:
+        smiles: List of SMILES strings to convert.
+        path: Output file path for the .smi file.
+
+    Returns:
+        The output file path.
+
+    Example:
+        >>> smiles2smi(["CCO", "CCC"], "molecules.smi")
+        'molecules.smi'
+        # File content:
+        # CCO  LFQSCWFLJHTTHZ-UHFFFAOYSA-N
+        # CCC  ATUOYWHBWRKTHZ-UHFFFAOYSA-N
+    """
+    lines = []
+    for smi in smiles:
+        mol = Chem.MolFromSmiles(smi)
+        inchikey = inchi.MolToInchiKey(mol)
+        lines.append(f"{smi}  {inchikey}\n")
+
+    with open(path, "w+") as f:
+        for line in lines:
+            f.write(line)
+
+    return path
 
 
 def guess_file_type(filename: str) -> str:
