@@ -40,7 +40,7 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
         False otherwise.
 
     Raises:
-        AssertionError: If l1 and l2 have different lengths or mismatched indices.
+        ValueError: If l1 and l2 have different lengths or mismatched indices.
 
     Example:
         >>> # R and S configurations at same positions indicate enantiomers
@@ -49,14 +49,20 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
         >>> enantiomer(l1, l2)
         True
     """
+    if len(l1) != len(l2):
+        raise ValueError(
+            f"Stereo center lists must have same length: {len(l1)} vs {len(l2)}"
+        )
     indicator = True
-    assert len(l1) == len(l2)
     for i in range(len(l1)):
         tp1 = l1[i]
         tp2 = l2[i]
         idx1, stereo1 = tp1
         idx2, stereo2 = tp2
-        assert idx1 == idx2
+        if idx1 != idx2:
+            raise ValueError(
+                f"Stereo center indices must match: {idx1} vs {idx2} at position {i}"
+            )
         if stereo1 == stereo2:
             indicator = False
             return indicator
@@ -162,9 +168,12 @@ def no_enantiomer_helper(info1: list[str], info2: list[str]) -> bool:
         False otherwise.
 
     Raises:
-        AssertionError: If info1 and info2 have different lengths.
+        ValueError: If info1 and info2 have different lengths.
     """
-    assert len(info1) == len(info2)
+    if len(info1) != len(info2):
+        raise ValueError(
+            f"Stereo info lists must have same length: {len(info1)} vs {len(info2)}"
+        )
     for i in range(len(info1)):
         if info1[i].strip() == info2[i].strip():
             return False
@@ -363,11 +372,15 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
                         new_value.append(new_val)
                 value += new_value
 
-                # assert
+                # Validate enumeration completeness
                 new_num = len(value) / num_configurations
-                assert check_value(new_num)
+                if not check_value(new_num):
+                    raise ValueError(
+                        f"Stereo enumeration incomplete for {key}: "
+                        f"expected power of 2, got {new_num}"
+                    )
                 dct[key] = value
-            except (AssertionError, Exception):
+            except (ValueError, Exception):
                 print(f"Stereo centers for {key} are not fully enumerated.", flush=True)
                 logger.info(f"Stereo centers for {key} are not fully enumerated.")
     return dct
