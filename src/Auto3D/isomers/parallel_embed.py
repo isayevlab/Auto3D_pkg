@@ -2,6 +2,7 @@
 """Parallel conformer embedding using multiprocessing."""
 from __future__ import annotations
 
+import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Iterator
 
@@ -38,7 +39,11 @@ def _embed_single(
             - conf_idx: Index of the conformer in the molecule
             - conf_id: Unique identifier string (name_idx format)
     """
-    mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+    # Validate SMILES first to avoid unpicklable Boost.Python errors
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return []
+    mol = Chem.AddHs(mol)
 
     if n_conformers is None:
         # Dynamic formula based on: https://doi.org/10.1021/acs.jctc.0c01213
@@ -121,6 +126,6 @@ def embed_conformers_parallel(
                 results = future.result()
                 for mol, conf_idx, conf_id in results:
                     yield mol, conf_idx, conf_id
-            except Exception as e:
+            except (ValueError, RuntimeError, KeyError, pickle.PicklingError) as e:
                 smi, name = futures[future]
-                print(f"Failed to embed {name}: {e}")
+                print(f"Failed to embed {name}: {type(e).__name__}: {e}")
