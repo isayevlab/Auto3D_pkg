@@ -17,6 +17,7 @@ import torch
 import Auto3D
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
+from Auto3D.model_factory import ModelFactory
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
 from Auto3D.utils.file_ops import SDF2chunks, decode_ids, encode_ids
@@ -396,6 +397,9 @@ class WorkflowOrchestrator:
         if self.logging_queue:
             self.logging_queue.put(None)
             time.sleep(3)
+
+        # Clear model cache to free GPU memory
+        ModelFactory.clear_cache()
 
         return path_output
 
