@@ -21,7 +21,7 @@ from Auto3D.utils import (
     remove_enantiomers,
 )
 from Auto3D.utils.chemistry import calculate_conformer_count
-from Auto3D.utils_file import combine_smi
+from Auto3D.utils.file_ops import combine_smi
 
 try:
     from openeye import oechem, oeomega, oequacpac
