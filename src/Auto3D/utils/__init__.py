@@ -5,8 +5,10 @@ This package contains utility functions split into focused modules:
 - stereochemistry: Functions for stereochemistry detection and manipulation
 - validation: Functions for input validation and filtering
 - file_ops: File I/O operations (SMILES files, SDF chunking, ID encoding)
+- logging_config: Logging configuration and logger factory
 """
 
+from Auto3D.utils.logging_config import get_logger, configure_logging
 from Auto3D.utils.chemistry import (
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
@@ -58,6 +60,9 @@ from Auto3D.utils.file_ops import (
 )
 
 __all__ = [
+    # Logging configuration
+    "get_logger",
+    "configure_logging",
     # Chemistry module exports
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
