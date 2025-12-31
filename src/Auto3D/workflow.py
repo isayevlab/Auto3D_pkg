@@ -20,10 +20,13 @@ from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationE
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
 from Auto3D.utils.file_ops import SDF2chunks, decode_ids, encode_ids
+from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
     from logging import LogRecord
     from multiprocessing import Queue
+
+logger = get_logger(__name__)
 
 
 class WorkflowOrchestrator:
@@ -233,8 +236,8 @@ class WorkflowOrchestrator:
         data_size = len(df)
         num_chunks = max(int(data_size // chunk_size + 1), num_jobs)
 
-        print(f"The available memory is {memory_gb} GB.", flush=True)
-        print(f"The task will be divided into {num_chunks} jobs.", flush=True)
+        logger.info(f"The available memory is {memory_gb} GB.")
+        logger.info(f"The task will be divided into {num_chunks} jobs.")
 
         if self.logger:
             self.logger.info(f"The available memory is {memory_gb} GB.")
@@ -273,7 +276,7 @@ class WorkflowOrchestrator:
         for i in range(num_chunks):
             # Skip empty chunks (can happen with multi-GPU and few molecules)
             if not chunk_idxes[i]:
-                print(f"Job{i + 1}, number of inputs: 0 (skipped)", flush=True)
+                logger.info(f"Job{i + 1}, number of inputs: 0 (skipped)")
                 if self.logger:
                     self.logger.info(f"Job{i + 1}, number of inputs: 0 (skipped)")
                 continue
@@ -292,7 +295,7 @@ class WorkflowOrchestrator:
                 chunk_path.write_text("".join(line for chunk in chunks for line in chunk))
                 count = len(chunks)
 
-            print(f"Job{i + 1}, number of inputs: {count}", flush=True)
+            logger.info(f"Job{i + 1}, number of inputs: {count}")
             if self.logger:
                 self.logger.info(f"Job{i + 1}, number of inputs: {count}")
 
@@ -385,7 +388,7 @@ class WorkflowOrchestrator:
         self.input_path.unlink()
         path_combined.unlink()
 
-        print(f"Output path: {path_output}", flush=True)
+        logger.info(f"Output path: {path_output}")
         if self.logger:
             self.logger.info(f"Output path: {path_output}")
 
@@ -402,7 +405,7 @@ class WorkflowOrchestrator:
         Args:
             start_time: Pipeline start time.
         """
-        print("Energy unit: Hartree if implicit.", flush=True)
+        logger.info("Energy unit: Hartree if implicit.")
         if self.logger:
             self.logger.info("Energy unit: Hartree if implicit.")
 
@@ -415,7 +418,7 @@ class WorkflowOrchestrator:
             remaining = elapsed_minutes - hours * 60
             msg = f"Program running time: {hours} hour(s) and {remaining} minute(s)"
 
-        print(msg, flush=True)
+        logger.info(msg)
         if self.logger:
             self.logger.info(msg)
 
