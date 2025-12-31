@@ -2,13 +2,14 @@
 """Finding 3D structures that satisfy the input requirement."""
 from __future__ import annotations
 
-import logging
-
 import pandas as pd
 from rdkit import Chem
 
 from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class ConformerRanker:
@@ -126,8 +127,7 @@ class ConformerRanker:
 
         if len(out_mols) == 0:
             name = names[0].split("_")[0].strip()
-            print(f"No structure converged for {name}.", flush=True)
-            logging.info(f"No structure converged for {name}.")
+            logger.info(f"No structure converged for {name}.")
         else:
             #Adding relative energies
             ref_energy = float(out_mols[0].GetProp('E_tot'))
@@ -161,8 +161,7 @@ class ConformerRanker:
 
         if len(out_mols_) == 0:
             name = names[0].split("_")[0].strip()
-            print(f"No structure converged for {name}.", flush=True)
-            logging.info(f"No structure converged for {name}.")
+            logger.info(f"No structure converged for {name}.")
         else:
             ref_energy = float(out_mols_[0].GetProp('E_tot'))
             for mol in out_mols_:
@@ -184,8 +183,7 @@ class ConformerRanker:
         Raises:
             ValueError: If neither k nor window is specified.
         """
-        print("Begin to select structures that satisfy the requirements...", flush=True)
-        logging.info("Begin to select structures that satisfy the requirements...")
+        logger.info("Begin to select structures that satisfy the requirements...")
         results = []
 
         data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
