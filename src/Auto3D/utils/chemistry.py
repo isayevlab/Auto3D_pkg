@@ -17,17 +17,18 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
 
-logger = logging.getLogger("auto3d")
-
 from Auto3D.constants import (
     CONFORMER_MULTIPLIER,
     CONFORMER_ROTATABLE_COEFF,
     CONFORMER_ROTATABLE_EXP,
+    DEFAULT_RMSD_THRESHOLD,
     EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
     MAX_CONFORMERS_CAP,
 )
+
+logger = logging.getLogger("auto3d")
 
 # Re-export constants for convenience
 __all__ = [
@@ -389,7 +390,7 @@ def get_mol_connectivity(
     return connectivity
 
 
-def filter_unique(mols: list[Chem.Mol], crit: float = 0.3) -> list[Chem.Mol]:
+def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) -> list[Chem.Mol]:
     """Remove structures that are very similar and remove unconverged structures.
 
     This function filters a list of molecules to keep only unique, converged structures.
@@ -400,7 +401,7 @@ def filter_unique(mols: list[Chem.Mol], crit: float = 0.3) -> list[Chem.Mol]:
         mols: List of RDKit molecule objects with 'Converged' property set.
         crit: RMSD threshold for considering two structures as identical.
             Structures with RMSD below this value are considered duplicates.
-            Defaults to 0.3 Angstroms.
+            Defaults to DEFAULT_RMSD_THRESHOLD (0.3 Angstroms).
 
     Returns:
         List of unique, converged molecules with valid connectivity.

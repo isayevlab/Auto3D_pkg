@@ -13,6 +13,12 @@ import yaml
 
 import Auto3D
 from Auto3D.auto3D import main, options
+from Auto3D.constants import (
+    DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_OPT_STEPS,
+    DEFAULT_PATIENCE,
+    DEFAULT_RMSD_THRESHOLD,
+)
 from Auto3D.exceptions import Auto3DError
 from Auto3D.utils.logging_config import configure_logging
 
@@ -110,13 +116,13 @@ def create_argument_parser() -> argparse.ArgumentParser:
                         help="If True, the program will use GPU.")
     parser.add_argument('--gpu_idx', default=0, type=int_or_intlist,
                         help="GPU index or indices as a single value or comma-separated list (e.g., 0,1,2)")
-    parser.add_argument('--opt_steps', type=int, default=2000,
+    parser.add_argument('--opt_steps', type=int, default=DEFAULT_OPT_STEPS,
                         help="Maximum optimization steps for each structure.")
-    parser.add_argument('--convergence_threshold', type=float, default=0.01,
+    parser.add_argument('--convergence_threshold', type=float, default=DEFAULT_CONVERGENCE_THRESHOLD,
                         help="Optimization is considered as converged if maximum force is below this threshold. Unit eV/Angstrom.")
-    parser.add_argument('--patience', type=int, default=250,
+    parser.add_argument('--patience', type=int, default=DEFAULT_PATIENCE,
                         help="If the force does not decrease for a continuous patience steps, the conformer will be dropped out of the optimization loop.")
-    parser.add_argument('--threshold', type=float, default=0.3,
+    parser.add_argument('--threshold', type=float, default=DEFAULT_RMSD_THRESHOLD,
                         help=("If the RMSD between two conformers are within threhold, "
                               "they are considered as duplicates. One of them will be removed."))
     parser.add_argument('--verbose', default=False, type=lambda x: (str(x).lower() == 'true'),
