@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import pickle
 import warnings
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -91,12 +92,12 @@ def check_input(args: Any) -> None:
     if Path(args.optimizing_engine).exists():
         try:
             model_ = torch.jit.load(args.optimizing_engine)  # noqa: F841
-        except Exception as e:
+        except (RuntimeError, pickle.UnpicklingError, OSError) as e:
             raise ModelLoadError(
                 "A path to a user NNP is used as optimizing engine, but it cannot be loaded. "
-                f"Error: {e}. See this link for information about saving and loading models: "
+                f"Error: {type(e).__name__}: {e}. See this link for information about saving and loading models: "
                 "https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model"
-            )
+            ) from e
 
     if int(args.opt_steps) < 10:
         raise ConfigurationError(
