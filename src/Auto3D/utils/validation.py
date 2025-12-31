@@ -147,6 +147,9 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         A tuple containing:
             - ANI: Boolean indicating if all molecules are compatible with ANI models
             - only_aimnet_smiles: List of SMILES that require AIMNET (contain non-ANI elements or charged)
+
+    Raises:
+        ValueError: If SMILES or ID is empty in any line.
     """
     ANI_elements = {1, 6, 7, 8, 9, 16, 17}
     ANI = True
@@ -158,8 +161,10 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         if line.isspace():
             continue
         smiles, id = tuple(line.strip().split())
-        assert len(smiles) > 0, "Empty SMILES string"
-        assert len(id) > 0, "Empty ID"
+        if len(smiles) == 0:
+            raise ValueError(f"Empty SMILES string in line: {line.strip()!r}")
+        if len(id) == 0:
+            raise ValueError(f"Empty ID in line: {line.strip()!r}")
         smiles_all.append(smiles)
 
     print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
@@ -206,6 +211,9 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
         A tuple containing:
             - ANI: Boolean indicating if all molecules are compatible with ANI models
             - only_aimnet_ids: List of molecule IDs that require AIMNET
+
+    Raises:
+        ValueError: If molecule ID is empty (_Name property is empty).
     """
     ANI_elements = {1, 6, 7, 8, 9, 16, 17}
     ANI = True
@@ -214,7 +222,8 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     mols, only_aimnet_ids = [], []
     for mol in supp:
         id = mol.GetProp("_Name")
-        assert len(id) > 0, "Empty ID"
+        if len(id) == 0:
+            raise ValueError("Empty molecule ID (empty _Name property)")
         mols.append(mol)
 
         charge = Chem.rdmolops.GetFormalCharge(mol)
