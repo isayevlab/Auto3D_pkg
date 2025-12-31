@@ -9,6 +9,7 @@ import sys
 from functools import partial
 from pathlib import Path
 
+import numpy as np
 import ase
 import ase.calculators.calculator
 import torch
@@ -283,14 +284,16 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 mol = do_mol_thermo(mol, atoms, hessian_model,
                                     device, T, model_name=model_name)
                 out_mols.append(mol)
-        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
-            logger.warning(f"Thermo calculation failed for {idx}: {e}")
+        except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
+                np.linalg.LinAlgError, ZeroDivisionError) as e:
+            logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             print("Failed: ", idx, flush=True)
             mols_failed.append(mol)
         except Exception as e:
-            # Still catch unexpected errors, but log them for debugging
+            # Catch-all for truly unexpected errors - prevents batch failure
+            # Log at ERROR level for debugging while allowing pipeline to continue
             logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
-            print("Failed: ", idx, flush=True)
+            print("Failed (unexpected): ", idx, flush=True)
             mols_failed.append(mol)
 
     print("Number of failed thermo calculations: ", len(mols_failed), flush=True)
