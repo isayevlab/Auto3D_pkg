@@ -107,7 +107,8 @@ class ConformerRanker:
             List of RDKit Mol objects for top-k structures.
         """
         names = list(df_group["names"])
-        assert(len(set(names)) == 1)
+        if len(set(names)) != 1:
+            raise ValueError(f"All molecules must have the same name, got: {set(names)}")
 
         df2 = df_group.sort_values(by=['energies'])
 
@@ -149,8 +150,10 @@ class ConformerRanker:
         """
         window = (window/ev2kcalpermol)  # convert energy window into eV unit
         names = list(df_group["names"])
-        assert(window >= 0)
-        assert(len(set(names)) == 1)
+        if window < 0:
+            raise ValueError(f"window must be non-negative, got: {window * ev2kcalpermol} kcal/mol")
+        if len(set(names)) != 1:
+            raise ValueError(f"All molecules must have the same name, got: {set(names)}")
 
         df2 = df_group.sort_values(by=['energies'])
         out_mols_ = self._filter_mols(list(df2['mols']))

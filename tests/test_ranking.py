@@ -291,3 +291,87 @@ class TestConformerRankerTopWindow:
         # mol1 and mol2 are different structures, both within window
         # mol3 is outside the window (in kcal/mol)
         assert len(results) >= 1
+
+
+class TestConformerRankerValidation:
+    """Tests for input validation with proper ValueError exceptions."""
+
+    def test_top_k_raises_on_mismatched_names(self, tmp_path):
+        """top_k should raise ValueError when molecules have different names."""
+        from Auto3D.ranking import ConformerRanker
+        import pandas as pd
+
+        mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
+        mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=2,
+        )
+
+        df = pd.DataFrame({
+            "names": ["mol_a", "mol_b"],
+            "energies": [-10.0, -9.0],
+            "mols": [mol1, mol2],
+        })
+
+        with pytest.raises(ValueError, match="All molecules must have the same name"):
+            ranker.top_k(df, k=2)
+
+    def test_top_window_raises_on_negative_window(self, tmp_path):
+        """top_window should raise ValueError when window is negative."""
+        from Auto3D.ranking import ConformerRanker
+        import pandas as pd
+
+        mol1 = _create_mol_with_energy("C", -10.0, "mol")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            window=1.0,
+        )
+
+        df = pd.DataFrame({
+            "names": ["mol"],
+            "energies": [-10.0],
+            "mols": [mol1],
+        })
+
+        with pytest.raises(ValueError, match="window must be non-negative"):
+            ranker.top_window(df, window=-1.0)
+
+    def test_top_window_raises_on_mismatched_names(self, tmp_path):
+        """top_window should raise ValueError when molecules have different names."""
+        from Auto3D.ranking import ConformerRanker
+        import pandas as pd
+
+        mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
+        mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            window=1.0,
+        )
+
+        df = pd.DataFrame({
+            "names": ["mol_a", "mol_b"],
+            "energies": [-10.0, -9.0],
+            "mols": [mol1, mol2],
+        })
+
+        with pytest.raises(ValueError, match="All molecules must have the same name"):
+            ranker.top_window(df, window=1.0)
