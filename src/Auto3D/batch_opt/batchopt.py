@@ -1,5 +1,6 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import torch
@@ -42,23 +43,42 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats
 
 
-def ensemble_opt(net, coord, numbers, charges, param, model, device):
-    """Optimizing a group of molecules
+def ensemble_opt(
+    net: EnForce_ANI,
+    coord: Union[list, torch.Tensor],
+    numbers: Union[list, torch.Tensor],
+    charges: Union[list, torch.Tensor],
+    param: dict,
+    model: str,
+    device: torch.device
+) -> dict:
+    """Optimize a group of molecules using batch optimization.
 
-    Arguments:
-    net: an EnForce_ANI object
-    coord: coordinates of input molecules (N, m, 3). N is the number of structures
-           m is the number of atoms in each structure. Can be a list or torch.Tensor.
-    numbers: atomic numbers in the molecule (include H). (N, m). Can be a list or torch.Tensor.
-    charges: (N,). Can be a list or torch.Tensor.
-    param: a dictionary containing parameters. Supports:
-        - opt_steps: maximum optimization steps
-        - opttol: force convergence tolerance
-        - patience: oscillation patience
-        - energy_tol: (optional) energy convergence tolerance in eV, default 1e-4
-        - energy_patience: (optional) steps energy must be stable, default 3
-    model: "AIMNET", "ANI2xt", "ANI2x" or "userNNP"
-    device
+    Args:
+        net: EnForce_ANI wrapper for the neural network potential.
+        coord: Coordinates of input molecules (N, m, 3). N is the number of
+            structures, m is the number of atoms in each structure.
+        numbers: Atomic numbers in the molecules (N, m).
+        charges: Molecular charges (N,).
+        param: Dictionary containing optimization parameters:
+            - opt_steps: Maximum optimization steps
+            - opttol: Force convergence tolerance
+            - patience: Oscillation patience
+            - energy_tol: (optional) Energy convergence tolerance in eV
+            - energy_patience: (optional) Steps energy must be stable
+        model: Model name ("AIMNET", "ANI2xt", "ANI2x" or path to userNNP).
+        device: Torch device for computation.
+
+    Returns:
+        Dictionary containing:
+            - coord: Optimized coordinates
+            - ids: Structure IDs
+            - energy: Final energies
+            - fmax: Maximum forces
+            - he: High energy structures
+            - close: Close contact structures
+            - timing: Timing information
+            - numbers: Atomic numbers
     """
     # Handle both tensor and list inputs for backward compatibility
     # Ensure coords are leaf tensors (detach from any computation graph)
