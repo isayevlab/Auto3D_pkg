@@ -14,6 +14,17 @@ MIN_ATOM_DISTANCE = 0.9  # Å, minimum allowed interatomic distance
 # Conformer generation limits
 MAX_CONFORMERS_CAP = 1000  # Maximum conformers per molecule
 
+# Conformer generation formula coefficients
+# Based on: https://doi.org/10.1021/acs.jctc.0c01213
+CONFORMER_ROTATABLE_COEFF = 8.481  # Coefficient for rotatable bond count
+CONFORMER_ROTATABLE_EXP = 1.642    # Exponent for rotatable bond count
+CONFORMER_MULTIPLIER = 2           # Multiplier for the formula
+CONFORMER_RANDOM_SEED = 42         # Random seed for reproducible embedding
+
+# Optimization sentinel values
+INITIAL_FMAX_SENTINEL = 999.0  # Initial value for max force (unconverged)
+INITIAL_ENERGY_SENTINEL = 999.0  # Initial value for energy (unconverged)
+
 # Thermodynamics
 STANDARD_PRESSURE = 101325  # Pa
 
