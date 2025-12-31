@@ -1,13 +1,28 @@
 #!/usr/bin/env python
 """
 Providing general utilities for working with different formats of molecular files
+
+.. deprecated:: 1.0
+    This module is deprecated. Use :mod:`Auto3D.utils.file_ops` instead.
+    Functions will be removed in Auto3D v2.0.
 """
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 from rdkit import Chem
 from rdkit.Chem import inchi
+
+
+def _emit_deprecation_warning(old_name: str, new_location: str) -> None:
+    """Emit deprecation warning for moved functions."""
+    warnings.warn(
+        f"{old_name} is deprecated and will be removed in Auto3D v2.0. "
+        f"Use {new_location} instead.",
+        DeprecationWarning,
+        stacklevel=3
+    )
 
 
 def guess_file_type(filename: str) -> str:
@@ -45,12 +60,16 @@ def combine_smi(smies: list[str], out: str) -> None:
 def countSDF(sdf: str) -> int:
     """Count the number of molecules in an SDF file.
 
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.count_sdf` instead.
+
     Args:
         sdf: Path to the SDF file.
 
     Returns:
         Number of molecules in the file.
     """
+    _emit_deprecation_warning("countSDF", "Auto3D.utils.file_ops.count_sdf")
     mols = Chem.SDMolSupplier(sdf)
     mols2 = [mol for mol in mols]
     c = len(mols2)
@@ -75,6 +94,9 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
 def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     """Find SMILES that failed to generate 3D conformers.
 
+    .. deprecated:: 1.0
+        Use :func:`Auto3D.utils.file_ops.find_smiles_not_in_sdf` instead.
+
     Args:
         smi: Path to input SMILES file.
         sdf: Path to output SDF file.
@@ -82,6 +104,10 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     Returns:
         List of (id, smiles) tuples for molecules not in SDF.
     """
+    _emit_deprecation_warning(
+        "find_smiles_not_in_sdf",
+        "Auto3D.utils.file_ops.find_smiles_not_in_sdf"
+    )
     #find all SMILES ids
     smi_names = []
     with open(smi) as f:
