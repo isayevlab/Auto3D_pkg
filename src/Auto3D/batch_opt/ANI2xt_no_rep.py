@@ -6,7 +6,8 @@ import torchani
 
 from Auto3D.utils import hartree2ev
 
-torch.manual_seed(0)
+# Note: Do NOT set torch.manual_seed() at module level.
+# Random seed should be controlled by the caller, not by importing a module.
 # TF32 settings are now configurable via Auto3DOptions.allow_tf32
 # and applied in workflow.py/auto3D.py entry points
 """
