@@ -9,6 +9,9 @@ from rdkit import Chem
 from Auto3D.auto3D import main
 from Auto3D.config import Auto3DOptions
 from Auto3D.utils import hartree2kcalpermol
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def select_tautomers(sdf: str, k: int | None = None, window: float | None = None) -> str:
@@ -18,7 +21,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     sdf: main function output
     
     Output: the path of the low-energy tautomer 3D conformers"""
-    print("\nBegin to select stable tautomers based on their conformer energies...", flush=True)
+    logger.info("Begin to select stable tautomers based on their conformer energies...")
     results = []
     if (k is not None) and (window is not None):
         raise ValueError("Only k OR window needs to be specified")        
@@ -69,8 +72,8 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     with Chem.SDWriter(output_path) as w:
         for mol in results:
             w.write(mol)
-    print("Done.", flush=True)
-    print("The stable tautomers are stored in: %s" % output_path, flush=True)
+    logger.info("Done.")
+    logger.info("The stable tautomers are stored in: %s", output_path)
     return output_path
 
 
