@@ -648,19 +648,21 @@ class TestReorderSdf:
         # mol2 should be last
         assert "mol2" in result[2].GetProp("_Name")
 
-    def test_reorder_sdf_unsupported_format(self, tmp_path, capsys):
+    def test_reorder_sdf_unsupported_format(self, tmp_path, caplog):
         """Test that unsupported format returns None."""
+        import logging
+
         xyz_file = tmp_path / "source.xyz"
         xyz_file.write_text("invalid")
 
         sdf_file = tmp_path / "mols.sdf"
         sdf_file.write_text("dummy")
 
-        result = reorder_sdf(str(sdf_file), str(xyz_file))
+        with caplog.at_level(logging.WARNING):
+            result = reorder_sdf(str(sdf_file), str(xyz_file))
 
         assert result is None
-        captured = capsys.readouterr()
-        assert "Unsupported file format" in captured.out
+        assert "Unsupported file format" in caplog.text
 
 
 class TestFileOpsIntegration:

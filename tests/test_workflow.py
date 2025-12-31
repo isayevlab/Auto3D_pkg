@@ -184,9 +184,10 @@ class TestChunkCreation:
 class TestOptimizerEmptyInput:
     """Tests for optimizer handling of empty/missing input files."""
 
-    def test_optimizer_handles_missing_file(self, tmp_path, capsys):
+    def test_optimizer_handles_missing_file(self, tmp_path, caplog):
         """Optimizer should gracefully handle missing input files."""
         from Auto3D.batch_opt.batchopt import optimizing
+        import logging
         import torch
 
         device = torch.device("cpu")
@@ -200,15 +201,16 @@ class TestOptimizerEmptyInput:
         nonexistent = str(tmp_path / "nonexistent.sdf")
         optimizer = optimizing(nonexistent, str(tmp_path / "out.sdf"), "AIMNET", device, config)
 
-        # Should not raise, just print warning and return
-        optimizer.run()
+        # Should not raise, just log warning and return
+        with caplog.at_level(logging.WARNING):
+            optimizer.run()
 
-        captured = capsys.readouterr()
-        assert "does not exist" in captured.out
+        assert "does not exist" in caplog.text
 
-    def test_optimizer_handles_empty_file(self, tmp_path, capsys):
+    def test_optimizer_handles_empty_file(self, tmp_path, caplog):
         """Optimizer should gracefully handle empty input files."""
         from Auto3D.batch_opt.batchopt import optimizing
+        import logging
         import torch
 
         device = torch.device("cpu")
@@ -225,8 +227,8 @@ class TestOptimizerEmptyInput:
 
         optimizer = optimizing(str(empty_sdf), str(tmp_path / "out.sdf"), "AIMNET", device, config)
 
-        # Should not raise, just print warning and return
-        optimizer.run()
+        # Should not raise, just log warning and return
+        with caplog.at_level(logging.WARNING):
+            optimizer.run()
 
-        captured = capsys.readouterr()
-        assert "empty" in captured.out
+        assert "empty" in caplog.text

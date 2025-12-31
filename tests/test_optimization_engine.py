@@ -6,6 +6,7 @@ optimization loop for batch geometry optimization.
 """
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,7 +18,7 @@ from Auto3D.batch_opt.optimization_engine import n_steps, print_stats
 class TestPrintStats:
     """Tests for print_stats function."""
 
-    def test_print_stats_outputs_correctly(self, capsys):
+    def test_print_stats_outputs_correctly(self, caplog):
         """print_stats should output convergence info with correct counts."""
         state = {
             'numbers': torch.ones(10, 5),
@@ -26,14 +27,14 @@ class TestPrintStats:
             'oscillating_count': torch.zeros(10, 1),
         }
 
-        print_stats(state, patience=100)
+        with caplog.at_level(logging.INFO):
+            print_stats(state, patience=100)
 
-        captured = capsys.readouterr()
-        assert "Total 3D structures: 10" in captured.out
-        assert "Converged: 2" in captured.out
-        assert "Active: 8" in captured.out
+        assert "Total 3D structures: 10" in caplog.text
+        assert "Converged: 2" in caplog.text
+        assert "Active: 8" in caplog.text
 
-    def test_print_stats_all_converged(self, capsys):
+    def test_print_stats_all_converged(self, caplog):
         """print_stats should report all converged when all are done."""
         state = {
             'numbers': torch.ones(5, 3),
@@ -41,14 +42,14 @@ class TestPrintStats:
             'oscillating_count': torch.zeros(5, 1),
         }
 
-        print_stats(state, patience=100)
+        with caplog.at_level(logging.INFO):
+            print_stats(state, patience=100)
 
-        captured = capsys.readouterr()
-        assert "Total 3D structures: 5" in captured.out
-        assert "Converged: 5" in captured.out
-        assert "Active: 0" in captured.out
+        assert "Total 3D structures: 5" in caplog.text
+        assert "Converged: 5" in caplog.text
+        assert "Active: 0" in caplog.text
 
-    def test_print_stats_with_oscillating(self, capsys):
+    def test_print_stats_with_oscillating(self, caplog):
         """print_stats should report dropped structures correctly."""
         state = {
             'numbers': torch.ones(6, 3),
@@ -57,17 +58,17 @@ class TestPrintStats:
         }
 
         # patience=100, so structures with count >= 100 are considered dropped
-        print_stats(state, patience=100)
+        with caplog.at_level(logging.INFO):
+            print_stats(state, patience=100)
 
-        captured = capsys.readouterr()
-        assert "Total 3D structures: 6" in captured.out
+        assert "Total 3D structures: 6" in caplog.text
         # 3 converged_mask True, but 2 have oscillating_count >= 100
         # So: converged = 3 - 2 = 1, dropped = 2, active = 3
-        assert "Converged: 1" in captured.out
-        assert "Dropped(Oscillating): 2" in captured.out
-        assert "Active: 3" in captured.out
+        assert "Converged: 1" in caplog.text
+        assert "Dropped(Oscillating): 2" in caplog.text
+        assert "Active: 3" in caplog.text
 
-    def test_print_stats_empty_batch(self, capsys):
+    def test_print_stats_empty_batch(self, caplog):
         """print_stats should handle empty batches gracefully."""
         state = {
             'numbers': torch.ones(0, 5),
@@ -75,13 +76,13 @@ class TestPrintStats:
             'oscillating_count': torch.zeros(0, 1),
         }
 
-        print_stats(state, patience=100)
+        with caplog.at_level(logging.INFO):
+            print_stats(state, patience=100)
 
-        captured = capsys.readouterr()
-        assert "Total 3D structures: 0" in captured.out
+        assert "Total 3D structures: 0" in caplog.text
 
-    def test_print_stats_flushes_output(self, capsys):
-        """print_stats should flush output."""
+    def test_print_stats_flushes_output(self, caplog):
+        """print_stats should produce log output."""
         state = {
             'numbers': torch.ones(2, 3),
             'converged_mask': torch.tensor([False, False]),
@@ -89,11 +90,11 @@ class TestPrintStats:
         }
 
         # This test verifies the function completes without error
-        # The flush=True is tested implicitly by output appearing
-        print_stats(state, patience=100)
+        # and produces log output
+        with caplog.at_level(logging.INFO):
+            print_stats(state, patience=100)
 
-        captured = capsys.readouterr()
-        assert len(captured.out) > 0
+        assert len(caplog.text) > 0
 
 
 class TestNSteps:
@@ -344,7 +345,7 @@ class TestNStepsBackwardCompatibility:
 class TestPrintStatsBackwardCompatibility:
     """Tests ensuring print_stats maintains backward compatibility."""
 
-    def test_print_stats_uses_oscillating_count_key(self, capsys):
+    def test_print_stats_uses_oscillating_count_key(self, caplog):
         """print_stats should use 'oscillating_count' key (correct spelling)."""
         state = {
             'numbers': torch.ones(3, 5),
@@ -353,7 +354,7 @@ class TestPrintStatsBackwardCompatibility:
         }
 
         # Should work with correctly spelled key
-        print_stats(state, patience=50)
+        with caplog.at_level(logging.INFO):
+            print_stats(state, patience=50)
 
-        captured = capsys.readouterr()
-        assert "Dropped(Oscillating): 1" in captured.out
+        assert "Dropped(Oscillating): 1" in caplog.text
