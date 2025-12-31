@@ -127,7 +127,10 @@ def padding_coords(lists, pad_value=0.0):
     lengths = [len(lst) for lst in lists]
     max_length = max(lengths)
     pad_length = [max_length - len(lst) for lst in lists]
-    assert (len(pad_length) == len(lists))
+    if len(pad_length) != len(lists):
+        raise ValueError(
+            f"pad_length ({len(pad_length)}) must match number of lists ({len(lists)})"
+        )
 
     lists_padded = []
     for i in range(len(pad_length)):
@@ -157,7 +160,10 @@ def padding_species(lists, pad_value=-1):
     lengths = [len(lst) for lst in lists]
     max_length = max(lengths)
     pad_length = [max_length - len(lst) for lst in lists]
-    assert (len(pad_length) == len(lists))
+    if len(pad_length) != len(lists):
+        raise ValueError(
+            f"pad_length ({len(pad_length)}) must match number of lists ({len(lists)})"
+        )
 
     lists_padded = []
     for i in range(len(pad_length)):
