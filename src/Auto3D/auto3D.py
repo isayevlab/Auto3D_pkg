@@ -32,7 +32,9 @@ from Auto3D.utils import (
     reorder_sdf,
 )
 from Auto3D.utils.file_ops import smiles2smi
-from Auto3D.utils.logging_config import configure_logging
+from Auto3D.utils.logging_config import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -66,7 +68,6 @@ def isomer_wraper(
     logger.setLevel(logging.INFO)
 
     for i, path_dir in enumerate(chunk_info):
-        print(f"\n\nIsomer generation for job{i+1}", flush=True)
         logger.info(f"\n\nIsomer generation for job{i+1}")
         path, dir = path_dir
         meta = create_chunk_meta_names(path, dir)
@@ -75,13 +76,11 @@ def isomer_wraper(
         if args.enumerate_tautomer:
             output_taut = meta["output_taut"]
             taut_mode = args.tauto_engine
-            print("Enumerating tautomers for the input...", end='')
             logger.info("Enumerating tautomers for the input...")
             taut_engine = tautomer_engine(taut_mode, path, output_taut, args.pKaNorm)
             taut_engine.run()
             hash_taut_smi(output_taut, output_taut)
             path = output_taut
-            print(f"Tautomers are saved in {output_taut}", flush=True)
             logger.info(f"Tautomers are saved in {output_taut}")
 
         smiles_enumerated = meta["smiles_enumerated"]
@@ -137,7 +136,6 @@ def optim_rank_wrapper(
         if sdf_path_dir_job == "Done":
             break
         enumerated_sdf, path, dir, job = sdf_path_dir_job
-        print(f"\n\nOptimizing on job{job}", flush=True)
         logger.info(f"\n\nOptimizing on job{job}")
         meta = create_chunk_meta_names(path, dir)
 
@@ -368,5 +366,5 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)
 
-        print("Energy unit: Hartree if implicit.", flush=True)
+        logger.info("Energy unit: Hartree if implicit.")
     return conformers
