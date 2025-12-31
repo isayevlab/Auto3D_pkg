@@ -23,6 +23,7 @@ from .padding import pad_from_mols
 from tqdm import tqdm
 
 from Auto3D.model_factory import create_model
+from Auto3D.constants import INITIAL_FMAX_SENTINEL, INITIAL_ENERGY_SENTINEL
 
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
@@ -75,9 +76,9 @@ def ensemble_opt(net, coord, numbers, charges, param, model, device):
     else:
         charges = charges.detach().to(dtype=torch.long, device=device)
     converged_mask = torch.zeros(coord.shape[0], dtype=torch.bool, device=device)
-    fmax = torch.full(coord.shape[:1], 999.0,
-                      device=coord.device)  # size=N, a tensored filled with 999.0, representing the current maximum forces at each conformer.
-    energy = torch.full(coord.shape[:1], 999.0, dtype=torch.double, device=coord.device)
+    fmax = torch.full(coord.shape[:1], INITIAL_FMAX_SENTINEL,
+                      device=coord.device)  # size=N, representing the current maximum forces at each conformer.
+    energy = torch.full(coord.shape[:1], INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=coord.device)
     ids = torch.arange(coord.shape[0], device=coord.device)  # Returns a 1D tensor
     # optimizer = FIRE(coord)
 
