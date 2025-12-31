@@ -13,12 +13,14 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from tqdm import tqdm
 
+from Auto3D.constants import CONFORMER_RANDOM_SEED
 from Auto3D.utils import (
     amend_configuration_w,
     hash_enumerated_smi_IDs,
     min_pairwise_distance,
     remove_enantiomers,
 )
+from Auto3D.utils.chemistry import calculate_conformer_count
 from Auto3D.utils_file import combine_smi
 
 try:
@@ -185,16 +187,13 @@ class RDKitIsomer:
         """Embed multiple 3D conformers for a SMILES string."""
         mol = Chem.AddHs(Chem.MolFromSmiles(smi))
         if self.n_conformers is None:
-            # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
-            num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
-            num_heavy_atoms = len([atom for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1])
-            n_conformers = min(max(num_heavy_atoms, int(2 * 8.481 * (num_rotatable_bonds **1.642))), 1000)
+            n_conformers = calculate_conformer_count(mol)
             AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
-                                    randomSeed=42, numThreads=self.np,
+                                    randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
         else:
             AllChem.EmbedMultipleConfs(mol, numConfs=self.n_conformers,
-                                    randomSeed=42, numThreads=self.np,
+                                    randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
         return mol
 
@@ -324,15 +323,10 @@ class RDKitSdfIsomer:
                 #enumerate conformers
                 mol2 = Chem.AddHs(mol)
                 if self.n_conformers is None:
-                    # n_conformers = min(3 ** num_rotatable_bonds, 100)
-
-                    # The formula is based on this paper: https://doi.org/10.1021/acs.jctc.0c01213
-                    num_rotatable_bonds = rdMolDescriptors.CalcNumRotatableBonds(mol)
-                    num_heavy_atoms = len([atom for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1])
-                    n_conformers = min(max(num_heavy_atoms, int(2 * 8.481 * (num_rotatable_bonds **1.642))), 1000)
+                    n_conformers = calculate_conformer_count(mol)
                 else:
                     n_conformers = self.n_conformers
-                AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=42, numThreads=self.np, pruneRmsThresh=self.threshold)
+                AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np, pruneRmsThresh=self.threshold)
                 #set conformer names
                 name = mol.GetProp('_Name')
                 for i, conf in enumerate(mol2.GetConformers()):
