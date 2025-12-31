@@ -195,8 +195,22 @@ def padding_species(lists, pad_value=-1):
     return lists_padded
 
 
-def mols2lists(mols, model):
-    '''mols: rdkit mol object'''
+def mols2lists(
+    mols: list[Chem.Mol],
+    model: str
+) -> tuple[list[list[tuple[float, float, float]]], list[list[int]], list[int]]:
+    """Convert RDKit molecules to coordinate and species lists.
+
+    Args:
+        mols: List of RDKit molecule objects with conformers.
+        model: Model name - "ANI2xt" uses different species indexing.
+
+    Returns:
+        Tuple of (coordinates, atomic_numbers, charges):
+            - coordinates: List of conformer positions as (x, y, z) tuples
+            - atomic_numbers: List of atomic numbers (or ANI2xt indices)
+            - charges: List of formal charges
+    """
     species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
     ani2xt_index = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
     coord = [mol.GetConformer().GetPositions().tolist() for mol in mols]
