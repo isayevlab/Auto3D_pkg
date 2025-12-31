@@ -9,7 +9,6 @@ in molecular structures, including:
 """
 from __future__ import annotations
 
-import logging
 import math
 import re
 from collections import OrderedDict, defaultdict
@@ -21,7 +20,9 @@ from rdkit.Chem.rdMolDescriptors import (
     CalcNumUnspecifiedAtomStereoCenters,
 )
 
-logger = logging.getLogger("auto3d")
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
@@ -143,8 +144,7 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
             # AttributeError: if MolFromSmiles returns None and we try to access it
             new_values = values
             logger.debug(f"Enantiomer detection failed for {key}: {type(e).__name__}: {e}")
-            print(f"Enantiomers not removed for {key}", flush=True)
-            logger.info(f"Enantiomers not removed for {key}")
+            logger.warning(f"Enantiomers not removed for {key}")
 
         smiles[key] = new_values
 
@@ -391,8 +391,7 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
                 logger.debug(
                     f"Stereo enumeration failed for {key}: {type(e).__name__}: {e}"
                 )
-                print(f"Stereo centers for {key} are not fully enumerated.", flush=True)
-                logger.info(f"Stereo centers for {key} are not fully enumerated.")
+                logger.warning(f"Stereo centers for {key} are not fully enumerated.")
     return dct
 
 

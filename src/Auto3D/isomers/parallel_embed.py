@@ -12,6 +12,9 @@ from rdkit.Chem import AllChem
 from Auto3D.constants import CONFORMER_RANDOM_SEED
 from Auto3D.utils import min_pairwise_distance
 from Auto3D.utils.chemistry import calculate_conformer_count
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _embed_single(
@@ -124,4 +127,4 @@ def embed_conformers_parallel(
                     yield mol, conf_idx, conf_id
             except (ValueError, RuntimeError, KeyError, pickle.PicklingError) as e:
                 smi, name = futures[future]
-                print(f"Failed to embed {name}: {type(e).__name__}: {e}")
+                logger.warning(f"Failed to embed {name}: {type(e).__name__}: {e}")

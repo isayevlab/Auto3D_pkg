@@ -13,6 +13,9 @@ import torch
 from tqdm import tqdm
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _validate_state(state: dict[str, Any]) -> None:
@@ -67,8 +70,8 @@ def print_stats(state: dict[str, Any], patience: int) -> None:
     num_dropped = torch.sum(oscillating_count)
     num_converged = num_converged_dropped - num_dropped
     num_active = num_total - num_converged_dropped
-    print("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" %
-          (num_total, num_converged, num_dropped, num_active), flush=True)
+    logger.info("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" %
+          (num_total, num_converged, num_dropped, num_active))
 
 
 def n_steps(
@@ -195,7 +198,7 @@ def n_steps(
             print_stats(state, patience)
 
     if istep == (n):
-        print("Reaching maximum optimization step:   ", end="")
+        logger.info("Reaching maximum optimization step:")
     else:
-        print(f"Optimization finished at step {istep}:   ", end="")
+        logger.info(f"Optimization finished at step {istep}:")
     print_stats(state, patience)
