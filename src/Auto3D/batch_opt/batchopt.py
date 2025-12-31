@@ -5,6 +5,10 @@ from typing import Union
 import numpy as np
 import torch
 
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 try:
     import torchani
 except ImportError:
@@ -250,17 +254,16 @@ class optimizing:
         self.species_pad = self.model.species_pad
 
     def run(self):
-        print("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
+        logger.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
             "opt_steps"])
-        # logging.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config["opt_steps"])
 
         # Check if input file exists and is not empty
         input_path = Path(self.in_f)
         if not input_path.exists():
-            print(f"Warning: Input file {self.in_f} does not exist. Skipping optimization.")
+            logger.warning(f"Input file {self.in_f} does not exist. Skipping optimization.")
             return
         if input_path.stat().st_size == 0:
-            print(f"Warning: Input file {self.in_f} is empty. Skipping optimization.")
+            logger.warning(f"Input file {self.in_f} is empty. Skipping optimization.")
             return
 
         mols = list(Chem.SDMolSupplier(self.in_f, removeHs=False))
@@ -269,11 +272,10 @@ class optimizing:
         mols = [m for m in mols if m is not None]
 
         if not mols:
-            print("Warning: No valid molecules in input file. Skipping optimization.")
+            logger.warning("No valid molecules in input file. Skipping optimization.")
             return
 
-        print(f"Total 3D conformers: {len(mols)}", flush=True)
-        # logging.info(f"Total 3D conformers: {len(mols)}")
+        logger.info(f"Total 3D conformers: {len(mols)}")
 
         # Use new vectorized padding that returns tensors directly
         coord_padded, numbers_padded, charges = pad_from_mols(
