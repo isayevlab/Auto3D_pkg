@@ -4,7 +4,6 @@ Calculating thermodynamic properties using Auto3D output
 """
 from __future__ import annotations
 
-import logging
 import sys
 from functools import partial
 from pathlib import Path
@@ -28,12 +27,13 @@ from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
+from Auto3D.utils.logging_config import get_logger
 
 # TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions.
 ev2hatree = 1/hartree2ev
 
-logger = logging.getLogger("auto3d")  
+logger = get_logger(__name__)  
 
 
 class Calculator(ase.calculators.calculator.Calculator):
@@ -278,14 +278,14 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                                         device, T, model_name=model_name)
                     out_mols.append(mol)
                 else:
-                    print('optimize the input geometry')
+                    logger.info('optimize the input geometry')
                     opt = BFGS(atoms)
                     opt.run(fmax=3e-3, steps=opt_steps)
                     mol = do_mol_thermo(mol, atoms, hessian_model,
                                         device, T, model_name=model_name)
                     out_mols.append(mol)
             except ValueError:
-                print('use tighter convergence threshold for geometry optimization')
+                logger.info('use tighter convergence threshold for geometry optimization')
                 opt = BFGS(atoms)
                 opt.run(fmax=opt_tol, steps=opt_steps)
                 mol = do_mol_thermo(mol, atoms, hessian_model,
@@ -294,17 +294,17 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
                 np.linalg.LinAlgError, ZeroDivisionError) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
-            print("Failed: ", idx, flush=True)
+            logger.warning(f"Failed: {idx}")
             mols_failed.append(mol)
         except Exception as e:
             # Catch-all for truly unexpected errors - prevents batch failure
             # Log at ERROR level for debugging while allowing pipeline to continue
             logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
-            print("Failed (unexpected): ", idx, flush=True)
+            logger.warning(f"Failed (unexpected): {idx}")
             mols_failed.append(mol)
 
-    print("Number of failed thermo calculations: ", len(mols_failed), flush=True)
-    print("Number of successful thermo calculations: ", len(out_mols), flush=True)
+    logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
+    logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
     with Chem.SDWriter(str(outpath)) as w:
         all_mols = out_mols + mols_failed
         for mol in all_mols:
