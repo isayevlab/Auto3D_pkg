@@ -18,17 +18,15 @@ ev2hatree = 1/hartree2ev
 
 
 def calc_spe(path: str, model_name: str, gpu_idx: int = 0) -> str:
-    """
-    Calculates single point energy.
+    """Calculates single point energy.
 
-    :param path: Input sdf file
-    :type path: str
-    :param model_name: AIMNET, ANI2x, userNNP, or ANI2xt
-    :type model_name: str
-    :param gpu_idx: GPU cuda index, defaults to 0
-    :type gpu_idx: int, optional
-    :return: Path to output SDF file with energies
-    :rtype: str
+    Args:
+        path: Input sdf file.
+        model_name: AIMNET, ANI2x, userNNP, or ANI2xt.
+        gpu_idx: GPU cuda index. Defaults to 0.
+
+    Returns:
+        Path to output SDF file with energies.
     """
     # Create output path in the same directory as the input
     dir_path = Path(path).parent

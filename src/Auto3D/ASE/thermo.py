@@ -208,23 +208,17 @@ def aimnet_hessian_helper(
 
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=0.0002, opt_steps=2000):
-    """
-    ASE interface for calculation thermo properties using ANI2x, ANI2xt or AIMNET.
+    """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.
 
-    :param path: Input sdf file
-    :type path: str
-    :param model_name: ANI2x, ANI2xt, AIMNET or a path to a userNNP model
-    :type model_name: str
-    :param mol_info_func: A function that returns the name and temperature (idx, T)
-                          from a rdkit mol object. If not provided, the 
-                          thermodynamic properties will be calculated at 298 K
-    :type mol_info_func: function, optional
-    :param gpu_idx: GPU cuda index, defaults to 0
-    :type gpu_idx: int, optional
-    :param opt_tol: Convergence_threshold for geometry optimization, defaults to 0.0002
-    :type opt_tol: float, optional
-    :param opt_steps: Maximum geometry optimization steps, defaults to 2000
-    :type opt_steps: int, optional
+    Args:
+        path: Input sdf file.
+        model_name: ANI2x, ANI2xt, AIMNET or a path to a userNNP model.
+        mol_info_func: A function that returns the name and temperature (idx, T)
+            from a rdkit mol object. If not provided, the thermodynamic properties
+            will be calculated at 298 K.
+        gpu_idx: GPU cuda index. Defaults to 0.
+        opt_tol: Convergence threshold for geometry optimization. Defaults to 0.0002.
+        opt_steps: Maximum geometry optimization steps. Defaults to 2000.
     """
     # Prepare output name
     out_mols, mols_failed = [], []
