@@ -19,7 +19,7 @@ from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
-from Auto3D.utils_file import SDF2chunks, decode_ids, encode_ids
+from Auto3D.utils.file_ops import SDF2chunks, decode_ids, encode_ids
 
 if TYPE_CHECKING:
     from logging import LogRecord
