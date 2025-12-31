@@ -137,8 +137,12 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
     for key, values in smiles.items():
         try:
             new_values = enantiomer_helper(values)
-        except Exception:
+        except (ValueError, RuntimeError, AttributeError) as e:
+            # ValueError: from enantiomer() on mismatched stereo center lists
+            # RuntimeError: from RDKit SMILES parsing or FindMolChiralCenters
+            # AttributeError: if MolFromSmiles returns None and we try to access it
             new_values = values
+            logger.debug(f"Enantiomer detection failed for {key}: {type(e).__name__}: {e}")
             print(f"Enantiomers not removed for {key}", flush=True)
             logger.info(f"Enantiomers not removed for {key}")
 
@@ -380,7 +384,13 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
                         f"expected power of 2, got {new_num}"
                     )
                 dct[key] = value
-            except (ValueError, Exception):
+            except (ValueError, KeyError, IndexError) as e:
+                # ValueError: from create_enantiomer or enumeration validation
+                # KeyError: from stereo_info dictionary access
+                # IndexError: from list indexing in create_enantiomer
+                logger.debug(
+                    f"Stereo enumeration failed for {key}: {type(e).__name__}: {e}"
+                )
                 print(f"Stereo centers for {key} are not fully enumerated.", flush=True)
                 logger.info(f"Stereo centers for {key} are not fully enumerated.")
     return dct
