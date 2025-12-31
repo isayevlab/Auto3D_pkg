@@ -35,3 +35,11 @@ MODEL_ANI2XT = "ANI2xt"
 
 # Supported model names (for validation)
 SUPPORTED_MODELS = frozenset({MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT})
+
+# Default optimization parameters
+DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
+DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
+DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
+DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
+DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
+DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering

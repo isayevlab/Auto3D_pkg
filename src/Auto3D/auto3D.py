@@ -21,6 +21,13 @@ from send2trash import send2trash
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
+from Auto3D.constants import (
+    DEFAULT_BATCHSIZE_ATOMS,
+    DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_OPT_STEPS,
+    DEFAULT_PATIENCE,
+    DEFAULT_RMSD_THRESHOLD,
+)
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomer_engine import oe_isomer, rd_isomer, rd_isomer_sdf, tautomer_engine
 from Auto3D.ranking import ranking
@@ -194,12 +201,12 @@ def options(
     gpu_idx: int | list[int] = 0,
     capacity: int = 42,
     optimizing_engine: str = "AIMNET",
-    patience: int = 250,
-    opt_steps: int = 2000,
-    convergence_threshold: float = 0.01,
-    threshold: float = 0.3,
+    patience: int = DEFAULT_PATIENCE,
+    opt_steps: int = DEFAULT_OPT_STEPS,
+    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD,
+    threshold: float = DEFAULT_RMSD_THRESHOLD,
     memory: int | None = None,
-    batchsize_atoms: int = 1024,
+    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS,
 ) -> Auto3DOptions:
     """Create configuration options for the Auto3D main function.
 
