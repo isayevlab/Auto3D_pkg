@@ -305,8 +305,8 @@ class optimizing:
                 mol.SetProp('Converged', str(convergence_mask[i]))
                 mol.SetProp('ID', idx)
                 coord = optdict['coord'][i]
-                for i, atom in enumerate(mol.GetAtoms()):
-                    mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+                for atom_idx, atom in enumerate(mol.GetAtoms()):
+                    mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[atom_idx])
                 f.write(mol)
 
         # Clean up GPU memory after optimization
