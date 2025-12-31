@@ -31,7 +31,7 @@ from Auto3D.utils import (
     housekeeping,
     reorder_sdf,
 )
-from Auto3D.utils_file import smiles2smi
+from Auto3D.utils.file_ops import smiles2smi
 
 if TYPE_CHECKING:
     from logging import LogRecord
