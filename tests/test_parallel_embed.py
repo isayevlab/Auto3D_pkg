@@ -143,3 +143,33 @@ class TestEmbedConformersParallel:
         results = list(embed_conformers_parallel(smiles_names))
 
         assert len(results) >= 1
+
+    def test_parallel_embed_handles_embedding_errors_gracefully(self):
+        """Embedding errors should be caught and logged, not crash the pipeline."""
+        # Test with invalid SMILES that will fail embedding
+        smiles_names = [("invalid_smiles_xyz", "test_mol")]
+
+        results = list(embed_conformers_parallel(smiles_names, n_conformers=1))
+        # Should return empty list, not raise exception
+        assert results == []
+
+    def test_parallel_embed_mixed_valid_invalid_smiles(self):
+        """Pipeline should continue processing valid SMILES when some fail."""
+        smiles_names = [
+            ("C", "methane"),  # valid
+            ("invalid_smiles", "bad_mol"),  # invalid
+            ("CC", "ethane"),  # valid
+        ]
+
+        results = list(embed_conformers_parallel(
+            smiles_names,
+            n_conformers=3,
+            n_workers=2,
+        ))
+
+        # Should get results from valid molecules only
+        assert len(results) >= 2
+        conf_ids = [conf_id for _, _, conf_id in results]
+        assert any("methane" in cid for cid in conf_ids)
+        assert any("ethane" in cid for cid in conf_ids)
+        assert not any("bad_mol" in cid for cid in conf_ids)
