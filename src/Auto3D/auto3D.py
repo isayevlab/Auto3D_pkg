@@ -32,6 +32,7 @@ from Auto3D.utils import (
     reorder_sdf,
 )
 from Auto3D.utils.file_ops import smiles2smi
+from Auto3D.utils.logging_config import configure_logging
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -288,6 +289,9 @@ def main(args: Auto3DOptions) -> str:
     Raises:
         SystemExit: If input validation fails or no structures converge.
     """
+    # Configure logging based on verbose setting
+    configure_logging(verbose=args.verbose)
+
     from Auto3D.workflow import WorkflowOrchestrator
 
     # Ensure fork method is used for multiprocessing

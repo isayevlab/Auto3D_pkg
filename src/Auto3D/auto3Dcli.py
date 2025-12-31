@@ -14,6 +14,7 @@ import yaml
 import Auto3D
 from Auto3D.auto3D import main, options
 from Auto3D.exceptions import Auto3DError
+from Auto3D.utils.logging_config import configure_logging
 
 
 def int_or_intlist(string: str) -> int | list[int]:
@@ -211,6 +212,9 @@ def cli() -> str | None:
         threshold = args.threshold
         verbose = args.verbose
         job_name = args.job_name
+
+    # Configure logging based on verbose setting
+    configure_logging(verbose=verbose)
 
     arguments = options(
         path,
