@@ -4,7 +4,6 @@ This module provides input validation and filtering utilities for the Auto3D pip
 """
 from __future__ import annotations
 
-import logging
 import os
 import pickle
 import warnings
@@ -23,11 +22,12 @@ from Auto3D.exceptions import (
     ConfigurationError,
     ModelLoadError,
 )
+from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger("auto3d")
+logger = get_logger(__name__)
 
 
 def check_input(args: Any) -> None:
@@ -56,7 +56,6 @@ def check_input(args: Any) -> None:
         ConfigurationError: If configuration parameters are invalid (opt_steps, engine mismatch).
         ModelLoadError: If custom NNP cannot be loaded.
     """
-    print("Checking input file...", flush=True)
     logger.info("Checking input file...")
 
     # Check --use_gpu
@@ -110,22 +109,11 @@ def check_input(args: Any) -> None:
     elif args.input_format == "sdf":
         ANI, only_aimnet_smiles = check_sdf_format(args)
 
-    print("Suggestions for choosing isomer_engine and optimizing_engine: ", flush=True)
     logger.info("Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
-        print(
-            "\tIsomer engine options: RDKit and Omega.\n"
-            "\tOptimizing engine options: ANI2x, ANI2xt, AIMNET or your own NNP.",
-            flush=True,
-        )
         logger.info("\tIsomer engine options: RDKit and Omega.")
         logger.info("\tOptimizing engine options: ANI2x, ANI2xt, AIMNET or your own NNP.")
     else:
-        print(
-            "\tIsomer engine options: RDKit and Omega.\n"
-            "\tOptimizing engine options: AIMNET or your own NNP.",
-            flush=True,
-        )
         logger.info("\tIsomer engine options: RDKit and Omega.")
         logger.info("\tOptimizing engine options: AIMNET or your own NNP.")
         optimizing_engine = args.optimizing_engine
@@ -168,9 +156,8 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
             raise ValueError(f"Empty ID in line: {line.strip()!r}")
         smiles_all.append(smiles)
 
-    print(f"\tThere are {len(data)} SMILES in the input file {args.path}. ", flush=True)
-    print("\tAll SMILES and IDs are valid.", flush=True)
-    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}. \n\tAll SMILES and IDs are valid.")
+    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}.")
+    logger.info("\tAll SMILES and IDs are valid.")
 
     # Check number of unspecified atomic stereo center
     if not args.enumerate_isomer:
@@ -233,11 +220,8 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
             ANI = False
             only_aimnet_ids.append(id)
 
-    print(f"\tThere are {len(mols)} conformers in the input file {args.path}. ", flush=True)
-    print("\tAll conformers and IDs are valid.", flush=True)
-    logger.info(
-        f"\tThere are {len(mols)} conformers in the input file {args.path}. \n\tAll conformers and IDs are valid."
-    )
+    logger.info(f"\tThere are {len(mols)} conformers in the input file {args.path}.")
+    logger.info("\tAll conformers and IDs are valid.")
 
     if args.enumerate_isomer:
         msg = (

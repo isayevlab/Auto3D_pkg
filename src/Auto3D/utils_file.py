@@ -14,6 +14,10 @@ from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import inchi
 
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 def _emit_deprecation_warning(old_name: str, new_location: str) -> None:
     """Emit deprecation warning for moved functions."""
@@ -179,12 +183,12 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
             bad.append((id, smi))
 
     if len(bad) > 0:
-        print("The following SMILES has no 3D structure in the SDF file.", flush=True)
-        print("ID, SMILES", flush=True)
+        logger.warning("The following SMILES has no 3D structure in the SDF file.")
+        logger.warning("ID, SMILES")
         for id, smi in bad:
-            print(id, smi, flush=True)
+            logger.warning(f"{id} {smi}")
     else:
-        print("Every SMILES has at least an 3D structure in the SDF file.", flush=True)
+        logger.info("Every SMILES has at least an 3D structure in the SDF file.")
     return bad
 
 def encode_ids(path: str) -> tuple[str, dict]:

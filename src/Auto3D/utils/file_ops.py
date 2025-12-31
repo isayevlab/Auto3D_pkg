@@ -23,6 +23,10 @@ from typing import Any
 from rdkit import Chem
 from rdkit.Chem import inchi
 
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 def smiles2smi(smiles: list[str], path: str) -> str:
     """Convert a list of SMILES strings to a .smi file with InChIKey IDs.
@@ -594,7 +598,7 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
             id = mol.GetProp("_Name")
             ids.append(id)
     else:
-        print("Unsupported file format: %s" % format)
+        logger.warning("Unsupported file format: %s" % format)
         return None  # type: ignore
 
     # convert sdf to a Dict[id, List[mols]]
@@ -675,11 +679,11 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
             bad.append((mol_id, smiles_str))
 
     if len(bad) > 0:
-        print("The following SMILES has no 3D structure in the SDF file.", flush=True)
-        print("ID, SMILES", flush=True)
+        logger.warning("The following SMILES has no 3D structure in the SDF file.")
+        logger.warning("ID, SMILES")
         for mol_id, smiles_str in bad:
-            print(mol_id, smiles_str, flush=True)
+            logger.warning(f"{mol_id} {smiles_str}")
     else:
-        print("Every SMILES has at least an 3D structure in the SDF file.", flush=True)
+        logger.info("Every SMILES has at least an 3D structure in the SDF file.")
 
     return bad
