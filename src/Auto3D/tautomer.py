@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+from typing import Union
 
 import pandas as pd
 from rdkit import Chem
 
 from Auto3D.auto3D import main
+from Auto3D.config import Auto3DOptions
 from Auto3D.utils import hartree2kcalpermol
 
 
@@ -72,14 +74,32 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     return output_path
 
 
-def get_stable_tautomers(args: dict, tauto_k: int | None = None, tauto_window: float | None = None) -> str:
-    """
-    args: the `options` function output, it's used for generating low-energy conformers
-    tauto_k: keep the top-k tautomers
-    tauto_window: keep the tautomers whose energies are within `window` kcal/mol
+def get_stable_tautomers(
+    args: Union[dict, Auto3DOptions],
+    tauto_k: int | None = None,
+    tauto_window: float | None = None
+) -> str:
+    """Get stable tautomers for input molecules.
 
-    Output:
-    an SDF file storing the stable tautomers from the input SMILES file
+    Generates low-energy conformers and selects the most stable tautomers
+    based on either top-k or energy window criteria.
+
+    Args:
+        args: Configuration options from the ``options()`` function
+            or an ``Auto3DOptions`` instance. For backward compatibility,
+            a dict with the same keys is also accepted.
+        tauto_k: Keep the top-k tautomers (mutually exclusive with tauto_window).
+        tauto_window: Keep tautomers within this energy window (kcal/mol)
+            of the lowest energy tautomer (mutually exclusive with tauto_k).
+
+    Returns:
+        Path to the output SDF file containing stable tautomers.
+
+    Example:
+        >>> from Auto3D.auto3D import options
+        >>> from Auto3D.tautomer import get_stable_tautomers
+        >>> args = options("input.smi", k=1, enumerate_tautomer=True)
+        >>> output = get_stable_tautomers(args, tauto_k=3)
     """
     out = main(args)
     out_tautomer = select_tautomers(out, tauto_k, tauto_window)
