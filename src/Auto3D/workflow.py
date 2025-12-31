@@ -309,13 +309,13 @@ class WorkflowOrchestrator:
         Args:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
-        from Auto3D.auto3D import isomer_wraper, optim_rank_wrapper
+        from Auto3D.auto3D import isomer_wrapper, optim_rank_wrapper
 
         chunk_queue: Queue[tuple[str, str, str, int] | str] = mp.Manager().Queue()
 
         # Create isomer generation process
         p1 = mp.Process(
-            target=isomer_wraper,
+            target=isomer_wrapper,
             args=(chunk_info, self.config, chunk_queue, self.logging_queue),
         )
 

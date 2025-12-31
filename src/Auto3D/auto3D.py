@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 # and the allow_tf32 option in Auto3DOptions. Configuration is applied at pipeline start.
 
 
-def isomer_wraper(
+def isomer_wrapper(
     chunk_info: list[tuple[str, str]],
     args: Auto3DOptions,
     queue: Queue[tuple[str, str, str, int] | str],
