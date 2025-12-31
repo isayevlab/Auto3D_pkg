@@ -242,6 +242,11 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         hessian_model = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
     elif Path(model_name).exists():
         hessian_model = torch.jit.load(model_name, map_location=device).double()
+    else:
+        raise ValueError(
+            f"Unknown model: {model_name}. Supported models: AIMNET, ANI2x, ANI2xt, "
+            "or a path to a custom TorchScript model."
+        )
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
