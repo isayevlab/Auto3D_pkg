@@ -581,3 +581,70 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
                 for mol in mols:
                     f.write(mol)
     return ordered_mols
+
+
+def count_sdf(sdf: str) -> int:
+    """Count the number of molecules in an SDF file.
+
+    Args:
+        sdf: Path to the SDF file.
+
+    Returns:
+        Number of molecules in the file.
+
+    Example:
+        >>> count_sdf("molecules.sdf")
+        10
+    """
+    mols = Chem.SDMolSupplier(sdf)
+    return len([mol for mol in mols])
+
+
+def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
+    """Find SMILES that failed to generate 3D conformers.
+
+    Compares a SMILES input file against an SDF output file to identify
+    molecules that did not successfully generate 3D structures.
+
+    Args:
+        smi: Path to input SMILES file.
+        sdf: Path to output SDF file.
+
+    Returns:
+        List of (id, smiles) tuples for molecules not in SDF.
+
+    Example:
+        >>> bad = find_smiles_not_in_sdf("input.smi", "output.sdf")
+        >>> for mol_id, smiles in bad:
+        ...     print(f"Failed: {mol_id}")
+    """
+    # Find all SMILES ids
+    smi_names: list[tuple[str, str]] = []
+    with open(smi) as f:
+        data = f.readlines()
+    for line in data:
+        smiles_str, mol_id = tuple(line.strip().split())
+        smi_names.append((smiles_str.strip(), mol_id.strip()))
+
+    # Get all molecule names from SDF
+    sdf_data: list[str] = []
+    mols = Chem.SDMolSupplier(sdf)
+    for mol in mols:
+        sdf_data.append(mol.GetProp("_Name"))
+    sdf_data = list(set(sdf_data))
+
+    # Find molecules without 3D structures
+    bad: list[tuple[str, str]] = []
+    for smiles_str, mol_id in smi_names:
+        if mol_id not in sdf_data:
+            bad.append((mol_id, smiles_str))
+
+    if len(bad) > 0:
+        print("The following SMILES has no 3D structure in the SDF file.", flush=True)
+        print("ID, SMILES", flush=True)
+        for mol_id, smiles_str in bad:
+            print(mol_id, smiles_str, flush=True)
+    else:
+        print("Every SMILES has at least an 3D structure in the SDF file.", flush=True)
+
+    return bad
