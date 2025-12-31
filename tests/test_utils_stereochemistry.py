@@ -54,10 +54,10 @@ class TestEnantiomer:
         assert enantiomer(l1, l2) is True
 
     def test_enantiomer_mismatched_length_raises(self):
-        """Test that mismatched list lengths raise AssertionError."""
+        """Test that mismatched list lengths raise ValueError."""
         l1 = [(1, "R"), (5, "R")]
         l2 = [(1, "S")]
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError, match="length"):
             enantiomer(l1, l2)
 
 
