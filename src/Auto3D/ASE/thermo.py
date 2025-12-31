@@ -257,18 +257,17 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
         try:
             try:
-                try:
-                    EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
-                    _, f_ = model(EnForce_in['coord'].requires_grad_(True),
-                                    EnForce_in['numbers'],
-                                    EnForce_in['charge'])
-                    fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
-                    assert fmax <= 0.01
+                EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
+                _, f_ = model(EnForce_in['coord'].requires_grad_(True),
+                                EnForce_in['numbers'],
+                                EnForce_in['charge'])
+                fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+                if fmax <= 0.01:
                     mol = do_mol_thermo(mol, atoms, hessian_model,
                                         device, T, model_name=model_name)
                     out_mols.append(mol)
-                except AssertionError:
-                    print('optiimize the input geometry')
+                else:
+                    print('optimize the input geometry')
                     opt = BFGS(atoms)
                     opt.run(fmax=3e-3, steps=opt_steps)
                     mol = do_mol_thermo(mol, atoms, hessian_model,
