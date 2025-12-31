@@ -4,6 +4,7 @@ Calculating thermodynamic properties using Auto3D output
 """
 from __future__ import annotations
 
+import logging
 import sys
 from functools import partial
 from pathlib import Path
@@ -29,7 +30,9 @@ from Auto3D.utils import hartree2ev
 
 # TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions.
-ev2hatree = 1/hartree2ev  
+ev2hatree = 1/hartree2ev
+
+logger = logging.getLogger("auto3d")  
 
 
 class Calculator(ase.calculators.calculator.Calculator):
@@ -280,7 +283,13 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 mol = do_mol_thermo(mol, atoms, hessian_model,
                                     device, T, model_name=model_name)
                 out_mols.append(mol)
-        except Exception:
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+            logger.warning(f"Thermo calculation failed for {idx}: {e}")
+            print("Failed: ", idx, flush=True)
+            mols_failed.append(mol)
+        except Exception as e:
+            # Still catch unexpected errors, but log them for debugging
+            logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
             print("Failed: ", idx, flush=True)
             mols_failed.append(mol)
 
