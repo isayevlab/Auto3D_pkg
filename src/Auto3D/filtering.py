@@ -5,13 +5,14 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 
+from Auto3D.constants import DEFAULT_ENERGY_CLUSTER_WINDOW, DEFAULT_RMSD_THRESHOLD
 from Auto3D.utils import check_connectivity
 
 
 def filter_unique_optimized(
     mols: list[Chem.Mol],
-    rmsd_threshold: float = 0.3,
-    energy_cluster_window: float = 0.1,  # eV
+    rmsd_threshold: float = DEFAULT_RMSD_THRESHOLD,
+    energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
 ) -> list[Chem.Mol]:
     """Filter unique conformers with optimized O(n log n) approach.
 
