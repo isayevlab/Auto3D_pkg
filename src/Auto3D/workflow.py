@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import multiprocessing as mp
 import time
 from datetime import datetime
@@ -10,17 +9,14 @@ from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pandas as pd
-import psutil
-import torch
-
 import Auto3D
+from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.model_factory import ModelFactory
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
-from Auto3D.utils.file_ops import SDF2chunks, decode_ids, encode_ids
+from Auto3D.utils.file_ops import decode_ids, encode_ids
 from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -190,119 +186,20 @@ class WorkflowOrchestrator:
         self.logger.info("                               RUNNING PROCESS")
         self.logger.info("=" * 80)
 
-    def _calculate_memory_and_chunks(self) -> tuple[int, int, int]:
-        """Calculate available memory and chunk configuration.
-
-        Returns:
-            Tuple of (memory_gb, chunk_size, num_jobs).
-        """
-        num_jobs = 1
-
-        if self.config.memory is not None:
-            memory_gb = int(self.config.memory)
-        elif self.config.use_gpu:
-            if isinstance(self.config.gpu_idx, int):
-                gpu_idx = self.config.gpu_idx
-            else:
-                gpu_idx = self.config.gpu_idx[0]
-                num_jobs = len(self.config.gpu_idx)
-            memory_gb = int(
-                math.ceil(
-                    torch.cuda.get_device_properties(gpu_idx).total_memory / (1024**3)
-                )
-            )
-        else:
-            memory_gb = int(psutil.virtual_memory().total / (1024**3))
-
-        chunk_size = memory_gb * self.config.capacity
-        return memory_gb, chunk_size, num_jobs
-
     def _prepare_chunks(self) -> list[tuple[str, str]]:
         """Prepare input chunks for parallel processing.
 
         Returns:
             List of (chunk_path, chunk_dir) tuples.
         """
-        memory_gb, chunk_size, num_jobs = self._calculate_memory_and_chunks()
-
-        # Update batchsize based on memory
-        self.config.batchsize_atoms = self.config.batchsize_atoms * memory_gb
-
-        # Read input data
-        if self.input_format == "smi":
-            df = pd.read_csv(str(self.input_path), sep=r"\s+", header=None)
-        else:  # sdf
-            df = SDF2chunks(str(self.input_path))
-
-        data_size = len(df)
-        num_chunks = max(int(data_size // chunk_size + 1), num_jobs)
-
-        logger.info(f"The available memory is {memory_gb} GB.")
-        logger.info(f"The task will be divided into {num_chunks} jobs.")
-
-        if self.logger:
-            self.logger.info(f"The available memory is {memory_gb} GB.")
-            self.logger.info(f"The task will be divided into {num_chunks} jobs.")
-
-        # Calculate chunk indices (round-robin distribution)
-        chunk_idxes: list[list[int]] = [[] for _ in range(num_chunks)]
-        for i in range(num_chunks):
-            idx = i
-            while idx < data_size:
-                chunk_idxes[i].append(idx)
-                idx += num_chunks
-
-        # Create chunk files
-        return self._create_chunk_files(df, chunk_idxes, num_chunks)
-
-    def _create_chunk_files(
-        self,
-        df: pd.DataFrame | list,
-        chunk_idxes: list[list[int]],
-        num_chunks: int,
-    ) -> list[tuple[str, str]]:
-        """Create individual chunk files for parallel processing.
-
-        Args:
-            df: Input data (DataFrame for SMI, list for SDF).
-            chunk_idxes: Indices for each chunk.
-            num_chunks: Number of chunks to create.
-
-        Returns:
-            List of (chunk_path, chunk_dir) tuples.
-        """
-        chunk_info: list[tuple[str, str]] = []
-        basename = self.input_path.stem
-
-        for i in range(num_chunks):
-            # Skip empty chunks (can happen with multi-GPU and few molecules)
-            if not chunk_idxes[i]:
-                logger.info(f"Job{i + 1}, number of inputs: 0 (skipped)")
-                if self.logger:
-                    self.logger.info(f"Job{i + 1}, number of inputs: 0 (skipped)")
-                continue
-
-            chunk_dir = self.job_dir / f"job{i + 1}"
-            chunk_dir.mkdir()
-
-            if self.input_format == "smi":
-                chunk_path = chunk_dir / f"{basename}_{i + 1}.smi"
-                df_chunk = df.iloc[chunk_idxes[i], :]
-                df_chunk.to_csv(str(chunk_path), header=None, index=None, sep=" ")
-                count = len(df_chunk)
-            else:  # sdf
-                chunk_path = chunk_dir / f"{basename}_{i + 1}.sdf"
-                chunks = [df[j] for j in chunk_idxes[i]]
-                chunk_path.write_text("".join(line for chunk in chunks for line in chunk))
-                count = len(chunks)
-
-            logger.info(f"Job{i + 1}, number of inputs: {count}")
-            if self.logger:
-                self.logger.info(f"Job{i + 1}, number of inputs: {count}")
-
-            chunk_info.append((str(chunk_path), str(chunk_dir)))
-
-        return chunk_info
+        chunk_manager = ChunkManager(
+            config=self.config,
+            input_path=self.input_path,
+            input_format=self.input_format,
+            job_dir=self.job_dir,
+            workflow_logger=self.logger,
+        )
+        return chunk_manager.prepare_chunks()
 
     def _run_pipeline(self, chunk_info: list[tuple[str, str]]) -> None:
         """Run the isomer generation and optimization pipeline.

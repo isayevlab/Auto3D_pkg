@@ -112,8 +112,9 @@ class TestChunkCreation:
         This tests the fix for issue #86 where multi-GPU with fewer molecules
         than GPUs caused OSError due to empty SDF files.
         """
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.chunk_manager import ChunkManager
         from Auto3D.config import Auto3DOptions
+        from pathlib import Path
 
         # Create a minimal config - we won't run the full pipeline
         config = Auto3DOptions(
@@ -121,12 +122,14 @@ class TestChunkCreation:
             k=1,
         )
 
-        # Create test orchestrator
-        orchestrator = WorkflowOrchestrator(config)
-        orchestrator.job_dir = tmp_path
-        orchestrator.input_path = tmp_path / "test_encoded.smi"
-        orchestrator.input_format = "smi"
-        orchestrator.logger = None
+        # Create test ChunkManager
+        chunk_manager = ChunkManager(
+            config=config,
+            input_path=Path(tmp_path / "test_encoded.smi"),
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
 
         # Create a small DataFrame (1 molecule)
         df = pd.DataFrame({0: ["CCO"], 1: ["ethanol"]})
@@ -136,7 +139,7 @@ class TestChunkCreation:
         chunk_idxes = [[0], [], []]  # 3 chunks, only first has data
 
         # Run chunk creation
-        chunk_info = orchestrator._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = chunk_manager._create_chunk_files(df, chunk_idxes, 3)
 
         # Should only have 1 chunk (empty ones skipped)
         assert len(chunk_info) == 1
@@ -149,19 +152,22 @@ class TestChunkCreation:
 
     def test_all_chunks_with_data(self, tmp_path):
         """All chunks with data should be created."""
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.chunk_manager import ChunkManager
         from Auto3D.config import Auto3DOptions
+        from pathlib import Path
 
         config = Auto3DOptions(
             path=str(tmp_path / "test.smi"),
             k=1,
         )
 
-        orchestrator = WorkflowOrchestrator(config)
-        orchestrator.job_dir = tmp_path
-        orchestrator.input_path = tmp_path / "test_encoded.smi"
-        orchestrator.input_format = "smi"
-        orchestrator.logger = None
+        chunk_manager = ChunkManager(
+            config=config,
+            input_path=Path(tmp_path / "test_encoded.smi"),
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
 
         # Create DataFrame with 3 molecules
         df = pd.DataFrame({
@@ -172,7 +178,7 @@ class TestChunkCreation:
         # Create chunk indices - each chunk has one molecule
         chunk_idxes = [[0], [1], [2]]
 
-        chunk_info = orchestrator._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = chunk_manager._create_chunk_files(df, chunk_idxes, 3)
 
         # Should have all 3 chunks
         assert len(chunk_info) == 3
