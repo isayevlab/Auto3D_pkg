@@ -44,7 +44,7 @@ Input (SMILES/SDF) → Tautomer Enumeration (optional) → Stereoisomer Generati
 
 | Module | Purpose |
 |--------|---------|
-| `auto3D.py` | Main workflow orchestration (`options()`, `main()`, `smiles2mols()`) |
+| `auto3D.py` | Main workflow orchestration (`main()`, `smiles2mols()`) |
 | `auto3Dcli.py` | CLI entry point, YAML config parsing |
 | `isomer_engine.py` | Tautomer/stereoisomer enumeration (`tautomer_engine`, `rd_isomer`, `oe_isomer`) |
 | `batch_opt/batchopt.py` | FIRE optimizer, batch geometry optimization (`optimizing`, `EnForce_ANI`) |
@@ -105,7 +105,7 @@ Environment variables:
 
 Two modes:
 - **YAML config files**: `parameters.yaml`, `tauto.yaml` (see examples in repo root)
-- **Python API**: `from Auto3D.auto3D import options, main`
+- **Python API**: `from Auto3D import Auto3DOptions, main`
 
 Key parameters: `path`, `k` (top-k conformers), `window` (energy window kcal/mol), `optimizing_engine` ('AIMNET'/'ANI2x'/'ANI2xt'), `use_gpu`, `gpu_idx`
 

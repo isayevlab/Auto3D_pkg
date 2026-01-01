@@ -2,7 +2,7 @@ import os
 import warnings
 from rdkit import Chem
 import Auto3D
-from Auto3D.auto3D import options
+from Auto3D.config import Auto3DOptions
 from Auto3D.utils import check_input
 from Auto3D.utils import check_connectivity
 from Auto3D.utils_file import find_smiles_not_in_sdf
@@ -18,7 +18,7 @@ path5 = os.path.join(folder, "tests/files/22057.sdf")
 
 def test_check_input():
     """Test enumerate_isomer argument checker"""
-    args1 = options(path1, k=1, enumerate_isomer=True, use_gpu=False)
+    args1 = Auto3DOptions(path1, k=1, enumerate_isomer=True, use_gpu=False)
     args1['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list:
@@ -26,7 +26,7 @@ def test_check_input():
         check_input(args1)
     assert(len(warnings_list) == 0)
 
-    args2 = options(path2, k=1, enumerate_isomer=True, use_gpu=False)
+    args2 = Auto3DOptions(path2, k=1, enumerate_isomer=True, use_gpu=False)
     args2['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list2:
@@ -34,7 +34,7 @@ def test_check_input():
         check_input(args2)
     assert(len(warnings_list2) == 0)
 
-    args3 = options(path2, k=1, use_gpu=False, enumerate_isomer=False)  # by default enumerate_isomer=True
+    args3 = Auto3DOptions(path2, k=1, use_gpu=False, enumerate_isomer=False)  # by default enumerate_isomer=True
     args3['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list3:
@@ -42,7 +42,7 @@ def test_check_input():
         check_input(args3)
     assert(len(warnings_list3) >= 1)
 
-    args4 = options(path1, k=1, use_gpu=False, enumerate_isomer=False)  # by default enumerate_isomer=True
+    args4 = Auto3DOptions(path1, k=1, use_gpu=False, enumerate_isomer=False)  # by default enumerate_isomer=True
     args4['input_format'] = 'smi'
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list4:

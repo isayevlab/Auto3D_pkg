@@ -4,7 +4,7 @@ import pytest
 import shutil
 from send2trash import send2trash
 from rdkit import Chem
-from Auto3D.auto3D import options
+from Auto3D.config import Auto3DOptions
 from Auto3D.tautomer import get_stable_tautomers
 
 # Mark all tests in this module as slow (tautomer enumeration + optimization)
@@ -25,8 +25,8 @@ else:
 @pytest.mark.skipif(no_gpu, reason="No GPU")
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_get_stable_tautomers1():
-    args = options(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
-                   isomer_engine="omega", enumerate_isomer=True, 
+    args = Auto3DOptions(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
+                   isomer_engine="omega", enumerate_isomer=True,
                    optimizing_engine="ANI2x", gpu_idx=0, verbose=False,
                    max_confs=2, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)
@@ -47,8 +47,8 @@ def test_get_stable_tautomers1():
 
 
 def test_get_stable_tautomers2():
-    args = options(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
-                   isomer_engine="rdkit", enumerate_isomer=True, 
+    args = Auto3DOptions(input_path, k=1, enumerate_tautomer=True, tauto_engine="rdkit",
+                   isomer_engine="rdkit", enumerate_isomer=True,
                    optimizing_engine="ANI2xt", use_gpu=False, verbose=True,
                    max_confs=2, patience=200)
     tautomer_out = get_stable_tautomers(args, tauto_k=1)

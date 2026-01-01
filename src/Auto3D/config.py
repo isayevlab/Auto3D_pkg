@@ -25,8 +25,8 @@ from Auto3D.constants import (
 class Auto3DOptions:
     """Configuration options for Auto3D conformer generation.
 
-    This dataclass replaces the legacy `options()` function, providing
-    proper type hints and validation.
+    This dataclass provides proper type hints, validation, and IDE support
+    for Auto3D configuration.
 
     Example:
         >>> from Auto3D import Auto3DOptions, main

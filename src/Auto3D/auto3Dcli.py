@@ -12,7 +12,8 @@ from typing import Any, TextIO
 import yaml
 
 import Auto3D
-from Auto3D.auto3D import main, options
+from Auto3D.auto3D import main
+from Auto3D.config import Auto3DOptions
 from Auto3D.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
@@ -150,6 +151,30 @@ def print_banner(output: TextIO = sys.stdout) -> None:
     print(banner, file=output)
 
 
+# Keys that are valid for both YAML config and argparse (subset of Auto3DOptions fields)
+_CONFIG_KEYS = [
+    "path", "k", "window", "memory", "capacity", "enumerate_tautomer",
+    "tauto_engine", "pKaNorm", "isomer_engine", "max_confs", "enumerate_isomer",
+    "mode_oe", "mpi_np", "optimizing_engine", "use_gpu", "gpu_idx", "opt_steps",
+    "convergence_threshold", "patience", "threshold", "verbose", "job_name",
+]
+
+
+def _extract_config(source: dict[str, Any] | argparse.Namespace) -> dict[str, Any]:
+    """Extract configuration values from YAML dict or argparse namespace.
+
+    Args:
+        source: Either a dict from YAML config or argparse.Namespace from CLI.
+
+    Returns:
+        Dictionary of configuration values ready for Auto3DOptions.
+    """
+    if isinstance(source, dict):
+        return {k: source.get(k) for k in _CONFIG_KEYS if k in source}
+    # argparse.Namespace
+    return {k: getattr(source, k, None) for k in _CONFIG_KEYS if hasattr(source, k)}
+
+
 def cli() -> str | None:
     """Main CLI entry point for Auto3D.
 
@@ -167,85 +192,17 @@ def cli() -> str | None:
     if len(sys.argv) == 2 and not sys.argv[1].startswith('-'):
         # Using YAML input - single argument that's not a flag
         parameters = load_yaml_config(sys.argv[1])
-
-        path: str = parameters["path"]
-        k: int | bool = parameters["k"]
-        window: float | bool = parameters["window"]
-        memory: int | None = parameters["memory"]
-        capacity: int = parameters["capacity"]
-        enumerate_tautomer: bool = parameters["enumerate_tautomer"]
-        tauto_engine: str = parameters["tauto_engine"]
-        pKaNorm: bool = parameters["pKaNorm"]
-        isomer_engine: str = parameters["isomer_engine"]
-        max_confs: int | None = parameters["max_confs"]
-        enumerate_isomer: bool = parameters["enumerate_isomer"]
-        mode_oe: str = parameters["mode_oe"]
-        mpi_np: int = parameters["mpi_np"]
-        optimizing_engine: str = parameters["optimizing_engine"]
-        use_gpu: bool = parameters["use_gpu"]
-        gpu_idx: int | list[int] = parameters["gpu_idx"]
-        opt_steps: int = parameters["opt_steps"]
-        convergence_threshold: float = parameters["convergence_threshold"]
-        patience: int = parameters["patience"]
-        threshold: float = parameters["threshold"]
-        verbose: bool = parameters["verbose"]
-        job_name: str = parameters["job_name"]
-
+        config = _extract_config(parameters)
     else:
         # Using argparse for command-line arguments
         parser = create_argument_parser()
         args = parser.parse_args()
-
-        path = args.path
-        k = args.k
-        window = args.window
-        memory = args.memory
-        capacity = args.capacity
-        enumerate_tautomer = args.enumerate_tautomer
-        tauto_engine = args.tauto_engine
-        pKaNorm = args.pKaNorm
-        isomer_engine = args.isomer_engine
-        max_confs = args.max_confs
-        enumerate_isomer = args.enumerate_isomer
-        mode_oe = args.mode_oe
-        mpi_np = args.mpi_np
-        optimizing_engine = args.optimizing_engine
-        use_gpu = args.use_gpu
-        gpu_idx = args.gpu_idx
-        opt_steps = args.opt_steps
-        convergence_threshold = args.convergence_threshold
-        patience = args.patience
-        threshold = args.threshold
-        verbose = args.verbose
-        job_name = args.job_name
+        config = _extract_config(args)
 
     # Configure logging based on verbose setting
-    configure_logging(verbose=verbose)
+    configure_logging(verbose=config.get("verbose", False))
 
-    arguments = options(
-        path,
-        k=k,
-        window=window,
-        verbose=verbose,
-        job_name=job_name,
-        enumerate_tautomer=enumerate_tautomer,
-        tauto_engine=tauto_engine,
-        pKaNorm=pKaNorm,
-        isomer_engine=isomer_engine,
-        enumerate_isomer=enumerate_isomer,
-        mode_oe=mode_oe,
-        mpi_np=mpi_np,
-        max_confs=max_confs,
-        use_gpu=use_gpu,
-        gpu_idx=gpu_idx,
-        capacity=capacity,
-        optimizing_engine=optimizing_engine,
-        opt_steps=opt_steps,
-        convergence_threshold=convergence_threshold,
-        patience=patience,
-        threshold=threshold,
-        memory=memory
-    )
+    arguments = Auto3DOptions(**config)
 
     print_banner()
 
