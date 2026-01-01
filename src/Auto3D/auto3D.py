@@ -179,88 +179,6 @@ def optim_rank_wrapper(
                 os.remove(housekeeping_folder_gz)
     return conformers
 
-def options(
-    path: str | None = None,
-    k: int | bool = False,
-    window: float | bool = False,
-    verbose: bool = False,
-    job_name: str = "",
-    enumerate_tautomer: bool = False,
-    tauto_engine: str = "rdkit",
-    pKaNorm: bool = True,
-    isomer_engine: str = "rdkit",
-    enumerate_isomer: bool = True,
-    mode_oe: str = "classic",
-    mpi_np: int = 4,
-    max_confs: int | None = None,
-    use_gpu: bool = True,
-    gpu_idx: int | list[int] = 0,
-    capacity: int = 42,
-    optimizing_engine: str = "AIMNET",
-    patience: int = DEFAULT_PATIENCE,
-    opt_steps: int = DEFAULT_OPT_STEPS,
-    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD,
-    threshold: float = DEFAULT_RMSD_THRESHOLD,
-    memory: int | None = None,
-    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS,
-) -> Auto3DOptions:
-    """Create configuration options for the Auto3D main function.
-
-    Args:
-        path: Input .smi or .sdf file path containing SMILES/molecules.
-        k: Output top-k structures per SMILES. Set to int or False.
-        window: Output structures within x kcal/mol of lowest energy. Set to float or False.
-        verbose: When True, save all metadata while running.
-        job_name: Folder name to save all metadata.
-        enumerate_tautomer: When True, enumerate tautomers for the input.
-        tauto_engine: Program for tautomer enumeration: 'rdkit' or 'oechem'.
-        pKaNorm: Normalize ionization to pH ~7.4 (only with tauto_engine='oechem').
-        isomer_engine: Program for 3D isomers: 'rdkit' or 'omega'.
-        enumerate_isomer: When True, enumerate cis/trans and R/S isomers.
-        mode_oe: Omega mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs', 'fast_rocs'.
-        mpi_np: Number of CPU cores for isomer generation.
-        max_confs: Maximum conformers per SMILES. None uses dynamic number.
-        use_gpu: Use GPU when available.
-        gpu_idx: GPU device index or list of indices.
-        capacity: Number of SMILES handled per 1GB memory.
-        optimizing_engine: Model: 'ANI2x', 'ANI2xt', 'AIMNET', or path to custom NNP.
-        patience: Drop conformer if force doesn't decrease for this many steps.
-        opt_steps: Maximum optimization steps per structure.
-        convergence_threshold: Converge when max force is below this (eV/Å).
-        threshold: RMSD threshold for duplicate removal (Å).
-        memory: RAM size in GB. None for automatic detection.
-        batchsize_atoms: Number of atoms per optimization batch per GB.
-
-    Returns:
-        Auto3DOptions configuration object.
-    """
-    return Auto3DOptions(
-        path=path,
-        k=k,
-        window=window,
-        verbose=verbose,
-        job_name=job_name,
-        enumerate_tautomer=enumerate_tautomer,
-        tauto_engine=tauto_engine,
-        pKaNorm=pKaNorm,
-        isomer_engine=isomer_engine,
-        enumerate_isomer=enumerate_isomer,
-        mode_oe=mode_oe,
-        mpi_np=mpi_np,
-        max_confs=max_confs,
-        use_gpu=use_gpu,
-        gpu_idx=gpu_idx,
-        capacity=capacity,
-        optimizing_engine=optimizing_engine,
-        patience=patience,
-        opt_steps=opt_steps,
-        convergence_threshold=convergence_threshold,
-        threshold=threshold,
-        memory=memory,
-        batchsize_atoms=batchsize_atoms,
-    )
-
-
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     """A child process for logging all information from other processes."""
     logger = logging.getLogger("auto3d")
@@ -277,8 +195,7 @@ def main(args: Auto3DOptions) -> str:
     """Run the Auto3D conformer generation pipeline.
 
     Args:
-        args: Configuration options from the ``options()`` function
-              or an ``Auto3DOptions`` instance.
+        args: Configuration options as an ``Auto3DOptions`` instance.
 
     Returns:
         Path to the output SDF file containing generated conformers.
@@ -308,7 +225,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
 
     Args:
         smiles: List of SMILES strings to generate conformers for.
-        args: Configuration options from ``options()`` or ``Auto3DOptions``.
+        args: Configuration options as an ``Auto3DOptions`` instance.
 
     Returns:
         List of RDKit Mol objects representing low-energy conformers.

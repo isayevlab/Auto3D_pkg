@@ -157,10 +157,11 @@ class TestSmiles2MolsExceptionHandling:
 
     def test_smiles2mols_raises_configuration_error_without_k_or_window(self):
         """smiles2mols should raise ConfigurationError when neither k nor window specified."""
-        from Auto3D.auto3D import smiles2mols, options
+        from Auto3D.auto3D import smiles2mols
+        from Auto3D.config import Auto3DOptions
 
         # Create options without k or window (both set to False/default)
-        args = options(
+        args = Auto3DOptions(
             path=None,  # Will be set internally
             k=False,
             window=False,

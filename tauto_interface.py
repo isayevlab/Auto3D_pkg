@@ -4,7 +4,7 @@ import sys
 import yaml
 import logging
 import Auto3D
-from Auto3D.auto3D import options
+from Auto3D.config import Auto3DOptions
 from Auto3D.tautomer import get_stable_tautomers
 
 
@@ -138,7 +138,7 @@ if __name__ == "__main__":
         job_name = args.job_name
         batchsize_atoms = args.batchsize_atoms
 
-    arguments = options(
+    arguments = Auto3DOptions(
         path,
         k=k,
         window=window,

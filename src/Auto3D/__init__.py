@@ -36,7 +36,6 @@ __all__ = [
     "__version__",
     # Core API
     "main",
-    "options",
     "smiles2mols",
     # Configuration
     "Auto3DOptions",
@@ -57,9 +56,6 @@ def __getattr__(name: str):
     if name == "main":
         from Auto3D.auto3D import main
         return main
-    elif name == "options":
-        from Auto3D.auto3D import options
-        return options
     elif name == "smiles2mols":
         from Auto3D.auto3D import smiles2mols
         return smiles2mols
