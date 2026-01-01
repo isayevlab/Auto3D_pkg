@@ -40,6 +40,7 @@ __all__ = [
     "smiles2mols",
     # Configuration
     "Auto3DOptions",
+    "OptimizationConfig",
     "NNPModel",
     # Model creation
     "create_model",
@@ -65,6 +66,9 @@ def __getattr__(name: str):
     elif name == "Auto3DOptions":
         from Auto3D.config import Auto3DOptions
         return Auto3DOptions
+    elif name == "OptimizationConfig":
+        from Auto3D.config import OptimizationConfig
+        return OptimizationConfig
     elif name == "NNPModel":
         from Auto3D.config import NNPModel
         return NNPModel

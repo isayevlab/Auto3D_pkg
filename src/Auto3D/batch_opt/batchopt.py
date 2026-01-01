@@ -1,11 +1,14 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import numpy as np
 import torch
 
 from Auto3D.utils.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from Auto3D.config import OptimizationConfig
 
 logger = get_logger(__name__)
 
@@ -230,7 +233,15 @@ def mols2lists(
 
 
 class optimizing:
-    def __init__(self, in_f, out_f, name, device, config, use_ensemble=False):
+    def __init__(
+        self,
+        in_f: str,
+        out_f: str,
+        name: str,
+        device: torch.device,
+        config: "OptimizationConfig | dict",
+        use_ensemble: bool = False,
+    ):
         """Initialize optimization runner.
 
         Args:
@@ -238,7 +249,7 @@ class optimizing:
             out_f: Output SDF file path.
             name: Model name ('AIMNET', 'ANI2x', 'ANI2xt', or path to custom model).
             device: Torch device for computation.
-            config: Configuration dictionary with optimization parameters.
+            config: OptimizationConfig dataclass or legacy dict with parameters.
             use_ensemble: For AIMNET only - whether to use ensemble (default False).
                 Single model is ~35x faster. Set True for highest accuracy.
         """
@@ -246,15 +257,26 @@ class optimizing:
         self.out_f = out_f
         self.name = name
         self.device = device
-        self.config = config
+
+        # Support both OptimizationConfig and legacy dict
+        if isinstance(config, dict):
+            self._config_dict = config
+        else:
+            # It's an OptimizationConfig - convert to dict for internal use
+            self._config_dict = config.to_dict()
 
         # Use ModelFactory to create the model adapter
         self.model = create_model(name, device, use_ensemble=use_ensemble)
         self.coord_pad = self.model.coord_pad
         self.species_pad = self.model.species_pad
 
+    @property
+    def config(self) -> dict:
+        """Return configuration as dict for backward compatibility."""
+        return self._config_dict
+
     def run(self):
-        logger.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self.config[
+        logger.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self._config_dict[
             "opt_steps"])
 
         # Check if input file exists and is not empty
@@ -285,15 +307,15 @@ class optimizing:
 
         # The model adapter already disables gradients in BaseModelAdapter.__init__
         # Create EnForce_ANI wrapper for batched forward support
-        model = EnForce_ANI(self.model, self.config["batchsize_atoms"])
+        model = EnForce_ANI(self.model, self._config_dict["batchsize_atoms"])
 
         with torch.jit.optimized_execution(False):
             optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
-                                   self.config, self.name, self.device)  # Magic step
+                                   self._config_dict, self.name, self.device)  # Magic step
 
         energies = optdict['energy']
         fmax = optdict['fmax']
-        convergence_mask = list(map(lambda x: (x <= self.config['opttol']), fmax))
+        convergence_mask = list(map(lambda x: (x <= self._config_dict['opttol']), fmax))
 
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):

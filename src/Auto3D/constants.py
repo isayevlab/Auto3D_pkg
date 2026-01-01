@@ -43,3 +43,6 @@ DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
 DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
 DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
+DEFAULT_ENERGY_TOL = 1e-4  # eV, energy convergence threshold (~0.002 kcal/mol)
+DEFAULT_ENERGY_PATIENCE = 3  # Steps energy must be stable before converging
+DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
