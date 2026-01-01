@@ -29,7 +29,8 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.exceptions import ConfigurationError
-from Auto3D.isomer_engine import oe_isomer, rd_isomer, rd_isomer_sdf, tautomer_engine
+from Auto3D.isomer_engine import tautomer_engine
+from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
     check_input,
@@ -95,24 +96,23 @@ def isomer_wrapper(
         mpi_np = args.mpi_np
         enumerate_isomer = args.enumerate_isomer
         isomer_program = args.isomer_engine
-        # Isomer enumeration step
-        if isomer_program == 'omega':
-            mode_oe = args.mode_oe
-            oe_isomer(mode_oe, path, smiles_enumerated, smiles_reduced, smiles_hashed,
-                    enumerated_sdf, max_confs, duplicate_threshold, enumerate_isomer)
-        elif isomer_program == 'rdkit':
-            if args.input_format == 'smi':
-                engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed, 
-                                enumerated_sdf, dir, max_confs, duplicate_threshold, mpi_np, enumerate_isomer)
-                engine.run()
-            elif args.input_format == 'sdf':
-                engine = rd_isomer_sdf(path, enumerated_sdf, max_confs, duplicate_threshold, mpi_np)
-                engine.run()
-        else: 
-            raise ValueError('The isomer enumeration engine must be "omega" or "rdkit", '
-                            f'but {args.isomer_engine} was parsed. '
-                            'You can set the parameter by appending the following:'
-                            '--isomer_engine=rdkit')
+        # Isomer enumeration step using factory
+        engine = IsomerEngineFactory.create(
+            engine_type=isomer_program,
+            input_path=path,
+            output_path=enumerated_sdf,
+            input_format=args.input_format,
+            smiles_enumerated=smiles_enumerated,
+            smiles_reduced=smiles_reduced,
+            smiles_hashed=smiles_hashed,
+            job_dir=dir,
+            max_confs=max_confs,
+            threshold=duplicate_threshold,
+            n_jobs=mpi_np,
+            enumerate_isomers=enumerate_isomer,
+            mode=args.mode_oe if isomer_program == 'omega' else 'classic',
+        )
+        engine.run()
 
         queue.put((enumerated_sdf, path, dir, i+1))
     if isinstance(args.gpu_idx, int) or len(args.gpu_idx) == 1:
@@ -337,11 +337,19 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
 
         # smi to sdf
         meta = create_chunk_meta_names(path0, tmpdirname)
-        isomer_engine = rd_isomer(path0, meta["smiles_enumerated"],
-                                  meta["smiles_reduced"], meta["smiles_hashed"], 
-                                  meta["enumerated_sdf"], tmpdirname,
-                                  args.max_confs, 0.03,
-                                  args.mpi_np, args.enumerate_isomer)
+        isomer_engine = IsomerEngineFactory.create(
+            engine_type="rdkit",
+            input_path=path0,
+            output_path=meta["enumerated_sdf"],
+            smiles_enumerated=meta["smiles_enumerated"],
+            smiles_reduced=meta["smiles_reduced"],
+            smiles_hashed=meta["smiles_hashed"],
+            job_dir=tmpdirname,
+            max_confs=args.max_confs,
+            threshold=0.03,
+            n_jobs=args.mpi_np,
+            enumerate_isomers=args.enumerate_isomer,
+        )
         isomer_engine.run()
 
         # optimize conformers
