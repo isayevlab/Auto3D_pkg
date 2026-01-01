@@ -29,8 +29,8 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.exceptions import ConfigurationError
-from Auto3D.isomer_engine import tautomer_engine
 from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.processors import TautomerProcessor
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
     check_input,
@@ -71,21 +71,15 @@ def isomer_wrapper(
     logger.addHandler(QueueHandler(logging_queue))
     logger.setLevel(logging.INFO)
 
+    tautomer_processor = TautomerProcessor(args)
+
     for i, path_dir in enumerate(chunk_info):
         logger.info(f"\n\nIsomer generation for job{i+1}")
         path, dir = path_dir
         meta = create_chunk_meta_names(path, dir)
 
-        # Tautomer enumeratioin
-        if args.enumerate_tautomer:
-            output_taut = meta["output_taut"]
-            taut_mode = args.tauto_engine
-            logger.info("Enumerating tautomers for the input...")
-            taut_engine = tautomer_engine(taut_mode, path, output_taut, args.pKaNorm)
-            taut_engine.run()
-            hash_taut_smi(output_taut, output_taut)
-            path = output_taut
-            logger.info(f"Tautomers are saved in {output_taut}")
+        # Tautomer enumeration (if enabled)
+        path = tautomer_processor.process(path, meta["output_taut"])
 
         smiles_enumerated = meta["smiles_enumerated"]
         smiles_reduced = meta["smiles_reduced"]
