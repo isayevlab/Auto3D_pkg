@@ -143,11 +143,7 @@ def optim_rank_wrapper(
         meta = create_chunk_meta_names(path, dir)
 
         # Optimizing step
-        opt_steps = args.opt_steps
-        opt_tol = args.convergence_threshold
-        patience = args.patience
-        batchsize_atoms = args.batchsize_atoms
-        config = {"opt_steps": opt_steps, "opttol": opt_tol, "patience": patience, "batchsize_atoms": batchsize_atoms}
+        opt_config = args.to_optimization_config()
         optimized_og = meta["optimized_og"]
         optimizing_engine = args.optimizing_engine
         if args.use_gpu:
@@ -155,7 +151,7 @@ def optim_rank_wrapper(
         else:
             device = torch.device("cpu")
         optimizer = optimizing(enumerated_sdf, optimized_og,
-                               optimizing_engine, device, config)
+                               optimizing_engine, device, opt_config)
         optimizer.run()
 
         # Ranking step
@@ -357,10 +353,9 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             device = torch.device(f"cuda:{idx}")
         else:
             device = torch.device("cpu")
-        config = {"opt_steps": args.opt_steps, "opttol": args.convergence_threshold,
-                  "patience": args.patience, "batchsize_atoms": args.batchsize_atoms}
+        opt_config = args.to_optimization_config()
         opt_engine = optimizing(meta["enumerated_sdf"], meta["optimized_og"],
-                                args.optimizing_engine, device, config)
+                                args.optimizing_engine, device, opt_config)
         opt_engine.run()
 
         # Ranking step

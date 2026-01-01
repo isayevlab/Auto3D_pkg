@@ -54,6 +54,16 @@ class ModelLoadError(ModelError):
     pass
 
 
+class NumericalError(ModelError):
+    """Raised when numerical instability is detected.
+
+    This includes NaN or Inf values in energies or forces during
+    neural network potential calculations. Usually indicates
+    problematic molecular geometries or model limitations.
+    """
+    pass
+
+
 class OptimizationError(Auto3DError):
     """Base exception for optimization-related errors."""
     pass

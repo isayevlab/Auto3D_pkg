@@ -13,6 +13,7 @@ import torch
 from rdkit import Chem
 
 from Auto3D.batch_opt.batchopt import optimizing
+from Auto3D.config import OptimizationConfig
 from Auto3D.utils import hartree2ev
 
 # TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
@@ -76,12 +77,12 @@ def opt_geometry(
     else:
         device = torch.device("cpu")
 
-    opt_config = {
-        "opt_steps": opt_steps,
-        "opttol": opt_tol,
-        "patience": patience if patience is not None else opt_steps,
-        "batchsize_atoms": batchsize_atoms,
-    }
+    opt_config = OptimizationConfig(
+        opt_steps=opt_steps,
+        convergence_threshold=opt_tol,
+        patience=patience if patience is not None else opt_steps,
+        batchsize_atoms=batchsize_atoms,
+    )
     opt_engine = optimizing(path, outpath, model_name, device, opt_config)
     opt_engine.run()
 

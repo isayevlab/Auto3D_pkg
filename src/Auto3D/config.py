@@ -13,6 +13,8 @@ import torch
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_ENERGY_PATIENCE,
+    DEFAULT_ENERGY_TOL,
     DEFAULT_OPT_STEPS,
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
@@ -135,6 +137,69 @@ class Auto3DOptions:
     def items(self):
         """Return field name-value pairs for backward compatibility."""
         return [(k, getattr(self, k)) for k in self.keys()]
+
+    def to_optimization_config(self) -> "OptimizationConfig":
+        """Create an OptimizationConfig from these options.
+
+        Returns:
+            OptimizationConfig with values from this Auto3DOptions instance.
+        """
+        return OptimizationConfig(
+            opt_steps=self.opt_steps,
+            convergence_threshold=self.convergence_threshold,
+            patience=self.patience,
+            batchsize_atoms=self.batchsize_atoms,
+        )
+
+
+@dataclass
+class OptimizationConfig:
+    """Configuration for geometry optimization.
+
+    This dataclass encapsulates all parameters related to the FIRE optimizer
+    and convergence criteria, replacing the previous untyped dict approach.
+
+    Example:
+        >>> config = OptimizationConfig(opt_steps=1000, convergence_threshold=0.005)
+        >>> optimizer = optimizing(in_f, out_f, model, device, config)
+    """
+
+    opt_steps: int = DEFAULT_OPT_STEPS
+    """Maximum number of optimization steps per structure."""
+
+    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD
+    """Force convergence threshold in eV/Angstrom. Structure converges when
+    maximum force falls below this value."""
+
+    patience: int = DEFAULT_PATIENCE
+    """Number of steps without force decrease before dropping a conformer
+    as oscillating."""
+
+    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
+    """Number of atoms per optimization batch. Larger values use more GPU
+    memory but may be faster."""
+
+    energy_tol: float = DEFAULT_ENERGY_TOL
+    """Energy convergence threshold in eV. Used for early termination when
+    energy stabilizes."""
+
+    energy_patience: int = DEFAULT_ENERGY_PATIENCE
+    """Number of steps energy must be stable before considering converged."""
+
+    def to_dict(self) -> dict:
+        """Convert to dict for backward compatibility with existing code.
+
+        Returns:
+            Dictionary with optimization parameters using legacy key names.
+        """
+        return {
+            "opt_steps": self.opt_steps,
+            "opttol": self.convergence_threshold,  # Legacy key name
+            "patience": self.patience,
+            "batchsize_atoms": self.batchsize_atoms,
+            "energy_tol": self.energy_tol,
+            "energy_patience": self.energy_patience,
+        }
 
 
 class ChunkMeta(TypedDict):

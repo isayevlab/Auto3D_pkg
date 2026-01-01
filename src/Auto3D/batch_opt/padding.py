@@ -61,11 +61,11 @@ def pad_molecular_batch(
     )
     charges_tensor = torch.tensor(charges, dtype=torch.long, device=device)
 
-    # Fill in actual values
+    # Fill in actual values - create tensors directly on target device
     for i, (coord, spec) in enumerate(zip(coords, species)):
         n = len(spec)
-        coords_tensor[i, :n] = torch.tensor(coord, dtype=torch.float32)
-        species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long)
+        coords_tensor[i, :n] = torch.tensor(coord, dtype=torch.float32, device=device)
+        species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)
 
     return coords_tensor.requires_grad_(True), species_tensor, charges_tensor
 
@@ -119,18 +119,19 @@ def pad_from_mols(
     )
     charges = []
 
+    # Fill in actual values - create tensors directly on target device
     for i, mol in enumerate(mols):
         n = mol.GetNumAtoms()
         conf = mol.GetConformer()
         coords_tensor[i, :n] = torch.tensor(
-            conf.GetPositions(), dtype=torch.float32
+            conf.GetPositions(), dtype=torch.float32, device=device
         )
 
         if model_name == "ANI2xt":
             spec = [ani2xt_index[a.GetAtomicNum()] for a in mol.GetAtoms()]
         else:
             spec = [a.GetAtomicNum() for a in mol.GetAtoms()]
-        species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long)
+        species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)
 
         charges.append(rdmolops.GetFormalCharge(mol))
 

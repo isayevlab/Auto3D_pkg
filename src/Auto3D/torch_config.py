@@ -22,7 +22,7 @@ class TorchConfig:
     """Configuration for PyTorch behavior.
 
     This dataclass controls PyTorch backend settings that affect computation
-    precision and performance.
+    precision, performance, and reproducibility.
 
     Attributes:
         allow_tf32: Enable TF32 for faster but less precise matmul on Ampere+ GPUs.
@@ -33,14 +33,25 @@ class TorchConfig:
                         When True, cuDNN will benchmark multiple convolution
                         algorithms and select the fastest. Best for fixed-size
                         inputs. Default False.
+        deterministic: Enable deterministic algorithms. When True, operations will
+                      use deterministic implementations (may be slower). Required
+                      for full reproducibility. Default False.
+        random_seed: Random seed for reproducibility. When set, seeds PyTorch,
+                    CUDA, and NumPy RNGs. Default None (no seeding).
 
     Example:
         >>> config = TorchConfig(allow_tf32=True, cudnn_benchmark=True)
+        >>> configure_torch(config)
+        >>>
+        >>> # For reproducible runs
+        >>> config = TorchConfig(deterministic=True, random_seed=42)
         >>> configure_torch(config)
     """
 
     allow_tf32: bool = False
     cudnn_benchmark: bool = False
+    deterministic: bool = False
+    random_seed: int | None = None
 
 
 def configure_torch(config: TorchConfig | None = None) -> None:
@@ -63,15 +74,33 @@ def configure_torch(config: TorchConfig | None = None) -> None:
         >>> # Disable TF32 (default, maximum precision)
         >>> configure_torch(TorchConfig(allow_tf32=False))
         >>>
+        >>> # For reproducible runs
+        >>> configure_torch(TorchConfig(deterministic=True, random_seed=42))
+        >>>
         >>> # Use defaults
         >>> configure_torch(None)
     """
     if config is None:
         config = TorchConfig()
 
+    # Precision settings
     torch.backends.cuda.matmul.allow_tf32 = config.allow_tf32
     torch.backends.cudnn.allow_tf32 = config.allow_tf32
     torch.backends.cudnn.benchmark = config.cudnn_benchmark
+
+    # Reproducibility settings
+    if config.random_seed is not None:
+        torch.manual_seed(config.random_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(config.random_seed)
+        # Also seed numpy for RDKit and other operations
+        import numpy as np
+        np.random.seed(config.random_seed)
+
+    if config.deterministic:
+        torch.use_deterministic_algorithms(True)
+        # cuDNN deterministic mode
+        torch.backends.cudnn.deterministic = True
 
 
 # Note: We intentionally do NOT apply any default configuration on module import.

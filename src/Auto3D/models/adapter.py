@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 
 from Auto3D.constants import HARTREE_TO_EV
+from Auto3D.exceptions import NumericalError
 
 
 def _try_compile(model: nn.Module, mode: str = "reduce-overhead") -> nn.Module:
@@ -30,6 +31,45 @@ def _try_compile(model: nn.Module, mode: str = "reduce-overhead") -> nn.Module:
     except Exception as e:
         warnings.warn(f"torch.compile failed, using eager mode: {e}")
         return model
+
+
+def _validate_outputs(energy: torch.Tensor, forces: torch.Tensor) -> None:
+    """Validate model outputs for numerical stability.
+
+    Checks for NaN and Inf values in energy and force tensors, raising
+    an exception if numerical instability is detected.
+
+    Args:
+        energy: Energy tensor from model forward pass.
+        forces: Force tensor from model forward pass.
+
+    Raises:
+        NumericalError: If NaN or Inf values are detected.
+    """
+    if torch.isnan(energy).any():
+        nan_count = torch.isnan(energy).sum().item()
+        raise NumericalError(
+            f"NaN detected in {nan_count} energy value(s). "
+            "This may indicate problematic molecular geometries."
+        )
+    if torch.isinf(energy).any():
+        inf_count = torch.isinf(energy).sum().item()
+        raise NumericalError(
+            f"Inf detected in {inf_count} energy value(s). "
+            "This may indicate atomic clashes or numerical overflow."
+        )
+    if torch.isnan(forces).any():
+        nan_count = torch.isnan(forces).sum().item()
+        raise NumericalError(
+            f"NaN detected in {nan_count} force component(s). "
+            "This may indicate problematic molecular geometries."
+        )
+    if torch.isinf(forces).any():
+        inf_count = torch.isinf(forces).sum().item()
+        raise NumericalError(
+            f"Inf detected in {inf_count} force component(s). "
+            "This may indicate atomic clashes or numerical overflow."
+        )
 
 
 @runtime_checkable
@@ -213,6 +253,7 @@ class AIMNetAdapter(BaseModelAdapter):
             grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
             forces = -grad
 
+        _validate_outputs(energy, forces)
         return energy, forces
 
 
@@ -257,6 +298,7 @@ class ANI2xtAdapter(BaseModelAdapter):
         # create_graph=False (default) avoids building second-order gradient graph
         grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
         forces = -grad
+        _validate_outputs(energy, forces)
         return energy, forces
 
 
@@ -305,6 +347,7 @@ class ANI2xAdapter(BaseModelAdapter):
         grad = torch.autograd.grad([energy.sum()], [coords_f32], create_graph=False)[0]
         forces = -grad
 
+        _validate_outputs(energy, forces)
         # Convert back to input dtype for consistency
         return energy.to(input_dtype), forces.to(input_dtype)
 
@@ -368,5 +411,6 @@ class CustomModelAdapter(BaseModelAdapter):
         grad = torch.autograd.grad([energy.sum()], [coords_f32], create_graph=False)[0]
         forces = -grad
 
+        _validate_outputs(energy, forces)
         # Convert output back to input dtype for consistency
         return energy.to(input_dtype), forces.to(input_dtype)
