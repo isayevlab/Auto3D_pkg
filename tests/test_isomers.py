@@ -5,12 +5,14 @@ import pytest
 
 from Auto3D.isomers import (
     IsomerEngine,
+    IsomerEngineFactory,
     TautomerEngine,
     create_isomer_engine,
     create_tautomer_engine,
 )
 from Auto3D.isomers.base import BaseIsomerEngine, BaseTautomerEngine
 from Auto3D.isomers.omega_adapter import OmegaIsomerAdapter
+from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter, RDKitSdfIsomerAdapter
 
 
 class TestIsomerEngineProtocol:
@@ -239,8 +241,6 @@ class TestCreateIsomerEngineParallelEmbedding:
 
     def test_rdkit_engine_parallel_embedding_default_off(self, tmp_path):
         """Test that parallel embedding is off by default."""
-        from Auto3D.isomer_engine import RDKitIsomer
-
         job_dir = tmp_path / "job"
         job_dir.mkdir()
 
@@ -254,12 +254,14 @@ class TestCreateIsomerEngineParallelEmbedding:
             job_dir=str(job_dir),
         )
 
-        assert isinstance(engine, RDKitIsomer)
+        # Now returns RDKitIsomerAdapter which wraps RDKitIsomer
+        from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter
+        assert isinstance(engine, RDKitIsomerAdapter)
         assert engine.use_parallel_embedding is False
 
     def test_rdkit_engine_parallel_embedding_enabled(self, tmp_path):
         """Test that parallel embedding can be enabled."""
-        from Auto3D.isomer_engine import RDKitIsomer
+        from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter
 
         job_dir = tmp_path / "job"
         job_dir.mkdir()
@@ -277,7 +279,7 @@ class TestCreateIsomerEngineParallelEmbedding:
             parallel_workers=2,
         )
 
-        assert isinstance(engine, RDKitIsomer)
+        assert isinstance(engine, RDKitIsomerAdapter)
         assert engine.use_parallel_embedding is True
         assert engine.parallel_embedding_threshold == 5
         assert engine.parallel_workers == 2
@@ -303,4 +305,80 @@ class TestCreateTautomerEngine:
                 "UNKNOWN",
                 input_path="/input.smi",
                 output_path="/output.smi",
+            )
+
+
+class TestIsomerEngineFactory:
+    """Tests for IsomerEngineFactory class."""
+
+    def test_available_engines(self):
+        """Test that available_engines returns expected list."""
+        engines = IsomerEngineFactory.available_engines()
+        assert "rdkit" in engines
+        assert "rdkit_sdf" in engines
+        assert "omega" in engines
+
+    def test_create_rdkit_engine(self, tmp_path):
+        """Test creating RDKit engine via factory."""
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        engine = IsomerEngineFactory.create(
+            engine_type="rdkit",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            job_dir=str(job_dir),
+        )
+
+        assert isinstance(engine, RDKitIsomerAdapter)
+        assert isinstance(engine, BaseIsomerEngine)
+
+    def test_create_rdkit_sdf_engine(self):
+        """Test creating RDKit SDF engine via factory."""
+        engine = IsomerEngineFactory.create(
+            engine_type="rdkit_sdf",
+            input_path="/input.sdf",
+            output_path="/output.sdf",
+        )
+
+        assert isinstance(engine, RDKitSdfIsomerAdapter)
+        assert isinstance(engine, BaseIsomerEngine)
+
+    def test_auto_select_rdkit_sdf_for_sdf_input(self):
+        """Test that rdkit auto-selects rdkit_sdf when input_format is sdf."""
+        engine = IsomerEngineFactory.create(
+            engine_type="rdkit",
+            input_path="/input.sdf",
+            output_path="/output.sdf",
+            input_format="sdf",  # This should trigger auto-selection
+        )
+
+        # Should get RDKitSdfIsomerAdapter, not RDKitIsomerAdapter
+        assert isinstance(engine, RDKitSdfIsomerAdapter)
+
+    def test_create_omega_engine(self):
+        """Test creating Omega engine via factory."""
+        engine = IsomerEngineFactory.create(
+            engine_type="omega",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
+            mode="dense",
+        )
+
+        assert isinstance(engine, OmegaIsomerAdapter)
+        assert engine.mode == "dense"
+
+    def test_unknown_engine_raises_error(self):
+        """Test that unknown engine type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown isomer engine type"):
+            IsomerEngineFactory.create(
+                engine_type="nonexistent",
+                input_path="/input.smi",
+                output_path="/output.sdf",
             )
