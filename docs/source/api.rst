@@ -36,6 +36,7 @@ Factory functions and classes for creating neural network potential models:
 
    Auto3D.model_factory.ModelFactory
    Auto3D.model_factory.create_model
+   Auto3D.model_factory.get_device
 
 Isomer Generation
 -----------------
@@ -46,6 +47,17 @@ Factory for creating isomer enumeration engines:
    :toctree: generated
 
    Auto3D.isomers.IsomerEngineFactory
+
+Tautomer Enumeration
+--------------------
+
+Functions for tautomer enumeration and selection:
+
+.. autosummary::
+   :toctree: generated
+
+   Auto3D.tautomer.get_stable_tautomers
+   Auto3D.tautomer.select_tautomers
 
 Utility Functions
 -----------------
@@ -58,3 +70,26 @@ Helper functions for energy calculations and analysis:
    Auto3D.SPE.calc_spe
    Auto3D.ASE.geometry.opt_geometry
    Auto3D.ASE.thermo.calc_thermo
+
+Exceptions
+----------
+
+Custom exception classes for error handling:
+
+.. autosummary::
+   :toctree: generated
+
+   Auto3D.exceptions.Auto3DError
+   Auto3D.exceptions.ConfigurationError
+   Auto3D.exceptions.InputValidationError
+   Auto3D.exceptions.ModelError
+   Auto3D.exceptions.ModelNotFoundError
+   Auto3D.exceptions.ModelLoadError
+   Auto3D.exceptions.NumericalError
+   Auto3D.exceptions.OptimizationError
+   Auto3D.exceptions.ConvergenceError
+   Auto3D.exceptions.IsomerEnumerationError
+   Auto3D.exceptions.TautomerEnumerationError
+   Auto3D.exceptions.FileFormatError
+   Auto3D.exceptions.DependencyError
+   Auto3D.exceptions.GPUError
