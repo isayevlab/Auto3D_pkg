@@ -27,7 +27,7 @@ def validate_smiles_file(file_path: Path) -> ValidationResult:
     """Validate a SMILES file."""
     from rdkit import Chem
 
-    errors = []
+    errors: list[tuple[int, str, str]] = []
     valid_count = 0
     total_count = 0
 
@@ -60,7 +60,7 @@ def validate_sdf_file(file_path: Path) -> ValidationResult:
     """Validate an SDF file."""
     from rdkit import Chem
 
-    errors = []
+    errors: list[tuple[int, str, str]] = []
     valid_count = 0
     total_count = 0
 

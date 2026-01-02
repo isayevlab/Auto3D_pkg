@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import yaml
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from Auto3D.cli.console import console, print_error, print_success
 from Auto3D.cli.config_schema import CLIConfig, load_yaml_config
+from Auto3D.cli.console import console, print_error, print_success
 from Auto3D.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
@@ -19,9 +19,8 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 
-
 # Default configuration template
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "path": "input.smi",
     "k": 5,
     "optimizing_engine": "AIMNET",
@@ -40,7 +39,7 @@ DEFAULT_CONFIG = {
 }
 
 # Preset configurations
-PRESETS = {
+PRESETS: dict[str, dict[str, Any]] = {
     "quick": {
         "k": 1,
         "opt_steps": 500,
@@ -90,7 +89,7 @@ def generate_commented_yaml(config: dict) -> str:
     return "\n".join(lines)
 
 
-def execute_config_init(output: Path, preset: Optional[str] = None) -> None:
+def execute_config_init(output: Path, preset: str | None = None) -> None:
     """Generate a configuration file."""
     config = DEFAULT_CONFIG.copy()
 
@@ -111,7 +110,7 @@ def execute_config_init(output: Path, preset: Optional[str] = None) -> None:
     console.print(Syntax(yaml_content, "yaml", theme="monokai", line_numbers=True))
 
 
-def execute_config_show(config_file: Optional[Path] = None) -> None:
+def execute_config_show(config_file: Path | None = None) -> None:
     """Display a configuration file with syntax highlighting."""
     if config_file is None:
         config_file = Path("auto3d.yaml")

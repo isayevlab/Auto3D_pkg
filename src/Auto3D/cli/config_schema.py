@@ -72,7 +72,9 @@ class CLIConfig(BaseModel):
             if "," in v:
                 return [int(x.strip()) for x in v.split(",")]
             return int(v)
-        return v
+        if isinstance(v, list):
+            return [int(x) for x in v]
+        return int(v) if v is not None else 0
 
     @field_validator("optimizing_engine", mode="before")
     @classmethod
