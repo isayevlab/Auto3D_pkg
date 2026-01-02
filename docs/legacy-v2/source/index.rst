@@ -7,7 +7,11 @@ Welcome to Auto3D's documentation!
 ==================================
 
 .. note::
-   **AIMNet2 clarification**: The default model in Auto3D is AIMNet2 since version 2.2.1. If you specify ``optimizing_engine="AIMNET"``, it uses AIMNet2. The old AIMNet model has been deprecated since Auto3D 2.2.1.
+
+   This documentation is under active development.
+
+.. note::
+   **AIMNet2 clarification**: The default model in Auto3D is AIMNet2 since 2.2.1. If you specify optimizing_engine="AIMNET", it actually uses AIMNet2. The old AIMNet model has been deprecated since Auto3D 2.2.1, and every call to “AIMNET” refers to the AIMNet2 model.
 
 **Auto3D**
 ==========
@@ -33,16 +37,16 @@ Introduction
 ============
 
 **Auto3D** is a Python package for generating low-energy conformers from
-SMILES/SDF. It automates the stereoisomer enumeration and duplicate
+SMILES/SDF. It automatizes the stereoisomer enumeration and duplicate
 filtering process, 3D building process, fast geometry optimization and
 ranking process using ANI and AIMNet neural network atomistic
-potentials. Auto3D can be imported as a Python library, or be executed
+potentials. Auto3D can be imported as a Python library, or be excuted
 from the terminal.
 
 
 Contents
 ==================
-.. toctree::
+.. toctree:: 
    :maxdepth: 2
 
    installation

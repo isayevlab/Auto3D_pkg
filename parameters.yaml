@@ -1,31 +1,40 @@
-#replace with your input file
+# Auto3D Example Configuration File
+# Replace with your input file path
 path: "tests/files/smiles2.smi"
 
-#k and window are mutually exclusive parameters. Just specify one of them.
-k: 1  
+# Output selection (k and window are mutually exclusive - specify only one)
+k: 1
 window: False
 
-#general setting
+# General settings
 memory: None
-capacity: 40
-#tautomer-related parameters
+capacity: 42
+
+# Tautomer enumeration settings
 enumerate_tautomer: False
 tauto_engine: 'rdkit'
 pKaNorm: True
-#stereoisomer-related parameters
+
+# Stereoisomer enumeration settings
 isomer_engine: rdkit
 max_confs: None
 enumerate_isomer: True
 mode_oe: 'classic'
 mpi_np: 4
-#optimization-related parameters
+
+# Optimization settings
 optimizing_engine: 'AIMNET'
 use_gpu: True
 gpu_idx: [0]
-opt_steps: 5000
-convergence_threshold: 0.003
-patience: 1000
-#cleanup parameters
+opt_steps: 2000
+convergence_threshold: 0.01
+patience: 250
+batchsize_atoms: 1024
+
+# Performance settings
+allow_tf32: False
+
+# Duplicate removal and output settings
 threshold: 0.3
 verbose: False
 job_name: ""
