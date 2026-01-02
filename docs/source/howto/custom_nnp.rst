@@ -4,6 +4,81 @@ Custom Neural Network Potentials
 This guide covers integrating custom neural network potentials (NNPs) with
 Auto3D for specialized applications.
 
+CLI Quick Reference
+-------------------
+
+.. code:: console
+
+   # Use custom model with absolute path
+   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --gpu
+
+   # Use custom model with relative path
+   auto3d run molecules.smi --k=1 --engine=./models/my_custom_nnp.pt --gpu
+
+   # Use custom model with CPU (for debugging)
+   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --no-gpu
+
+   # Combine with other options
+   auto3d run molecules.smi --k=5 --engine=/path/to/my_custom_nnp.pt --gpu -v
+
+   # Use configuration file for reproducibility
+   auto3d run molecules.smi -c custom_model.yaml
+
+Using Your Custom Model
+-----------------------
+
+CLI Usage (Recommended)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+**Direct Path**
+
+.. code:: console
+
+   # Use custom model with absolute path
+   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --gpu
+
+   # Use custom model with relative path
+   auto3d run molecules.smi --k=1 --engine=./models/my_custom_nnp.pt --gpu
+
+   # Use custom model with CPU (for debugging)
+   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --no-gpu
+
+   # Combine with other options
+   auto3d run molecules.smi --k=5 --engine=/path/to/my_custom_nnp.pt --gpu -v
+
+**Configuration Files**
+
+For reproducible workflows with custom models, use a YAML config:
+
+.. code:: yaml
+
+   # custom_model.yaml
+   optimizing_engine: /path/to/my_custom_nnp.pt
+   use_gpu: true
+   k: 1
+   opt_steps: 2000
+   convergence_threshold: 0.01
+
+.. code:: console
+
+   auto3d run molecules.smi -c custom_model.yaml
+
+Python API
+~~~~~~~~~~
+
+.. code:: python
+
+   from Auto3D import Auto3DOptions, main
+
+   if __name__ == "__main__":
+       config = Auto3DOptions(
+           path="molecules.smi",
+           k=1,
+           optimizing_engine="/path/to/my_custom_nnp.pt",
+           use_gpu=True,
+       )
+       output = main(config)
+
 Overview
 --------
 
@@ -198,62 +273,13 @@ For testing, here's a minimal example using Lennard-Jones potential:
    model = SimpleLJModel()
    torch.save(model, "lj_model.pt")
 
-Using Your Custom Model
------------------------
-
-With Python API
-~~~~~~~~~~~~~~~
-
-.. code:: python
-
-   from Auto3D import Auto3DOptions, main
-
-   if __name__ == "__main__":
-       config = Auto3DOptions(
-           path="molecules.smi",
-           k=1,
-           optimizing_engine="/path/to/my_custom_nnp.pt",
-           use_gpu=True,
-       )
-       output = main(config)
-
-With CLI
-~~~~~~~~
-
-.. code:: console
-
-   # Use custom model with absolute path
-   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --gpu
-
-   # Use custom model with relative path
-   auto3d run molecules.smi --k=1 --engine=./models/my_custom_nnp.pt --gpu
-
-   # Use custom model with CPU (for debugging)
-   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --no-gpu
-
-   # Combine with other options
-   auto3d run molecules.smi --k=5 --engine=/path/to/my_custom_nnp.pt --gpu -v
-
-Using Configuration Files
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-For reproducible workflows with custom models, use a YAML config:
-
-.. code:: yaml
-
-   # custom_model.yaml
-   optimizing_engine: /path/to/my_custom_nnp.pt
-   use_gpu: true
-   k: 1
-   opt_steps: 2000
-   convergence_threshold: 0.01
-
-.. code:: console
-
-   auto3d run molecules.smi -c custom_model.yaml
+   # Use with CLI
+   # auto3d run molecules.smi --k=1 --engine=./lj_model.pt --gpu
 
 Direct Model Access
 ~~~~~~~~~~~~~~~~~~~
+
+For custom workflows, create models directly:
 
 .. code:: python
 
@@ -282,6 +308,23 @@ Direct Model Access
 
 Testing Your Model
 ------------------
+
+CLI Validation
+~~~~~~~~~~~~~~
+
+Before using your model, validate the input file and run a test:
+
+.. code:: console
+
+   # Validate input file
+   auto3d validate test_molecules.smi
+
+   # Run with verbose output to see diagnostics
+   auto3d run test_molecules.smi --k=1 --engine=/path/to/model.pt -v --no-gpu
+
+   # Test with a single simple molecule first
+   echo "C methane" > test.smi
+   auto3d run test.smi --k=1 --engine=/path/to/model.pt --no-gpu
 
 Validation Script
 ~~~~~~~~~~~~~~~~~
@@ -366,7 +409,7 @@ Ensure gradients flow correctly for optimization:
 
        forces = -coords.grad
        print(f"Forces shape: {forces.shape}")
-       print(f"Max force: {forces.abs().max():.6f} eV/Å")
+       print(f"Max force: {forces.abs().max():.6f} eV/A")
        print("Gradient check passed!")
 
    check_gradients("/path/to/my_model.pt")
@@ -416,6 +459,19 @@ NaN Energies
 
 If you get NaN energies:
 
+**CLI Debugging**
+
+.. code:: console
+
+   # Run with verbose mode to see diagnostics
+   auto3d run test.smi --k=1 --engine=/path/to/model.pt -v --no-gpu
+
+   # Test with a simple molecule first
+   echo "C methane" > test.smi
+   auto3d run test.smi --k=1 --engine=/path/to/model.pt --no-gpu
+
+**Common Fixes**
+
 1. Check for division by zero in distance calculations
 2. Ensure padding is handled correctly
 3. Add small epsilon to denominators: ``r = torch.clamp(r, min=1e-6)``
@@ -433,6 +489,18 @@ Slow Performance
 ~~~~~~~~~~~~~~~~
 
 If optimization is slow:
+
+**CLI Options**
+
+.. code:: console
+
+   # Use CPU for debugging (slower but clearer errors)
+   auto3d run molecules.smi --k=1 --engine=/path/to/model.pt --no-gpu
+
+   # Enable GPU for production
+   auto3d run molecules.smi --k=1 --engine=/path/to/model.pt --gpu
+
+**Code Improvements**
 
 1. Profile your forward pass
 2. Move operations to GPU
@@ -476,6 +544,14 @@ Example wrapping a SchNetPack model:
 
            return torch.cat(energies)
 
+   # Save wrapper and use with CLI
+   wrapper = SchNetPackWrapper("schnetpack_model.pt")
+   torch.save(wrapper, "schnetpack_auto3d.pt")
+
+.. code:: console
+
+   auto3d run molecules.smi --k=1 --engine=./schnetpack_auto3d.pt --gpu
+
 Integration with NequIP/Allegro
 -------------------------------
 
@@ -512,3 +588,11 @@ Example wrapping NequIP:
                energies.append(torch.tensor(energy))
 
            return torch.stack(energies).to(species.device)
+
+   # Save wrapper and use with CLI
+   wrapper = NequIPWrapper("deployed_nequip.pth")
+   torch.save(wrapper, "nequip_auto3d.pt")
+
+.. code:: console
+
+   auto3d run molecules.smi --k=1 --engine=./nequip_auto3d.pt --gpu

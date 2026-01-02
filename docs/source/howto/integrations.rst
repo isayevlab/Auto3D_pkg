@@ -4,25 +4,29 @@ Integration with Other Tools
 This guide covers integrating Auto3D with popular computational chemistry
 and machine learning tools.
 
-CLI Quick Reference for Integrations
-------------------------------------
+CLI Quick Reference
+-------------------
 
-Most integrations follow a common workflow: generate conformers with Auto3D,
+Most integrations follow a common workflow: generate conformers with Auto3D CLI,
 then convert/process the output SDF file.
 
 .. code:: console
 
    # Step 1: Generate conformers (common to all workflows)
-   auto3d run ligand.smi --k=1 --gpu
+   auto3d run input.smi --k=1 --gpu
 
    # For MD preparation (tight convergence)
-   auto3d run ligand.smi --k=1 --engine=AIMNET --gpu
+   auto3d config init -p thorough -o md_prep.yaml
+   auto3d run ligand.smi --k=1 -c md_prep.yaml --gpu
 
    # For docking (multiple conformers)
    auto3d run ligands.smi --k=5 --gpu
 
    # For ML datasets (maximum diversity)
    auto3d run molecules.smi --k=10 --gpu
+
+   # For large-scale batch processing
+   auto3d run large_dataset.smi --k=5 --gpu --gpu-idx="0,1,2,3"
 
 Molecular Dynamics
 ------------------
@@ -46,6 +50,25 @@ GROMACS
 .. code:: python
 
    from rdkit import Chem
+
+   # Load Auto3D output
+   mol = next(Chem.SDMolSupplier("output.sdf"))
+
+   # Export to MOL2
+   Chem.MolToMolFile(mol, "ligand.mol2")
+
+Then use ACPYPE for topology:
+
+.. code:: console
+
+   acpype -i ligand.mol2 -c bcc -n 0
+   # Generates ligand_GMX.gro, ligand_GMX.top, etc.
+
+**Python API Alternative**
+
+.. code:: python
+
+   from rdkit import Chem
    from Auto3D import Auto3DOptions, main
 
    # Generate optimized conformer
@@ -61,29 +84,23 @@ GROMACS
    mol = next(Chem.SDMolSupplier(output))
    Chem.MolToMolFile(mol, "ligand.mol2")
 
-Then use ACPYPE for topology:
-
-.. code:: console
-
-   acpype -i ligand.mol2 -c bcc -n 0
-   # Generates ligand_GMX.gro, ligand_GMX.top, etc.
-
 OpenMM
 ~~~~~~
 
-Using OpenFF for parametrization:
+**Step 1: Generate conformer with CLI**
+
+.. code:: console
+
+   auto3d run ligand.smi --k=1 --gpu
+
+**Step 2: Parametrize with OpenFF**
 
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   # Generate conformer
-   config = Auto3DOptions(path="ligand.smi", k=1, use_gpu=True)
-   output = main(config)
-
-   # Load into OpenFF
-   mol = next(Chem.SDMolSupplier(output))
+   # Load Auto3D output
+   mol = next(Chem.SDMolSupplier("output.sdf"))
 
    from openff.toolkit import Molecule
    from openff.toolkit.typing.engines.smirnoff import ForceField
@@ -105,18 +122,22 @@ Using OpenFF for parametrization:
 AMBER
 ~~~~~
 
-Prepare for AMBER using Antechamber:
+**Step 1: Generate conformer with CLI**
+
+.. code:: console
+
+   auto3d run ligand.smi --k=1 --gpu
+
+**Step 2: Prepare for Antechamber**
 
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   config = Auto3DOptions(path="ligand.smi", k=1)
-   output = main(config)
+   # Load Auto3D output
+   mol = next(Chem.SDMolSupplier("output.sdf"))
 
    # Export to PDB
-   mol = next(Chem.SDMolSupplier(output))
    Chem.MolToPDBFile(mol, "ligand.pdb")
 
 .. code:: console
@@ -146,15 +167,12 @@ AutoDock Vina
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
    import subprocess
 
-   # Generate multiple conformers
-   config = Auto3DOptions(path="ligands.smi", k=5, use_gpu=True)
-   output = main(config)
+   # Load Auto3D output
+   mols = list(Chem.SDMolSupplier("output.sdf"))
 
    # Convert to PDBQT
-   mols = list(Chem.SDMolSupplier(output))
    for i, mol in enumerate(mols):
        name = mol.GetProp("_Name")
        pdb = f"ligand_{i}.pdb"
@@ -168,6 +186,17 @@ AutoDock Vina
 
 Glide (Schrodinger)
 ~~~~~~~~~~~~~~~~~~~
+
+**CLI**
+
+.. code:: console
+
+   # Generate conformers - SDF can be imported directly to Maestro
+   auto3d run ligands.smi --k=10 --gpu
+
+The output SDF file can be imported directly into Maestro for Glide docking.
+
+**Python API**
 
 .. code:: python
 
@@ -185,16 +214,20 @@ Glide (Schrodinger)
 GOLD
 ~~~~
 
+**CLI**
+
+.. code:: console
+
+   auto3d run ligands.smi --k=1 --gpu
+
+**Python Export**
+
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   config = Auto3DOptions(path="ligands.smi", k=1)
-   output = main(config)
-
-   # Export to MOL2 for GOLD
-   for mol in Chem.SDMolSupplier(output):
+   # Load Auto3D output
+   for mol in Chem.SDMolSupplier("output.sdf"):
        name = mol.GetProp("_Name")
        Chem.MolToMolFile(mol, f"{name}.mol2")
 
@@ -222,21 +255,15 @@ Creating Training Datasets
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
    import numpy as np
    import json
 
-   # Generate diverse conformers
-   config = Auto3DOptions(
-       path="molecules.smi",
-       k=10,               # Multiple per molecule
-       use_gpu=True,
-   )
-   output = main(config)
+   # Load Auto3D output
+   mols = list(Chem.SDMolSupplier("output.sdf"))
 
    # Extract features
    dataset = []
-   for mol in Chem.SDMolSupplier(output):
+   for mol in mols:
        conf = mol.GetConformer()
        coords = np.array([list(conf.GetAtomPosition(i))
                           for i in range(mol.GetNumAtoms())])
@@ -256,17 +283,21 @@ Creating Training Datasets
 SchNetPack Integration
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Prepare data for SchNetPack training:
+**Step 1: Generate conformers**
+
+.. code:: console
+
+   auto3d run training_set.smi --k=5 --gpu
+
+**Step 2: Prepare data for SchNetPack training**
 
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
    import numpy as np
 
-   # Generate conformers
-   config = Auto3DOptions(path="training_set.smi", k=5)
-   output = main(config)
+   # Load Auto3D output
+   mols = list(Chem.SDMolSupplier("output.sdf"))
 
    # Create ASE database
    from ase import Atoms
@@ -274,7 +305,7 @@ Prepare data for SchNetPack training:
 
    db = connect("conformers.db")
 
-   for mol in Chem.SDMolSupplier(output):
+   for mol in mols:
        conf = mol.GetConformer()
        numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
        positions = np.array([list(conf.GetAtomPosition(i))
@@ -287,17 +318,21 @@ Prepare data for SchNetPack training:
 DeepChem Integration
 ~~~~~~~~~~~~~~~~~~~~
 
+**Step 1: Generate conformers**
+
+.. code:: console
+
+   auto3d run molecules.smi --k=1 --gpu
+
+**Step 2: Create DeepChem dataset**
+
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
    import deepchem as dc
 
-   # Generate 3D structures
-   config = Auto3DOptions(path="molecules.smi", k=1)
-   output = main(config)
-
-   mols = list(Chem.SDMolSupplier(output))
+   # Load Auto3D output
+   mols = list(Chem.SDMolSupplier("output.sdf"))
    energies = [float(m.GetProp("E_tot")) for m in mols]
 
    # Create DeepChem dataset
@@ -311,17 +346,20 @@ Visualization
 PyMOL
 ~~~~~
 
-.. code:: python
+**Generate conformers**
 
-   from Auto3D import Auto3DOptions, main
+.. code:: console
 
-   config = Auto3DOptions(path="molecule.smi", k=5)
-   output = main(config)
+   auto3d run molecule.smi --k=5 --gpu
 
-   # The SDF can be loaded directly in PyMOL:
-   # load output.sdf
+The SDF output can be loaded directly in PyMOL:
 
-For programmatic access:
+.. code:: console
+
+   # In PyMOL
+   load output.sdf
+
+**Python scripting**
 
 .. code:: python
 
@@ -333,6 +371,8 @@ For programmatic access:
 
 NGLView (Jupyter)
 ~~~~~~~~~~~~~~~~~
+
+**Generate and visualize**
 
 .. code:: python
 
@@ -350,6 +390,8 @@ NGLView (Jupyter)
 
 py3Dmol (Jupyter)
 ~~~~~~~~~~~~~~~~~
+
+**Generate and visualize**
 
 .. code:: python
 
@@ -376,18 +418,21 @@ Cheminformatics
 RDKit Workflows
 ~~~~~~~~~~~~~~~
 
+**Generate conformers**
+
+.. code:: console
+
+   auto3d run molecules.smi --k=1 --gpu
+
+**Calculate 3D descriptors**
+
 .. code:: python
 
    from rdkit import Chem
    from rdkit.Chem import AllChem, Descriptors
-   from Auto3D import Auto3DOptions, main
 
-   # Generate conformers
-   config = Auto3DOptions(path="molecules.smi", k=1)
-   output = main(config)
-
-   # Calculate 3D descriptors
-   for mol in Chem.SDMolSupplier(output):
+   # Load Auto3D output
+   for mol in Chem.SDMolSupplier("output.sdf"):
        # 3D descriptors require conformer
        pmi1, pmi2, pmi3 = Descriptors.NPR1(mol), Descriptors.NPR2(mol), Descriptors.PMI3(mol)
        rgyr = Descriptors.RadiusOfGyration(mol)
@@ -398,20 +443,28 @@ RDKit Workflows
 Open Babel
 ~~~~~~~~~~
 
-Convert between formats:
+**Generate and convert**
+
+.. code:: console
+
+   # Generate conformers
+   auto3d run molecules.smi --k=1 --gpu
+
+   # Convert to various formats using OpenBabel
+   obabel output.sdf -O output.mol2
+   obabel output.sdf -O output.xyz
+   obabel output.sdf -O output.pdb
+
+**Python alternative**
 
 .. code:: python
 
-   from Auto3D import Auto3DOptions, main
    import subprocess
 
-   config = Auto3DOptions(path="molecules.smi", k=1)
-   output = main(config)
-
    # Convert to various formats
-   subprocess.run(["obabel", output, "-O", "output.mol2"])
-   subprocess.run(["obabel", output, "-O", "output.xyz"])
-   subprocess.run(["obabel", output, "-O", "output.pdb"])
+   subprocess.run(["obabel", "output.sdf", "-O", "output.mol2"])
+   subprocess.run(["obabel", "output.sdf", "-O", "output.xyz"])
+   subprocess.run(["obabel", "output.sdf", "-O", "output.pdb"])
 
 Quantum Chemistry
 -----------------
@@ -419,15 +472,19 @@ Quantum Chemistry
 Gaussian Input
 ~~~~~~~~~~~~~~
 
+**Step 1: Generate conformer**
+
+.. code:: console
+
+   auto3d run molecule.smi --k=1 --gpu
+
+**Step 2: Generate Gaussian input**
+
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   config = Auto3DOptions(path="molecule.smi", k=1)
-   output = main(config)
-
-   mol = next(Chem.SDMolSupplier(output))
+   mol = next(Chem.SDMolSupplier("output.sdf"))
    conf = mol.GetConformer()
 
    # Generate Gaussian input
@@ -447,15 +504,19 @@ Gaussian Input
 ORCA Input
 ~~~~~~~~~~
 
+**Step 1: Generate conformer**
+
+.. code:: console
+
+   auto3d run molecule.smi --k=1 --gpu
+
+**Step 2: Generate ORCA input**
+
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   config = Auto3DOptions(path="molecule.smi", k=1)
-   output = main(config)
-
-   mol = next(Chem.SDMolSupplier(output))
+   mol = next(Chem.SDMolSupplier("output.sdf"))
    conf = mol.GetConformer()
 
    with open("molecule.inp", "w") as f:
@@ -471,15 +532,19 @@ ORCA Input
 Psi4 Input
 ~~~~~~~~~~
 
+**Step 1: Generate conformer**
+
+.. code:: console
+
+   auto3d run molecule.smi --k=1 --gpu
+
+**Step 2: Generate Psi4 input**
+
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   config = Auto3DOptions(path="molecule.smi", k=1)
-   output = main(config)
-
-   mol = next(Chem.SDMolSupplier(output))
+   mol = next(Chem.SDMolSupplier("output.sdf"))
    conf = mol.GetConformer()
 
    with open("molecule.py", "w") as f:
@@ -498,6 +563,45 @@ Workflow Managers
 -----------------
 
 Auto3D's CLI integrates seamlessly with workflow managers for reproducible pipelines.
+
+Shell Scripts
+~~~~~~~~~~~~~
+
+For simple batch processing:
+
+.. code:: bash
+
+   #!/bin/bash
+   # process_all.sh - Process all SMILES files in a directory
+
+   for smi_file in *.smi; do
+       echo "Processing: $smi_file"
+       auto3d validate "$smi_file" || continue
+       auto3d run "$smi_file" --k=5 --gpu
+   done
+
+   echo "All files processed"
+
+Makefile
+~~~~~~~~
+
+.. code:: makefile
+
+   # Makefile for conformer generation pipeline
+
+   SMILES_FILES := $(wildcard *.smi)
+   SDF_FILES := $(SMILES_FILES:.smi=_3d.sdf)
+
+   all: $(SDF_FILES)
+
+   %_3d.sdf: %.smi
+   	auto3d run $< --k=5 --gpu
+
+   clean:
+   	rm -rf *_3d.sdf
+
+   validate:
+   	@for f in $(SMILES_FILES); do auto3d validate $$f; done
 
 Snakemake
 ~~~~~~~~~
@@ -579,42 +683,3 @@ Luigi
                "auto3d", "run", self.input_file,
                "--k=5", "--gpu"
            ], check=True)
-
-Shell Scripts
-~~~~~~~~~~~~~
-
-For simple batch processing:
-
-.. code:: bash
-
-   #!/bin/bash
-   # process_all.sh - Process all SMILES files in a directory
-
-   for smi_file in *.smi; do
-       echo "Processing: $smi_file"
-       auto3d validate "$smi_file" || continue
-       auto3d run "$smi_file" --k=5 --gpu
-   done
-
-   echo "All files processed"
-
-Makefile
-~~~~~~~~
-
-.. code:: makefile
-
-   # Makefile for conformer generation pipeline
-
-   SMILES_FILES := $(wildcard *.smi)
-   SDF_FILES := $(SMILES_FILES:.smi=_3d.sdf)
-
-   all: $(SDF_FILES)
-
-   %_3d.sdf: %.smi
-   	auto3d run $< --k=5 --gpu
-
-   clean:
-   	rm -rf *_3d.sdf
-
-   validate:
-   	@for f in $(SMILES_FILES); do auto3d validate $$f; done

@@ -5,36 +5,43 @@ This guide covers using Auto3D in drug discovery pipelines, including
 compound library processing, tautomer enumeration, and integration with
 docking and molecular dynamics workflows.
 
+CLI Quick Reference
+-------------------
+
+.. code:: console
+
+   # Virtual screening (fast, large libraries)
+   auto3d run library.smi --k=1 --engine=ANI2xt --gpu
+
+   # Hit expansion (accurate, multiple conformers)
+   auto3d run hits.smi --k=10 --engine=AIMNET --gpu
+
+   # Lead optimization with tautomers
+   auto3d run leads.smi --k=3 --enumerate-tautomer --gpu
+
+   # Energy window selection
+   auto3d run input.smi --window=5.0 --gpu
+
+   # Multi-GPU for maximum throughput
+   auto3d run large_library.smi --k=1 --gpu --gpu-idx="0,1,2,3"
+
+   # Validate input before processing
+   auto3d validate library.smi
+
 Processing Compound Libraries
 -----------------------------
 
-Large-Scale Screening
-~~~~~~~~~~~~~~~~~~~~~
+Large-Scale Virtual Screening
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For virtual screening campaigns with thousands of compounds:
 
-.. code:: python
-
-   from Auto3D import Auto3DOptions, main
-
-   if __name__ == "__main__":
-       config = Auto3DOptions(
-           path="compound_library.smi",  # 10K+ compounds
-           k=1,                          # Single conformer for initial screening
-           use_gpu=True,
-           gpu_idx=[0, 1, 2, 3],         # Multi-GPU for speed
-           optimizing_engine="ANI2xt",   # Fastest engine
-           memory=64,                    # Assign 64GB RAM
-           capacity=50,                  # Compounds per GB
-       )
-       output = main(config)
-
-**CLI Equivalents:**
+**CLI (Recommended)**
 
 .. code:: console
 
    # Basic large-scale screening
-   auto3d run compound_library.smi --k=1 --gpu --engine=ANI2xt
+   auto3d run compound_library.smi --k=1 --engine=ANI2xt --gpu
 
    # Multi-GPU for maximum throughput
    auto3d run compound_library.smi --k=1 --gpu --gpu-idx="0,1,2,3" --engine=ANI2xt
@@ -53,25 +60,34 @@ Create ``screening.yaml`` for advanced settings:
    memory: 64
    capacity: 50
 
+**Python API**
+
+.. code:: python
+
+   from Auto3D import Auto3DOptions, main
+
+   if __name__ == "__main__":
+       config = Auto3DOptions(
+           path="compound_library.smi",  # 10K+ compounds
+           k=1,                          # Single conformer for initial screening
+           use_gpu=True,
+           gpu_idx=[0, 1, 2, 3],         # Multi-GPU for speed
+           optimizing_engine="ANI2xt",   # Fastest engine
+           memory=64,                    # Assign 64GB RAM
+           capacity=50,                  # Compounds per GB
+       )
+       output = main(config)
+
 Hit Expansion
 ~~~~~~~~~~~~~
 
 For hit compounds requiring multiple conformers:
 
-.. code:: python
-
-   config = Auto3DOptions(
-       path="hits.smi",
-       k=10,                         # Multiple conformers
-       optimizing_engine="AIMNET",   # Higher accuracy
-       enumerate_isomer=True,        # Include stereoisomers
-       threshold=0.5,                # Stricter duplicate removal
-   )
-
-**CLI Equivalent:**
+**CLI (Recommended)**
 
 .. code:: console
 
+   # Generate 10 conformers per hit compound
    auto3d run hits.smi --k=10 --engine=AIMNET --gpu
 
 With stricter duplicate removal via config:
@@ -88,28 +104,24 @@ With stricter duplicate removal via config:
 
    auto3d run hits.smi -c hit_expansion.yaml --gpu
 
+**Python API**
+
+.. code:: python
+
+   config = Auto3DOptions(
+       path="hits.smi",
+       k=10,                         # Multiple conformers
+       optimizing_engine="AIMNET",   # Higher accuracy
+       enumerate_isomer=True,        # Include stereoisomers
+       threshold=0.5,                # Stricter duplicate removal
+   )
+
 Lead Optimization
 ~~~~~~~~~~~~~~~~~
 
 For lead series with tautomer considerations:
 
-.. code:: python
-
-   from Auto3D import Auto3DOptions
-   from Auto3D.tautomer import get_stable_tautomers
-
-   config = Auto3DOptions(
-       path="lead_series.smi",
-       k=3,
-       enumerate_tautomer=True,
-       tauto_engine="rdkit",
-       optimizing_engine="ANI2xt",  # Recommended for tautomers
-       use_gpu=True,
-   )
-
-   output = get_stable_tautomers(config, tauto_k=5)
-
-**CLI Equivalent:**
+**CLI (Recommended)**
 
 .. code:: console
 
@@ -130,6 +142,24 @@ For advanced tautomer settings:
 
    auto3d run lead_series.smi -c lead_optimization.yaml --gpu
 
+**Python API**
+
+.. code:: python
+
+   from Auto3D import Auto3DOptions
+   from Auto3D.tautomer import get_stable_tautomers
+
+   config = Auto3DOptions(
+       path="lead_series.smi",
+       k=3,
+       enumerate_tautomer=True,
+       tauto_engine="rdkit",
+       optimizing_engine="ANI2xt",  # Recommended for tautomers
+       use_gpu=True,
+   )
+
+   output = get_stable_tautomers(config, tauto_k=5)
+
 Tautomer Analysis
 -----------------
 
@@ -137,7 +167,30 @@ Understanding Tautomer Stability
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Tautomers can have significantly different binding properties. Auto3D
-helps identify the most stable tautomeric forms:
+helps identify the most stable tautomeric forms.
+
+**CLI (Recommended)**
+
+.. code:: console
+
+   # Basic tautomer enumeration
+   auto3d run drug_candidates.smi --k=1 --enumerate-tautomer --gpu
+
+   # With ANI2xt (recommended for tautomers)
+   auto3d run drug_candidates.smi --k=1 --enumerate-tautomer --engine=ANI2xt --gpu
+
+   # Advanced configuration
+   cat > tautomer_analysis.yaml << EOF
+   enumerate_tautomer: true
+   tauto_engine: rdkit
+   optimizing_engine: ANI2xt
+   max_confs: 20
+   patience: 300
+   EOF
+
+   auto3d run drug_candidates.smi --k=1 -c tautomer_analysis.yaml --gpu
+
+**Python API**
 
 .. code:: python
 
@@ -191,7 +244,22 @@ Stereoisomer Handling
 Enumerating Unspecified Stereocenters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Auto3D automatically enumerates unspecified stereocenters:
+Auto3D automatically enumerates unspecified stereocenters by default.
+
+**CLI (Recommended)**
+
+.. code:: console
+
+   # Default: enumerate stereoisomers
+   auto3d run input.smi --k=1 --gpu
+
+   # Disable enumeration to preserve input stereochemistry
+   auto3d run input.smi --k=1 --no-enumerate-isomer --gpu
+
+   # Use OpenEye Omega for isomer generation (requires license)
+   auto3d run input.smi --k=1 --isomer-engine=omega --gpu
+
+**Python API**
 
 .. code:: python
 
@@ -230,15 +298,7 @@ Filtering by Energy Window
 
 Keep only low-energy conformers for binding studies:
 
-.. code:: python
-
-   config = Auto3DOptions(
-       path="input.smi",
-       window=3.0,              # Within 3 kcal/mol of minimum
-       optimizing_engine="AIMNET",
-   )
-
-**CLI Equivalent:**
+**CLI (Recommended)**
 
 .. code:: console
 
@@ -250,6 +310,16 @@ Keep only low-energy conformers for binding studies:
 
 This is useful when you need all energetically accessible conformers
 rather than a fixed number.
+
+**Python API**
+
+.. code:: python
+
+   config = Auto3DOptions(
+       path="input.smi",
+       window=3.0,              # Within 3 kcal/mol of minimum
+       optimizing_engine="AIMNET",
+   )
 
 Post-Processing Energy Filters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -283,9 +353,7 @@ Integration with Docking
 Preparing for AutoDock Vina
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Step 1: Generate conformers with Auto3D**
-
-Using CLI:
+**Step 1: Generate conformers with Auto3D CLI**
 
 .. code:: console
 
@@ -300,18 +368,11 @@ Using CLI:
 .. code:: python
 
    from rdkit import Chem
-   from rdkit.Chem import AllChem
-
-   # Generate conformers
-   from Auto3D import Auto3DOptions, main
-
-   config = Auto3DOptions(path="ligands.smi", k=5, use_gpu=True)
-   output = main(config)
-
-   # Convert to PDBQT for Vina
    import subprocess
 
-   mols = list(Chem.SDMolSupplier(output))
+   # Load Auto3D output
+   mols = list(Chem.SDMolSupplier("output.sdf"))
+
    for i, mol in enumerate(mols):
        name = mol.GetProp("_Name")
 
@@ -326,51 +387,58 @@ Using CLI:
            "-p", "7.4",  # Add hydrogens at pH 7.4
        ])
 
+   # Run Vina
+   # vina --receptor receptor.pdbqt --ligand ligand_0.pdbqt --out docked.pdbqt
+
 Preparing for Glide
 ~~~~~~~~~~~~~~~~~~~
 
 For Schrodinger Glide, export to Maestro format:
 
+**CLI**
+
+.. code:: console
+
+   # Generate conformers - SDF can be imported directly to Maestro
+   auto3d run ligands.smi --k=10 --gpu
+
+**Python API**
+
 .. code:: python
 
    # Generate conformers
-   config = Auto3DOptions(path="ligands.smi", k=10, use_gpu=True)
+   config = Auto3DOptions(
+       path="ligands.smi",
+       k=10,
+       enumerate_isomer=True,
+   )
    output = main(config)
-
-   # The SDF output can be directly imported into Maestro
-   # Use LigPrep for additional preparation if needed
+   # Import output.sdf into Maestro for Glide docking
 
 Batch Docking Pipeline
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. code:: python
+.. code:: bash
 
-   import subprocess
-   from pathlib import Path
-   from Auto3D import Auto3DOptions, main
+   #!/bin/bash
+   # batch_dock.sh - Complete pipeline: conformer generation + docking
 
-   def prepare_and_dock(smiles_file, receptor_pdbqt, output_dir):
-       """Complete pipeline: conformer generation + docking."""
+   INPUT_FILE="$1"
+   RECEPTOR="$2"
 
-       output_dir = Path(output_dir)
-       output_dir.mkdir(exist_ok=True)
+   # Step 1: Generate conformers with Auto3D
+   auto3d run "$INPUT_FILE" --k=3 --engine=ANI2xt --gpu
 
-       # Step 1: Generate conformers
-       config = Auto3DOptions(
-           path=smiles_file,
-           k=3,
-           use_gpu=True,
-           optimizing_engine="ANI2xt",  # Fast for screening
-       )
-       conformer_sdf = main(config)
+   # Step 2: Find output directory
+   OUTPUT_DIR=$(ls -td *_*/  | head -1)
 
-       # Step 2: Prepare ligands for docking
-       # ... convert to PDBQT ...
-
-       # Step 3: Run docking
-       # ... call Vina/Glide ...
-
-       return output_dir / "docking_results"
+   # Step 3: Convert and dock (example with Vina)
+   for sdf in "$OUTPUT_DIR"/*.sdf; do
+       obabel "$sdf" -O ligands.pdbqt -m
+       for pdbqt in ligands*.pdbqt; do
+           vina --receptor "$RECEPTOR" --ligand "$pdbqt" --out "docked_$pdbqt"
+       done
+   done
 
 Integration with MD Simulations
 -------------------------------
@@ -380,18 +448,13 @@ Preparing for GROMACS
 
 **Step 1: Generate tightly converged conformer**
 
-Using CLI with tight convergence for MD:
-
 .. code:: console
 
    # Use thorough preset for MD preparation
    auto3d config init -p thorough -o md_prep.yaml
    auto3d run ligand.smi --k=1 -c md_prep.yaml --gpu
 
-Or directly:
-
-.. code:: console
-
+   # Or directly with tight convergence
    auto3d run ligand.smi --k=1 --engine=AIMNET --gpu
 
 **Step 2: Export and parametrize**
@@ -399,38 +462,39 @@ Or directly:
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   # Generate low-energy conformer
-   config = Auto3DOptions(
-       path="ligand.smi",
-       k=1,
-       optimizing_engine="AIMNET",
-       convergence_threshold=0.005,  # Tighter for MD
-   )
-   output = main(config)
+   # Load Auto3D output
+   mol = next(Chem.SDMolSupplier("output.sdf"))
 
    # Export to MOL2 for ACPYPE/Antechamber
-   mol = next(Chem.SDMolSupplier(output))
    Chem.MolToMolFile(mol, "ligand.mol2")
 
-   # Use ACPYPE to generate GROMACS topology
-   # acpype -i ligand.mol2 -c bcc
+Then use ACPYPE to generate GROMACS topology:
+
+.. code:: console
+
+   acpype -i ligand.mol2 -c bcc -n 0
+   # Generates ligand_GMX.gro, ligand_GMX.top, etc.
 
 Preparing for OpenMM
 ~~~~~~~~~~~~~~~~~~~~
 
+**Step 1: Generate conformer**
+
+.. code:: console
+
+   auto3d run ligand.smi --k=1 --gpu
+
+**Step 2: Export and parametrize with OpenFF**
+
 .. code:: python
 
    from rdkit import Chem
-   from Auto3D import Auto3DOptions, main
 
-   # Generate conformer
-   config = Auto3DOptions(path="ligand.smi", k=1, use_gpu=True)
-   output = main(config)
+   # Load Auto3D output
+   mol = next(Chem.SDMolSupplier("output.sdf"))
 
    # Export to PDB
-   mol = next(Chem.SDMolSupplier(output))
    Chem.MolToPDBFile(mol, "ligand.pdb")
 
    # Use OpenMM with OpenFF for parametrization
@@ -447,7 +511,17 @@ Quality Control
 Validation Checks
 ~~~~~~~~~~~~~~~~~
 
-Before using conformers in downstream applications:
+**CLI Validation**
+
+.. code:: console
+
+   # Validate input file before processing
+   auto3d validate input.smi
+
+   # Run with verbose output for diagnostics
+   auto3d run input.smi --k=1 -v --gpu
+
+**Python Validation**
 
 .. code:: python
 
@@ -536,34 +610,9 @@ Best Practices
 
       auto3d run docking_ligands.smi --k=10 --gpu
 
-7. **Tight convergence for MD**: Use lower ``convergence_threshold`` (0.003-0.005)
+7. **Tight convergence for MD**: Use ``thorough`` preset or lower convergence threshold
 
    .. code:: console
 
       auto3d config init -p thorough -o md_config.yaml
       auto3d run ligand.smi --k=1 -c md_config.yaml --gpu
-
-CLI Quick Reference for Drug Discovery
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code:: console
-
-   # Virtual screening (fast)
-   auto3d run library.smi --k=1 --engine=ANI2xt --gpu
-
-   # Hit expansion (accurate, multiple conformers)
-   auto3d run hits.smi --k=10 --engine=AIMNET --gpu
-
-   # Tautomer enumeration
-   auto3d run candidates.smi --k=1 --enumerate-tautomer --gpu
-
-   # Energy window selection
-   auto3d run input.smi --window=5.0 --gpu
-
-   # Validate input before processing
-   auto3d validate library.smi
-
-   # Generate config presets
-   auto3d config init -p quick -o screening.yaml    # Fast screening
-   auto3d config init -p balanced -o balanced.yaml  # Default settings
-   auto3d config init -p thorough -o accurate.yaml  # High accuracy
