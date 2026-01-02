@@ -44,13 +44,63 @@ Contents
 ==================
 .. toctree::
    :maxdepth: 2
+   :caption: Getting Started
 
    installation
+   migration
    usage
+   cli
+   advanced_usage
+   howto/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Basic Tutorials
+
+   example/quickstart
    example/tutorial
+   example/performance_tuning
+   example/large_scale_processing
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Drug Discovery
+
+   example/virtual_screening
+   example/tautomer_protomer_analysis
+   example/stereochemistry
+   example/docking_integration
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Computational Chemistry
+
+   example/reaction_thermodynamics
+   example/boltzmann_populations
+   example/strain_energy
+   example/molecular_descriptors
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Integration Workflows
+
+   example/md_preparation
+   example/qm_refinement
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Additional Examples
+
    example/single_point_energy
    example/geometry_optimization
    example/thermodynamic_calculation
    example/tautomer
+   example/tautomer_with_userNNP
+   example/using_custom_NNP
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
    api
    citation

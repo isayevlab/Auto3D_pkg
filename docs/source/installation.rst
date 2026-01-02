@@ -15,7 +15,11 @@ installed by
 
 .. code:: console
 
+   # Using pip
    pip install Auto3D
+
+   # Using uv (faster)
+   uv pip install Auto3D
 
 Otherwise, you can create an environment and install Auto3D. In a
 terminal, the following code will create an environment named ``auto3D``

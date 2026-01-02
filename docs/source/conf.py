@@ -59,6 +59,9 @@ autosummary_generate = True
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 
+# nbsphinx settings - don't execute notebooks during build
+nbsphinx_execute = 'never'
+
 # -- Options for HTML output -------------------------------------------------
 
 html_theme = 'sphinx_rtd_theme'
