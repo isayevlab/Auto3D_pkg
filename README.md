@@ -20,6 +20,9 @@
 ## Installation
 
 ```bash
+# Using uv (fastest)
+uv pip install Auto3D
+
 # Using pip
 pip install Auto3D
 
@@ -27,7 +30,7 @@ pip install Auto3D
 conda install -c conda-forge auto3d
 ```
 
-For GPU acceleration, ensure you have CUDA-compatible PyTorch installed.
+For GPU acceleration, ensure you have CUDA-compatible PyTorch installed. See the [installation guide](https://auto3d.readthedocs.io/en/latest/installation.html) for detailed instructions.
 
 ## Quick Start
 
