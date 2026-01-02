@@ -222,3 +222,70 @@ def test_config_validate_invalid(runner, tmp_path_cwd):
     result = runner.invoke(app, ["config", "validate", str(config_file)])
 
     assert result.exit_code == 1
+
+
+def test_run_requires_input(runner):
+    """run should require input file argument."""
+    from Auto3D.cli.app import app
+
+    result = runner.invoke(app, ["run"])
+    assert result.exit_code != 0
+
+
+def test_run_with_nonexistent_file(runner):
+    """run should fail with nonexistent file."""
+    from Auto3D.cli.app import app
+
+    result = runner.invoke(app, ["run", "nonexistent.smi"])
+    assert result.exit_code != 0
+
+
+# Error handling tests
+
+def test_error_hint_configuration_error():
+    """get_error_hint should return hint for ConfigurationError."""
+    from Auto3D.cli.errors import get_error_hint
+    from Auto3D.exceptions import ConfigurationError
+
+    hint = get_error_hint(ConfigurationError("test"))
+    assert hint is not None
+    assert "config init" in hint
+
+
+def test_error_hint_input_validation_error():
+    """get_error_hint should return hint for InputValidationError."""
+    from Auto3D.cli.errors import get_error_hint
+    from Auto3D.exceptions import InputValidationError
+
+    hint = get_error_hint(InputValidationError("test"))
+    assert hint is not None
+    assert "validate" in hint
+
+
+def test_error_hint_model_not_found_error():
+    """get_error_hint should return hint for ModelNotFoundError."""
+    from Auto3D.cli.errors import get_error_hint
+    from Auto3D.exceptions import ModelNotFoundError
+
+    hint = get_error_hint(ModelNotFoundError("test"))
+    assert hint is not None
+    assert "AIMNET" in hint
+
+
+def test_error_hint_gpu_error():
+    """get_error_hint should return hint for GPUError."""
+    from Auto3D.cli.errors import get_error_hint
+    from Auto3D.exceptions import GPUError
+
+    hint = get_error_hint(GPUError("test"))
+    assert hint is not None
+    assert "--no-gpu" in hint
+
+
+def test_handle_error_exits():
+    """handle_error should raise SystemExit."""
+    from Auto3D.cli.errors import handle_error
+
+    with pytest.raises(SystemExit) as exc_info:
+        handle_error(Exception("test error"))
+    assert exc_info.value.code == 1
