@@ -22,12 +22,12 @@ from Auto3D.utils.logging_config import configure_logging
 
 def execute_run(
     input_file: Path,
-    config_file: Optional[Path] = None,
-    k: Optional[int] = None,
-    window: Optional[float] = None,
-    engine: Optional[str] = None,
-    gpu: Optional[bool] = None,
-    gpu_idx: Optional[str] = None,
+    config_file: Path | None = None,
+    k: int | None = None,
+    window: float | None = None,
+    engine: str | None = None,
+    gpu: bool | None = None,
+    gpu_idx: str | None = None,
     verbose: int = 0,
     quiet: bool = False,
     json_output: bool = False,
@@ -62,7 +62,8 @@ def execute_run(
             config = load_yaml_config(config_file)
             config = CLIConfig(path=input_file, **config.model_dump(exclude={"path"}))
         else:
-            config = CLIConfig(path=input_file)
+            # Pydantic provides defaults for all fields except path
+            config = CLIConfig(path=input_file)  # type: ignore[call-arg]
 
         # Apply CLI overrides
         overrides = {

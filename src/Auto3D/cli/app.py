@@ -68,30 +68,30 @@ def run(
         ),
     ],
     config: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "-c", "--config",
             help="YAML configuration file.",
         ),
     ] = None,
     k: Annotated[
-        Optional[int],
+        int | None,
         typer.Option("--k", help="Output top-k conformers per molecule."),
     ] = None,
     window: Annotated[
-        Optional[float],
+        float | None,
         typer.Option(help="Energy window in kcal/mol."),
     ] = None,
     engine: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--engine", help="Optimization engine: AIMNET, ANI2x, ANI2xt."),
     ] = None,
     gpu: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--gpu/--no-gpu", help="Enable/disable GPU acceleration."),
     ] = None,
     gpu_idx: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="GPU index(es), e.g., '0' or '0,1,2'."),
     ] = None,
     verbose: Annotated[
@@ -130,7 +130,7 @@ def config_init(
         typer.Option("-o", "--output", help="Output file path."),
     ] = Path("auto3d.yaml"),
     preset: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("-p", "--preset", help="Configuration preset: quick, balanced, thorough."),
     ] = None,
 ) -> None:
@@ -142,7 +142,7 @@ def config_init(
 @config_app.command("show")
 def config_show(
     config_file: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Argument(help="Config file to display."),
     ] = None,
 ) -> None:
