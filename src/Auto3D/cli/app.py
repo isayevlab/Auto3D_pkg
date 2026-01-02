@@ -108,8 +108,19 @@ def run(
     ] = False,
 ) -> None:
     """Run conformer generation on input molecules."""
-    # Stub - will be implemented in Task 5.3
-    console.print("[yellow]Run command not yet implemented[/yellow]")
+    from Auto3D.cli.commands.run import execute_run
+    execute_run(
+        input_file=input_file,
+        config_file=config,
+        k=k,
+        window=window,
+        engine=engine,
+        gpu=gpu,
+        gpu_idx=gpu_idx,
+        verbose=verbose,
+        quiet=quiet,
+        json_output=json_output,
+    )
 
 
 @config_app.command("init")
