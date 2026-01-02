@@ -25,6 +25,12 @@ The ``Auto3DOptions`` dataclass provides type-safe configuration with IDE suppor
 
    output_path = main(config)
 
+**CLI Equivalent:**
+
+.. code:: console
+
+   auto3d run input.smi --k=5 --engine=AIMNET --gpu --gpu-idx=0
+
 Optimization Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -53,6 +59,24 @@ For tighter convergence (e.g., for accurate energy comparisons):
        convergence_threshold=0.003,  # Tighter threshold
        patience=500,
    )
+
+**CLI with YAML Configuration:**
+
+For advanced optimization parameters, use a configuration file:
+
+.. code:: console
+
+   # Create a config file for tight convergence
+   auto3d config init -p thorough -o tight_config.yaml
+   auto3d run input.smi --k=1 -c tight_config.yaml
+
+Or create a custom ``tight_config.yaml``:
+
+.. code:: yaml
+
+   opt_steps: 5000
+   convergence_threshold: 0.003
+   patience: 500
 
 Model Factory API
 -----------------
@@ -237,11 +261,18 @@ Auto3D supports multi-GPU processing for large datasets:
 
    output = main(config)
 
-With CLI:
+**CLI Equivalents:**
 
 .. code:: console
 
-   auto3d run large_dataset.smi --k=1 --gpu-idx="[0,1,2,3]"
+   # Use all 4 GPUs
+   auto3d run large_dataset.smi --k=1 --gpu --gpu-idx="0,1,2,3"
+
+   # Use GPUs 2 and 3 only (on shared systems)
+   auto3d run large_dataset.smi --k=1 --gpu --gpu-idx="2,3"
+
+   # Alternatively, use CUDA_VISIBLE_DEVICES
+   CUDA_VISIBLE_DEVICES=0,1,2,3 auto3d run large_dataset.smi --k=1 --gpu
 
 Auto3D automatically distributes molecules across GPUs for parallel processing.
 
@@ -260,6 +291,18 @@ Enable TensorFloat-32 for faster computation on Ampere+ GPUs (RTX 30xx, A100, et
        k=1,
        allow_tf32=True,  # ~1.5x faster matrix operations
    )
+
+**CLI with YAML Configuration:**
+
+Create a ``performance.yaml``:
+
+.. code:: yaml
+
+   allow_tf32: true
+
+.. code:: console
+
+   auto3d run input.smi --k=1 --gpu -c performance.yaml
 
 .. note::
    TF32 reduces precision slightly (19 mantissa bits vs 23 for FP32).
@@ -280,6 +323,16 @@ Enable PyTorch 2.0 compilation for ANI models:
    # Or via create_model
    model = create_model("ANI2xt", device=device, compile_model=True)
 
+**CLI with Environment Variable:**
+
+.. code:: console
+
+   # Enable torch.compile for ~1.25x speedup
+   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --gpu --engine=ANI2x
+
+   # Combine with other optimizations
+   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --gpu --engine=ANI2xt
+
 This provides ~1.25x speedup after initial compilation warmup.
 
 .. note::
@@ -299,9 +352,26 @@ Adjust batch size based on GPU memory:
        batchsize_atoms=2048,  # Larger batch for GPUs with more memory
    )
 
+**CLI with YAML Configuration:**
+
+Create a ``gpu_tuning.yaml``:
+
+.. code:: yaml
+
+   batchsize_atoms: 2048  # For GPUs with 24GB+ VRAM
+   # batchsize_atoms: 512   # For GPUs with 8GB VRAM
+
+.. code:: console
+
+   auto3d run input.smi --k=1 --gpu -c gpu_tuning.yaml
+
+**Recommended batch sizes:**
+
 - Default: 1024 atoms per batch per GB
-- Higher values: Faster but more memory usage
-- Lower values: Slower but works on smaller GPUs
+- 8GB GPU (RTX 3070): 512
+- 16GB GPU (RTX 3080, V100): 1024
+- 24GB GPU (RTX 3090, A5000): 1536
+- 40GB+ GPU (A100, H100): 2048
 
 Memory Management
 ~~~~~~~~~~~~~~~~~
@@ -316,6 +386,19 @@ For very large datasets, Auto3D automatically chunks processing:
        memory=32,        # Assign 32GB RAM to Auto3D
        capacity=42,      # Molecules per GB (default: 42)
    )
+
+**CLI with YAML Configuration:**
+
+Create a ``large_scale.yaml``:
+
+.. code:: yaml
+
+   memory: 64
+   capacity: 50
+
+.. code:: console
+
+   auto3d run huge_dataset.smi --k=1 --gpu -c large_scale.yaml
 
 Environment Variables
 ---------------------
@@ -370,6 +453,28 @@ Enable tautomer enumeration for drug-like molecules:
    # Get stable tautomers with top-3 per input
    output = get_stable_tautomers(config, tauto_k=3)
 
+**CLI Equivalent:**
+
+.. code:: console
+
+   # Enable tautomer enumeration
+   auto3d run input.smi --k=1 --enumerate-tautomer --engine=ANI2xt --gpu
+
+For advanced tautomer settings, use a YAML configuration:
+
+.. code:: yaml
+
+   # tautomer_config.yaml
+   enumerate_tautomer: true
+   tauto_engine: rdkit
+   optimizing_engine: ANI2xt
+   max_confs: 10
+   patience: 200
+
+.. code:: console
+
+   auto3d run input.smi --k=1 -c tautomer_config.yaml --gpu
+
 Programmatic Model Access
 -------------------------
 
@@ -422,11 +527,19 @@ If you encounter CUDA out-of-memory errors:
 
       config = Auto3DOptions(path="input.smi", k=1, batchsize_atoms=512)
 
+   **CLI:** Use a YAML config with ``batchsize_atoms: 512``
+
 2. Use single model instead of ensemble:
 
    .. code:: python
 
       model = create_model("AIMNET", device=device, use_ensemble=False)
+
+   **CLI:**
+
+   .. code:: console
+
+      AUTO3D_USE_ENSEMBLE=0 auto3d run input.smi --k=1 --gpu
 
 3. Clear model cache between runs:
 
@@ -434,6 +547,14 @@ If you encounter CUDA out-of-memory errors:
 
       from Auto3D.model_factory import ModelFactory
       ModelFactory.clear_cache()
+
+4. Use CPU mode as fallback:
+
+   **CLI:**
+
+   .. code:: console
+
+      auto3d run input.smi --k=1 --no-gpu
 
 Slow Optimization
 ~~~~~~~~~~~~~~~~~
@@ -446,11 +567,19 @@ If optimization is slower than expected:
 
       config = Auto3DOptions(path="input.smi", k=1, allow_tf32=True)
 
+   **CLI:** Use a YAML config with ``allow_tf32: true``
+
 2. Use faster model for initial screening:
 
    .. code:: python
 
       config = Auto3DOptions(path="input.smi", k=1, optimizing_engine="ANI2xt")
+
+   **CLI:**
+
+   .. code:: console
+
+      auto3d run input.smi --k=1 --engine=ANI2xt --gpu
 
 3. Reduce convergence criteria:
 
@@ -462,3 +591,11 @@ If optimization is slower than expected:
           convergence_threshold=0.02,  # Looser threshold
           patience=150,
       )
+
+   **CLI:**
+
+   .. code:: console
+
+      # Use quick preset for screening
+      auto3d config init -p quick -o quick.yaml
+      auto3d run input.smi --k=1 -c quick.yaml --gpu
