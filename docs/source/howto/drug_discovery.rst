@@ -29,11 +29,29 @@ For virtual screening campaigns with thousands of compounds:
        )
        output = main(config)
 
-Or via CLI:
+**CLI Equivalents:**
 
 .. code:: console
 
+   # Basic large-scale screening
+   auto3d run compound_library.smi --k=1 --gpu --engine=ANI2xt
+
+   # Multi-GPU for maximum throughput
    auto3d run compound_library.smi --k=1 --gpu --gpu-idx="0,1,2,3" --engine=ANI2xt
+
+   # With configuration file for memory settings
+   auto3d run compound_library.smi --k=1 --gpu -c screening.yaml
+
+Create ``screening.yaml`` for advanced settings:
+
+.. code:: yaml
+
+   # screening.yaml - Large-scale virtual screening
+   optimizing_engine: ANI2xt
+   use_gpu: true
+   gpu_idx: [0, 1, 2, 3]
+   memory: 64
+   capacity: 50
 
 Hit Expansion
 ~~~~~~~~~~~~~
@@ -49,6 +67,26 @@ For hit compounds requiring multiple conformers:
        enumerate_isomer=True,        # Include stereoisomers
        threshold=0.5,                # Stricter duplicate removal
    )
+
+**CLI Equivalent:**
+
+.. code:: console
+
+   auto3d run hits.smi --k=10 --engine=AIMNET --gpu
+
+With stricter duplicate removal via config:
+
+.. code:: yaml
+
+   # hit_expansion.yaml
+   k: 10
+   optimizing_engine: AIMNET
+   enumerate_isomer: true
+   threshold: 0.5
+
+.. code:: console
+
+   auto3d run hits.smi -c hit_expansion.yaml --gpu
 
 Lead Optimization
 ~~~~~~~~~~~~~~~~~
@@ -70,6 +108,27 @@ For lead series with tautomer considerations:
    )
 
    output = get_stable_tautomers(config, tauto_k=5)
+
+**CLI Equivalent:**
+
+.. code:: console
+
+   # Enable tautomer enumeration
+   auto3d run lead_series.smi --k=3 --enumerate-tautomer --engine=ANI2xt --gpu
+
+For advanced tautomer settings:
+
+.. code:: yaml
+
+   # lead_optimization.yaml
+   k: 3
+   enumerate_tautomer: true
+   tauto_engine: rdkit
+   optimizing_engine: ANI2xt
+
+.. code:: console
+
+   auto3d run lead_series.smi -c lead_optimization.yaml --gpu
 
 Tautomer Analysis
 -----------------
@@ -179,6 +238,16 @@ Keep only low-energy conformers for binding studies:
        optimizing_engine="AIMNET",
    )
 
+**CLI Equivalent:**
+
+.. code:: console
+
+   # Keep conformers within 3 kcal/mol of minimum energy
+   auto3d run input.smi --window=3.0 --engine=AIMNET --gpu
+
+   # Or use a 5 kcal/mol window for more diversity
+   auto3d run input.smi --window=5.0 --gpu
+
 This is useful when you need all energetically accessible conformers
 rather than a fixed number.
 
@@ -213,6 +282,20 @@ Integration with Docking
 
 Preparing for AutoDock Vina
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Step 1: Generate conformers with Auto3D**
+
+Using CLI:
+
+.. code:: console
+
+   # Generate 5 conformers per ligand
+   auto3d run ligands.smi --k=5 --gpu
+
+   # For faster screening, use ANI2xt
+   auto3d run ligands.smi --k=5 --engine=ANI2xt --gpu
+
+**Step 2: Convert to PDBQT format**
 
 .. code:: python
 
@@ -294,6 +377,24 @@ Integration with MD Simulations
 
 Preparing for GROMACS
 ~~~~~~~~~~~~~~~~~~~~~
+
+**Step 1: Generate tightly converged conformer**
+
+Using CLI with tight convergence for MD:
+
+.. code:: console
+
+   # Use thorough preset for MD preparation
+   auto3d config init -p thorough -o md_prep.yaml
+   auto3d run ligand.smi --k=1 -c md_prep.yaml --gpu
+
+Or directly:
+
+.. code:: console
+
+   auto3d run ligand.smi --k=1 --engine=AIMNET --gpu
+
+**Step 2: Export and parametrize**
 
 .. code:: python
 
@@ -399,9 +500,70 @@ Best Practices
 --------------
 
 1. **Start with fast screening**: Use ``ANI2xt`` with ``k=1`` for initial filtering
+
+   .. code:: console
+
+      auto3d run library.smi --k=1 --engine=ANI2xt --gpu
+
 2. **Refine hits**: Use ``AIMNET`` with higher ``k`` for promising compounds
+
+   .. code:: console
+
+      auto3d run hits.smi --k=10 --engine=AIMNET --gpu
+
 3. **Consider tautomers**: Enable for drug-like molecules with N-H or O-H groups
+
+   .. code:: console
+
+      auto3d run drug_candidates.smi --k=1 --enumerate-tautomer --gpu
+
 4. **Validate stereochemistry**: Check that desired stereocenters are preserved
+
+   .. code:: console
+
+      # Disable isomer enumeration to keep defined stereochemistry
+      auto3d run chiral_compounds.smi --k=1 --no-enumerate-isomer --gpu
+
 5. **Energy windows**: Use ``window`` instead of ``k`` when energy cutoff matters
+
+   .. code:: console
+
+      auto3d run input.smi --window=3.0 --gpu
+
 6. **Multiple conformers for docking**: k=5-10 covers conformational space well
+
+   .. code:: console
+
+      auto3d run docking_ligands.smi --k=10 --gpu
+
 7. **Tight convergence for MD**: Use lower ``convergence_threshold`` (0.003-0.005)
+
+   .. code:: console
+
+      auto3d config init -p thorough -o md_config.yaml
+      auto3d run ligand.smi --k=1 -c md_config.yaml --gpu
+
+CLI Quick Reference for Drug Discovery
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: console
+
+   # Virtual screening (fast)
+   auto3d run library.smi --k=1 --engine=ANI2xt --gpu
+
+   # Hit expansion (accurate, multiple conformers)
+   auto3d run hits.smi --k=10 --engine=AIMNET --gpu
+
+   # Tautomer enumeration
+   auto3d run candidates.smi --k=1 --enumerate-tautomer --gpu
+
+   # Energy window selection
+   auto3d run input.smi --window=5.0 --gpu
+
+   # Validate input before processing
+   auto3d validate library.smi
+
+   # Generate config presets
+   auto3d config init -p quick -o screening.yaml    # Fast screening
+   auto3d config init -p balanced -o balanced.yaml  # Default settings
+   auto3d config init -p thorough -o accurate.yaml  # High accuracy

@@ -448,6 +448,18 @@ Command Not Found
 
       pip install --force-reinstall Auto3D
 
+4. Check Python environment:
+
+   .. code:: console
+
+      # Verify you're in the correct environment
+      which python
+      which auto3d
+
+      # If using conda
+      conda activate your_auto3d_env
+      auto3d --version
+
 Invalid Option
 ~~~~~~~~~~~~~~
 
@@ -460,6 +472,8 @@ Invalid Option
    .. code:: console
 
       auto3d run --help
+      auto3d config --help
+      auto3d models --help
 
 2. Use correct syntax:
 
@@ -468,8 +482,111 @@ Invalid Option
       # Correct
       auto3d run input.smi --k=5
 
-      # Wrong
+      # Also correct
+      auto3d run input.smi --k 5
+
+      # Wrong (single dash for multi-char options)
       auto3d run input.smi -k 5
+
+3. Check spelling of options:
+
+   .. code:: console
+
+      # Correct
+      auto3d run input.smi --engine=AIMNET
+
+      # Wrong
+      auto3d run input.smi --optimizing_engine=AIMNET
+
+Configuration Issues
+~~~~~~~~~~~~~~~~~~~~
+
+**Problem**: Configuration file not loading correctly.
+
+**Solutions**:
+
+1. Validate configuration file:
+
+   .. code:: console
+
+      auto3d config validate my_config.yaml
+
+2. Generate a fresh configuration template:
+
+   .. code:: console
+
+      auto3d config init -o new_config.yaml
+
+3. View current configuration:
+
+   .. code:: console
+
+      auto3d config show my_config.yaml
+
+4. Use presets for common scenarios:
+
+   .. code:: console
+
+      auto3d config init -p quick -o quick.yaml
+      auto3d config init -p balanced -o balanced.yaml
+      auto3d config init -p thorough -o thorough.yaml
+
+Input Validation
+~~~~~~~~~~~~~~~~
+
+**Problem**: Input file has issues.
+
+**Solutions**:
+
+1. Validate before running:
+
+   .. code:: console
+
+      auto3d validate input.smi
+
+2. Check for common issues:
+
+   .. code:: console
+
+      # Test with verbose output
+      auto3d run input.smi --k=1 -v
+
+3. Test with a single molecule first:
+
+   .. code:: console
+
+      echo "CCO ethanol" > test.smi
+      auto3d run test.smi --k=1
+
+Shell Completion Not Working
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Problem**: Tab completion doesn't work after installation.
+
+**Solutions**:
+
+1. Reinstall completion:
+
+   .. code:: console
+
+      # For bash
+      auto3d --install-completion bash
+      source ~/.bashrc
+
+      # For zsh
+      auto3d --install-completion zsh
+      source ~/.zshrc
+
+      # For fish
+      auto3d --install-completion fish
+
+2. Restart your terminal completely
+
+3. Check shell type:
+
+   .. code:: console
+
+      echo $SHELL
 
 Getting Help
 ------------

@@ -4,13 +4,44 @@ Integration with Other Tools
 This guide covers integrating Auto3D with popular computational chemistry
 and machine learning tools.
 
+CLI Quick Reference for Integrations
+------------------------------------
+
+Most integrations follow a common workflow: generate conformers with Auto3D,
+then convert/process the output SDF file.
+
+.. code:: console
+
+   # Step 1: Generate conformers (common to all workflows)
+   auto3d run ligand.smi --k=1 --gpu
+
+   # For MD preparation (tight convergence)
+   auto3d run ligand.smi --k=1 --engine=AIMNET --gpu
+
+   # For docking (multiple conformers)
+   auto3d run ligands.smi --k=5 --gpu
+
+   # For ML datasets (maximum diversity)
+   auto3d run molecules.smi --k=10 --gpu
+
 Molecular Dynamics
 ------------------
 
 GROMACS
 ~~~~~~~
 
-Prepare ligands for GROMACS simulations:
+**Step 1: Generate conformer with CLI**
+
+.. code:: console
+
+   # Use thorough preset for tight convergence
+   auto3d config init -p thorough -o md_config.yaml
+   auto3d run ligand.smi --k=1 -c md_config.yaml --gpu
+
+   # Or quick single command
+   auto3d run ligand.smi --k=1 --engine=AIMNET --gpu
+
+**Step 2: Convert and parametrize**
 
 .. code:: python
 
@@ -100,6 +131,18 @@ Molecular Docking
 AutoDock Vina
 ~~~~~~~~~~~~~
 
+**Step 1: Generate conformers with CLI**
+
+.. code:: console
+
+   # Generate 5 conformers per ligand for docking
+   auto3d run ligands.smi --k=5 --gpu
+
+   # For fast screening
+   auto3d run ligands.smi --k=3 --engine=ANI2xt --gpu
+
+**Step 2: Convert to PDBQT format**
+
 .. code:: python
 
    from rdkit import Chem
@@ -161,7 +204,20 @@ Machine Learning
 Creating Training Datasets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Generate conformer datasets for ML:
+**Step 1: Generate diverse conformers with CLI**
+
+.. code:: console
+
+   # Generate diverse conformers for ML training
+   auto3d run molecules.smi --k=10 --gpu
+
+   # With energy window for more coverage
+   auto3d run molecules.smi --window=5.0 --gpu
+
+   # For large datasets with multiple GPUs
+   auto3d run large_dataset.smi --k=10 --gpu --gpu-idx="0,1,2,3"
+
+**Step 2: Extract features in Python**
 
 .. code:: python
 
@@ -441,6 +497,8 @@ Psi4 Input
 Workflow Managers
 -----------------
 
+Auto3D's CLI integrates seamlessly with workflow managers for reproducible pipelines.
+
 Snakemake
 ~~~~~~~~~
 
@@ -458,6 +516,15 @@ Snakemake
        output: "{molecule}_docked.pdbqt"
        shell:
            "python prepare_and_dock.py {input} {output}"
+
+   # With configuration file
+   rule generate_with_config:
+       input:
+           smi="{molecule}.smi",
+           config="config.yaml"
+       output: "{molecule}_3d.sdf"
+       shell:
+           "auto3d run {input.smi} -c {input.config}"
 
 Nextflow
 ~~~~~~~~
@@ -477,12 +544,28 @@ Nextflow
        """
    }
 
+   // With validation step
+   process validate_and_generate {
+       input:
+       path smiles_file
+
+       output:
+       path "*_3d.sdf"
+
+       script:
+       """
+       auto3d validate ${smiles_file}
+       auto3d run ${smiles_file} --k=5 --gpu
+       """
+   }
+
 Luigi
 ~~~~~
 
 .. code:: python
 
    import luigi
+   import subprocess
 
    class GenerateConformers(luigi.Task):
        input_file = luigi.Parameter()
@@ -491,6 +574,47 @@ Luigi
            return luigi.LocalTarget(f"{self.input_file}_3d.sdf")
 
        def run(self):
-           from Auto3D import Auto3DOptions, main
-           config = Auto3DOptions(path=self.input_file, k=5)
-           main(config)
+           # Using CLI for better process isolation
+           subprocess.run([
+               "auto3d", "run", self.input_file,
+               "--k=5", "--gpu"
+           ], check=True)
+
+Shell Scripts
+~~~~~~~~~~~~~
+
+For simple batch processing:
+
+.. code:: bash
+
+   #!/bin/bash
+   # process_all.sh - Process all SMILES files in a directory
+
+   for smi_file in *.smi; do
+       echo "Processing: $smi_file"
+       auto3d validate "$smi_file" || continue
+       auto3d run "$smi_file" --k=5 --gpu
+   done
+
+   echo "All files processed"
+
+Makefile
+~~~~~~~~
+
+.. code:: makefile
+
+   # Makefile for conformer generation pipeline
+
+   SMILES_FILES := $(wildcard *.smi)
+   SDF_FILES := $(SMILES_FILES:.smi=_3d.sdf)
+
+   all: $(SDF_FILES)
+
+   %_3d.sdf: %.smi
+   	auto3d run $< --k=5 --gpu
+
+   clean:
+   	rm -rf *_3d.sdf
+
+   validate:
+   	@for f in $(SMILES_FILES); do auto3d validate $$f; done

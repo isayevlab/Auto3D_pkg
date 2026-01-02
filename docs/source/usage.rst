@@ -61,6 +61,33 @@ You can also use a YAML configuration file:
 
    auto3d run smiles.smi -c config.yaml
 
+CLI Quick Reference
+~~~~~~~~~~~~~~~~~~~
+
+Here are the most common CLI patterns:
+
+.. code:: console
+
+   # Basic conformer generation
+   auto3d run molecules.smi --k=1                    # Top-1 conformer
+   auto3d run molecules.smi --k=5                    # Top-5 conformers
+   auto3d run molecules.smi --window=3.0             # Within 3 kcal/mol
+
+   # GPU acceleration
+   auto3d run molecules.smi --k=1 --gpu              # Use GPU
+   auto3d run molecules.smi --k=1 --gpu --gpu-idx=0  # Specific GPU
+   auto3d run molecules.smi --k=1 --gpu --gpu-idx="0,1,2"  # Multi-GPU
+
+   # Model selection
+   auto3d run molecules.smi --k=1 --engine=AIMNET   # Default, most versatile
+   auto3d run molecules.smi --k=1 --engine=ANI2x    # Fast, organic molecules
+   auto3d run molecules.smi --k=1 --engine=ANI2xt   # Ultra-fast screening
+
+   # Verbosity control
+   auto3d run molecules.smi --k=1 -v                 # Verbose output
+   auto3d run molecules.smi --k=1 -q                 # Quiet mode
+   auto3d run molecules.smi --k=1 --json             # JSON output for scripting
+
 CLI Subcommands
 ~~~~~~~~~~~~~~~
 
@@ -75,7 +102,10 @@ The CLI provides several subcommands for different tasks:
    # Configuration management
    auto3d config init                    # Create a template config file
    auto3d config init -o my_config.yaml  # Custom output path
+   auto3d config init -p quick           # Use quick preset
+   auto3d config init -p thorough        # Use thorough preset
    auto3d config show config.yaml        # Display config with syntax highlighting
+   auto3d config validate config.yaml    # Validate config without running
 
    # Model information
    auto3d models list                    # List available NNP models
@@ -163,7 +193,80 @@ You need the following block if you use the CLI:
 
 .. code:: console
 
-   auto3D "example/files/smiles.smi" --k=1 --optimizing_engine="ANI2x"
+   auto3d run "example/files/smiles.smi" --k=1 --engine=ANI2x
+
+CLI Examples for Common Parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here are CLI equivalents for the most commonly used parameters:
+
+**Ranking Parameters:**
+
+.. code:: console
+
+   # Keep top-k conformers
+   auto3d run input.smi --k=5
+
+   # Keep conformers within energy window
+   auto3d run input.smi --window=3.0
+
+**Isomer Enumeration:**
+
+.. code:: console
+
+   # Disable stereoisomer enumeration (keep only input stereochemistry)
+   auto3d run input.smi --k=1 --no-enumerate-isomer
+
+   # Enable tautomer enumeration
+   auto3d run input.smi --k=1 --enumerate-tautomer
+
+   # Use OpenEye Omega for isomer generation (requires license)
+   auto3d run input.smi --k=1 --isomer-engine=omega
+
+**Optimization Settings:**
+
+.. code:: console
+
+   # Use different neural network models
+   auto3d run input.smi --k=1 --engine=AIMNET   # Default, supports charged molecules
+   auto3d run input.smi --k=1 --engine=ANI2x    # Fast, organic molecules only
+   auto3d run input.smi --k=1 --engine=ANI2xt   # Ultra-fast screening
+
+   # GPU settings
+   auto3d run input.smi --k=1 --gpu             # Enable GPU
+   auto3d run input.smi --k=1 --no-gpu          # Force CPU mode
+   auto3d run input.smi --k=1 --gpu --gpu-idx=1 # Use specific GPU
+
+**Using Configuration Files:**
+
+For complex configurations, use a YAML file:
+
+.. code:: console
+
+   # Generate a template configuration
+   auto3d config init -o my_config.yaml
+
+   # Run with configuration file
+   auto3d run input.smi --k=1 -c my_config.yaml
+
+Example ``my_config.yaml``:
+
+.. code:: yaml
+
+   # Optimization settings
+   optimizing_engine: AIMNET
+   use_gpu: true
+   gpu_idx: 0
+   opt_steps: 2000
+   convergence_threshold: 0.01
+
+   # Isomer enumeration
+   enumerate_isomer: true
+   enumerate_tautomer: false
+   isomer_engine: rdkit
+
+   # Duplicate removal
+   threshold: 0.3
 
 .. list-table::
    :widths: 15 15 15 55

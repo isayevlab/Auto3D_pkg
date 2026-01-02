@@ -222,7 +222,35 @@ With CLI
 
 .. code:: console
 
+   # Use custom model with absolute path
    auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --gpu
+
+   # Use custom model with relative path
+   auto3d run molecules.smi --k=1 --engine=./models/my_custom_nnp.pt --gpu
+
+   # Use custom model with CPU (for debugging)
+   auto3d run molecules.smi --k=1 --engine=/path/to/my_custom_nnp.pt --no-gpu
+
+   # Combine with other options
+   auto3d run molecules.smi --k=5 --engine=/path/to/my_custom_nnp.pt --gpu -v
+
+Using Configuration Files
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For reproducible workflows with custom models, use a YAML config:
+
+.. code:: yaml
+
+   # custom_model.yaml
+   optimizing_engine: /path/to/my_custom_nnp.pt
+   use_gpu: true
+   k: 1
+   opt_steps: 2000
+   convergence_threshold: 0.01
+
+.. code:: console
+
+   auto3d run molecules.smi -c custom_model.yaml
 
 Direct Model Access
 ~~~~~~~~~~~~~~~~~~~
