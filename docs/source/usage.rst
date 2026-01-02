@@ -49,19 +49,75 @@ If you have a large number of molecules, using ``Auto3DOptions`` with the ``main
 Using Auto3D in a terminal command line
 ---------------------------------------
 
-Alternatively, you can run Auto3D through CLI. Example:
+Auto3D provides a modern CLI with subcommands. The main command is ``run``:
 
 .. code:: console
 
-   auto3d smiles.smi --k=1
+   auto3d run smiles.smi --k=1
 
-There are example files present at ``example/files``. The parameter can also be
-provided via a yaml file (for example ``parameters.yaml``). So the above example
-is equivalent to
+You can also use a YAML configuration file:
 
 .. code:: console
 
-   auto3D parameters.yaml
+   auto3d run smiles.smi -c config.yaml
+
+CLI Subcommands
+~~~~~~~~~~~~~~~
+
+The CLI provides several subcommands for different tasks:
+
+.. code:: console
+
+   # Generate conformers (main workflow)
+   auto3d run input.smi --k=1
+   auto3d run input.smi --window=5.0 --engine AIMNET
+
+   # Configuration management
+   auto3d config init                    # Create a template config file
+   auto3d config init -o my_config.yaml  # Custom output path
+   auto3d config show config.yaml        # Display config with syntax highlighting
+
+   # Model information
+   auto3d models list                    # List available NNP models
+   auto3d models info AIMNET             # Show details about a specific model
+
+   # Input validation
+   auto3d validate input.smi             # Check SMILES/SDF file for issues
+
+   # Help and version
+   auto3d --help                         # Show all commands
+   auto3d run --help                     # Show run command options
+   auto3d --version                      # Show version
+
+Shell Completion
+~~~~~~~~~~~~~~~~
+
+Enable tab completion for bash, zsh, or fish:
+
+.. code:: console
+
+   # Bash (add to ~/.bashrc for persistence)
+   auto3d --install-completion bash
+
+   # Zsh (add to ~/.zshrc for persistence)
+   auto3d --install-completion zsh
+
+   # Fish
+   auto3d --install-completion fish
+
+After installation, restart your shell or source the config file. Then you can
+use tab completion for commands, options, and file paths.
+
+Legacy YAML Mode
+~~~~~~~~~~~~~~~~
+
+For backwards compatibility, the old YAML-only invocation still works:
+
+.. code:: console
+
+   auto3d parameters.yaml
+
+There are example files present at ``example/files``
 
 The above examples will do the same thing: run Auto3D and keep 1
 lowest-energy structure for each SMILES in the input file. It uses RDKit
