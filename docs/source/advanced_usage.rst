@@ -1,147 +1,368 @@
 Advanced Usage
 ==============
 
-This guide covers advanced features of Auto3D for power users, including custom neural network potentials, multi-GPU workflows, and performance optimization.
+This guide covers advanced features of Auto3D: multi-GPU workflows, performance
+optimization, custom neural network potentials, and fine-tuning parameters.
 
-Auto3DOptions Configuration
----------------------------
+Multi-GPU Processing
+--------------------
 
-The ``Auto3DOptions`` dataclass provides type-safe configuration with IDE support:
+Auto3D supports multi-GPU processing for large datasets, automatically distributing
+molecules across GPUs.
+
+CLI Usage
+~~~~~~~~~
+
+.. code:: console
+
+   # Use multiple GPUs (recommended for large datasets)
+   auto3d run large_dataset.smi --k=1 --gpu --gpu-idx="0,1,2,3"
+
+   # Use specific GPUs on shared systems
+   auto3d run large_dataset.smi --k=1 --gpu --gpu-idx="2,3"
+
+   # Use CUDA_VISIBLE_DEVICES environment variable
+   CUDA_VISIBLE_DEVICES=0,1,2,3 auto3d run large_dataset.smi --k=1 --gpu
+
+Python API
+~~~~~~~~~~
 
 .. code:: python
 
    from Auto3D import Auto3DOptions, main
 
-   config = Auto3DOptions(
-       path="input.smi",
-       k=5,                          # Top-5 conformers per molecule
-       optimizing_engine="AIMNET",   # Neural network potential
-       use_gpu=True,                 # Enable GPU acceleration
-       gpu_idx=0,                    # GPU device index
-       enumerate_tautomer=False,     # Skip tautomer enumeration
-       enumerate_isomer=True,        # Enumerate stereoisomers
-       threshold=0.3,                # RMSD threshold for duplicate removal
-   )
+   if __name__ == "__main__":
+       config = Auto3DOptions(
+           path="large_dataset.smi",
+           k=1,
+           use_gpu=True,
+           gpu_idx=[0, 1, 2, 3],  # Use GPUs 0, 1, 2, and 3
+       )
+       output = main(config)
 
-   output_path = main(config)
+Performance Optimization
+------------------------
 
-**CLI Equivalent:**
+Quick Settings Reference
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: console
 
-   auto3d run input.smi --k=5 --engine=AIMNET --gpu --gpu-idx=0
+   # Fast screening (fastest, good enough for ranking)
+   auto3d run input.smi --k=1 --engine=ANI2xt --gpu
 
-Optimization Parameters
-~~~~~~~~~~~~~~~~~~~~~~~
+   # Balanced (default)
+   auto3d run input.smi --k=1 --engine=AIMNET --gpu
 
-Fine-tune the geometry optimization:
+   # High accuracy (for final production runs)
+   AUTO3D_USE_ENSEMBLE=1 auto3d run input.smi --k=1 --engine=AIMNET --gpu
+
+Configuration Presets
+~~~~~~~~~~~~~~~~~~~~~
+
+Auto3D provides presets for common use cases:
+
+.. code:: console
+
+   # Generate preset configurations
+   auto3d config init -p quick -o quick.yaml      # Fast screening
+   auto3d config init -p balanced -o balanced.yaml  # Balanced
+   auto3d config init -p thorough -o thorough.yaml  # High accuracy
+
+   # Use a preset
+   auto3d run input.smi -c quick.yaml
+
+TF32 Acceleration
+~~~~~~~~~~~~~~~~~
+
+Enable TensorFloat-32 for ~1.5x faster computation on Ampere+ GPUs (RTX 30xx, A100, H100):
+
+.. code:: console
+
+   # Create config with TF32 enabled
+   cat > performance.yaml << EOF
+   allow_tf32: true
+   use_gpu: true
+   EOF
+
+   auto3d run input.smi --k=1 -c performance.yaml
+
+Python API:
 
 .. code:: python
 
    config = Auto3DOptions(
        path="input.smi",
        k=1,
-       # Optimization settings
-       opt_steps=2000,               # Maximum optimization steps (default: 2000)
-       convergence_threshold=0.01,   # Force threshold in eV/A (default: 0.01)
-       patience=250,                 # Steps before dropping oscillating structures
-       batchsize_atoms=1024,         # Atoms per batch per GB memory
+       use_gpu=True,
+       allow_tf32=True,  # ~1.5x faster matrix operations
    )
 
-For tighter convergence (e.g., for accurate energy comparisons):
+.. note::
+   TF32 reduces precision slightly (19 mantissa bits vs 23 for FP32).
+   This is acceptable for conformer generation but may affect very tight
+   energy comparisons.
 
-.. code:: python
+torch.compile() Optimization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   config = Auto3DOptions(
-       path="input.smi",
-       k=1,
-       opt_steps=5000,
-       convergence_threshold=0.003,  # Tighter threshold
-       patience=500,
-   )
-
-**CLI with YAML Configuration:**
-
-For advanced optimization parameters, use a configuration file:
+Enable PyTorch 2.0 compilation for ANI models (~1.25x speedup):
 
 .. code:: console
 
-   # Create a config file for tight convergence
-   auto3d config init -p thorough -o tight_config.yaml
-   auto3d run input.smi --k=1 -c tight_config.yaml
+   # Enable via environment variable
+   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --engine=ANI2x --gpu
 
-Or create a custom ``tight_config.yaml``:
+   # Combine multiple optimizations
+   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --engine=ANI2xt --gpu
 
-.. code:: yaml
-
-   opt_steps: 5000
-   convergence_threshold: 0.003
-   patience: 500
-
-Model Factory API
------------------
-
-Create models directly for custom workflows using ``create_model``:
+Python API:
 
 .. code:: python
 
-   import torch
+   import os
+   os.environ["AUTO3D_COMPILE_MODEL"] = "1"
+
+   # Or via create_model for custom workflows
    from Auto3D import create_model
+   model = create_model("ANI2xt", device=device, compile_model=True)
 
-   # Create a model on GPU
-   model = create_model("AIMNET", device=torch.device("cuda:0"))
+.. note::
+   ``torch.compile()`` works best with ANI2x/ANI2xt. AIMNET uses optimized
+   JIT compilation internally.
 
-   # Use the model for custom calculations
-   energies = model(species, coords, charges)
+Batch Size Tuning
+~~~~~~~~~~~~~~~~~
 
-   # Clear cache when done to free GPU memory
-   from Auto3D.model_factory import ModelFactory
-   ModelFactory.clear_cache()
+Adjust batch size based on GPU memory:
 
-Available Models
-~~~~~~~~~~~~~~~~
+.. code:: console
+
+   # Create config with tuned batch size
+   cat > gpu_tuning.yaml << EOF
+   batchsize_atoms: 2048   # For 24GB+ GPUs
+   # batchsize_atoms: 512  # For 8GB GPUs
+   use_gpu: true
+   EOF
+
+   auto3d run input.smi --k=1 -c gpu_tuning.yaml
+
+**Recommended batch sizes:**
 
 .. list-table::
-   :widths: 15 40 25 20
+   :widths: 40 30 30
    :header-rows: 1
 
-   * - Engine
-     - Elements
-     - Charge Support
-     - Notes
-   * - ``AIMNET``
-     - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
-     - Neutral + charged
-     - Default, most versatile
-   * - ``ANI2x``
-     - H, C, N, O, F, S, Cl
-     - Neutral only
-     - Fast, well-validated
-   * - ``ANI2xt``
-     - H, C, N, O, F, S, Cl
-     - Neutral only
-     - Ultra-fast, tautomer-optimized
+   * - GPU
+     - Memory
+     - batchsize_atoms
+   * - RTX 3070, RTX 4070
+     - 8 GB
+     - 512
+   * - RTX 3080, V100
+     - 16 GB
+     - 1024 (default)
+   * - RTX 3090, A5000, RTX 4090
+     - 24 GB
+     - 1536
+   * - A100, H100
+     - 40-80 GB
+     - 2048
 
-Single Model vs Ensemble (AIMNET)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-By default, Auto3D uses a single AIMNet2 model for ~35x faster optimization:
+Python API:
 
 .. code:: python
 
-   # Fast single model (default)
-   model = create_model("AIMNET", device=torch.device("cuda:0"))
+   config = Auto3DOptions(
+       path="input.smi",
+       k=1,
+       batchsize_atoms=2048,  # Adjust for your GPU
+   )
 
-   # Ensemble for highest accuracy (8 models, slower)
-   model = create_model("AIMNET", device=torch.device("cuda:0"), use_ensemble=True)
+Large Dataset Memory Management
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The single model is accurate enough for conformer generation and ranking.
-Use ensemble when you need the most accurate energies.
+For very large datasets (100k+ molecules), configure memory allocation:
+
+.. code:: console
+
+   # Create config for large-scale processing
+   cat > large_scale.yaml << EOF
+   memory: 64       # Assign 64GB RAM
+   capacity: 50     # Molecules per GB
+   use_gpu: true
+   gpu_idx: [0, 1, 2, 3]
+   EOF
+
+   auto3d run huge_dataset.smi --k=1 -c large_scale.yaml
+
+Python API:
+
+.. code:: python
+
+   config = Auto3DOptions(
+       path="huge_dataset.smi",
+       k=1,
+       memory=64,        # Assign 64GB RAM
+       capacity=50,      # Molecules per GB
+       use_gpu=True,
+       gpu_idx=[0, 1, 2, 3],
+   )
+
+Environment Variables
+~~~~~~~~~~~~~~~~~~~~~
+
+Control Auto3D behavior via environment variables:
+
+.. code:: console
+
+   # Enable torch.compile for ANI models
+   export AUTO3D_COMPILE_MODEL=1
+
+   # Use AIMNET ensemble (slower, highest accuracy)
+   export AUTO3D_USE_ENSEMBLE=1
+
+   # Set OpenEye license path
+   export OE_LICENSE=/path/to/oe_license.txt
+
+   # Run with environment settings
+   auto3d run input.smi --k=1 --gpu
+
+.. list-table::
+   :widths: 35 15 50
+   :header-rows: 1
+
+   * - Variable
+     - Default
+     - Description
+   * - ``AUTO3D_COMPILE_MODEL``
+     - ``0``
+     - Enable torch.compile() for ANI models
+   * - ``AUTO3D_USE_ENSEMBLE``
+     - ``0``
+     - Use AIMNET 8-model ensemble
+   * - ``OE_LICENSE``
+     - (none)
+     - OpenEye license for Omega isomer engine
+
+Optimization Parameters
+-----------------------
+
+Fine-tune geometry optimization via CLI configuration files or Python API.
+
+Quick vs Accurate Settings
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: console
+
+   # Quick screening (fast, slightly looser convergence)
+   cat > quick.yaml << EOF
+   optimizing_engine: ANI2xt
+   convergence_threshold: 0.02
+   patience: 100
+   opt_steps: 1000
+   max_confs: 50
+   EOF
+
+   # Accurate (tight convergence for production)
+   cat > accurate.yaml << EOF
+   optimizing_engine: AIMNET
+   convergence_threshold: 0.003
+   patience: 500
+   opt_steps: 5000
+   EOF
+
+   # Run with settings
+   auto3d run input.smi --k=1 -c quick.yaml --gpu
+   auto3d run input.smi --k=1 -c accurate.yaml --gpu
+
+Python API:
+
+.. code:: python
+
+   # Quick screening
+   config = Auto3DOptions(
+       path="input.smi",
+       k=1,
+       optimizing_engine="ANI2xt",
+       convergence_threshold=0.02,
+       patience=100,
+       opt_steps=1000,
+       max_confs=50,
+   )
+
+   # Accurate
+   config = Auto3DOptions(
+       path="input.smi",
+       k=1,
+       optimizing_engine="AIMNET",
+       convergence_threshold=0.003,
+       patience=500,
+       opt_steps=5000,
+   )
+
+Parameter Reference
+~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :widths: 25 15 60
+   :header-rows: 1
+
+   * - Parameter
+     - Default
+     - Description
+   * - ``opt_steps``
+     - 2000
+     - Maximum optimization steps per structure
+   * - ``convergence_threshold``
+     - 0.01
+     - Force convergence threshold in eV/A
+   * - ``patience``
+     - 250
+     - Steps before dropping oscillating structures
+   * - ``batchsize_atoms``
+     - 1024
+     - Atoms per optimization batch per GB memory
+   * - ``max_confs``
+     - (auto)
+     - Maximum initial conformers per molecule
 
 Custom Neural Network Potentials
 --------------------------------
 
-Auto3D supports custom PyTorch NNP models via the ``NNPModel`` protocol.
+Auto3D supports custom PyTorch NNP models for specialized applications.
+
+CLI Usage
+~~~~~~~~~
+
+.. code:: console
+
+   # Use custom model by path
+   auto3d run input.smi --k=1 --engine=/path/to/my_model.pt --gpu
+
+   # With configuration file
+   cat > custom.yaml << EOF
+   optimizing_engine: /path/to/my_model.pt
+   use_gpu: true
+   EOF
+
+   auto3d run input.smi --k=1 -c custom.yaml
+
+Python API
+~~~~~~~~~~
+
+.. code:: python
+
+   from Auto3D import Auto3DOptions, main
+
+   if __name__ == "__main__":
+       config = Auto3DOptions(
+           path="input.smi",
+           k=1,
+           optimizing_engine="/path/to/my_model.pt",
+           use_gpu=True,
+       )
+       output = main(config)
 
 NNPModel Protocol
 ~~~~~~~~~~~~~~~~~
@@ -155,7 +376,7 @@ Your custom model must implement this interface:
    class MyNNP(torch.nn.Module):
        # Required attributes
        coord_pad = 0       # Padding value for coordinates
-       species_pad = -1    # Padding value for species (-1 for masked atoms)
+       species_pad = -1    # Padding value for species
 
        def forward(
            self,
@@ -167,45 +388,18 @@ Your custom model must implement this interface:
            Calculate energies for a batch of molecules.
 
            Args:
-               species: Atomic numbers (0=H, 5=C, etc.), padded with species_pad
-               coords: Atomic coordinates in Angstroms, padded with coord_pad
+               species: Atomic numbers, padded with species_pad
+               coords: Atomic coordinates in Angstroms
                charges: Total molecular charges
 
            Returns:
                Energies tensor of shape (batch_size,) in eV
            """
-           # Your energy calculation here
            energies = self.calculate_energies(species, coords, charges)
            return energies
 
-Using Custom Models
-~~~~~~~~~~~~~~~~~~~
-
-Pass the path to your model file:
-
-.. code:: python
-
-   from Auto3D import Auto3DOptions, main
-
-   config = Auto3DOptions(
-       path="input.smi",
-       k=1,
-       optimizing_engine="/path/to/my_model.pt",  # Path to custom model
-       use_gpu=True,
-   )
-
-   output = main(config)
-
-Or with the CLI:
-
-.. code:: console
-
-   auto3d run input.smi --k=1 --engine=/path/to/my_model.pt
-
-Example Custom Model
-~~~~~~~~~~~~~~~~~~~~
-
-Here's a complete example of a custom NNP wrapper:
+Example Custom Model Wrapper
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: python
 
@@ -227,13 +421,11 @@ Here's a complete example of a custom NNP wrapper:
            energies = []
 
            for i in range(batch_size):
-               # Get valid atoms (not padded)
                mask = species[i] != self.species_pad
                valid_species = species[i][mask]
                valid_coords = coords[i][mask]
                charge = charges[i]
 
-               # Call underlying model
                energy = self.model.predict(valid_species, valid_coords, charge)
                energies.append(energy)
 
@@ -243,197 +435,35 @@ Here's a complete example of a custom NNP wrapper:
    model = CustomNNPWrapper(your_model)
    torch.save(model, "my_model.pt")
 
-Multi-GPU Usage
----------------
-
-Auto3D supports multi-GPU processing for large datasets:
-
-.. code:: python
-
-   from Auto3D import Auto3DOptions, main
-
-   config = Auto3DOptions(
-       path="large_dataset.smi",
-       k=1,
-       use_gpu=True,
-       gpu_idx=[0, 1, 2, 3],  # Use GPUs 0, 1, 2, and 3
-   )
-
-   output = main(config)
-
-**CLI Equivalents:**
-
-.. code:: console
-
-   # Use all 4 GPUs
-   auto3d run large_dataset.smi --k=1 --gpu --gpu-idx="0,1,2,3"
-
-   # Use GPUs 2 and 3 only (on shared systems)
-   auto3d run large_dataset.smi --k=1 --gpu --gpu-idx="2,3"
-
-   # Alternatively, use CUDA_VISIBLE_DEVICES
-   CUDA_VISIBLE_DEVICES=0,1,2,3 auto3d run large_dataset.smi --k=1 --gpu
-
-Auto3D automatically distributes molecules across GPUs for parallel processing.
-
-Performance Tuning
-------------------
-
-TF32 Acceleration
-~~~~~~~~~~~~~~~~~
-
-Enable TensorFloat-32 for faster computation on Ampere+ GPUs (RTX 30xx, A100, etc.):
-
-.. code:: python
-
-   config = Auto3DOptions(
-       path="input.smi",
-       k=1,
-       allow_tf32=True,  # ~1.5x faster matrix operations
-   )
-
-**CLI with YAML Configuration:**
-
-Create a ``performance.yaml``:
-
-.. code:: yaml
-
-   allow_tf32: true
-
-.. code:: console
-
-   auto3d run input.smi --k=1 --gpu -c performance.yaml
-
-.. note::
-   TF32 reduces precision slightly (19 mantissa bits vs 23 for FP32).
-   This is typically acceptable for conformer generation but may affect
-   very tight energy comparisons.
-
-torch.compile() Optimization
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Enable PyTorch 2.0 compilation for ANI models:
-
-.. code:: python
-
-   # Via environment variable
-   import os
-   os.environ["AUTO3D_COMPILE_MODEL"] = "1"
-
-   # Or via create_model
-   model = create_model("ANI2xt", device=device, compile_model=True)
-
-**CLI with Environment Variable:**
-
-.. code:: console
-
-   # Enable torch.compile for ~1.25x speedup
-   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --gpu --engine=ANI2x
-
-   # Combine with other optimizations
-   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --gpu --engine=ANI2xt
-
-This provides ~1.25x speedup after initial compilation warmup.
-
-.. note::
-   ``torch.compile()`` works best with ANI2x/ANI2xt models. AIMNET already
-   uses optimized JIT compilation internally.
-
-Batch Size Tuning
-~~~~~~~~~~~~~~~~~
-
-Adjust batch size based on GPU memory:
-
-.. code:: python
-
-   config = Auto3DOptions(
-       path="input.smi",
-       k=1,
-       batchsize_atoms=2048,  # Larger batch for GPUs with more memory
-   )
-
-**CLI with YAML Configuration:**
-
-Create a ``gpu_tuning.yaml``:
-
-.. code:: yaml
-
-   batchsize_atoms: 2048  # For GPUs with 24GB+ VRAM
-   # batchsize_atoms: 512   # For GPUs with 8GB VRAM
-
-.. code:: console
-
-   auto3d run input.smi --k=1 --gpu -c gpu_tuning.yaml
-
-**Recommended batch sizes:**
-
-- Default: 1024 atoms per batch per GB
-- 8GB GPU (RTX 3070): 512
-- 16GB GPU (RTX 3080, V100): 1024
-- 24GB GPU (RTX 3090, A5000): 1536
-- 40GB+ GPU (A100, H100): 2048
-
-Memory Management
-~~~~~~~~~~~~~~~~~
-
-For very large datasets, Auto3D automatically chunks processing:
-
-.. code:: python
-
-   config = Auto3DOptions(
-       path="huge_dataset.smi",  # 100k+ molecules
-       k=1,
-       memory=32,        # Assign 32GB RAM to Auto3D
-       capacity=42,      # Molecules per GB (default: 42)
-   )
-
-**CLI with YAML Configuration:**
-
-Create a ``large_scale.yaml``:
-
-.. code:: yaml
-
-   memory: 64
-   capacity: 50
-
-.. code:: console
-
-   auto3d run huge_dataset.smi --k=1 --gpu -c large_scale.yaml
-
-Environment Variables
----------------------
-
-Control Auto3D behavior via environment variables:
-
-.. list-table::
-   :widths: 35 15 50
-   :header-rows: 1
-
-   * - Variable
-     - Default
-     - Description
-   * - ``AUTO3D_COMPILE_MODEL``
-     - ``0``
-     - Set to ``1`` to enable torch.compile() for ANI models
-   * - ``AUTO3D_USE_ENSEMBLE``
-     - ``0``
-     - Set to ``1`` to use AIMNET ensemble (slower, more accurate)
-   * - ``OE_LICENSE``
-     - (none)
-     - Path to OpenEye license file for Omega isomer engine
-
-Example:
-
-.. code:: console
-
-   export AUTO3D_COMPILE_MODEL=1
-   export AUTO3D_USE_ENSEMBLE=0
-   auto3d run input.smi --k=5
-
 Tautomer Enumeration
 --------------------
 
-Enable tautomer enumeration for drug-like molecules:
+Enable tautomer enumeration for drug-like molecules with multiple possible forms.
+
+CLI Usage
+~~~~~~~~~
+
+.. code:: console
+
+   # Enable tautomer enumeration
+   auto3d run input.smi --k=1 --enumerate-tautomer --gpu
+
+   # With ANI2xt (recommended for tautomers)
+   auto3d run input.smi --k=1 --enumerate-tautomer --engine=ANI2xt --gpu
+
+   # Advanced configuration
+   cat > tautomer.yaml << EOF
+   enumerate_tautomer: true
+   tauto_engine: rdkit
+   optimizing_engine: ANI2xt
+   max_confs: 10
+   patience: 200
+   EOF
+
+   auto3d run input.smi --k=1 -c tautomer.yaml --gpu
+
+Python API
+~~~~~~~~~~
 
 .. code:: python
 
@@ -453,64 +483,69 @@ Enable tautomer enumeration for drug-like molecules:
    # Get stable tautomers with top-3 per input
    output = get_stable_tautomers(config, tauto_k=3)
 
-**CLI Equivalent:**
+Available Models
+----------------
+
+.. list-table::
+   :widths: 15 40 20 25
+   :header-rows: 1
+
+   * - Model
+     - Supported Elements
+     - Charges
+     - Speed
+   * - ``AIMNET``
+     - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
+     - Neutral + charged
+     - Fast (default)
+   * - ``ANI2x``
+     - H, C, N, O, F, S, Cl
+     - Neutral only
+     - Very fast
+   * - ``ANI2xt``
+     - H, C, N, O, F, S, Cl
+     - Neutral only
+     - Ultra-fast
+
+Single Model vs Ensemble (AIMNET)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default, Auto3D uses a single AIMNet2 model for ~35x faster optimization:
 
 .. code:: console
 
-   # Enable tautomer enumeration
-   auto3d run input.smi --k=1 --enumerate-tautomer --engine=ANI2xt --gpu
+   # Default: single model (fast)
+   auto3d run input.smi --k=1 --gpu
 
-For advanced tautomer settings, use a YAML configuration:
+   # Ensemble: highest accuracy (slower)
+   AUTO3D_USE_ENSEMBLE=1 auto3d run input.smi --k=1 --gpu
 
-.. code:: yaml
+The single model is accurate enough for conformer generation and ranking.
+Use ensemble only when you need the most accurate absolute energies.
 
-   # tautomer_config.yaml
-   enumerate_tautomer: true
-   tauto_engine: rdkit
-   optimizing_engine: ANI2xt
-   max_confs: 10
-   patience: 200
+Model Factory API (Python)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. code:: console
-
-   auto3d run input.smi --k=1 -c tautomer_config.yaml --gpu
-
-Programmatic Model Access
--------------------------
-
-Access model internals for custom workflows:
+For custom workflows, create models directly:
 
 .. code:: python
 
+   import torch
    from Auto3D import create_model
    from Auto3D.model_factory import ModelFactory
-   import torch
+
+   device = torch.device("cuda:0")
 
    # Create model
-   device = torch.device("cuda:0")
    model = create_model("AIMNET", device=device)
 
-   # Prepare input tensors
-   species = torch.tensor([[6, 1, 1, 1, 1]], device=device)  # CH4
-   coords = torch.tensor([[[0.0, 0.0, 0.0],
-                           [0.6, 0.6, 0.6],
-                           [-0.6, -0.6, 0.6],
-                           [-0.6, 0.6, -0.6],
-                           [0.6, -0.6, -0.6]]], device=device)
-   charges = torch.tensor([0], device=device)
+   # Use for calculations
+   energies = model(species, coords, charges)
 
-   # Calculate energy
-   with torch.no_grad():
-       energy = model(species, coords, charges)
-       print(f"Energy: {energy.item():.6f} eV")
+   # List available models
+   print(ModelFactory.available_models())
 
-   # Get available models
-   print(ModelFactory.available_models())  # ['AIMNET', 'ANI2XT', 'ANI2X']
-
-   # Check cache status
-   print(ModelFactory.get_cache_info())
-
-   # Clear cache when done
+   # Clear cache to free GPU memory
    ModelFactory.clear_cache()
 
 Troubleshooting
@@ -521,81 +556,50 @@ GPU Memory Issues
 
 If you encounter CUDA out-of-memory errors:
 
-1. Reduce batch size:
+.. code:: console
 
-   .. code:: python
+   # 1. Reduce batch size
+   cat > low_memory.yaml << EOF
+   batchsize_atoms: 512
+   EOF
+   auto3d run input.smi --k=1 -c low_memory.yaml --gpu
 
-      config = Auto3DOptions(path="input.smi", k=1, batchsize_atoms=512)
+   # 2. Disable ensemble
+   AUTO3D_USE_ENSEMBLE=0 auto3d run input.smi --k=1 --gpu
 
-   **CLI:** Use a YAML config with ``batchsize_atoms: 512``
+   # 3. Use CPU as fallback
+   auto3d run input.smi --k=1 --no-gpu
 
-2. Use single model instead of ensemble:
+Python solutions:
 
-   .. code:: python
+.. code:: python
 
-      model = create_model("AIMNET", device=device, use_ensemble=False)
+   # Reduce batch size
+   config = Auto3DOptions(path="input.smi", k=1, batchsize_atoms=512)
 
-   **CLI:**
+   # Clear model cache
+   from Auto3D.model_factory import ModelFactory
+   ModelFactory.clear_cache()
 
-   .. code:: console
-
-      AUTO3D_USE_ENSEMBLE=0 auto3d run input.smi --k=1 --gpu
-
-3. Clear model cache between runs:
-
-   .. code:: python
-
-      from Auto3D.model_factory import ModelFactory
-      ModelFactory.clear_cache()
-
-4. Use CPU mode as fallback:
-
-   **CLI:**
-
-   .. code:: console
-
-      auto3d run input.smi --k=1 --no-gpu
-
-Slow Optimization
-~~~~~~~~~~~~~~~~~
+Slow Processing
+~~~~~~~~~~~~~~~
 
 If optimization is slower than expected:
 
-1. Enable TF32 on Ampere+ GPUs:
+.. code:: console
 
-   .. code:: python
+   # 1. Use fastest model
+   auto3d run input.smi --k=1 --engine=ANI2xt --gpu
 
-      config = Auto3DOptions(path="input.smi", k=1, allow_tf32=True)
+   # 2. Use quick preset
+   auto3d config init -p quick -o quick.yaml
+   auto3d run input.smi --k=1 -c quick.yaml --gpu
 
-   **CLI:** Use a YAML config with ``allow_tf32: true``
-
-2. Use faster model for initial screening:
-
-   .. code:: python
-
-      config = Auto3DOptions(path="input.smi", k=1, optimizing_engine="ANI2xt")
-
-   **CLI:**
-
-   .. code:: console
-
-      auto3d run input.smi --k=1 --engine=ANI2xt --gpu
-
-3. Reduce convergence criteria:
-
-   .. code:: python
-
-      config = Auto3DOptions(
-          path="input.smi",
-          k=1,
-          convergence_threshold=0.02,  # Looser threshold
-          patience=150,
-      )
-
-   **CLI:**
-
-   .. code:: console
-
-      # Use quick preset for screening
-      auto3d config init -p quick -o quick.yaml
-      auto3d run input.smi --k=1 -c quick.yaml --gpu
+   # 3. Enable TF32 on Ampere+ GPUs
+   cat > fast.yaml << EOF
+   optimizing_engine: ANI2xt
+   allow_tf32: true
+   convergence_threshold: 0.02
+   patience: 150
+   EOF
+   auto3d run input.smi --k=1 -c fast.yaml --gpu
