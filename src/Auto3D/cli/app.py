@@ -124,8 +124,8 @@ def config_init(
     ] = None,
 ) -> None:
     """Generate a configuration file with sensible defaults."""
-    # Stub - will be implemented in Task 4.2
-    console.print("[yellow]Config init not yet implemented[/yellow]")
+    from Auto3D.cli.commands.config import execute_config_init
+    execute_config_init(output=output, preset=preset)
 
 
 @config_app.command("show")
@@ -136,8 +136,8 @@ def config_show(
     ] = None,
 ) -> None:
     """Display configuration with syntax highlighting."""
-    # Stub - will be implemented in Task 4.2
-    console.print("[yellow]Config show not yet implemented[/yellow]")
+    from Auto3D.cli.commands.config import execute_config_show
+    execute_config_show(config_file=config_file)
 
 
 @config_app.command("validate")
@@ -148,15 +148,15 @@ def config_validate(
     ],
 ) -> None:
     """Validate a configuration file without running."""
-    # Stub - will be implemented in Task 4.2
-    console.print("[yellow]Config validate not yet implemented[/yellow]")
+    from Auto3D.cli.commands.config import execute_config_validate
+    execute_config_validate(config_file=config_file)
 
 
 @models_app.command("list")
 def models_list() -> None:
     """Show available optimization engines."""
-    # Stub - will be implemented in Task 4.3
-    console.print("[yellow]Models list not yet implemented[/yellow]")
+    from Auto3D.cli.commands.models import execute_models_list
+    execute_models_list()
 
 
 @models_app.command("info")
@@ -167,8 +167,8 @@ def models_info(
     ],
 ) -> None:
     """Show detailed information about a specific engine."""
-    # Stub - will be implemented in Task 4.3
-    console.print("[yellow]Models info not yet implemented[/yellow]")
+    from Auto3D.cli.commands.models import execute_models_info
+    execute_models_info(engine=engine)
 
 
 @app.command()
@@ -179,5 +179,5 @@ def validate(
     ],
 ) -> None:
     """Validate input SMILES/SDF file without running optimization."""
-    # Stub - will be implemented in Task 4.4
-    console.print("[yellow]Validate not yet implemented[/yellow]")
+    from Auto3D.cli.commands.validate import execute_validate
+    execute_validate(input_file=input_file)
