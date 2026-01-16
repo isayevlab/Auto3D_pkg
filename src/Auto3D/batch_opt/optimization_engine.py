@@ -60,13 +60,13 @@ def print_stats(state: dict[str, Any], patience: int) -> None:
         state: Optimization state dictionary containing:
             - numbers: Atomic numbers tensor, shape (batch, n_atoms)
             - converged_mask: Boolean convergence mask, shape (batch,)
-            - oscillating_count: Oscillation counter tensor, shape (batch, 1)
+            - oscillating_count: Oscillation counter tensor, shape (batch,)
         patience: Number of steps without force decrease before dropping a structure.
     """
     numbers = state['numbers']
     num_total = numbers.size()[0]
     num_converged_dropped = torch.sum(state['converged_mask']).to('cpu')
-    oscillating_count = state['oscillating_count'].to('cpu').reshape(-1, ) >= patience
+    oscillating_count = state['oscillating_count'].to('cpu') >= patience
     num_dropped = torch.sum(oscillating_count)
     num_converged = num_converged_dropped - num_dropped
     num_active = num_total - num_converged_dropped
@@ -121,7 +121,7 @@ def n_steps(
     # The following two terms are used to detect oscillating conformers
     smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999,
                                   dtype=torch.float).to(coord.device)
-    oscillating_count0 = torch.tensor(np.zeros((len(coord), 1)),
+    oscillating_count0 = torch.tensor(np.zeros(len(coord)),
                                       dtype=torch.float).to(coord.device)
 
     # Energy-based convergence tracking
@@ -162,9 +162,8 @@ def n_steps(
         # Reduce count to 0 for reducing; raise count for non-reducing
         oscillating_count[fmax_reduced] = 0
         fmax_not_reduced = ~fmax_reduced
-        oscillating_count += fmax_not_reduced.reshape(-1, 1)
+        oscillating_count += fmax_not_reduced
         not_oscillating = oscillating_count < patience
-        not_oscillating = not_oscillating.reshape(-1, )
 
         # Energy-based convergence: check if energy change is below threshold
         e_double = e.detach().to(torch.double)
