@@ -3,7 +3,7 @@ sphinx>=7.1.0
 sphinx-rtd-theme>=2.0.0
 sphinx-copybutton>=0.5.0
 nbsphinx>=0.9.0
-pandoc>=2.0
+# Note: pandoc binary is installed via apt in CI workflow
 
 # Auto3D dependencies (for autodoc)
 torch>=2.1.0
