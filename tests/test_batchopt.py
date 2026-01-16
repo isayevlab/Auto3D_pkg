@@ -110,6 +110,73 @@ class TestEnForceANI:
         assert forces.shape == (4, 5, 3)
 
 
+class TestConvergenceStatus:
+    """Tests for convergence status determination (Issue #90)."""
+
+    def test_ensemble_opt_returns_convergence_info(self):
+        """ensemble_opt should return converged_mask and oscillating_count."""
+        from Auto3D.batch_opt.batchopt import ensemble_opt
+        from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+
+        # Create mock model
+        mock_adapter = MagicMock()
+        mock_adapter.forward.return_value = (
+            torch.tensor([0.0, 0.0]),
+            torch.zeros(2, 3, 3)  # Zero forces = instant convergence
+        )
+        model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
+
+        # Create simple input
+        coord = torch.randn(2, 3, 3)
+        numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
+        charges = torch.tensor([0, 0], dtype=torch.long)
+        param = {'opt_steps': 10, 'opttol': 0.01, 'patience': 5}
+
+        result = ensemble_opt(model, coord, numbers, charges, param, "AIMNET", torch.device("cpu"))
+
+        # Verify new fields are present
+        assert 'converged_mask' in result, "converged_mask missing from ensemble_opt return"
+        assert 'oscillating_count' in result, "oscillating_count missing from ensemble_opt return"
+        assert isinstance(result['converged_mask'], list)
+        assert isinstance(result['oscillating_count'], list)
+        assert len(result['converged_mask']) == 2
+        assert len(result['oscillating_count']) == 2
+
+    def test_convergence_mask_excludes_oscillating(self):
+        """Convergence mask should exclude oscillating structures (Issue #90)."""
+        # Simulate a case where structure converged but is oscillating
+        converged_mask = [True, True, False]
+        oscillating_count = [10, 2, 1]  # First one is oscillating (count >= patience)
+        patience = 5
+
+        # This is the logic from batchopt.py
+        final_convergence = [
+            converged and osc_count < patience
+            for converged, osc_count in zip(converged_mask, oscillating_count)
+        ]
+
+        # First structure: converged=True but oscillating_count >= patience → False
+        # Second structure: converged=True and oscillating_count < patience → True
+        # Third structure: converged=False → False
+        assert final_convergence == [False, True, False]
+
+    def test_convergence_with_energy_stability(self):
+        """Structures converged via energy stability should be marked converged."""
+        # This tests the scenario from issue #90 where energy convergence
+        # is used but the force is between opttol and 10*opttol
+        converged_mask = [True, True]  # Both converged (one via force, one via energy)
+        oscillating_count = [2, 3]     # Neither oscillating
+        patience = 5
+
+        final_convergence = [
+            converged and osc_count < patience
+            for converged, osc_count in zip(converged_mask, oscillating_count)
+        ]
+
+        # Both should be marked as converged
+        assert final_convergence == [True, True]
+
+
 class TestGPUCleanup:
     """Tests for GPU memory cleanup in batchopt."""
 

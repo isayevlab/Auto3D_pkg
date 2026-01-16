@@ -86,6 +86,8 @@ def ensemble_opt(
             - close: Close contact structures
             - timing: Timing information
             - numbers: Atomic numbers
+            - converged_mask: Boolean convergence status per structure
+            - oscillating_count: Oscillation counter per structure
     """
     # Handle both tensor and list inputs for backward compatibility
     # Ensure coords are leaf tensors (detach from any computation graph)
@@ -132,7 +134,9 @@ def ensemble_opt(
         he=state['he'],
         close=state['close'],
         timing=dict(state['timing']),
-        numbers=state['numbers'].tolist()
+        numbers=state['numbers'].tolist(),
+        converged_mask=state['converged_mask'].tolist(),
+        oscillating_count=state['oscillating_count'].tolist()
     )
 
 
@@ -249,7 +253,18 @@ class optimizing:
 
         energies = optdict['energy']
         fmax = optdict['fmax']
-        convergence_mask = list(map(lambda x: (x <= self._config_dict['opttol']), fmax))
+        converged_mask = optdict['converged_mask']
+        oscillating_count = optdict['oscillating_count']
+        patience = self._config_dict['patience']
+
+        # Determine true convergence status:
+        # - Converged: converged_mask=True AND not oscillating (oscillating_count < patience)
+        # - Dropped: converged_mask=True AND oscillating (oscillating_count >= patience)
+        # - Not converged: converged_mask=False
+        convergence_mask = [
+            converged and osc_count < patience
+            for converged, osc_count in zip(converged_mask, oscillating_count)
+        ]
 
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):
@@ -259,6 +274,9 @@ class optimizing:
                 mol.SetProp('E_tot', str(energies[i]))
                 mol.SetProp('fmax', str(fmax_i))
                 mol.SetProp('Converged', str(convergence_mask[i]))
+                # Mark structures dropped due to oscillation for diagnostics
+                is_oscillating = converged_mask[i] and oscillating_count[i] >= patience
+                mol.SetProp('Dropped_Oscillating', str(is_oscillating))
                 mol.SetProp('ID', idx)
                 coord = optdict['coord'][i]
                 for atom_idx, atom in enumerate(mol.GetAtoms()):
