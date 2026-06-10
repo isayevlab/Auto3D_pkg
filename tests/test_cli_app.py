@@ -165,7 +165,7 @@ def test_config_init_invalid_preset(runner, tmp_path_cwd):
     result = runner.invoke(app, ["config", "init", "-p", "invalid"])
 
     assert result.exit_code == 1
-    assert "Unknown preset" in result.stdout
+    assert "Unknown preset" in result.stderr
 
 
 def test_config_show_displays_file(runner, tmp_path_cwd):
@@ -189,7 +189,7 @@ def test_config_show_not_found(runner, tmp_path_cwd):
     result = runner.invoke(app, ["config", "show", "nonexistent.yaml"])
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout
+    assert "not found" in result.stderr
 
 
 def test_config_validate_valid(runner, tmp_path_cwd):
