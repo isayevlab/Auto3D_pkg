@@ -81,6 +81,7 @@ def n_steps(
     patience: int,
     energy_tol: float = 1e-4,
     energy_patience: int = 3,
+    species_pad: int = -1,
 ) -> None:
     """Run n optimization steps for each input structure.
 
@@ -108,6 +109,12 @@ def n_steps(
         energy_tol: Energy convergence threshold in eV (default 1e-4 eV = ~0.002 kcal/mol).
         energy_patience: Number of steps energy must be stable before considering
             converged (default 3).
+        species_pad: Atomic-number value used to pad short molecules up to the
+            batch's atom count. Forces on these ghost atom slots are zeroed
+            before the force-convergence reduction so convergence does not
+            depend on how the model treats padded atoms (default -1, which
+            matches no real species and is therefore a no-op for unpadded
+            batches).
     """
     numbers = state['numbers']
     charges = state['charges']
@@ -150,6 +157,13 @@ def n_steps(
                                            charges)  # Key step to calculate all energies and forces.
         coord.requires_grad_(False)
 
+        # Zero forces on padded atom slots so convergence is independent of how
+        # the model treats ghost atoms (species == species_pad). Use the
+        # loop-local `numbers` subset (state['numbers'][not_converged]) so the
+        # mask aligns with the current batch of f. Masking before the optimizer
+        # step also keeps padded atoms from drifting.
+        pad_mask = (numbers == species_pad).unsqueeze(-1)
+        f = f.masked_fill(pad_mask, 0.0)
         # Detach the optimizer output so the next step starts from a leaf tensor.
         # Production adapters return detached forces, so coord never tracks grad
         # across steps; detaching here makes the loop robust to NNPs whose forces
