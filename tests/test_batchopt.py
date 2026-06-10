@@ -132,7 +132,7 @@ class TestConvergenceStatus:
         charges = torch.tensor([0, 0], dtype=torch.long)
         param = {'opt_steps': 10, 'opttol': 0.01, 'patience': 5}
 
-        result = ensemble_opt(model, coord, numbers, charges, param, "AIMNET", torch.device("cpu"))
+        result = ensemble_opt(model, coord, numbers, charges, param, torch.device("cpu"))
 
         # Verify new fields are present
         assert 'converged_mask' in result, "converged_mask missing from ensemble_opt return"
@@ -226,7 +226,7 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
             m = Chem.AddHs(Chem.MolFromSmiles(s)); AllChem.EmbedMolecule(m, randomSeed=1)
             m.SetProp("_Name", str(i)); w.write(m)
 
-    def fake_ensemble_opt(net, coord, numbers, charges, param, model, device,
+    def fake_ensemble_opt(net, coord, numbers, charges, param, device,
                           species_pad=-1):
         n = len(coord)
         return dict(coord=coord.tolist(), ids=list(range(n)), energy=[0.0]*n,

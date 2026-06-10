@@ -104,7 +104,7 @@ Environment variables:
 ### Configuration
 
 Two modes:
-- **YAML config files**: `parameters.yaml`, `tauto.yaml` (see examples in repo root)
+- **YAML config files**: `parameters.yaml` (example in repo root); legacy `tauto.yaml` example in `docs/legacy-v2/`
 - **Python API**: `from Auto3D import Auto3DOptions, main`
 
 Key parameters: `path`, `k` (top-k conformers), `window` (energy window kcal/mol), `optimizing_engine` ('AIMNET'/'ANI2x'/'ANI2xt'), `use_gpu`, `gpu_idx`
