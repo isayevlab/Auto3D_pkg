@@ -240,6 +240,28 @@ def test_run_with_nonexistent_file(runner):
     assert result.exit_code != 0
 
 
+def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
+    """--json stdout must be parseable even when the k/window warning fires."""
+    import json
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    import Auto3D.auto3D as a3d
+    out = tmp_path_cwd / "in_out.sdf"
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    with Chem.SDWriter(str(out)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO")); AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "mol1"); w.write(m)
+    monkeypatch.setattr(a3d, "main", lambda options: str(out))
+
+    result = runner.invoke(app, ["run", str(smi), "--json"])
+    assert result.exit_code == 0
+    json.loads(result.stdout)  # must not raise
+
+
 # Error handling tests
 
 def test_error_hint_configuration_error():
