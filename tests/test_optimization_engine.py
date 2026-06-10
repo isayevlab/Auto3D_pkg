@@ -264,9 +264,11 @@ class TestNSteps:
         def mock_forward(coord, numbers, charges):
             call_count[0] += 1
             batch_size = coord.shape[0]
-            # Return constant energy (stable) and moderate forces
-            # Energy convergence should kick in after energy_patience steps
-            return torch.ones(batch_size) * -10.0, torch.ones(batch_size, coord.shape[1], 3) * 0.05
+            # Return constant energy (stable) and forces just below opttol.
+            # After fixing #19a the energy-stability path also requires
+            # fmax < opttol (not 10x opttol), so the residual force must be
+            # below tolerance for energy convergence to be accepted.
+            return torch.ones(batch_size) * -10.0, torch.ones(batch_size, coord.shape[1], 3) * 0.005
 
         mock_nn = MagicMock()
         mock_nn.forward_batched.side_effect = mock_forward
@@ -281,12 +283,38 @@ class TestNSteps:
             'energy': torch.full((2,), 999.0, dtype=torch.double),
         }
 
-        # opttol=0.01, forces=0.05, so force criterion not met
-        # But energy is stable, and 0.05 < 0.01 * 10, so energy convergence should trigger
+        # opttol=0.01, per-atom force=0.005 so fmax (vector norm) is ~0.0087 < opttol.
+        # Energy is constant, so convergence is reached while the residual force is
+        # within tolerance, keeping the reported geometry self-consistent (#19a).
         n_steps(state, n=100, opttol=0.01, patience=1000, energy_tol=1e-4, energy_patience=3)
 
-        # Should converge via energy stability
+        # Should converge while forces are within opttol
         assert state['converged_mask'].all()
+
+
+def test_stored_energy_matches_stored_coord():
+    import torch
+    from Auto3D.batch_opt.optimization_engine import n_steps
+
+    class MockNN:
+        def forward_batched(self, coord, numbers, charges):
+            e = (coord ** 2).sum(dim=(1, 2))
+            f = -2.0 * coord
+            return e, f
+
+    coord = torch.full((1, 2, 3), 0.5, dtype=torch.float)
+    state = {
+        "coord": coord.clone(),
+        "numbers": torch.ones(1, 2, dtype=torch.long),
+        "charges": torch.zeros(1, dtype=torch.long),
+        "nn": MockNN(),
+        "converged_mask": torch.zeros(1, dtype=torch.bool),
+        "fmax": torch.full((1,), 999.0),
+        "energy": torch.full((1,), float("inf"), dtype=torch.double),
+    }
+    n_steps(state, n=50, opttol=0.01, patience=40)
+    recomputed = (state["coord"] ** 2).sum().item()
+    assert abs(state["energy"].item() - recomputed) < 1e-3
 
 
 class TestNStepsIntegration:
