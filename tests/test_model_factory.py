@@ -212,3 +212,45 @@ class TestFactoryReturnsAdapter:
         assert isinstance(model, CustomModelAdapter)
         assert model.coord_pad == 1.5
         assert model.species_pad == -2
+
+
+def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
+    import torch
+    from Auto3D import model_factory
+    captured = {}
+
+    class _FakeAIMNet2Adapter:
+        def __init__(self, model_name, device, **kw):
+            captured["model_name"] = model_name
+    monkeypatch.setattr(model_factory, "AIMNet2Adapter", _FakeAIMNet2Adapter)
+    model_factory.ModelFactory.clear_cache()
+    model_factory.create_model("AIMNET", torch.device("cpu"), use_cache=False)
+    assert captured["model_name"] == "aimnet2"
+
+
+def test_registry_name_routes_to_aimnet2(monkeypatch):
+    import torch
+    from Auto3D import model_factory
+    captured = {}
+
+    class _FakeAIMNet2Adapter:
+        def __init__(self, model_name, device, **kw):
+            captured["model_name"] = model_name
+    monkeypatch.setattr(model_factory, "AIMNet2Adapter", _FakeAIMNet2Adapter)
+    model_factory.ModelFactory.clear_cache()
+    model_factory.create_model("aimnet2-2025", torch.device("cpu"), use_cache=False)
+    assert captured["model_name"] == "aimnet2-2025"
+
+
+def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
+    import torch
+    from Auto3D import model_factory
+    f = tmp_path / "my.pt"; f.write_text("x")
+    captured = {}
+
+    class _FakeCustom:
+        def __init__(self, path, device, **kw):
+            captured["path"] = path
+    monkeypatch.setattr(model_factory, "CustomModelAdapter", _FakeCustom)
+    model_factory.create_model(str(f), torch.device("cpu"), use_cache=False)
+    assert captured["path"] == str(f)
