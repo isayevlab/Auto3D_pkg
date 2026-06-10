@@ -286,3 +286,91 @@ def test_finalize_raises_when_all_outputs_empty(tmp_path):
 
     with pytest.raises(OptimizationError):
         orch._finalize_output(start_time=0.0)
+
+
+def test_run_pipeline_does_not_mutate_shared_batchsize():
+    """_run_pipeline must apply the memory-scaled batchsize via a per-run config
+    copy and leave the caller's shared config untouched (review #35/#36)."""
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.workflow import WorkflowOrchestrator
+
+    config = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)
+    orch = WorkflowOrchestrator(config)
+    # Simulate the memory scaling that _prepare_chunks would have computed.
+    orch.scaled_batchsize_atoms = 1024 * 4
+    orch.logging_queue = MagicMock()
+
+    captured_configs = []
+
+    class _FakeProcess:
+        def __init__(self, target=None, args=(), **kwargs):
+            self._args = args
+
+        def start(self):
+            # Record every Auto3DOptions passed to a worker (positions differ
+            # between the isomer and optimization workers).
+            captured_configs.extend(
+                a for a in self._args if isinstance(a, Auto3DOptions)
+            )
+
+        def join(self, timeout=None):
+            return None
+
+        @property
+        def exitcode(self):
+            return 0
+
+    with patch("Auto3D.workflow.mp.Manager") as mock_manager, \
+         patch("Auto3D.workflow.mp.Process", _FakeProcess):
+        mock_manager.return_value.Queue.return_value = MagicMock()
+        orch._run_pipeline([("chunk.smi", "job1")])
+
+    # The shared config the caller passed in must be untouched.
+    assert config.batchsize_atoms == 1024
+    # The optimization worker must receive the memory-scaled batchsize.
+    opt_configs = [c for c in captured_configs if c.batchsize_atoms == 1024 * 4]
+    assert opt_configs, "optimizer did not receive the memory-scaled batchsize"
+
+
+def test_smiles2mols_uses_args_threshold(monkeypatch):
+    """smiles2mols must pass args.threshold (not a hardcoded value) to the
+    isomer engine, matching main()'s candidate-pool behavior (review #35/#36)."""
+    import Auto3D.auto3D as auto3D_mod
+    from Auto3D.config import Auto3DOptions
+
+    captured = {}
+
+    class _StubIsomerEngine:
+        def run(self):
+            return None
+
+    def _capture_create(*, threshold, **kwargs):
+        captured["threshold"] = threshold
+        return _StubIsomerEngine()
+
+    class _StubOpt:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self):
+            return None
+
+    class _StubRank:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self):
+            return []
+
+    monkeypatch.setattr(
+        auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create)
+    )
+    monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
+    monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
+    monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
+
+    args = Auto3DOptions(k=1, use_gpu=False, threshold=0.27)
+    auto3D_mod.smiles2mols(["CCO"], args)
+
+    assert captured["threshold"] == 0.27
+    assert captured["threshold"] != 0.03
