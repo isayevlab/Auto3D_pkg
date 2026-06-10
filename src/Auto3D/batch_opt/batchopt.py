@@ -31,7 +31,7 @@ from .padding import pad_from_mols
 from tqdm import tqdm
 
 from Auto3D.model_factory import create_model
-from Auto3D.constants import INITIAL_FMAX_SENTINEL, INITIAL_ENERGY_SENTINEL
+from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_FMAX_SENTINEL, INITIAL_ENERGY_SENTINEL
 
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
@@ -126,7 +126,7 @@ def ensemble_opt(
     )
 
     # Get optional early termination parameters with defaults
-    energy_tol = param.get('energy_tol', 1e-4)
+    energy_tol = param.get('energy_tol', DEFAULT_ENERGY_TOL)
     energy_patience = param.get('energy_patience', 3)
     n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
             energy_tol=energy_tol, energy_patience=energy_patience,

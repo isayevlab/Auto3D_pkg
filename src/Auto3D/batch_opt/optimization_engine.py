@@ -13,6 +13,7 @@ import torch
 from tqdm import tqdm
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
+from Auto3D.constants import DEFAULT_ENERGY_TOL
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -79,7 +80,7 @@ def n_steps(
     n: int,
     opttol: float,
     patience: int,
-    energy_tol: float = 1e-4,
+    energy_tol: float = DEFAULT_ENERGY_TOL,
     energy_patience: int = 3,
     species_pad: int = -1,
 ) -> None:
