@@ -114,10 +114,16 @@ class Auto3DOptions:
     """Enable TF32 for faster matmul on Ampere+ GPUs (less precise). Default False."""
 
     def __post_init__(self):
-        """Normalize string values to lowercase."""
+        """Normalize string values to lowercase and validate ranges."""
         self.tauto_engine = self.tauto_engine.lower()
         self.isomer_engine = self.isomer_engine.lower()
         self.mode_oe = self.mode_oe.lower()
+        # Reject genuinely negative k/window. The default `False` (a bool, which
+        # is an int subclass) and 0 both mean "not specified" and are allowed.
+        if self.k is not None and self.k is not False and self.k < 0:
+            raise ValueError(f"k must be non-negative, got {self.k}")
+        if self.window is not None and self.window is not False and self.window < 0:
+            raise ValueError(f"window must be non-negative, got {self.window}")
 
     def __getitem__(self, key: str):
         """Allow dict-like access for backward compatibility."""

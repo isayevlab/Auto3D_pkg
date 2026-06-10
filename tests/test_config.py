@@ -144,3 +144,26 @@ def test_capacity_default_matches_across_layers():
     from Auto3D.config import Auto3DOptions
 
     assert Auto3DOptions(path="x.smi").capacity == CLIConfig(path="x.smi").capacity
+
+
+def test_negative_k_rejected():
+    import pytest
+    from Auto3D.config import Auto3DOptions
+    with pytest.raises(ValueError):
+        Auto3DOptions(path="x.smi", k=-1)
+
+
+def test_negative_window_rejected():
+    import pytest
+    from Auto3D.config import Auto3DOptions
+    with pytest.raises(ValueError):
+        Auto3DOptions(path="x.smi", window=-0.5)
+
+
+def test_default_and_valid_k_window_accepted():
+    from Auto3D.config import Auto3DOptions
+    # defaults (False) and valid positives must NOT raise
+    Auto3DOptions(path="x.smi")
+    Auto3DOptions(path="x.smi", k=5)
+    Auto3DOptions(path="x.smi", window=2.0)
+    Auto3DOptions(path="x.smi", k=0)  # 0 is "not specified", allowed
