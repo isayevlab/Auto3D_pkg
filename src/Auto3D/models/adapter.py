@@ -14,12 +14,18 @@ from Auto3D.constants import HARTREE_TO_EV
 from Auto3D.exceptions import NumericalError
 
 
-def _try_compile(model: nn.Module, mode: str = "reduce-overhead") -> nn.Module:
+def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
     """Attempt to compile a model with torch.compile.
 
     Args:
         model: The model to compile.
         mode: Compilation mode ('default', 'reduce-overhead', 'max-autotune').
+            Defaults to "default" and the model is compiled with dynamic=True.
+            The optimization batch shrinks every step as conformers converge, and
+            bucketing produces variable sub-batch sizes, so shapes are not static.
+            "reduce-overhead" (CUDA graphs) requires static shapes and would
+            trigger constant recompilation/guard failures here (review finding
+            #24); dynamic default mode avoids that.
 
     Returns:
         Compiled model, or original model if compilation fails.
@@ -27,7 +33,7 @@ def _try_compile(model: nn.Module, mode: str = "reduce-overhead") -> nn.Module:
     if not hasattr(torch, 'compile'):
         return model
     try:
-        return torch.compile(model, mode=mode, fullgraph=False)
+        return torch.compile(model, mode=mode, fullgraph=False, dynamic=True)
     except Exception as e:
         warnings.warn(f"torch.compile failed, using eager mode: {e}")
         return model

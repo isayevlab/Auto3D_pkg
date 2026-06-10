@@ -130,3 +130,10 @@ class TestChunkMeta:
 
         assert meta["output"] == "/path/to/output.sdf"
         assert meta["housekeeping_folder"] == "/path/to/housekeeping"
+
+
+def test_energy_tol_above_fp32_noise():
+    from Auto3D.constants import DEFAULT_ENERGY_TOL
+    # fp32 ULP at typical molecular total energies (~thousands of eV) is ~1e-3 eV;
+    # the tolerance must be at or above that to be a live criterion.
+    assert DEFAULT_ENERGY_TOL >= 1e-3
