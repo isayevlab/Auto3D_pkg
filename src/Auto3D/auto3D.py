@@ -73,46 +73,58 @@ def isomer_wrapper(
 
     tautomer_processor = TautomerProcessor(args)
 
-    for i, path_dir in enumerate(chunk_info):
-        logger.info(f"\n\nIsomer generation for job{i+1}")
-        path, dir = path_dir
-        meta = create_chunk_meta_names(path, dir)
-
-        # Tautomer enumeration (if enabled)
-        path = tautomer_processor.process(path, meta["output_taut"])
-
-        smiles_enumerated = meta["smiles_enumerated"]
-        smiles_reduced = meta["smiles_reduced"]
-        smiles_hashed = meta["smiles_hashed"]
-        enumerated_sdf = meta["enumerated_sdf"]
-        max_confs = args.max_confs
-        duplicate_threshold = args.threshold
-        mpi_np = args.mpi_np
-        enumerate_isomer = args.enumerate_isomer
-        isomer_program = args.isomer_engine
-        # Isomer enumeration step using factory
-        engine = IsomerEngineFactory.create(
-            engine_type=isomer_program,
-            input_path=path,
-            output_path=enumerated_sdf,
-            input_format=args.input_format,
-            smiles_enumerated=smiles_enumerated,
-            smiles_reduced=smiles_reduced,
-            smiles_hashed=smiles_hashed,
-            job_dir=dir,
-            max_confs=max_confs,
-            threshold=duplicate_threshold,
-            n_jobs=mpi_np,
-            enumerate_isomers=enumerate_isomer,
-            mode=args.mode_oe if isomer_program == 'omega' else 'classic',
-        )
-        engine.run()
-
-        queue.put((enumerated_sdf, path, dir, i+1))
-    if isinstance(args.gpu_idx, int) or len(args.gpu_idx) == 1:
-        queue.put("Done")
+    # Number of optimizer processes that will consume from the queue.
+    # Each optimizer blocks on queue.get() until it receives a "Done" sentinel,
+    # so we must emit exactly one sentinel per optimizer in a `finally` block to
+    # avoid deadlocking the optimizers when isomer generation fails partway.
+    if isinstance(args.gpu_idx, int):
+        n_optimizers = 1
     else:
-        for _ in range(len(args.gpu_idx)):
+        n_optimizers = len(args.gpu_idx)
+
+    try:
+        for i, path_dir in enumerate(chunk_info):
+            logger.info(f"\n\nIsomer generation for job{i+1}")
+            path, dir = path_dir
+            meta = create_chunk_meta_names(path, dir)
+
+            # Tautomer enumeration (if enabled)
+            path = tautomer_processor.process(path, meta["output_taut"])
+
+            smiles_enumerated = meta["smiles_enumerated"]
+            smiles_reduced = meta["smiles_reduced"]
+            smiles_hashed = meta["smiles_hashed"]
+            enumerated_sdf = meta["enumerated_sdf"]
+            max_confs = args.max_confs
+            duplicate_threshold = args.threshold
+            mpi_np = args.mpi_np
+            enumerate_isomer = args.enumerate_isomer
+            isomer_program = args.isomer_engine
+            # Isomer enumeration step using factory
+            engine = IsomerEngineFactory.create(
+                engine_type=isomer_program,
+                input_path=path,
+                output_path=enumerated_sdf,
+                input_format=args.input_format,
+                smiles_enumerated=smiles_enumerated,
+                smiles_reduced=smiles_reduced,
+                smiles_hashed=smiles_hashed,
+                job_dir=dir,
+                max_confs=max_confs,
+                threshold=duplicate_threshold,
+                n_jobs=mpi_np,
+                enumerate_isomers=enumerate_isomer,
+                mode=args.mode_oe if isomer_program == 'omega' else 'classic',
+            )
+            engine.run()
+
+            queue.put((enumerated_sdf, path, dir, i+1))
+    except Exception:
+        logger.exception("Isomer generation failed; signaling optimizers to stop.")
+        raise
+    finally:
+        # Always wake every optimizer, even on failure, so none blocks forever.
+        for _ in range(n_optimizers):
             queue.put("Done")
 
 

@@ -187,6 +187,31 @@ class TestChunkCreation:
         assert (tmp_path / "job3").exists()
 
 
+class TestIsomerWrapperFailure:
+    """Tests that isomer_wrapper emits sentinels even when generation fails."""
+
+    def test_isomer_wrapper_emits_sentinels_on_failure(self, monkeypatch):
+        """If isomer generation raises, every optimizer must still get a 'Done' sentinel."""
+        import multiprocessing as mp
+        from Auto3D.auto3D import isomer_wrapper
+        from Auto3D.config import Auto3DOptions
+
+        args = Auto3DOptions(path="x.smi", k=1, gpu_idx=[0, 1])
+        args.input_format = "smi"
+        q = mp.Manager().Queue()
+        logq = mp.Manager().Queue()
+
+        # chunk_info points at a nonexistent dir so engine.run() raises inside the worker
+        with pytest.raises(Exception):
+            isomer_wrapper([("/nonexistent/chunk.smi", "/nonexistent")], args, q, logq)
+
+        drained = []
+        while not q.empty():
+            drained.append(q.get())
+        # one "Done" per GPU even though generation failed
+        assert drained.count("Done") == 2
+
+
 class TestOptimizerEmptyInput:
     """Tests for optimizer handling of empty/missing input files."""
 

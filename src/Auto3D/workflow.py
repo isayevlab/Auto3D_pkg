@@ -52,6 +52,7 @@ class WorkflowOrchestrator:
         self.id_mapping: dict[str, str] = {}
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
+        self._logger_p: mp.Process | None = None
 
     def run(self) -> str:
         """Execute the full conformer generation pipeline.
@@ -75,16 +76,23 @@ class WorkflowOrchestrator:
         self._setup_job_directory()
         self._setup_logging()
 
-        # Phase 2: Prepare chunks
-        chunk_info = self._prepare_chunks()
+        try:
+            # Phase 2: Prepare chunks
+            chunk_info = self._prepare_chunks()
 
-        # Phase 3: Run pipeline
-        self._run_pipeline(chunk_info)
+            # Phase 3: Run pipeline
+            self._run_pipeline(chunk_info)
 
-        # Phase 4: Combine and finalize
-        output_path = self._finalize_output(start_time)
+            # Phase 4: Combine and finalize
+            output_path = self._finalize_output(start_time)
 
-        return output_path
+            return output_path
+        finally:
+            # Always flush the daemon logger and remove the temporary encoded
+            # input file, even when a phase raises partway through.
+            self._shutdown_logging()
+            if self.input_path.exists():
+                self.input_path.unlink()
 
     def _validate_input(self) -> None:
         """Validate input configuration and prepare encoded input file.
@@ -147,6 +155,7 @@ class WorkflowOrchestrator:
             daemon=True,
         )
         logger_p.start()
+        self._logger_p = logger_p
 
         # Configure main process logger
         self.logger = logging.getLogger("auto3d")
@@ -156,6 +165,23 @@ class WorkflowOrchestrator:
         # Log banner
         self._log_banner()
         self._log_parameters()
+
+    def _shutdown_logging(self) -> None:
+        """Flush and stop the daemon logging process.
+
+        Sends the poison-pill sentinel on the logging queue and joins the
+        logger process so its file handler flushes before the run returns.
+        Safe to call multiple times and when logging was never started.
+        """
+        if self.logging_queue is not None:
+            try:
+                self.logging_queue.put(None)
+            except Exception:
+                logger.warning("Failed to enqueue logger shutdown sentinel.")
+
+        if self._logger_p is not None:
+            self._logger_p.join(timeout=10)
+            self._logger_p = None
 
     def _log_banner(self) -> None:
         """Log the Auto3D ASCII art banner."""
@@ -240,10 +266,25 @@ class WorkflowOrchestrator:
         for p2 in p2s:
             p2.start()
 
-        # Wait for completion
+        # Wait for completion and supervise exit codes. The isomer worker emits
+        # a "Done" sentinel per optimizer in a `finally`, so even if it crashed
+        # the optimizers will drain and exit rather than block on queue.get().
         p1.join()
+        if p1.exitcode not in (0, None):
+            logger.error(
+                "Isomer generation process exited with code %s; "
+                "output may be incomplete.",
+                p1.exitcode,
+            )
+
         for p2 in p2s:
             p2.join()
+            if p2.exitcode not in (0, None):
+                logger.error(
+                    "Optimization process exited with code %s; "
+                    "output may be incomplete.",
+                    p2.exitcode,
+                )
 
     def _finalize_output(self, start_time: float) -> str:
         """Combine outputs and finalize the pipeline.
@@ -282,18 +323,12 @@ class WorkflowOrchestrator:
         reorder_sdf(str(path_combined), str(self.input_path))
         path_output = decode_ids(str(path_combined), self.id_mapping)
 
-        # Cleanup temporary files
-        self.input_path.unlink()
+        # Cleanup temporary files (input_path is unlinked in run()'s finally)
         path_combined.unlink()
 
         logger.info(f"Output path: {path_output}")
         if self.logger:
             self.logger.info(f"Output path: {path_output}")
-
-        # Shutdown logging
-        if self.logging_queue:
-            self.logging_queue.put(None)
-            time.sleep(3)
 
         # Clear model cache to free GPU memory
         ModelFactory.clear_cache()
