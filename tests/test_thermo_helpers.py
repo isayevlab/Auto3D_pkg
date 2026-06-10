@@ -15,10 +15,24 @@ def test_detect_geometry_linear_vs_nonlinear():
     assert _detect_geometry(water) == "nonlinear"
 
 
-def test_symmetry_number_basic():
+def test_symmetry_number_defaults_to_one():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _symmetry_number
-    benzene = Chem.MolFromSmiles("c1ccccc1")  # no explicit H -> 6-ring -> >= 12
-    assert _symmetry_number(benzene) >= 12
-    chiral = Chem.MolFromSmiles("C[C@H](O)Cl")  # central C all-different -> 1
-    assert _symmetry_number(chiral) == 1
+    m = Chem.MolFromSmiles("CCO")
+    assert _symmetry_number(m) == 1  # no property -> default 1
+
+
+def test_symmetry_number_reads_property():
+    from rdkit import Chem
+    from Auto3D.ASE.thermo import _symmetry_number
+    m = Chem.MolFromSmiles("c1ccccc1")
+    m.SetProp("symmetry_number", "12")
+    assert _symmetry_number(m) == 12
+
+
+def test_symmetry_number_invalid_property_falls_back():
+    from rdkit import Chem
+    from Auto3D.ASE.thermo import _symmetry_number
+    m = Chem.MolFromSmiles("CCO")
+    m.SetProp("symmetry_number", "not_a_number")
+    assert _symmetry_number(m) == 1
