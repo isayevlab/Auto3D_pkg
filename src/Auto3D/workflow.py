@@ -312,6 +312,12 @@ class WorkflowOrchestrator:
         for file_path in output_files:
             combined_data.extend(file_path.read_text().splitlines(keepends=True))
 
+        if not any(line.strip() == "$$$$" for line in combined_data):
+            raise OptimizationError(
+                "No 3D structure converged. None of the input molecules produced "
+                "an optimized conformer. Check input validity, memory, and patience settings."
+            )
+
         # Write combined output
         path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
         path_combined.write_text("".join(combined_data))
