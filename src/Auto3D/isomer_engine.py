@@ -9,7 +9,7 @@ from rdkit import Chem
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-from rdkit.Chem import AllChem, rdMolDescriptors
+from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -212,7 +212,6 @@ class RDKitIsomer:
             logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input_f)
             for name, smiles in smiles_og.items():
-                # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
                 mol = Chem.MolFromSmiles(smiles)
                 isomers = self.enumerate_func(mol)
                 self.enumerate[name] = isomers
@@ -330,8 +329,6 @@ class RDKitSdfIsomer:
                 #set conformer names
                 name = mol.GetProp('_Name')
                 for i, conf in enumerate(mol2.GetConformers()):
-                    # mol2.ClearProp('ID')
-                    # mol2.ClearProp('_Name')
                     mol2.SetProp('_Name', f'{name}_{i}')
                     mol2.SetProp('ID', f'{name}_{i}')
                     writer.write(mol2, confId=i)

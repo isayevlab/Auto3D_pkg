@@ -265,6 +265,61 @@ class TestPrepareChunks:
             assert Path(path).exists()
             assert Path(dir_).is_dir()
 
+    def test_prepare_chunks_does_not_mutate_config(self, tmp_path):
+        """prepare_chunks must not mutate the caller's batchsize_atoms.
+
+        The chunk-sizing logic scales batchsize_atoms by available memory; doing
+        that in place on the shared config compounds the multiplier when main()
+        is called twice with the same Auto3DOptions (OOM risk).
+        """
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO ethanol\nCCCO propanol\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            memory=4,  # fixed memory => deterministic multiplier
+            capacity=10,
+            batchsize_atoms=1024,
+        )
+        original = config.batchsize_atoms
+
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        manager.prepare_chunks()
+
+        # The caller's config must be untouched, even after a memory-scaled run.
+        assert config.batchsize_atoms == original
+
+    def test_prepare_chunks_exposes_scaled_batchsize(self, tmp_path):
+        """The memory-scaled batchsize must still be available for optimization."""
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO ethanol\nCCCO propanol\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            memory=4,
+            capacity=10,
+            batchsize_atoms=1024,
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        manager.prepare_chunks()
+
+        # batchsize scaled by the 4 GB memory budget.
+        assert manager.scaled_batchsize_atoms == 1024 * 4
+
 
 class TestLogging:
     """Tests for ChunkManager logging."""

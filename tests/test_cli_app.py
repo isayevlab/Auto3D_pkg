@@ -165,7 +165,7 @@ def test_config_init_invalid_preset(runner, tmp_path_cwd):
     result = runner.invoke(app, ["config", "init", "-p", "invalid"])
 
     assert result.exit_code == 1
-    assert "Unknown preset" in result.stdout
+    assert "Unknown preset" in result.stderr
 
 
 def test_config_show_displays_file(runner, tmp_path_cwd):
@@ -189,7 +189,7 @@ def test_config_show_not_found(runner, tmp_path_cwd):
     result = runner.invoke(app, ["config", "show", "nonexistent.yaml"])
 
     assert result.exit_code == 1
-    assert "not found" in result.stdout
+    assert "not found" in result.stderr
 
 
 def test_config_validate_valid(runner, tmp_path_cwd):
@@ -238,6 +238,28 @@ def test_run_with_nonexistent_file(runner):
 
     result = runner.invoke(app, ["run", "nonexistent.smi"])
     assert result.exit_code != 0
+
+
+def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
+    """--json stdout must be parseable even when the k/window warning fires."""
+    import json
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    import Auto3D.auto3D as a3d
+    out = tmp_path_cwd / "in_out.sdf"
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    with Chem.SDWriter(str(out)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO")); AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "mol1"); w.write(m)
+    monkeypatch.setattr(a3d, "main", lambda options: str(out))
+
+    result = runner.invoke(app, ["run", str(smi), "--json"])
+    assert result.exit_code == 0
+    json.loads(result.stdout)  # must not raise
 
 
 # Error handling tests

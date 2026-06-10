@@ -12,13 +12,9 @@ from __future__ import annotations
 import math
 import re
 from collections import OrderedDict, defaultdict
-from typing import Any
 
 from rdkit import Chem
-from rdkit.Chem.rdMolDescriptors import (
-    CalcNumAtomStereoCenters,
-    CalcNumUnspecifiedAtomStereoCenters,
-)
+from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 
 from Auto3D.utils.logging_config import get_logger
 
@@ -365,8 +361,6 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
         smi = value[0]
         mol = Chem.MolFromSmiles(smi)
         num_centers = CalcNumAtomStereoCenters(mol)
-        num_unspecified_centers = CalcNumUnspecifiedAtomStereoCenters(mol)
-        # num_configurations = 2 ** num_unspecified_centers
         num_configurations = 2**num_centers
         num = len(value) / num_configurations
 

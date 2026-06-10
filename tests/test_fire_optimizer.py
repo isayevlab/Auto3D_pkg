@@ -330,3 +330,24 @@ class TestFIRETorchScript:
 
         assert new_coord.shape == coord.shape
         assert not torch.allclose(new_coord, coord)
+
+
+def test_fire_trajectory_golden():
+    """FIRE must produce a deterministic trajectory; guards the branchless rewrite."""
+    import torch
+    from Auto3D.batch_opt.fire_optimizer import FIRE
+
+    torch.manual_seed(0)
+    # 3 molecules, 4 atoms each; mix of progressing/resetting dynamics
+    coord = torch.linspace(-1, 1, 36).reshape(3, 4, 3).contiguous()
+    opt = FIRE(coord)
+    with torch.no_grad():
+        for step in range(20):
+            # deterministic pseudo-forces depending on coord (toy quadratic well)
+            forces = -0.5 * coord + 0.1 * torch.sin(coord * 3.0)
+            coord = opt(coord, forces).detach()
+    checksum = float(coord.abs().sum().item())
+    # EXPECTED generated from the ORIGINAL (pre-rewrite) FIRE implementation and
+    # matched by the branchless rewrite; guards numerical equivalence.
+    EXPECTED = 12.077177047729492
+    assert abs(checksum - EXPECTED) < 1e-5, f"got {checksum}"

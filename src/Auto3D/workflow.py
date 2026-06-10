@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import time
+from dataclasses import replace
 from datetime import datetime
 from logging.handlers import QueueHandler
 from pathlib import Path
@@ -18,6 +19,11 @@ from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
 from Auto3D.utils.file_ops import decode_ids, encode_ids
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.workflow_workers import (
+    isomer_wrapper,
+    logger_process,
+    optim_rank_wrapper,
+)
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -52,6 +58,10 @@ class WorkflowOrchestrator:
         self.id_mapping: dict[str, str] = {}
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
+        self._logger_p: mp.Process | None = None
+        # Memory-scaled atom batch size for optimization, set in _prepare_chunks.
+        # Defaults to the unscaled config value.
+        self.scaled_batchsize_atoms: int = config.batchsize_atoms
 
     def run(self) -> str:
         """Execute the full conformer generation pipeline.
@@ -75,16 +85,23 @@ class WorkflowOrchestrator:
         self._setup_job_directory()
         self._setup_logging()
 
-        # Phase 2: Prepare chunks
-        chunk_info = self._prepare_chunks()
+        try:
+            # Phase 2: Prepare chunks
+            chunk_info = self._prepare_chunks()
 
-        # Phase 3: Run pipeline
-        self._run_pipeline(chunk_info)
+            # Phase 3: Run pipeline
+            self._run_pipeline(chunk_info)
 
-        # Phase 4: Combine and finalize
-        output_path = self._finalize_output(start_time)
+            # Phase 4: Combine and finalize
+            output_path = self._finalize_output(start_time)
 
-        return output_path
+            return output_path
+        finally:
+            # Always flush the daemon logger and remove the temporary encoded
+            # input file, even when a phase raises partway through.
+            self._shutdown_logging()
+            if self.input_path.exists():
+                self.input_path.unlink()
 
     def _validate_input(self) -> None:
         """Validate input configuration and prepare encoded input file.
@@ -135,8 +152,6 @@ class WorkflowOrchestrator:
 
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""
-        from Auto3D.auto3D import logger_process
-
         logging_path = self.job_dir / "Auto3D.log"
         self.logging_queue = mp.Manager().Queue(999)
 
@@ -147,6 +162,7 @@ class WorkflowOrchestrator:
             daemon=True,
         )
         logger_p.start()
+        self._logger_p = logger_p
 
         # Configure main process logger
         self.logger = logging.getLogger("auto3d")
@@ -156,6 +172,23 @@ class WorkflowOrchestrator:
         # Log banner
         self._log_banner()
         self._log_parameters()
+
+    def _shutdown_logging(self) -> None:
+        """Flush and stop the daemon logging process.
+
+        Sends the poison-pill sentinel on the logging queue and joins the
+        logger process so its file handler flushes before the run returns.
+        Safe to call multiple times and when logging was never started.
+        """
+        if self.logging_queue is not None:
+            try:
+                self.logging_queue.put(None)
+            except Exception:
+                logger.warning("Failed to enqueue logger shutdown sentinel.")
+
+        if self._logger_p is not None:
+            self._logger_p.join(timeout=10)
+            self._logger_p = None
 
     def _log_banner(self) -> None:
         """Log the Auto3D ASCII art banner."""
@@ -199,7 +232,12 @@ class WorkflowOrchestrator:
             job_dir=self.job_dir,
             workflow_logger=self.logger,
         )
-        return chunk_manager.prepare_chunks()
+        chunk_info = chunk_manager.prepare_chunks()
+        # Capture the memory-scaled batch size for the optimization workers.
+        # prepare_chunks() no longer mutates the shared config, so we thread the
+        # scaled value through to a per-run config copy in _run_pipeline.
+        self.scaled_batchsize_atoms = chunk_manager.scaled_batchsize_atoms
+        return chunk_info
 
     def _run_pipeline(self, chunk_info: list[tuple[str, str]]) -> None:
         """Run the isomer generation and optimization pipeline.
@@ -207,9 +245,14 @@ class WorkflowOrchestrator:
         Args:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
-        from Auto3D.auto3D import isomer_wrapper, optim_rank_wrapper
-
         chunk_queue: Queue[tuple[str, str, str, int] | str] = mp.Manager().Queue()
+
+        # Per-run config carrying the memory-scaled batch size for optimization.
+        # Built with dataclasses.replace so the caller's shared config is never
+        # mutated (review findings #35/#36).
+        opt_config = replace(
+            self.config, batchsize_atoms=self.scaled_batchsize_atoms
+        )
 
         # Create isomer generation process
         p1 = mp.Process(
@@ -223,7 +266,7 @@ class WorkflowOrchestrator:
             p2s.append(
                 mp.Process(
                     target=optim_rank_wrapper,
-                    args=(self.config, chunk_queue, self.logging_queue, self.config.gpu_idx),
+                    args=(opt_config, chunk_queue, self.logging_queue, self.config.gpu_idx),
                 )
             )
         else:
@@ -231,7 +274,7 @@ class WorkflowOrchestrator:
                 p2s.append(
                     mp.Process(
                         target=optim_rank_wrapper,
-                        args=(self.config, chunk_queue, self.logging_queue, idx),
+                        args=(opt_config, chunk_queue, self.logging_queue, idx),
                     )
                 )
 
@@ -240,10 +283,25 @@ class WorkflowOrchestrator:
         for p2 in p2s:
             p2.start()
 
-        # Wait for completion
+        # Wait for completion and supervise exit codes. The isomer worker emits
+        # a "Done" sentinel per optimizer in a `finally`, so even if it crashed
+        # the optimizers will drain and exit rather than block on queue.get().
         p1.join()
+        if p1.exitcode not in (0, None):
+            logger.error(
+                "Isomer generation process exited with code %s; "
+                "output may be incomplete.",
+                p1.exitcode,
+            )
+
         for p2 in p2s:
             p2.join()
+            if p2.exitcode not in (0, None):
+                logger.error(
+                    "Optimization process exited with code %s; "
+                    "output may be incomplete.",
+                    p2.exitcode,
+                )
 
     def _finalize_output(self, start_time: float) -> str:
         """Combine outputs and finalize the pipeline.
@@ -271,6 +329,12 @@ class WorkflowOrchestrator:
         for file_path in output_files:
             combined_data.extend(file_path.read_text().splitlines(keepends=True))
 
+        if not any(line.strip() == "$$$$" for line in combined_data):
+            raise OptimizationError(
+                "No 3D structure converged. None of the input molecules produced "
+                "an optimized conformer. Check input validity, memory, and patience settings."
+            )
+
         # Write combined output
         path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
         path_combined.write_text("".join(combined_data))
@@ -282,18 +346,12 @@ class WorkflowOrchestrator:
         reorder_sdf(str(path_combined), str(self.input_path))
         path_output = decode_ids(str(path_combined), self.id_mapping)
 
-        # Cleanup temporary files
-        self.input_path.unlink()
+        # Cleanup temporary files (input_path is unlinked in run()'s finally)
         path_combined.unlink()
 
         logger.info(f"Output path: {path_output}")
         if self.logger:
             self.logger.info(f"Output path: {path_output}")
-
-        # Shutdown logging
-        if self.logging_queue:
-            self.logging_queue.put(None)
-            time.sleep(3)
 
         # Clear model cache to free GPU memory
         ModelFactory.clear_cache()
@@ -322,16 +380,3 @@ class WorkflowOrchestrator:
         logger.info(msg)
         if self.logger:
             self.logger.info(msg)
-
-
-def run_workflow(config: Auto3DOptions) -> str:
-    """Convenience function to run the workflow.
-
-    Args:
-        config: Auto3D configuration options.
-
-    Returns:
-        Path to the output SDF file.
-    """
-    orchestrator = WorkflowOrchestrator(config)
-    return orchestrator.run()

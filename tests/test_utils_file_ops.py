@@ -559,6 +559,47 @@ class TestEncodeDecodeIds:
         # Clean up
         Path(new_path).unlink(missing_ok=True)
 
+    def test_encode_ids_rejects_duplicate_ids(self, tmp_path):
+        """Duplicate molecule IDs in a .smi file are rejected up front."""
+        from Auto3D.exceptions import InputValidationError
+
+        p = tmp_path / "dup.smi"
+        p.write_text("CCO mol1\nCCC mol1\n")
+        with pytest.raises(InputValidationError, match="[Dd]uplicate"):
+            encode_ids(str(p))
+
+    def test_encode_ids_rejects_missing_id(self, tmp_path):
+        """A .smi row without a whitespace-separated ID is rejected."""
+        from Auto3D.exceptions import InputValidationError
+
+        p = tmp_path / "noid.smi"
+        p.write_text("CCO\n")  # no whitespace-separated ID
+        with pytest.raises(InputValidationError, match="ID"):
+            encode_ids(str(p))
+
+    def test_encode_ids_roundtrip_unique(self, tmp_path):
+        """Unique IDs encode cleanly and appear in the mapping."""
+        p = tmp_path / "ok.smi"
+        p.write_text("CCO a\nCCC b\n")
+        _, mapping = encode_ids(str(p))
+        assert set(mapping) == {"a", "b"}
+
+    def test_encode_ids_rejects_blank_sdf_name(self, tmp_path):
+        """A molecule with a blank _Name in a .sdf file is rejected."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.exceptions import InputValidationError
+
+        sdf = tmp_path / "blank.sdf"
+        with Chem.SDWriter(str(sdf)) as w:
+            m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", "")  # blank name
+            w.write(m)
+        with pytest.raises(InputValidationError):
+            encode_ids(str(sdf))
+
 
 class TestReorderSdf:
     """Tests for reorder_sdf function."""

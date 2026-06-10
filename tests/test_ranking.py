@@ -375,3 +375,41 @@ class TestConformerRankerValidation:
 
         with pytest.raises(ValueError, match="All molecules must have the same name"):
             ranker.top_window(df, window=1.0)
+
+
+class TestConformerRankerEnergyUnitLabel:
+    """Tests that output mols carry a unit-labeled energy property."""
+
+    def test_output_has_labeled_energy_unit(self, tmp_path):
+        """After ranking, each output mol carries E_tot(Hartree) equal to E_tot.
+
+        E_tot is written in Hartree but unlabeled; E_tot(Hartree) is the
+        unit-labeled sibling so consumers can't misread units.
+        """
+        from Auto3D.ranking import ConformerRanker
+
+        # Distinct structures so both survive RMSD filtering.
+        mol1 = _create_mol_with_energy("CCO", -10.0, "mol_1")
+        mol2 = _create_mol_with_energy("CCCO", -9.0, "mol_2")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf([mol1, mol2], input_path)
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=5,
+        )
+        results = ranker.run()
+        assert len(results) >= 1
+
+        out_mols = list(Chem.SDMolSupplier(output_path, removeHs=False))
+        out_mols = [m for m in out_mols if m is not None]
+        assert len(out_mols) == len(results)
+        for mol in out_mols:
+            assert mol.HasProp("E_tot(Hartree)")
+            assert mol.HasProp("E_tot")
+            # Labeled sibling carries the same Hartree value as E_tot.
+            assert mol.GetProp("E_tot(Hartree)") == mol.GetProp("E_tot")

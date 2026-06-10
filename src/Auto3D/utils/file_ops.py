@@ -18,11 +18,11 @@ import hashlib
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from rdkit import Chem
 from rdkit.Chem import inchi
 
+from Auto3D.exceptions import InputValidationError
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -470,6 +470,8 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
 
     Raises:
         ValueError: If the input file is neither .smi nor .sdf format.
+        InputValidationError: If a molecule has a missing/blank ID or a
+            duplicate ID is encountered.
 
     Example:
         >>> new_path, mapping = encode_ids("molecules.smi")
@@ -488,7 +490,20 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
         for i, line in enumerate(data):
             if line.isspace():
                 continue
-            smi, id = line.strip().split()
+            parts = line.strip().split()
+            if len(parts) < 2:
+                raise InputValidationError(
+                    f"Line {i + 1} is missing a molecule ID "
+                    f"(expected 'SMILES ID'): {line.strip()!r}"
+                )
+            # Lenient parsing: any extra whitespace-separated columns beyond the
+            # ID are intentionally ignored (unlike a strict two-value unpack).
+            smi, id = parts[0], parts[1]
+            if id in mapping:
+                raise InputValidationError(
+                    f"Duplicate molecule ID {id!r} on line {i + 1}. "
+                    "IDs must be unique."
+                )
             mapping[id] = i
             new_data.append(f"{smi} {i}\n")
         with open(new_path, "w") as f:
@@ -505,6 +520,15 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
                     logger.warning(f"Skipping molecule at index {i}: failed to parse")
                     continue
                 id = mol.GetProp("_Name").strip()
+                if not id:
+                    raise InputValidationError(
+                        f"Molecule at index {i} has a missing or blank name."
+                    )
+                if id in mapping:
+                    raise InputValidationError(
+                        f"Duplicate molecule name {id!r} at index {i}. "
+                        "Names must be unique."
+                    )
                 mapping[id] = i
                 mol.SetProp("_Name", str(i))
                 w.write(mol)

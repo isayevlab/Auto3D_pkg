@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import torch
 from rdkit import Chem
 
-from Auto3D.batch_opt.batchopt import EnForce_ANI, mols2lists
+from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.padding import pad_from_mols
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev

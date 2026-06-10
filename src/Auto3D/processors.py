@@ -7,7 +7,7 @@ enumeration, isomer generation, and other processing steps.
 from __future__ import annotations
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.isomer_engine import tautomer_engine
+from Auto3D.isomers import create_tautomer_engine
 from Auto3D.utils import hash_taut_smi
 from Auto3D.utils.logging_config import get_logger
 
@@ -43,11 +43,11 @@ class TautomerProcessor:
             return input_path
 
         logger.info("Enumerating tautomers for the input...")
-        engine = tautomer_engine(
+        engine = create_tautomer_engine(
             self.config.tauto_engine,
             input_path,
             output_path,
-            self.config.pKaNorm
+            pka_norm=self.config.pKaNorm,
         )
         engine.run()
         hash_taut_smi(output_path, output_path)
