@@ -19,6 +19,14 @@ def stereo_changed(mol: Chem.Mol, reference_smiles: str) -> bool:
 
     Compares CIP codes per atom index. Atoms unspecified in the reference are
     ignored (enumeration may have assigned them legitimately).
+
+    Limitations (must be addressed before wiring into the pipeline):
+    - Comparison is keyed on raw atom index, so it is only correct when ``mol``
+      and ``reference_smiles`` share identical atom ordering (true when ``mol``
+      was built from this same SMILES via MolFromSmiles + AddHs). For arbitrary
+      orderings, match atoms canonically (e.g. GetSubstructMatch) instead.
+    - Only tetrahedral atom CIP codes are compared; double-bond (E/Z) stereo is
+      not checked.
     """
     ref = Chem.MolFromSmiles(reference_smiles)
     if ref is None:
