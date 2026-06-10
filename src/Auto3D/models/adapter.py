@@ -378,6 +378,10 @@ class CustomModelAdapter(BaseModelAdapter):
 
     Note: Custom models are typically TorchScript, which has limited
     torch.compile() benefits.
+
+    Note: inputs are cast to float32 before the forward pass. If your NNP
+    requires float64 precision (e.g. for very small energy differences),
+    wrap it to upcast internally, as Auto3D will feed it float32 coordinates.
     """
 
     def __init__(
@@ -415,7 +419,9 @@ class CustomModelAdapter(BaseModelAdapter):
         Returns:
             Tuple of (energies, forces) in eV units.
         """
-        # Convert to float32 for compatibility with most NNP models (e.g., ANI2x)
+        # Intentional downcast to float32 for compatibility with most NNP
+        # models (e.g., ANI2x). This silently loses precision for fp64 models;
+        # such models should upcast internally (see class docstring).
         input_dtype = coords.dtype
         coords_f32 = coords.float().requires_grad_(True)
         charges_f32 = charges.float()

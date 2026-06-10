@@ -261,3 +261,29 @@ def test_aimnet2_adapter_padded_batch_matches_unpadded():
     assert abs(float(e_b[1]) - float(e_m[0])) < 1e-2
     # padded slots of water (rows 3,4) carry zero force
     assert torch.allclose(f_b[0,3:], torch.zeros(2,3), atol=1e-6)
+
+
+def test_custom_model_adapter_runs(tmp_path):
+    """Custom-NNP path: a scripted (species, coords, charges)->energies model
+    must run through CustomModelAdapter and yield finite energy/forces."""
+    import torch
+    from Auto3D.models.adapter import CustomModelAdapter
+
+    class _Toy(torch.nn.Module):
+        coord_pad: float = 0.0
+        species_pad: int = -1
+        def forward(self, species, coords, charges):
+            # simple harmonic-ish energy = sum of squared coords per molecule
+            return (coords ** 2).sum(dim=(1, 2))
+
+    p = tmp_path / "toy.pt"
+    torch.jit.save(torch.jit.script(_Toy()), str(p))
+
+    ad = CustomModelAdapter(str(p), torch.device("cpu"))
+    coords = torch.randn(2, 4, 3)
+    species = torch.tensor([[1, 6, 7, 8], [1, 1, 6, -1]])
+    charges = torch.tensor([0.0, 0.0])
+    e, f = ad.forward(coords, species, charges)
+    assert e.shape == (2,)
+    assert f.shape == (2, 4, 3)
+    assert torch.isfinite(e).all() and torch.isfinite(f).all()
