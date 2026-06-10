@@ -208,6 +208,9 @@ class ConformerRanker:
             for mol in results:
                 # Change the energy unit from eV back to Hartree
                 mol.SetProp('E_tot', str(float(mol.GetProp('E_tot'))/hartree2ev))
+                # Unit-labeled sibling so consumers can't misread E_tot's units
+                # (E_tot is kept unlabeled for backward compatibility).
+                mol.SetProp('E_tot(Hartree)', mol.GetProp('E_tot'))
                 mol.SetProp('E_rel(kcal/mol)', str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol))
                 mol.ClearProp('E_rel(eV)')
                 #Remove _ in the molecule title
