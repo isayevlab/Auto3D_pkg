@@ -82,8 +82,26 @@ use_gpu: false
 
     config = load_yaml_config(yaml_file)
     assert config.k == 10
-    assert config.optimizing_engine == "ANI2X"  # Should be normalized to uppercase
+    # Engine strings are preserved verbatim (registry names/paths are
+    # case-sensitive); to_auto3d_options resolves built-ins case-insensitively.
+    assert config.optimizing_engine == "ANI2x"
+    assert config.to_auto3d_options().optimizing_engine == "ANI2x"
     assert config.use_gpu is False
+
+
+def test_config_accepts_registry_and_path_engines(tmp_path):
+    from Auto3D.cli.config_schema import CLIConfig
+    for eng in ("AIMNET", "aimnet2-2025", "ANI2x"):
+        assert CLIConfig(path="x.smi", optimizing_engine=eng).optimizing_engine == eng
+    f = tmp_path / "m.pt"; f.write_text("x")
+    assert CLIConfig(path="x.smi", optimizing_engine=str(f)).optimizing_engine == str(f)
+
+
+def test_config_rejects_garbage_engine():
+    import pytest
+    from Auto3D.cli.config_schema import CLIConfig
+    with pytest.raises(Exception):
+        CLIConfig(path="x.smi", optimizing_engine="not-a-model-or-path")
 
 
 def test_merge_cli_overrides():
