@@ -2,7 +2,7 @@
 from Auto3D.models.adapter import (
     ModelAdapter,
     BaseModelAdapter,
-    AIMNetAdapter,
+    AIMNet2Adapter,
     ANI2xAdapter,
     ANI2xtAdapter,
     CustomModelAdapter,
@@ -11,7 +11,7 @@ from Auto3D.models.adapter import (
 __all__ = [
     "ModelAdapter",
     "BaseModelAdapter",
-    "AIMNetAdapter",
+    "AIMNet2Adapter",
     "ANI2xAdapter",
     "ANI2xtAdapter",
     "CustomModelAdapter",

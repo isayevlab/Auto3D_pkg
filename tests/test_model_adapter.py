@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from Auto3D.models.adapter import ModelAdapter, AIMNetAdapter
+from Auto3D.models.adapter import ModelAdapter, AIMNet2Adapter
 
 
 def test_model_adapter_interface():
@@ -221,3 +221,43 @@ def test_try_compile_uses_dynamic_default_mode(monkeypatch):
     adapter._try_compile(m)
     assert captured.get("mode") == "default"
     assert captured.get("dynamic") is True
+
+
+def test_aimnet2_adapter_energy_forces_water():
+    import torch
+    from Auto3D.models.adapter import AIMNet2Adapter
+
+    ad = AIMNet2Adapter("aimnet2", torch.device("cpu"))
+    coord = torch.tensor([[[0.0, 0, 0], [0, 0, 0.97], [0, 0.92, -0.25]]])
+    species = torch.tensor([[8, 1, 1]])
+    charges = torch.tensor([0.0])
+    e, f = ad.forward(coord, species, charges)
+    assert e.shape == (1,)
+    assert f.shape == (1, 3, 3)
+    assert -3000 < float(e[0]) < -1000   # water total energy, eV
+    assert ad.species_pad == 0 and ad.coord_pad == 0.0
+
+
+def test_aimnet2_adapter_padded_batch_matches_unpadded():
+    """Padded multi-size batch must give per-molecule energies equal to solo runs."""
+    import torch
+    from Auto3D.models.adapter import AIMNet2Adapter
+    ad = AIMNet2Adapter("aimnet2", torch.device("cpu"))
+
+    water_c = torch.tensor([[0.,0,0],[0,0,0.97],[0,0.92,-0.25]])
+    water_n = torch.tensor([8,1,1])
+    meth_c = torch.tensor([[0.,0,0],[0.63,0.63,0.63],[-0.63,-0.63,0.63],[0.63,-0.63,-0.63],[-0.63,0.63,-0.63]])
+    meth_n = torch.tensor([6,1,1,1,1])
+
+    e_w, _ = ad.forward(water_c.unsqueeze(0), water_n.unsqueeze(0), torch.zeros(1))
+    e_m, _ = ad.forward(meth_c.unsqueeze(0), meth_n.unsqueeze(0), torch.zeros(1))
+
+    # padded batch: water padded to 5 with species_pad=0
+    bc = torch.zeros(2,5,3); bc[0,:3]=water_c; bc[1,:5]=meth_c
+    bn = torch.zeros(2,5,dtype=torch.long); bn[0,:3]=water_n; bn[1,:5]=meth_n
+    e_b, f_b = ad.forward(bc, bn, torch.zeros(2))
+    assert f_b.shape == (2,5,3)
+    assert abs(float(e_b[0]) - float(e_w[0])) < 1e-2  # padded water == solo water (NaN-free!)
+    assert abs(float(e_b[1]) - float(e_m[0])) < 1e-2
+    # padded slots of water (rows 3,4) carry zero force
+    assert torch.allclose(f_b[0,3:], torch.zeros(2,3), atol=1e-6)

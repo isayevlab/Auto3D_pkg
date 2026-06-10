@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import warnings
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import torch
@@ -185,50 +184,45 @@ class BaseModelAdapter(ABC, nn.Module):
         ...
 
 
-class AIMNetAdapter(BaseModelAdapter):
-    """Adapter for AIMNet2 models.
+class AIMNet2Adapter(BaseModelAdapter):
+    """Adapter for AIMNet2 models served by the `aimnet` package.
 
-    AIMNet2 models use atomic numbers directly and support charged molecules.
-    By default, uses a single model for fast optimization (~35x faster than ensemble).
+    Models are resolved by registry name/alias (e.g. 'aimnet2',
+    'aimnet2-2025', 'aimnet2-nse') and auto-downloaded + sha256-validated
+    into ~/.cache/aimnet on first use. Supports charged molecules and the
+    full AIMNet2 element set.
 
-    Note: AIMNet2 is a TorchScript model. torch.compile() has limited effect
-    on TorchScript models but is still attempted when compile_model=True.
-
-    Performance: Single model (default) is ~35x faster than ensemble while
-    maintaining accuracy sufficient for geometry optimization. Use ensemble
-    (use_ensemble=True) only when highest accuracy is required.
+    The optimizer feeds a padded (B, N, 3) batch. AIMNet2 does not tolerate
+    padding atoms (species 0 at the origin yields NaN), so this adapter
+    flattens real atoms and uses the calculator's ragged `mol_idx` batching,
+    then scatters forces back into the padded (B, N, 3) layout (padded slots
+    receive zero force).
     """
-
-    # Available model files
-    _ENSEMBLE_MODEL = "aimnet2_wb97m_ens_f.jpt"
-    _SINGLE_MODEL = "aimnet2_wb97m-d3_0.jpt"
 
     def __init__(
         self,
-        device: torch.device,
-        model_path: Path | None = None,
+        model_name: str = "aimnet2",
+        device: torch.device | None = None,
         compile_model: bool = False,
         use_ensemble: bool = False,
     ) -> None:
-        """Initialize AIMNet adapter.
+        """Initialize the AIMNet2 adapter.
 
         Args:
-            device: Target device for computations.
-            model_path: Optional path to model file. If None, uses built-in model.
-            compile_model: Whether to apply torch.compile() for optimization.
-            use_ensemble: If False (default), use single model for ~35x faster optimization.
-                If True, use 8-model ensemble for best accuracy.
-                Single model is recommended for geometry optimization.
+            model_name: aimnet registry name/alias.
+            device: Target device.
+            compile_model: Forwarded to AIMNet2Calculator (torch.compile).
+            use_ensemble: Reserved; a single registry member is used in 4.0.
         """
-        if model_path is None:
-            model_name = self._ENSEMBLE_MODEL if use_ensemble else self._SINGLE_MODEL
-            model_path = Path(__file__).parent / model_name
+        from aimnet.calculators import AIMNet2Calculator
 
+        if device is None:
+            device = torch.device("cpu")
+        self.model_name = model_name
         self._use_ensemble = use_ensemble
-        model = torch.jit.load(str(model_path), map_location=device)
-        # Note: TorchScript models don't benefit much from torch.compile
-        # but we pass it through for API consistency
-        super().__init__(model, device, coord_pad=0.0, species_pad=0, compile_model=False)
+        calc = AIMNet2Calculator(model_name, device=device, compile_model=compile_model)
+        super().__init__(calc.model, device, coord_pad=0.0, species_pad=0, compile_model=False)
+        self._calc = calc
 
     def forward(
         self,
@@ -236,29 +230,37 @@ class AIMNetAdapter(BaseModelAdapter):
         species: torch.Tensor,
         charges: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute energies and forces using AIMNet2.
+        """Compute energies (eV) and forces (eV/A) for a padded batch.
 
         Args:
-            coords: Atomic coordinates (batch, n_atoms, 3).
-            species: Atomic numbers (batch, n_atoms).
-            charges: Molecular charges (batch,).
+            coords: (batch, n_atoms, 3); padded slots at coord_pad.
+            species: atomic numbers (batch, n_atoms); padded slots == species_pad (0).
+            charges: molecular charges (batch,).
 
         Returns:
-            Tuple of (energies, forces) in eV units.
+            (energy[batch], forces[batch, n_atoms, 3]) in eV and eV/A. Padded
+            atom slots have zero force.
         """
-        # Ensure coords have gradients for force computation
-        coords = coords.requires_grad_(True)
-        result = self.model(dict(coord=coords, numbers=species, charge=charges))
-        energy = result['energy'].to(torch.double)
+        b, n = species.shape[0], species.shape[1]
+        mask = species != self.species_pad                     # (B, N) real-atom mask
+        coord_flat = coords[mask]                              # (M, 3)
+        numbers_flat = species[mask]                           # (M,)
+        mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]  # (M,)
 
-        # Ensemble model outputs forces directly; single model needs autograd
-        if 'forces' in result:
-            forces = result['forces']
-        else:
-            # create_graph=False (default) avoids building second-order gradient graph
-            grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
-            forces = -grad
+        result = self._calc(
+            {
+                "coord": coord_flat,
+                "numbers": numbers_flat,
+                "charge": charges.to(coord_flat.dtype),
+                "mol_idx": mol_idx,
+            },
+            forces=True,
+        )
+        energy = result["energy"].reshape(-1).to(torch.double)  # (B,)
+        forces_flat = result["forces"].reshape(-1, 3)           # (M, 3)
 
+        forces = torch.zeros(b, n, 3, dtype=forces_flat.dtype, device=forces_flat.device)
+        forces[mask] = forces_flat
         _validate_outputs(energy, forces)
         return energy, forces
 
