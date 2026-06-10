@@ -80,7 +80,7 @@ def print_warning(message: str) -> None:
     Args:
         message: Warning message to display.
     """
-    console.print(f"[yellow]⚠[/yellow] {message}")
+    error_console.print(f"[yellow]⚠[/yellow] {message}")
 
 
 def print_error(message: str, hint: str | None = None) -> None:

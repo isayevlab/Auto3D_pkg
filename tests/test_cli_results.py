@@ -94,3 +94,21 @@ def test_output_json():
 
     # Should not raise
     output_json(results)
+
+
+def test_count_from_output_counts_molecules_and_conformers(tmp_path):
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from Auto3D.cli.results import count_from_output
+
+    out = tmp_path / "out.sdf"
+    with Chem.SDWriter(str(out)) as w:
+        for name in ["a", "a", "b"]:  # 2 unique ids, 3 conformers
+            m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", name)
+            w.write(m)
+
+    molecules, conformers = count_from_output(str(out))
+    assert molecules == 2
+    assert conformers == 3

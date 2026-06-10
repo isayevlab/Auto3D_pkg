@@ -107,6 +107,25 @@ def print_failures(failures: list[FailedMolecule], verbose: bool = False) -> Non
         console.print("[dim]Run with -v to see details[/dim]")
 
 
+def count_from_output(output_path: str) -> tuple[int, int]:
+    """Return (unique_molecule_count, conformer_count) from an output SDF.
+
+    Molecule identity is the input ID - the part of the conformer name
+    before the first '@'.
+    """
+    from rdkit import Chem
+
+    suppl = Chem.SDMolSupplier(output_path, removeHs=False)
+    ids: set[str] = set()
+    conformers = 0
+    for mol in suppl:
+        if mol is None:
+            continue
+        conformers += 1
+        ids.add(mol.GetProp("_Name").split("@")[0].strip())
+    return len(ids), conformers
+
+
 def output_json(results: WorkflowResults) -> None:
     """Output results as JSON.
 
