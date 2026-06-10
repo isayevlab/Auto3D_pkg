@@ -13,6 +13,7 @@ import torch
 from tqdm import tqdm
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
+from Auto3D.constants import DEFAULT_ENERGY_TOL
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -79,8 +80,9 @@ def n_steps(
     n: int,
     opttol: float,
     patience: int,
-    energy_tol: float = 1e-4,
+    energy_tol: float = DEFAULT_ENERGY_TOL,
     energy_patience: int = 3,
+    species_pad: int = -1,
 ) -> None:
     """Run n optimization steps for each input structure.
 
@@ -105,9 +107,16 @@ def n_steps(
         opttol: Force convergence tolerance in eV/Angstrom.
         patience: Number of steps without force decrease before dropping a structure
             as oscillating.
-        energy_tol: Energy convergence threshold in eV (default 1e-4 eV = ~0.002 kcal/mol).
+        energy_tol: Energy convergence threshold in eV (default 1e-3 eV = ~0.02 kcal/mol,
+            kept above float32 ULP at typical total energies so the criterion is live).
         energy_patience: Number of steps energy must be stable before considering
             converged (default 3).
+        species_pad: Atomic-number value used to pad short molecules up to the
+            batch's atom count. Forces on these ghost atom slots are zeroed
+            before the force-convergence reduction so convergence does not
+            depend on how the model treats padded atoms (default -1, which
+            matches no real species and is therefore a no-op for unpadded
+            batches).
     """
     numbers = state['numbers']
     charges = state['charges']
@@ -133,11 +142,21 @@ def n_steps(
     istep = 0  # Initialize in case loop doesn't execute (n=0)
     for istep in tqdm(range(1, (n + 1), 1)):
         not_converged = ~ state['converged_mask']  # Essential tracker handle, size fixed
-        # Stop optimization if all structures converged.
-        if not not_converged.any():
+        # Stop optimization if all structures converged. The all-converged check
+        # `not not_converged.any()` forces a GPU->CPU sync, so throttle it to
+        # every 10 steps. `not_converged` itself is still recomputed every step
+        # because the loop body subsets the batch with it below.
+        if istep % 10 == 0 and not not_converged.any():
             break
 
         coord = state['coord'][not_converged]  # Subset coordinates, size=not_converged.
+        # On non-throttle steps we may reach here after every molecule has
+        # converged (the .any() break only runs every 10 steps). Subsetting then
+        # yields a zero-length batch; bail out before the (empty) NN call rather
+        # than feeding an empty batch through the model. `.shape[0]` is host-side
+        # tensor metadata, so this guard adds no host-device sync.
+        if coord.shape[0] == 0:
+            break
         numbers = state['numbers'][not_converged]
         charges = state['charges'][not_converged]
         smallest_fmax = smallest_fmax0[not_converged]
@@ -150,7 +169,18 @@ def n_steps(
                                            charges)  # Key step to calculate all energies and forces.
         coord.requires_grad_(False)
 
-        coord = optimizer(coord, f)
+        # Zero forces on padded atom slots so convergence is independent of how
+        # the model treats ghost atoms (species == species_pad). Use the
+        # loop-local `numbers` subset (state['numbers'][not_converged]) so the
+        # mask aligns with the current batch of f. Masking before the optimizer
+        # step also keeps padded atoms from drifting.
+        pad_mask = (numbers == species_pad).unsqueeze(-1)
+        f = f.masked_fill(pad_mask, 0.0)
+        # Detach the optimizer output so the next step starts from a leaf tensor.
+        # Production adapters return detached forces, so coord never tracks grad
+        # across steps; detaching here makes the loop robust to NNPs whose forces
+        # still carry a grad graph (otherwise the next requires_grad_ would error).
+        coord = optimizer(coord, f).detach()
         fmax = f.norm(dim=-1).max(dim=-1)[
             0]  # Tensor, Norm is the length of each vector. Here it returns the maximum force length for each conformer. Size (100)
         not_converged_post1 = fmax > opttol
@@ -171,8 +201,11 @@ def n_steps(
         energy_stable = energy_change < energy_tol
         # Increment count where energy is stable, reset where not
         energy_stable_subset = torch.where(energy_stable, energy_stable_subset + 1, torch.zeros_like(energy_stable_subset))
-        # Consider converged if energy stable for energy_patience steps AND force is reasonable (< 10x opttol)
-        energy_converged = (energy_stable_subset >= energy_patience) & (fmax < opttol * 10)
+        # Consider converged if energy stable for energy_patience steps AND force is
+        # below opttol. Requiring fmax < opttol (not 10x) keeps the reported geometry
+        # self-consistent: every conformer stops at the same force level, so ranking
+        # does not reorder conformers that merely stopped at looser force thresholds.
+        energy_converged = (energy_stable_subset >= energy_patience) & (fmax < opttol)
 
         # Combine all convergence criteria
         not_converged_post = not_converged_post1 & not_oscillating & ~energy_converged
@@ -196,6 +229,15 @@ def n_steps(
         # Print stats every 10% of steps (avoid division by zero for small n)
         if n >= 10 and (istep % (n // 10)) == 0:
             print_stats(state, patience)
+
+    # Energy stored during the loop is evaluated at the pre-step geometry, while
+    # the stored coordinates are post-step. Recompute energy once at the final
+    # geometry so state['energy'] is consistent with state['coord'].
+    # (Forces are recomputed too by the adapters but discarded; grad must be
+    # enabled because the adapters differentiate internally for forces.)
+    final_coord = state['coord'].detach().clone().requires_grad_(True)
+    e_final, _ = state['nn'].forward_batched(final_coord, state['numbers'], state['charges'])
+    state['energy'] = e_final.detach().to(state['energy'].dtype)
 
     if istep == (n):
         logger.info("Reaching maximum optimization step:")

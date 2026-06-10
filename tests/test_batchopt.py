@@ -132,7 +132,7 @@ class TestConvergenceStatus:
         charges = torch.tensor([0, 0], dtype=torch.long)
         param = {'opt_steps': 10, 'opttol': 0.01, 'patience': 5}
 
-        result = ensemble_opt(model, coord, numbers, charges, param, "AIMNET", torch.device("cpu"))
+        result = ensemble_opt(model, coord, numbers, charges, param, torch.device("cpu"))
 
         # Verify new fields are present
         assert 'converged_mask' in result, "converged_mask missing from ensemble_opt return"
@@ -186,3 +186,58 @@ class TestGPUCleanup:
         source = inspect.getsource(optimizing.run)
         assert 'empty_cache' in source, "GPU cleanup missing from run() method"
         assert 'cuda.is_available' in source, "CUDA availability check missing"
+
+
+def test_make_buckets_groups_by_size(tmp_path):
+    """Buckets must be size-homogeneous; a size outlier splits into its own bucket."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    import torch
+    from Auto3D.batch_opt.batchopt import optimizing
+
+    # Build an optimizing instance without running (just to call _make_buckets)
+    inp = tmp_path / "in.sdf"
+    sizes = ["C", "CC", "CCC", "C1CCCCCCCCCCCCCCCCCCC1"]  # tiny ... and one big ring
+    mols = []
+    with Chem.SDWriter(str(inp)) as w:
+        for i, s in enumerate(sizes):
+            m = Chem.AddHs(Chem.MolFromSmiles(s)); AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", str(i)); w.write(m); mols.append(m)
+    eng = optimizing(str(inp), str(tmp_path/"o.sdf"), "AIMNET", torch.device("cpu"),
+                     {"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
+    buckets = eng._make_buckets(mols)
+    # the big 20-carbon ring must not share a bucket with methane
+    big_idx = 3
+    big_bucket = [b for b in buckets if big_idx in b][0]
+    assert all(mols[i].GetNumAtoms() > 0.8 * mols[big_idx].GetNumAtoms() for i in big_bucket)
+
+
+def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
+    """Bucketing reorders internally but output order must match input."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    import torch
+    import Auto3D.batch_opt.batchopt as bo
+
+    inp = tmp_path / "in.sdf"
+    smis = ["CCCCCCCC", "C", "CCC"]  # 8,1,3 heavy atoms - deliberately unsorted
+    with Chem.SDWriter(str(inp)) as w:
+        for i, s in enumerate(smis):
+            m = Chem.AddHs(Chem.MolFromSmiles(s)); AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", str(i)); w.write(m)
+
+    def fake_ensemble_opt(net, coord, numbers, charges, param, device,
+                          species_pad=-1):
+        n = len(coord)
+        return dict(coord=coord.tolist(), ids=list(range(n)), energy=[0.0]*n,
+                    fmax=[0.0]*n, he=[], close=[], timing={},
+                    numbers=numbers.tolist(), converged_mask=[True]*n,
+                    oscillating_count=[0]*n)
+    monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
+
+    out = tmp_path / "out.sdf"
+    eng = bo.optimizing(str(inp), str(out), "AIMNET", torch.device("cpu"),
+                        {"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
+    eng.run()
+    names = [m.GetProp("_Name") for m in Chem.SDMolSupplier(str(out), removeHs=False)]
+    assert names == ["0", "1", "2"]  # original input order

@@ -130,3 +130,40 @@ class TestChunkMeta:
 
         assert meta["output"] == "/path/to/output.sdf"
         assert meta["housekeeping_folder"] == "/path/to/housekeeping"
+
+
+def test_energy_tol_above_fp32_noise():
+    from Auto3D.constants import DEFAULT_ENERGY_TOL
+    # fp32 ULP at typical molecular total energies (~thousands of eV) is ~1e-3 eV;
+    # the tolerance must be at or above that to be a live criterion.
+    assert DEFAULT_ENERGY_TOL >= 1e-3
+
+
+def test_capacity_default_matches_across_layers():
+    from Auto3D.cli.config_schema import CLIConfig
+    from Auto3D.config import Auto3DOptions
+
+    assert Auto3DOptions(path="x.smi").capacity == CLIConfig(path="x.smi").capacity
+
+
+def test_negative_k_rejected():
+    import pytest
+    from Auto3D.config import Auto3DOptions
+    with pytest.raises(ValueError):
+        Auto3DOptions(path="x.smi", k=-1)
+
+
+def test_negative_window_rejected():
+    import pytest
+    from Auto3D.config import Auto3DOptions
+    with pytest.raises(ValueError):
+        Auto3DOptions(path="x.smi", window=-0.5)
+
+
+def test_default_and_valid_k_window_accepted():
+    from Auto3D.config import Auto3DOptions
+    # defaults (False) and valid positives must NOT raise
+    Auto3DOptions(path="x.smi")
+    Auto3DOptions(path="x.smi", k=5)
+    Auto3DOptions(path="x.smi", window=2.0)
+    Auto3DOptions(path="x.smi", k=0)  # 0 is "not specified", allowed

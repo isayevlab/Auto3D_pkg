@@ -5,10 +5,7 @@ Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 from __future__ import annotations
 
 import os
-import sys
 
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(root)
 import torch
 from rdkit import Chem
 
@@ -66,10 +63,11 @@ def opt_geometry(
     ev2hatree = 1 / hartree2ev
     # Create output path in the same directory as the input file
     dir = os.path.dirname(path)
-    if os.path.exists(path):
-        basename = os.path.basename(path).split(".")[0] + "_userNNP_opt.sdf"
+    stem = os.path.basename(path).split(".")[0]
+    if os.path.exists(model_name):  # custom NNP passed as a file path
+        basename = stem + "_userNNP_opt.sdf"
     else:
-        basename = os.path.basename(path).split(".")[0] + f"_{model_name}_opt.sdf"
+        basename = stem + f"_{model_name}_opt.sdf"
     outpath = os.path.join(dir, basename)
 
     if torch.cuda.is_available():

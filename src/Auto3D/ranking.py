@@ -51,26 +51,6 @@ class ConformerRanker:
         self.use_optimized_filtering = use_optimized_filtering
         self.energy_cluster_window = energy_cluster_window
 
-    @staticmethod
-    def add_relative_e(
-        list0: list[tuple[int, str, float]],
-    ) -> list[tuple[int, str, float, float]]:
-        """Add relative energies compared with lowest-energy structure.
-
-        Args:
-            list0: List of (idx, name, energy) tuples.
-
-        Returns:
-            List of (idx, name, energy, relative_energy) tuples.
-        """
-        list0_ = []
-        _, _, e_m = list0[0]
-        for idx_name_e in list0:
-            idx_i, name_i, e_i = idx_name_e
-            e_relative = e_i - e_m
-            list0_.append((idx_i, name_i, e_i, e_relative))
-        return list0_
-
     def _filter_mols(self, mols: list[Chem.Mol]) -> list[Chem.Mol]:
         """Filter molecules to remove duplicates based on RMSD.
 
@@ -208,6 +188,9 @@ class ConformerRanker:
             for mol in results:
                 # Change the energy unit from eV back to Hartree
                 mol.SetProp('E_tot', str(float(mol.GetProp('E_tot'))/hartree2ev))
+                # Unit-labeled sibling so consumers can't misread E_tot's units
+                # (E_tot is kept unlabeled for backward compatibility).
+                mol.SetProp('E_tot(Hartree)', mol.GetProp('E_tot'))
                 mol.SetProp('E_rel(kcal/mol)', str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol))
                 mol.ClearProp('E_rel(eV)')
                 #Remove _ in the molecule title

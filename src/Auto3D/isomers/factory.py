@@ -1,7 +1,7 @@
 """Factory classes and functions for creating isomer engines."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from Auto3D.isomers.base import BaseIsomerEngine, IsomerEngine, TautomerEngine
 

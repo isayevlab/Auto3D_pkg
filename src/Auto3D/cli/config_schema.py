@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from Auto3D.config import Auto3DOptions
 from Auto3D.constants import (
+    DEFAULT_CAPACITY,
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
     DEFAULT_PATIENCE,
@@ -56,7 +57,7 @@ class CLIConfig(BaseModel):
 
     # Resource settings
     memory: int | None = Field(None, ge=1)
-    capacity: int = Field(40, ge=1)
+    capacity: int = Field(DEFAULT_CAPACITY, ge=1)
 
     # Output settings
     verbose: bool = False

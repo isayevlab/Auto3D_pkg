@@ -11,7 +11,7 @@ This module provides:
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 from rdkit import Chem
@@ -351,7 +351,7 @@ def amend_mol(
 def get_mol_connectivity(
     mol: Chem.Mol,
     include_bond_order: bool = False,
-) -> Union[set[tuple[int, int]], set[tuple[int, int, float]]]:
+) -> set[tuple[int, int]] | set[tuple[int, int, float]]:
     """Get the bond connectivity of a molecule.
 
     Returns a set of tuples representing bonds in the molecule. Each tuple

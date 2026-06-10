@@ -207,3 +207,17 @@ class TestCustomModelAdapter:
         # Default values when model doesn't have the attributes
         assert adapter.coord_pad == 0.0
         assert adapter.species_pad == -1
+
+
+def test_try_compile_uses_dynamic_default_mode(monkeypatch):
+    import Auto3D.models.adapter as adapter
+    captured = {}
+    def fake_compile(model, **kwargs):
+        captured.update(kwargs)
+        return model
+    monkeypatch.setattr(adapter.torch, "compile", fake_compile)
+    import torch.nn as nn
+    m = nn.Linear(2, 2)
+    adapter._try_compile(m)
+    assert captured.get("mode") == "default"
+    assert captured.get("dynamic") is True

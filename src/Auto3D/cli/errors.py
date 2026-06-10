@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from rich.panel import Panel
 
-from Auto3D.cli.console import console, error_console
+from Auto3D.cli.console import error_console
 from Auto3D.exceptions import (
     Auto3DError,
     ConfigurationError,

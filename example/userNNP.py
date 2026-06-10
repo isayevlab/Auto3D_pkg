@@ -1,8 +1,8 @@
 import torch
 import torchani
 # from torch import Tensor
-from typing import NamedTuple, Optional
-from Auto3D.auto3D import options, main
+from Auto3D.auto3D import main
+from Auto3D.config import Auto3DOptions
 
 
 class userNNP(torch.nn.Module):
@@ -60,6 +60,6 @@ if __name__ == '__main__':
     # myNNP_jit = torch.jit.load(model_path)
     # print(myNNP_jit.code)
     # path = os.path.join(curr_dir, 'files/smiles.smi')
-    # args = options(path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
+    # args = Auto3DOptions(path=path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
     # out = main(args)
     # print(out)

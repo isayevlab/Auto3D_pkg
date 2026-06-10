@@ -51,6 +51,11 @@ class ChunkManager:
         self.input_format = input_format
         self.job_dir = job_dir
         self.workflow_logger = workflow_logger
+        # Memory-scaled atom batch size, computed in prepare_chunks(). Kept on
+        # the manager (not written back to the shared config) so that calling
+        # main() twice with the same Auto3DOptions does not compound the
+        # multiplier (OOM risk). Defaults to the unscaled config value.
+        self.scaled_batchsize_atoms: int = config.batchsize_atoms
 
     def calculate_memory_and_chunks(self) -> tuple[int, int, int]:
         """Calculate available memory and chunk configuration.
@@ -87,8 +92,11 @@ class ChunkManager:
         """
         memory_gb, chunk_size, num_jobs = self.calculate_memory_and_chunks()
 
-        # Update batchsize based on memory
-        self.config.batchsize_atoms = self.config.batchsize_atoms * memory_gb
+        # Scale batchsize by available memory. Store on the manager rather than
+        # mutating self.config: the config is shared with the caller and the
+        # optimization workers, and mutating it in place would compound the
+        # multiplier on repeated main() calls (review findings #35/#36).
+        self.scaled_batchsize_atoms = self.config.batchsize_atoms * memory_gb
 
         # Read input data
         if self.input_format == "smi":

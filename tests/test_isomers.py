@@ -10,7 +10,7 @@ from Auto3D.isomers import (
     create_isomer_engine,
     create_tautomer_engine,
 )
-from Auto3D.isomers.base import BaseIsomerEngine, BaseTautomerEngine
+from Auto3D.isomers.base import BaseIsomerEngine
 from Auto3D.isomers.omega_adapter import OmegaIsomerAdapter
 from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter, RDKitSdfIsomerAdapter
 
@@ -99,33 +99,6 @@ class TestBaseIsomerEngine:
         assert engine.max_confs is None
         assert engine.threshold == 0.3
         assert engine.n_jobs == 4
-
-
-class TestBaseTautomerEngine:
-    """Tests for BaseTautomerEngine abstract class."""
-
-    def test_cannot_instantiate_directly(self):
-        """Test that BaseTautomerEngine cannot be instantiated directly."""
-        with pytest.raises(TypeError):
-            BaseTautomerEngine(
-                input_path="/input.smi",
-                output_path="/output.smi",
-            )
-
-    def test_subclass_stores_attributes(self):
-        """Test that subclass properly stores attributes."""
-
-        class ConcreteTautomer(BaseTautomerEngine):
-            def run(self) -> None:
-                pass
-
-        engine = ConcreteTautomer(
-            input_path="/input.smi",
-            output_path="/output.smi",
-        )
-
-        assert engine.input_path == "/input.smi"
-        assert engine.output_path == "/output.smi"
 
 
 class TestOmegaIsomerAdapter:

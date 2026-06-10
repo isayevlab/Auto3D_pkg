@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Union
 
 import pandas as pd
 from rdkit import Chem
@@ -26,17 +25,17 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     if (k is not None) and (window is not None):
         raise ValueError("Only k OR window needs to be specified")        
     
-    mols = Chem.SDMolSupplier(sdf, removeHs=False)
+    supplier = Chem.SDMolSupplier(sdf, removeHs=False)
+    mols = [m for m in supplier if m is not None]
     for mol in mols:
-        mol.ClearProp("E_rel(kcal/mol)")  #this is relative energies of conformers
+        if mol.HasProp("E_rel(kcal/mol)"):
+            mol.ClearProp("E_rel(kcal/mol)")  # conformer-level energy, not tautomer-level
 
     titles = [mol.GetProp("_Name") for mol in mols]
     ids = [title.split("@")[0].strip() for title in titles]
     energies = [float(mol.GetProp("E_tot")) * hartree2kcalpermol for mol in mols]
     df = pd.DataFrame({"id": ids, "energy": energies, "mol": mols})
-    groups = df.groupby(by=["id"])
-    for group_name in groups.indices:
-        group = groups.get_group(group_name)
+    for group_name, group in df.groupby("id"):
         group = group.sort_values(by="energy")
         out_mols0 = list(group["mol"])
         ref_energy = float(out_mols0[0].GetProp("E_tot")) * hartree2kcalpermol
@@ -78,7 +77,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
 
 
 def get_stable_tautomers(
-    args: Union[dict, Auto3DOptions],
+    args: dict | Auto3DOptions,
     tauto_k: int | None = None,
     tauto_window: float | None = None
 ) -> str:

@@ -10,7 +10,7 @@ import yaml
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from Auto3D.cli.config_schema import CLIConfig, load_yaml_config
+from Auto3D.cli.config_schema import load_yaml_config
 from Auto3D.cli.console import console, print_error, print_success
 from Auto3D.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,

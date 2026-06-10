@@ -9,6 +9,18 @@ import pytest
 from Auto3D.utils.stereochemistry import enantiomer, no_enantiomer_helper
 
 
+def test_detect_stereo_change():
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from Auto3D.utils.stereo_check import stereo_changed
+
+    m = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)Cl"))
+    AllChem.EmbedMolecule(m, randomSeed=1)
+    Chem.AssignStereochemistryFrom3D(m)
+    assert stereo_changed(m, reference_smiles="C[C@H](O)Cl") is False
+    assert stereo_changed(m, reference_smiles="C[C@@H](O)Cl") is True
+
+
 class TestEnantiomerValidation:
     """Tests for the enantiomer() function validation."""
 
