@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import time
+from dataclasses import replace
 from datetime import datetime
 from logging.handlers import QueueHandler
 from pathlib import Path
@@ -58,6 +59,9 @@ class WorkflowOrchestrator:
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
         self._logger_p: mp.Process | None = None
+        # Memory-scaled atom batch size for optimization, set in _prepare_chunks.
+        # Defaults to the unscaled config value.
+        self.scaled_batchsize_atoms: int = config.batchsize_atoms
 
     def run(self) -> str:
         """Execute the full conformer generation pipeline.
@@ -228,7 +232,12 @@ class WorkflowOrchestrator:
             job_dir=self.job_dir,
             workflow_logger=self.logger,
         )
-        return chunk_manager.prepare_chunks()
+        chunk_info = chunk_manager.prepare_chunks()
+        # Capture the memory-scaled batch size for the optimization workers.
+        # prepare_chunks() no longer mutates the shared config, so we thread the
+        # scaled value through to a per-run config copy in _run_pipeline.
+        self.scaled_batchsize_atoms = chunk_manager.scaled_batchsize_atoms
+        return chunk_info
 
     def _run_pipeline(self, chunk_info: list[tuple[str, str]]) -> None:
         """Run the isomer generation and optimization pipeline.
@@ -237,6 +246,13 @@ class WorkflowOrchestrator:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
         chunk_queue: Queue[tuple[str, str, str, int] | str] = mp.Manager().Queue()
+
+        # Per-run config carrying the memory-scaled batch size for optimization.
+        # Built with dataclasses.replace so the caller's shared config is never
+        # mutated (review findings #35/#36).
+        opt_config = replace(
+            self.config, batchsize_atoms=self.scaled_batchsize_atoms
+        )
 
         # Create isomer generation process
         p1 = mp.Process(
@@ -250,7 +266,7 @@ class WorkflowOrchestrator:
             p2s.append(
                 mp.Process(
                     target=optim_rank_wrapper,
-                    args=(self.config, chunk_queue, self.logging_queue, self.config.gpu_idx),
+                    args=(opt_config, chunk_queue, self.logging_queue, self.config.gpu_idx),
                 )
             )
         else:
@@ -258,7 +274,7 @@ class WorkflowOrchestrator:
                 p2s.append(
                     mp.Process(
                         target=optim_rank_wrapper,
-                        args=(self.config, chunk_queue, self.logging_queue, idx),
+                        args=(opt_config, chunk_queue, self.logging_queue, idx),
                     )
                 )
 

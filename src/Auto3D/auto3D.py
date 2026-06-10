@@ -111,7 +111,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             smiles_hashed=meta["smiles_hashed"],
             job_dir=tmpdirname,
             max_confs=args.max_confs,
-            threshold=0.03,
+            threshold=args.threshold,
             n_jobs=args.mpi_np,
             enumerate_isomers=args.enumerate_isomer,
         )

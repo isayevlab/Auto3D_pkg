@@ -137,3 +137,10 @@ def test_energy_tol_above_fp32_noise():
     # fp32 ULP at typical molecular total energies (~thousands of eV) is ~1e-3 eV;
     # the tolerance must be at or above that to be a live criterion.
     assert DEFAULT_ENERGY_TOL >= 1e-3
+
+
+def test_capacity_default_matches_across_layers():
+    from Auto3D.cli.config_schema import CLIConfig
+    from Auto3D.config import Auto3DOptions
+
+    assert Auto3DOptions(path="x.smi").capacity == CLIConfig(path="x.smi").capacity

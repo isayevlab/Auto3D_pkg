@@ -12,6 +12,7 @@ import torch
 
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
+    DEFAULT_CAPACITY,
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_ENERGY_PATIENCE,
     DEFAULT_ENERGY_TOL,
@@ -83,7 +84,7 @@ class Auto3DOptions:
     gpu_idx: int | list[int] = 0
     """GPU device index or list of indices."""
 
-    capacity: int = 42
+    capacity: int = DEFAULT_CAPACITY
     """Number of SMILES handled per 1GB memory."""
 
     # Optimization settings
