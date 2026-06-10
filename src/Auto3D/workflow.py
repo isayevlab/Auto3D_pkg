@@ -18,6 +18,11 @@ from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, reorder_sdf
 from Auto3D.utils.file_ops import decode_ids, encode_ids
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.workflow_workers import (
+    isomer_wrapper,
+    logger_process,
+    optim_rank_wrapper,
+)
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -143,8 +148,6 @@ class WorkflowOrchestrator:
 
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""
-        from Auto3D.auto3D import logger_process
-
         logging_path = self.job_dir / "Auto3D.log"
         self.logging_queue = mp.Manager().Queue(999)
 
@@ -233,8 +236,6 @@ class WorkflowOrchestrator:
         Args:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
-        from Auto3D.auto3D import isomer_wrapper, optim_rank_wrapper
-
         chunk_queue: Queue[tuple[str, str, str, int] | str] = mp.Manager().Queue()
 
         # Create isomer generation process
