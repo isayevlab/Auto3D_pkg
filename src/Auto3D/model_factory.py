@@ -7,9 +7,15 @@ from typing import Any
 
 import torch
 
-from Auto3D.constants import MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
+from Auto3D.constants import (
+    BUILTIN_ANI_MODELS,
+    DEFAULT_AIMNET_MODEL,
+    MODEL_AIMNET,
+    MODEL_ANI2X,
+    MODEL_ANI2XT,
+)
 from Auto3D.models.adapter import (
-    AIMNetAdapter,
+    AIMNet2Adapter,
     ANI2xAdapter,
     ANI2xtAdapter,
     BaseModelAdapter,
@@ -41,11 +47,13 @@ class ModelFactory:
         >>> ModelFactory.clear_cache()
     """
 
+    # Built-in (non-aimnet) engines kept for back-compat; keys are exactly the
+    # members of BUILTIN_ANI_MODELS.
     _adapters: dict[str, type[BaseModelAdapter]] = {
-        MODEL_AIMNET.upper(): AIMNetAdapter,
         MODEL_ANI2XT.upper(): ANI2xtAdapter,
         MODEL_ANI2X.upper(): ANI2xAdapter,
     }
+    assert set(_adapters) == set(BUILTIN_ANI_MODELS)
 
     # Model instance cache: key = (name, device_str, use_ensemble, compile_model)
     _cache: dict[tuple[str, str, bool, bool], BaseModelAdapter] = {}
@@ -110,42 +118,39 @@ class ModelFactory:
             env_val = os.environ.get(_ENSEMBLE_ENV_VAR, "").lower()
             use_ensemble = env_val in ("1", "true", "yes") if env_val else False
 
-        name_upper = name.upper()
-
-        # Check cache first (only for standard models, not custom paths)
-        cache_key = (name_upper, str(device), use_ensemble, compile_model)
-        if use_cache and name_upper in cls._adapters and cache_key in cls._cache:
-            return cls._cache[cache_key]
-
-        # Create new model adapter
-        adapter: BaseModelAdapter
-        if name_upper in cls._adapters:
-            # Pass use_ensemble only to AIMNET adapter
-            if name_upper == MODEL_AIMNET.upper():
-                adapter = cls._adapters[name_upper](
-                    device, compile_model=compile_model, use_ensemble=use_ensemble, **kwargs
-                )
-            else:
-                adapter = cls._adapters[name_upper](device, compile_model=compile_model, **kwargs)
-
-            # Cache the adapter
-            if use_cache:
-                cls._cache[cache_key] = adapter
-
-            return adapter
-
+        # 1. Existing path on disk -> custom NNP (file/custom model selection).
         if Path(name).exists():
             return CustomModelAdapter(name, device, compile_model=compile_model)
 
-        raise ValueError(
-            f"Model '{name}' not found. Available models: {list(cls._adapters.keys())}. "
-            f"Or provide a path to a custom NNP model file."
+        name_upper = name.upper()
+
+        # 2. Built-in ANI engines.
+        if name_upper in cls._adapters:
+            cache_key = (name_upper, str(device), use_ensemble, compile_model)
+            if use_cache and cache_key in cls._cache:
+                return cls._cache[cache_key]
+            adapter = cls._adapters[name_upper](device, compile_model=compile_model)
+            if use_cache:
+                cls._cache[cache_key] = adapter
+            return adapter
+
+        # 3. Everything else -> aimnet registry name. "AIMNET" is the legacy
+        #    alias for the registry default.
+        registry_name = DEFAULT_AIMNET_MODEL if name_upper == MODEL_AIMNET.upper() else name
+        cache_key = (registry_name, str(device), use_ensemble, compile_model)
+        if use_cache and cache_key in cls._cache:
+            return cls._cache[cache_key]
+        adapter = AIMNet2Adapter(
+            registry_name, device, compile_model=compile_model, use_ensemble=use_ensemble
         )
+        if use_cache:
+            cls._cache[cache_key] = adapter
+        return adapter
 
     @classmethod
     def available_models(cls) -> list[str]:
         """Return list of registered model names."""
-        return list(cls._adapters.keys())
+        return [MODEL_AIMNET, "aimnet2-2025", "aimnet2-nse", "aimnet2-pd", MODEL_ANI2X, MODEL_ANI2XT]
 
 
 def create_model(
