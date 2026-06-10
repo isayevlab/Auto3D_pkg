@@ -59,19 +59,23 @@ def _detect_geometry(atoms: ase.Atoms) -> str:
 
 
 def _symmetry_number(mol: Chem.Mol) -> int:
-    """Approximate external rotational symmetry number from graph automorphisms.
+    """External rotational symmetry number for IdealGasThermo.
 
-    Counts self-substructure matches (graph automorphisms) of the molecular
-    graph. This is an approximation of the true point-group rotational
-    symmetry number, sufficient to correct the dominant -R*ln(sigma) entropy
-    term that was previously ignored (sigma was hardcoded to 1). Falls back
-    to 1 if it cannot be determined.
+    Read from an optional integer 'symmetry_number' molecule property; defaults
+    to 1 when absent. We intentionally do NOT auto-derive sigma from the
+    molecular graph: graph automorphisms count internal-rotor and H-permutation
+    symmetries that are not part of the external rotational symmetry number, and
+    overcount sigma by large factors for flexible molecules (e.g. ethane 12x,
+    cyclohexane 128x), biasing Gibbs energy by up to ~3 kcal/mol. sigma=1 is a
+    safe default; set the 'symmetry_number' property to the correct value
+    (e.g. 2 for water, 12 for benzene, 6 for ethane) when known.
     """
-    try:
-        matches = mol.GetSubstructMatches(mol, uniquify=False, useChirality=False, maxMatches=10000)
-        return max(1, len(matches))
-    except Exception:
-        return 1
+    if mol.HasProp("symmetry_number"):
+        try:
+            return max(1, int(mol.GetProp("symmetry_number")))
+        except (ValueError, TypeError):
+            return 1
+    return 1
 
 
 class Calculator(ase.calculators.calculator.Calculator):
