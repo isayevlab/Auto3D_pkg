@@ -148,3 +148,21 @@ class TestCheckInputExceptions:
         # ANI2xt can't handle Br, only AIMNET can
         with pytest.raises(ConfigurationError, match="Only AIMNET can handle"):
             check_input(args)
+
+    def test_check_input_accepts_registry_engine(self, tmp_path):
+        """A registry engine name (not a path, not ANI) must pass validation.
+
+        Registry names like "aimnet2-2025" are not file paths, so the custom-path
+        torch.jit.load block must be skipped, and the ANI-element gate must not
+        reject them (they are AIMNet engines, not ANI2x/ANI2xt).
+        """
+        from types import SimpleNamespace
+        from Auto3D.utils.validation import check_input
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        args = SimpleNamespace(
+            path=str(smi), input_format="smi", optimizing_engine="aimnet2-2025",
+            enumerate_isomer=True, opt_steps=10, k=1, window=False, use_gpu=False,
+            isomer_engine="rdkit", verbose=False,
+        )
+        check_input(args)  # must not raise for a valid registry engine
