@@ -2,7 +2,6 @@
 from pathlib import Path
 from typing import TYPE_CHECKING, Union
 
-import numpy as np
 import torch
 
 from Auto3D.utils.logging_config import get_logger
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 try:
-    import torchani
+    import torchani  # noqa: F401  (optional dependency probe)
 except ImportError:
     pass
 from collections import defaultdict
@@ -22,13 +21,11 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 
 try:
-    from .ANI2xt_no_rep import ANI2xt
+    from .ANI2xt_no_rep import ANI2xt  # noqa: F401  (optional dependency probe)
 except ImportError:
     pass
 
 from .padding import pad_from_mols
-
-from tqdm import tqdm
 
 from Auto3D.model_factory import create_model
 from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_FMAX_SENTINEL, INITIAL_ENERGY_SENTINEL
@@ -37,17 +34,14 @@ from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_FMAX_SENTINEL, INITIAL_
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
 # removed to allow user configuration.
 
-# FIRE optimizer extracted to separate module for better modularity
-from Auto3D.batch_opt.fire_optimizer import FIRE
-
 # EnForce_ANI extracted to separate module for better modularity
 # Re-export for backward compatibility - modules like SPE.py and ASE/thermo.py
 # import EnForce_ANI from this module
 from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 
 # Optimization loop functions extracted to separate module for better modularity
-# Re-export for backward compatibility
-from Auto3D.batch_opt.optimization_engine import n_steps, print_stats
+# Re-export for backward compatibility (print_stats kept as public re-export)
+from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
 
 
 def ensemble_opt(
@@ -162,7 +156,6 @@ def mols2lists(
             - atomic_numbers: List of atomic numbers (or ANI2xt indices)
             - charges: List of formal charges
     """
-    species_order = ("H", 'C', 'N', 'O', 'S', 'F', 'Cl')
     ani2xt_index = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
     coord = [mol.GetConformer().GetPositions().tolist() for mol in mols]
     coord = [[tuple(xyz) for xyz in inner] for inner in coord]  # to be consistent with legacy code

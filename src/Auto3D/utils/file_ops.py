@@ -18,7 +18,6 @@ import hashlib
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from rdkit import Chem
 from rdkit.Chem import inchi

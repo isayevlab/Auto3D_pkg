@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Optional
 
 from Auto3D.cli.config_schema import CLIConfig, load_yaml_config, merge_configs
 from Auto3D.cli.console import console, print_banner, print_warning
