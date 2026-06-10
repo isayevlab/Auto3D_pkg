@@ -33,7 +33,45 @@ from Auto3D.utils.logging_config import get_logger
 # and the allow_tf32 option in Auto3DOptions.
 ev2hatree = 1/hartree2ev
 
-logger = get_logger(__name__)  
+logger = get_logger(__name__)
+
+
+def _is_collinear(atoms: ase.Atoms) -> bool:
+    """True if all atoms lie on a single line (within tolerance)."""
+    pos = atoms.get_positions()
+    if len(pos) <= 2:
+        return True
+    v = pos - pos[0]
+    return bool(np.linalg.matrix_rank(v[1:], tol=1e-3) <= 1)
+
+
+def _detect_geometry(atoms: ase.Atoms) -> str:
+    """Classify molecular geometry for IdealGasThermo.
+
+    Returns one of 'monatomic', 'linear', 'nonlinear'.
+    """
+    n = len(atoms)
+    if n == 1:
+        return "monatomic"
+    if _is_collinear(atoms):
+        return "linear"
+    return "nonlinear"
+
+
+def _symmetry_number(mol: Chem.Mol) -> int:
+    """Approximate external rotational symmetry number from graph automorphisms.
+
+    Counts self-substructure matches (graph automorphisms) of the molecular
+    graph. This is an approximation of the true point-group rotational
+    symmetry number, sufficient to correct the dominant -R*ln(sigma) entropy
+    term that was previously ignored (sigma was hardcoded to 1). Falls back
+    to 1 if it cannot be determined.
+    """
+    try:
+        matches = mol.GetSubstructMatches(mol, uniquify=False, useChirality=False, maxMatches=10000)
+        return max(1, len(matches))
+    except Exception:
+        return 1
 
 
 class Calculator(ase.calculators.calculator.Calculator):
@@ -159,11 +197,18 @@ def do_mol_thermo(mol: Chem.Mol,
     vib = vib_hessian(mol, atoms.get_calculator(), model, device, model_name=model_name)
     vib_e = vib.get_energies()
     e = atoms.get_potential_energy()
-    thermo = IdealGasThermo(vib_energies=vib_e,
-                            potentialenergy=e,
-                            atoms=atoms,
-                            geometry='nonlinear',
-                            symmetrynumber=1, spin=0)
+    geometry = _detect_geometry(atoms)
+    symmetry = _symmetry_number(mol)
+    multiplicity = mol.GetUnsignedProp("multiplicity") if mol.HasProp("multiplicity") else 1
+    spin = (multiplicity - 1) / 2.0
+    thermo = IdealGasThermo(
+        vib_energies=vib_e,
+        potentialenergy=e,
+        atoms=atoms,
+        geometry=geometry,
+        symmetrynumber=symmetry,
+        spin=spin,
+    )
     H = thermo.get_enthalpy(temperature=T) * ev2hatree
     S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
     G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
@@ -235,7 +280,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     if model_name == 'AIMNET':
         aimnet0_path = root / "models" / "aimnet2_wb97m-d3_0.jpt"
-        hessian_model = torch.jit.load(str(aimnet0_path), map_location=device)
+        hessian_model = torch.jit.load(str(aimnet0_path), map_location=device).double()
     elif model_name == 'ANI2xt':
         hessian_model = ANI2xt(device).double()
     elif model_name == 'ANI2x':
