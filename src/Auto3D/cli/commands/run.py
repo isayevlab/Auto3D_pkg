@@ -114,6 +114,9 @@ def execute_run(
             molecules, conformers = 0, 0
         results = WorkflowResults(
             success_count=molecules,
+            # NOTE: per-molecule failure capture is not yet wired through the
+            # workflow, so failed_count is always 0 here. Until that lands, the
+            # summary reflects what was produced, not what was dropped.
             failed_count=0,
             total_conformers=conformers,
             output_path=str(output_path) if output_path else "N/A",
