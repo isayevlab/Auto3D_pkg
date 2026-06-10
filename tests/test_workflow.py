@@ -265,6 +265,11 @@ class TestOptimizerEmptyInput:
         assert "empty" in caplog.text
 
 
+def test_workers_importable_from_workflow_workers():
+    from Auto3D.workflow_workers import isomer_wrapper, optim_rank_wrapper, logger_process
+    assert all(callable(f) for f in (isomer_wrapper, optim_rank_wrapper, logger_process))
+
+
 def test_finalize_raises_when_all_outputs_empty(tmp_path):
     import pytest
     from Auto3D.config import Auto3DOptions
