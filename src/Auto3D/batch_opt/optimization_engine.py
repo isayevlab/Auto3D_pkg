@@ -140,11 +140,21 @@ def n_steps(
     istep = 0  # Initialize in case loop doesn't execute (n=0)
     for istep in tqdm(range(1, (n + 1), 1)):
         not_converged = ~ state['converged_mask']  # Essential tracker handle, size fixed
-        # Stop optimization if all structures converged.
-        if not not_converged.any():
+        # Stop optimization if all structures converged. The all-converged check
+        # `not not_converged.any()` forces a GPU->CPU sync, so throttle it to
+        # every 10 steps. `not_converged` itself is still recomputed every step
+        # because the loop body subsets the batch with it below.
+        if istep % 10 == 0 and not not_converged.any():
             break
 
         coord = state['coord'][not_converged]  # Subset coordinates, size=not_converged.
+        # On non-throttle steps we may reach here after every molecule has
+        # converged (the .any() break only runs every 10 steps). Subsetting then
+        # yields a zero-length batch; bail out before the (empty) NN call rather
+        # than feeding an empty batch through the model. `.shape[0]` is host-side
+        # tensor metadata, so this guard adds no host-device sync.
+        if coord.shape[0] == 0:
+            break
         numbers = state['numbers'][not_converged]
         charges = state['charges'][not_converged]
         smallest_fmax = smallest_fmax0[not_converged]

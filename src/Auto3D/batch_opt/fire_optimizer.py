@@ -92,62 +92,67 @@ class FIRE:
         """
         # Compute dot product of velocities and forces for each molecule
         vf = (forces * self.v).flatten(-2, -1).sum(-1)
-        w_vf = vf > 0.0  # Mask for molecules making progress (v aligned with f)
+        progressing = vf > 0.0  # Molecules making progress (v aligned with f)
 
-        # Case 1: All molecules making progress
-        if w_vf.all():
-            a = self.a.unsqueeze(-1).unsqueeze(-1)
-            v = self.v
-            f = forces
-            # Cache norms to avoid redundant computation
-            v_norm = v.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
-            f_norm = f.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
-            # Mix velocity with normalized force direction
-            self.v = (1.0 - a) * v + a * v_norm * f / f_norm
-            self.Nsteps += 1
+        # Branchless reformulation of the original four if/elif blocks. The
+        # original branched on whole-batch reductions (w_vf.all()/.any()),
+        # each forcing a GPU->CPU sync. We instead keep `all_progressing` as a
+        # 0-d on-device boolean tensor and select per-molecule with torch.where,
+        # so no host-device sync occurs. The math is identical per molecule.
+        #
+        # The original is genuinely batch-dependent: a progressing molecule in
+        # the "all progress" path (Case 1) only mixes its velocity and bumps
+        # Nsteps (dt/a untouched), whereas in the "some progress" path (Case 2)
+        # the dt/a/Nsteps speed-up applies only to progressing molecules past
+        # Nmin. `all_progressing` is therefore required to reproduce Case 1 vs
+        # Case 2 exactly.
+        all_progressing = progressing.all()  # 0-d bool tensor (no .item() sync)
+        past_nmin = self.Nsteps > self.Nmin
+        # Speed-up applies only in the "some progress" branch (not all_progressing)
+        # to progressing molecules that have exceeded Nmin steps.
+        speedup = progressing & (~all_progressing) & past_nmin
 
-        # Case 2: Some molecules making progress
-        elif w_vf.any():
-            a = self.a[w_vf].unsqueeze(-1).unsqueeze(-1)
-            v = self.v[w_vf]
-            f = forces[w_vf]
-            # Cache norms to avoid redundant computation
-            v_norm = v.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
-            f_norm = f.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
-            self.v[w_vf] = (1.0 - a) * v + a * v_norm * f / f_norm
+        # Velocity mix toward normalized force direction (computed for every
+        # molecule; selected below). Matches the original mixing expression.
+        a3 = self.a.unsqueeze(-1).unsqueeze(-1)
+        v_norm = self.v.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
+        f_norm = forces.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
+        v_mixed = (1.0 - a3) * self.v + a3 * v_norm * forces / f_norm
 
-            # Increase time step and decrease mixing for molecules with enough steps
-            w_N = self.Nsteps > self.Nmin
-            w_vfN = w_vf & w_N
-            self.dt[w_vfN] = (self.dt[w_vfN] * self.finc).clamp(max=self.dt_max)
-            self.a[w_vfN] *= self.fa
-            self.Nsteps[w_vfN] += 1
+        # v: mixed where progressing, reset to zero otherwise.
+        prog3 = progressing.unsqueeze(-1).unsqueeze(-1)
+        self.v = torch.where(prog3, v_mixed, torch.zeros_like(self.v))
 
-        # Handle molecules NOT making progress (need reset)
-        w_vf = ~w_vf
+        # dt:
+        #   progressing & speedup        -> (dt * finc).clamp(max=dt_max)
+        #   progressing & not speedup    -> unchanged
+        #   not progressing              -> dt * fdec  (reset)
+        dt_speedup = (self.dt * self.finc).clamp(max=self.dt_max)
+        dt_prog = torch.where(speedup, dt_speedup, self.dt)
+        self.dt = torch.where(progressing, dt_prog, self.dt * self.fdec)
 
-        # Case 3: All molecules need reset
-        if w_vf.all():
-            self.v[:] = 0.0
-            self.a[:] = self.astart
-            self.dt[:] *= self.fdec
-            self.Nsteps[:] = 0
+        # a: same selection structure as dt.
+        a_prog = torch.where(speedup, self.a * self.fa, self.a)
+        self.a = torch.where(progressing, a_prog,
+                             torch.full_like(self.a, self.astart))
 
-        # Case 4: Some molecules need reset
-        elif w_vf.any():
-            self.v[w_vf] = 0.0
-            self.a[w_vf] = self.astart
-            self.dt[w_vf] *= self.fdec
-            self.Nsteps[w_vf] = 0
+        # Nsteps:
+        #   progressing & (all_progressing | past_nmin) -> Nsteps + 1
+        #   progressing & else                          -> unchanged
+        #   not progressing                             -> 0  (reset)
+        nsteps_inc = progressing & (all_progressing | past_nmin)
+        nsteps_prog = torch.where(nsteps_inc, self.Nsteps + 1, self.Nsteps)
+        self.Nsteps = torch.where(progressing, nsteps_prog,
+                                  torch.zeros_like(self.Nsteps))
 
         # Velocity Verlet-like update
         dt = self.dt.unsqueeze(-1).unsqueeze(-1)
-        self.v += dt * forces
+        self.v = self.v + dt * forces
         dr = dt * self.v
 
         # Clamp maximum displacement per molecule
         normdr = dr.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
-        dr *= (self.maxstep / normdr).clamp(max=1.0)
+        dr = dr * (self.maxstep / normdr).clamp(max=1.0)
 
         return coord + dr
 
