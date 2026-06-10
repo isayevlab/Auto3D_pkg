@@ -175,3 +175,23 @@ class TestFilterUniqueBehavior:
 
         # Should have same number of unique structures
         assert len(original_result) == len(optimized_result)
+
+
+def test_rmsd_failure_keeps_both(monkeypatch):
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, rdMolAlign
+    from Auto3D.filtering import _filter_within_cluster
+
+    def make(name, e):
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(m, randomSeed=abs(hash(name)) % 1000)
+        m.SetProp("_Name", name); m.SetProp("E_tot", str(e))
+        return m
+
+    def boom(*a, **k):
+        raise RuntimeError("GetBestRMS failed")
+    monkeypatch.setattr(rdMolAlign, "GetBestRMS", boom)
+
+    cluster = [make("a", -1.0), make("b", -0.9)]
+    kept = _filter_within_cluster(cluster, rmsd_threshold=0.3)
+    assert len(kept) == 2  # incomparable pair must NOT be dropped

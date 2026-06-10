@@ -263,3 +263,21 @@ class TestOptimizerEmptyInput:
             optimizer.run()
 
         assert "empty" in caplog.text
+
+
+def test_finalize_raises_when_all_outputs_empty(tmp_path):
+    import pytest
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.exceptions import OptimizationError
+
+    orch = WorkflowOrchestrator(Auto3DOptions(path="x.smi", k=1))
+    orch.job_dir = tmp_path
+    orch.input_path = tmp_path / "x_encoded.smi"
+    orch.input_path.write_text("CCO 0\n")
+    job = tmp_path / "job1"; job.mkdir()
+    (job / "x_3d.sdf").write_text("")  # converged nothing -> empty SDF
+    orch.id_mapping = {"a": 0}
+
+    with pytest.raises(OptimizationError):
+        orch._finalize_output(start_time=0.0)

@@ -103,7 +103,7 @@ def _filter_within_cluster(
                 # Removing Hs speeds up the calculation
                 rmsd = rdMolAlign.GetBestRMS(mol_i_noH, mol_j_noH)
             except RuntimeError:
-                rmsd = 0
+                rmsd = float("inf")  # incomparable pair -> treat as distinct
 
             if rmsd < rmsd_threshold:
                 is_unique = False
