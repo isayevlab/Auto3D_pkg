@@ -584,6 +584,22 @@ class TestEncodeDecodeIds:
         _, mapping = encode_ids(str(p))
         assert set(mapping) == {"a", "b"}
 
+    def test_encode_ids_rejects_blank_sdf_name(self, tmp_path):
+        """A molecule with a blank _Name in a .sdf file is rejected."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.exceptions import InputValidationError
+
+        sdf = tmp_path / "blank.sdf"
+        with Chem.SDWriter(str(sdf)) as w:
+            m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", "")  # blank name
+            w.write(m)
+        with pytest.raises(InputValidationError):
+            encode_ids(str(sdf))
+
 
 class TestReorderSdf:
     """Tests for reorder_sdf function."""
