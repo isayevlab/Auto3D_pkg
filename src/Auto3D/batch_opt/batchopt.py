@@ -57,7 +57,8 @@ def ensemble_opt(
     charges: Union[list, torch.Tensor],
     param: dict,
     model: str,
-    device: torch.device
+    device: torch.device,
+    species_pad: int = -1,
 ) -> dict:
     """Optimize a group of molecules using batch optimization.
 
@@ -75,6 +76,10 @@ def ensemble_opt(
             - energy_patience: (optional) Steps energy must be stable
         model: Model name ("AIMNET", "ANI2xt", "ANI2x" or path to userNNP).
         device: Torch device for computation.
+        species_pad: Atomic-number value used to pad short molecules in this
+            batch. Forwarded to n_steps so forces on padded atom slots are
+            ignored by the force-convergence check (default -1, a no-op for
+            unpadded batches or any caller that omits it).
 
     Returns:
         Dictionary containing:
@@ -124,7 +129,8 @@ def ensemble_opt(
     energy_tol = param.get('energy_tol', 1e-4)
     energy_patience = param.get('energy_patience', 3)
     n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
-            energy_tol=energy_tol, energy_patience=energy_patience)
+            energy_tol=energy_tol, energy_patience=energy_patience,
+            species_pad=species_pad)
 
     return dict(
         coord=state['coord'].tolist(),
@@ -280,7 +286,8 @@ class optimizing:
 
         with torch.jit.optimized_execution(False):
             optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
-                                   self._config_dict, self.name, self.device)  # Magic step
+                                   self._config_dict, self.name, self.device,
+                                   species_pad=self.species_pad)  # Magic step
         return optdict
 
     def run(self):

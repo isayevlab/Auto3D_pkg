@@ -292,6 +292,27 @@ class TestNSteps:
         assert state['converged_mask'].all()
 
 
+def test_fmax_ignores_padded_atoms():
+    import torch
+    from Auto3D.batch_opt.optimization_engine import n_steps
+
+    class MockNN:
+        def forward_batched(self, coord, numbers, charges):
+            e = torch.zeros(coord.shape[0])
+            f = torch.zeros_like(coord)
+            f[:, -1, :] = 100.0  # huge force on the (padded) last atom
+            return e, f
+    coord = torch.zeros(1, 3, 3)
+    state = {
+        "coord": coord, "numbers": torch.tensor([[6, 8, 0]]),  # last is pad (species 0)
+        "charges": torch.zeros(1, dtype=torch.long), "nn": MockNN(),
+        "converged_mask": torch.zeros(1, dtype=torch.bool),
+        "fmax": torch.full((1,), 999.0), "energy": torch.full((1,), float("inf"), dtype=torch.double),
+    }
+    n_steps(state, n=1, opttol=0.01, patience=5, species_pad=0)
+    assert state["fmax"].item() < 1.0  # padded-atom force ignored
+
+
 def test_stored_energy_matches_stored_coord():
     import torch
     from Auto3D.batch_opt.optimization_engine import n_steps
