@@ -31,3 +31,8 @@ def test_version_is_4():
 def test_no_jpt_package_data():
     pd = _pyproject()["tool"]["setuptools"]["package-data"]["Auto3D"]
     assert not any("jpt" in g for g in pd), pd
+
+
+def test_torchani_floor_is_2_8():
+    deps = _pyproject()["project"]["optional-dependencies"]["ani"]
+    assert any("torchani>=2.8" in d.replace(" ", "") for d in deps), deps
