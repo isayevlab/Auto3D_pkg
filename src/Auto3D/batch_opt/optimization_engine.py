@@ -150,7 +150,11 @@ def n_steps(
                                            charges)  # Key step to calculate all energies and forces.
         coord.requires_grad_(False)
 
-        coord = optimizer(coord, f)
+        # Detach the optimizer output so the next step starts from a leaf tensor.
+        # Production adapters return detached forces, so coord never tracks grad
+        # across steps; detaching here makes the loop robust to NNPs whose forces
+        # still carry a grad graph (otherwise the next requires_grad_ would error).
+        coord = optimizer(coord, f).detach()
         fmax = f.norm(dim=-1).max(dim=-1)[
             0]  # Tensor, Norm is the length of each vector. Here it returns the maximum force length for each conformer. Size (100)
         not_converged_post1 = fmax > opttol
@@ -171,8 +175,11 @@ def n_steps(
         energy_stable = energy_change < energy_tol
         # Increment count where energy is stable, reset where not
         energy_stable_subset = torch.where(energy_stable, energy_stable_subset + 1, torch.zeros_like(energy_stable_subset))
-        # Consider converged if energy stable for energy_patience steps AND force is reasonable (< 10x opttol)
-        energy_converged = (energy_stable_subset >= energy_patience) & (fmax < opttol * 10)
+        # Consider converged if energy stable for energy_patience steps AND force is
+        # below opttol. Requiring fmax < opttol (not 10x) keeps the reported geometry
+        # self-consistent: every conformer stops at the same force level, so ranking
+        # does not reorder conformers that merely stopped at looser force thresholds.
+        energy_converged = (energy_stable_subset >= energy_patience) & (fmax < opttol)
 
         # Combine all convergence criteria
         not_converged_post = not_converged_post1 & not_oscillating & ~energy_converged
@@ -196,6 +203,15 @@ def n_steps(
         # Print stats every 10% of steps (avoid division by zero for small n)
         if n >= 10 and (istep % (n // 10)) == 0:
             print_stats(state, patience)
+
+    # Energy stored during the loop is evaluated at the pre-step geometry, while
+    # the stored coordinates are post-step. Recompute energy once at the final
+    # geometry so state['energy'] is consistent with state['coord'].
+    # (Forces are recomputed too by the adapters but discarded; grad must be
+    # enabled because the adapters differentiate internally for forces.)
+    final_coord = state['coord'].detach().clone().requires_grad_(True)
+    e_final, _ = state['nn'].forward_batched(final_coord, state['numbers'], state['charges'])
+    state['energy'] = e_final.detach().to(state['energy'].dtype)
 
     if istep == (n):
         logger.info("Reaching maximum optimization step:")
