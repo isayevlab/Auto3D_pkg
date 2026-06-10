@@ -213,6 +213,73 @@ class optimizing:
         """Return configuration as dict for backward compatibility."""
         return self._config_dict
 
+    # Maximum number of molecules per optimization bucket. Caps the batch so a
+    # huge homogeneous chunk is still split into manageable pieces.
+    BUCKET_MAX_COUNT = 1024
+    # A molecule joins the current bucket only while its atom count stays within
+    # this factor of the bucket's smallest molecule, bounding within-bucket
+    # padding waste to <= 25%.
+    BUCKET_SIZE_FACTOR = 1.25
+
+    def _make_buckets(self, mols):
+        """Group molecule indices into size-homogeneous buckets.
+
+        Molecules are sorted by atom count, then split so each bucket is padded
+        to a small local maximum instead of the global maximum. A new bucket is
+        started when adding the next molecule would either exceed
+        ``BUCKET_MAX_COUNT`` molecules or push the bucket's atom-count spread
+        beyond ``BUCKET_SIZE_FACTOR`` (i.e. > 25% padding waste).
+
+        Args:
+            mols: List of RDKit Mol objects.
+
+        Returns:
+            List of buckets, each a list of original-position indices into
+            ``mols``. Every original index appears in exactly one bucket.
+        """
+        order = sorted(range(len(mols)), key=lambda i: mols[i].GetNumAtoms())
+        buckets, cur = [], []
+        cur_min = None
+        for i in order:
+            n = mols[i].GetNumAtoms()
+            if cur and (len(cur) >= self.BUCKET_MAX_COUNT
+                        or n > self.BUCKET_SIZE_FACTOR * cur_min):
+                buckets.append(cur)
+                cur = []
+                cur_min = None
+            if not cur:
+                cur_min = n
+            cur.append(i)
+        if cur:
+            buckets.append(cur)
+        return buckets
+
+    def _optimize_bucket(self, bucket_mols):
+        """Run pad -> EnForce_ANI -> ensemble_opt for a single bucket.
+
+        Args:
+            bucket_mols: List of RDKit Mol objects forming one size-homogeneous
+                bucket. They are padded to this bucket's LOCAL max atom count,
+                not the global max, which is the source of the speedup.
+
+        Returns:
+            The optdict from :func:`ensemble_opt` (per-molecule lists indexed by
+            position within ``bucket_mols``).
+        """
+        coord_padded, numbers_padded, charges = pad_from_mols(
+            bucket_mols, self.name, self.device,
+            coord_pad=self.coord_pad, species_pad=self.species_pad
+        )
+
+        # The model adapter already disables gradients in BaseModelAdapter.__init__
+        # Create EnForce_ANI wrapper for batched forward support
+        model = EnForce_ANI(self.model, self._config_dict["batchsize_atoms"])
+
+        with torch.jit.optimized_execution(False):
+            optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
+                                   self._config_dict, self.name, self.device)  # Magic step
+        return optdict
+
     def run(self):
         logger.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self._config_dict[
             "opt_steps"])
@@ -235,50 +302,53 @@ class optimizing:
             logger.warning("No valid molecules in input file. Skipping optimization.")
             return
 
-        logger.info(f"Total 3D conformers: {len(mols)}")
-
-        # Use new vectorized padding that returns tensors directly
-        coord_padded, numbers_padded, charges = pad_from_mols(
-            mols, self.name, self.device,
-            coord_pad=self.coord_pad, species_pad=self.species_pad
-        )
-
-        # The model adapter already disables gradients in BaseModelAdapter.__init__
-        # Create EnForce_ANI wrapper for batched forward support
-        model = EnForce_ANI(self.model, self._config_dict["batchsize_atoms"])
-
-        with torch.jit.optimized_execution(False):
-            optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
-                                   self._config_dict, self.name, self.device)  # Magic step
-
-        energies = optdict['energy']
-        fmax = optdict['fmax']
-        converged_mask = optdict['converged_mask']
-        oscillating_count = optdict['oscillating_count']
+        # Pre-size per-molecule output containers indexed by original position.
+        # Buckets reorder molecules internally for size-homogeneous padding, but
+        # results are scattered back to their original input positions so the
+        # output order matches the input order exactly.
+        energies = [None] * len(mols)
+        fmaxs = [None] * len(mols)
+        converged_flags = [None] * len(mols)
+        osc_counts = [None] * len(mols)
+        coords_out = [None] * len(mols)
         patience = self._config_dict['patience']
 
-        # Determine true convergence status:
-        # - Converged: converged_mask=True AND not oscillating (oscillating_count < patience)
-        # - Dropped: converged_mask=True AND oscillating (oscillating_count >= patience)
-        # - Not converged: converged_mask=False
-        convergence_mask = [
-            converged and osc_count < patience
-            for converged, osc_count in zip(converged_mask, oscillating_count)
-        ]
+        # Split into size-homogeneous buckets. Padding each bucket to its LOCAL
+        # max atom count (instead of the global max) avoids computing AEVs/forces
+        # over ghost padded atoms for small molecules sharing a chunk with large
+        # ones.
+        buckets = self._make_buckets(mols)
+        logger.info(f"Total 3D conformers: {len(mols)} in {len(buckets)} size-bucket(s)")
+
+        for bucket in buckets:
+            bucket_mols = [mols[i] for i in bucket]
+            optdict = self._optimize_bucket(bucket_mols)
+            for local_i, orig_i in enumerate(bucket):
+                energies[orig_i] = optdict['energy'][local_i]
+                fmaxs[orig_i] = optdict['fmax'][local_i]
+                converged_flags[orig_i] = optdict['converged_mask'][local_i]
+                osc_counts[orig_i] = optdict['oscillating_count'][local_i]
+                coords_out[orig_i] = optdict['coord'][local_i]
 
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):
                 mol = mols[i]
                 idx = mol.GetProp('_Name')
-                fmax_i = fmax[i]
+                # Determine true convergence status:
+                # - Converged: converged AND not oscillating (osc_count < patience)
+                # - Dropped: converged AND oscillating (osc_count >= patience)
+                # - Not converged: converged=False
+                converged_i = converged_flags[i]
+                osc_count_i = osc_counts[i]
+                convergence_i = converged_i and osc_count_i < patience
                 mol.SetProp('E_tot', str(energies[i]))
-                mol.SetProp('fmax', str(fmax_i))
-                mol.SetProp('Converged', str(convergence_mask[i]))
+                mol.SetProp('fmax', str(fmaxs[i]))
+                mol.SetProp('Converged', str(convergence_i))
                 # Mark structures dropped due to oscillation for diagnostics
-                is_oscillating = converged_mask[i] and oscillating_count[i] >= patience
+                is_oscillating = converged_i and osc_count_i >= patience
                 mol.SetProp('Dropped_Oscillating', str(is_oscillating))
                 mol.SetProp('ID', idx)
-                coord = optdict['coord'][i]
+                coord = coords_out[i]
                 for atom_idx, atom in enumerate(mol.GetAtoms()):
                     mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[atom_idx])
                 f.write(mol)
