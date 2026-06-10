@@ -11,7 +11,6 @@ import numpy as np
 import ase
 import ase.calculators.calculator
 import torch
-import torchani
 from ase import Atoms
 from ase.optimize import BFGS
 from ase.thermochemistry import IdealGasThermo
@@ -20,7 +19,6 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
-root = Path(__file__).resolve().parent.parent
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.model_factory import create_model
@@ -227,6 +225,29 @@ def do_mol_thermo(mol: Chem.Mol,
         mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
     return mol
 
+def _load_hessian_model(model_name: str, device):
+    """Return an nn.Module for Hessian/energy evaluation.
+
+    AIMNET and aimnet registry names resolve through the aimnet package
+    (kept in fp32 — whole-graph fp64 upcast is false precision); ANI2xt/ANI2x
+    and custom paths keep their existing loaders.
+    """
+    import torch
+    if model_name == "ANI2xt":
+        return ANI2xt(device).double()
+    if model_name == "ANI2x":
+        import torchani
+        return torchani.models.ANI2x(periodic_table_index=True).to(device).double()
+    if Path(model_name).exists():
+        return torch.jit.load(model_name, map_location=device).double()
+    # AIMNET or any aimnet registry alias
+    from aimnet.calculators import AIMNet2Calculator
+    from Auto3D.constants import DEFAULT_AIMNET_MODEL
+    name = DEFAULT_AIMNET_MODEL if model_name.upper() == "AIMNET" else model_name
+    calc = AIMNet2Calculator(name, device=device)
+    return calc.model
+
+
 def aimnet_hessian_helper(
     coord: torch.Tensor,
     numbers: torch.Tensor | None = None,
@@ -280,20 +301,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     else:
         device = torch.device("cpu")
 
-    if model_name == 'AIMNET':
-        aimnet0_path = root / "models" / "aimnet2_wb97m-d3_0.jpt"
-        hessian_model = torch.jit.load(str(aimnet0_path), map_location=device).double()
-    elif model_name == 'ANI2xt':
-        hessian_model = ANI2xt(device).double()
-    elif model_name == 'ANI2x':
-        hessian_model = torchani.models.ANI2x(periodic_table_index=True).to(device).double()
-    elif Path(model_name).exists():
-        hessian_model = torch.jit.load(model_name, map_location=device).double()
-    else:
-        raise ValueError(
-            f"Unknown model: {model_name}. Supported models: AIMNET, ANI2x, ANI2xt, "
-            "or a path to a custom TorchScript model."
-        )
+    hessian_model = _load_hessian_model(model_name, device)
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))

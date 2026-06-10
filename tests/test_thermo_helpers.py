@@ -36,3 +36,18 @@ def test_symmetry_number_invalid_property_falls_back():
     m = Chem.MolFromSmiles("CCO")
     m.SetProp("symmetry_number", "not_a_number")
     assert _symmetry_number(m) == 1
+
+
+def test_load_hessian_model_aimnet():
+    import torch
+    from Auto3D.ASE.thermo import _load_hessian_model
+    m = _load_hessian_model("AIMNET", torch.device("cpu"))
+    assert m is not None  # an nn.Module from the aimnet registry, not a bundled .jpt
+
+
+def test_load_hessian_model_aimnet_is_fp32():
+    import torch
+    from Auto3D.ASE.thermo import _load_hessian_model
+    m = _load_hessian_model("AIMNET", torch.device("cpu"))
+    p = next(m.parameters())
+    assert p.dtype == torch.float32  # do NOT upcast the whole graph to fp64
