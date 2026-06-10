@@ -107,7 +107,8 @@ def n_steps(
         opttol: Force convergence tolerance in eV/Angstrom.
         patience: Number of steps without force decrease before dropping a structure
             as oscillating.
-        energy_tol: Energy convergence threshold in eV (default 1e-4 eV = ~0.002 kcal/mol).
+        energy_tol: Energy convergence threshold in eV (default 1e-3 eV = ~0.02 kcal/mol,
+            kept above float32 ULP at typical total energies so the criterion is live).
         energy_patience: Number of steps energy must be stable before considering
             converged (default 3).
         species_pad: Atomic-number value used to pad short molecules up to the

@@ -66,7 +66,7 @@ The optimization loop uses several strategies to maximize speed:
 
 2. **Relaxed Convergence Criteria**: Based on computational chemistry best practices, convergence thresholds are tuned for conformer generation (not final refinement):
    - Force threshold: 0.01 eV/Å (vs typical 0.05 eV/Å in ASE)
-   - Energy stability: 1e-4 eV (~0.002 kcal/mol) for 3 steps
+   - Energy stability: 1e-3 eV (~0.02 kcal/mol) for 3 steps (above float32 noise)
    - Max steps: 2000 (most structures converge in 100-500)
    - Patience: 250 steps before dropping oscillating conformers
 
