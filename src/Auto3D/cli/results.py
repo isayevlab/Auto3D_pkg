@@ -4,11 +4,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from rich.panel import Panel
 from rich.table import Table
-from rich.tree import Tree
 
 from Auto3D.cli.console import console
 

@@ -5,7 +5,6 @@ Generating low-energy conformers from SMILES.
 from __future__ import annotations
 
 import multiprocessing as mp
-import sys
 import tempfile
 from pathlib import Path
 
@@ -14,20 +13,12 @@ from rdkit import Chem
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
-from Auto3D.constants import (
-    DEFAULT_BATCHSIZE_ATOMS,
-    DEFAULT_CONVERGENCE_THRESHOLD,
-    DEFAULT_OPT_STEPS,
-    DEFAULT_PATIENCE,
-    DEFAULT_RMSD_THRESHOLD,
-)
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
     check_input,
     create_chunk_meta_names,
-    hash_taut_smi,
     reorder_sdf,
 )
 from Auto3D.utils.file_ops import smiles2smi

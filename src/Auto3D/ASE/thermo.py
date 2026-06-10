@@ -25,7 +25,7 @@ root = Path(__file__).resolve().parent.parent
 sys.path.append(str(root))
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
-from Auto3D.model_factory import create_model, get_device
+from Auto3D.model_factory import create_model
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
 

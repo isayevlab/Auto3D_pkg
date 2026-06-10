@@ -133,8 +133,6 @@ ignore = [
     "C408",   # dict() call (more readable with keyword arguments)
     "C416",   # list comprehension (intentional in some cases)
     "C417",   # map usage (sometimes clearer than list comprehension)
-    "F401",   # unused import (optional dependency checks)
-    "F841",   # unused variable (sometimes needed for clarity)
     "UP031",  # format specifiers (% format is fine for simple cases)
 ]
 

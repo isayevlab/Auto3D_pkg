@@ -18,17 +18,17 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore")
 
     try:
-        from openeye import oechem, oeomega, oequacpac
+        from openeye import oechem, oeomega, oequacpac  # noqa: F401  (optional dependency probe)
     except ImportError:
         pass  # OpenEye is optional
 
     try:
-        import torchani
+        import torchani  # noqa: F401  (optional dependency probe)
     except ImportError:
         pass  # TorchANI is optional
 
     try:
-        from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
+        from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt  # noqa: F401  (optional dependency probe)
     except ImportError:
         pass  # ANI2xt model is optional
 

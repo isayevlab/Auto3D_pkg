@@ -9,7 +9,7 @@ from rdkit import Chem
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-from rdkit.Chem import AllChem, rdMolDescriptors
+from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
