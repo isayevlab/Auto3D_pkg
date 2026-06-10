@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Auto3D"
-version = "3.0.0"
+version = "4.0.0"
 description = "Generating Low-energy 3D Conformers from SMILES/SDF"
 readme = "README.md"
 license = {text = "MIT"}
@@ -25,16 +25,16 @@ keywords = [
     "cheminformatics",
     "drug-discovery",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Chemistry",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
@@ -47,7 +47,8 @@ dependencies = [
     "numpy>=1.21.0",
     "pandas>=1.3.0",
     "rdkit>=2022.9.5",
-    "torch>=2.0.0",
+    "torch>=2.8",
+    "aimnet>=0.2",
     "typer>=0.12.0",
     "rich>=13.0.0",
     "pydantic>=2.0",
@@ -55,7 +56,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ani = [
-    "torchani>=2.2",
+    "torchani>=2.8",
 ]
 ase = [
     "ase>=3.22.1",
@@ -91,11 +92,11 @@ Changelog = "https://github.com/isayevlab/Auto3D_pkg/releases"
 where = ["src"]
 
 [tool.setuptools.package-data]
-Auto3D = ["models/*.jpt", "models/*.pt"]
+Auto3D = ["models/*.pt"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -140,7 +141,7 @@ ignore = [
 known-first-party = ["Auto3D"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
