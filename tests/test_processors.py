@@ -82,5 +82,32 @@ class TestTautomerProcessorConfigOptions:
         assert Path(result).exists()
 
 
+def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
+    from Auto3D.config import Auto3DOptions
+    import Auto3D.processors as proc
+
+    calls = {}
+    class _Eng:
+        def run(self): calls["ran"] = True
+    def fake_create(engine_type, input_path, output_path, pka_norm=True):
+        calls["args"] = (engine_type, input_path, output_path, pka_norm)
+        return _Eng()
+    monkeypatch.setattr(proc, "create_tautomer_engine", fake_create)
+    monkeypatch.setattr(proc, "hash_taut_smi", lambda a, b: None)
+
+    cfg = Auto3DOptions(path="x.smi", k=1, enumerate_tautomer=True, tauto_engine="rdkit")
+    out = proc.TautomerProcessor(cfg).process("in.smi", "out.smi")
+    assert out == "out.smi"
+    assert calls["ran"] is True
+    assert calls["args"][0] == "rdkit"
+
+
+def test_tautomer_processor_skips_when_disabled():
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.processors import TautomerProcessor
+    cfg = Auto3DOptions(path="x.smi", k=1, enumerate_tautomer=False)
+    assert TautomerProcessor(cfg).process("in.smi", "out.smi") == "in.smi"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
