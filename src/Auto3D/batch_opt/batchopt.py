@@ -227,8 +227,12 @@ class optimizing:
         Molecules are sorted by atom count, then split so each bucket is padded
         to a small local maximum instead of the global maximum. A new bucket is
         started when adding the next molecule would either exceed
-        ``BUCKET_MAX_COUNT`` molecules or push the bucket's atom-count spread
-        beyond ``BUCKET_SIZE_FACTOR`` (i.e. > 25% padding waste).
+        ``BUCKET_MAX_COUNT`` molecules or when the next molecule's atom count
+        exceeds ``BUCKET_SIZE_FACTOR`` times the bucket's SMALLEST molecule's
+        atom count (``cur_min``, the first/smallest member since the input is
+        sorted ascending). With ``BUCKET_SIZE_FACTOR`` = 1.25 this bounds the
+        largest member to at most 1.25x the smallest, so padding the smallest
+        molecule up to the bucket's local max wastes at most ~25% of its atoms.
 
         Args:
             mols: List of RDKit Mol objects.
@@ -254,13 +258,16 @@ class optimizing:
             buckets.append(cur)
         return buckets
 
-    def _optimize_bucket(self, bucket_mols):
+    def _optimize_bucket(self, bucket_mols, model):
         """Run pad -> EnForce_ANI -> ensemble_opt for a single bucket.
 
         Args:
             bucket_mols: List of RDKit Mol objects forming one size-homogeneous
                 bucket. They are padded to this bucket's LOCAL max atom count,
                 not the global max, which is the source of the speedup.
+            model: The shared :class:`EnForce_ANI` wrapper, constructed once in
+                :meth:`run` and reused across buckets (it is a thin wrapper over
+                ``self.model`` with no per-bucket state).
 
         Returns:
             The optdict from :func:`ensemble_opt` (per-molecule lists indexed by
@@ -270,10 +277,6 @@ class optimizing:
             bucket_mols, self.name, self.device,
             coord_pad=self.coord_pad, species_pad=self.species_pad
         )
-
-        # The model adapter already disables gradients in BaseModelAdapter.__init__
-        # Create EnForce_ANI wrapper for batched forward support
-        model = EnForce_ANI(self.model, self._config_dict["batchsize_atoms"])
 
         with torch.jit.optimized_execution(False):
             optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
@@ -320,15 +323,27 @@ class optimizing:
         buckets = self._make_buckets(mols)
         logger.info(f"Total 3D conformers: {len(mols)} in {len(buckets)} size-bucket(s)")
 
+        # The model adapter already disables gradients in BaseModelAdapter.__init__.
+        # self.model and batchsize_atoms are constant across buckets, so build the
+        # EnForce_ANI wrapper once and reuse it (avoids per-bucket allocation churn;
+        # it's a thin wrapper with no weight copy).
+        model = EnForce_ANI(self.model, self._config_dict["batchsize_atoms"])
+
         for bucket in buckets:
             bucket_mols = [mols[i] for i in bucket]
-            optdict = self._optimize_bucket(bucket_mols)
+            optdict = self._optimize_bucket(bucket_mols, model)
             for local_i, orig_i in enumerate(bucket):
                 energies[orig_i] = optdict['energy'][local_i]
                 fmaxs[orig_i] = optdict['fmax'][local_i]
                 converged_flags[orig_i] = optdict['converged_mask'][local_i]
                 osc_counts[orig_i] = optdict['oscillating_count'][local_i]
                 coords_out[orig_i] = optdict['coord'][local_i]
+
+            # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
+            # or fragment across many buckets. The final empty_cache() below still
+            # runs after all output is written.
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):
