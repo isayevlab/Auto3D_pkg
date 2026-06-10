@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Union
 
 import pandas as pd
 from rdkit import Chem
@@ -78,7 +77,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
 
 
 def get_stable_tautomers(
-    args: Union[dict, Auto3DOptions],
+    args: dict | Auto3DOptions,
     tauto_k: int | None = None,
     tauto_window: float | None = None
 ) -> str:

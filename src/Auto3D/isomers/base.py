@@ -83,26 +83,3 @@ class BaseIsomerEngine(ABC):
             Path to the output SDF file.
         """
         ...
-
-
-class BaseTautomerEngine(ABC):
-    """Abstract base class for tautomer engines."""
-
-    def __init__(
-        self,
-        input_path: str,
-        output_path: str,
-    ) -> None:
-        """Initialize the tautomer engine.
-
-        Args:
-            input_path: Path to input SMI file.
-            output_path: Path for output SMI file.
-        """
-        self.input_path = input_path
-        self.output_path = output_path
-
-    @abstractmethod
-    def run(self) -> None:
-        """Execute tautomer enumeration."""
-        ...

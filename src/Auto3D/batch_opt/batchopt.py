@@ -1,6 +1,6 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -46,11 +46,10 @@ from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F
 
 def ensemble_opt(
     net: EnForce_ANI,
-    coord: Union[list, torch.Tensor],
-    numbers: Union[list, torch.Tensor],
-    charges: Union[list, torch.Tensor],
+    coord: list | torch.Tensor,
+    numbers: list | torch.Tensor,
+    charges: list | torch.Tensor,
     param: dict,
-    model: str,
     device: torch.device,
     species_pad: int = -1,
 ) -> dict:
@@ -68,7 +67,6 @@ def ensemble_opt(
             - patience: Oscillation patience
             - energy_tol: (optional) Energy convergence tolerance in eV
             - energy_patience: (optional) Steps energy must be stable
-        model: Model name ("AIMNET", "ANI2xt", "ANI2x" or path to userNNP).
         device: Torch device for computation.
         species_pad: Atomic-number value used to pad short molecules in this
             batch. Forwarded to n_steps so forces on padded atom slots are
@@ -108,12 +106,10 @@ def ensemble_opt(
                       device=coord.device)  # size=N, representing the current maximum forces at each conformer.
     energy = torch.full(coord.shape[:1], INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=coord.device)
     ids = torch.arange(coord.shape[0], device=coord.device)  # Returns a 1D tensor
-    # optimizer = FIRE(coord)
 
     state = dict(
         ids=ids,
         coord=coord, numbers=numbers, converged_mask=converged_mask,
-        # optimizer=optimizer, nn=net, fmax=fmax, energy=energy,
         nn=net, fmax=fmax, energy=energy,
         timing=defaultdict(float), charges=charges,
         he=list(), close=list()  # !!! he and close?
@@ -159,7 +155,6 @@ def mols2lists(
     ani2xt_index = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
     coord = [mol.GetConformer().GetPositions().tolist() for mol in mols]
     coord = [[tuple(xyz) for xyz in inner] for inner in coord]  # to be consistent with legacy code
-    # charges = [mol.charge for mol in mols]
     charges = [rdmolops.GetFormalCharge(mol) for mol in mols]
 
     if model == "ANI2xt":
@@ -279,7 +274,7 @@ class optimizing:
 
         with torch.jit.optimized_execution(False):
             optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
-                                   self._config_dict, self.name, self.device,
+                                   self._config_dict, self.device,
                                    species_pad=self.species_pad)  # Magic step
         return optdict
 

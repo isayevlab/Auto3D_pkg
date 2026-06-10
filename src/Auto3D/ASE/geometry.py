@@ -5,10 +5,7 @@ Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 from __future__ import annotations
 
 import os
-import sys
 
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(root)
 import torch
 from rdkit import Chem
 
