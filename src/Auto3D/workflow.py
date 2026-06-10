@@ -364,16 +364,3 @@ class WorkflowOrchestrator:
         logger.info(msg)
         if self.logger:
             self.logger.info(msg)
-
-
-def run_workflow(config: Auto3DOptions) -> str:
-    """Convenience function to run the workflow.
-
-    Args:
-        config: Auto3D configuration options.
-
-    Returns:
-        Path to the output SDF file.
-    """
-    orchestrator = WorkflowOrchestrator(config)
-    return orchestrator.run()
