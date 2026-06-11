@@ -125,44 +125,66 @@ def optim_rank_wrapper(
         if sdf_path_dir_job == "Done":
             break
         enumerated_sdf, path, dir, job = sdf_path_dir_job
-        logger.info(f"\n\nOptimizing on job{job}")
-        meta = create_chunk_meta_names(path, dir)
+        # Isolate each chunk: a single failing chunk (a molecule the optimizer
+        # chokes on, a CUDA OOM, an isomer step that produced nothing, an mkdir
+        # collision) must not kill this worker and silently drop every chunk
+        # still queued behind it. Log it and move on to the next chunk.
+        try:
+            logger.info(f"\n\nOptimizing on job{job}")
+            meta = create_chunk_meta_names(path, dir)
 
-        # Optimizing step
-        opt_config = args.to_optimization_config()
-        optimized_og = meta["optimized_og"]
-        optimizing_engine = args.optimizing_engine
-        if args.use_gpu:
-            device = torch.device(f"cuda:{gpu_idx}")
-        else:
-            device = torch.device("cpu")
-        optimizer = optimizing(enumerated_sdf, optimized_og,
-                               optimizing_engine, device, opt_config)
-        optimizer.run()
+            # Optimizing step
+            opt_config = args.to_optimization_config()
+            optimized_og = meta["optimized_og"]
+            optimizing_engine = args.optimizing_engine
+            if args.use_gpu:
+                device = torch.device(f"cuda:{gpu_idx}")
+            else:
+                device = torch.device("cpu")
+            optimizer = optimizing(enumerated_sdf, optimized_og,
+                                   optimizing_engine, device, opt_config)
+            optimizer.run()
 
-        # Ranking step
-        output = meta["output"]
-        duplicate_threshold = args.threshold
-        k = args.k
-        window = args.window
-        rank_engine = ranking(optimized_og,
-                              output, duplicate_threshold, k=k, window=window)
-        conformers.append(rank_engine.run())
+            # optimizing.run() returns early without writing optimized_og when
+            # the isomer step yielded an empty/missing SDF for this chunk. Skip
+            # ranking rather than letting RDKit raise on a nonexistent path; the
+            # chunk simply contributes no conformers.
+            if not os.path.exists(optimized_og):
+                logger.warning(
+                    f"job{job}: no optimized structures were produced; "
+                    "skipping ranking for this chunk."
+                )
+                continue
 
-        # Housekeeping
-        housekeeping_folder = meta["housekeeping_folder"]
-        os.mkdir(housekeeping_folder)
-        housekeeping(dir, housekeeping_folder, output)
-        #Conpress verbose folder
-        housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
-        with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
-            tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
-        shutil.rmtree(housekeeping_folder)
-        if not args.verbose:
-            try:  # Clusters does not support send2trash
-                send2trash(housekeeping_folder_gz)
-            except OSError:
-                os.remove(housekeeping_folder_gz)
+            # Ranking step
+            output = meta["output"]
+            duplicate_threshold = args.threshold
+            k = args.k
+            window = args.window
+            rank_engine = ranking(optimized_og,
+                                  output, duplicate_threshold, k=k, window=window)
+            conformers.append(rank_engine.run())
+
+            # Housekeeping
+            housekeeping_folder = meta["housekeeping_folder"]
+            os.mkdir(housekeeping_folder)
+            housekeeping(dir, housekeeping_folder, output)
+            #Conpress verbose folder
+            housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
+            with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
+                tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
+            shutil.rmtree(housekeeping_folder)
+            if not args.verbose:
+                try:  # Clusters does not support send2trash
+                    send2trash(housekeeping_folder_gz)
+                except OSError:
+                    os.remove(housekeeping_folder_gz)
+        except Exception:
+            logger.exception(
+                f"job{job} failed during optimization/ranking; "
+                "skipping this chunk and continuing with the rest."
+            )
+            continue
     return conformers
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
