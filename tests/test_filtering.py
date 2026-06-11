@@ -186,6 +186,53 @@ class TestFilterUniqueBehavior:
         assert len(original_result) == len(optimized_result)
 
 
+def test_filter_within_cluster_removehs_is_linear_and_nondestructive(monkeypatch):
+    """RemoveHs runs once per molecule (O(n)) AND is non-destructive: returned
+    conformers keep their explicit hydrogens and exact H positions. This is a
+    correctness invariant, not just perf -- the MLIP requires explicit H and the
+    final geometries written to SDF must retain the optimized H coordinates. The
+    no-H form is a throwaway copy used only for the RMSD comparison.
+    """
+    import numpy as np
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D import filtering
+
+    # Five DISTINCT conformers of one molecule so all survive as unique,
+    # maximizing inner-loop comparisons (the O(n^2) path strips Hs each pair).
+    mols = []
+    base = Chem.AddHs(Chem.MolFromSmiles("CCCCO"))
+    cids = AllChem.EmbedMultipleConfs(base, numConfs=5, randomSeed=1)
+    for cid in cids:
+        m = Chem.Mol(base, confId=int(cid))
+        m.SetProp("E_tot", "0.0")
+        m.SetProp("Converged", "true")
+        mols.append(m)
+    n_atoms = base.GetNumAtoms()  # heavy + explicit H (15 for CCCCO)
+    orig_pos = {id(m): m.GetConformer().GetPositions().copy() for m in mols}
+
+    calls = {"n": 0}
+    real_removehs = filtering.Chem.RemoveHs
+
+    def counting(mol, *a, **k):
+        calls["n"] += 1
+        return real_removehs(mol, *a, **k)
+
+    monkeypatch.setattr(filtering.Chem, "RemoveHs", counting)
+
+    result = filtering._filter_within_cluster(mols, rmsd_threshold=0.01)
+
+    # O(n): RemoveHs called once per input, never per pair.
+    assert calls["n"] == len(mols)
+    assert len(result) == len(mols)
+    # Non-destructive: returned mols keep explicit H and byte-identical positions.
+    for m in result:
+        assert m.GetNumAtoms() == n_atoms
+        assert any(a.GetAtomicNum() == 1 for a in m.GetAtoms())
+        assert np.array_equal(m.GetConformer().GetPositions(), orig_pos[id(m)])
+
+
 def test_rmsd_failure_keeps_both(monkeypatch):
     from rdkit import Chem
     from rdkit.Chem import AllChem, rdMolAlign
