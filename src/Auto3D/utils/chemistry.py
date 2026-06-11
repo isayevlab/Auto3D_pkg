@@ -11,11 +11,10 @@ This module provides:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
+from rdkit.Chem import AllChem, rdMolAlign, rdMolDescriptors, rdmolops, rdMolTransforms
 
 from Auto3D.constants import (
     CONFORMER_MULTIPLIER,
@@ -375,7 +374,7 @@ def amend_mol(
     mol: Chem.Mol,
     sanitize: bool = False,
     check_valid: bool = False,
-) -> Optional[Chem.Mol]:
+) -> Chem.Mol | None:
     """Attempt to fix or validate a molecule.
 
     This function can optionally sanitize a molecule and check its validity.
