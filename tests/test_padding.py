@@ -233,3 +233,19 @@ class TestPadFromMols:
         c, s, q = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
 
         assert c.requires_grad is True
+
+    def test_ani2xt_unsupported_element_raises_valueerror(self):
+        """ANI2xt only supports H,C,N,O,F,S,Cl. A phosphorus-containing
+        molecule must raise a clear ValueError naming the element/model,
+        not a bare KeyError."""
+        # Trimethylphosphine: contains P (atomic number 15).
+        mol = Chem.AddHs(Chem.MolFromSmiles("CP(C)C"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+
+        mols = [mol]
+        device = torch.device("cpu")
+
+        with pytest.raises(ValueError) as exc:
+            pad_from_mols(mols, "ANI2xt", device, coord_pad=0.0, species_pad=-1)
+        msg = str(exc.value)
+        assert "ANI2xt" in msg and ("15" in msg or "P" in msg)

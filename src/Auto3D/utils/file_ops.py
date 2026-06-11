@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import collections
 import hashlib
+import os
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -26,6 +27,53 @@ from Auto3D.exceptions import InputValidationError
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def iter_smi_records(path, *, on_malformed="skip"):
+    """Yield (line_no, smiles, mol_id) for each non-blank line of a .smi file.
+
+    A line is 'SMILES ID [extra columns ignored]'. Blank/whitespace-only lines
+    are skipped. on_malformed controls lines with fewer than 2 whitespace tokens:
+      - "skip": log a warning and skip the line (lenient; default)
+      - "raise": raise InputValidationError naming the line
+
+    Args:
+        path: Path to the input .smi file.
+        on_malformed: How to handle lines with fewer than 2 tokens
+            ("skip" or "raise").
+
+    Yields:
+        Tuples of (line_no, smiles, mol_id) where line_no is 1-based. Any extra
+        whitespace-separated columns beyond the ID are intentionally ignored.
+
+    Raises:
+        InputValidationError: If on_malformed == "raise" and a non-blank line
+            has fewer than 2 whitespace tokens.
+        ValueError: If on_malformed is not "skip" or "raise".
+    """
+    if on_malformed not in ("skip", "raise"):
+        raise ValueError(
+            f"on_malformed must be 'skip' or 'raise', got: {on_malformed!r}"
+        )
+    with open(path) as f:
+        data = f.readlines()
+    for line_no, line in enumerate(data, start=1):
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            if on_malformed == "raise":
+                raise InputValidationError(
+                    f"Line {line_no} is missing a molecule ID "
+                    f"(expected 'SMILES ID'): {line.strip()!r}"
+                )
+            logger.warning(
+                f"Skipping molecule at line {line_no}: failed to parse "
+                f"(need 'SMILES ID', got: {line.strip()!r})"
+            )
+            continue
+        # Lenient parsing: ignore any extra whitespace-separated columns.
+        yield line_no, parts[0], parts[1]
 
 
 def smiles2smi(smiles: list[str], path: str) -> str:
@@ -50,8 +98,13 @@ def smiles2smi(smiles: list[str], path: str) -> str:
         # CCC  ATUOYWHBWRKTHZ-UHFFFAOYSA-N
     """
     lines = []
-    for smi in smiles:
+    for idx, smi in enumerate(smiles):
         mol = Chem.MolFromSmiles(smi)
+        if mol is None:
+            raise InputValidationError(
+                f"Invalid SMILES at index {idx}: {smi!r} could not be parsed "
+                "by RDKit."
+            )
         inchikey = inchi.MolToInchiKey(mol)
         lines.append(f"{smi}  {inchikey}\n")
 
@@ -230,12 +283,8 @@ def hash_enumerated_smi_IDs(smi: str, out: str) -> None:
     Example:
         >>> hash_enumerated_smi_IDs("input.smi", "output.smi")
     """
-    with open(smi) as f:
-        data = f.readlines()
-
     dict0: dict[str, str] = {}
-    for line in data:
-        smiles, id = line.strip().split()
+    for _line_no, smiles, id in iter_smi_records(smi, on_malformed="skip"):
         while id in dict0:
             id += "_0"
         dict0[id] = smiles
@@ -264,12 +313,8 @@ def hash_taut_smi(smi: str, out: str) -> None:
     Example:
         >>> hash_taut_smi("input.smi", "tautomers.smi")
     """
-    with open(smi) as f:
-        data = f.readlines()
-
     dict0: dict[str, str] = {}
-    for line in data:
-        smiles, id = line.strip().split()
+    for _line_no, smiles, id in iter_smi_records(smi, on_malformed="skip"):
         c = 1
         id_ = id
         while ("taut" not in id_) or (id_ in dict0):
@@ -451,6 +496,15 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
             chunk = []
         else:
             chunk.append(line)
+    # A final record lacking the '$$$$' terminator leaves residual lines in
+    # `chunk`. Preserve it as the last chunk rather than silently dropping it.
+    if any(line.strip() for line in chunk):
+        logger.warning(
+            "SDF file %s ends without a '$$$$' terminator; "
+            "keeping the trailing record as a final chunk.",
+            sdf,
+        )
+        chunks.append(chunk)
     return chunks
 
 
@@ -484,21 +538,13 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
 
     if extension == "smi":
         new_data: list[str] = []
-        with open(path) as f:
-            data = f.readlines()
         mapping: dict[str, int] = {}
-        for i, line in enumerate(data):
-            if line.isspace():
-                continue
-            parts = line.strip().split()
-            if len(parts) < 2:
-                raise InputValidationError(
-                    f"Line {i + 1} is missing a molecule ID "
-                    f"(expected 'SMILES ID'): {line.strip()!r}"
-                )
-            # Lenient parsing: any extra whitespace-separated columns beyond the
-            # ID are intentionally ignored (unlike a strict two-value unpack).
-            smi, id = parts[0], parts[1]
+        # iter_smi_records raises InputValidationError on a <2-token line
+        # (on_malformed="raise"). Duplicate-id detection stays here because the
+        # helper does not dedup. The 0-based index `i` preserves the original
+        # byte-identical mapping/output (line_no is 1-based).
+        for line_no, smi, id in iter_smi_records(path, on_malformed="raise"):
+            i = line_no - 1
             if id in mapping:
                 raise InputValidationError(
                     f"Duplicate molecule ID {id!r} on line {i + 1}. "
@@ -567,7 +613,10 @@ def decode_ids(path: str, mapping: dict[str, int]) -> str:
 
     suppl = Chem.SDMolSupplier(path, removeHs=False)
     with Chem.SDWriter(str(new_path)) as w:
-        for mol in suppl:
+        for i, mol in enumerate(suppl):
+            if mol is None:
+                logger.warning("Skipping molecule at index %d: failed to parse", i)
+                continue
             name = mol.GetProp("_Name").strip()
             if "@taut" in name:
                 components = name.split("@taut")
@@ -604,6 +653,11 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
         - For tautomer conformers (containing '@taut' in ID), the base ID
           is extracted for ordering purposes.
         - If the source format is unsupported, prints a message and returns None.
+        - Molecules whose id is not present in ``source`` are appended at the
+          end (not dropped), so no data is lost.
+        - Duplicate source ids are de-duplicated: each id's molecules are
+          written once, so the returned list may be shorter than the input if
+          source ids repeat.
 
     Example:
         >>> ordered_mols = reorder_sdf("output_3d.sdf", "input.smi")
@@ -614,38 +668,75 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
     ids: list[str] = []
     format = guess_file_type(source)
     if format == "smi":
-        with open(source) as f:
-            data = f.readlines()
-        for line in data:
-            smiles, id = tuple(line.strip().split())
-            ids.append(id)
+        for _line_no, _smiles, mol_id in iter_smi_records(source, on_malformed="skip"):
+            ids.append(mol_id)
     elif format == "sdf":
         supp = Chem.SDMolSupplier(source, removeHs=False)
-        for mol in supp:
-            id = mol.GetProp("_Name")
-            ids.append(id)
+        for i, mol in enumerate(supp):
+            if mol is None:
+                logger.warning("Skipping molecule at index %d: failed to parse", i)
+                continue
+            ids.append(mol.GetProp("_Name"))
     else:
         logger.warning("Unsupported file format: %s" % format)
         return None  # type: ignore
 
-    # convert sdf to a Dict[id, List[mols]]
+    # convert sdf to a Dict[id, List[mols]], preserving discovery order so any
+    # molecule whose id is not in `source` can still be appended (no data loss).
     id_mols: dict[str, list[Chem.Mol]] = defaultdict(lambda: [])
+    discovery_order: list[str] = []
     supp = Chem.SDMolSupplier(sdf, removeHs=False)
-    for mol in supp:
+    for i, mol in enumerate(supp):
+        if mol is None:
+            logger.warning("Skipping molecule at index %d: failed to parse", i)
+            continue
         id = mol.GetProp("_Name")
         if "@taut" in id:
             id = id.split("@taut")[0]
+        if id not in id_mols:
+            discovery_order.append(id)
         id_mols[id].append(mol)
 
-    # write the mols in the correct order to a new sdf file
+    # Order: ids present in `source` first (in source order), then any
+    # unmatched molecules appended in their original order so nothing is lost.
+    source_id_set = set(ids)
+    ordered_ids = list(ids)
+    for id in discovery_order:
+        if id not in source_id_set:
+            logger.warning(
+                "Molecule id %r in %s is not present in source %s; "
+                "appending it at the end to avoid data loss.",
+                id,
+                sdf,
+                source,
+            )
+            ordered_ids.append(id)
+
+    # write the mols in the correct order to a temp file, then atomically
+    # replace the original only on success (crash-safe in-place overwrite).
+    sdf_path = Path(sdf)
+    tmp_path = sdf_path.with_name(sdf_path.name + ".reorder.tmp")
     ordered_mols: list[Chem.Mol] = []
-    with Chem.SDWriter(sdf) as f:
-        for id in ids:
-            mols = id_mols[id]
-            if len(mols) >= 1:
-                ordered_mols.extend(mols)
-                for mol in mols:
-                    f.write(mol)
+    written_ids: set[str] = set()
+    try:
+        with Chem.SDWriter(str(tmp_path)) as f:
+            for id in ordered_ids:
+                if id in written_ids:
+                    continue
+                written_ids.add(id)
+                mols = id_mols[id]
+                if len(mols) >= 1:
+                    ordered_mols.extend(mols)
+                    for mol in mols:
+                        f.write(mol)
+        os.replace(str(tmp_path), str(sdf))
+    except BaseException:
+        # Never leave a half-written temp file or destroy the original input.
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
     return ordered_mols
 
 
@@ -663,7 +754,7 @@ def count_sdf(sdf: str) -> int:
         10
     """
     mols = Chem.SDMolSupplier(sdf)
-    return len([mol for mol in mols])
+    return len([mol for mol in mols if mol is not None])
 
 
 def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
@@ -686,16 +777,16 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     """
     # Find all SMILES ids
     smi_names: list[tuple[str, str]] = []
-    with open(smi) as f:
-        data = f.readlines()
-    for line in data:
-        smiles_str, mol_id = tuple(line.strip().split())
-        smi_names.append((smiles_str.strip(), mol_id.strip()))
+    for _line_no, smiles_str, mol_id in iter_smi_records(smi, on_malformed="skip"):
+        smi_names.append((smiles_str, mol_id))
 
     # Get all molecule names from SDF
     sdf_data: list[str] = []
     mols = Chem.SDMolSupplier(sdf)
-    for mol in mols:
+    for i, mol in enumerate(mols):
+        if mol is None:
+            logger.warning("Skipping molecule at index %d: failed to parse", i)
+            continue
         sdf_data.append(mol.GetProp("_Name"))
     sdf_data = list(set(sdf_data))
 

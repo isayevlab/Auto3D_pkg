@@ -15,7 +15,7 @@ from typing import Optional
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
+from rdkit.Chem import AllChem, rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
 
 from Auto3D.constants import (
     CONFORMER_MULTIPLIER,
@@ -26,6 +26,7 @@ from Auto3D.constants import (
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
     MAX_CONFORMERS_CAP,
+    MIN_ATOM_DISTANCE,
 )
 
 logger = logging.getLogger("auto3d")
@@ -36,6 +37,7 @@ __all__ = [
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
     "EV_TO_KCAL_PER_MOL",
+    "ANI2XT_INDEX",
     # Backward compatibility aliases
     "hartree2ev",
     "hartree2kcalpermol",
@@ -44,6 +46,7 @@ __all__ = [
     "calculate_conformer_count",
     "get_mol_charge",
     "min_pairwise_distance",
+    "relieve_clash",
     "get_rmsd",
     "check_connectivity",
     "getidx",
@@ -65,16 +68,18 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     """Calculate the number of conformers to generate for a molecule.
 
     Uses a formula based on the number of rotatable bonds, with a minimum
-    of the heavy atom count and a maximum cap.
+    of the heavy atom count and a maximum cap. The result is floored at 1 so
+    a molecule never gets 0 conformers (which would silently drop tiny species
+    such as ``[H+]`` or a lone atom from the pipeline).
 
-    Formula: min(max(num_heavy, 2 * 8.481 * (num_rotatable ** 1.642)), 1000)
+    Formula: min(max(1, num_heavy, 2 * 8.481 * (num_rotatable ** 1.642)), 1000)
     Reference: https://doi.org/10.1021/acs.jctc.0c01213
 
     Args:
         mol: RDKit molecule object (with or without hydrogens).
 
     Returns:
-        Number of conformers to generate.
+        Number of conformers to generate (always >= 1).
 
     Example:
         >>> from rdkit import Chem
@@ -91,7 +96,9 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
         (num_rotatable ** CONFORMER_ROTATABLE_EXP)
     )
 
-    return min(max(num_heavy, formula_count), MAX_CONFORMERS_CAP)
+    # Floor at 1: a heavy-atom-free species (e.g. [H+]) or a single atom must
+    # still receive at least one conformer instead of being silently dropped.
+    return min(max(1, num_heavy, formula_count), MAX_CONFORMERS_CAP)
 
 
 def get_mol_charge(mol: Chem.Mol) -> int:
@@ -159,6 +166,44 @@ def min_pairwise_distance(points: np.ndarray) -> float:
     return float(np.sqrt(min_squared_distance))
 
 
+def relieve_clash(
+    mol: Chem.Mol,
+    conf_id: int,
+    min_distance: float = MIN_ATOM_DISTANCE,
+) -> bool:
+    """Optimize a clashing conformer in place and report whether it is usable.
+
+    A conformer is considered "clashing" when its minimum pairwise interatomic
+    distance is below ``min_distance``. Such conformers are relaxed with MMFF;
+    when the molecule lacks full MMFF parameters (elements like B, Se or some
+    Si valences, where ``MMFFOptimizeMolecule`` returns -1 and does nothing),
+    the function falls back to UFF so the conformer is not discarded for lack
+    of a force field.
+
+    Args:
+        mol: RDKit molecule holding the conformer.
+        conf_id: Index of the conformer to check/optimize.
+        min_distance: Minimum acceptable interatomic distance (Angstroms).
+
+    Returns:
+        True if the (possibly optimized) conformer's minimum pairwise distance
+        is >= ``min_distance`` and should be kept; False if it still clashes.
+    """
+    positions = mol.GetConformer(conf_id).GetPositions()
+    # Closing the dead band: a conformer exactly at the threshold is kept.
+    if min_pairwise_distance(positions) >= min_distance:
+        return True
+
+    # Clashing conformer: try MMFF, fall back to UFF when MMFF is unavailable.
+    if AllChem.MMFFHasAllMoleculeParams(mol):
+        AllChem.MMFFOptimizeMolecule(mol, confId=conf_id)
+    else:
+        AllChem.UFFOptimizeMolecule(mol, confId=conf_id)
+
+    positions = mol.GetConformer(conf_id).GetPositions()
+    return min_pairwise_distance(positions) >= min_distance
+
+
 def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
     """Calculate the RMSD between two molecular conformers.
 
@@ -172,8 +217,11 @@ def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
             This speeds up the calculation and focuses on heavy atom positions.
 
     Returns:
-        The RMSD value in Angstroms. Returns 0.0 if alignment fails
-        (e.g., due to atom mismatch).
+        The RMSD value in Angstroms. Returns ``float("inf")`` if alignment
+        fails (e.g., due to atom mismatch). An incomparable pair is treated as
+        "distinct" rather than "identical", which is the same convention used
+        by ``filter_unique``; a downstream ``rmsd < threshold`` check therefore
+        keeps the structure instead of dropping it as a false duplicate.
 
     Example:
         >>> from rdkit import Chem
@@ -196,7 +244,8 @@ def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
         # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
         rmsd = rdMolAlign.GetBestRMS(mol1_proc, mol2_proc)
     except RuntimeError:
-        rmsd = 0.0
+        # Incomparable pair: treat as distinct (inf), matching filter_unique.
+        rmsd = float("inf")
     return float(rmsd)
 
 
@@ -217,6 +266,11 @@ def check_connectivity(mol: Chem.Mol) -> bool:
         Uses UFF bond radii from Rappe et al. JACS 1992. The radii neglect bond-order
         and electronegativity corrections. Bond is considered broken if length > 1.25x
         reference, and formed if distance < 1.1x reference.
+
+        Bonds involving elements outside the covalent-radii table (e.g. alkali/
+        alkaline-earth counterions or transition-metal coordination bonds, M-L)
+        are NOT validated -- such pairs are skipped ("no opinion"), so the
+        dissociation of an M-L bond will not be flagged as invalid connectivity.
     """
     # Initialize UFF bond radii (Rappe et al. JACS 1992)
     # Units of angstroms
@@ -256,6 +310,13 @@ def check_connectivity(mol: Chem.Mol) -> bool:
             atomic_num_j = atom_j.GetAtomicNum()
             pos_j = mol.GetConformer().GetAtomPosition(atom_j_idx)
 
+            # Elements outside the UFF radii table (e.g. Na, K, Mg, Fe, Zn in
+            # salts/metal complexes) have no reference radius. Skip such pairs
+            # ("no opinion") rather than indexing the dict blindly, which would
+            # raise KeyError and crash the whole filtering pass.
+            if atomic_num_i not in Radii or atomic_num_j not in Radii:
+                continue
+
             bond = mol.GetBondBetweenAtoms(atom_i_idx, atom_j_idx)
             reference_length = Radii[atomic_num_i] + Radii[atomic_num_j]
             if bond:
@@ -287,7 +348,10 @@ def getidx(atomic_num: int, model: str = "default") -> int:
         The element index appropriate for the specified model.
 
     Raises:
-        KeyError: If the element is not supported by the specified model (ANI2xt only).
+        ValueError: If the element is not supported by the specified model
+            (ANI2xt only). The message names the offending element (atomic
+            number + symbol) and the model, so callers do not need to wrap a
+            bare ``KeyError`` themselves.
 
     Example:
         >>> getidx(6, model="ANI2xt")  # Carbon in ANI2xt
@@ -296,7 +360,14 @@ def getidx(atomic_num: int, model: str = "default") -> int:
         6
     """
     if model == "ANI2xt":
-        return ANI2XT_INDEX[atomic_num]
+        try:
+            return ANI2XT_INDEX[atomic_num]
+        except KeyError:
+            symbol = Chem.GetPeriodicTable().GetElementSymbol(atomic_num)
+            raise ValueError(
+                f"Element Z={atomic_num} ({symbol}) is not supported by "
+                f"ANI2xt (supported: H, C, N, O, F, S, Cl)."
+            ) from None
     return atomic_num
 
 
@@ -343,7 +414,10 @@ def amend_mol(
     except (ValueError, RuntimeError, KeyError) as e:
         # ValueError: from RDKit SanitizeMol validation errors
         # RuntimeError: from RDKit internal errors during molecule processing
-        # KeyError: from check_connectivity if atom's atomic number not in Radii dict
+        # KeyError: defensive only. check_connectivity no longer raises KeyError
+        #   for unknown elements (it now skips them); retained to swallow any
+        #   stray dict-lookup error from RDKit internals rather than crash the
+        #   amendment of a single molecule.
         logger.debug(f"Molecule amendment failed: {type(e).__name__}: {e}")
         return None
 
@@ -444,7 +518,10 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
                 # removing Hs speeds up the calculation
                 rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))
             except RuntimeError:
-                rmsd = 0
+                # Incomparable pair: treat as distinct (not a duplicate) so the
+                # conformer is kept. Using 0 would make it look like a perfect
+                # duplicate and drop a genuinely distinct structure.
+                rmsd = float("inf")
             if rmsd < crit:
                 unique = False
                 break
