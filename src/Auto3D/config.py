@@ -89,7 +89,7 @@ class Auto3DOptions:
 
     # Optimization settings
     optimizing_engine: str = "AIMNET"
-    """Model for optimization: 'ANI2x', 'ANI2xt', 'AIMNET', or path to custom NNP."""
+    """Engine: 'AIMNET' (=aimnet2), any aimnet registry name (aimnet2-2025, aimnet2-nse, ...), 'ANI2x', 'ANI2xt', or a path to a custom model."""
 
     patience: int = DEFAULT_PATIENCE
     """Drop conformer from optimization if force doesn't decrease for this many steps."""

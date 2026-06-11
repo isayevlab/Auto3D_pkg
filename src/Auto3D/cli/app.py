@@ -84,7 +84,14 @@ def run(
     ] = None,
     engine: Annotated[
         str | None,
-        typer.Option("--engine", help="Optimization engine: AIMNET, ANI2x, ANI2xt."),
+        typer.Option(
+            "--engine",
+            help=(
+                "Optimization engine: AIMNET, ANI2x, ANI2xt, an aimnet registry "
+                "name (aimnet2, aimnet2-2025, aimnet2-nse), or a path to a custom "
+                "model file."
+            ),
+        ),
     ] = None,
     gpu: Annotated[
         bool | None,
