@@ -10,6 +10,7 @@ This package contains utility functions split into focused modules:
 
 from Auto3D.utils.logging_config import get_logger, configure_logging
 from Auto3D.utils.chemistry import (
+    ANI2XT_INDEX,
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
     EV_TO_KCAL_PER_MOL,
@@ -65,6 +66,7 @@ __all__ = [
     "get_logger",
     "configure_logging",
     # Chemistry module exports
+    "ANI2XT_INDEX",
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
     "EV_TO_KCAL_PER_MOL",

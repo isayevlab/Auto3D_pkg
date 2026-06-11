@@ -196,8 +196,13 @@ class TestGetRmsd:
         assert abs(rmsd_with_hs_removed) < 1e-5
         assert abs(rmsd_without_hs_removed) < 1e-5
 
-    def test_mismatched_molecules_returns_zero(self):
-        """Test that mismatched molecules return 0.0."""
+    def test_mismatched_molecules_returns_inf(self):
+        """Mismatched molecules are incomparable and return float('inf').
+
+        An incomparable pair is treated as "distinct" (inf), matching
+        filter_unique, so a downstream `rmsd < threshold` check keeps the
+        structure instead of dropping it as a false duplicate.
+        """
         mol1 = Chem.MolFromSmiles("CCO")
         mol1 = Chem.AddHs(mol1)
         AllChem.EmbedMolecule(mol1, randomSeed=42)
@@ -206,9 +211,24 @@ class TestGetRmsd:
         mol2 = Chem.AddHs(mol2)
         AllChem.EmbedMolecule(mol2, randomSeed=42)
 
-        # This should raise RuntimeError internally and return 0.0
+        # This should raise RuntimeError internally and return inf.
         rmsd = get_rmsd(mol1, mol2)
-        assert rmsd == 0.0
+        assert rmsd == float("inf")
+
+    def test_runtime_error_returns_inf(self, monkeypatch):
+        """A RuntimeError from the RMSD computation returns float('inf')."""
+        from Auto3D.utils import chemistry as chem
+
+        mol = Chem.MolFromSmiles("CCO")
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol_copy = Chem.Mol(mol)
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("forced failure")
+
+        monkeypatch.setattr(chem.rdMolAlign, "GetBestRMS", _boom)
+        assert chem.get_rmsd(mol, mol_copy) == float("inf")
 
 
 class TestCheckConnectivity:
@@ -363,10 +383,26 @@ class TestGetIdx:
         assert getidx(8) == 8  # Oxygen
 
     def test_unsupported_element_raises_error(self):
-        """Test that unsupported element raises KeyError for ANI2xt."""
+        """Unsupported element raises a friendly ValueError for ANI2xt.
+
+        getidx now folds the friendly message (used by pad_from_mols) into a
+        ValueError naming the element and the model, rather than letting a bare
+        KeyError escape.
+        """
         from Auto3D.utils.chemistry import getidx
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError) as exc:
             getidx(79, model="ANI2xt")  # Gold not supported by ANI2xt
+        msg = str(exc.value)
+        assert "ANI2xt" in msg and ("79" in msg or "Au" in msg)
+
+    def test_unsupported_phosphorus_raises_valueerror(self):
+        """Phosphorus (Z=15) is unsupported by ANI2xt and must raise a clear
+        ValueError naming the element + model, not a bare KeyError."""
+        from Auto3D.utils.chemistry import getidx
+        with pytest.raises(ValueError) as exc:
+            getidx(15, model="ANI2xt")  # Phosphorus not supported by ANI2xt
+        msg = str(exc.value)
+        assert "ANI2xt" in msg and ("15" in msg or "P" in msg)
 
 
 class TestAmendMol:

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torchani
 
-from Auto3D.utils import hartree2ev
+from Auto3D.utils import ANI2XT_INDEX, hartree2ev
 
 # Note: Do NOT set torch.manual_seed() at module level.
 # Random seed should be controlled by the caller, not by importing a module.
@@ -125,7 +125,8 @@ class ANI2xt(nn.Module):
         self.aev_computer = aev_computer.to(device)
         self._device = device
         self.periodic = periodic_table_index
-        self.periodict2idx = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
+        # Canonical atomic-number -> ANI2xt species index map (chemistry.ANI2XT_INDEX).
+        self.periodict2idx = dict(ANI2XT_INDEX)
 
     def forward(self, species, coords):
         """Compute molecular energies.
