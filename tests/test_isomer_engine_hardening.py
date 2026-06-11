@@ -184,14 +184,33 @@ class TestConformerCount:
     def test_smiles_and_sdf_paths_agree(self):
         """SMILES and SDF paths must compute the SAME conformer budget.
 
-        Both paths now call calculate_conformer_count on the no-H mol, so the
-        count is identical for glycerol regardless of input format.
+        Both embed paths now call calculate_conformer_count on the H-complete
+        (AddHs) mol, so the count is identical for glycerol regardless of input
+        format -- and it equals the richer with-H count, not the no-H count.
         """
         glycerol = Chem.MolFromSmiles("OCC(O)CO")
-        noh_count = calculate_conformer_count(glycerol)
-        # The (formerly divergent) AddHs path must match the no-H count.
-        withh_count = calculate_conformer_count(Chem.RemoveHs(Chem.AddHs(glycerol)))
-        assert noh_count == withh_count
+        # SMILES path budget: count on AddHs(mol).
+        smiles_path_count = calculate_conformer_count(Chem.AddHs(glycerol))
+        # SDF path reads removeHs=False and then AddHs's; for a mol already
+        # carrying explicit Hs, AddHs is idempotent, so the budget matches.
+        sdf_mol_with_explicit_h = Chem.AddHs(glycerol)
+        sdf_path_count = calculate_conformer_count(Chem.AddHs(sdf_mol_with_explicit_h))
+        assert smiles_path_count == sdf_path_count
+
+    def test_conformer_count_uses_with_h_and_paths_agree(self):
+        """The unified budget must use the H-complete representation.
+
+        RDKit's CalcNumRotatableBonds only counts O-H / N-H torsions when
+        hydrogens are explicit, so the with-H count richly samples hydroxyl /
+        amine rotors that the no-H count drops (glycerol ~4.6x). Both embed
+        paths now compute on the with-H mol, so they agree on this larger value.
+        """
+        noh = Chem.MolFromSmiles("OCC(O)CO")  # glycerol
+        withh = Chem.AddHs(noh)
+        n_noh = calculate_conformer_count(noh)
+        n_withh = calculate_conformer_count(withh)
+        # with-H samples more (O-H torsions) -> richer polyol sampling restored
+        assert n_withh > n_noh
 
 
 # ---------------------------------------------------------------------------

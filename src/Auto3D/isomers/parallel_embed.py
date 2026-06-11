@@ -51,9 +51,11 @@ def _embed_single(
     mol = Chem.AddHs(mol_noh)
 
     if n_conformers is None:
-        # Compute the conformer budget on the no-H representation so the
-        # parallel path agrees with the serial/SDF paths (FIX 4).
-        n_conformers = calculate_conformer_count(mol_noh)
+        # Compute the conformer budget on the H-complete (AddHs) mol so the
+        # parallel path agrees with the serial/SDF paths on the RICHER with-H
+        # count: CalcNumRotatableBonds only counts O-H / N-H torsions when
+        # hydrogens are explicit (e.g. glycerol 238 vs 52 conformers).
+        n_conformers = calculate_conformer_count(mol)
 
     AllChem.EmbedMultipleConfs(
         mol,

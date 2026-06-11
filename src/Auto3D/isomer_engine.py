@@ -225,13 +225,14 @@ class RDKitIsomer:
 
     def embed_conformer(self, smi: str) -> Chem.Mol:
         """Embed multiple 3D conformers for a SMILES string."""
-        mol_noh = Chem.MolFromSmiles(smi)
-        mol = Chem.AddHs(mol_noh)
+        mol = Chem.AddHs(Chem.MolFromSmiles(smi))
         if self.n_conformers is None:
-            # Compute the conformer budget on the no-H representation so the
-            # SMILES path agrees with the SDF path (FIX 4): CalcNumRotatableBonds
-            # differs with/without explicit hydrogens.
-            n_conformers = calculate_conformer_count(mol_noh)
+            # Compute the conformer budget on the H-complete (AddHs) mol so the
+            # SMILES and SDF paths agree, and on the RICHER side: RDKit's
+            # CalcNumRotatableBonds only counts O-H / N-H torsions when hydrogens
+            # are explicit, so the with-H count samples hydroxyl/amine rotors
+            # that the no-H count drops (e.g. glycerol 238 vs 52 conformers).
+            n_conformers = calculate_conformer_count(mol)
             AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
                                     randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
@@ -371,9 +372,12 @@ class RDKitSdfIsomer:
                 #enumerate conformers
                 mol2 = Chem.AddHs(mol)
                 if self.n_conformers is None:
-                    # Compute the conformer budget on the no-H representation so
-                    # the SDF path agrees with the SMILES path (FIX 4).
-                    n_conformers = calculate_conformer_count(Chem.RemoveHs(mol))
+                    # Compute the conformer budget on the H-complete (AddHs) mol
+                    # so the SDF path agrees with the SMILES path on the RICHER
+                    # with-H count. AddHs is idempotent for a mol that already
+                    # carries explicit Hs (3D SDFs read with removeHs=False), so
+                    # this yields the same count regardless of input format.
+                    n_conformers = calculate_conformer_count(mol2)
                 else:
                     n_conformers = self.n_conformers
                 AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np, pruneRmsThresh=self.threshold)
