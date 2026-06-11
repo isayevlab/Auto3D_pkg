@@ -212,7 +212,7 @@ class AIMNet2Adapter(BaseModelAdapter):
             model_name: aimnet registry name/alias.
             device: Target device.
             compile_model: Forwarded to AIMNet2Calculator (torch.compile).
-            use_ensemble: Reserved; a single registry member is used in 4.0.
+            use_ensemble: Reserved; a single registry member is used in 3.5.
         """
         from aimnet.calculators import AIMNet2Calculator
 
@@ -223,7 +223,7 @@ class AIMNet2Adapter(BaseModelAdapter):
         if use_ensemble:
             import warnings
             warnings.warn(
-                "use_ensemble is not supported for the aimnet backend in 4.0; "
+                "use_ensemble is not supported for the aimnet backend in 3.5; "
                 "using a single registry member.",
                 UserWarning, stacklevel=2,
             )
