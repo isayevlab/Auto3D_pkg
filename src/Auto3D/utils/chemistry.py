@@ -256,6 +256,13 @@ def check_connectivity(mol: Chem.Mol) -> bool:
             atomic_num_j = atom_j.GetAtomicNum()
             pos_j = mol.GetConformer().GetAtomPosition(atom_j_idx)
 
+            # Elements outside the UFF radii table (e.g. Na, K, Mg, Fe, Zn in
+            # salts/metal complexes) have no reference radius. Skip such pairs
+            # ("no opinion") rather than indexing the dict blindly, which would
+            # raise KeyError and crash the whole filtering pass.
+            if atomic_num_i not in Radii or atomic_num_j not in Radii:
+                continue
+
             bond = mol.GetBondBetweenAtoms(atom_i_idx, atom_j_idx)
             reference_length = Radii[atomic_num_i] + Radii[atomic_num_j]
             if bond:
@@ -444,7 +451,10 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
                 # removing Hs speeds up the calculation
                 rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))
             except RuntimeError:
-                rmsd = 0
+                # Incomparable pair: treat as distinct (not a duplicate) so the
+                # conformer is kept. Using 0 would make it look like a perfect
+                # duplicate and drop a genuinely distinct structure.
+                rmsd = float("inf")
             if rmsd < crit:
                 unique = False
                 break
