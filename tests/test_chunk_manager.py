@@ -321,6 +321,75 @@ class TestPrepareChunks:
         assert manager.scaled_batchsize_atoms == 1024 * 4
 
 
+class TestRaggedSmiAndChunkSizeClamp:
+    """FIX 6: ragged .smi reads and degenerate chunk_size must not crash."""
+
+    def test_prepare_chunks_reads_ragged_smi(self, tmp_path):
+        """A .smi line with an extra whitespace token must not crash the read.
+
+        encode_ids tolerates extra columns, so prepare_chunks must too. The old
+        pd.read_csv(sep=r"\\s+") raised 'Expected 2 fields, saw 3'.
+        """
+        input_file = tmp_path / "test_encoded.smi"
+        # second line has 3 whitespace tokens.
+        input_file.write_text("CCO ethanol\nCCCO propanol extra\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            memory=1,
+            capacity=10,
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        chunk_info = manager.prepare_chunks()
+
+        # Both molecules retained; only the first two columns are used.
+        assert len(chunk_info) >= 1
+        total_rows = 0
+        for path, _ in chunk_info:
+            total_rows += sum(
+                1 for ln in Path(path).read_text().splitlines() if ln.strip()
+            )
+        assert total_rows == 2
+
+    def test_chunk_size_clamped_to_at_least_one(self, tmp_path):
+        """When memory_gb*capacity < 1, chunk_size must clamp to >= 1.
+
+        Otherwise data_size // chunk_size explodes num_chunks (or divides by 0).
+        """
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO ethanol\nCCCO propanol\nCCCCO butanol\n")
+
+        # memory=1 GB * capacity=0.0 -> raw chunk_size 0.0 (degenerate).
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            memory=1,
+            capacity=0.0,
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        # Must not raise ZeroDivisionError and must not explode num_chunks.
+        chunk_info = manager.prepare_chunks()
+
+        # With 3 molecules and a clamped chunk_size of 1, num_chunks stays sane
+        # (no more than data_size + 1 jobs).
+        assert 1 <= len(chunk_info) <= 4
+
+
 class TestLogging:
     """Tests for ChunkManager logging."""
 

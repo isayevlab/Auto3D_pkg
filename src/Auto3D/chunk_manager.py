@@ -81,7 +81,9 @@ class ChunkManager:
         else:
             memory_gb = int(psutil.virtual_memory().total / (1024**3))
 
-        chunk_size = memory_gb * self.config.capacity
+        # Clamp to at least 1: a fractional/zero capacity would otherwise make
+        # data_size // chunk_size explode num_chunks or raise ZeroDivisionError.
+        chunk_size = max(1, int(memory_gb * self.config.capacity))
         return memory_gb, chunk_size, num_jobs
 
     def prepare_chunks(self) -> list[tuple[str, str]]:
@@ -100,7 +102,21 @@ class ChunkManager:
 
         # Read input data
         if self.input_format == "smi":
-            df = pd.read_csv(str(self.input_path), sep=r"\s+", header=None)
+            # Robust read matching encode_ids semantics: take only the first two
+            # whitespace-separated columns, ignore any extra columns, and skip
+            # blank lines. The python engine + usecols tolerates ragged rows
+            # (an extra token) that the default C engine rejects with
+            # "Expected 2 fields, saw 3".
+            df = pd.read_csv(
+                str(self.input_path),
+                sep=r"\s+",
+                header=None,
+                names=[0, 1],
+                usecols=[0, 1],
+                engine="python",
+                skip_blank_lines=True,
+                dtype=str,
+            )
         else:  # sdf
             df = SDF2chunks(str(self.input_path))
 
