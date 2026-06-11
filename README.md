@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/Auto3D)](https://pypi.org/project/Auto3D/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/Auto3D)](https://pypi.org/project/Auto3D/)
 [![PyPI - License](https://img.shields.io/pypi/l/Auto3D)](https://github.com/isayevlab/Auto3D_pkg/blob/main/LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 ![auto3d-white](https://github.com/user-attachments/assets/3184d31b-fb21-42d5-a1e0-611ccbf66ad2)
 
@@ -94,7 +94,7 @@ for mol in mols:
 ```bash
 auto3d run input.smi --k=5              # Top-k conformers
 auto3d run input.smi --window=3.0       # Energy window (kcal/mol)
-auto3d run input.smi --engine=ANI2x     # Choose NNP model
+auto3d run input.smi --engine=ANI2x        # AIMNET, ANI2x, ANI2xt, a registry name, or a model path
 auto3d run input.smi --no-gpu           # CPU-only mode
 auto3d run input.smi -c config.yaml     # Use config file
 ```
@@ -110,9 +110,21 @@ auto3d --install-completion bash  # or zsh, fish
 
 | Engine | Description | Elements |
 |--------|-------------|----------|
-| **AIMNET** (default) | AIMNet2 with D3 dispersion | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I |
+| **AIMNET** (default) | AIMNet2 with D3 dispersion (alias for `aimnet2`) | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I |
+| **aimnet2-2025**, **aimnet2-nse**, **aimnet2-pd**, ... | Any `aimnet` registry model | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I (`aimnet2-pd` replaces As with Pd) |
 | **ANI2x** | ANI-2x ensemble | H, C, N, O, F, S, Cl |
 | **ANI2xt** | Extended ANI-2x | H, C, N, O, F, S, Cl |
+
+AIMNet2 models are provided by the [`aimnet`](https://github.com/isayevlab/aimnetcentral)
+package and auto-downloaded (and sha256-validated) into `~/.cache/aimnet` on first
+use; set `AIMNET_CACHE_DIR` to change the cache location. Network access is required
+once per model. Run `auto3d models list` to see available registry families.
+`optimizing_engine` also accepts a path to a custom NNP model file.
+
+> **Note:** As of v3.5, AIMNet2 is served by the `aimnet` package rather than
+> bundled `.jpt` files, and the default AIMNet2 energies differ from 3.x (the
+> registry `.pt` externalizes D3 dispersion), so conformer rankings may shift
+> slightly. Requires Python >= 3.11 and PyTorch >= 2.8.
 
 ## Key Parameters
 
@@ -120,7 +132,7 @@ auto3d --install-completion bash  # or zsh, fish
 |-----------|---------|-------------|
 | `k` | - | Output top-k conformers per molecule |
 | `window` | - | Energy window in kcal/mol (alternative to k) |
-| `optimizing_engine` | AIMNET | Neural network potential |
+| `optimizing_engine` | AIMNET | NNP: AIMNET, an aimnet registry name, ANI2x, ANI2xt, or a model path |
 | `use_gpu` | True | Enable GPU acceleration |
 | `enumerate_tautomer` | False | Enumerate tautomers |
 | `enumerate_isomer` | True | Enumerate stereoisomers |

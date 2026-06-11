@@ -1,2 +1,1 @@
 graft src/Auto3D
-include src/Auto3D/models/aimnet2_wb97m_ens_f.jpt

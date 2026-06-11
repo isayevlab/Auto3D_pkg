@@ -53,16 +53,21 @@ Input (SMILES/SDF) → Tautomer Enumeration (optional) → Stereoisomer Generati
 | `ASE/thermo.py` | Thermodynamic properties via ASE integration |
 | `ASE/geometry.py` | Geometry optimization wrapper |
 
-### Neural Network Models (`src/Auto3D/models/`)
-- `aimnet2_wb97m-d3_0.jpt` - Fast single AIMNet2 model (default, ~35x faster)
-- `aimnet2_wb97m_ens_f.jpt` - AIMNet2 8-model ensemble (highest accuracy)
-- `ani2xt_no_repulsion.pt` - ANI2xt variant
+### Neural Network Models
+
+- **AIMNet2** is served by the `aimnet` package (a core dependency), not bundled
+  with Auto3D. Registry models (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`,
+  `aimnet2-pd`, ...) are auto-downloaded and sha256-validated into
+  `~/.cache/aimnet` on first use (override with `AIMNET_CACHE_DIR`; network
+  required once per model).
+- The only model bundled in `src/Auto3D/models/` is `ani2xt_no_repulsion.pt`
+  (ANI2xt).
 
 ### Performance Optimization
 
 The optimization loop uses several strategies to maximize speed:
 
-1. **Single Model by Default**: AIMNet uses a single model instead of 8-model ensemble, providing ~35x speedup while maintaining accuracy sufficient for geometry optimization. Use `use_ensemble=True` for highest accuracy.
+1. **Single Model by Default**: AIMNet uses a single registry model, providing ~35x speedup over ANI2x while maintaining accuracy sufficient for geometry optimization. `use_ensemble=True` no longer loads a bundled ensemble (a single registry member is used; it warns if set).
 
 2. **Relaxed Convergence Criteria**: Based on computational chemistry best practices, convergence thresholds are tuned for conformer generation (not final refinement):
    - Force threshold: 0.01 eV/Å (vs typical 0.05 eV/Å in ASE)
@@ -77,18 +82,19 @@ The optimization loop uses several strategies to maximize speed:
 ```python
 from Auto3D.model_factory import create_model
 
-# Default: fast single model
+# Default: AIMNet2 registry default (alias for "aimnet2")
 model = create_model("AIMNET", device)
 
-# Ensemble for highest accuracy (slower)
-model = create_model("AIMNET", device, use_ensemble=True)
+# Pick a specific aimnet registry model (auto-downloaded on first use)
+model = create_model("aimnet2-2025", device)
 
 # Enable torch.compile for ANI models
 model = create_model("ANI2xt", device, compile_model=True)
 ```
 
 Environment variables:
-- `AUTO3D_USE_ENSEMBLE=1` - Use ensemble model (default: off)
+- `AIMNET_CACHE_DIR` - Override the AIMNet2 model cache location (default: `~/.cache/aimnet`)
+- `AUTO3D_USE_ENSEMBLE=1` - Use ensemble mode (default: off; single registry member is used)
 - `AUTO3D_COMPILE_MODEL=1` - Enable torch.compile (default: off)
 
 ### Key Design Patterns
@@ -107,7 +113,7 @@ Two modes:
 - **YAML config files**: `parameters.yaml` (example in repo root); legacy `tauto.yaml` example in `docs/legacy-v2/`
 - **Python API**: `from Auto3D import Auto3DOptions, main`
 
-Key parameters: `path`, `k` (top-k conformers), `window` (energy window kcal/mol), `optimizing_engine` ('AIMNET'/'ANI2x'/'ANI2xt'), `use_gpu`, `gpu_idx`
+Key parameters: `path`, `k` (top-k conformers), `window` (energy window kcal/mol), `optimizing_engine` (`'AIMNET'` (alias for `aimnet2`), any aimnet registry name (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`, `aimnet2-pd`, ...), `'ANI2x'`, `'ANI2xt'`, or a path to a custom NNP model file), `use_gpu`, `gpu_idx`
 
 ## Testing Notes
 

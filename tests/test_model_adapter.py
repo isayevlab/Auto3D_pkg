@@ -8,24 +8,27 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from Auto3D.models.adapter import ModelAdapter, AIMNetAdapter
+from Auto3D.models.adapter import ModelAdapter, AIMNet2Adapter
 
 
 def test_model_adapter_interface():
-    """ModelAdapter should have consistent forward signature."""
-    # This will fail until we implement the adapter
+    """A concrete adapter should expose the ModelAdapter interface and a
+    forward(coords, species, charges) -> (energy, forces) signature."""
     device = torch.device("cpu")
-    adapter = AIMNetAdapter(device)
+    adapter = AIMNet2Adapter("aimnet2", device)
 
     # Test interface attributes exist
     assert hasattr(adapter, 'coord_pad')
     assert hasattr(adapter, 'species_pad')
     assert hasattr(adapter, 'device')
 
-    # Test forward signature
-    coords = torch.randn(2, 5, 3, device=device)
+    # Test forward signature on two real methane molecules.
+    coords = torch.tensor(
+        [[[0., 0, 0], [0.63, 0.63, 0.63], [-0.63, -0.63, 0.63],
+          [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]]
+    ).repeat(2, 1, 1).to(device)
     species = torch.tensor([[6, 1, 1, 1, 1], [6, 1, 1, 1, 1]], device=device)
-    charges = torch.tensor([0, 0], device=device)
+    charges = torch.tensor([0.0, 0.0], device=device)
 
     energy, forces = adapter.forward(coords, species, charges)
     assert energy.shape == (2,)
@@ -69,67 +72,32 @@ class TestBaseModelAdapter:
         assert adapter.species_pad == -1
 
 
-class TestAIMNetAdapter:
-    """Tests for the AIMNetAdapter."""
+class TestAIMNet2Adapter:
+    """Tests for the AIMNet2Adapter (aimnet-backed)."""
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_aimnet_adapter_loads_default_model(self, mock_load):
-        """AIMNetAdapter should load default model from models directory."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
-
+    def test_aimnet2_adapter_loads_default_model(self):
+        """AIMNet2Adapter resolves the 'aimnet2' registry name (no .jpt path)."""
         device = torch.device("cpu")
-        adapter = AIMNetAdapter(device)
+        adapter = AIMNet2Adapter("aimnet2", device)
 
-        mock_load.assert_called_once()
-        call_args = mock_load.call_args
-        path_arg = call_args[0][0]
+        assert adapter.model_name == "aimnet2"
+        # An underlying nn.Module is built from the aimnet registry.
+        assert adapter.model is not None
 
-        # Check the path contains expected components
-        assert "models" in path_arg
-        # Single model is now the default (aimnet2_wb97m-d3_0.jpt)
-        assert "aimnet2_wb97m-d3_0.jpt" in path_arg
-
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_aimnet_adapter_has_correct_padding(self, mock_load):
-        """AIMNetAdapter should have coord_pad=0.0 and species_pad=0."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
-
+    def test_aimnet2_adapter_has_correct_padding(self):
+        """AIMNet2Adapter should have coord_pad=0.0 and species_pad=0."""
         device = torch.device("cpu")
-        adapter = AIMNetAdapter(device)
+        adapter = AIMNet2Adapter("aimnet2", device)
 
         assert adapter.coord_pad == 0.0
         assert adapter.species_pad == 0
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_aimnet_adapter_forward_calls_model(self, mock_load):
-        """AIMNetAdapter.forward should call the underlying model."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_model.return_value = {
-            'energy': torch.tensor([1.0, 2.0]),
-            'forces': torch.randn(2, 5, 3)
-        }
-        mock_load.return_value = mock_model
-
-        device = torch.device("cpu")
-        adapter = AIMNetAdapter(device)
-
-        coords = torch.randn(2, 5, 3, device=device)
-        species = torch.tensor([[6, 1, 1, 1, 1], [6, 1, 1, 1, 1]], device=device)
-        charges = torch.tensor([0, 0], device=device)
-
-        energy, forces = adapter.forward(coords, species, charges)
-
-        # Verify the model was called with the right dict
-        mock_model.assert_called_once()
-        call_args = mock_model.call_args[0][0]
-        assert 'coord' in call_args
-        assert 'numbers' in call_args
-        assert 'charge' in call_args
+    # Note: the former test_aimnet_adapter_forward_calls_model (which mocked a
+    # jit-loaded model and inspected the dict passed to it) is intentionally
+    # dropped. The new adapter delegates to AIMNet2Calculator, and a real
+    # forward pass is already covered end-to-end by
+    # test_aimnet2_adapter_energy_forces_water / _padded_batch_matches_unpadded
+    # below, which assert energy/force shapes and physical values.
 
 
 class TestANI2xtAdapter:
@@ -221,3 +189,69 @@ def test_try_compile_uses_dynamic_default_mode(monkeypatch):
     adapter._try_compile(m)
     assert captured.get("mode") == "default"
     assert captured.get("dynamic") is True
+
+
+def test_aimnet2_adapter_energy_forces_water():
+    import torch
+    from Auto3D.models.adapter import AIMNet2Adapter
+
+    ad = AIMNet2Adapter("aimnet2", torch.device("cpu"))
+    coord = torch.tensor([[[0.0, 0, 0], [0, 0, 0.97], [0, 0.92, -0.25]]])
+    species = torch.tensor([[8, 1, 1]])
+    charges = torch.tensor([0.0])
+    e, f = ad.forward(coord, species, charges)
+    assert e.shape == (1,)
+    assert f.shape == (1, 3, 3)
+    assert -3000 < float(e[0]) < -1000   # water total energy, eV
+    assert ad.species_pad == 0 and ad.coord_pad == 0.0
+
+
+def test_aimnet2_adapter_padded_batch_matches_unpadded():
+    """Padded multi-size batch must give per-molecule energies equal to solo runs."""
+    import torch
+    from Auto3D.models.adapter import AIMNet2Adapter
+    ad = AIMNet2Adapter("aimnet2", torch.device("cpu"))
+
+    water_c = torch.tensor([[0.,0,0],[0,0,0.97],[0,0.92,-0.25]])
+    water_n = torch.tensor([8,1,1])
+    meth_c = torch.tensor([[0.,0,0],[0.63,0.63,0.63],[-0.63,-0.63,0.63],[0.63,-0.63,-0.63],[-0.63,0.63,-0.63]])
+    meth_n = torch.tensor([6,1,1,1,1])
+
+    e_w, _ = ad.forward(water_c.unsqueeze(0), water_n.unsqueeze(0), torch.zeros(1))
+    e_m, _ = ad.forward(meth_c.unsqueeze(0), meth_n.unsqueeze(0), torch.zeros(1))
+
+    # padded batch: water padded to 5 with species_pad=0
+    bc = torch.zeros(2,5,3); bc[0,:3]=water_c; bc[1,:5]=meth_c
+    bn = torch.zeros(2,5,dtype=torch.long); bn[0,:3]=water_n; bn[1,:5]=meth_n
+    e_b, f_b = ad.forward(bc, bn, torch.zeros(2))
+    assert f_b.shape == (2,5,3)
+    assert abs(float(e_b[0]) - float(e_w[0])) < 1e-2  # padded water == solo water (NaN-free!)
+    assert abs(float(e_b[1]) - float(e_m[0])) < 1e-2
+    # padded slots of water (rows 3,4) carry zero force
+    assert torch.allclose(f_b[0,3:], torch.zeros(2,3), atol=1e-6)
+
+
+def test_custom_model_adapter_runs(tmp_path):
+    """Custom-NNP path: a scripted (species, coords, charges)->energies model
+    must run through CustomModelAdapter and yield finite energy/forces."""
+    import torch
+    from Auto3D.models.adapter import CustomModelAdapter
+
+    class _Toy(torch.nn.Module):
+        coord_pad: float = 0.0
+        species_pad: int = -1
+        def forward(self, species, coords, charges):
+            # simple harmonic-ish energy = sum of squared coords per molecule
+            return (coords ** 2).sum(dim=(1, 2))
+
+    p = tmp_path / "toy.pt"
+    torch.jit.save(torch.jit.script(_Toy()), str(p))
+
+    ad = CustomModelAdapter(str(p), torch.device("cpu"))
+    coords = torch.randn(2, 4, 3)
+    species = torch.tensor([[1, 6, 7, 8], [1, 1, 6, -1]])
+    charges = torch.tensor([0.0, 0.0])
+    e, f = ad.forward(coords, species, charges)
+    assert e.shape == (2,)
+    assert f.shape == (2, 4, 3)
+    assert torch.isfinite(e).all() and torch.isfinite(f).all()

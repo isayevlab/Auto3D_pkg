@@ -97,6 +97,24 @@ def test_models_info_unknown_engine(runner):
     assert result.exit_code == 1
 
 
+def test_models_list_shows_aimnet_registry(runner):
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["models", "list"])
+    assert result.exit_code == 0
+    out = result.stdout
+    assert "AIMNET" in out
+    assert "aimnet2-2025" in out  # registry families surfaced
+    assert "ANI2x" in out
+
+
+def test_models_info_aimnet_element_set(runner):
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["models", "info", "AIMNET"])
+    assert result.exit_code == 0
+    for el in ("B", "As", "Se"):
+        assert el in result.stdout  # full 14-element AIMNet2 set
+
+
 def test_validate_valid_smi(runner, tmp_path):
     """validate should pass for valid SMILES file."""
     from Auto3D.cli.app import app
@@ -311,3 +329,11 @@ def test_handle_error_exits():
     with pytest.raises(SystemExit) as exc_info:
         handle_error(Exception("test error"))
     assert exc_info.value.code == 1
+
+
+def test_models_info_aimnet2_pd(runner):
+    """models info aimnet2-pd works and shows Pd in its element set."""
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["models", "info", "aimnet2-pd"])
+    assert result.exit_code == 0
+    assert "Pd" in result.stdout

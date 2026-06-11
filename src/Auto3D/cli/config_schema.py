@@ -35,7 +35,7 @@ class CLIConfig(BaseModel):
     window: float | None = Field(None, gt=0, description="Energy window in kcal/mol")
 
     # Engine settings
-    optimizing_engine: Literal["AIMNET", "ANI2X", "ANI2XT"] = "AIMNET"
+    optimizing_engine: str = "AIMNET"
     use_gpu: bool = True
     gpu_idx: int | list[int] = 0
 
@@ -77,11 +77,21 @@ class CLIConfig(BaseModel):
             return [int(x) for x in v]
         return int(v) if v is not None else 0
 
-    @field_validator("optimizing_engine", mode="before")
+    @field_validator("optimizing_engine")
     @classmethod
-    def normalize_engine(cls, v: str) -> str:
-        """Normalize engine name to uppercase."""
-        return v.upper() if isinstance(v, str) else v
+    def _validate_engine(cls, v: str) -> str:
+        from pathlib import Path
+        if Path(v).exists():
+            return v
+        if v.upper() in {"AIMNET", "ANI2X", "ANI2XT"}:
+            return v
+        if v.lower().startswith("aimnet2"):  # any aimnet registry alias
+            return v
+        raise ValueError(
+            f"Unknown optimizing_engine '{v}'. Use AIMNET, ANI2x, ANI2xt, an "
+            f"aimnet registry name (e.g. aimnet2, aimnet2-2025, aimnet2-nse), "
+            f"or a path to a custom model file."
+        )
 
     @field_validator("tauto_engine", "isomer_engine", mode="before")
     @classmethod
@@ -91,9 +101,10 @@ class CLIConfig(BaseModel):
 
     def to_auto3d_options(self) -> Auto3DOptions:
         """Convert to Auto3DOptions for core workflow."""
-        # Map optimizing_engine back to expected format for Auto3DOptions
+        # Map built-in engine names back to the canonical form expected by
+        # Auto3DOptions; registry names and custom paths pass through verbatim.
         engine_map = {"ANI2X": "ANI2x", "ANI2XT": "ANI2xt", "AIMNET": "AIMNET"}
-        engine = engine_map.get(self.optimizing_engine, self.optimizing_engine)
+        engine = engine_map.get(self.optimizing_engine.upper(), self.optimizing_engine)
 
         return Auto3DOptions(
             path=str(self.path),

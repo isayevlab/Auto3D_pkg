@@ -112,10 +112,16 @@ def check_input(args: Any) -> None:
     logger.info("Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
         logger.info("\tIsomer engine options: RDKit and Omega.")
-        logger.info("\tOptimizing engine options: ANI2x, ANI2xt, AIMNET or your own NNP.")
+        logger.info(
+            "\tOptimizing engine options: AIMNET (or an aimnet registry name like "
+            "aimnet2-2025), ANI2x, ANI2xt, or your own NNP."
+        )
     else:
         logger.info("\tIsomer engine options: RDKit and Omega.")
-        logger.info("\tOptimizing engine options: AIMNET or your own NNP.")
+        logger.info(
+            "\tOptimizing engine options: AIMNET (or an aimnet registry name like "
+            "aimnet2-2025), or your own NNP."
+        )
         optimizing_engine = args.optimizing_engine
         if optimizing_engine in {"ANI2x", "ANI2xt"}:
             raise ConfigurationError(

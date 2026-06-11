@@ -39,6 +39,11 @@ MODEL_ANI2XT = "ANI2xt"
 # Supported model names (for validation)
 SUPPORTED_MODELS = frozenset({MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT})
 
+# Backward-compatible alias: "AIMNET" now maps to the aimnet registry default.
+DEFAULT_AIMNET_MODEL = "aimnet2"
+# Built-in (non-aimnet) engines kept for back-compat.
+BUILTIN_ANI_MODELS = frozenset({MODEL_ANI2X.upper(), MODEL_ANI2XT.upper()})
+
 # Default optimization parameters
 DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence

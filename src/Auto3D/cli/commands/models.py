@@ -28,12 +28,12 @@ def execute_models_list() -> None:
     table.add_column("Accuracy", justify="center")
     table.add_column("Status")
 
-    # AIMNET - always available (bundled)
+    # AIMNET (alias for the aimnet2 registry default) - auto-downloaded on first use
     table.add_row(
         "AIMNET",
         "[green]★★★★★[/green]",
         "[green]★★★★★[/green]",
-        "[green]Available[/green]",
+        "[cyan]Auto-download[/cyan]",
     )
 
     # ANI2x - requires torchani
@@ -53,7 +53,38 @@ def execute_models_list() -> None:
         ani_status,
     )
 
+    # AIMNet2 registry families - auto-downloaded on first use
+    table.add_section()
+    table.add_row(
+        "aimnet2-2025",
+        "[green]★★★★★[/green]",
+        "[green]★★★★★[/green]",
+        "[cyan]Auto-download[/cyan]",
+    )
+    table.add_row(
+        "aimnet2-nse",
+        "[green]★★★★★[/green]",
+        "[green]★★★★★[/green]",
+        "[cyan]Auto-download[/cyan]",
+    )
+    table.add_row(
+        "aimnet2-pd",
+        "[green]★★★★★[/green]",
+        "[green]★★★★★[/green]",
+        "[cyan]Auto-download[/cyan]",
+    )
+
     console.print(table)
+    console.print()
+    console.print(
+        "[dim]aimnet2-2025: B97-3c, improved non-covalent interactions[/dim]"
+    )
+    console.print("[dim]aimnet2-nse: open-shell / radicals (spin support)[/dim]")
+    console.print("[dim]aimnet2-pd: palladium catalysis[/dim]")
+    console.print(
+        "[dim]Any aimnet registry name is accepted; registry models are "
+        "downloaded on first use into ~/.cache/aimnet[/dim]"
+    )
     console.print()
     console.print("[dim]Run 'auto3d models info <engine>' for details[/dim]")
 
@@ -62,7 +93,7 @@ ENGINE_INFO = {
     "AIMNET": {
         "name": "AIMNet2",
         "description": "State-of-the-art neural network potential with excellent speed and accuracy.",
-        "elements": "H, C, N, O, F, Si, P, S, Cl, Br, I",
+        "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
         "speed": "~35x faster than ANI2x",
         "accuracy": "Best for organic molecules",
         "reference": "https://github.com/isayevlab/AIMNet2",
@@ -70,6 +101,45 @@ ENGINE_INFO = {
             "Default engine (recommended)",
             "Single model by default for speed",
             "Use --use-ensemble for highest accuracy",
+        ],
+    },
+    "AIMNET2-2025": {
+        "name": "aimnet2-2025",
+        "description": "AIMNet2 model trained on B97-3c with improved non-covalent interactions.",
+        "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
+        "speed": "~35x faster than ANI2x",
+        "accuracy": "Improved non-covalent interactions over the default model",
+        "reference": "https://github.com/isayevlab/aimnetcentral",
+        "notes": [
+            "Registry model: downloaded on first use into ~/.cache/aimnet",
+            "B97-3c level of theory",
+            "Recommended when non-covalent interactions matter",
+        ],
+    },
+    "AIMNET2-NSE": {
+        "name": "aimnet2-nse",
+        "description": "AIMNet2 model with open-shell support for radicals and spin states.",
+        "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
+        "speed": "~35x faster than ANI2x",
+        "accuracy": "Best for open-shell / radical species",
+        "reference": "https://github.com/isayevlab/aimnetcentral",
+        "notes": [
+            "Registry model: downloaded on first use into ~/.cache/aimnet",
+            "Adds open-shell (spin) support for radicals",
+            "Use when modeling radicals or non-singlet spin states",
+        ],
+    },
+    "AIMNET2-PD": {
+        "name": "aimnet2-pd",
+        "description": "AIMNet2 model with palladium support for organometallic catalysis.",
+        "elements": "H, B, C, N, O, F, Si, P, S, Cl, Se, Br, Pd, I",
+        "speed": "~35x faster than ANI2x",
+        "accuracy": "Best for Pd organometallic / catalytic systems",
+        "reference": "https://github.com/isayevlab/aimnetcentral",
+        "notes": [
+            "Registry model: downloaded on first use into ~/.cache/aimnet",
+            "Replaces As with Pd vs the standard AIMNet2 element set",
+            "Only transition metal supported is Pd",
         ],
     },
     "ANI2X": {
