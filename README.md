@@ -111,7 +111,7 @@ auto3d --install-completion bash  # or zsh, fish
 | Engine | Description | Elements |
 |--------|-------------|----------|
 | **AIMNET** (default) | AIMNet2 with D3 dispersion (alias for `aimnet2`) | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I |
-| **aimnet2-2025**, **aimnet2-nse**, **aimnet2-pd**, ... | Any `aimnet` registry model | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I |
+| **aimnet2-2025**, **aimnet2-nse**, **aimnet2-pd**, ... | Any `aimnet` registry model | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I (`aimnet2-pd` replaces As with Pd) |
 | **ANI2x** | ANI-2x ensemble | H, C, N, O, F, S, Cl |
 | **ANI2xt** | Extended ANI-2x | H, C, N, O, F, S, Cl |
 

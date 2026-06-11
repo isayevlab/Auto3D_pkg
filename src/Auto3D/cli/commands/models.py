@@ -28,12 +28,12 @@ def execute_models_list() -> None:
     table.add_column("Accuracy", justify="center")
     table.add_column("Status")
 
-    # AIMNET - always available (bundled)
+    # AIMNET (alias for the aimnet2 registry default) - auto-downloaded on first use
     table.add_row(
         "AIMNET",
         "[green]★★★★★[/green]",
         "[green]★★★★★[/green]",
-        "[green]Available[/green]",
+        "[cyan]Auto-download[/cyan]",
     )
 
     # ANI2x - requires torchani
