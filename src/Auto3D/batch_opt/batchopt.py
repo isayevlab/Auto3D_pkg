@@ -18,7 +18,6 @@ except ImportError:
 from collections import defaultdict
 
 from rdkit import Chem
-from rdkit.Chem import rdmolops
 
 try:
     from .ANI2xt_no_rep import ANI2xt  # noqa: F401  (optional dependency probe)
@@ -134,34 +133,6 @@ def ensemble_opt(
         converged_mask=state['converged_mask'].tolist(),
         oscillating_count=state['oscillating_count'].tolist()
     )
-
-
-def mols2lists(
-    mols: list[Chem.Mol],
-    model: str
-) -> tuple[list[list[tuple[float, float, float]]], list[list[int]], list[int]]:
-    """Convert RDKit molecules to coordinate and species lists.
-
-    Args:
-        mols: List of RDKit molecule objects with conformers.
-        model: Model name - "ANI2xt" uses different species indexing.
-
-    Returns:
-        Tuple of (coordinates, atomic_numbers, charges):
-            - coordinates: List of conformer positions as (x, y, z) tuples
-            - atomic_numbers: List of atomic numbers (or ANI2xt indices)
-            - charges: List of formal charges
-    """
-    ani2xt_index = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
-    coord = [mol.GetConformer().GetPositions().tolist() for mol in mols]
-    coord = [[tuple(xyz) for xyz in inner] for inner in coord]  # to be consistent with legacy code
-    charges = [rdmolops.GetFormalCharge(mol) for mol in mols]
-
-    if model == "ANI2xt":
-        numbers = [[ani2xt_index[a.GetAtomicNum()] for a in mol.GetAtoms()] for mol in mols]
-    else:
-        numbers = [[a.GetAtomicNum() for a in mol.GetAtoms()] for mol in mols]
-    return coord, numbers, charges
 
 
 class optimizing:

@@ -37,6 +37,7 @@ __all__ = [
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
     "EV_TO_KCAL_PER_MOL",
+    "ANI2XT_INDEX",
     # Backward compatibility aliases
     "hartree2ev",
     "hartree2kcalpermol",
@@ -216,8 +217,11 @@ def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
             This speeds up the calculation and focuses on heavy atom positions.
 
     Returns:
-        The RMSD value in Angstroms. Returns 0.0 if alignment fails
-        (e.g., due to atom mismatch).
+        The RMSD value in Angstroms. Returns ``float("inf")`` if alignment
+        fails (e.g., due to atom mismatch). An incomparable pair is treated as
+        "distinct" rather than "identical", which is the same convention used
+        by ``filter_unique``; a downstream ``rmsd < threshold`` check therefore
+        keeps the structure instead of dropping it as a false duplicate.
 
     Example:
         >>> from rdkit import Chem
@@ -240,7 +244,8 @@ def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
         # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
         rmsd = rdMolAlign.GetBestRMS(mol1_proc, mol2_proc)
     except RuntimeError:
-        rmsd = 0.0
+        # Incomparable pair: treat as distinct (inf), matching filter_unique.
+        rmsd = float("inf")
     return float(rmsd)
 
 
@@ -261,6 +266,11 @@ def check_connectivity(mol: Chem.Mol) -> bool:
         Uses UFF bond radii from Rappe et al. JACS 1992. The radii neglect bond-order
         and electronegativity corrections. Bond is considered broken if length > 1.25x
         reference, and formed if distance < 1.1x reference.
+
+        Bonds involving elements outside the covalent-radii table (e.g. alkali/
+        alkaline-earth counterions or transition-metal coordination bonds, M-L)
+        are NOT validated -- such pairs are skipped ("no opinion"), so the
+        dissociation of an M-L bond will not be flagged as invalid connectivity.
     """
     # Initialize UFF bond radii (Rappe et al. JACS 1992)
     # Units of angstroms
@@ -338,7 +348,10 @@ def getidx(atomic_num: int, model: str = "default") -> int:
         The element index appropriate for the specified model.
 
     Raises:
-        KeyError: If the element is not supported by the specified model (ANI2xt only).
+        ValueError: If the element is not supported by the specified model
+            (ANI2xt only). The message names the offending element (atomic
+            number + symbol) and the model, so callers do not need to wrap a
+            bare ``KeyError`` themselves.
 
     Example:
         >>> getidx(6, model="ANI2xt")  # Carbon in ANI2xt
@@ -347,7 +360,14 @@ def getidx(atomic_num: int, model: str = "default") -> int:
         6
     """
     if model == "ANI2xt":
-        return ANI2XT_INDEX[atomic_num]
+        try:
+            return ANI2XT_INDEX[atomic_num]
+        except KeyError:
+            symbol = Chem.GetPeriodicTable().GetElementSymbol(atomic_num)
+            raise ValueError(
+                f"Element Z={atomic_num} ({symbol}) is not supported by "
+                f"ANI2xt (supported: H, C, N, O, F, S, Cl)."
+            ) from None
     return atomic_num
 
 
@@ -394,7 +414,10 @@ def amend_mol(
     except (ValueError, RuntimeError, KeyError) as e:
         # ValueError: from RDKit SanitizeMol validation errors
         # RuntimeError: from RDKit internal errors during molecule processing
-        # KeyError: from check_connectivity if atom's atomic number not in Radii dict
+        # KeyError: defensive only. check_connectivity no longer raises KeyError
+        #   for unknown elements (it now skips them); retained to swallow any
+        #   stray dict-lookup error from RDKit internals rather than crash the
+        #   amendment of a single molecule.
         logger.debug(f"Molecule amendment failed: {type(e).__name__}: {e}")
         return None
 
