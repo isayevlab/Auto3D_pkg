@@ -6,14 +6,13 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
+from Auto3D.utils.chemistry import check_connectivity, filter_unique
 from Auto3D.utils.validation import (
     check_input,
-    check_smi_format,
     check_sdf_format,
+    check_smi_format,
     check_valid_configuration,
 )
-from Auto3D.utils.chemistry import check_connectivity, filter_unique
-
 
 # Set up test file paths
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -80,6 +79,29 @@ class TestCheckSmiFormat:
         # Should be ANI compatible (organic molecules with H, C, N, O, F, S, Cl)
         assert ani_compatible is True
         assert len(only_aimnet) == 0
+
+    def test_check_smi_format_tolerates_extra_columns(self, tmp_path):
+        """Lines with >2 whitespace columns must be accepted.
+
+        The chunk loader reads only the first two columns (usecols=[0, 1]), so
+        a trailing comment column must not make validation reject input the rest
+        of the pipeline happily ingests (previously raised 'too many values to
+        unpack').
+        """
+        smi = tmp_path / "ragged.smi"
+        smi.write_text("CCO ethanol inline_comment_column\nCCN amine\n")
+        args = Auto3DOptions(str(smi), k=1, enumerate_isomer=True, use_gpu=False)
+        ani, _ = check_smi_format(args)
+        assert ani is True
+
+    def test_check_smi_format_rejects_missing_id(self, tmp_path):
+        """A non-blank line with only a SMILES (no ID) raises InputValidationError."""
+        from Auto3D.exceptions import InputValidationError
+        smi = tmp_path / "noid.smi"
+        smi.write_text("CCO\n")
+        args = Auto3DOptions(str(smi), k=1, enumerate_isomer=True, use_gpu=False)
+        with pytest.raises(InputValidationError):
+            check_smi_format(args)
 
 
 class TestCheckSdfFormat:
@@ -249,6 +271,17 @@ class TestCheckValidConfiguration:
             optimizing_engine="INVALID",
         )
         assert any("optimizing_engine" in e.lower() for e in errors)
+
+    def test_accepts_aimnet_registry_names(self):
+        """Registry engine names must validate, matching model_factory/CLI schema."""
+        for name in ("aimnet2", "aimnet2-2025", "aimnet2-nse", "aimnet2-pd"):
+            errors = check_valid_configuration(
+                path=path_example_smi,
+                k=1,
+                use_gpu=False,
+                optimizing_engine=name,
+            )
+            assert not any("optimizing_engine" in e.lower() for e in errors), (name, errors)
 
     def test_invalid_isomer_engine(self):
         """Test that invalid isomer_engine returns error."""

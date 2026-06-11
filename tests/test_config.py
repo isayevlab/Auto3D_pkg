@@ -1,9 +1,27 @@
 """Unit tests for the config module."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from Auto3D.config import Auto3DOptions
+
+
+def test_input_format_is_real_field_surviving_replace():
+    """input_format must be a declared field so dataclasses.replace() preserves it.
+
+    It was previously set as a dynamic attribute via __setitem__, which
+    replace() silently dropped -- a latent AttributeError for any consumer
+    reading it off a replace()'d config copy.
+    """
+    cfg = Auto3DOptions(path="x.smi", k=1)
+    assert cfg.input_format is None          # declared default
+    cfg["input_format"] = "smi"              # dict-like write, as workflow.py does
+    assert cfg.input_format == "smi"
+    assert "input_format" in cfg.keys()      # part of the dict-like contract
+    cfg2 = replace(cfg, batchsize_atoms=2048)
+    assert cfg2.input_format == "smi"        # survives replace()
 
 
 class TestAuto3DOptions:
@@ -147,14 +165,12 @@ def test_capacity_default_matches_across_layers():
 
 
 def test_negative_k_rejected():
-    import pytest
     from Auto3D.config import Auto3DOptions
     with pytest.raises(ValueError):
         Auto3DOptions(path="x.smi", k=-1)
 
 
 def test_negative_window_rejected():
-    import pytest
     from Auto3D.config import Auto3DOptions
     with pytest.raises(ValueError):
         Auto3DOptions(path="x.smi", window=-0.5)

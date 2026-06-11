@@ -1,7 +1,9 @@
 """Tests for validation error handling in Auto3D.utils.validation module.
 
-These tests verify that validation functions raise ValueError (not AssertionError)
-for invalid input data, ensuring reliable validation even with Python's -O flag.
+These tests verify that validation functions raise real exceptions (not
+AssertionError) for invalid input data, ensuring reliable validation even with
+Python's -O flag. The .smi reader raises the structured InputValidationError so
+the CLI's `except Auto3DError` path produces an actionable hint.
 """
 import tempfile
 from pathlib import Path
@@ -10,14 +12,15 @@ from unittest.mock import MagicMock
 import pytest
 from rdkit import Chem
 
-from Auto3D.utils.validation import check_smi_format, check_sdf_format
+from Auto3D.exceptions import InputValidationError
+from Auto3D.utils.validation import check_sdf_format, check_smi_format
 
 
 class TestCheckSmiFormatErrors:
     """Tests for error handling in check_smi_format function."""
 
-    def test_missing_id_raises_value_error(self):
-        """Missing ID (single token per line) should raise ValueError, not AssertionError."""
+    def test_missing_id_raises_input_validation_error(self):
+        """Missing ID (single token per line) should raise InputValidationError."""
         # Create file with only SMILES, no ID
         content = "CCO\n"  # Only SMILES, no ID
 
@@ -29,14 +32,14 @@ class TestCheckSmiFormatErrors:
             args.path = f.name
             args.enumerate_isomer = False
 
-            # Should raise ValueError (not AssertionError)
-            with pytest.raises(ValueError):
+            # Should raise the structured InputValidationError (not AssertionError)
+            with pytest.raises(InputValidationError):
                 check_smi_format(args)
 
         Path(f.name).unlink()
 
-    def test_only_whitespace_id_raises_value_error(self):
-        """Line with only whitespace after SMILES should raise ValueError."""
+    def test_only_whitespace_id_raises_input_validation_error(self):
+        """Line with only whitespace after SMILES should raise InputValidationError."""
         content = "CCO   \n"  # SMILES with trailing whitespace only, no ID
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
@@ -47,8 +50,8 @@ class TestCheckSmiFormatErrors:
             args.path = f.name
             args.enumerate_isomer = False
 
-            # Should raise ValueError for missing ID (unpacking fails)
-            with pytest.raises(ValueError):
+            # split() drops the trailing whitespace, leaving a single token (no ID)
+            with pytest.raises(InputValidationError):
                 check_smi_format(args)
 
         Path(f.name).unlink()
@@ -92,7 +95,12 @@ class TestCheckSmiFormatErrors:
         Path(f.name).unlink()
 
     def test_multiple_tokens_accepted(self):
-        """Lines with extra tokens after SMILES and ID should be accepted."""
+        """Lines with extra tokens after SMILES and ID should be accepted.
+
+        The chunk loader reads only the first two whitespace columns
+        (usecols=[0, 1]), so validation must tolerate trailing columns rather
+        than crash on 'too many values to unpack'.
+        """
         content = "CCO ethanol extra_info more_data\n"
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
@@ -103,10 +111,10 @@ class TestCheckSmiFormatErrors:
             args.path = f.name
             args.enumerate_isomer = False
 
-            # Should raise ValueError (too many values to unpack with current impl)
-            # This verifies the strict 2-token format is enforced
-            with pytest.raises(ValueError):
-                check_smi_format(args)
+            # Should NOT raise: only the first two columns (SMILES, ID) are used.
+            ani, only_aimnet = check_smi_format(args)
+            assert isinstance(ani, bool)
+            assert isinstance(only_aimnet, list)
 
         Path(f.name).unlink()
 
