@@ -129,6 +129,19 @@ ENGINE_INFO = {
             "Use when modeling radicals or non-singlet spin states",
         ],
     },
+    "AIMNET2-PD": {
+        "name": "aimnet2-pd",
+        "description": "AIMNet2 model with palladium support for organometallic catalysis.",
+        "elements": "H, B, C, N, O, F, Si, P, S, Cl, Se, Br, Pd, I",
+        "speed": "~35x faster than ANI2x",
+        "accuracy": "Best for Pd organometallic / catalytic systems",
+        "reference": "https://github.com/isayevlab/aimnetcentral",
+        "notes": [
+            "Registry model: downloaded on first use into ~/.cache/aimnet",
+            "Replaces As with Pd vs the standard AIMNet2 element set",
+            "Only transition metal supported is Pd",
+        ],
+    },
     "ANI2X": {
         "name": "ANI-2x",
         "description": "Accurate neural network potential for organic molecules.",

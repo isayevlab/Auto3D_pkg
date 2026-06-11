@@ -329,3 +329,11 @@ def test_handle_error_exits():
     with pytest.raises(SystemExit) as exc_info:
         handle_error(Exception("test error"))
     assert exc_info.value.code == 1
+
+
+def test_models_info_aimnet2_pd(runner):
+    """models info aimnet2-pd works and shows Pd in its element set."""
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["models", "info", "aimnet2-pd"])
+    assert result.exit_code == 0
+    assert "Pd" in result.stdout
