@@ -5,6 +5,40 @@ All notable changes to Auto3D will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-06-11
+
+### Breaking Changes
+
+- **Python 3.11+ and PyTorch 2.8+ required** - Dropped support for Python 3.10
+  and PyTorch < 2.8. `torchani` now requires >= 2.8 for the ANI2x/ANI2xt engines.
+
+- **Bundled AIMNet2 `.jpt` models removed** - AIMNet2 is now provided by the
+  `aimnet` package (a core dependency) instead of files shipped inside Auto3D.
+  Models are auto-downloaded and sha256-validated into `~/.cache/aimnet` on
+  first use; set `AIMNET_CACHE_DIR` to override the cache location. Network
+  access is required once per model.
+
+- **Default AIMNet energies and forces differ from 3.x** - The `aimnet`
+  registry `.pt` externalizes D3 dispersion (vs the embedded-D3 `.jpt` used in
+  3.x). Absolute `E_tot` values shift and conformer rankings may differ
+  slightly as a result.
+
+### Added
+
+- **Registry model selection** - `optimizing_engine` now accepts any `aimnet`
+  registry name (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`, `aimnet2-pd`, ...) and
+  custom model file paths, in addition to `AIMNET`, `ANI2x`, and `ANI2xt`.
+  `AIMNET` remains an alias for the registry default `aimnet2`.
+
+- **CLI surfaces the registry** - `auto3d models list` now shows the AIMNet2
+  registry families, and `auto3d models info` reports the correct 14-element
+  AIMNet2 set (H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I).
+
+### Changed
+
+- `use_ensemble` no longer loads a bundled 8-model ensemble file. A single
+  registry member is used; passing `use_ensemble=True` now emits a warning.
+
 ## [3.0.0] - 2026-01-02
 
 ### Breaking Changes
