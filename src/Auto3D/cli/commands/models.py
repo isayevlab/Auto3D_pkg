@@ -174,6 +174,10 @@ ENGINE_INFO = {
 def execute_models_info(engine: str) -> None:
     """Display detailed information about an engine."""
     engine_upper = engine.upper()
+    # 'aimnet2' is the canonical registry name that 'AIMNET' aliases (and the
+    # default engine), so route it to the AIMNET entry instead of "Unknown".
+    if engine_upper == "AIMNET2":
+        engine_upper = "AIMNET"
 
     if engine_upper not in ENGINE_INFO:
         print_error(

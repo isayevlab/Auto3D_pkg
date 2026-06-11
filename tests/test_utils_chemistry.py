@@ -609,6 +609,42 @@ class TestFilterUnique:
         # Large threshold should definitely merge identical mols
         assert len(unique_mols_large) == 1
 
+    def test_filter_unique_removehs_is_linear_and_nondestructive(self, monkeypatch):
+        """Legacy filter_unique strips Hs once per molecule (not per comparison) and
+        returns the originals with explicit H + exact positions intact."""
+        import numpy as np
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.utils import chemistry
+
+        base = Chem.AddHs(Chem.MolFromSmiles("CCCCO"))
+        cids = AllChem.EmbedMultipleConfs(base, numConfs=5, randomSeed=1)
+        mols = []
+        for cid in cids:
+            m = Chem.Mol(base, confId=int(cid))
+            m.SetProp("Converged", "true")
+            mols.append(m)
+        n_atoms = base.GetNumAtoms()
+        orig_pos = {id(m): m.GetConformer().GetPositions().copy() for m in mols}
+
+        calls = {"n": 0}
+        real_removehs = chemistry.Chem.RemoveHs
+
+        def counting(mol, *a, **k):
+            calls["n"] += 1
+            return real_removehs(mol, *a, **k)
+
+        monkeypatch.setattr(chemistry.Chem, "RemoveHs", counting)
+
+        result = chemistry.filter_unique(mols, crit=0.01)
+        assert calls["n"] == len(mols)  # once per input, never per pair
+        assert len(result) == len(mols)
+        for m in result:
+            assert m.GetNumAtoms() == n_atoms
+            assert any(a.GetAtomicNum() == 1 for a in m.GetAtoms())
+            assert np.array_equal(m.GetConformer().GetPositions(), orig_pos[id(m)])
+
     def test_rmsd_failure_keeps_both(self, monkeypatch):
         """An incomparable pair (RMSD raises) must NOT be treated as a duplicate.
 

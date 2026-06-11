@@ -230,14 +230,20 @@ def n_steps(
         if n >= 10 and (istep % (n // 10)) == 0:
             print_stats(state, patience)
 
-    # Energy stored during the loop is evaluated at the pre-step geometry, while
-    # the stored coordinates are post-step. Recompute energy once at the final
-    # geometry so state['energy'] is consistent with state['coord'].
-    # (Forces are recomputed too by the adapters but discarded; grad must be
-    # enabled because the adapters differentiate internally for forces.)
+    # Energy and fmax stored during the loop are evaluated at the pre-step
+    # geometry, while the stored coordinates are post-step (the loop always takes
+    # one FIRE step after measuring forces). Recompute both once at the final
+    # geometry so state['energy'] and state['fmax'] correspond to the reported
+    # state['coord']. The adapters differentiate internally for forces, so grad
+    # must be enabled; the forces were previously discarded.
     final_coord = state['coord'].detach().clone().requires_grad_(True)
-    e_final, _ = state['nn'].forward_batched(final_coord, state['numbers'], state['charges'])
+    e_final, f_final = state['nn'].forward_batched(final_coord, state['numbers'], state['charges'])
     state['energy'] = e_final.detach().to(state['energy'].dtype)
+    # Zero padded-atom force slots before the reduction, matching the in-loop
+    # convergence check, so reported fmax is independent of how the model treats
+    # ghost atoms.
+    f_final = f_final.detach().masked_fill((state['numbers'] == species_pad).unsqueeze(-1), 0.0)
+    state['fmax'] = f_final.norm(dim=-1).max(dim=-1)[0].to(state['fmax'].dtype)
 
     if istep == (n):
         logger.info("Reaching maximum optimization step:")

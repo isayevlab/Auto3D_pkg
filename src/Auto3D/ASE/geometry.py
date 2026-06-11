@@ -61,9 +61,11 @@ def opt_geometry(
         ... )
     """
     ev2hatree = 1 / hartree2ev
-    # Create output path in the same directory as the input file
+    # Create output path in the same directory as the input file.
+    # splitext (not split(".")) so an input like 'batch.v2.sdf' keeps 'batch.v2'
+    # instead of collapsing to 'batch' and risking output collisions.
     dir = os.path.dirname(path)
-    stem = os.path.basename(path).split(".")[0]
+    stem = os.path.splitext(os.path.basename(path))[0]
     if os.path.exists(model_name):  # custom NNP passed as a file path
         basename = stem + "_userNNP_opt.sdf"
     else:
@@ -88,6 +90,11 @@ def opt_geometry(
     mols = list(Chem.SDMolSupplier(outpath, removeHs=False))
     with Chem.SDWriter(outpath) as f:
         for mol in mols:
+            # Skip records that failed to re-parse or lack E_tot rather than
+            # crashing here, which would discard the entire (already completed)
+            # optimization run on a single bad record.
+            if mol is None or not mol.HasProp('E_tot'):
+                continue
             e = float(mol.GetProp('E_tot')) * ev2hatree
             mol.SetProp('E_tot', str(e))
             f.write(mol)

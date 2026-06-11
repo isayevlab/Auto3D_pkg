@@ -2,9 +2,8 @@
 """Tests for workflow orchestration, including multi-GPU handling."""
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -17,8 +16,8 @@ class TestWorkflowExceptions:
 
     def test_validate_input_missing_path_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when path is None."""
-        from Auto3D.workflow import WorkflowOrchestrator
         from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
 
         config = Auto3DOptions(
             path=None,  # Missing path
@@ -32,8 +31,8 @@ class TestWorkflowExceptions:
 
     def test_validate_input_unsupported_format_raises_file_format_error(self, tmp_path):
         """Should raise FileFormatError for unsupported input format."""
-        from Auto3D.workflow import WorkflowOrchestrator
         from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
 
         # Create a test file with unsupported extension
         unsupported_file = tmp_path / "test.xyz"
@@ -57,8 +56,8 @@ class TestWorkflowExceptions:
 
     def test_validate_input_missing_k_and_window_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when neither k nor window specified."""
-        from Auto3D.workflow import WorkflowOrchestrator
         from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
 
         # Create a valid .smi file
         smi_file = tmp_path / "test.smi"
@@ -82,8 +81,8 @@ class TestWorkflowExceptions:
 
     def test_finalize_output_no_structures_raises_optimization_error(self, tmp_path):
         """Should raise OptimizationError when no 3D structures converged."""
-        from Auto3D.workflow import WorkflowOrchestrator
         from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
 
         config = Auto3DOptions(
             path=str(tmp_path / "test.smi"),
@@ -112,9 +111,10 @@ class TestChunkCreation:
         This tests the fix for issue #86 where multi-GPU with fewer molecules
         than GPUs caused OSError due to empty SDF files.
         """
+        from pathlib import Path
+
         from Auto3D.chunk_manager import ChunkManager
         from Auto3D.config import Auto3DOptions
-        from pathlib import Path
 
         # Create a minimal config - we won't run the full pipeline
         config = Auto3DOptions(
@@ -152,9 +152,10 @@ class TestChunkCreation:
 
     def test_all_chunks_with_data(self, tmp_path):
         """All chunks with data should be created."""
+        from pathlib import Path
+
         from Auto3D.chunk_manager import ChunkManager
         from Auto3D.config import Auto3DOptions
-        from pathlib import Path
 
         config = Auto3DOptions(
             path=str(tmp_path / "test.smi"),
@@ -193,6 +194,7 @@ class TestIsomerWrapperFailure:
     def test_isomer_wrapper_emits_sentinels_on_failure(self, monkeypatch):
         """If isomer generation raises, every optimizer must still get a 'Done' sentinel."""
         import multiprocessing as mp
+
         from Auto3D.auto3D import isomer_wrapper
         from Auto3D.config import Auto3DOptions
 
@@ -217,9 +219,11 @@ class TestOptimizerEmptyInput:
 
     def test_optimizer_handles_missing_file(self, tmp_path, caplog):
         """Optimizer should gracefully handle missing input files."""
-        from Auto3D.batch_opt.batchopt import optimizing
         import logging
+
         import torch
+
+        from Auto3D.batch_opt.batchopt import optimizing
 
         device = torch.device("cpu")
         config = {
@@ -240,9 +244,11 @@ class TestOptimizerEmptyInput:
 
     def test_optimizer_handles_empty_file(self, tmp_path, caplog):
         """Optimizer should gracefully handle empty input files."""
-        from Auto3D.batch_opt.batchopt import optimizing
         import logging
+
         import torch
+
+        from Auto3D.batch_opt.batchopt import optimizing
 
         device = torch.device("cpu")
         config = {
@@ -266,21 +272,121 @@ class TestOptimizerEmptyInput:
 
 
 def test_workers_importable_from_workflow_workers():
-    from Auto3D.workflow_workers import isomer_wrapper, optim_rank_wrapper, logger_process
+    from Auto3D.workflow_workers import isomer_wrapper, logger_process, optim_rank_wrapper
     assert all(callable(f) for f in (isomer_wrapper, optim_rank_wrapper, logger_process))
+
+
+def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
+    """A chunk that raises must not kill the worker or drop chunks queued behind it.
+
+    Previously the optimizer worker's consume loop had no per-chunk exception
+    handling, so one bad chunk (a molecule the optimizer chokes on, a CUDA OOM,
+    an mkdir collision, or an empty isomer SDF) killed the whole process and
+    silently dropped every remaining chunk -- with the parent still reporting
+    success on the partial output. Now each chunk is isolated.
+    """
+    import queue as queue_mod
+
+    from Auto3D import workflow_workers as ww
+    from Auto3D.config import Auto3DOptions
+
+    attempted = []
+
+    class _BoomOptimizing:
+        def __init__(self, in_f, out_f, engine, device, config):
+            self._enumerated = in_f
+
+        def run(self):
+            attempted.append(self._enumerated)
+            raise RuntimeError("optimizer blew up on this chunk")
+
+    # Replace the heavy optimizing class (which would build a real model) with
+    # one that always raises, so we exercise only the loop's failure isolation.
+    monkeypatch.setattr(ww, "optimizing", _BoomOptimizing)
+
+    q: queue_mod.Queue = queue_mod.Queue()
+    d1 = tmp_path / "job1"
+    d1.mkdir()
+    d2 = tmp_path / "job2"
+    d2.mkdir()
+    q.put(("enum1.sdf", str(tmp_path / "c1.smi"), str(d1), 1))
+    q.put(("enum2.sdf", str(tmp_path / "c2.smi"), str(d2), 2))
+    q.put("Done")
+    logq: queue_mod.Queue = queue_mod.Queue()
+
+    args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+
+    # Must return normally (not propagate the RuntimeError) ...
+    result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
+    # ... and BOTH chunks must have been attempted: the loop continued past the
+    # first chunk's failure instead of dying on it.
+    assert attempted == ["enum1.sdf", "enum2.sdf"]
+    assert result == []  # neither failing chunk produced conformers
+
+
+def test_unsupported_extension_rejected_before_encoding(tmp_path):
+    """Bad extensions must be rejected before encode_ids writes a temp file.
+
+    Validating the suffix after encoding raised a generic ValueError from
+    encode_ids and left an orphaned *_encoded file on disk.
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.workflow import WorkflowOrchestrator
+
+    bad = tmp_path / "mol.xyz"
+    bad.write_text("stuff\n")
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(bad), k=1))
+
+    with patch("Auto3D.workflow.encode_ids") as enc:
+        with pytest.raises(FileFormatError, match="not supported"):
+            orch._validate_input()
+        enc.assert_not_called()  # format is validated before any encoding
+
+    assert not list(tmp_path.glob("*_encoded*"))
+
+
+def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
+    """The encoded temp file must be removed even when a setup phase fails.
+
+    encode_ids writes a *_encoded file during phase-1 setup. That setup now runs
+    inside run()'s try/finally, so a failure in a later setup step (job-dir
+    creation, logging start) no longer leaks the encoded file beside the input.
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.workflow import WorkflowOrchestrator
+
+    smi = tmp_path / "mol.smi"
+    smi.write_text("CCO ethanol\n")
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1))
+
+    # Fail after _validate_input has already written the encoded temp file.
+    monkeypatch.setattr(
+        orch, "_setup_logging", MagicMock(side_effect=RuntimeError("boom"))
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        orch.run()
+
+    # The encoded temp file written during _validate_input must be gone, and no
+    # *_encoded file may be left orphaned next to the input.
+    assert orch.input_path != Path()
+    assert not orch.input_path.exists()
+    assert not list(tmp_path.glob("*_encoded*"))
 
 
 def test_finalize_raises_when_all_outputs_empty(tmp_path):
     import pytest
+
     from Auto3D.config import Auto3DOptions
-    from Auto3D.workflow import WorkflowOrchestrator
     from Auto3D.exceptions import OptimizationError
+    from Auto3D.workflow import WorkflowOrchestrator
 
     orch = WorkflowOrchestrator(Auto3DOptions(path="x.smi", k=1))
     orch.job_dir = tmp_path
     orch.input_path = tmp_path / "x_encoded.smi"
     orch.input_path.write_text("CCO 0\n")
-    job = tmp_path / "job1"; job.mkdir()
+    job = tmp_path / "job1"
+    job.mkdir()
     (job / "x_3d.sdf").write_text("")  # converged nothing -> empty SDF
     orch.id_mapping = {"a": 0}
 

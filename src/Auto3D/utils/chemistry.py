@@ -11,11 +11,10 @@ This module provides:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
+from rdkit.Chem import AllChem, rdMolAlign, rdMolDescriptors, rdmolops, rdMolTransforms
 
 from Auto3D.constants import (
     CONFORMER_MULTIPLIER,
@@ -375,7 +374,7 @@ def amend_mol(
     mol: Chem.Mol,
     sanitize: bool = False,
     check_valid: bool = False,
-) -> Optional[Chem.Mol]:
+) -> Chem.Mol | None:
     """Attempt to fix or validate a molecule.
 
     This function can optionally sanitize a molecule and check its validity.
@@ -508,15 +507,20 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
             mols_.append(mol)
     mols = mols_
 
-    # Remove similar structures
+    # Remove similar structures. Strip Hs once per molecule (O(n)) instead of on
+    # both sides of every comparison (O(n^2)); GetBestRMS on no-H forms is
+    # symmetric so results are unchanged. The ORIGINAL (H-explicit) mols are
+    # returned; no-H forms are comparison-only.
     unique_mols: list[Chem.Mol] = []
+    unique_noH: list[Chem.Mol] = []
     for mol_i in mols:
+        mol_i_noH = Chem.RemoveHs(mol_i)
         unique = True
-        for mol_j in unique_mols:
+        for mol_j_noH in unique_noH:
             try:
                 # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # removing Hs speeds up the calculation
-                rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))
+                rmsd = rdMolAlign.GetBestRMS(mol_i_noH, mol_j_noH)
             except RuntimeError:
                 # Incomparable pair: treat as distinct (not a duplicate) so the
                 # conformer is kept. Using 0 would make it look like a perfect
@@ -527,4 +531,5 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
                 break
         if unique:
             unique_mols.append(mol_i)
+            unique_noH.append(mol_i_noH)
     return unique_mols

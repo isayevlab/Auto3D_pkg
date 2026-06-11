@@ -1029,5 +1029,44 @@ class TestIterSmiRecords:
             list(iter_smi_records(str(p), on_malformed="bogus"))
 
 
+def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
+    """A vanished/peer-moved oeomega_* file must not abort moving the rest."""
+    import os
+
+    from Auto3D.utils.file_ops import housekeeping
+
+    job = tmp_path / "job"
+    job.mkdir()
+    dest = tmp_path / "verbose"
+    dest.mkdir()
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    # Two omega logfiles; the FIRST one encountered (by counter) will "disappear".
+    (cwd / "oeomega_a.log").write_text("a")
+    (cwd / "oeomega_b.log").write_text("b")
+
+    real_move = __import__("shutil").move
+    call_count = {"n": 0}
+
+    def flaky_move(src, dst):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # Simulate a peer worker having already moved the first file.
+            if os.path.exists(src):
+                os.remove(src)
+            raise OSError("already gone")
+        return real_move(src, dst)
+
+    monkeypatch.setattr("Auto3D.utils.file_ops.shutil.move", flaky_move)
+
+    housekeeping(str(job), str(dest), str(job / "out.sdf"))  # must not raise
+
+    # Exactly one of the two logfiles must have been successfully moved.
+    moved = list(dest.glob("oeomega_*.log"))
+    assert len(moved) == 1, f"Expected 1 moved file, got {[f.name for f in moved]}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

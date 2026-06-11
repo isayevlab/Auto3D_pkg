@@ -2,9 +2,9 @@
 """Parallel conformer embedding using multiprocessing."""
 from __future__ import annotations
 
-import pickle
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Iterator
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -117,11 +117,22 @@ def embed_conformers_parallel(
             for smi, name in smiles_names
         }
 
-        for future in as_completed(futures):
+        # Iterate in submission order (not as_completed) so the emitted molecule
+        # order is deterministic and matches the serial path; all futures are
+        # already running concurrently, so this costs no parallelism.
+        for future in futures:
             try:
-                results = future.result()
-                for mol, conf_idx, conf_id in results:
-                    yield mol, conf_idx, conf_id
-            except (ValueError, RuntimeError, KeyError, pickle.PicklingError) as e:
+                yield from future.result()
+            except BrokenProcessPool:
+                # A worker died (e.g. OOM-killed): the pool is broken and EVERY
+                # remaining future will also raise this. Surface it loudly --
+                # the broad except below would otherwise swallow it per-future
+                # and silently drop the whole tail of the batch as warnings.
+                raise
+            except Exception as e:
+                # Per-molecule boundary: a single molecule's failure (including
+                # RDKit's Boost.Python.ArgumentError, which is a TypeError and so
+                # escaped the previous narrow except) must not abort the whole
+                # batch and silently drop every remaining molecule.
                 smi, name = futures[future]
                 logger.warning(f"Failed to embed {name}: {type(e).__name__}: {e}")

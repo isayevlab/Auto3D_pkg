@@ -190,15 +190,23 @@ def get_stereo_info(smi: str) -> OrderedDict[int, str]:
         smi: SMILES string to parse.
 
     Returns:
-        OrderedDict mapping character positions to stereo symbols (@ or @@),
-        sorted by position.
+        OrderedDict mapping character positions to tetrahedral stereo symbols
+        (@ or @@), sorted by position. Multi-letter stereo-class descriptors
+        (@SP, @TH, @OH, @TB, @AL for square-planar/tetrahedral-explicit/
+        octahedral/trigonal-bipyramidal/allene centers) are deliberately
+        excluded: create_enantiomer can only invert plain @/@@ by string
+        surgery, and treating @SP1 as a bare @ used to splice it into the
+        invalid token @@SP1, silently aborting the molecule's enumeration.
 
     Example:
         >>> get_stereo_info('C[C@H](O)[C@@H](F)Cl')
         OrderedDict([(2, '@'), (9, '@@')])
     """
     dct: dict[int, str] = {}
-    regex1 = re.compile("[^@]@[^@]")
+    # A bare tetrahedral '@' is never immediately followed by two uppercase
+    # letters, whereas every multi-letter stereo class is (SP/TH/OH/TB/AL), so
+    # the negative lookahead skips those without matching legitimate '@'/'@@'.
+    regex1 = re.compile("[^@]@(?![A-Z][A-Z])[^@]")
     regex2 = re.compile("@@")
 
     # match @
@@ -231,6 +239,13 @@ def no_enantiomer(smi: str, smiles: list[str]) -> bool:
         tar = smiles[i]
         if tar != smi:
             stereo_infoj = list(get_stereo_info(tar).values())
+            # A different number of stereo markers means a different set of
+            # stereocenters, so the two cannot be enantiomers. Skip rather than
+            # calling no_enantiomer_helper, which raises on a length mismatch --
+            # that ValueError used to bubble up and make amend_configuration
+            # abandon the whole molecule's enumeration.
+            if len(stereo_infoi) != len(stereo_infoj):
+                continue
             if no_enantiomer_helper(stereo_infoi, stereo_infoj):
                 return False
     return True
