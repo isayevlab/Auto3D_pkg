@@ -40,9 +40,12 @@ def configure_logging(verbose: bool = False) -> None:
     auto3d_logger = logging.getLogger("Auto3D")
     auto3d_logger.setLevel(level)
 
-    # Only add handler if none exists (avoid duplicates)
+    # Only add handler if none exists (avoid duplicates).
+    # Diagnostics go to stderr, never stdout: the workflow logs INFO lines
+    # (e.g. "Output path: ...") during a run, and `auto3d run --json` must keep
+    # stdout a clean, parseable JSON document.
     if not auto3d_logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(level)
         # Simple format - just the message (like print)
         formatter = logging.Formatter('%(message)s')

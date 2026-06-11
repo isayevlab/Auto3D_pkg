@@ -113,6 +113,7 @@ class TestCheckInputExceptions:
 
     def test_only_aimnet_molecules_with_ani2x_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when molecules require AIMNET but ANI2x selected."""
+        pytest.importorskip("torchani")  # ANI2x dependency check fires before element check
         # Create a SMILES file with a charged molecule (requires AIMNET)
         smi_file = tmp_path / "charged.smi"
         smi_file.write_text("[NH4+] ammonium\n")

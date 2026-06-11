@@ -23,8 +23,10 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     logger.info("Begin to select stable tautomers based on their conformer energies...")
     results = []
     if (k is not None) and (window is not None):
-        raise ValueError("Only k OR window needs to be specified")        
-    
+        raise ValueError("Only k OR window needs to be specified")
+    if (k is not None) and (k < 1):
+        raise ValueError(f"tauto_k must be >= 1, got {k}")
+
     supplier = Chem.SDMolSupplier(sdf, removeHs=False)
     mols = [m for m in supplier if m is not None]
     for mol in mols:
@@ -32,6 +34,9 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
             mol.ClearProp("E_rel(kcal/mol)")  # conformer-level energy, not tautomer-level
 
     titles = [mol.GetProp("_Name") for mol in mols]
+    # Tautomers of one input molecule are named "id@tautN", so the base ID is
+    # the part before '@' -- this is the real tautomer-grouping separator (see
+    # test_select_tautomers_groups_by_id), distinct from the '_' conformer index.
     ids = [title.split("@")[0].strip() for title in titles]
     energies = [float(mol.GetProp("E_tot")) * hartree2kcalpermol for mol in mols]
     df = pd.DataFrame({"id": ids, "energy": energies, "mol": mols})
@@ -66,7 +71,10 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
         
 
     folder = os.path.dirname(sdf)
-    basename = os.path.basename(sdf).split(".")[0].strip() + "_top_tautomers.sdf"
+    # splitext (not split(".")) so an input like 'mol.v2.sdf' keeps 'mol.v2'
+    # instead of collapsing to 'mol' and risking output collisions.
+    stem = os.path.splitext(os.path.basename(sdf))[0].strip()
+    basename = stem + "_top_tautomers.sdf"
     output_path = os.path.join(folder, basename)
     with Chem.SDWriter(output_path) as w:
         for mol in results:

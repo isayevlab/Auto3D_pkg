@@ -8,7 +8,7 @@ import os
 import pickle
 import warnings
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 from rdkit import Chem
@@ -17,9 +17,11 @@ from rdkit.Chem.rdMolDescriptors import (
 )
 
 from Auto3D.exceptions import (
-    GPUError,
-    DependencyError,
     ConfigurationError,
+    DependencyError,
+    FileFormatError,
+    GPUError,
+    InputValidationError,
     ModelLoadError,
 )
 from Auto3D.utils.logging_config import get_logger
@@ -108,6 +110,11 @@ def check_input(args: Any) -> None:
         ANI, only_aimnet_smiles = check_smi_format(args)
     elif args.input_format == "sdf":
         ANI, only_aimnet_smiles = check_sdf_format(args)
+    else:
+        raise FileFormatError(
+            f"Input file type is not supported. Only .smi and .sdf are supported, "
+            f"but input_format is {args.input_format!r}."
+        )
 
     logger.info("Suggestions for choosing isomer_engine and optimizing_engine: ")
     if ANI:
@@ -144,7 +151,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
             - only_aimnet_smiles: List of SMILES that require AIMNET (contain non-ANI elements or charged)
 
     Raises:
-        ValueError: If SMILES or ID is empty in any line.
+        InputValidationError: If a non-blank line lacks a SMILES and an ID.
     """
     ANI_elements = {1, 6, 7, 8, 9, 16, 17}
     ANI = True
@@ -155,14 +162,21 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     for line in data:
         if line.isspace():
             continue
-        smiles, id = tuple(line.strip().split())
-        if len(smiles) == 0:
-            raise ValueError(f"Empty SMILES string in line: {line.strip()!r}")
-        if len(id) == 0:
-            raise ValueError(f"Empty ID in line: {line.strip()!r}")
+        # Tolerate ragged rows the way the rest of the pipeline does: the chunk
+        # loader reads only the first two whitespace columns (usecols=[0, 1]), so
+        # trailing tokens (e.g. an inline comment column) must not be rejected
+        # here. split() never yields empty tokens, so a present SMILES/ID is
+        # guaranteed non-empty.
+        parts = line.split()
+        if len(parts) < 2:
+            raise InputValidationError(
+                "Each non-blank line must contain a SMILES and an ID separated by "
+                f"whitespace, but got: {line.strip()!r}"
+            )
+        smiles = parts[0]  # parts[1] is the ID; its presence is enforced above
         smiles_all.append(smiles)
 
-    logger.info(f"\tThere are {len(data)} SMILES in the input file {args.path}.")
+    logger.info(f"\tThere are {len(smiles_all)} SMILES in the input file {args.path}.")
     logger.info("\tAll SMILES and IDs are valid.")
 
     # Check number of unspecified atomic stereo center
@@ -306,14 +320,20 @@ def check_valid_configuration(
                 if idx >= torch.cuda.device_count():
                     errors.append(f"GPU index {idx} is invalid. Available GPUs: {torch.cuda.device_count()}")
 
-    # Check optimizing_engine
+    # Check optimizing_engine. Besides the named engines, any name starting with
+    # "aimnet2" is a valid AIMNet registry model (aimnet2-2025, aimnet2-nse,
+    # aimnet2-pd, ...) resolved lazily by model_factory, matching the CLI schema.
     valid_engines = {"ANI2x", "ANI2xt", "AIMNET"}
-    if optimizing_engine not in valid_engines:
-        if not Path(optimizing_engine).exists():
-            errors.append(
-                f"optimizing_engine must be one of {valid_engines} or a valid path to a custom model. "
-                f"Got: {optimizing_engine}"
-            )
+    if (
+        optimizing_engine not in valid_engines
+        and not optimizing_engine.lower().startswith("aimnet2")
+        and not Path(optimizing_engine).exists()
+    ):
+        errors.append(
+            f"optimizing_engine must be one of {valid_engines}, an aimnet registry "
+            f"name (aimnet2, aimnet2-2025, ...), or a valid path to a custom model. "
+            f"Got: {optimizing_engine}"
+        )
 
     # Check isomer_engine
     valid_isomer_engines = {"rdkit", "omega"}

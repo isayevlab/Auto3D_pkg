@@ -83,9 +83,16 @@ def configure_torch(config: TorchConfig | None = None) -> None:
     if config is None:
         config = TorchConfig()
 
-    # Precision settings
+    # Precision settings. Set both the legacy allow_tf32 booleans (back-compat
+    # for torch < 2.9) and the modern fp32_precision knob (canonical on torch
+    # >= 2.9, where allow_tf32 is deprecated). "ieee" = full FP32, "tf32" = TF32.
+    fp32_mode = "tf32" if config.allow_tf32 else "ieee"
     torch.backends.cuda.matmul.allow_tf32 = config.allow_tf32
     torch.backends.cudnn.allow_tf32 = config.allow_tf32
+    if hasattr(torch.backends.cuda.matmul, "fp32_precision"):
+        torch.backends.cuda.matmul.fp32_precision = fp32_mode
+    if hasattr(torch.backends.cudnn, "fp32_precision"):
+        torch.backends.cudnn.fp32_precision = fp32_mode
     torch.backends.cudnn.benchmark = config.cudnn_benchmark
 
     # Reproducibility settings
@@ -97,10 +104,14 @@ def configure_torch(config: TorchConfig | None = None) -> None:
         import numpy as np
         np.random.seed(config.random_seed)
 
-    if config.deterministic:
-        torch.use_deterministic_algorithms(True)
-        # cuDNN deterministic mode
-        torch.backends.cudnn.deterministic = True
+    # Set deterministic flags unconditionally so a later configure_torch() with
+    # deterministic=False actually turns determinism back off (previously these
+    # were only ever set to True, making them write-once-sticky). warn_only=True
+    # so AIMNet2/ANI scatter / masked index-put ops -- which have no
+    # deterministic CUDA kernel -- warn instead of raising and aborting the very
+    # optimization loop deterministic mode is meant to make reproducible.
+    torch.use_deterministic_algorithms(config.deterministic, warn_only=True)
+    torch.backends.cudnn.deterministic = config.deterministic
 
 
 # Note: We intentionally do NOT apply any default configuration on module import.

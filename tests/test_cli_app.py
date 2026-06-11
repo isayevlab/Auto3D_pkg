@@ -261,6 +261,7 @@ def test_run_with_nonexistent_file(runner):
 def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
     """--json stdout must be parseable even when the k/window warning fires."""
     import json
+
     from Auto3D.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
@@ -337,3 +338,19 @@ def test_models_info_aimnet2_pd(runner):
     result = runner.invoke(app, ["models", "info", "aimnet2-pd"])
     assert result.exit_code == 0
     assert "Pd" in result.stdout
+
+
+def test_models_info_aimnet2_alias(runner):
+    """models info aimnet2 (the canonical default) must resolve to the AIMNET entry."""
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["models", "info", "aimnet2"])
+    assert result.exit_code == 0
+    assert "AIMNet2" in result.stdout
+
+
+def test_config_validate_missing_file(runner, tmp_path_cwd):
+    """config validate on a missing file should fail with a not-found hint."""
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["config", "validate", "nonexistent.yaml"])
+    assert result.exit_code == 1
+    assert "not found" in result.stderr

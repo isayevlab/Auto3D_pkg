@@ -10,6 +10,7 @@ def test_select_tautomers_groups_by_id(tmp_path):
     """select_tautomers must not crash on pandas 3.x and must keep top-k per id."""
     from rdkit import Chem
     from rdkit.Chem import AllChem
+
     from Auto3D.tautomer import select_tautomers
 
     sdf = tmp_path / "in.sdf"
@@ -27,3 +28,23 @@ def test_select_tautomers_groups_by_id(tmp_path):
     names = sorted(m.GetProp("_Name") for m in mols)
     assert names == ["molA", "molB"]  # one top tautomer per id
     assert not any(m.HasProp("E_rel(kcal/mol)") for m in mols)
+
+
+def test_select_tautomers_rejects_nonpositive_k(tmp_path):
+    """k < 1 used to silently drop every tautomer (out_mols0[:0]); now rejected."""
+    import pytest
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.tautomer import select_tautomers
+
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "molA@taut1")
+        m.SetProp("E_tot", "-1.0")
+        w.write(m)
+
+    with pytest.raises(ValueError, match="tauto_k"):
+        select_tautomers(str(sdf), k=0)

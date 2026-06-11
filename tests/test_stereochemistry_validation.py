@@ -6,12 +6,61 @@ ValueError exceptions that provide informative error messages.
 """
 
 import pytest
-from Auto3D.utils.stereochemistry import enantiomer, no_enantiomer_helper
+
+from Auto3D.utils.stereochemistry import (
+    create_enantiomer,
+    enantiomer,
+    no_enantiomer,
+    no_enantiomer_helper,
+)
+
+
+class TestCreateEnantiomerStereoClasses:
+    """create_enantiomer must not corrupt non-tetrahedral stereo descriptors."""
+
+    @pytest.mark.parametrize(
+        "smi",
+        ["F[Po@SP1](Cl)(Br)I", "[C@TH1](F)(Cl)(Br)I"],
+    )
+    def test_nontetrahedral_tokens_stay_valid(self, smi):
+        """@SP/@TH/... must be left intact, not spliced into invalid @@SP1.
+
+        Treating a multi-letter stereo class as a bare '@' used to insert a
+        second '@', producing an unparseable SMILES that aborted the whole
+        molecule's stereo enumeration.
+        """
+        from rdkit import Chem
+        out = create_enantiomer(smi)
+        assert Chem.MolFromSmiles(out) is not None, out
+        assert "@@SP" not in out and "@@TH" not in out
+
+    def test_tetrahedral_inversion_still_works(self):
+        """Plain tetrahedral centers must still be inverted."""
+        assert create_enantiomer("C[C@H](O)F") == "C[C@@H](O)F"
+
+
+class TestNoEnantiomerLengthMismatch:
+    """no_enantiomer must tolerate isomers with differing stereo-marker counts."""
+
+    def test_mismatched_marker_counts_does_not_raise(self):
+        """Comparisons between different-length stereo infos are skipped, not
+        raised, so amend_configuration no longer abandons the molecule."""
+        # One marker vs two markers in the group: not enantiomers -> True.
+        result = no_enantiomer(
+            "C[C@H](O)CC", ["C[C@H](O)CC", "C[C@@H](O)[C@@H](F)Cl"]
+        )
+        assert result is True
+
+    def test_true_enantiomer_still_detected(self):
+        """A genuine enantiomer (same length, all inverted) still returns False."""
+        result = no_enantiomer("C[C@H](O)F", ["C[C@H](O)F", "C[C@@H](O)F"])
+        assert result is False
 
 
 def test_detect_stereo_change():
     from rdkit import Chem
     from rdkit.Chem import AllChem
+
     from Auto3D.utils.stereo_check import stereo_changed
 
     m = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)Cl"))

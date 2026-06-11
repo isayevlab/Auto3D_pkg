@@ -27,6 +27,7 @@ class TestModelCaching:
 
     def test_different_models_create_different_instances(self):
         """Test that different model names create different instances."""
+        pytest.importorskip("torchani")  # ANI2xt requires the optional ani extra
         device = torch.device("cpu")
         model_aimnet = create_model("AIMNET", device)
         model_ani2xt = create_model("ANI2xt", device)
@@ -41,6 +42,7 @@ class TestModelCaching:
 
     def test_clear_cache_removes_models(self):
         """Test that clear_cache removes all cached models."""
+        pytest.importorskip("torchani")  # ANI2xt requires the optional ani extra
         device = torch.device("cpu")
         create_model("AIMNET", device)
         create_model("ANI2xt", device)
@@ -57,6 +59,7 @@ class TestModelCaching:
 
     def test_get_cache_info_returns_size(self):
         """Test that get_cache_info returns correct size."""
+        pytest.importorskip("torchani")  # ANI2xt requires the optional ani extra
         device = torch.device("cpu")
         assert ModelFactory.get_cache_info()["size"] == 0
         create_model("AIMNET", device)

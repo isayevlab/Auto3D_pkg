@@ -91,13 +91,16 @@ def _filter_within_cluster(
     if len(mols) <= 1:
         return list(mols)
 
+    # Strip Hs once per molecule (O(n)), not once per comparison (O(n^2)).
+    # GetBestRMS on the no-H forms is symmetric, so results are unchanged. The
+    # ORIGINAL (H-explicit) mols are returned; no-H forms are comparison-only.
     unique: list[Chem.Mol] = []
+    unique_noH: list[Chem.Mol] = []
     for mol_i in mols:
-        is_unique = True
         mol_i_noH = Chem.RemoveHs(mol_i)
+        is_unique = True
 
-        for mol_j in unique:
-            mol_j_noH = Chem.RemoveHs(mol_j)
+        for mol_j_noH in unique_noH:
             try:
                 # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # Removing Hs speeds up the calculation
@@ -111,5 +114,6 @@ def _filter_within_cluster(
 
         if is_unique:
             unique.append(mol_i)
+            unique_noH.append(mol_i_noH)
 
     return unique

@@ -199,9 +199,17 @@ class RDKitIsomer:
                     line = isomer.strip() + '\t' + new_name + '\n'
                     f.write(line)
 
-    def embed_conformer(self, smi: str) -> Chem.Mol:
-        """Embed multiple 3D conformers for a SMILES string."""
-        mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+    def embed_conformer(self, smi: str) -> Chem.Mol | None:
+        """Embed multiple 3D conformers for a SMILES string.
+
+        Returns None if the SMILES cannot be parsed, mirroring the parallel
+        worker (_embed_single) so a single unparseable SMILES is skipped rather
+        than crashing the whole serial embedding loop on AddHs(None).
+        """
+        mol_noh = Chem.MolFromSmiles(smi)
+        if mol_noh is None:
+            return None
+        mol = Chem.AddHs(mol_noh)
         if self.n_conformers is None:
             # Compute the conformer budget on the H-complete (AddHs) mol so the
             # SMILES and SDF paths agree, and on the RICHER side: RDKit's
@@ -274,6 +282,11 @@ class RDKitIsomer:
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for smi, name in tqdm(smi_name_tuples):
                 mol = self.embed_conformer(smi)
+                if mol is None:
+                    logger.warning(
+                        f"Skipping molecule {name!r}: failed to parse {smi!r}"
+                    )
+                    continue
                 for i in range(mol.GetNumConformers()):
                     # Relieve atom clashes (MMFF, UFF fallback) and keep the
                     # conformer only if it ends up clash-free.

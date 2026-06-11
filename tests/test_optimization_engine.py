@@ -7,9 +7,8 @@ optimization loop for batch geometry optimization.
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 import torch
 
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats
@@ -294,6 +293,7 @@ class TestNSteps:
 
 def test_fmax_ignores_padded_atoms():
     import torch
+
     from Auto3D.batch_opt.optimization_engine import n_steps
 
     class MockNN:
@@ -315,6 +315,7 @@ def test_fmax_ignores_padded_atoms():
 
 def test_stored_energy_matches_stored_coord():
     import torch
+
     from Auto3D.batch_opt.optimization_engine import n_steps
 
     class MockNN:
@@ -336,6 +337,45 @@ def test_stored_energy_matches_stored_coord():
     n_steps(state, n=50, opttol=0.01, patience=40)
     recomputed = (state["coord"] ** 2).sum().item()
     assert abs(state["energy"].item() - recomputed) < 1e-3
+
+
+def test_stored_fmax_matches_stored_coord():
+    """Reported fmax must be the force norm at the reported (final) geometry.
+
+    The loop measures forces at the pre-step geometry then always takes one more
+    FIRE step, so the in-loop fmax lagged the stored post-step coordinates by a
+    full step. fmax is now recomputed at the final geometry alongside energy.
+    Running a still-moving molecule for only a few steps (no convergence) makes
+    the one-step lag large, so this fails if fmax is not recomputed: with the
+    harmonic potential E = sum(coord^2), F = -2*coord, the reported fmax must
+    equal max-over-atoms of |2*coord| at the final coordinates.
+    """
+    import torch
+
+    from Auto3D.batch_opt.optimization_engine import n_steps
+
+    class MockNN:
+        def forward_batched(self, coord, numbers, charges):
+            e = (coord ** 2).sum(dim=(1, 2))
+            f = -2.0 * coord
+            return e, f
+
+    # Start far from the minimum and take only a few steps with an
+    # unreachable tolerance, so the molecule is still moving fast at the end
+    # and the pre-step/post-step force norms differ well above the tolerance.
+    coord = torch.full((1, 2, 3), 2.0, dtype=torch.float)
+    state = {
+        "coord": coord.clone(),
+        "numbers": torch.ones(1, 2, dtype=torch.long),
+        "charges": torch.zeros(1, dtype=torch.long),
+        "nn": MockNN(),
+        "converged_mask": torch.zeros(1, dtype=torch.bool),
+        "fmax": torch.full((1,), 999.0),
+        "energy": torch.full((1,), float("inf"), dtype=torch.double),
+    }
+    n_steps(state, n=3, opttol=1e-9, patience=1000)
+    recomputed_fmax = (2.0 * state["coord"]).norm(dim=-1).max(dim=-1)[0]
+    assert abs(state["fmax"].item() - recomputed_fmax.item()) < 1e-5
 
 
 class TestNStepsIntegration:

@@ -83,6 +83,51 @@ class TestConfigureTorch:
         configure_torch(config)
         assert torch.backends.cuda.matmul.allow_tf32 is False
 
+    def test_configure_torch_sets_fp32_precision_when_available(self):
+        """On torch with the modern fp32_precision API, allow_tf32 must map to
+        the precision mode ('ieee' for False, 'tf32' for True). cudnn.fp32_precision
+        is the decisive check: unlike cuda.matmul, torch does NOT auto-sync it from
+        the legacy allow_tf32 flag, so this fails unless configure_torch sets it."""
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        matmul = torch.backends.cuda.matmul
+        cudnn = torch.backends.cudnn
+        if not hasattr(matmul, "fp32_precision") or not hasattr(cudnn, "fp32_precision"):
+            pytest.skip("torch too old for fp32_precision API")
+
+        configure_torch(TorchConfig(allow_tf32=False))
+        assert matmul.fp32_precision == "ieee"
+        assert cudnn.fp32_precision == "ieee"
+
+        configure_torch(TorchConfig(allow_tf32=True))
+        assert matmul.fp32_precision == "tf32"
+        assert cudnn.fp32_precision == "tf32"
+
+        configure_torch(TorchConfig(allow_tf32=False))  # restore default
+
+    def test_configure_torch_deterministic_is_reversible(self):
+        """deterministic must turn back off on a later config (was write-once).
+
+        Previously the deterministic flags were only ever set to True, so a
+        process that enabled a reproducible run could never restore fast mode.
+        warn_only=True is also asserted so AIMNet2/ANI scatter ops warn instead
+        of raising under deterministic mode.
+        """
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        try:
+            configure_torch(TorchConfig(deterministic=True))
+            assert torch.are_deterministic_algorithms_enabled() is True
+            assert torch.is_deterministic_algorithms_warn_only_enabled() is True
+            assert torch.backends.cudnn.deterministic is True
+
+            configure_torch(TorchConfig(deterministic=False))
+            assert torch.are_deterministic_algorithms_enabled() is False
+            assert torch.backends.cudnn.deterministic is False
+        finally:
+            # Restore the default (non-deterministic) global state.
+            configure_torch(TorchConfig(deterministic=False))
+
 
 class TestAuto3DOptionsAllowTf32:
     """Tests for allow_tf32 option in Auto3DOptions."""
@@ -123,6 +168,7 @@ class TestBatchoptNoHardcodedTF32:
 
         # Import batchopt - it should NOT change the TF32 setting
         import importlib
+
         import Auto3D.batch_opt.batchopt
         importlib.reload(Auto3D.batch_opt.batchopt)
 
@@ -131,10 +177,9 @@ class TestBatchoptNoHardcodedTF32:
 
     def test_tf32_can_be_toggled_after_batchopt_import(self):
         """TF32 settings should be changeable after batchopt is imported."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
-
         # Import batchopt first
         import Auto3D.batch_opt.batchopt  # noqa: F401
+        from Auto3D.torch_config import TorchConfig, configure_torch
 
         # Then configure TF32 - this should work
         configure_torch(TorchConfig(allow_tf32=True))
