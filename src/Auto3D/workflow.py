@@ -80,12 +80,14 @@ class WorkflowOrchestrator:
         torch_config = TorchConfig(allow_tf32=self.config.allow_tf32)
         configure_torch(torch_config)
 
-        # Phase 1: Validation and setup
-        self._validate_input()
-        self._setup_job_directory()
-        self._setup_logging()
-
         try:
+            # Phase 1: Validation and setup. Kept inside the try so the encoded
+            # temp file written by _validate_input is cleaned up even when a
+            # later setup step (job dir creation, logging) raises.
+            self._validate_input()
+            self._setup_job_directory()
+            self._setup_logging()
+
             # Phase 2: Prepare chunks
             chunk_info = self._prepare_chunks()
 
@@ -99,8 +101,11 @@ class WorkflowOrchestrator:
         finally:
             # Always flush the daemon logger and remove the temporary encoded
             # input file, even when a phase raises partway through.
+            # input_path stays at its Path() default (the cwd, a directory)
+            # until _validate_input assigns the encoded file, so is_file()
+            # guards against ever unlinking anything but a real encoded input.
             self._shutdown_logging()
-            if self.input_path.exists():
+            if self.input_path.is_file():
                 self.input_path.unlink()
 
     def _validate_input(self) -> None:
@@ -113,17 +118,20 @@ class WorkflowOrchestrator:
         if self.config.path is None:
             raise ConfigurationError("Please specify the input file path.")
 
-        # Encode IDs for internal processing
-        encoded_path, self.id_mapping = encode_ids(self.config.path)
-        self.input_path = Path(encoded_path)
-
-        # Validate file format
-        self.input_format = self.input_path.suffix[1:]  # Remove leading dot
+        # Validate file format BEFORE encoding so an unsupported extension
+        # raises FileFormatError (not a generic ValueError from encode_ids) and
+        # no encoded temp file is written for input we are about to reject. The
+        # encoded file keeps the source suffix, so this format is authoritative.
+        self.input_format = Path(self.config.path).suffix[1:]  # Remove leading dot
         if self.input_format not in ("smi", "sdf"):
             raise FileFormatError(
                 f"Input file type is not supported. Only .smi and .sdf are supported. "
                 f"But the input file is {self.input_format}."
             )
+
+        # Encode IDs for internal processing
+        encoded_path, self.id_mapping = encode_ids(self.config.path)
+        self.input_path = Path(encoded_path)
 
         # Store format in config for downstream use
         self.config["input_format"] = self.input_format
