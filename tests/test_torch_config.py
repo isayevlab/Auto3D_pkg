@@ -1,6 +1,5 @@
 # tests/test_torch_config.py
 """Tests for TorchConfig and configure_torch functionality."""
-import pytest
 import torch
 
 
@@ -83,6 +82,29 @@ class TestConfigureTorch:
         configure_torch(config)
         assert torch.backends.cuda.matmul.allow_tf32 is False
 
+    def test_configure_torch_deterministic_is_reversible(self):
+        """deterministic must turn back off on a later config (was write-once).
+
+        Previously the deterministic flags were only ever set to True, so a
+        process that enabled a reproducible run could never restore fast mode.
+        warn_only=True is also asserted so AIMNet2/ANI scatter ops warn instead
+        of raising under deterministic mode.
+        """
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        try:
+            configure_torch(TorchConfig(deterministic=True))
+            assert torch.are_deterministic_algorithms_enabled() is True
+            assert torch.is_deterministic_algorithms_warn_only_enabled() is True
+            assert torch.backends.cudnn.deterministic is True
+
+            configure_torch(TorchConfig(deterministic=False))
+            assert torch.are_deterministic_algorithms_enabled() is False
+            assert torch.backends.cudnn.deterministic is False
+        finally:
+            # Restore the default (non-deterministic) global state.
+            configure_torch(TorchConfig(deterministic=False))
+
 
 class TestAuto3DOptionsAllowTf32:
     """Tests for allow_tf32 option in Auto3DOptions."""
@@ -123,6 +145,7 @@ class TestBatchoptNoHardcodedTF32:
 
         # Import batchopt - it should NOT change the TF32 setting
         import importlib
+
         import Auto3D.batch_opt.batchopt
         importlib.reload(Auto3D.batch_opt.batchopt)
 
@@ -131,10 +154,9 @@ class TestBatchoptNoHardcodedTF32:
 
     def test_tf32_can_be_toggled_after_batchopt_import(self):
         """TF32 settings should be changeable after batchopt is imported."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
-
         # Import batchopt first
         import Auto3D.batch_opt.batchopt  # noqa: F401
+        from Auto3D.torch_config import TorchConfig, configure_torch
 
         # Then configure TF32 - this should work
         configure_torch(TorchConfig(allow_tf32=True))

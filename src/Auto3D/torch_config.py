@@ -97,10 +97,14 @@ def configure_torch(config: TorchConfig | None = None) -> None:
         import numpy as np
         np.random.seed(config.random_seed)
 
-    if config.deterministic:
-        torch.use_deterministic_algorithms(True)
-        # cuDNN deterministic mode
-        torch.backends.cudnn.deterministic = True
+    # Set deterministic flags unconditionally so a later configure_torch() with
+    # deterministic=False actually turns determinism back off (previously these
+    # were only ever set to True, making them write-once-sticky). warn_only=True
+    # so AIMNet2/ANI scatter / masked index-put ops -- which have no
+    # deterministic CUDA kernel -- warn instead of raising and aborting the very
+    # optimization loop deterministic mode is meant to make reproducible.
+    torch.use_deterministic_algorithms(config.deterministic, warn_only=True)
+    torch.backends.cudnn.deterministic = config.deterministic
 
 
 # Note: We intentionally do NOT apply any default configuration on module import.

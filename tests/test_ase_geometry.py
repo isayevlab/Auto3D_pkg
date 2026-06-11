@@ -14,3 +14,48 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
 
     out = geo.opt_geometry(str(sdf), "AIMNET")
     assert out.endswith("mols_AIMNET_opt.sdf")
+
+
+def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
+    """A None record or one lacking E_tot must be skipped, not crash the run
+    (which would discard the whole completed optimization)."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    import Auto3D.ASE.geometry as geo
+
+    sdf = tmp_path / "mols.sdf"
+    sdf.write_text("")  # contents irrelevant; optimizing + supplier are stubbed
+
+    good = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(good, randomSeed=1)
+    good.SetProp("_Name", "good")
+    good.SetProp("E_tot", "-100.0")  # eV
+    no_etot = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(no_etot, randomSeed=2)
+    no_etot.SetProp("_Name", "no_etot")  # deliberately missing E_tot
+
+    class _Stub:
+        def __init__(self, *a, **k):
+            pass
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(geo, "optimizing", _Stub)
+    # The re-read supplier yields a None record, a record with no E_tot, and a
+    # good one; only the good one should survive into the rewritten output.
+    monkeypatch.setattr(
+        geo.Chem, "SDMolSupplier", lambda *a, **k: [None, no_etot, good]
+    )
+    monkeypatch.setattr(geo.torch.cuda, "is_available", lambda: False)
+
+    out = geo.opt_geometry(str(sdf), "AIMNET")  # must not raise
+
+    # Read the written file as text (the rdkit.Chem.SDMolSupplier monkeypatch
+    # is module-global, so re-reading via it would return the stub list, not
+    # the file). Only the good record should have been written.
+    with open(out) as fh:
+        text = fh.read()
+    assert "good" in text
+    assert "no_etot" not in text
