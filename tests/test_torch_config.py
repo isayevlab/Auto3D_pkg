@@ -1,5 +1,6 @@
 # tests/test_torch_config.py
 """Tests for TorchConfig and configure_torch functionality."""
+import pytest
 import torch
 
 
@@ -81,6 +82,28 @@ class TestConfigureTorch:
         config = TorchConfig(allow_tf32=False)
         configure_torch(config)
         assert torch.backends.cuda.matmul.allow_tf32 is False
+
+    def test_configure_torch_sets_fp32_precision_when_available(self):
+        """On torch with the modern fp32_precision API, allow_tf32 must map to
+        the precision mode ('ieee' for False, 'tf32' for True). cudnn.fp32_precision
+        is the decisive check: unlike cuda.matmul, torch does NOT auto-sync it from
+        the legacy allow_tf32 flag, so this fails unless configure_torch sets it."""
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        matmul = torch.backends.cuda.matmul
+        cudnn = torch.backends.cudnn
+        if not hasattr(matmul, "fp32_precision") or not hasattr(cudnn, "fp32_precision"):
+            pytest.skip("torch too old for fp32_precision API")
+
+        configure_torch(TorchConfig(allow_tf32=False))
+        assert matmul.fp32_precision == "ieee"
+        assert cudnn.fp32_precision == "ieee"
+
+        configure_torch(TorchConfig(allow_tf32=True))
+        assert matmul.fp32_precision == "tf32"
+        assert cudnn.fp32_precision == "tf32"
+
+        configure_torch(TorchConfig(allow_tf32=False))  # restore default
 
     def test_configure_torch_deterministic_is_reversible(self):
         """deterministic must turn back off on a later config (was write-once).

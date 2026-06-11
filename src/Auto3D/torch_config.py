@@ -83,9 +83,16 @@ def configure_torch(config: TorchConfig | None = None) -> None:
     if config is None:
         config = TorchConfig()
 
-    # Precision settings
+    # Precision settings. Set both the legacy allow_tf32 booleans (back-compat
+    # for torch < 2.9) and the modern fp32_precision knob (canonical on torch
+    # >= 2.9, where allow_tf32 is deprecated). "ieee" = full FP32, "tf32" = TF32.
+    fp32_mode = "tf32" if config.allow_tf32 else "ieee"
     torch.backends.cuda.matmul.allow_tf32 = config.allow_tf32
     torch.backends.cudnn.allow_tf32 = config.allow_tf32
+    if hasattr(torch.backends.cuda.matmul, "fp32_precision"):
+        torch.backends.cuda.matmul.fp32_precision = fp32_mode
+    if hasattr(torch.backends.cudnn, "fp32_precision"):
+        torch.backends.cudnn.fp32_precision = fp32_mode
     torch.backends.cudnn.benchmark = config.cudnn_benchmark
 
     # Reproducibility settings
