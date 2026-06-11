@@ -73,6 +73,27 @@ class TestInvalidSmilesDoesNotAbort:
         assert "valid_mol" in engine.enumerate
         assert "invalid_mol" not in engine.enumerate
 
+    def test_embed_conformer_returns_none_on_unparseable(self, tmp_path):
+        """embed_conformer must return None (not crash on AddHs(None)) for an
+        unparseable SMILES, mirroring the parallel worker."""
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        engine = _make_engine(str(tmp_path), smi)
+        assert engine.embed_conformer("invalid_smiles_xyz") is None
+        assert engine.embed_conformer("CCO").GetNumConformers() >= 1
+
+    def test_run_serial_embedding_skips_unparseable(self, tmp_path):
+        """The serial embedding loop must skip an unparseable SMILES and still
+        write the valid one, matching the parallel path's behavior."""
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        engine = _make_engine(str(tmp_path), smi)
+        engine._run_serial_embedding([("CCO", "good"), ("invalid_xyz", "bad")])
+        mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
+        names = {m.GetProp("_Name").rsplit("_", 1)[0] for m in mols}
+        assert "good" in names
+        assert "bad" not in names
+
     def test_tautomer_rd_taut_skips_invalid(self, tmp_path):
         """TautomerEngine.rd_taut must skip invalid SMILES, not abort."""
         infile = tmp_path / "in.smi"
