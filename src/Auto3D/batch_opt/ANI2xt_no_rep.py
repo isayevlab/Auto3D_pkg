@@ -2,7 +2,6 @@ import os
 
 import torch
 import torch.nn as nn
-import torchani
 
 from Auto3D.utils import ANI2XT_INDEX, hartree2ev
 
@@ -20,6 +19,12 @@ ani_2xt_dict = os.path.join(root, "models/ani2xt_no_repulsion.pt")
 class ANI2xt(nn.Module):
     def __init__(self, device, state_dict=ani_2xt_dict, periodic_table_index=False):
         super().__init__()
+        # torchani is an optional dependency, imported lazily so that merely
+        # importing this module (e.g. via Auto3D.ASE.thermo, which only
+        # references the ANI2xt class) never requires torchani. It is only
+        # needed to build the AEV computer below.
+        import torchani
+
         # setup constants and construct an AEV computer
         Rcr = 5.2000e+00
         Rca = 3.5000e+00
