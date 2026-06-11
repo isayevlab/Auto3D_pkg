@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -122,6 +123,12 @@ def embed_conformers_parallel(
         for future in futures:
             try:
                 yield from future.result()
+            except BrokenProcessPool:
+                # A worker died (e.g. OOM-killed): the pool is broken and EVERY
+                # remaining future will also raise this. Surface it loudly --
+                # the broad except below would otherwise swallow it per-future
+                # and silently drop the whole tail of the batch as warnings.
+                raise
             except Exception as e:
                 # Per-molecule boundary: a single molecule's failure (including
                 # RDKit's Boost.Python.ArgumentError, which is a TypeError and so
