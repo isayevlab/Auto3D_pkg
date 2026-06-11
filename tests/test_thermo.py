@@ -74,7 +74,8 @@ class userNNP2(torch.nn.Module):
         """
         # Here I constructed an example NNP using AIMNet2.
         # In your case, you can replace this with your own NNP model.
-        self.model = torch.jit.load(os.path.join(folder, 'src/Auto3D/models/aimnet2_wb97m-d3_0.jpt'))
+        from Auto3D.model_factory import create_model
+        self.model = create_model("AIMNET", torch.device("cpu")).model
 
         self.coord_pad = 0  # int, the padding value for coordinates
         self.species_pad = 0  # int, the padding value for species.
@@ -156,9 +157,11 @@ def test_vib_hessian():
     mol = next(Chem.SDMolSupplier(path, removeHs=False))
 
     _, calculator = model_name2model_calculator('AIMNET')
-    model_path = os.path.join(folder, "src/Auto3D/models/aimnet2_wb97m-d3_0.jpt")
     device = torch.device('cpu')
-    model = torch.jit.load(model_path, map_location=device)
+    # Hessian model now comes from the aimnet registry (kept fp32), not a
+    # bundled .jpt; this is the same loader thermo uses internally.
+    from Auto3D.ASE.thermo import _load_hessian_model
+    model = _load_hessian_model('AIMNET', device)
 
     hessian_vib = vib_hessian(mol, calculator, model)
     hessian_freq = hessian_vib.get_frequencies()

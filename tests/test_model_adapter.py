@@ -12,20 +12,23 @@ from Auto3D.models.adapter import ModelAdapter, AIMNet2Adapter
 
 
 def test_model_adapter_interface():
-    """ModelAdapter should have consistent forward signature."""
-    # This will fail until we implement the adapter
+    """A concrete adapter should expose the ModelAdapter interface and a
+    forward(coords, species, charges) -> (energy, forces) signature."""
     device = torch.device("cpu")
-    adapter = AIMNetAdapter(device)
+    adapter = AIMNet2Adapter("aimnet2", device)
 
     # Test interface attributes exist
     assert hasattr(adapter, 'coord_pad')
     assert hasattr(adapter, 'species_pad')
     assert hasattr(adapter, 'device')
 
-    # Test forward signature
-    coords = torch.randn(2, 5, 3, device=device)
+    # Test forward signature on two real methane molecules.
+    coords = torch.tensor(
+        [[[0., 0, 0], [0.63, 0.63, 0.63], [-0.63, -0.63, 0.63],
+          [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]]
+    ).repeat(2, 1, 1).to(device)
     species = torch.tensor([[6, 1, 1, 1, 1], [6, 1, 1, 1, 1]], device=device)
-    charges = torch.tensor([0, 0], device=device)
+    charges = torch.tensor([0.0, 0.0], device=device)
 
     energy, forces = adapter.forward(coords, species, charges)
     assert energy.shape == (2,)
@@ -69,67 +72,32 @@ class TestBaseModelAdapter:
         assert adapter.species_pad == -1
 
 
-class TestAIMNetAdapter:
-    """Tests for the AIMNetAdapter."""
+class TestAIMNet2Adapter:
+    """Tests for the AIMNet2Adapter (aimnet-backed)."""
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_aimnet_adapter_loads_default_model(self, mock_load):
-        """AIMNetAdapter should load default model from models directory."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
-
+    def test_aimnet2_adapter_loads_default_model(self):
+        """AIMNet2Adapter resolves the 'aimnet2' registry name (no .jpt path)."""
         device = torch.device("cpu")
-        adapter = AIMNetAdapter(device)
+        adapter = AIMNet2Adapter("aimnet2", device)
 
-        mock_load.assert_called_once()
-        call_args = mock_load.call_args
-        path_arg = call_args[0][0]
+        assert adapter.model_name == "aimnet2"
+        # An underlying nn.Module is built from the aimnet registry.
+        assert adapter.model is not None
 
-        # Check the path contains expected components
-        assert "models" in path_arg
-        # Single model is now the default (aimnet2_wb97m-d3_0.jpt)
-        assert "aimnet2_wb97m-d3_0.jpt" in path_arg
-
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_aimnet_adapter_has_correct_padding(self, mock_load):
-        """AIMNetAdapter should have coord_pad=0.0 and species_pad=0."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
-
+    def test_aimnet2_adapter_has_correct_padding(self):
+        """AIMNet2Adapter should have coord_pad=0.0 and species_pad=0."""
         device = torch.device("cpu")
-        adapter = AIMNetAdapter(device)
+        adapter = AIMNet2Adapter("aimnet2", device)
 
         assert adapter.coord_pad == 0.0
         assert adapter.species_pad == 0
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_aimnet_adapter_forward_calls_model(self, mock_load):
-        """AIMNetAdapter.forward should call the underlying model."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_model.return_value = {
-            'energy': torch.tensor([1.0, 2.0]),
-            'forces': torch.randn(2, 5, 3)
-        }
-        mock_load.return_value = mock_model
-
-        device = torch.device("cpu")
-        adapter = AIMNetAdapter(device)
-
-        coords = torch.randn(2, 5, 3, device=device)
-        species = torch.tensor([[6, 1, 1, 1, 1], [6, 1, 1, 1, 1]], device=device)
-        charges = torch.tensor([0, 0], device=device)
-
-        energy, forces = adapter.forward(coords, species, charges)
-
-        # Verify the model was called with the right dict
-        mock_model.assert_called_once()
-        call_args = mock_model.call_args[0][0]
-        assert 'coord' in call_args
-        assert 'numbers' in call_args
-        assert 'charge' in call_args
+    # Note: the former test_aimnet_adapter_forward_calls_model (which mocked a
+    # jit-loaded model and inspected the dict passed to it) is intentionally
+    # dropped. The new adapter delegates to AIMNet2Calculator, and a real
+    # forward pass is already covered end-to-end by
+    # test_aimnet2_adapter_energy_forces_water / _padded_batch_matches_unpadded
+    # below, which assert energy/force shapes and physical values.
 
 
 class TestANI2xtAdapter:
