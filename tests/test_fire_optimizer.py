@@ -2,7 +2,6 @@
 """Unit tests for the FIRE optimizer module."""
 from __future__ import annotations
 
-import pytest
 import torch
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
@@ -134,6 +133,30 @@ class TestFIREStep:
         # Should not exceed maxstep
         assert displacement_norm.max() <= optimizer.maxstep + 1e-6
 
+    def test_fire_tiny_progressing_forces_stay_finite(self):
+        """Underflowing force norms must not inject inf/NaN.
+
+        A molecule can be 'progressing' (v.f > 0) while its float32 force norm
+        underflows to exactly 0 -- forces so small (~1e-24) that their squares
+        round to zero. Without clamping the force-norm denominator, forces /
+        f_norm becomes inf/NaN, is selected into the velocity, and permanently
+        corrupts that conformer. Guard: the step must stay finite.
+        """
+        coord = torch.zeros(1, 2, 3)
+        optimizer = FIRE(coord)
+        optimizer.v = torch.full((1, 2, 3), 1e-10)  # finite v_norm
+        forces = torch.full((1, 2, 3), 1e-24)       # f^2 underflows to 0 in fp32
+
+        # Precondition: this configuration really does trigger the degenerate
+        # branch (progressing molecule with a zeroed force norm).
+        vf = (forces * optimizer.v).flatten(-2, -1).sum(-1)
+        f_norm = forces.flatten(-2, -1).norm(p=2, dim=-1)
+        assert (vf > 0).all() and float(f_norm) == 0.0
+
+        new_coord = optimizer(coord, forces)
+        assert torch.isfinite(new_coord).all()
+        assert torch.isfinite(optimizer.v).all()
+
 
 class TestFIREClean:
     """Tests for FIRE optimizer clean method."""
@@ -227,8 +250,6 @@ class TestFIREMultipleSteps:
         # Provide consistent forces in same direction
         forces = torch.ones(1, 10, 3) * 0.1
 
-        initial_dt = optimizer.dt[0].item()
-
         # Apply multiple steps with consistent force direction
         for _ in range(10):
             coord = optimizer(coord, forces)
@@ -250,9 +271,6 @@ class TestFIREMultipleSteps:
         forces_positive = torch.ones(1, 5, 3) * 0.1
         for _ in range(5):
             coord = optimizer(coord, forces_positive)
-
-        # Store velocity magnitude
-        v_before_reversal = optimizer.v.norm().item()
 
         # Reverse force direction - should trigger reset
         forces_negative = -torch.ones(1, 5, 3) * 0.1
@@ -314,7 +332,7 @@ class TestFIRETorchScript:
 
         # TorchScript classes have specific attributes
         # This test verifies the @torch.jit.script decorator worked
-        assert hasattr(optimizer, '__call__')
+        assert callable(optimizer)
         assert hasattr(optimizer, 'clean')
 
     def test_fire_works_in_jit_context(self):
@@ -335,6 +353,7 @@ class TestFIRETorchScript:
 def test_fire_trajectory_golden():
     """FIRE must produce a deterministic trajectory; guards the branchless rewrite."""
     import torch
+
     from Auto3D.batch_opt.fire_optimizer import FIRE
 
     torch.manual_seed(0)

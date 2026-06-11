@@ -117,7 +117,13 @@ class FIRE:
         a3 = self.a.unsqueeze(-1).unsqueeze(-1)
         v_norm = self.v.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
         f_norm = forces.flatten(-2, -1).norm(p=2, dim=-1, keepdim=True).unsqueeze(-1)
-        v_mixed = (1.0 - a3) * self.v + a3 * v_norm * forces / f_norm
+        # Clamp the force-norm denominator: a molecule can be "progressing"
+        # (v.f > 0) while its float32 force-norm underflows to 0 (forces so small
+        # their squares round to zero, e.g. ~1e-24), which makes forces / f_norm
+        # produce inf/NaN that is then selected into self.v and corrupts that
+        # conformer for the rest of the run. clamp_min is a no-op for any real
+        # force norm (>> 1e-30) and only guards the degenerate near-zero limit.
+        v_mixed = (1.0 - a3) * self.v + a3 * v_norm * forces / f_norm.clamp_min(1e-30)
 
         # v: mixed where progressing, reset to zero otherwise.
         prog3 = progressing.unsqueeze(-1).unsqueeze(-1)
