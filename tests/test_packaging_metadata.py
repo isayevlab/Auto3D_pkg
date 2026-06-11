@@ -24,8 +24,8 @@ def test_python_floor_is_3_11():
     assert _pyproject()["project"]["requires-python"] == ">=3.11"
 
 
-def test_version_is_4():
-    assert _pyproject()["project"]["version"].startswith("4.")
+def test_version_is_3_5():
+    assert _pyproject()["project"]["version"].startswith("3.5")
 
 
 def test_no_jpt_package_data():
