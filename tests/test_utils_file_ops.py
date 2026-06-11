@@ -1,7 +1,4 @@
 """Tests for Auto3D.utils.file_ops module."""
-import os
-import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -21,6 +18,8 @@ from Auto3D.utils.file_ops import (
     encode_ids,
     decode_ids,
     reorder_sdf,
+    count_sdf,
+    find_smiles_not_in_sdf,
 )
 
 
@@ -739,6 +738,242 @@ class TestFileOpsIntegration:
         assert Path(meta["output"]).exists()
         # Enumerated should be moved to verbose folder
         assert (Path(meta["housekeeping_folder"]) / "smiles_enumerated.smi").exists()
+
+
+def _make_mol(name):
+    """Build a tiny named RDKit mol for SDF round-trips."""
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles("C")
+    mol.SetProp("_Name", name)
+    return mol
+
+
+class TestNoneMolHardening:
+    """FIX 1: None records yielded by SDMolSupplier must not crash these helpers.
+
+    A single unparseable SDF record makes SDMolSupplier yield ``None``. The
+    iterating helpers previously called ``mol.GetProp(...)`` / ``mol.GetNumAtoms()``
+    on it and raised ``AttributeError``. They must skip ``None`` instead.
+    """
+
+    def test_count_sdf_skips_none_records(self, tmp_path, monkeypatch):
+        """count_sdf must not count (or crash on) a None record."""
+
+        import Auto3D.utils.file_ops as file_ops
+
+        valid = _make_mol("mol_a")
+        monkeypatch.setattr(
+            file_ops.Chem, "SDMolSupplier", lambda *a, **k: [valid, None]
+        )
+
+        sdf = tmp_path / "mols.sdf"
+        sdf.write_text("placeholder")  # path only needs to exist for the call
+
+        assert count_sdf(str(sdf)) == 1
+
+    def test_decode_ids_skips_none_records(self, tmp_path, monkeypatch):
+        """decode_ids must skip None records without raising."""
+        from rdkit import Chem
+
+        import Auto3D.utils.file_ops as file_ops
+
+        valid = Chem.MolFromSmiles("C")
+        valid.SetProp("_Name", "0")
+        valid.SetProp("ID", "0_conf1")
+
+        monkeypatch.setattr(
+            file_ops.Chem, "SDMolSupplier", lambda *a, **k: [valid, None]
+        )
+
+        # decode_ids expects a stem with at least two underscore parts.
+        sdf = tmp_path / "mols_3d_encoded.sdf"
+        sdf.write_text("placeholder")
+
+        out = decode_ids(str(sdf), {"mol_a": 0})
+        # Only the valid record is written; no AttributeError on the None.
+        written = count_sdf(out)
+        assert written == 1
+
+    def test_find_smiles_not_in_sdf_skips_none_records(self, tmp_path, monkeypatch):
+        """find_smiles_not_in_sdf must skip None SDF records."""
+        from rdkit import Chem
+
+        import Auto3D.utils.file_ops as file_ops
+
+        valid = Chem.MolFromSmiles("C")
+        valid.SetProp("_Name", "mol_a")
+        monkeypatch.setattr(
+            file_ops.Chem, "SDMolSupplier", lambda *a, **k: [valid, None]
+        )
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("C mol_a\nCC mol_b\n")
+        sdf = tmp_path / "out.sdf"
+        sdf.write_text("placeholder")
+
+        bad = find_smiles_not_in_sdf(str(smi), str(sdf))
+        # mol_a is present (valid mol), mol_b is missing -> reported.
+        assert ("mol_b", "CC") in bad
+        assert all(mol_id != "mol_a" for mol_id, _ in bad)
+
+    def test_reorder_sdf_skips_none_records(self, tmp_path, monkeypatch):
+        """reorder_sdf must skip None records in the target SDF."""
+
+        import Auto3D.utils.file_ops as file_ops
+
+        smi = tmp_path / "source.smi"
+        smi.write_text("C mol_a\nC mol_b\n")
+
+        valid_a = _make_mol("mol_a")
+        valid_b = _make_mol("mol_b")
+        monkeypatch.setattr(
+            file_ops.Chem, "SDMolSupplier", lambda *a, **k: [valid_a, None, valid_b]
+        )
+
+        sdf = tmp_path / "target.sdf"
+        sdf.write_text("placeholder")
+
+        result = reorder_sdf(str(sdf), str(smi))
+        names = [m.GetProp("_Name") for m in result]
+        assert names == ["mol_a", "mol_b"]
+
+
+class TestReorderSdfDataPreservation:
+    """FIX 2: reorder_sdf must not drop unmatched molecules or truncate input."""
+
+    def test_unmatched_mol_is_preserved(self, tmp_path):
+        """A mol whose id is not in the source must still survive to disk."""
+        from rdkit import Chem
+
+        smi = tmp_path / "source.smi"
+        # source lists only mol_a and mol_b; mol_c is unmatched.
+        smi.write_text("C mol_a\nC mol_b\n")
+
+        sdf = tmp_path / "target.sdf"
+        writer = Chem.SDWriter(str(sdf))
+        for name in ["mol_c", "mol_b", "mol_a"]:
+            writer.write(_make_mol(name))
+        writer.close()
+
+        result = reorder_sdf(str(sdf), str(smi))
+
+        # All three mols preserved (no silent data loss).
+        result_names = [m.GetProp("_Name") for m in result]
+        assert set(result_names) == {"mol_a", "mol_b", "mol_c"}
+        assert len(result_names) == 3
+        # Matched ids appear first, in source order.
+        assert result_names[0] == "mol_a"
+        assert result_names[1] == "mol_b"
+
+        # And the on-disk file must contain all three as well.
+        on_disk = [m.GetProp("_Name") for m in Chem.SDMolSupplier(str(sdf))]
+        assert set(on_disk) == {"mol_a", "mol_b", "mol_c"}
+
+    def test_normal_all_matched_ordering_unchanged(self, tmp_path):
+        """When every id is matched, ordering is exactly the source order."""
+        from rdkit import Chem
+
+        smi = tmp_path / "source.smi"
+        smi.write_text("C mol_b\nC mol_a\nC mol_c\n")
+
+        sdf = tmp_path / "target.sdf"
+        writer = Chem.SDWriter(str(sdf))
+        for name in ["mol_a", "mol_c", "mol_b"]:
+            writer.write(_make_mol(name))
+        writer.close()
+
+        result = reorder_sdf(str(sdf), str(smi))
+        names = [m.GetProp("_Name") for m in result]
+        assert names == ["mol_b", "mol_a", "mol_c"]
+
+
+class TestSDF2chunksTrailingRecord:
+    """FIX 3: a final record lacking the $$$$ terminator must not be dropped."""
+
+    def test_trailing_record_without_terminator_preserved(self, tmp_path):
+        """SDF2chunks keeps a terminator-less trailing record as its own chunk."""
+        sdf = tmp_path / "ragged.sdf"
+        # First record has $$$$; second record lacks it.
+        sdf.write_text(
+            "mol1\n  line1\n$$$$\n"
+            "mol2\n  line2\n  line3\n"
+        )
+
+        chunks = SDF2chunks(str(sdf))
+
+        assert len(chunks) == 2
+        assert chunks[0][0].strip() == "mol1"
+        # The trailing record's lines must be present in the final chunk.
+        assert chunks[1][0].strip() == "mol2"
+        joined = "".join(chunks[1])
+        assert "line2" in joined
+        assert "line3" in joined
+
+
+class TestSmiles2SmiInvalidInput:
+    """FIX 4: smiles2smi must raise a clear error on an invalid SMILES."""
+
+    def test_invalid_smiles_raises_input_validation_error(self, tmp_path):
+        """An unparseable SMILES raises InputValidationError naming the SMILES."""
+        from Auto3D.exceptions import InputValidationError
+
+        out = tmp_path / "out.smi"
+        with pytest.raises(InputValidationError, match=r"C\(C"):
+            smiles2smi(["CCO", "C(C"], str(out))
+
+
+class TestHashHelpersBlankLines:
+    """FIX 5: blank / malformed lines must not crash the hashing helpers."""
+
+    def test_hash_enumerated_skips_blank_and_extra_token_lines(self, tmp_path):
+        """hash_enumerated_smi_IDs tolerates blank lines and extra tokens."""
+        inp = tmp_path / "in.smi"
+        inp.write_text("CCO mol1\n\n   \nCC mol2 extra_token\n")
+        out = tmp_path / "out.smi"
+
+        # Must not raise ValueError.
+        hash_enumerated_smi_IDs(str(inp), str(out))
+
+        lines = [ln for ln in out.read_text().splitlines() if ln.strip()]
+        ids = [ln.split()[1] for ln in lines]
+        assert "mol1" in ids
+        assert "mol2" in ids
+
+    def test_hash_taut_skips_blank_and_extra_token_lines(self, tmp_path):
+        """hash_taut_smi tolerates blank lines and extra tokens."""
+        inp = tmp_path / "in.smi"
+        inp.write_text("CCO mol1\n\nCC mol2 extra_token\n")
+        out = tmp_path / "out.smi"
+
+        hash_taut_smi(str(inp), str(out))
+
+        lines = [ln for ln in out.read_text().splitlines() if ln.strip()]
+        assert len(lines) == 2
+        assert all("@taut" in ln.split()[1] for ln in lines)
+
+    def test_find_smiles_not_in_sdf_tolerates_blank_and_3token_lines(
+        self, tmp_path, monkeypatch
+    ):
+        """find_smiles_not_in_sdf tolerates blank and 3-token .smi lines."""
+        from rdkit import Chem
+
+        import Auto3D.utils.file_ops as file_ops
+
+        valid = Chem.MolFromSmiles("C")
+        valid.SetProp("_Name", "mol_a")
+        monkeypatch.setattr(
+            file_ops.Chem, "SDMolSupplier", lambda *a, **k: [valid]
+        )
+
+        smi = tmp_path / "in.smi"
+        # blank line + a 3-token line (first two tokens taken).
+        smi.write_text("C mol_a\n\nCC mol_b extra\n")
+        sdf = tmp_path / "out.sdf"
+        sdf.write_text("placeholder")
+
+        bad = find_smiles_not_in_sdf(str(smi), str(sdf))
+        assert ("mol_b", "CC") in bad
 
 
 if __name__ == "__main__":
