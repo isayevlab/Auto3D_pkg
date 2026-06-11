@@ -128,7 +128,16 @@ def pad_from_mols(
         )
 
         if model_name == "ANI2xt":
-            spec = [ani2xt_index[a.GetAtomicNum()] for a in mol.GetAtoms()]
+            spec = []
+            for a in mol.GetAtoms():
+                z = a.GetAtomicNum()
+                try:
+                    spec.append(ani2xt_index[z])
+                except KeyError:
+                    raise ValueError(
+                        f"Element Z={z} ({a.GetSymbol()}) is not supported by "
+                        f"ANI2xt (supported: H, C, N, O, F, S, Cl)."
+                    ) from None
         else:
             spec = [a.GetAtomicNum() for a in mol.GetAtoms()]
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)

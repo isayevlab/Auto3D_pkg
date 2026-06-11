@@ -15,7 +15,7 @@ from typing import Optional
 
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
+from rdkit.Chem import AllChem, rdMolAlign, rdMolDescriptors, rdMolTransforms, rdmolops
 
 from Auto3D.constants import (
     CONFORMER_MULTIPLIER,
@@ -26,6 +26,7 @@ from Auto3D.constants import (
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
     MAX_CONFORMERS_CAP,
+    MIN_ATOM_DISTANCE,
 )
 
 logger = logging.getLogger("auto3d")
@@ -44,6 +45,7 @@ __all__ = [
     "calculate_conformer_count",
     "get_mol_charge",
     "min_pairwise_distance",
+    "relieve_clash",
     "get_rmsd",
     "check_connectivity",
     "getidx",
@@ -65,16 +67,18 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     """Calculate the number of conformers to generate for a molecule.
 
     Uses a formula based on the number of rotatable bonds, with a minimum
-    of the heavy atom count and a maximum cap.
+    of the heavy atom count and a maximum cap. The result is floored at 1 so
+    a molecule never gets 0 conformers (which would silently drop tiny species
+    such as ``[H+]`` or a lone atom from the pipeline).
 
-    Formula: min(max(num_heavy, 2 * 8.481 * (num_rotatable ** 1.642)), 1000)
+    Formula: min(max(1, num_heavy, 2 * 8.481 * (num_rotatable ** 1.642)), 1000)
     Reference: https://doi.org/10.1021/acs.jctc.0c01213
 
     Args:
         mol: RDKit molecule object (with or without hydrogens).
 
     Returns:
-        Number of conformers to generate.
+        Number of conformers to generate (always >= 1).
 
     Example:
         >>> from rdkit import Chem
@@ -91,7 +95,9 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
         (num_rotatable ** CONFORMER_ROTATABLE_EXP)
     )
 
-    return min(max(num_heavy, formula_count), MAX_CONFORMERS_CAP)
+    # Floor at 1: a heavy-atom-free species (e.g. [H+]) or a single atom must
+    # still receive at least one conformer instead of being silently dropped.
+    return min(max(1, num_heavy, formula_count), MAX_CONFORMERS_CAP)
 
 
 def get_mol_charge(mol: Chem.Mol) -> int:
@@ -157,6 +163,44 @@ def min_pairwise_distance(points: np.ndarray) -> float:
 
     # Return the square root of the minimum squared distance
     return float(np.sqrt(min_squared_distance))
+
+
+def relieve_clash(
+    mol: Chem.Mol,
+    conf_id: int,
+    min_distance: float = MIN_ATOM_DISTANCE,
+) -> bool:
+    """Optimize a clashing conformer in place and report whether it is usable.
+
+    A conformer is considered "clashing" when its minimum pairwise interatomic
+    distance is below ``min_distance``. Such conformers are relaxed with MMFF;
+    when the molecule lacks full MMFF parameters (elements like B, Se or some
+    Si valences, where ``MMFFOptimizeMolecule`` returns -1 and does nothing),
+    the function falls back to UFF so the conformer is not discarded for lack
+    of a force field.
+
+    Args:
+        mol: RDKit molecule holding the conformer.
+        conf_id: Index of the conformer to check/optimize.
+        min_distance: Minimum acceptable interatomic distance (Angstroms).
+
+    Returns:
+        True if the (possibly optimized) conformer's minimum pairwise distance
+        is >= ``min_distance`` and should be kept; False if it still clashes.
+    """
+    positions = mol.GetConformer(conf_id).GetPositions()
+    # Closing the dead band: a conformer exactly at the threshold is kept.
+    if min_pairwise_distance(positions) >= min_distance:
+        return True
+
+    # Clashing conformer: try MMFF, fall back to UFF when MMFF is unavailable.
+    if AllChem.MMFFHasAllMoleculeParams(mol):
+        AllChem.MMFFOptimizeMolecule(mol, confId=conf_id)
+    else:
+        AllChem.UFFOptimizeMolecule(mol, confId=conf_id)
+
+    positions = mol.GetConformer(conf_id).GetPositions()
+    return min_pairwise_distance(positions) >= min_distance
 
 
 def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:

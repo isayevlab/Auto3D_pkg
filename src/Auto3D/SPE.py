@@ -10,6 +10,9 @@ from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.padding import pad_from_mols
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.utils import hartree2ev
+from Auto3D.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # TF32 settings are now configurable via Auto3DOptions.allow_tf32
 # and applied in workflow.py/auto3D.py entry points
@@ -45,7 +48,19 @@ def calc_spe(path: str, model_name: str, gpu_idx: int = 0) -> str:
     # Create EnForce_ANI wrapper for batched forward support (new API without name)
     model = EnForce_ANI(model_adapter)
 
-    mols = list(Chem.SDMolSupplier(path, removeHs=False))
+    # Filter once up front: drop None records (unparseable) and conformerless
+    # molecules so pad_from_mols never dereferences a bad record, and so the
+    # writer loop below stays index-aligned with the energies tensor.
+    mols = []
+    for mol in Chem.SDMolSupplier(path, removeHs=False):
+        if mol is None:
+            logger.warning("Skipping invalid record: SDMolSupplier yielded None.")
+            continue
+        if mol.GetNumConformers() == 0:
+            name = mol.GetProp('_Name') if mol.HasProp('_Name') else '<unnamed>'
+            logger.warning(f"Skipping record without a conformer: {name!r}.")
+            continue
+        mols.append(mol)
 
     # Use new vectorized padding that returns tensors directly
     coord_padded, numbers_padded, charges = pad_from_mols(
