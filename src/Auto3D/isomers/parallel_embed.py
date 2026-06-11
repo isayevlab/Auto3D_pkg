@@ -10,7 +10,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.constants import CONFORMER_RANDOM_SEED
-from Auto3D.utils import min_pairwise_distance
+from Auto3D.utils import relieve_clash
 from Auto3D.utils.chemistry import calculate_conformer_count
 from Auto3D.utils.logging_config import get_logger
 
@@ -45,12 +45,16 @@ def _embed_single(
             - conf_id: Unique identifier string (name_idx format)
     """
     # Validate SMILES first to avoid unpicklable Boost.Python errors
-    mol = Chem.MolFromSmiles(smi)
-    if mol is None:
+    mol_noh = Chem.MolFromSmiles(smi)
+    if mol_noh is None:
         return []
-    mol = Chem.AddHs(mol)
+    mol = Chem.AddHs(mol_noh)
 
     if n_conformers is None:
+        # Compute the conformer budget on the H-complete (AddHs) mol so the
+        # parallel path agrees with the serial/SDF paths on the RICHER with-H
+        # count: CalcNumRotatableBonds only counts O-H / N-H torsions when
+        # hydrogens are explicit (e.g. glycerol 238 vs 52 conformers).
         n_conformers = calculate_conformer_count(mol)
 
     AllChem.EmbedMultipleConfs(
@@ -63,16 +67,9 @@ def _embed_single(
 
     results = []
     for i in range(mol.GetNumConformers()):
-        positions = mol.GetConformer(i).GetPositions()
-
-        # Check for atom clashes (distance < 0.9 Angstrom)
-        if min_pairwise_distance(positions) < 0.9:
-            # Try to fix with MMFF optimization
-            AllChem.MMFFOptimizeMolecule(mol, confId=i)
-            positions = mol.GetConformer(i).GetPositions()
-
-        # Only keep conformers with valid distances
-        if min_pairwise_distance(positions) > 0.9:
+        # Relieve atom clashes (MMFF, with UFF fallback for elements lacking
+        # MMFF params) and keep only conformers that end up clash-free.
+        if relieve_clash(mol, i):
             conf_id = f"{name}_{i}"
             results.append((mol, i, conf_id))
 

@@ -196,8 +196,13 @@ class TestGetRmsd:
         assert abs(rmsd_with_hs_removed) < 1e-5
         assert abs(rmsd_without_hs_removed) < 1e-5
 
-    def test_mismatched_molecules_returns_zero(self):
-        """Test that mismatched molecules return 0.0."""
+    def test_mismatched_molecules_returns_inf(self):
+        """Mismatched molecules are incomparable and return float('inf').
+
+        An incomparable pair is treated as "distinct" (inf), matching
+        filter_unique, so a downstream `rmsd < threshold` check keeps the
+        structure instead of dropping it as a false duplicate.
+        """
         mol1 = Chem.MolFromSmiles("CCO")
         mol1 = Chem.AddHs(mol1)
         AllChem.EmbedMolecule(mol1, randomSeed=42)
@@ -206,9 +211,24 @@ class TestGetRmsd:
         mol2 = Chem.AddHs(mol2)
         AllChem.EmbedMolecule(mol2, randomSeed=42)
 
-        # This should raise RuntimeError internally and return 0.0
+        # This should raise RuntimeError internally and return inf.
         rmsd = get_rmsd(mol1, mol2)
-        assert rmsd == 0.0
+        assert rmsd == float("inf")
+
+    def test_runtime_error_returns_inf(self, monkeypatch):
+        """A RuntimeError from the RMSD computation returns float('inf')."""
+        from Auto3D.utils import chemistry as chem
+
+        mol = Chem.MolFromSmiles("CCO")
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol_copy = Chem.Mol(mol)
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("forced failure")
+
+        monkeypatch.setattr(chem.rdMolAlign, "GetBestRMS", _boom)
+        assert chem.get_rmsd(mol, mol_copy) == float("inf")
 
 
 class TestCheckConnectivity:
@@ -272,6 +292,21 @@ class TestCheckConnectivity:
         AllChem.MMFFOptimizeMolecule(mol)
 
         assert check_connectivity(mol) is True
+
+    def test_salt_with_metal_does_not_crash(self):
+        """Element outside the radii table (Na) must not raise KeyError.
+
+        Sodium acetate contains Na (atomic number 11), which is not in the
+        UFF radii table. check_connectivity must skip pairs involving an
+        unknown element rather than indexing the radii dict blindly.
+        """
+        mol = Chem.MolFromSmiles("CC(=O)[O-].[Na+]")  # sodium acetate
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+
+        # Must return a bool without raising KeyError(11).
+        result = check_connectivity(mol)
+        assert isinstance(result, bool)
 
 
 class TestModuleImports:
@@ -348,10 +383,26 @@ class TestGetIdx:
         assert getidx(8) == 8  # Oxygen
 
     def test_unsupported_element_raises_error(self):
-        """Test that unsupported element raises KeyError for ANI2xt."""
+        """Unsupported element raises a friendly ValueError for ANI2xt.
+
+        getidx now folds the friendly message (used by pad_from_mols) into a
+        ValueError naming the element and the model, rather than letting a bare
+        KeyError escape.
+        """
         from Auto3D.utils.chemistry import getidx
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError) as exc:
             getidx(79, model="ANI2xt")  # Gold not supported by ANI2xt
+        msg = str(exc.value)
+        assert "ANI2xt" in msg and ("79" in msg or "Au" in msg)
+
+    def test_unsupported_phosphorus_raises_valueerror(self):
+        """Phosphorus (Z=15) is unsupported by ANI2xt and must raise a clear
+        ValueError naming the element + model, not a bare KeyError."""
+        from Auto3D.utils.chemistry import getidx
+        with pytest.raises(ValueError) as exc:
+            getidx(15, model="ANI2xt")  # Phosphorus not supported by ANI2xt
+        msg = str(exc.value)
+        assert "ANI2xt" in msg and ("15" in msg or "P" in msg)
 
 
 class TestAmendMol:
@@ -557,3 +608,31 @@ class TestFilterUnique:
 
         # Large threshold should definitely merge identical mols
         assert len(unique_mols_large) == 1
+
+    def test_rmsd_failure_keeps_both(self, monkeypatch):
+        """An incomparable pair (RMSD raises) must NOT be treated as a duplicate.
+
+        When GetBestRMS raises RuntimeError, filter_unique must treat the pair
+        as distinct (rmsd = inf) and keep both, mirroring the fix already in
+        filtering._filter_within_cluster. The previous behavior (rmsd = 0)
+        made distinct conformers look like perfect duplicates and dropped one.
+        """
+        from Auto3D.utils import chemistry
+
+        def make(name):
+            m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(m, randomSeed=abs(hash(name)) % 1000)
+            AllChem.MMFFOptimizeMolecule(m)
+            m.SetProp("_Name", name)
+            m.SetProp("Converged", "true")
+            return m
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("GetBestRMS failed")
+
+        # filter_unique calls rdMolAlign.GetBestRMS via the chemistry module.
+        monkeypatch.setattr(chemistry.rdMolAlign, "GetBestRMS", boom)
+
+        mols = [make("a"), make("b")]
+        unique_mols = chemistry.filter_unique(mols, crit=0.3)
+        assert len(unique_mols) == 2  # incomparable pair must NOT be dropped

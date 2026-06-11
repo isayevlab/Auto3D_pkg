@@ -79,8 +79,8 @@ def pad_from_mols(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Pad molecular data directly from RDKit Mol objects.
 
-    More efficient than the separate mols2lists + padding_coords + padding_species
-    approach, as it avoids intermediate list creation and directly builds tensors.
+    Builds the padded coordinate, species, and charge tensors in a single pass,
+    avoiding intermediate per-molecule list creation.
 
     Args:
         mols: List of RDKit Mol objects with conformers.
@@ -98,8 +98,7 @@ def pad_from_mols(
     """
     from rdkit.Chem import rdmolops
 
-    # ANI2xt uses mapped indices instead of atomic numbers
-    ani2xt_index = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
+    from Auto3D.utils.chemistry import getidx
 
     batch_size = len(mols)
     max_atoms = max(mol.GetNumAtoms() for mol in mols)
@@ -128,7 +127,9 @@ def pad_from_mols(
         )
 
         if model_name == "ANI2xt":
-            spec = [ani2xt_index[a.GetAtomicNum()] for a in mol.GetAtoms()]
+            # getidx raises a friendly ValueError naming the element + model
+            # for atoms ANI2xt does not support (anything outside H,C,N,O,F,S,Cl).
+            spec = [getidx(a.GetAtomicNum(), model="ANI2xt") for a in mol.GetAtoms()]
         else:
             spec = [a.GetAtomicNum() for a in mol.GetAtoms()]
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)

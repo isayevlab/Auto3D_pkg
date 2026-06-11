@@ -257,6 +257,79 @@ class TestConformerRankerTopK:
         # Should return exactly 1 molecule (the lowest energy one)
         assert len(results) == 1
 
+    def test_top_k_equals_1_skips_broken_connectivity(self, tmp_path):
+        """When k=1, the lowest-energy conformer with broken bonds must be skipped.
+
+        The default --k=1 path must still apply connectivity validation
+        (check_connectivity), returning the lowest-energy *valid* conformer
+        rather than blindly emitting a structure with a broken bond.
+        """
+        from Auto3D.ranking import ConformerRanker
+        import pandas as pd
+
+        # mol_broken: lowest energy but has a broken C-C bond.
+        mol_broken = _create_mol_with_energy("CC", -10.0, "mol")
+        conf = mol_broken.GetConformer()
+        pos = conf.GetAtomPosition(0)
+        # Displace one carbon far away to break connectivity.
+        conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
+
+        # mol_valid: higher energy but valid connectivity.
+        mol_valid = _create_mol_with_energy("CC", -9.0, "mol")
+
+        # Sanity: the broken one fails check_connectivity, the valid one passes.
+        from Auto3D.utils.chemistry import check_connectivity
+        assert check_connectivity(mol_broken) is False
+        assert check_connectivity(mol_valid) is True
+
+        ranker = ConformerRanker(
+            input_path=str(tmp_path / "input.sdf"),
+            out_path=str(tmp_path / "output.sdf"),
+            threshold=0.3,
+            k=1,
+        )
+
+        df = pd.DataFrame({
+            "names": ["mol", "mol"],
+            "energies": [-10.0, -9.0],
+            "mols": [mol_broken, mol_valid],
+        })
+
+        results = ranker.top_k(df, k=1)
+
+        # Must return the VALID conformer, not the broken lowest-energy one.
+        assert len(results) == 1
+        assert float(results[0].GetProp('E_tot')) == -9.0
+
+    def test_top_k_equals_1_returns_empty_when_all_broken(self, tmp_path):
+        """When k=1 and no conformer passes connectivity, return an empty list."""
+        from Auto3D.ranking import ConformerRanker
+        import pandas as pd
+
+        mol_broken = _create_mol_with_energy("CC", -10.0, "mol")
+        conf = mol_broken.GetConformer()
+        pos = conf.GetAtomPosition(0)
+        conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
+
+        from Auto3D.utils.chemistry import check_connectivity
+        assert check_connectivity(mol_broken) is False
+
+        ranker = ConformerRanker(
+            input_path=str(tmp_path / "input.sdf"),
+            out_path=str(tmp_path / "output.sdf"),
+            threshold=0.3,
+            k=1,
+        )
+
+        df = pd.DataFrame({
+            "names": ["mol"],
+            "energies": [-10.0],
+            "mols": [mol_broken],
+        })
+
+        results = ranker.top_k(df, k=1)
+        assert results == []
+
 
 class TestConformerRankerTopWindow:
     """Tests for top_window method with different filtering modes."""
@@ -413,3 +486,45 @@ class TestConformerRankerEnergyUnitLabel:
             assert mol.HasProp("E_tot")
             # Labeled sibling carries the same Hartree value as E_tot.
             assert mol.GetProp("E_tot(Hartree)") == mol.GetProp("E_tot")
+
+
+class TestConformerRankerMissingConvergedProp:
+    """run() must not abort when a record lacks the 'Converged' property."""
+
+    def test_run_skips_record_without_converged_prop(self, tmp_path):
+        """A record missing 'Converged' is treated as not-converged and skipped.
+
+        Previously the unguarded mol.GetProp('Converged') raised KeyError on
+        the first record lacking the property, producing zero output for the
+        entire run. The valid (Converged=true) record must still be processed.
+        """
+        from Auto3D.ranking import ConformerRanker
+
+        # Valid record with Converged=true.
+        good = _create_mol_with_energy("CCO", -10.0, "good_1", converged=True)
+
+        # Record lacking the 'Converged' property entirely.
+        bad = Chem.MolFromSmiles("CCCO")
+        bad = Chem.AddHs(bad)
+        AllChem.EmbedMolecule(bad, randomSeed=42)
+        AllChem.MMFFOptimizeMolecule(bad)
+        bad.SetProp('_Name', "bad_1")
+        bad.SetProp('E_tot', str(-9.0))
+        assert not bad.HasProp('Converged')
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf([good, bad], input_path)
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=1,
+        )
+
+        # Must not raise KeyError, and must process the valid record.
+        results = ranker.run()
+        names = {mol.GetProp("_Name") for mol in results}
+        assert "good" in names
+        assert "bad" not in names
