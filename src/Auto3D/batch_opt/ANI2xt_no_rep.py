@@ -144,6 +144,12 @@ class ANI2xt(nn.Module):
 
         Returns:
             Tensor of shape (batch,) with molecular energies in eV
+
+        Note:
+            Energies are computed in float32 (coords dtype). Self-atomic energy
+            shifts cancel in conformer energy differences (same atom counts), so
+            the float32 path does not affect ranking; absolute energies carry a
+            float32 ULP (~4e-3 eV) at typical total-energy magnitudes.
         """
         if self.periodic:
             # Convert atomic numbers to sequential indices
