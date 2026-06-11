@@ -1,6 +1,5 @@
 # tests/test_parallel_embed.py
 """Tests for parallel conformer embedding module."""
-import pytest
 from rdkit import Chem
 
 from Auto3D.isomers.parallel_embed import _embed_single, embed_conformers_parallel
@@ -173,3 +172,30 @@ class TestEmbedConformersParallel:
         assert any("methane" in cid for cid in conf_ids)
         assert any("ethane" in cid for cid in conf_ids)
         assert not any("bad_mol" in cid for cid in conf_ids)
+
+    def test_parallel_embed_preserves_input_order(self):
+        """Output molecule order must match input order, not completion order.
+
+        The parallel path iterates futures in submission order (not
+        as_completed), so it matches the deterministic serial path. A larger
+        molecule placed first would, under as_completed, finish after the small
+        ones and appear out of order.
+        """
+        smiles_names = [
+            ("C1CCCCCCCCCCC1", "ring12"),  # larger -> slower to embed
+            ("C", "s1"),
+            ("CC", "s2"),
+            ("CCC", "s3"),
+        ]
+        results = list(embed_conformers_parallel(
+            smiles_names,
+            n_conformers=3,
+            n_workers=4,
+        ))
+
+        first_seen = []
+        for _, _, conf_id in results:
+            name = conf_id.rsplit("_", 1)[0]
+            if name not in first_seen:
+                first_seen.append(name)
+        assert first_seen == ["ring12", "s1", "s2", "s3"]
