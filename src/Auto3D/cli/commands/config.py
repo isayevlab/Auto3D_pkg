@@ -131,6 +131,13 @@ def execute_config_show(config_file: Path | None = None) -> None:
 
 def execute_config_validate(config_file: Path) -> None:
     """Validate a configuration file."""
+    if not config_file.exists():
+        print_error(
+            f"Config file not found: {config_file}",
+            hint="Run 'auto3d config init' to create one.",
+        )
+        raise SystemExit(1)
+
     try:
         config = load_yaml_config(config_file)
 
