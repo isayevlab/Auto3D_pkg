@@ -7,6 +7,7 @@ from rdkit import Chem
 
 from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
+from Auto3D.utils.chemistry import check_connectivity
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -88,11 +89,16 @@ class ConformerRanker:
 
         df2 = df_group.sort_values(by=['energies'])
 
-        # Optimization: when k=1, skip RMSD filtering entirely
-        # Just return the lowest-energy conformer (first after sorting)
+        # Optimization: when k=1, skip the expensive RMSD dedup but still
+        # apply connectivity validation. Return the lowest-energy conformer
+        # that passes check_connectivity (no broken/formed bonds); if none
+        # pass, return an empty list.
         if k == 1:
-            mols_sorted = list(df2["mols"])
-            out_mols = mols_sorted[:1] if mols_sorted else []
+            out_mols = []
+            for mol in df2["mols"]:
+                if check_connectivity(mol):
+                    out_mols = [mol]
+                    break
         else:
             out_mols_ = self._filter_mols(list(df2["mols"]))
             if k < len(out_mols_):
@@ -164,7 +170,16 @@ class ConformerRanker:
         data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
         mols, names, energies = [], [], []
         for mol in data2:
-            if (mol is not None) and (mol.GetProp('Converged').lower() == 'true'):
+            if mol is None:
+                continue
+            # Guard the Converged read: a record lacking the property is
+            # treated as not-converged and skipped, matching the lenient
+            # pattern the RMSD filters use (filter_unique / filtering).
+            try:
+                converged = mol.GetProp('Converged').lower() == 'true'
+            except KeyError:
+                converged = False
+            if converged:
                 mols.append(mol)
                 names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
                 energies.append(float(mol.GetProp('E_tot')))

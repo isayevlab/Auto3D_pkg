@@ -157,14 +157,23 @@ class TestFilterUniqueBehavior:
     """Tests verifying behavior matches original filter_unique."""
 
     def test_matches_original_for_simple_case(self):
-        """Should produce same results as original filter_unique for basic cases."""
+        """Should produce same results as original filter_unique for basic cases.
+
+        Both filters operate on conformers of the *same* molecule (that is the
+        real Auto3D contract). Use genuinely distinct conformers of one molecule
+        so RMSD is well-defined and comparable across both implementations.
+        """
         from Auto3D.utils import filter_unique
 
-        mol1 = _create_mol_with_energy("C", -10.0)
-        mol2 = _create_mol_with_energy("CC", -11.0)
-        mol3 = _create_mol_with_energy("CCC", -12.0)
+        def conformer(seed: float, energy: float) -> Chem.Mol:
+            m = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))  # flexible chain
+            AllChem.EmbedMolecule(m, randomSeed=seed)
+            AllChem.MMFFOptimizeMolecule(m)
+            m.SetProp("Converged", "true")
+            m.SetProp("E_tot", str(energy))
+            return m
 
-        mols = [mol1, mol2, mol3]
+        mols = [conformer(42, -12.0), conformer(7, -11.0), conformer(123, -10.0)]
 
         original_result = filter_unique(mols, crit=0.3)
         optimized_result = filter_unique_optimized(
@@ -173,7 +182,7 @@ class TestFilterUniqueBehavior:
             energy_cluster_window=100.0  # Large window = single cluster = same behavior
         )
 
-        # Should have same number of unique structures
+        # Same molecule, well-defined RMSD: both implementations must agree.
         assert len(original_result) == len(optimized_result)
 
 

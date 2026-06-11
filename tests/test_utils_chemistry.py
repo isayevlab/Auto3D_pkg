@@ -273,6 +273,21 @@ class TestCheckConnectivity:
 
         assert check_connectivity(mol) is True
 
+    def test_salt_with_metal_does_not_crash(self):
+        """Element outside the radii table (Na) must not raise KeyError.
+
+        Sodium acetate contains Na (atomic number 11), which is not in the
+        UFF radii table. check_connectivity must skip pairs involving an
+        unknown element rather than indexing the radii dict blindly.
+        """
+        mol = Chem.MolFromSmiles("CC(=O)[O-].[Na+]")  # sodium acetate
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+
+        # Must return a bool without raising KeyError(11).
+        result = check_connectivity(mol)
+        assert isinstance(result, bool)
+
 
 class TestModuleImports:
     """Test that module can be imported from different paths."""
@@ -557,3 +572,31 @@ class TestFilterUnique:
 
         # Large threshold should definitely merge identical mols
         assert len(unique_mols_large) == 1
+
+    def test_rmsd_failure_keeps_both(self, monkeypatch):
+        """An incomparable pair (RMSD raises) must NOT be treated as a duplicate.
+
+        When GetBestRMS raises RuntimeError, filter_unique must treat the pair
+        as distinct (rmsd = inf) and keep both, mirroring the fix already in
+        filtering._filter_within_cluster. The previous behavior (rmsd = 0)
+        made distinct conformers look like perfect duplicates and dropped one.
+        """
+        from Auto3D.utils import chemistry
+
+        def make(name):
+            m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(m, randomSeed=abs(hash(name)) % 1000)
+            AllChem.MMFFOptimizeMolecule(m)
+            m.SetProp("_Name", name)
+            m.SetProp("Converged", "true")
+            return m
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("GetBestRMS failed")
+
+        # filter_unique calls rdMolAlign.GetBestRMS via the chemistry module.
+        monkeypatch.setattr(chemistry.rdMolAlign, "GetBestRMS", boom)
+
+        mols = [make("a"), make("b")]
+        unique_mols = chemistry.filter_unique(mols, crit=0.3)
+        assert len(unique_mols) == 2  # incomparable pair must NOT be dropped
