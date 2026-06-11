@@ -160,7 +160,16 @@ def mol2atoms(mol: Chem.Mol) -> Atoms:
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,
                 device=torch.device('cpu'), model_name='AIMNET'):
     '''return a VibrationsData object
-    model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian'''
+    model: an AIMNet2Calculator (AIMNET / aimnet registry) or an nn.Module
+    (ANI2xt / ANI2x / userNNP) that can be used to calculate the Hessian.
+
+    For an AIMNet2Calculator the Hessian is computed through the calculator's
+    native analytic Hessian, which runs the FULL energy pipeline including the
+    external D3 dispersion and Coulomb modules. Differentiating the bare
+    aimnet nn.Module instead silently drops those external energy terms (D3 is
+    attractive at bonding range), stiffening every bond and shifting C-H
+    stretches up by ~4% (~130 cm-1). ANI/custom models are plain nn.Modules
+    with the full energy in the graph, so they keep the autograd path.'''
     # get the ASE atoms object
     coord = mol.GetConformer().GetPositions()
     species = [a.GetSymbol() for a in mol.GetAtoms()]
@@ -176,14 +185,25 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     # molecule); a 0-dim scalar trips an internal assert.
     charge = torch.tensor([charge]).to(device)
 
-    hess_helper = partial(aimnet_hessian_helper,
-                          numbers=numbers,
-                          charge=charge,
-                          model=model,
-                          model_name=model_name)
-    hess = torch.autograd.functional.hessian(hess_helper,
-                                             coord)
-    hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()    
+    from aimnet.calculators import AIMNet2Calculator
+    if isinstance(model, AIMNet2Calculator):
+        # Analytic Hessian through the full pipeline (D3 + Coulomb included).
+        # Returns shape (num_atoms, 3, num_atoms, 3), fp32.
+        out = model(dict(coord=coord, numbers=numbers, charge=charge),
+                    hessian=True)
+        hess = out['hessian']
+        hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
+    else:
+        # ANI2xt / ANI2x / userNNP: plain nn.Module, full energy in the graph;
+        # autograd Hessian of the bare module is correct here.
+        hess_helper = partial(aimnet_hessian_helper,
+                              numbers=numbers,
+                              charge=charge,
+                              model=model,
+                              model_name=model_name)
+        hess = torch.autograd.functional.hessian(hess_helper,
+                                                 coord)
+        hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
 
     # get the VibrationsData object
     vib = VibrationsData(atoms, hess)
@@ -228,11 +248,15 @@ def do_mol_thermo(mol: Chem.Mol,
     return mol
 
 def _load_hessian_model(model_name: str, device):
-    """Return an nn.Module for Hessian/energy evaluation.
+    """Return a Hessian/energy evaluator for vib_hessian.
 
-    AIMNET and aimnet registry names resolve through the aimnet package
-    (kept in fp32 — whole-graph fp64 upcast is false precision); ANI2xt/ANI2x
-    and custom paths keep their existing loaders.
+    For AIMNET and aimnet registry names this returns the AIMNet2Calculator
+    itself (fp32 — whole-graph fp64 upcast is false precision). vib_hessian
+    routes it through the calculator's native analytic Hessian, which runs the
+    full energy pipeline including external D3 dispersion and Coulomb; returning
+    the bare ``calc.model`` and autograd-differentiating it would silently drop
+    those external terms. ANI2xt/ANI2x and custom paths return fp64 nn.Modules,
+    which vib_hessian differentiates with torch.autograd.functional.hessian.
     """
     import torch
     if model_name == "ANI2xt":
@@ -247,7 +271,7 @@ def _load_hessian_model(model_name: str, device):
     from Auto3D.constants import DEFAULT_AIMNET_MODEL
     name = DEFAULT_AIMNET_MODEL if model_name.upper() == "AIMNET" else model_name
     calc = AIMNet2Calculator(name, device=device)
-    return calc.model
+    return calc
 
 
 def aimnet_hessian_helper(
@@ -259,7 +283,15 @@ def aimnet_hessian_helper(
 ) -> torch.Tensor:
     '''coord shape: (1, num_atoms, 3)
     numbers shape: (1, num_atoms)
-    charge shape: (1,)'''
+    charge shape: (1,)
+
+    Used by vib_hessian's autograd path for ANI2xt / ANI2x / userNNP models.
+    The AIMNET branch is intentionally NOT reached in the normal flow:
+    vib_hessian routes AIMNet2Calculator models through the calculator's native
+    analytic Hessian (full pipeline incl. external D3 + Coulomb). The branch is
+    kept only as a defensive fallback should a bare aimnet nn.Module ever be
+    passed here directly; note it omits the external modules and is not the
+    supported path.'''
     if model_name == 'AIMNET':
         dct = dict(coord=coord, numbers=numbers, charge=charge)
         return model(dct)['energy']  # energy unit: eV

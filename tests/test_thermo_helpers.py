@@ -42,12 +42,16 @@ def test_load_hessian_model_aimnet():
     import torch
     from Auto3D.ASE.thermo import _load_hessian_model
     m = _load_hessian_model("AIMNET", torch.device("cpu"))
-    assert m is not None  # an nn.Module from the aimnet registry, not a bundled .jpt
+    # An AIMNet2Calculator from the aimnet registry (not a bundled .jpt);
+    # vib_hessian routes it through the calculator's full-pipeline analytic Hessian.
+    assert m is not None
+    assert hasattr(m, "model")  # the calculator wraps the underlying nn.Module
 
 
 def test_load_hessian_model_aimnet_is_fp32():
     import torch
     from Auto3D.ASE.thermo import _load_hessian_model
     m = _load_hessian_model("AIMNET", torch.device("cpu"))
-    p = next(m.parameters())
-    assert p.dtype == torch.float32  # do NOT upcast the whole graph to fp64
+    # The underlying aimnet module stays fp32 (no whole-graph fp64 upcast).
+    p = next(m.model.parameters())
+    assert p.dtype == torch.float32
