@@ -86,9 +86,6 @@ class Calculator(ase.calculators.calculator.Calculator):
         self.device = a_parameter.device
         self.dtype = a_parameter.dtype
         self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
-        self.species = {'H':1, 'C':6, 'N':7, 'O':8, 'F':9, 'Si':14, 'P':15,
-                        'S':16, 'Cl':17, 'As':33, 'Se':34, 'Br':35, 'I':53,
-                        'B':5}
 
     def set_charge(self, charge:int):
         self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
@@ -99,7 +96,9 @@ class Calculator(ase.calculators.calculator.Calculator):
             properties = ['energy']
         super().calculate(atoms, properties, system_changes)
 
-        species = torch.tensor([self.species[symbol] for symbol in self.atoms.get_chemical_symbols()],
+        # Atomic numbers directly from ASE (element-complete: no hardcoded
+        # symbol table, so any aimnet-supported element incl. Pd works).
+        species = torch.tensor(self.atoms.get_atomic_numbers(),
                                dtype=torch.long, device=self.device)
         coordinates = torch.tensor(self.atoms.get_positions()).to(self.device).to(self.dtype)
         coordinates = coordinates.requires_grad_(True)
