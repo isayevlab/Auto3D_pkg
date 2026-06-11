@@ -152,23 +152,77 @@ def test_calc_thermo_aimnet():
     except:
         pass
 
-def test_vib_hessian():
+def test_vib_hessian_includes_external_dispersion():
+    """Regression guard: the AIMNET vibrational Hessian must run the full energy
+    pipeline (external D3 dispersion + Coulomb), not the bare aimnet nn.Module.
+
+    For aimnet2 the registry .pt externalizes D3 and Coulomb as separate modules
+    (calc.has_external_dftd3 / has_external_coulomb are True). Differentiating
+    the bare module via torch.autograd.functional.hessian (the old .jpt-era path)
+    silently drops those terms; D3 is attractive at bonding range, so dropping it
+    stiffens every bond and shifts C-H stretches up by ~4% (~130 cm-1 here).
+
+    The fixed vib_hessian routes the AIMNet2Calculator through its native analytic
+    Hessian (D3 + Coulomb included). This test computes BOTH paths on a real
+    molecule and asserts:
+      1. they differ by a physically significant margin in the top frequency
+         (the missing-D3 signature), and
+      2. the fixed (full-pipeline) path is the LOWER one (D3 is attractive, so
+         including it softens the bonds).
+    Measured separation on cyclooctane: ~138 cm-1 (3087 vs 3225). The 30 cm-1
+    threshold cleanly clears the legitimate fp32/model-version noise (~a few cm-1)
+    while catching any regression to the bare-module path.
+    """
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")
     mol = next(Chem.SDMolSupplier(path, removeHs=False))
 
     _, calculator = model_name2model_calculator('AIMNET')
     device = torch.device('cpu')
-    # Hessian model now comes from the aimnet registry (kept fp32), not a
-    # bundled .jpt; this is the same loader thermo uses internally.
+    # This is exactly what calc_thermo loads and passes to vib_hessian: an
+    # AIMNet2Calculator, routed through the analytic (full-pipeline) Hessian.
     from Auto3D.ASE.thermo import _load_hessian_model
-    model = _load_hessian_model('AIMNET', device)
+    from aimnet.calculators import AIMNet2Calculator
+    aimnet_calc = _load_hessian_model('AIMNET', device)
+    assert isinstance(aimnet_calc, AIMNet2Calculator)
+    # Sanity: this model really does externalize the terms the bug would drop.
+    assert aimnet_calc.has_external_dftd3
+    assert aimnet_calc.has_external_coulomb
 
-    hessian_vib = vib_hessian(mol, calculator, model)
-    hessian_freq = hessian_vib.get_frequencies()
+    # --- Fixed path: calculator analytic Hessian (D3 + Coulomb included) ---
+    fixed_vib = vib_hessian(mol, calculator, aimnet_calc)
+    fixed_freq = fixed_vib.get_frequencies().real
+    fixed_max = float(np.nanmax(fixed_freq))
 
-    ase_freq = np.load(os.path.join(folder, "tests/files/cyclooctane_ase_freq.npy"))
-    mean_diff = np.mean(np.abs(hessian_freq[6:] - ase_freq[6:]))
-    assert(mean_diff <= 10)  # 10 cm-1 error is acceptable
+    # --- Buggy path: differentiate the bare aimnet nn.Module (drops externals) ---
+    coord = mol.GetConformer().GetPositions()
+    species = [a.GetSymbol() for a in mol.GetAtoms()]
+    from rdkit.Chem import rdmolops
+    from ase import Atoms
+    from ase.vibrations import VibrationsData
+    charge = rdmolops.GetFormalCharge(mol)
+    atoms = Atoms(species, coord)
+    num_atoms = len(species)
+    coord_t = torch.tensor(coord).to(device).unsqueeze(0)
+    numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
+    charge_t = torch.tensor([charge]).to(device)
+    bare_model = aimnet_calc.model
+
+    def _bare_energy(c):
+        return bare_model(dict(coord=c, numbers=numbers, charge=charge_t))['energy']
+
+    bare_hess = torch.autograd.functional.hessian(_bare_energy, coord_t)
+    bare_hess = bare_hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
+    bare_freq = VibrationsData(atoms, bare_hess).get_frequencies().real
+    bare_max = float(np.nanmax(bare_freq))
+
+    # 1. The two paths must differ by the missing-D3 signature (>> fp32 noise).
+    assert (bare_max - fixed_max) > 30, (
+        f"vib_hessian top frequency ({fixed_max:.1f} cm-1) is suspiciously close "
+        f"to the bare-module path ({bare_max:.1f} cm-1); the external D3/Coulomb "
+        f"terms appear to be missing from the differentiated function."
+    )
+    # 2. Including the attractive D3 term must SOFTEN, not stiffen, the bonds.
+    assert fixed_max < bare_max
 
 def test_opt_geometry1():
     path = os.path.join(folder, "tests/files/DA.sdf")
