@@ -370,14 +370,16 @@ def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
         if str(file) != optimized_structures:
             shutil.move(str(file), folder)
 
-    try:
-        files1 = list(Path(".").glob("oeomega_*"))
-        files2 = list(Path(".").glob("flipper_*"))
-        files = files1 + files2
-        for file in files:
-            shutil.move(str(file), folder)
-    except OSError:
-        pass
+    # Sweep OpenEye omega/flipper logfiles the binaries drop in the CWD. Guard
+    # each move individually: with multi-GPU optimizers running concurrently a
+    # peer may move/remove a file first, and a single bare try used to abandon
+    # the rest of the sweep on the first such error. (Diagnostic logs only.)
+    for file in list(Path(".").glob("oeomega_*")) + list(Path(".").glob("flipper_*")):
+        try:
+            if file.exists():
+                shutil.move(str(file), folder)
+        except OSError:
+            pass
 
 
 def create_chunk_meta_names(path: str, dir: str) -> dict[str, str]:
