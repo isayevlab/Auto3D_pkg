@@ -113,6 +113,12 @@ class Auto3DOptions:
     allow_tf32: bool = False
     """Enable TF32 for faster matmul on Ampere+ GPUs (less precise). Default False."""
 
+    # Derived/internal
+    input_format: str | None = None
+    """Input file format ('smi' or 'sdf'), inferred from the input suffix during
+    setup. Declared as a real field (rather than a dynamic attribute) so it
+    survives dataclasses.replace()/pickling and stays in the dict-like API."""
+
     def __post_init__(self):
         """Normalize string values to lowercase and validate ranges."""
         self.tauto_engine = self.tauto_engine.lower()
