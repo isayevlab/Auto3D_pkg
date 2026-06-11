@@ -508,15 +508,20 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
             mols_.append(mol)
     mols = mols_
 
-    # Remove similar structures
+    # Remove similar structures. Strip Hs once per molecule (O(n)) instead of on
+    # both sides of every comparison (O(n^2)); GetBestRMS on no-H forms is
+    # symmetric so results are unchanged. The ORIGINAL (H-explicit) mols are
+    # returned; no-H forms are comparison-only.
     unique_mols: list[Chem.Mol] = []
+    unique_noH: list[Chem.Mol] = []
     for mol_i in mols:
+        mol_i_noH = Chem.RemoveHs(mol_i)
         unique = True
-        for mol_j in unique_mols:
+        for mol_j_noH in unique_noH:
             try:
                 # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # removing Hs speeds up the calculation
-                rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_i), Chem.RemoveHs(mol_j))
+                rmsd = rdMolAlign.GetBestRMS(mol_i_noH, mol_j_noH)
             except RuntimeError:
                 # Incomparable pair: treat as distinct (not a duplicate) so the
                 # conformer is kept. Using 0 would make it look like a perfect
@@ -527,4 +532,5 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
                 break
         if unique:
             unique_mols.append(mol_i)
+            unique_noH.append(mol_i_noH)
     return unique_mols
