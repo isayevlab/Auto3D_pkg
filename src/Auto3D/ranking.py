@@ -167,9 +167,9 @@ class ConformerRanker:
         logger.info("Begin to select structures that satisfy the requirements...")
         results = []
 
-        data2 = Chem.SDMolSupplier(self.input_path, removeHs=False)
+        supplier = Chem.SDMolSupplier(self.input_path, removeHs=False)
         mols, names, energies = [], [], []
-        for mol in data2:
+        for mol in supplier:
             if mol is None:
                 continue
             # Guard the Converged read: a record lacking the property is
@@ -185,9 +185,9 @@ class ConformerRanker:
                 energies.append(float(mol.GetProp('E_tot')))
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
-        df2 = df.groupby("names")
-        for group_name in df2.indices:
-            group = df2.get_group(group_name)
+        groups = df.groupby("names")
+        for group_name in groups.indices:
+            group = groups.get_group(group_name)
 
             if self.k:
                 top_results = self.top_k(group, self.k)

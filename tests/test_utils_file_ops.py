@@ -20,6 +20,7 @@ from Auto3D.utils.file_ops import (
     reorder_sdf,
     count_sdf,
     find_smiles_not_in_sdf,
+    iter_smi_records,
 )
 
 
@@ -974,6 +975,58 @@ class TestHashHelpersBlankLines:
 
         bad = find_smiles_not_in_sdf(str(smi), str(sdf))
         assert ("mol_b", "CC") in bad
+
+
+class TestIterSmiRecords:
+    """FIX A: shared lenient .smi parser used by all 7 call sites."""
+
+    def test_blank_lines_skipped(self, tmp_path):
+        """Blank and whitespace-only lines yield no records."""
+        p = tmp_path / "in.smi"
+        p.write_text("CCO mol1\n\n   \nCC mol2\n")
+        records = list(iter_smi_records(str(p)))
+        assert [(s, i) for _ln, s, i in records] == [("CCO", "mol1"), ("CC", "mol2")]
+        # line_no is 1-based and reflects the original line position.
+        assert records[0][0] == 1
+        assert records[1][0] == 4
+
+    def test_three_token_line_yields_first_two(self, tmp_path):
+        """A 3-token line yields only the first two tokens (extras ignored)."""
+        p = tmp_path / "in.smi"
+        p.write_text("CCN extra_a extra_b\n")
+        records = list(iter_smi_records(str(p)))
+        assert len(records) == 1
+        line_no, smiles, mol_id = records[0]
+        assert (smiles, mol_id) == ("CCN", "extra_a")
+
+    def test_on_malformed_skip_skips_one_token_line_with_warning(
+        self, tmp_path, caplog
+    ):
+        """on_malformed='skip' (default) skips a 1-token line and warns."""
+        import logging
+
+        p = tmp_path / "in.smi"
+        p.write_text("CCO mol1\nC1CCCCC1\nCC mol2\n")
+        with caplog.at_level(logging.WARNING):
+            records = list(iter_smi_records(str(p), on_malformed="skip"))
+        assert [(s, i) for _ln, s, i in records] == [("CCO", "mol1"), ("CC", "mol2")]
+        assert any("failed to parse" in r.message for r in caplog.records)
+
+    def test_on_malformed_raise_raises_on_one_token_line(self, tmp_path):
+        """on_malformed='raise' raises InputValidationError naming the line."""
+        from Auto3D.exceptions import InputValidationError
+
+        p = tmp_path / "in.smi"
+        p.write_text("CCO mol1\nC1CCCCC1\n")
+        with pytest.raises(InputValidationError, match="Line 2"):
+            list(iter_smi_records(str(p), on_malformed="raise"))
+
+    def test_invalid_on_malformed_value_raises(self, tmp_path):
+        """An unknown on_malformed value raises ValueError."""
+        p = tmp_path / "in.smi"
+        p.write_text("CCO mol1\n")
+        with pytest.raises(ValueError, match="on_malformed"):
+            list(iter_smi_records(str(p), on_malformed="bogus"))
 
 
 if __name__ == "__main__":

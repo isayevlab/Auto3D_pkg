@@ -52,15 +52,26 @@ def calc_spe(path: str, model_name: str, gpu_idx: int = 0) -> str:
     # molecules so pad_from_mols never dereferences a bad record, and so the
     # writer loop below stays index-aligned with the energies tensor.
     mols = []
-    for mol in Chem.SDMolSupplier(path, removeHs=False):
+    for i, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
         if mol is None:
-            logger.warning("Skipping invalid record: SDMolSupplier yielded None.")
+            logger.warning(f"Skipping molecule at index {i}: failed to parse")
             continue
         if mol.GetNumConformers() == 0:
             name = mol.GetProp('_Name') if mol.HasProp('_Name') else '<unnamed>'
             logger.warning(f"Skipping record without a conformer: {name!r}.")
             continue
         mols.append(mol)
+
+    # If every record was dropped (all None / conformerless), pad_from_mols([])
+    # would raise a cryptic "max() arg is an empty sequence". Write an empty
+    # output SDF and return its path so callers get a clear signal instead.
+    if not mols:
+        logger.warning(
+            f"No valid molecules with conformers in {path}; nothing to compute."
+        )
+        with Chem.SDWriter(str(outpath)):
+            pass
+        return str(outpath)
 
     # Use new vectorized padding that returns tensors directly
     coord_padded, numbers_padded, charges = pad_from_mols(

@@ -289,3 +289,42 @@ class TestSpeFiltersAndAligns:
         assert [m.GetProp("_Name") for m in written] == ["A", "B"]
         assert float(written[0].GetProp("E_hartree")) == 10.0 * spe_mod.ev2hatree
         assert float(written[1].GetProp("E_hartree")) == 20.0 * spe_mod.ev2hatree
+
+    def test_calc_spe_all_filtered_does_not_crash(self, tmp_path, monkeypatch):
+        """FIX B: an SDF whose only record is None must not raise the cryptic
+        'max() arg is an empty sequence' from pad_from_mols([]).
+
+        calc_spe should warn and return its output path (an empty SDF) instead.
+        """
+        import Auto3D.SPE as spe_mod
+
+        class FakeSupplier:
+            def __init__(self, *a, **k):
+                self._mols = [None]
+
+            def __iter__(self):
+                return iter(self._mols)
+
+        monkeypatch.setattr(spe_mod.Chem, "SDMolSupplier", FakeSupplier)
+        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+
+        class FakeAdapter:
+            coord_pad = 0.0
+            species_pad = 0
+
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "EnForce_ANI", lambda adapter: object())
+
+        def fail_pad(*a, **k):  # pragma: no cover - must never be reached
+            raise AssertionError("pad_from_mols must not be called on empty input")
+
+        monkeypatch.setattr(spe_mod, "pad_from_mols", fail_pad)
+
+        inpath = tmp_path / "in.sdf"
+        inpath.write_text("")  # contents irrelevant; supplier is faked
+
+        # Must not raise (no cryptic max() error); returns the output path.
+        out = spe_mod.calc_spe(str(inpath), "AIMNET")
+        assert out is not None
+        # An output file is produced (empty SDF -> no molecule records).
+        assert os.path.exists(out)
