@@ -25,7 +25,7 @@ from Auto3D.utils import (
     remove_enantiomers,
 )
 from Auto3D.utils.chemistry import calculate_conformer_count
-from Auto3D.utils.file_ops import combine_smi
+from Auto3D.utils.file_ops import combine_smi, iter_smi_records
 
 try:
     from openeye import oechem, oeomega, oequacpac
@@ -70,26 +70,14 @@ class TautomerEngine:
         """Enumerate tautomers using RDKit."""
         enumerator = rdMolStandardize.TautomerEnumerator()
         smiles = []
-        with open(self.input_f) as f:
-            data = f.readlines()
-            for line_num, line in enumerate(data, start=1):
-                if line.isspace() or not line.strip():
-                    continue
-                parts = line.split()
-                if len(parts) < 2:
-                    logger.warning(
-                        f"Skipping malformed SMILES line {line_num} "
-                        f"(need 'SMILES ID', got: {line.strip()!r})"
-                    )
-                    continue
-                smi, idx = parts[0], parts[1]
-                smiles.append((smi, idx))
+        for _line_no, smi, idx in iter_smi_records(self.input_f, on_malformed="skip"):
+            smiles.append((smi, idx))
         tautomers = []
         for smi_idx in smiles:
             smi, idx = smi_idx
             mol = Chem.MolFromSmiles(smi)
             if mol is None:
-                logger.warning(f"Skipping invalid SMILES/record for {idx!r}: {smi!r}")
+                logger.warning(f"Skipping molecule {idx!r}: failed to parse {smi!r}")
                 continue
             tauts = enumerator.Enumerate(mol)
             for taut in tauts:
@@ -172,20 +160,8 @@ class RDKitIsomer:
         Malformed lines are warned about and skipped rather than aborting.
         """
         outputs = {}
-        with open(input_f) as f:
-            data = f.readlines()
-        for line_num, line in enumerate(data, start=1):
-            if line.isspace() or not line.strip():
-                continue
-            parts = line.split()
-            if len(parts) < 2:
-                logger.warning(
-                    f"Skipping malformed SMILES line {line_num} "
-                    f"(need 'SMILES ID', got: {line.strip()!r})"
-                )
-                continue
-            smiles, name = parts[0], parts[1]
-            outputs[name.strip()] = smiles.strip()
+        for _line_no, smiles, name in iter_smi_records(input_f, on_malformed="skip"):
+            outputs[name] = smiles
         return outputs
 
     @staticmethod
@@ -199,7 +175,7 @@ class RDKitIsomer:
             Sorted list of isomer SMILES strings (empty if ``mol`` is None).
         """
         if mol is None:
-            logger.warning("Skipping invalid SMILES/record: MolFromSmiles returned None.")
+            logger.warning("Skipping molecule: failed to parse (MolFromSmiles returned None).")
             return []
         # Set an explicit, high maxIsomers so molecules with many unspecified
         # stereocenters are not silently truncated at RDKit's default of 1024.
@@ -256,7 +232,7 @@ class RDKitIsomer:
                 mol = Chem.MolFromSmiles(smiles)
                 if mol is None:
                     logger.warning(
-                        f"Skipping invalid SMILES/record for {name!r}: {smiles!r}"
+                        f"Skipping molecule {name!r}: failed to parse {smiles!r}"
                     )
                     continue
                 isomers = self.enumerate_func(mol)
@@ -366,7 +342,7 @@ class RDKitSdfIsomer:
             for mol in tqdm(supp):
                 if mol is None:
                     logger.warning(
-                        "Skipping invalid SMILES/record: SDMolSupplier yielded None."
+                        "Skipping molecule: failed to parse (SDMolSupplier yielded None)."
                     )
                     continue
                 #enumerate conformers
