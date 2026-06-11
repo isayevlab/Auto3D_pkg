@@ -81,7 +81,8 @@ class userNNP2(torch.nn.Module):
         """
         # Here I constructed an example NNP using AIMNet2.
         # In your case, you can replace this with your own NNP model.
-        self.model = torch.jit.load(os.path.join(folder, 'src/Auto3D/models/aimnet2_wb97m-d3_0.jpt'))
+        from Auto3D.model_factory import create_model
+        self.model = create_model("AIMNET", torch.device("cpu")).model
 
         self.coord_pad = 0  # int, the padding value for coordinates
         self.species_pad = 0  # int, the padding value for species.

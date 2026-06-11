@@ -172,7 +172,9 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     coord = torch.tensor(coord).to(device).unsqueeze(0)
     num_atoms = coord.shape[1]
     numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
-    charge = torch.tensor(charge).to(device)
+    # aimnet's AIMNet2 model requires a 1D charge tensor (one entry per
+    # molecule); a 0-dim scalar trips an internal assert.
+    charge = torch.tensor([charge]).to(device)
 
     hess_helper = partial(aimnet_hessian_helper,
                           numbers=numbers,

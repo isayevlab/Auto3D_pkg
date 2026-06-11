@@ -20,43 +20,71 @@ class TestModelFactory:
     """Tests for ModelFactory class."""
 
     def test_registry_is_populated(self):
-        """Test that built-in models are registered."""
+        """available_models() advertises the AIMNet alias, aimnet registry
+        names, and the built-in ANI engines (mixed case)."""
         models = ModelFactory.available_models()
         assert "AIMNET" in models
-        assert "ANI2X" in models
-        assert "ANI2XT" in models
+        assert "ANI2x" in models
+        assert "ANI2xt" in models
+        # AIMNET is NOT a hard-coded adapter key anymore: only ANI engines are.
+        assert set(ModelFactory._adapters) == {"ANI2X", "ANI2XT"}
+        assert "AIMNET" not in ModelFactory._adapters
 
-    def test_create_unknown_model_raises_error(self):
-        """Test that creating an unknown model raises ValueError."""
-        with pytest.raises(ValueError, match="Model 'UNKNOWN' not found"):
-            ModelFactory.create("UNKNOWN")
+    def test_create_unknown_model_raises_error(self, monkeypatch):
+        """Unknown non-path names no longer raise a ValueError up front; they
+        route to AIMNet2Adapter, which raises only when the aimnet registry
+        cannot resolve the name. Patch the adapter to raise so we exercise the
+        propagation path without touching the network."""
+        from Auto3D import model_factory
 
-    def test_create_normalizes_name_to_uppercase(self):
-        """Test that model names are case-insensitive."""
-        # This should not raise - it will fail on actual model loading
-        # but the name normalization should work
-        models = ModelFactory.available_models()
-        assert all(name.isupper() for name in models)
+        class _Boom:
+            def __init__(self, *a, **k):
+                raise RuntimeError("unresolvable registry name")
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_create_aimnet_loads_correct_path(self, mock_load):
-        """Test that AIMNET model loads from correct path."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
+        monkeypatch.setattr(model_factory, "AIMNet2Adapter", _Boom)
+        with pytest.raises(Exception):
+            ModelFactory.create(
+                "totally-not-a-real-model-xyz",
+                device=torch.device("cpu"),
+                use_cache=False,
+            )
+
+    def test_create_is_case_insensitive_for_builtins(self, monkeypatch):
+        """Built-in routing is case-insensitive: any casing of 'aimnet' routes
+        to AIMNet2Adapter('aimnet2'); any casing of 'ani2x' routes to the ANI
+        adapter. Registry/path names themselves are case-preserving."""
+        from Auto3D import model_factory
+
+        captured = {}
+
+        class _FakeAIMNet2Adapter:
+            def __init__(self, model_name, device, **kw):
+                captured["aimnet"] = model_name
+
+        monkeypatch.setattr(model_factory, "AIMNet2Adapter", _FakeAIMNet2Adapter)
+
+        for alias in ("aimnet", "AImNeT", "AIMNET"):
+            captured.clear()
+            model_factory.ModelFactory.create(
+                alias, device=torch.device("cpu"), use_cache=False
+            )
+            assert captured["aimnet"] == "aimnet2"
+
+        # ANI engines resolve case-insensitively to their adapter class.
+        assert model_factory.ModelFactory._adapters["ani2x".upper()] is \
+            model_factory.ModelFactory._adapters["ANI2X"]
+        assert "ANI2XT" in model_factory.ModelFactory._adapters
+
+    def test_create_aimnet_returns_aimnet2_adapter(self):
+        """create('AIMNET') builds an AIMNet2Adapter bound to the 'aimnet2'
+        registry name (no bundled .jpt path anymore)."""
+        from Auto3D.models.adapter import AIMNet2Adapter
 
         device = torch.device("cpu")
-        ModelFactory.create("AIMNET", device=device)
+        model = ModelFactory.create("AIMNET", device=device)
 
-        # Verify torch.jit.load was called
-        mock_load.assert_called_once()
-        call_args = mock_load.call_args
-        path_arg = call_args[0][0]
-
-        # Check the path contains expected components
-        assert "models" in path_arg
-        # AIMNetAdapter uses single model by default (aimnet2_wb97m-d3_0.jpt)
-        assert "aimnet2_wb97m-d3_0.jpt" in path_arg
+        assert isinstance(model, AIMNet2Adapter)
+        assert model.model_name == "aimnet2"
 
     @patch("Auto3D.model_factory.Path.exists")
     @patch("Auto3D.models.adapter.torch.jit.load")
@@ -140,13 +168,8 @@ class TestIsCustomModel:
 class TestFactoryReturnsAdapter:
     """Tests for ModelFactory returning adapter instances."""
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_factory_returns_adapter(self, mock_load):
+    def test_factory_returns_adapter(self):
         """Factory should return ModelAdapter instances."""
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
-
         device = torch.device("cpu")
         model = create_model("AIMNET", device)
 
@@ -157,19 +180,15 @@ class TestFactoryReturnsAdapter:
         assert model.coord_pad == 0.0
         assert model.species_pad == 0
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_factory_returns_aimnet_adapter(self, mock_load):
-        """Factory should return AIMNetAdapter for AIMNET."""
-        from Auto3D.models.adapter import AIMNetAdapter
-
-        mock_model = MagicMock()
-        mock_model.parameters.return_value = iter([])
-        mock_load.return_value = mock_model
+    def test_factory_returns_aimnet_adapter(self):
+        """Factory should return an AIMNet2Adapter for AIMNET."""
+        from Auto3D.models.adapter import AIMNet2Adapter
 
         device = torch.device("cpu")
         model = create_model("AIMNET", device)
 
-        assert isinstance(model, AIMNetAdapter)
+        assert isinstance(model, AIMNet2Adapter)
+        assert model.model_name == "aimnet2"
 
     def test_factory_returns_ani2xt_adapter(self):
         """Factory should return ANI2xtAdapter for ANI2xt."""
