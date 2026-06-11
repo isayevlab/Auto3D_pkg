@@ -17,11 +17,11 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from tqdm import tqdm
 
-from Auto3D.constants import CONFORMER_RANDOM_SEED
+from Auto3D.constants import CONFORMER_RANDOM_SEED, MAX_STEREOISOMERS
 from Auto3D.utils import (
     amend_configuration_w,
     hash_enumerated_smi_IDs,
-    min_pairwise_distance,
+    relieve_clash,
     remove_enantiomers,
 )
 from Auto3D.utils.chemistry import calculate_conformer_count
@@ -72,14 +72,25 @@ class TautomerEngine:
         smiles = []
         with open(self.input_f) as f:
             data = f.readlines()
-            for line in data:
-                line = line.strip().split()
-                smi, idx = line[0], line[1]
+            for line_num, line in enumerate(data, start=1):
+                if line.isspace() or not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    logger.warning(
+                        f"Skipping malformed SMILES line {line_num} "
+                        f"(need 'SMILES ID', got: {line.strip()!r})"
+                    )
+                    continue
+                smi, idx = parts[0], parts[1]
                 smiles.append((smi, idx))
         tautomers = []
         for smi_idx in smiles:
             smi, idx = smi_idx
             mol = Chem.MolFromSmiles(smi)
+            if mol is None:
+                logger.warning(f"Skipping invalid SMILES/record for {idx!r}: {smi!r}")
+                continue
             tauts = enumerator.Enumerate(mol)
             for taut in tauts:
                 tautomers.append((Chem.MolToSmiles(taut), idx))
@@ -153,12 +164,27 @@ class RDKitIsomer:
 
     @staticmethod
     def read(input_f: str) -> dict[str, str]:
-        """Read SMILES file and return name->SMILES mapping."""
+        """Read SMILES file and return name->SMILES mapping.
+
+        Lenient line handling (matches encode_ids semantics): whitespace-only
+        lines are skipped, and a line is only accepted if it has at least two
+        whitespace-separated tokens (SMILES + ID). Extra tokens are ignored.
+        Malformed lines are warned about and skipped rather than aborting.
+        """
         outputs = {}
         with open(input_f) as f:
             data = f.readlines()
-        for line in data:
-            smiles, name = tuple(line.strip().split())
+        for line_num, line in enumerate(data, start=1):
+            if line.isspace() or not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                logger.warning(
+                    f"Skipping malformed SMILES line {line_num} "
+                    f"(need 'SMILES ID', got: {line.strip()!r})"
+                )
+                continue
+            smiles, name = parts[0], parts[1]
             outputs[name.strip()] = smiles.strip()
         return outputs
 
@@ -167,13 +193,23 @@ class RDKitIsomer:
         """Enumerate R/S and cis/trans isomers for a molecule.
 
         Args:
-            mol: RDKit molecule object.
+            mol: RDKit molecule object, or None for an unparseable SMILES.
 
         Returns:
-            Sorted list of isomer SMILES strings.
+            Sorted list of isomer SMILES strings (empty if ``mol`` is None).
         """
-        opts = StereoEnumerationOptions(unique=True)
+        if mol is None:
+            logger.warning("Skipping invalid SMILES/record: MolFromSmiles returned None.")
+            return []
+        # Set an explicit, high maxIsomers so molecules with many unspecified
+        # stereocenters are not silently truncated at RDKit's default of 1024.
+        opts = StereoEnumerationOptions(unique=True, maxIsomers=MAX_STEREOISOMERS)
         isomers = tuple(EnumerateStereoisomers(mol, options=opts))
+        if len(isomers) >= MAX_STEREOISOMERS:
+            logger.warning(
+                f"Stereoisomer enumeration hit the cap of {MAX_STEREOISOMERS} "
+                f"for {Chem.MolToSmiles(mol)!r}; results may be truncated."
+            )
         isomers = sorted(
             Chem.MolToSmiles(x, isomericSmiles=True, doRandom=False) for x in isomers
         )
@@ -189,9 +225,13 @@ class RDKitIsomer:
 
     def embed_conformer(self, smi: str) -> Chem.Mol:
         """Embed multiple 3D conformers for a SMILES string."""
-        mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+        mol_noh = Chem.MolFromSmiles(smi)
+        mol = Chem.AddHs(mol_noh)
         if self.n_conformers is None:
-            n_conformers = calculate_conformer_count(mol)
+            # Compute the conformer budget on the no-H representation so the
+            # SMILES path agrees with the SDF path (FIX 4): CalcNumRotatableBonds
+            # differs with/without explicit hydrogens.
+            n_conformers = calculate_conformer_count(mol_noh)
             AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
                                     randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np,
                                     pruneRmsThresh=self.threshold)
@@ -213,7 +253,14 @@ class RDKitIsomer:
             smiles_og = self.read(self.input_f)
             for name, smiles in smiles_og.items():
                 mol = Chem.MolFromSmiles(smiles)
+                if mol is None:
+                    logger.warning(
+                        f"Skipping invalid SMILES/record for {name!r}: {smiles!r}"
+                    )
+                    continue
                 isomers = self.enumerate_func(mol)
+                if not isomers:
+                    continue
                 self.enumerate[name] = isomers
             self.write_enumerated_smi()
             logger.info("Removing enantiomers...")
@@ -251,12 +298,9 @@ class RDKitIsomer:
             for smi, name in tqdm(smi_name_tuples):
                 mol = self.embed_conformer(smi)
                 for i in range(mol.GetNumConformers()):
-                    positions = mol.GetConformer(i).GetPositions()
-                    # atoms clashes if distance is smaller than 0.9 Angstrom
-                    if min_pairwise_distance(positions) < 0.9:
-                        AllChem.MMFFOptimizeMolecule(mol, confId=i)
-                    positions = mol.GetConformer(i).GetPositions()
-                    if min_pairwise_distance(positions) > 0.9:
+                    # Relieve atom clashes (MMFF, UFF fallback) and keep the
+                    # conformer only if it ends up clash-free.
+                    if relieve_clash(mol, i):
                         conf_id = name.strip() + f"_{i}"
                         mol.SetProp('ID', conf_id)
                         mol.SetProp('_Name', conf_id)
@@ -319,10 +363,17 @@ class RDKitSdfIsomer:
         supp = Chem.SDMolSupplier(self.sdf, removeHs=False)
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for mol in tqdm(supp):
+                if mol is None:
+                    logger.warning(
+                        "Skipping invalid SMILES/record: SDMolSupplier yielded None."
+                    )
+                    continue
                 #enumerate conformers
                 mol2 = Chem.AddHs(mol)
                 if self.n_conformers is None:
-                    n_conformers = calculate_conformer_count(mol)
+                    # Compute the conformer budget on the no-H representation so
+                    # the SDF path agrees with the SMILES path (FIX 4).
+                    n_conformers = calculate_conformer_count(Chem.RemoveHs(mol))
                 else:
                     n_conformers = self.n_conformers
                 AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np, pruneRmsThresh=self.threshold)

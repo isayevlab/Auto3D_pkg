@@ -14,6 +14,12 @@ MIN_ATOM_DISTANCE = 0.9  # Å, minimum allowed interatomic distance
 # Conformer generation limits
 MAX_CONFORMERS_CAP = 1000  # Maximum conformers per molecule
 
+# Stereoisomer enumeration limit. RDKit's StereoEnumerationOptions defaults
+# maxIsomers to 1024, which silently truncates molecules with >=11 unspecified
+# stereocenters. Raise the cap high so realistic inputs are not silently lost,
+# and warn when the enumerator returns exactly the cap (likely truncated).
+MAX_STEREOISOMERS = 2 ** 16  # 65536
+
 # Chunk sizing
 DEFAULT_CAPACITY = 42  # molecules per GB of GPU/CPU memory for chunk sizing
 
