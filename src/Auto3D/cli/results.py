@@ -109,7 +109,8 @@ def count_from_output(output_path: str) -> tuple[int, int]:
     """Return (unique_molecule_count, conformer_count) from an output SDF.
 
     Molecule identity is the input ID - the part of the conformer name
-    before the first '@'.
+    before the first '@' (the tautomer separator, "id@tautN"), so all
+    tautomers of one input molecule count as a single molecule.
     """
     from rdkit import Chem
 
