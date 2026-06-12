@@ -39,7 +39,7 @@ We welcome:
 
 ### Prerequisites
 
-- Python 3.10 or later
+- Python 3.11 or later
 - Git
 - conda (recommended) or pip
 
@@ -198,6 +198,24 @@ def test_auto3d_options_validation():
 - Use small test molecules in `tests/files/`
 - Don't commit large data files
 - Use fixtures for common test data
+
+### Benchmarking
+
+`scripts/bench_optimizer.py` is an opt-in micro-benchmark for the geometry
+optimization hot loop (FIRE optimizer, batched model wrapper, bucketing). It
+lives outside `tests/`, so it never runs in the suite or gates CI. Use it to
+get a wall-clock and throughput signal before and after changes to
+`Auto3D.batch_opt`:
+
+```bash
+python scripts/bench_optimizer.py --engine AIMNET --n 200 --steps 200
+python scripts/bench_optimizer.py --engine ANI2xt --n 50 --device cuda:0
+```
+
+It builds a fixed set of drug-like conformers (RDKit ETKDG, fixed seed, so the
+geometries are identical run-to-run) and reports wall time, conformers/s, and
+peak memory. Compare the numbers from two runs of the same command on the same
+machine — it is a relative regression signal, not an absolute baseline.
 
 ## Documentation
 

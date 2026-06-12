@@ -172,6 +172,14 @@ Specify with ``--engine``:
 
    auto3d run molecules.smi --k=1 --engine=ANI2x
 
+.. note::
+
+   ``ANI2x`` / ``ANI2xt`` require the optional ani extra
+   (``pip install "Auto3D[ani]"``). The ``AIMNET`` engine also accepts specific
+   registry models (``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``, ...) that
+   download on first use to ``~/.cache/aimnet``; run ``auto3d models list`` to
+   see them.
+
 Configuration Files
 -------------------
 

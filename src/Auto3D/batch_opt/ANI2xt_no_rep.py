@@ -146,10 +146,15 @@ class ANI2xt(nn.Module):
             Tensor of shape (batch,) with molecular energies in eV
 
         Note:
-            Energies are computed in float32 (coords dtype). Self-atomic energy
-            shifts cancel in conformer energy differences (same atom counts), so
-            the float32 path does not affect ranking; absolute energies carry a
-            float32 ULP (~4e-3 eV) at typical total-energy magnitudes.
+            The AEV/network path runs in float32 (coords dtype), but the
+            per-atom and self-atomic energies are accumulated in float64 so the
+            float64 ``energy_shifts`` buffer is not silently truncated. This only
+            cleans up absolute energies -- self-atomic shifts cancel in conformer
+            energy differences (same atom counts), so ranking is unaffected, and
+            the float32 network output still caps usable precision at ~float32
+            ULP (~4e-3 eV) at typical total-energy magnitudes. Energy is returned
+            as float64 and forces as float32 (the autograd grad w.r.t. the
+            float32 coords), matching the AIMNet2 adapter's output contract.
         """
         if self.periodic:
             # Convert atomic numbers to sequential indices
@@ -162,9 +167,11 @@ class ANI2xt(nn.Module):
         # Compute AEVs (use new API: aev_computer(species, coords))
         aev = self.aev_computer(species_idx, coords)  # (batch, num_atoms, aev_dim)
 
-        # Compute per-atom energies
+        # Compute per-atom energies. Accumulate in float64 so the float64
+        # energy_shifts buffer is meaningful; the network output is float32 and
+        # is cast up explicitly (an fp64-dest, fp32-source index_put would raise).
         batch_size, num_atoms = species_idx.shape
-        atom_energies = torch.zeros(batch_size, num_atoms, device=coords.device, dtype=coords.dtype)
+        atom_energies = torch.zeros(batch_size, num_atoms, device=coords.device, dtype=torch.float64)
 
         for elem_idx, network in enumerate(self.networks):
             # Find atoms of this element type
@@ -174,16 +181,16 @@ class ANI2xt(nn.Module):
                 elem_aev = aev[mask]  # (num_elem_atoms, aev_dim)
                 # Compute atomic energies
                 elem_energies = network(elem_aev).squeeze(-1)  # (num_elem_atoms,)
-                atom_energies[mask] = elem_energies
+                atom_energies[mask] = elem_energies.to(torch.float64)
 
         # Sum per-atom energies to get molecular energies
         atomic_energies = atom_energies.sum(dim=1)  # (batch,)
 
         # Add self-energies (energy shifts)
-        self_energies = torch.zeros(batch_size, device=coords.device, dtype=coords.dtype)
+        self_energies = torch.zeros(batch_size, device=coords.device, dtype=torch.float64)
         for elem_idx in range(len(self.networks)):
             mask = (species_idx == elem_idx)
-            counts = mask.sum(dim=1).to(coords.dtype)  # (batch,)
+            counts = mask.sum(dim=1).to(torch.float64)  # (batch,)
             self_energies += counts * self.energy_shifts[elem_idx]
 
         # Total energy in Hartree, convert to eV
