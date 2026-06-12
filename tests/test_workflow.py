@@ -480,3 +480,17 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
 
     assert captured["threshold"] == 0.27
     assert captured["threshold"] != 0.03
+
+
+def test_orchestrator_input_format_single_source_of_truth(tmp_path):
+    """input_format lives on the config (single source); the orchestrator no
+    longer keeps a redundant instance attribute that could desync."""
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.workflow import WorkflowOrchestrator
+
+    smi = tmp_path / "m.smi"
+    smi.write_text("CCO ethanol\n")
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1))
+    orch._validate_input()
+    assert orch.config.input_format == "smi"
+    assert not hasattr(orch, "input_format")
