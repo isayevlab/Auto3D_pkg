@@ -10,7 +10,8 @@ import torch
 import torch.nn as nn
 
 from Auto3D.constants import HARTREE_TO_EV
-from Auto3D.exceptions import ModelLoadError, NumericalError
+from Auto3D.exceptions import NumericalError
+from Auto3D.models.loading import load_custom_nnp
 
 
 def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
@@ -402,19 +403,9 @@ class CustomModelAdapter(BaseModelAdapter):
             device: Target device for computations.
             compile_model: Whether to apply torch.compile() for optimization.
         """
-        # Prefer torch.jit.load for legacy TorchScript archives; fall back to a
-        # plain torch.load for eager nn.Module checkpoints. Modern AIMNet2-based
-        # models are no longer torch.jit.script-able (aimnet dropped scripting
-        # support), so the custom-NNP contract must accept eager modules too.
-        try:
-            model = torch.jit.load(model_path, map_location=device)
-        except RuntimeError:
-            model = torch.load(model_path, map_location=device, weights_only=False)
-            if not isinstance(model, torch.nn.Module):
-                raise ModelLoadError(
-                    f"Custom NNP at {model_path} did not deserialize to an nn.Module."
-                )
-            model = model.to(device).eval()
+        # Accept either a TorchScript archive or an eager nn.Module checkpoint
+        # (shared load contract -- see Auto3D.models.loading.load_custom_nnp).
+        model = load_custom_nnp(model_path, device)
         coord_pad = getattr(model, 'coord_pad', 0.0)
         species_pad = getattr(model, 'species_pad', -1)
         # TorchScript models don't benefit from torch.compile
