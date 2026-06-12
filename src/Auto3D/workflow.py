@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import Auto3D
 from Auto3D.chunk_manager import ChunkManager
-from Auto3D.config import Auto3DOptions
+from Auto3D.config import Auto3DOptions, optimizer_worker_indices
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.model_factory import ModelFactory
 from Auto3D.torch_config import TorchConfig, configure_torch
@@ -268,23 +268,21 @@ class WorkflowOrchestrator:
             args=(chunk_info, self.config, chunk_queue, self.logging_queue),
         )
 
-        # Create optimization processes (one per GPU or single for CPU)
+        # Create optimization processes: one per GPU when running on GPU with a
+        # list of indices, a single worker otherwise. A CPU run with a list of
+        # gpu_idx must NOT spawn N processes all contending for the same cores
+        # (N model loads -> OOM risk); optimizer_worker_indices collapses that to
+        # one, and the isomer worker derives its sentinel count the same way.
         p2s: list[mp.Process] = []
-        if isinstance(self.config.gpu_idx, int):
+        for idx in optimizer_worker_indices(
+            self.config.use_gpu, self.config.gpu_idx
+        ):
             p2s.append(
                 mp.Process(
                     target=optim_rank_wrapper,
-                    args=(opt_config, chunk_queue, self.logging_queue, self.config.gpu_idx),
+                    args=(opt_config, chunk_queue, self.logging_queue, idx),
                 )
             )
-        else:
-            for idx in self.config.gpu_idx:
-                p2s.append(
-                    mp.Process(
-                        target=optim_rank_wrapper,
-                        args=(opt_config, chunk_queue, self.logging_queue, idx),
-                    )
-                )
 
         # Start all processes
         p1.start()

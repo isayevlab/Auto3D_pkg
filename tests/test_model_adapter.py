@@ -276,3 +276,49 @@ def test_custom_model_adapter_runs(tmp_path):
     assert e.shape == (2,)
     assert f.shape == (2, 4, 3)
     assert torch.isfinite(e).all() and torch.isfinite(f).all()
+
+
+class TestValidateOutputs:
+    """_validate_outputs runs on every FIRE step; it must stay a no-op on finite
+    inputs (single combined sync) and still raise on NaN/Inf with a clear message.
+    """
+
+    def test_finite_outputs_pass(self):
+        from Auto3D.models.adapter import _validate_outputs
+        energy = torch.tensor([-1.0, -2.0])
+        forces = torch.zeros(2, 3, 3)
+        assert _validate_outputs(energy, forces) is None
+
+    def test_nan_energy_raises(self):
+        from Auto3D.exceptions import NumericalError
+        from Auto3D.models.adapter import _validate_outputs
+        energy = torch.tensor([float("nan"), -2.0])
+        forces = torch.zeros(2, 3, 3)
+        with pytest.raises(NumericalError, match="NaN.*energy"):
+            _validate_outputs(energy, forces)
+
+    def test_inf_energy_raises(self):
+        from Auto3D.exceptions import NumericalError
+        from Auto3D.models.adapter import _validate_outputs
+        energy = torch.tensor([float("inf"), -2.0])
+        forces = torch.zeros(2, 3, 3)
+        with pytest.raises(NumericalError, match="Inf.*energy"):
+            _validate_outputs(energy, forces)
+
+    def test_nan_forces_raises(self):
+        from Auto3D.exceptions import NumericalError
+        from Auto3D.models.adapter import _validate_outputs
+        energy = torch.tensor([-1.0, -2.0])
+        forces = torch.zeros(2, 3, 3)
+        forces[1, 0, 0] = float("nan")
+        with pytest.raises(NumericalError, match="NaN.*force"):
+            _validate_outputs(energy, forces)
+
+    def test_inf_forces_raises(self):
+        from Auto3D.exceptions import NumericalError
+        from Auto3D.models.adapter import _validate_outputs
+        energy = torch.tensor([-1.0, -2.0])
+        forces = torch.zeros(2, 3, 3)
+        forces[0, 2, 1] = float("inf")
+        with pytest.raises(NumericalError, match="Inf.*force"):
+            _validate_outputs(energy, forces)
