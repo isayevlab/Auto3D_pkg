@@ -36,6 +36,42 @@ jobs:
       - name: Run fast tests
         run: pytest tests/ -q -m "not slow" --continue-on-collection-errors
 
+  slow:
+    name: slow tests (NNP integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache downloaded model weights
+        uses: actions/cache@v4
+        with:
+          # AIMNet2 weights download to ~/.cache/aimnet; torchani/torch.hub
+          # weights (ANI2x) land in ~/.cache/torch. Cache both so the slow
+          # suite does not re-download on every run.
+          path: |
+            ~/.cache/aimnet
+            ~/.cache/torch
+          key: nnp-model-cache-v1
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # ase for thermo, ani for the torchani-gated slow tests, dev for pytest
+          pip install -e ".[ase,ani,dev]"
+      - name: Run NNP integration tests (moved out of the fast gate)
+        # These slow tests load a real AIMNet2 model -- energy/forces
+        # correctness, adapter/factory return types, and the Hessian-model load.
+        # This is exactly the real-NNP coverage moved out of the fast gate, so it
+        # still runs on every push/PR. The broader `-m slow` suite (full-pipeline
+        # test_auto3D / test_SPE / test_thermo) is intentionally NOT run here:
+        # those heavy end-to-end tests are flaky under combined/randomized
+        # ordering (they pass individually) and need separate isolation work.
+        run: >
+          pytest tests/test_model_adapter.py tests/test_model_factory.py
+          tests/test_thermo_helpers.py -m slow -q
+
   lint:
     name: ruff + mypy
     runs-on: ubuntu-latest
