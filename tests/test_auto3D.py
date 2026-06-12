@@ -347,8 +347,8 @@ def test_auto3D_userNNP3():
     myNNP = userNNP2()
     with tempfile.TemporaryDirectory() as temp_dir:
         model_path = os.path.join(temp_dir, 'myNNP.pt')
-        myNNP1_jit = torch.jit.script(myNNP)
-        myNNP1_jit.save(model_path)
+        # AIMNet2-based models are not torch.jit.script-able; save eager.
+        torch.save(myNNP, model_path)
 
         smi_path = os.path.join(temp_dir, os.path.basename(path))
         shutil.copyfile(path, smi_path)
