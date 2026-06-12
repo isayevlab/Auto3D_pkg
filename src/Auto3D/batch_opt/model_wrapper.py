@@ -43,7 +43,7 @@ class EnForce_ANI(nn.Module):
 
     def __init__(
         self,
-        model_adapter: "BaseModelAdapter",
+        model_adapter: BaseModelAdapter,
         name_or_batchsize: str | int | None = None,
         batchsize_atoms: int = 1024 * 16,
     ) -> None:
