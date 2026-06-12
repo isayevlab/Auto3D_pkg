@@ -54,7 +54,6 @@ class WorkflowOrchestrator:
         self.job_name: str = ""
         self.job_dir: Path = Path()
         self.input_path: Path = Path()
-        self.input_format: str = ""
         self.id_mapping: dict[str, str] = {}
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
@@ -122,19 +121,20 @@ class WorkflowOrchestrator:
         # raises FileFormatError (not a generic ValueError from encode_ids) and
         # no encoded temp file is written for input we are about to reject. The
         # encoded file keeps the source suffix, so this format is authoritative.
-        self.input_format = Path(self.config.path).suffix[1:]  # Remove leading dot
-        if self.input_format not in ("smi", "sdf"):
+        input_format = Path(self.config.path).suffix[1:]  # Remove leading dot
+        if input_format not in ("smi", "sdf"):
             raise FileFormatError(
                 f"Input file type is not supported. Only .smi and .sdf are supported. "
-                f"But the input file is {self.input_format}."
+                f"But the input file is {input_format}."
             )
 
         # Encode IDs for internal processing
         encoded_path, self.id_mapping = encode_ids(self.config.path)
         self.input_path = Path(encoded_path)
 
-        # Store format in config for downstream use
-        self.config["input_format"] = self.input_format
+        # Store format on the config -- the single source of truth for downstream
+        # consumers (chunk manager, isomer workers), surviving replace()/pickling.
+        self.config["input_format"] = input_format
 
         # Validate output selection
         if not self.config.k and not self.config.window:
@@ -236,7 +236,7 @@ class WorkflowOrchestrator:
         chunk_manager = ChunkManager(
             config=self.config,
             input_path=self.input_path,
-            input_format=self.input_format,
+            input_format=self.config.input_format,
             job_dir=self.job_dir,
             workflow_logger=self.logger,
         )
