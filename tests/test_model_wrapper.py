@@ -9,7 +9,6 @@ from __future__ import annotations
 import warnings
 from unittest.mock import MagicMock
 
-import pytest
 import torch
 
 from Auto3D.batch_opt.model_wrapper import EnForce_ANI
@@ -217,3 +216,30 @@ class TestEnForceANIModule:
         wrapper = EnForce_ANI(mock_adapter)
 
         assert wrapper.batchsize_atoms == 1024 * 16  # 16384
+
+
+def test_forward_batched_retries_on_oom():
+    """A transient CUDA OOM on a multi-molecule batch must be retried with a
+    smaller batch (not crash the whole run). The adapter here OOMs on any batch
+    larger than 1 molecule and succeeds at batch size 1."""
+    import torch
+
+    from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+
+    class _OOMAdapter:
+        coord_pad = 0.0
+        species_pad = -1
+
+        def forward(self, coord, numbers, charges):
+            if coord.shape[0] > 1:
+                raise torch.cuda.OutOfMemoryError("CUDA out of memory (simulated)")
+            return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)
+
+    wrapper = EnForce_ANI(_OOMAdapter(), batchsize_atoms=10_000)
+    coord = torch.randn(2, 3, 3)
+    numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
+    charges = torch.zeros(2)
+
+    e, f = wrapper.forward_batched(coord, numbers, charges)
+    assert e.shape == (2,) and torch.isfinite(e).all()
+    assert f.shape == coord.shape

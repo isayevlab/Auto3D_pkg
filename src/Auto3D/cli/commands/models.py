@@ -99,8 +99,8 @@ ENGINE_INFO = {
         "reference": "https://github.com/isayevlab/AIMNet2",
         "notes": [
             "Default engine (recommended)",
-            "Single model by default for speed",
-            "Use --use-ensemble for highest accuracy",
+            "A single registry model is used; pick aimnet2-2025/-nse/-pd for "
+            "different chemistry",
         ],
     },
     "AIMNET2-2025": {
@@ -174,9 +174,11 @@ ENGINE_INFO = {
 def execute_models_info(engine: str) -> None:
     """Display detailed information about an engine."""
     engine_upper = engine.upper()
-    # 'aimnet2' is the canonical registry name that 'AIMNET' aliases (and the
-    # default engine), so route it to the AIMNET entry instead of "Unknown".
-    if engine_upper == "AIMNET2":
+    # Any aimnet2-* registry name describes an AIMNet2 model. Variants with their
+    # own ENGINE_INFO block (aimnet2-2025/-nse/-pd) are shown directly; any other
+    # aimnet2* name (e.g. the bare 'aimnet2' alias or a future registry variant)
+    # falls back to the base AIMNET entry instead of printing "Unknown engine".
+    if engine_upper not in ENGINE_INFO and engine_upper.startswith("AIMNET2"):
         engine_upper = "AIMNET"
 
     if engine_upper not in ENGINE_INFO:
