@@ -79,12 +79,19 @@ class Calculator(ase.calculators.calculator.Calculator):
     implemented_properties = ['energy', 'forces']
     def __init__(self, model, charge=0):
         super().__init__()
-        self.model = model 
-        for p in self.model.parameters():
+        self.model = model
+        params = list(self.model.parameters())
+        for p in params:
             p.requires_grad_(False)
-        a_parameter = next(self.model.parameters())
-        self.device = a_parameter.device
-        self.dtype = a_parameter.dtype
+        if params:
+            self.device = params[0].device
+            self.dtype = params[0].dtype
+        else:
+            # Param-less custom model (e.g. one that builds its NNP backend
+            # lazily): it handles device/dtype internally from the input tensors,
+            # so fall back to a sensible default for the ASE-facing tensors.
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.dtype = torch.double
         self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
 
     def set_charge(self, charge:int):
@@ -264,7 +271,14 @@ def _load_hessian_model(model_name: str, device):
         import torchani
         return torchani.models.ANI2x(periodic_table_index=True).to(device).double()
     if Path(model_name).exists():
-        return torch.jit.load(model_name, map_location=device).double()
+        # Load a custom NNP as a TorchScript archive or, failing that, an eager
+        # nn.Module checkpoint (modern AIMNet2-based models are not
+        # torch.jit.script-able).
+        try:
+            return torch.jit.load(model_name, map_location=device).double()
+        except RuntimeError:
+            model = torch.load(model_name, map_location=device, weights_only=False)
+            return model.to(device).double().eval()
     # AIMNET or any aimnet registry alias
     from aimnet.calculators import AIMNet2Calculator
 

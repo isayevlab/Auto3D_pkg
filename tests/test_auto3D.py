@@ -79,14 +79,17 @@ class userNNP2(torch.nn.Module):
             (These values will be used when processing the molecules in batch.)
             - The signature of the forward method is the same as below.
         """
-        # Here I constructed an example NNP using AIMNet2.
-        # In your case, you can replace this with your own NNP model.
-        from Auto3D.model_factory import create_model
-        self.model = create_model("AIMNET", torch.device("cpu")).model
+        # Example NNP wrapping the AIMNet2 CALCULATOR (includes external D3
+        # dispersion + Coulomb; the bare .model omits them), so energies match
+        # Auto3D's built-in AIMNET engine. The calculator is built lazily on the
+        # input device in forward() -- it freezes its device at construction, so
+        # building it lazily lets the saved model round-trip through torch.save
+        # and run on whatever device (incl. multi-GPU) Auto3D selects.
+        self._calc = None
+        self._calc_device = None
 
         self.coord_pad = 0  # int, the padding value for coordinates
         self.species_pad = 0  # int, the padding value for species.
-        # self.state_dict = None
 
     def forward(self,
                 species: torch.Tensor,
@@ -108,10 +111,26 @@ class userNNP2(torch.nn.Module):
         The forward function returns the energies of the molecules: [B],
         output energy unit: eV"""
 
-        # an example for computing molecular energy, replace with your NNP model
-        dct = dict(coord=coords, numbers=species, charge=charges)
-        energies = self.model(dct)['energy']
-        return energies
+        if self._calc is None or self._calc_device != species.device:
+            from aimnet.calculators import AIMNet2Calculator
+            self._calc = AIMNet2Calculator("aimnet2", device=str(species.device))
+            self._calc_device = species.device
+        # Auto3D feeds padded (B, N) batches; use ragged mol_idx batching to drop
+        # padded atoms (AIMNet2 yields NaN on species-0 padding otherwise).
+        b, n = species.shape
+        mask = species != self.species_pad
+        coord_flat = coords[mask]
+        numbers_flat = species[mask]
+        mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]
+        # forces=False: return energy only; Auto3D's CustomModelAdapter computes
+        # forces via autograd (the calculator preserves the graph when coord
+        # requires grad).
+        out = self._calc(
+            dict(coord=coord_flat, numbers=numbers_flat,
+                 charge=charges.to(coord_flat.dtype), mol_idx=mol_idx),
+            forces=False,
+        )
+        return out['energy'].reshape(-1)
 
 
 def test_auto3D_rdkit_aimnet():
