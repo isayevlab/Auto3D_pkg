@@ -86,3 +86,32 @@ def skip_without_gpu():
     """Skip test if GPU is not available."""
     if not torch.cuda.is_available():
         pytest.skip("No GPU available")
+
+
+@pytest.fixture(autouse=True)
+def _release_gpu_memory_after_slow_tests(request):
+    """Release cached models and GPU memory after each *slow* test.
+
+    The slow suite runs many full GPU pipelines and AIMNet2 Hessian/thermo
+    calculations back-to-back in a single process. Without releasing GPU memory
+    and cached models between them, memory pressure accumulates and
+    non-deterministically corrupts later GPU work -- e.g. ``calc_thermo``'s
+    AIMNet2 Hessian yields imaginary frequencies, so the thermochemistry result
+    is garbage (or its properties are never written, giving a ``KeyError``).
+    This made the slow tests pass individually but fail under combined ordering.
+
+    Scoped to slow tests on purpose: fast tests skip this teardown so the
+    session-scoped ``aimnet_model`` fixture stays warm (the fast gate must not
+    reload models). It is also a no-op on CPU / CI, where there is no CUDA cache.
+    """
+    yield
+    if request.node.get_closest_marker("slow") is None:
+        return
+    import gc
+
+    from Auto3D.model_factory import ModelFactory
+
+    ModelFactory.clear_cache()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
