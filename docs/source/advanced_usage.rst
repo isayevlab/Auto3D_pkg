@@ -54,8 +54,8 @@ Quick Settings Reference
    # Balanced (default)
    auto3d run input.smi --k=1 --engine=AIMNET --gpu
 
-   # High accuracy (for final production runs)
-   AUTO3D_USE_ENSEMBLE=1 auto3d run input.smi --k=1 --engine=AIMNET --gpu
+   # A specific registry model (e.g. the 2025 refresh; see: auto3d models list)
+   auto3d run input.smi --k=1 --engine=aimnet2-2025 --gpu
 
 Configuration Presets
 ~~~~~~~~~~~~~~~~~~~~~
@@ -219,8 +219,8 @@ Control Auto3D behavior via environment variables:
    # Enable torch.compile for ANI models
    export AUTO3D_COMPILE_MODEL=1
 
-   # Use AIMNET ensemble (slower, highest accuracy)
-   export AUTO3D_USE_ENSEMBLE=1
+   # Override the AIMNet2 model download cache (default: ~/.cache/aimnet)
+   export AIMNET_CACHE_DIR=/path/to/aimnet/cache
 
    # Set OpenEye license path
    export OE_LICENSE=/path/to/oe_license.txt
@@ -238,9 +238,9 @@ Control Auto3D behavior via environment variables:
    * - ``AUTO3D_COMPILE_MODEL``
      - ``0``
      - Enable torch.compile() for ANI models
-   * - ``AUTO3D_USE_ENSEMBLE``
-     - ``0``
-     - Use AIMNET 8-model ensemble
+   * - ``AIMNET_CACHE_DIR``
+     - ``~/.cache/aimnet``
+     - Override the AIMNet2 model download cache location
    * - ``OE_LICENSE``
      - (none)
      - OpenEye license for Omega isomer engine
@@ -507,21 +507,24 @@ Available Models
      - Neutral only
      - Ultra-fast
 
-Single Model vs Ensemble (AIMNET)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Choosing an AIMNet2 Registry Model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-By default, Auto3D uses a single AIMNet2 model for ~35x faster optimization:
+Auto3D always uses a single AIMNet2 model for ~35x faster optimization; the
+single model is accurate enough for conformer generation and ranking. Instead
+of an ensemble, choose a specific registry model when you need different
+chemistry coverage:
 
 .. code:: console
 
-   # Default: single model (fast)
+   # Default AIMNet2 model
    auto3d run input.smi --k=1 --gpu
 
-   # Ensemble: highest accuracy (slower)
-   AUTO3D_USE_ENSEMBLE=1 auto3d run input.smi --k=1 --gpu
+   # A specific registry model (auto-downloaded on first use)
+   auto3d run input.smi --k=1 --engine=aimnet2-2025 --gpu
 
-The single model is accurate enough for conformer generation and ranking.
-Use ensemble only when you need the most accurate absolute energies.
+Run ``auto3d models list`` to see the available registry models
+(``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``, ...).
 
 Model Factory API (Python)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -564,8 +567,8 @@ If you encounter CUDA out-of-memory errors:
    EOF
    auto3d run input.smi --k=1 -c low_memory.yaml --gpu
 
-   # 2. Disable ensemble
-   AUTO3D_USE_ENSEMBLE=0 auto3d run input.smi --k=1 --gpu
+   # 2. Use a lighter model (ANI2xt is the fastest, lowest memory)
+   auto3d run input.smi --k=1 --engine=ANI2xt --gpu
 
    # 3. Use CPU as fallback
    auto3d run input.smi --k=1 --no-gpu

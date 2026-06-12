@@ -94,7 +94,12 @@ Select a model with ``--engine``:
 
 .. note::
    **AIMNet2 clarification**: The default model is AIMNet2 since version 2.2.1.
-   Specifying ``--engine=AIMNET`` uses AIMNet2.
+   Specifying ``--engine=AIMNET`` uses AIMNet2. ``--engine`` also accepts any
+   aimnet registry name (``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``,
+   ``aimnet2-pd``, ...); the weights download on first use to ``~/.cache/aimnet``
+   (override with ``AIMNET_CACHE_DIR``). Run ``auto3d models list`` to see them.
+   ``ANI2x`` / ``ANI2xt`` require the optional ani extra
+   (``pip install "Auto3D[ani]"``).
 
 Isomer and Tautomer Enumeration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

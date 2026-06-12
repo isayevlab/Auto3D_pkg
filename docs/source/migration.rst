@@ -9,7 +9,7 @@ Breaking Changes
 Python Version
 ~~~~~~~~~~~~~~
 
-Auto3D v3.0 requires **Python 3.10 or later**. If you're using an older Python version, you'll need to upgrade your environment.
+Auto3D v3.x requires **Python 3.11 or later**. If you're using an older Python version, you'll need to upgrade your environment.
 
 API Changes
 ~~~~~~~~~~~
@@ -172,8 +172,9 @@ New API for creating models directly:
    # Create a model for custom workflows
    model = create_model("AIMNET", device="cuda:0")
 
-   # Use ensemble for higher accuracy (slower)
-   model = create_model("AIMNET", device="cuda:0", use_ensemble=True)
+   # NOTE: the old ``use_ensemble=True`` argument is removed in v3.5 -- a single
+   # registry model is always used. Pick a specific registry model instead:
+   model = create_model("aimnet2-2025", device="cuda:0")
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -181,12 +182,17 @@ Environment variables
 New environment variables for runtime configuration:
 
 - ``AUTO3D_COMPILE_MODEL=1`` - Enable torch.compile for ANI models (~1.25x speedup)
-- ``AUTO3D_USE_ENSEMBLE=1`` - Use ensemble model for AIMNet (higher accuracy)
+- ``AIMNET_CACHE_DIR`` - Override the AIMNet2 model download cache (default: ``~/.cache/aimnet``)
+
+.. note::
+
+   ``AUTO3D_USE_ENSEMBLE`` and the ``use_ensemble=True`` argument are removed in
+   v3.5 and have no effect; a single AIMNet2 registry model is always used.
 
 Migration Checklist
 -------------------
 
-1. ☐ Update Python to 3.10+
+1. ☐ Update Python to 3.11+
 2. ☐ Replace ``from Auto3D.auto3D import options`` with ``from Auto3D import Auto3DOptions``
 3. ☐ Replace ``options(path, ...)`` calls with ``Auto3DOptions(path=path, ...)``
 4. ☐ Update CLI scripts to use ``auto3d run`` syntax

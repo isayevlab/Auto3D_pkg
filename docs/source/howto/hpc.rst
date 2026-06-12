@@ -95,12 +95,11 @@ For limited GPU memory:
        use_gpu=True,
    )
 
-Or use single model instead of ensemble:
+Or use a lighter model (ANI2xt uses the least memory):
 
 .. code:: console
 
-   export AUTO3D_USE_ENSEMBLE=0
-   auto3d run input.smi --k=1 --gpu
+   auto3d run input.smi --k=1 --gpu --engine=ANI2xt
 
 Chunked Processing
 ~~~~~~~~~~~~~~~~~~
@@ -244,16 +243,15 @@ From fastest to slowest:
 
 1. **ANI2xt**: Ultra-fast, good for screening
 2. **ANI2x**: Very fast, well-validated
-3. **AIMNET single**: Fast, most versatile (default)
-4. **AIMNET ensemble**: Slower, highest accuracy
+3. **AIMNet2**: Fast, most versatile (default); pick a specific registry model
+   (``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``) for specialized chemistry
 
 .. code:: console
 
    # Fastest for screening
    auto3d run input.smi --k=1 --gpu --engine=ANI2xt
 
-   # Best accuracy
-   export AUTO3D_USE_ENSEMBLE=1
+   # Most versatile (default)
    auto3d run input.smi --k=1 --gpu --engine=AIMNET
 
 Optimal Batch Sizes

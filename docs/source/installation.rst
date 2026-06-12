@@ -4,11 +4,14 @@ Installation
 Minimum Dependencies Installation
 ---------------------------------
 
-1. Python >= 3.10
+1. Python >= 3.11
 2. `RDKit <https://www.rdkit.org/docs/Install.html>`__ >= 2022.03.1 (for
    the isomer engine)
-3. `PyTorch <https://pytorch.org/get-started/locally/>`__ >= 2.1.0 (for
+3. `PyTorch <https://pytorch.org/get-started/locally/>`__ >= 2.8 (for
    the optimization engine)
+4. ``aimnet`` (a core dependency, installed automatically) serves the AIMNet2
+   models; the weights download on first use to ``~/.cache/aimnet`` (override
+   with ``AIMNET_CACHE_DIR``)
 
 If you have an environment with the above dependencies, Auto3D can be
 installed by
@@ -47,6 +50,9 @@ installed by:
    conda activate auto3D
    conda install -c conda-forge torchani
 
+   # or, equivalently, the pip extra
+   pip install "Auto3D[ani]"
+
 One additional isomer engine is available: OpenEye toolkit. It's a
 commercial software from `OpenEye
 Software <https://www.eyesopen.com/omega>`__. It can be installed by
@@ -64,3 +70,6 @@ enthalpy, entropy, geometry optimization) with Auto3D,
 
    conda activate auto3D
    conda install -c conda-forge ase
+
+   # or, equivalently, the pip extra
+   pip install "Auto3D[ase]"
