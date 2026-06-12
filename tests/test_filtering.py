@@ -41,6 +41,33 @@ class TestFilterWithinCluster:
         result = _filter_within_cluster([mol1, mol2], rmsd_threshold=0.5)
         assert len(result) == 1
 
+    def test_same_geometry_different_energy_kept(self):
+        """Same heavy-atom geometry but distinct energy must NOT be deduped.
+
+        Mirrors the O-H / N-H rotamer case: heavy-atom RMSD ~= 0 but the two are
+        distinct minima with different energies. The energy guard must keep both.
+        """
+        mol1 = _create_mol_with_energy("C", -10.0)
+        mol2 = _create_mol_with_energy("C", -10.5)  # RMSD~=0, |dE| >> tol
+        result = _filter_within_cluster([mol1, mol2], rmsd_threshold=0.5)
+        assert len(result) == 2
+
+    def test_same_geometry_near_equal_energy_deduped(self):
+        """RMSD ~= 0 AND energies within tolerance => still a duplicate."""
+        mol1 = _create_mol_with_energy("C", -10.0)
+        mol2 = _create_mol_with_energy("C", -10.005)  # |dE| < default 0.01 eV
+        result = _filter_within_cluster([mol1, mol2], rmsd_threshold=0.5)
+        assert len(result) == 1
+
+    def test_energy_tol_is_configurable(self):
+        """A wide energy_tol collapses energy-distinct duplicates again."""
+        mol1 = _create_mol_with_energy("C", -10.0)
+        mol2 = _create_mol_with_energy("C", -10.5)
+        result = _filter_within_cluster(
+            [mol1, mol2], rmsd_threshold=0.5, energy_tol=1.0
+        )
+        assert len(result) == 1
+
     def test_different_conformers_returns_both(self):
         """Different conformers of the same molecule should be kept if RMSD > threshold."""
         # Create two conformers of the same molecule with different 3D coordinates
@@ -105,12 +132,16 @@ class TestFilterUniqueOptimized:
         assert energies == sorted(energies)
 
     def test_energy_clustering_groups_similar_energies(self):
-        """Molecules with similar energies should be clustered together."""
-        # Create molecules with energies in two distinct clusters
-        # Cluster 1: -10.0, -10.05 (within 0.1 eV window)
+        """Molecules with similar energies cluster together and dedup.
+
+        Two same-structure conformers whose energies agree within the duplicate
+        tolerance (and a third distinct molecule in its own cluster) reduce to
+        two survivors.
+        """
+        # Cluster 1: -10.0, -10.005 (same structure, |dE| < duplicate tol)
         # Cluster 2: -15.0
         mol1 = _create_mol_with_energy("C", -10.0)
-        mol2 = _create_mol_with_energy("C", -10.05)  # Same structure, should be removed
+        mol2 = _create_mol_with_energy("C", -10.005)  # within energy tol -> removed
         mol3 = _create_mol_with_energy("CCO", -15.0)
 
         result = filter_unique_optimized(
@@ -119,23 +150,28 @@ class TestFilterUniqueOptimized:
             energy_cluster_window=0.1
         )
 
-        # mol1 and mol2 are in same cluster and identical, so one removed
-        # mol3 is in different cluster
+        # mol1 and mol2 are in the same cluster, identical geometry AND
+        # near-equal energy, so one is removed; mol3 is a separate cluster.
         assert len(result) == 2
 
-    def test_large_energy_window_creates_single_cluster(self):
-        """Large energy window should group all molecules into one cluster."""
+    def test_single_cluster_energy_guard_keeps_distinct_energies(self):
+        """A large window puts everything in one cluster, but the energy guard
+        keeps same-geometry conformers whose energies differ beyond tolerance.
+
+        This is the O-H / N-H rotamer case at the optimized-filter level: heavy-
+        atom RMSD ~= 0 but distinct minima with different energies must survive.
+        """
         mol1 = _create_mol_with_energy("C", -10.0)
-        mol2 = _create_mol_with_energy("C", -15.0)  # Same structure
+        mol2 = _create_mol_with_energy("C", -15.0)  # same geometry, |dE| >> tol
 
         result = filter_unique_optimized(
             [mol1, mol2],
             rmsd_threshold=0.5,
-            energy_cluster_window=10.0  # Large window
+            energy_cluster_window=10.0  # one cluster
         )
 
-        # Same molecule type, should be deduplicated regardless of energy
-        assert len(result) == 1
+        # Different energies => not duplicates, both kept.
+        assert len(result) == 2
 
     def test_small_energy_window_creates_separate_clusters(self):
         """Small energy window should create separate clusters."""

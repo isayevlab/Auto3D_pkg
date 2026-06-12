@@ -531,6 +531,47 @@ class TestFilterUnique:
         # Should only keep one
         assert len(unique_mols) == 1
 
+    def test_same_geometry_different_energy_kept(self):
+        """Identical geometry but distinct E_tot must be kept (energy guard).
+
+        Heavy-atom RMSD ~= 0 but the two are distinct minima (the O-H rotamer
+        case); the energy guard must stop them collapsing into one.
+        """
+        from Auto3D.utils.chemistry import filter_unique
+
+        mol = Chem.MolFromSmiles("CCO")
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        AllChem.MMFFOptimizeMolecule(mol)
+        mol.SetProp("Converged", "true")
+        mol.SetProp("E_tot", "-10.0")
+
+        mol2 = Chem.Mol(mol)  # identical geometry
+        mol2.SetProp("Converged", "true")
+        mol2.SetProp("E_tot", "-10.5")  # |dE| >> tol
+
+        unique_mols = filter_unique([mol, mol2], crit=0.3)
+        assert len(unique_mols) == 2
+
+    def test_missing_energy_falls_back_to_rmsd_only(self):
+        """Without E_tot the energy guard cannot apply -> RMSD-only dedup.
+
+        Preserves the legacy behavior for callers that do not set E_tot.
+        """
+        from Auto3D.utils.chemistry import filter_unique
+
+        mol = Chem.MolFromSmiles("CCO")
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        AllChem.MMFFOptimizeMolecule(mol)
+        mol.SetProp("Converged", "true")  # no E_tot set
+
+        mol2 = Chem.Mol(mol)
+        mol2.SetProp("Converged", "true")
+
+        unique_mols = filter_unique([mol, mol2], crit=0.3)
+        assert len(unique_mols) == 1
+
     def test_filter_different_conformers(self):
         """Test that different conformers are kept."""
         from Auto3D.utils.chemistry import filter_unique

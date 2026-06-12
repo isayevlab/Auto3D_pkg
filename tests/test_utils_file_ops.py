@@ -93,6 +93,34 @@ class TestSmiles2Smi:
         assert output.exists()
         assert output.read_text() == ""
 
+    def test_colliding_inchikeys_get_distinct_ids(self, tmp_path):
+        """Two inputs that share an InChIKey must keep distinct IDs.
+
+        The same molecule written two ways (here benzene) yields one InChIKey;
+        without disambiguation reorder_sdf would collapse the duplicate IDs and
+        silently drop the second input. Each input must get its own line/ID.
+        """
+        output = tmp_path / "test.smi"
+
+        smiles2smi(["c1ccccc1", "C1=CC=CC=C1"], str(output))
+
+        lines = output.read_text().strip().split("\n")
+        assert len(lines) == 2
+        ids = [line.split()[1] for line in lines]
+        assert ids[0] != ids[1], "colliding InChIKeys must be disambiguated"
+        # First keeps the bare InChIKey; the repeat is suffixed.
+        assert ids[1] == f"{ids[0]}_2"
+
+    def test_distinct_inputs_keep_bare_inchikeys(self, tmp_path):
+        """Non-colliding inputs must keep their plain InChIKey IDs (no suffix)."""
+        output = tmp_path / "test.smi"
+
+        smiles2smi(["CCO", "CCC"], str(output))
+
+        ids = [line.split()[1] for line in output.read_text().strip().split("\n")]
+        assert ids[0] != ids[1]
+        assert all("_" not in i for i in ids)
+
 
 class TestGuessFileType:
     """Tests for guess_file_type function."""

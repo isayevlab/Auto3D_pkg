@@ -52,6 +52,15 @@ BUILTIN_ANI_MODELS = frozenset({MODEL_ANI2X.upper(), MODEL_ANI2XT.upper()})
 
 # Default optimization parameters
 DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
+# eV, energy tolerance for the duplicate-conformer test. RMSD dedup compares
+# heavy-atom skeletons only, so conformers differing solely in an O-H / N-H rotor
+# orientation collapse to RMSD~=0 even though they are distinct minima with
+# different energies. Two structures are treated as duplicates only when their
+# heavy-atom RMSD is below threshold AND their energies agree within this
+# tolerance, so genuine rotamers (which the H-rich conformer budget deliberately
+# samples) survive. ~0.23 kcal/mol -- above post-optimization fp32 energy noise
+# (~1e-3 eV) so truly identical conformers still dedup.
+DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
