@@ -22,6 +22,14 @@ class _TinyNNP(torch.nn.Module):
         return (coords * mask).pow(2).sum(dim=(1, 2))
 
 
+class _LinNNP(torch.nn.Module):
+    """Module-level (picklable) model with a real parameter, for dtype checks."""
+
+    def __init__(self):
+        super().__init__()
+        self.lin = torch.nn.Linear(3, 1)
+
+
 def test_custom_eager_module_loads_and_runs(tmp_path):
     from Auto3D.models.adapter import CustomModelAdapter
 
@@ -37,3 +45,46 @@ def test_custom_eager_module_loads_and_runs(tmp_path):
     e, f = adapter.forward(coords, species, charges)
     assert e.shape == (1,) and torch.isfinite(e).all()
     assert f.shape == coords.shape and torch.isfinite(f).all()
+
+
+def test_load_custom_nnp_eager_and_double(tmp_path):
+    """The shared loader returns an eager nn.Module; double=True casts to fp64."""
+    from Auto3D.models.loading import load_custom_nnp
+
+    path = tmp_path / "tiny.pt"
+    torch.save(_TinyNNP(), path)
+    m = load_custom_nnp(str(path), torch.device("cpu"))
+    assert isinstance(m, torch.nn.Module)
+
+    # A module with a real parameter so dtype is observable.
+    p2 = tmp_path / "lin.pt"
+    torch.save(_LinNNP(), p2)
+    md = load_custom_nnp(str(p2), torch.device("cpu"), double=True)
+    assert next(md.parameters()).dtype == torch.float64
+
+
+def test_load_custom_nnp_rejects_state_dict(tmp_path):
+    """A bare state_dict (OrderedDict, not an nn.Module) must raise ModelLoadError,
+    not a raw AttributeError."""
+    import pytest
+
+    from Auto3D.exceptions import ModelLoadError
+    from Auto3D.models.loading import load_custom_nnp
+
+    path = tmp_path / "sd.pt"
+    torch.save(_TinyNNP().state_dict(), path)  # OrderedDict, has no .to()
+    with pytest.raises(ModelLoadError):
+        load_custom_nnp(str(path), torch.device("cpu"))
+
+
+def test_load_custom_nnp_rejects_garbage(tmp_path):
+    """A non-loadable file must raise ModelLoadError (not a raw exception)."""
+    import pytest
+
+    from Auto3D.exceptions import ModelLoadError
+    from Auto3D.models.loading import load_custom_nnp
+
+    path = tmp_path / "garbage.pt"
+    path.write_text("not a model")
+    with pytest.raises(ModelLoadError):
+        load_custom_nnp(str(path), torch.device("cpu"))

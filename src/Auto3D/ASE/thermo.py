@@ -264,21 +264,16 @@ def _load_hessian_model(model_name: str, device):
     those external terms. ANI2xt/ANI2x and custom paths return fp64 nn.Modules,
     which vib_hessian differentiates with torch.autograd.functional.hessian.
     """
-    import torch
     if model_name == "ANI2xt":
         return ANI2xt(device).double()
     if model_name == "ANI2x":
         import torchani
         return torchani.models.ANI2x(periodic_table_index=True).to(device).double()
     if Path(model_name).exists():
-        # Load a custom NNP as a TorchScript archive or, failing that, an eager
-        # nn.Module checkpoint (modern AIMNet2-based models are not
-        # torch.jit.script-able).
-        try:
-            return torch.jit.load(model_name, map_location=device).double()
-        except RuntimeError:
-            model = torch.load(model_name, map_location=device, weights_only=False)
-            return model.to(device).double().eval()
+        # Custom NNP: TorchScript archive or eager nn.Module, cast to fp64
+        # (shared load contract -- see Auto3D.models.loading.load_custom_nnp).
+        from Auto3D.models.loading import load_custom_nnp
+        return load_custom_nnp(model_name, device, double=True)
     # AIMNET or any aimnet registry alias
     from aimnet.calculators import AIMNet2Calculator
 
