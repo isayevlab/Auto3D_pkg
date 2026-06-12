@@ -8,14 +8,22 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from Auto3D.models.adapter import ModelAdapter, AIMNet2Adapter
+# Adapter classes are imported locally inside the tests that need them; the
+# real-AIMNet2 tests now reuse the session-scoped ``aimnet_model`` fixture
+# (see tests/conftest.py) so the model is loaded once per session, not per test.
 
 
-def test_model_adapter_interface():
+def test_model_adapter_interface(aimnet_model):
     """A concrete adapter should expose the ModelAdapter interface and a
-    forward(coords, species, charges) -> (energy, forces) signature."""
+    forward(coords, species, charges) -> (energy, forces) signature.
+
+    Uses the session-scoped ``aimnet_model`` fixture (an ``AIMNet2Adapter``
+    built once via ``create_model("AIMNET", ...)``) instead of loading the real
+    AIMNet2 model per-test (~7s). The test is read-only (reads attributes and
+    calls ``forward``), so sharing the adapter is safe.
+    """
     device = torch.device("cpu")
-    adapter = AIMNet2Adapter("aimnet2", device)
+    adapter = aimnet_model
 
     # Test interface attributes exist
     assert hasattr(adapter, 'coord_pad')
@@ -75,19 +83,25 @@ class TestBaseModelAdapter:
 class TestAIMNet2Adapter:
     """Tests for the AIMNet2Adapter (aimnet-backed)."""
 
-    def test_aimnet2_adapter_loads_default_model(self):
-        """AIMNet2Adapter resolves the 'aimnet2' registry name (no .jpt path)."""
-        device = torch.device("cpu")
-        adapter = AIMNet2Adapter("aimnet2", device)
+    def test_aimnet2_adapter_loads_default_model(self, aimnet_model):
+        """AIMNet2Adapter resolves the 'aimnet2' registry name (no .jpt path).
+
+        Uses the shared session ``aimnet_model`` fixture (built via
+        ``create_model("AIMNET", ...)``, which resolves to the ``aimnet2``
+        registry default) rather than reloading the real model. Read-only.
+        """
+        adapter = aimnet_model
 
         assert adapter.model_name == "aimnet2"
         # An underlying nn.Module is built from the aimnet registry.
         assert adapter.model is not None
 
-    def test_aimnet2_adapter_has_correct_padding(self):
-        """AIMNet2Adapter should have coord_pad=0.0 and species_pad=0."""
-        device = torch.device("cpu")
-        adapter = AIMNet2Adapter("aimnet2", device)
+    def test_aimnet2_adapter_has_correct_padding(self, aimnet_model):
+        """AIMNet2Adapter should have coord_pad=0.0 and species_pad=0.
+
+        Reuses the shared session ``aimnet_model`` fixture (read-only).
+        """
+        adapter = aimnet_model
 
         assert adapter.coord_pad == 0.0
         assert adapter.species_pad == 0
@@ -191,11 +205,12 @@ def test_try_compile_uses_dynamic_default_mode(monkeypatch):
     assert captured.get("dynamic") is True
 
 
-def test_aimnet2_adapter_energy_forces_water():
+def test_aimnet2_adapter_energy_forces_water(aimnet_model):
+    """Reuses the shared session ``aimnet_model`` adapter (read-only forward)
+    instead of reloading the real AIMNet2 model (~7s)."""
     import torch
-    from Auto3D.models.adapter import AIMNet2Adapter
 
-    ad = AIMNet2Adapter("aimnet2", torch.device("cpu"))
+    ad = aimnet_model
     coord = torch.tensor([[[0.0, 0, 0], [0, 0, 0.97], [0, 0.92, -0.25]]])
     species = torch.tensor([[8, 1, 1]])
     charges = torch.tensor([0.0])
@@ -206,11 +221,13 @@ def test_aimnet2_adapter_energy_forces_water():
     assert ad.species_pad == 0 and ad.coord_pad == 0.0
 
 
-def test_aimnet2_adapter_padded_batch_matches_unpadded():
-    """Padded multi-size batch must give per-molecule energies equal to solo runs."""
+def test_aimnet2_adapter_padded_batch_matches_unpadded(aimnet_model):
+    """Padded multi-size batch must give per-molecule energies equal to solo runs.
+
+    Reuses the shared session ``aimnet_model`` adapter (read-only forward).
+    """
     import torch
-    from Auto3D.models.adapter import AIMNet2Adapter
-    ad = AIMNet2Adapter("aimnet2", torch.device("cpu"))
+    ad = aimnet_model
 
     water_c = torch.tensor([[0.,0,0],[0,0,0.97],[0,0.92,-0.25]])
     water_n = torch.tensor([8,1,1])
