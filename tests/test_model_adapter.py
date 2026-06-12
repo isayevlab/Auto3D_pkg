@@ -13,6 +13,7 @@ import torch
 # (see tests/conftest.py) so the model is loaded once per session, not per test.
 
 
+@pytest.mark.slow
 def test_model_adapter_interface(aimnet_model):
     """A concrete adapter should expose the ModelAdapter interface and a
     forward(coords, species, charges) -> (energy, forces) signature.
@@ -80,6 +81,7 @@ class TestBaseModelAdapter:
         assert adapter.species_pad == -1
 
 
+@pytest.mark.slow
 class TestAIMNet2Adapter:
     """Tests for the AIMNet2Adapter (aimnet-backed)."""
 
@@ -205,6 +207,7 @@ def test_try_compile_uses_dynamic_default_mode(monkeypatch):
     assert captured.get("dynamic") is True
 
 
+@pytest.mark.slow
 def test_aimnet2_adapter_energy_forces_water(aimnet_model):
     """Reuses the shared session ``aimnet_model`` adapter (read-only forward)
     instead of reloading the real AIMNet2 model (~7s)."""
@@ -221,6 +224,7 @@ def test_aimnet2_adapter_energy_forces_water(aimnet_model):
     assert ad.species_pad == 0 and ad.coord_pad == 0.0
 
 
+@pytest.mark.slow
 def test_aimnet2_adapter_padded_batch_matches_unpadded(aimnet_model):
     """Padded multi-size batch must give per-molecule energies equal to solo runs.
 
