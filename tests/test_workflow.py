@@ -357,7 +357,7 @@ def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
 
     smi = tmp_path / "mol.smi"
     smi.write_text("CCO ethanol\n")
-    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1))
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1, use_gpu=False))
 
     # Fail after _validate_input has already written the encoded temp file.
     monkeypatch.setattr(
@@ -490,7 +490,7 @@ def test_orchestrator_input_format_single_source_of_truth(tmp_path):
 
     smi = tmp_path / "m.smi"
     smi.write_text("CCO ethanol\n")
-    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1))
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1, use_gpu=False))
     orch._validate_input()
     assert orch.config.input_format == "smi"
     assert not hasattr(orch, "input_format")
