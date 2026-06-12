@@ -98,6 +98,7 @@ def smiles2smi(smiles: list[str], path: str) -> str:
         # CCC  ATUOYWHBWRKTHZ-UHFFFAOYSA-N
     """
     lines = []
+    seen_ids: dict[str, int] = {}
     for idx, smi in enumerate(smiles):
         mol = Chem.MolFromSmiles(smi)
         if mol is None:
@@ -106,7 +107,25 @@ def smiles2smi(smiles: list[str], path: str) -> str:
                 "by RDKit."
             )
         inchikey = inchi.MolToInchiKey(mol)
-        lines.append(f"{smi}  {inchikey}\n")
+        # Distinct inputs can share a standard InChIKey (e.g. tautomers the
+        # standard InChIKey conflates, or the same molecule written two ways).
+        # The InChIKey is used as the molecule's unique ID downstream, and
+        # reorder_sdf collapses duplicate IDs -- so a colliding input would be
+        # silently dropped. Disambiguate by suffixing repeats (_2, _3, ...) so
+        # every input keeps its own conformers. The suffix stays a single
+        # whitespace-delimited token and round-trips through enumeration.
+        count = seen_ids.get(inchikey, 0) + 1
+        seen_ids[inchikey] = count
+        mol_id = inchikey if count == 1 else f"{inchikey}_{count}"
+        if count > 1:
+            logger.info(
+                "Input SMILES %r shares InChIKey %s with an earlier input; "
+                "assigning disambiguated id %s so it is not dropped.",
+                smi,
+                inchikey,
+                mol_id,
+            )
+        lines.append(f"{smi}  {mol_id}\n")
 
     with open(path, "w+") as f:
         for line in lines:
