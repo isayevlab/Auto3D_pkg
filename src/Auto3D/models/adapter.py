@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from Auto3D.constants import HARTREE_TO_EV
-from Auto3D.exceptions import NumericalError
+from Auto3D.exceptions import ModelLoadError, NumericalError
 
 
 def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
@@ -370,14 +370,19 @@ class ANI2xAdapter(BaseModelAdapter):
 class CustomModelAdapter(BaseModelAdapter):
     """Adapter for user-provided custom NNP models.
 
-    Custom models should be TorchScript models that implement:
+    Custom models implement:
     - forward(species, coords, charges) -> energies
-    - Optional: coord_pad and species_pad attributes
+    - Optional: coord_pad and species_pad attributes (defaults used if absent)
 
-    If coord_pad and species_pad are not defined, defaults are used.
+    The model file may be EITHER a TorchScript archive
+    (``torch.jit.script(m).save(path)``) OR an eager nn.Module saved with
+    ``torch.save(m, path)``; the adapter auto-detects. Eager loading is required
+    because modern AIMNet2-based models are no longer torch.jit.script-able.
 
-    Note: Custom models are typically TorchScript, which has limited
-    torch.compile() benefits.
+    Note: if your model pads batches, use a non-zero ``species_pad`` -- some
+    backends (e.g. AIMNet2) produce NaN on species-0 padded atoms.
+
+    Note: Custom models have limited torch.compile() benefits.
 
     Note: inputs are cast to float32 before the forward pass. If your NNP
     requires float64 precision (e.g. for very small energy differences),
@@ -397,7 +402,19 @@ class CustomModelAdapter(BaseModelAdapter):
             device: Target device for computations.
             compile_model: Whether to apply torch.compile() for optimization.
         """
-        model = torch.jit.load(model_path, map_location=device)
+        # Prefer torch.jit.load for legacy TorchScript archives; fall back to a
+        # plain torch.load for eager nn.Module checkpoints. Modern AIMNet2-based
+        # models are no longer torch.jit.script-able (aimnet dropped scripting
+        # support), so the custom-NNP contract must accept eager modules too.
+        try:
+            model = torch.jit.load(model_path, map_location=device)
+        except RuntimeError:
+            model = torch.load(model_path, map_location=device, weights_only=False)
+            if not isinstance(model, torch.nn.Module):
+                raise ModelLoadError(
+                    f"Custom NNP at {model_path} did not deserialize to an nn.Module."
+                )
+            model = model.to(device).eval()
         coord_pad = getattr(model, 'coord_pad', 0.0)
         species_pad = getattr(model, 'species_pad', -1)
         # TorchScript models don't benefit from torch.compile

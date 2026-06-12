@@ -92,7 +92,17 @@ def check_input(args: Any) -> None:
 
     if Path(args.optimizing_engine).exists():
         try:
-            model_ = torch.jit.load(args.optimizing_engine)  # noqa: F841
+            try:
+                model_ = torch.jit.load(args.optimizing_engine)  # noqa: F841
+            except RuntimeError:
+                # Not a TorchScript archive -> try an eager nn.Module checkpoint
+                # (modern AIMNet2-based custom models are not jit.script-able).
+                model_ = torch.load(args.optimizing_engine, weights_only=False)  # noqa: F841
+                if not isinstance(model_, torch.nn.Module):
+                    raise ModelLoadError(
+                        "A path to a user NNP is used as optimizing engine, but it did "
+                        "not deserialize to an nn.Module."
+                    )
         except (RuntimeError, pickle.UnpicklingError, OSError) as e:
             raise ModelLoadError(
                 "A path to a user NNP is used as optimizing engine, but it cannot be loaded. "
