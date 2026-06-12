@@ -75,6 +75,7 @@ class TestModelFactory:
             model_factory.ModelFactory._adapters["ANI2X"]
         assert "ANI2XT" in model_factory.ModelFactory._adapters
 
+    @pytest.mark.slow
     def test_create_aimnet_returns_aimnet2_adapter(self, aimnet_model):
         """create('AIMNET') builds an AIMNet2Adapter bound to the 'aimnet2'
         registry name (no bundled .jpt path anymore).
@@ -170,6 +171,7 @@ class TestIsCustomModel:
 class TestFactoryReturnsAdapter:
     """Tests for ModelFactory returning adapter instances."""
 
+    @pytest.mark.slow
     def test_factory_returns_adapter(self, aimnet_model):
         """Factory should return ModelAdapter instances."""
         # Reuse the session-scoped aimnet_model fixture (one shared load that
@@ -183,6 +185,7 @@ class TestFactoryReturnsAdapter:
         assert model.coord_pad == 0.0
         assert model.species_pad == 0
 
+    @pytest.mark.slow
     def test_factory_returns_aimnet_adapter(self, aimnet_model):
         """Factory should return an AIMNet2Adapter for AIMNET."""
         from Auto3D.models.adapter import AIMNet2Adapter
