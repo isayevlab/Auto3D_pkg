@@ -146,10 +146,12 @@ class ANI2xt(nn.Module):
             Tensor of shape (batch,) with molecular energies in eV
 
         Note:
-            Energies are computed in float32 (coords dtype). Self-atomic energy
-            shifts cancel in conformer energy differences (same atom counts), so
-            the float32 path does not affect ranking; absolute energies carry a
-            float32 ULP (~4e-3 eV) at typical total-energy magnitudes.
+            The AEV and per-element networks run in float32; the energy
+            accumulation (per-atom sum, self-atomic-energy shifts, and total) is
+            done in float64 so the float64 energy_shifts buffer is used at full
+            precision. Self-atomic energy shifts cancel in conformer energy
+            differences (same atom counts), so this does not change ranking; it
+            only cleans up absolute energies.
         """
         if self.periodic:
             # Convert atomic numbers to sequential indices
@@ -164,7 +166,12 @@ class ANI2xt(nn.Module):
 
         # Compute per-atom energies
         batch_size, num_atoms = species_idx.shape
-        atom_energies = torch.zeros(batch_size, num_atoms, device=coords.device, dtype=coords.dtype)
+        # Accumulate energies in float64 so the float64 energy_shifts buffer is
+        # used at full precision and absolute energies are clean. This does NOT
+        # change conformer rankings: per-atom self-energies depend only on atom
+        # counts and cancel exactly in energy differences within a molecule.
+        # (The AEV and per-element networks remain float32.)
+        atom_energies = torch.zeros(batch_size, num_atoms, device=coords.device, dtype=torch.float64)
 
         for elem_idx, network in enumerate(self.networks):
             # Find atoms of this element type
@@ -180,10 +187,10 @@ class ANI2xt(nn.Module):
         atomic_energies = atom_energies.sum(dim=1)  # (batch,)
 
         # Add self-energies (energy shifts)
-        self_energies = torch.zeros(batch_size, device=coords.device, dtype=coords.dtype)
+        self_energies = torch.zeros(batch_size, device=coords.device, dtype=torch.float64)
         for elem_idx in range(len(self.networks)):
             mask = (species_idx == elem_idx)
-            counts = mask.sum(dim=1).to(coords.dtype)  # (batch,)
+            counts = mask.sum(dim=1).to(torch.float64)  # (batch,)
             self_energies += counts * self.energy_shifts[elem_idx]
 
         # Total energy in Hartree, convert to eV
