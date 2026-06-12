@@ -75,16 +75,18 @@ class TestModelFactory:
             model_factory.ModelFactory._adapters["ANI2X"]
         assert "ANI2XT" in model_factory.ModelFactory._adapters
 
-    def test_create_aimnet_returns_aimnet2_adapter(self):
+    def test_create_aimnet_returns_aimnet2_adapter(self, aimnet_model):
         """create('AIMNET') builds an AIMNet2Adapter bound to the 'aimnet2'
-        registry name (no bundled .jpt path anymore)."""
+        registry name (no bundled .jpt path anymore).
+
+        Reuses the session-scoped ``aimnet_model`` fixture (itself built via
+        ``create_model("AIMNET", ...)`` -> ``ModelFactory.create``) so the real
+        NNP is loaded once per session instead of an extra ~4s load here.
+        """
         from Auto3D.models.adapter import AIMNet2Adapter
 
-        device = torch.device("cpu")
-        model = ModelFactory.create("AIMNET", device=device)
-
-        assert isinstance(model, AIMNet2Adapter)
-        assert model.model_name == "aimnet2"
+        assert isinstance(aimnet_model, AIMNet2Adapter)
+        assert aimnet_model.model_name == "aimnet2"
 
     @patch("Auto3D.model_factory.Path.exists")
     @patch("Auto3D.models.adapter.torch.jit.load")
@@ -168,10 +170,11 @@ class TestIsCustomModel:
 class TestFactoryReturnsAdapter:
     """Tests for ModelFactory returning adapter instances."""
 
-    def test_factory_returns_adapter(self):
+    def test_factory_returns_adapter(self, aimnet_model):
         """Factory should return ModelAdapter instances."""
-        device = torch.device("cpu")
-        model = create_model("AIMNET", device)
+        # Reuse the session-scoped aimnet_model fixture (one shared load that
+        # survives ModelFactory.clear_cache()) instead of a fresh create_model.
+        model = aimnet_model
 
         # Check it's an adapter with the right interface
         assert hasattr(model, 'coord_pad')
@@ -180,12 +183,12 @@ class TestFactoryReturnsAdapter:
         assert model.coord_pad == 0.0
         assert model.species_pad == 0
 
-    def test_factory_returns_aimnet_adapter(self):
+    def test_factory_returns_aimnet_adapter(self, aimnet_model):
         """Factory should return an AIMNet2Adapter for AIMNET."""
         from Auto3D.models.adapter import AIMNet2Adapter
 
-        device = torch.device("cpu")
-        model = create_model("AIMNET", device)
+        # Reuse the session-scoped aimnet_model fixture (one shared load).
+        model = aimnet_model
 
         assert isinstance(model, AIMNet2Adapter)
         assert model.model_name == "aimnet2"

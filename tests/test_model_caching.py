@@ -4,7 +4,32 @@ from __future__ import annotations
 import pytest
 import torch
 
+import Auto3D.model_factory as model_factory
 from Auto3D.model_factory import ModelFactory, create_model
+
+
+class _FakeAIMNet2Adapter:
+    """Lightweight stand-in for ``AIMNet2Adapter``.
+
+    Mirrors the real constructor signature so ``ModelFactory.create`` builds
+    its cache key (registry_name, device, use_ensemble, compile_model) and
+    stores/returns instances exactly as in production, but skips the multi-
+    second real AIMNet2 model load. The caching dict, identity semantics, and
+    ``get_cache_info()`` size are all exercised unchanged; only the expensive
+    object construction is replaced with an instant one.
+    """
+
+    def __init__(
+        self,
+        model_name="aimnet2",
+        device=None,
+        compile_model=False,
+        use_ensemble=False,
+    ):
+        self.model_name = model_name
+        self.device = device
+        self.compile_model = compile_model
+        self.use_ensemble = use_ensemble
 
 
 class TestModelCaching:
@@ -17,6 +42,19 @@ class TestModelCaching:
     def teardown_method(self):
         """Clear cache after each test."""
         ModelFactory.clear_cache()
+
+    @pytest.fixture(autouse=True)
+    def _fake_aimnet_adapter(self, monkeypatch):
+        """Replace the real AIMNet2 adapter with an instant fake.
+
+        Patches the ``AIMNet2Adapter`` symbol used by ``ModelFactory.create``
+        so that ``create_model("AIMNET", ...)`` returns a cheap stub instead of
+        loading the real ~4-7s NNP. The cache-key / cache-dict logic in
+        ``create`` runs verbatim, so all identity and cache-size assertions stay
+        meaningful. ANI-based tests ``importorskip("torchani")`` before reaching
+        ``create_model`` and are unaffected by this patch.
+        """
+        monkeypatch.setattr(model_factory, "AIMNet2Adapter", _FakeAIMNet2Adapter)
 
     def test_same_model_returns_cached_instance(self):
         """Test that calling create_model with same args returns cached instance."""
