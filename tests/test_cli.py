@@ -109,10 +109,15 @@ def test_run_subcommand_help():
     result = runner.invoke(app, ["run", "--help"])
 
     assert result.exit_code == 0
-    assert "--config" in result.stdout or "-c" in result.stdout
-    assert "--engine" in result.stdout
-    assert "--gpu" in result.stdout
-    assert "--json" in result.stdout
+    # Strip ANSI: rich colorizes the help in a TTY/CI (FORCE_COLOR), styling the
+    # '--' prefix separately from the option name, which splits the literal
+    # '--engine' across escape codes. Stripping rejoins the text.
+    import re
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "--config" in out or "-c" in out
+    assert "--engine" in out
+    assert "--gpu" in out
+    assert "--json" in out
 
 
 def test_config_subcommand_help():

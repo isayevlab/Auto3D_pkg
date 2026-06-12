@@ -348,6 +348,16 @@ def test_models_info_aimnet2_alias(runner):
     assert "AIMNet2" in result.stdout
 
 
+def test_models_info_unkeyed_aimnet2_variant_resolves(runner):
+    """Any aimnet2-* registry name -- including a future variant without its own
+    ENGINE_INFO block -- must resolve to the base AIMNet2 entry, not 'Unknown
+    engine' (check_valid_configuration already accepts any aimnet2* name)."""
+    from Auto3D.cli.app import app
+    result = runner.invoke(app, ["models", "info", "aimnet2-future"])
+    assert result.exit_code == 0, result.stdout
+    assert "AIMNet2" in result.stdout
+
+
 def test_config_validate_missing_file(runner, tmp_path_cwd):
     """config validate on a missing file should fail with a not-found hint."""
     from Auto3D.cli.app import app

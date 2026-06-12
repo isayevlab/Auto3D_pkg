@@ -7,9 +7,9 @@ from __future__ import annotations
 from functools import partial
 from pathlib import Path
 
-import numpy as np
 import ase
 import ase.calculators.calculator
+import numpy as np
 import torch
 from ase import Atoms
 from ase.optimize import BFGS
@@ -79,12 +79,19 @@ class Calculator(ase.calculators.calculator.Calculator):
     implemented_properties = ['energy', 'forces']
     def __init__(self, model, charge=0):
         super().__init__()
-        self.model = model 
-        for p in self.model.parameters():
+        self.model = model
+        params = list(self.model.parameters())
+        for p in params:
             p.requires_grad_(False)
-        a_parameter = next(self.model.parameters())
-        self.device = a_parameter.device
-        self.dtype = a_parameter.dtype
+        if params:
+            self.device = params[0].device
+            self.dtype = params[0].dtype
+        else:
+            # Param-less custom model (e.g. one that builds its NNP backend
+            # lazily): it handles device/dtype internally from the input tensors,
+            # so fall back to a sensible default for the ASE-facing tensors.
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.dtype = torch.double
         self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
 
     def set_charge(self, charge:int):
@@ -257,16 +264,19 @@ def _load_hessian_model(model_name: str, device):
     those external terms. ANI2xt/ANI2x and custom paths return fp64 nn.Modules,
     which vib_hessian differentiates with torch.autograd.functional.hessian.
     """
-    import torch
     if model_name == "ANI2xt":
         return ANI2xt(device).double()
     if model_name == "ANI2x":
         import torchani
         return torchani.models.ANI2x(periodic_table_index=True).to(device).double()
     if Path(model_name).exists():
-        return torch.jit.load(model_name, map_location=device).double()
+        # Custom NNP: TorchScript archive or eager nn.Module, cast to fp64
+        # (shared load contract -- see Auto3D.models.loading.load_custom_nnp).
+        from Auto3D.models.loading import load_custom_nnp
+        return load_custom_nnp(model_name, device, double=True)
     # AIMNET or any aimnet registry alias
     from aimnet.calculators import AIMNet2Calculator
+
     from Auto3D.constants import DEFAULT_AIMNET_MODEL
     name = DEFAULT_AIMNET_MODEL if model_name.upper() == "AIMNET" else model_name
     calc = AIMNet2Calculator(name, device=device)
