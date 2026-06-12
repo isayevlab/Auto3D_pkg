@@ -217,13 +217,22 @@ class TestIsomerWrapperFailure:
 class TestOptimizerEmptyInput:
     """Tests for optimizer handling of empty/missing input files."""
 
-    def test_optimizer_handles_missing_file(self, tmp_path, caplog):
+    def test_optimizer_handles_missing_file(self, tmp_path, caplog, monkeypatch):
         """Optimizer should gracefully handle missing input files."""
         import logging
+        from types import SimpleNamespace
 
         import torch
 
         from Auto3D.batch_opt.batchopt import optimizing
+
+        # This test exercises missing-file handling only -- run() returns before
+        # touching the model -- so stub create_model to skip the multi-second
+        # real AIMNet2 load (and stay robust to sibling tests clearing the cache).
+        monkeypatch.setattr(
+            "Auto3D.batch_opt.batchopt.create_model",
+            lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
+        )
 
         device = torch.device("cpu")
         config = {
@@ -242,13 +251,21 @@ class TestOptimizerEmptyInput:
 
         assert "does not exist" in caplog.text
 
-    def test_optimizer_handles_empty_file(self, tmp_path, caplog):
+    def test_optimizer_handles_empty_file(self, tmp_path, caplog, monkeypatch):
         """Optimizer should gracefully handle empty input files."""
         import logging
+        from types import SimpleNamespace
 
         import torch
 
         from Auto3D.batch_opt.batchopt import optimizing
+
+        # Empty-file handling returns before the model is used; stub create_model
+        # to skip the real AIMNet2 load (see test_optimizer_handles_missing_file).
+        monkeypatch.setattr(
+            "Auto3D.batch_opt.batchopt.create_model",
+            lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
+        )
 
         device = torch.device("cpu")
         config = {

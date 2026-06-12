@@ -188,12 +188,21 @@ class TestGPUCleanup:
         assert 'cuda.is_available' in source, "CUDA availability check missing"
 
 
-def test_make_buckets_groups_by_size(tmp_path):
+def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
     """Buckets must be size-homogeneous; a size outlier splits into its own bucket."""
+    from types import SimpleNamespace
+
     from rdkit import Chem
     from rdkit.Chem import AllChem
     import torch
     from Auto3D.batch_opt.batchopt import optimizing
+
+    # _make_buckets is pure-Python; stub create_model so this never loads the
+    # real AIMNet2 model.
+    monkeypatch.setattr(
+        "Auto3D.batch_opt.batchopt.create_model",
+        lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
+    )
 
     # Build an optimizing instance without running (just to call _make_buckets)
     inp = tmp_path / "in.sdf"
@@ -214,6 +223,8 @@ def test_make_buckets_groups_by_size(tmp_path):
 
 def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     """Bucketing reorders internally but output order must match input."""
+    from types import SimpleNamespace
+
     from rdkit import Chem
     from rdkit.Chem import AllChem
     import torch
@@ -234,6 +245,12 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
                     numbers=numbers.tolist(), converged_mask=[True]*n,
                     oscillating_count=[0]*n)
     monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
+    # The optimization itself is faked above; stub create_model so constructing
+    # `optimizing` does not load the real AIMNet2 model.
+    monkeypatch.setattr(
+        bo, "create_model",
+        lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
+    )
 
     out = tmp_path / "out.sdf"
     eng = bo.optimizing(str(inp), str(out), "AIMNET", torch.device("cpu"),
