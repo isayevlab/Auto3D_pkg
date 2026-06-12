@@ -22,6 +22,27 @@ from Auto3D.constants import (
 )
 
 
+def optimizer_worker_indices(
+    use_gpu: bool, gpu_idx: "int | list[int]"
+) -> list[int]:
+    """Return the per-process indices for the optimizer worker pool.
+
+    One worker per GPU when running on GPU with a list of indices; a single
+    worker otherwise. On CPU the index is unused (the worker runs on
+    ``torch.device('cpu')``), so a list of indices must NOT fan out into N
+    processes that all contend for the same cores -- that wastes memory (N model
+    loads) and risks OOM on a small box. The isomer worker uses this same count
+    to emit exactly one "Done" sentinel per optimizer, so both call sites must
+    agree to avoid deadlock.
+    """
+    if isinstance(gpu_idx, int):
+        return [gpu_idx]
+    if use_gpu:
+        return list(gpu_idx)
+    # CPU with a list of indices: collapse to a single worker (index unused).
+    return [gpu_idx[0] if gpu_idx else 0]
+
+
 @dataclass
 class Auto3DOptions:
     """Configuration options for Auto3D conformer generation.
