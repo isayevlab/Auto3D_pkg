@@ -8,7 +8,7 @@ vectorized PyTorch operations.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import torch
 
@@ -62,7 +62,7 @@ def pad_molecular_batch(
     charges_tensor = torch.tensor(charges, dtype=torch.long, device=device)
 
     # Fill in actual values - create tensors directly on target device
-    for i, (coord, spec) in enumerate(zip(coords, species)):
+    for i, (coord, spec) in enumerate(zip(coords, species, strict=True)):
         n = len(spec)
         coords_tensor[i, :n] = torch.tensor(coord, dtype=torch.float32, device=device)
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)

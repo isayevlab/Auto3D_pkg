@@ -7,9 +7,9 @@ from __future__ import annotations
 from functools import partial
 from pathlib import Path
 
-import numpy as np
 import ase
 import ase.calculators.calculator
+import numpy as np
 import torch
 from ase import Atoms
 from ase.optimize import BFGS
@@ -267,6 +267,7 @@ def _load_hessian_model(model_name: str, device):
         return torch.jit.load(model_name, map_location=device).double()
     # AIMNET or any aimnet registry alias
     from aimnet.calculators import AIMNet2Calculator
+
     from Auto3D.constants import DEFAULT_AIMNET_MODEL
     name = DEFAULT_AIMNET_MODEL if model_name.upper() == "AIMNET" else model_name
     calc = AIMNet2Calculator(name, device=device)

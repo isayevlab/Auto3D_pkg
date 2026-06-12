@@ -24,15 +24,9 @@ try:
 except ImportError:
     pass
 
-from .padding import pad_from_mols
-
-from Auto3D.model_factory import create_model
-from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_FMAX_SENTINEL, INITIAL_ENERGY_SENTINEL
-
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
 # removed to allow user configuration.
-
 # EnForce_ANI extracted to separate module for better modularity
 # Re-export for backward compatibility - modules like SPE.py and ASE/thermo.py
 # import EnForce_ANI from this module
@@ -41,6 +35,10 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 # Optimization loop functions extracted to separate module for better modularity
 # Re-export for backward compatibility (print_stats kept as public re-export)
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
+from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
+from Auto3D.model_factory import create_model
+
+from .padding import pad_from_mols
 
 
 def ensemble_opt(
