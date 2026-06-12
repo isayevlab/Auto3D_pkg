@@ -9,7 +9,9 @@ Breaking Changes
 Python Version
 ~~~~~~~~~~~~~~
 
-Auto3D v3.0 requires **Python 3.10 or later**. If you're using an older Python version, you'll need to upgrade your environment.
+Auto3D v3.0 requires **Python 3.10 or later**. As of Auto3D 3.5, the minimum
+supported Python is **3.11** (and PyTorch **>= 2.8**); upgrade your environment
+accordingly.
 
 API Changes
 ~~~~~~~~~~~
@@ -172,8 +174,14 @@ New API for creating models directly:
    # Create a model for custom workflows
    model = create_model("AIMNET", device="cuda:0")
 
-   # Use ensemble for higher accuracy (slower)
-   model = create_model("AIMNET", device="cuda:0", use_ensemble=True)
+   # Select a specialized AIMNet2 registry model (auto-downloaded on first use)
+   model = create_model("aimnet2-nse", device="cuda:0")
+
+.. note::
+   The 8-model AIMNet2 ensemble was **removed**. ``use_ensemble=True`` (and the
+   ``AUTO3D_USE_ENSEMBLE=1`` environment variable) is now a **no-op** that emits
+   a ``UserWarning`` and falls back to a single registry model. (This is
+   unrelated to ANI-2x, which is itself internally an 8-model ensemble.)
 
 Environment variables
 ~~~~~~~~~~~~~~~~~~~~~
@@ -181,12 +189,16 @@ Environment variables
 New environment variables for runtime configuration:
 
 - ``AUTO3D_COMPILE_MODEL=1`` - Enable torch.compile for ANI models (~1.25x speedup)
-- ``AUTO3D_USE_ENSEMBLE=1`` - Use ensemble model for AIMNet (higher accuracy)
+- ``AIMNET_CACHE_DIR`` - Override the cache directory for auto-downloaded AIMNet2 models (default ``~/.cache/aimnet``)
+
+.. note::
+   ``AUTO3D_USE_ENSEMBLE=1`` was removed in Auto3D 3.5. It is now a no-op that
+   emits a ``UserWarning``; a single AIMNet2 registry model is always used.
 
 Migration Checklist
 -------------------
 
-1. ☐ Update Python to 3.10+
+1. ☐ Update Python to 3.10+ (3.11+ for Auto3D 3.5) and PyTorch to 2.8+
 2. ☐ Replace ``from Auto3D.auto3D import options`` with ``from Auto3D import Auto3DOptions``
 3. ☐ Replace ``options(path, ...)`` calls with ``Auto3DOptions(path=path, ...)``
 4. ☐ Update CLI scripts to use ``auto3d run`` syntax

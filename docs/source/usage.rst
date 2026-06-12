@@ -66,10 +66,14 @@ Auto3D supports three neural network potentials:
      - Use Case
      - Speed
      - Supported Elements
-   * - ``AIMNET``
+   * - ``AIMNET`` (= ``aimnet2``)
      - General use, charged molecules (default)
      - Fast
      - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
+   * - ``aimnet2-nse`` / ``aimnet2-pd`` / ``aimnet2-2025``
+     - Specialized chemistry (radicals, Pd, updated release)
+     - Fast
+     - AIMNet2 elements (plus Pd for ``aimnet2-pd``)
    * - ``ANI2x``
      - Organic molecules
      - Very fast
@@ -78,6 +82,14 @@ Auto3D supports three neural network potentials:
      - Ultra-fast screening, tautomers
      - Ultra fast
      - H, C, N, O, F, S, Cl
+
+In addition to the default ``aimnet2``, the ``--engine`` flag accepts any
+aimnet registry model name (``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``,
+...) or a path to a custom NNP model file.
+
+.. note::
+   AIMNet2 registry models are downloaded automatically on first use and
+   cached under ``~/.cache/aimnet`` (override with ``AIMNET_CACHE_DIR``).
 
 Select a model with ``--engine``:
 
@@ -145,7 +157,7 @@ Example ``config.yaml``:
    # window: 3.0               # Alternative: energy window in kcal/mol
 
    # Neural network model
-   optimizing_engine: AIMNET   # AIMNET, ANI2x, or ANI2xt
+   optimizing_engine: AIMNET   # AIMNET / aimnet registry name / ANI2x / ANI2xt / path to custom model
 
    # GPU settings
    use_gpu: true
@@ -336,7 +348,7 @@ Configuration Options
            # window=3.0,                 # Or energy window (kcal/mol)
 
            # Neural network model
-           optimizing_engine="AIMNET",   # AIMNET, ANI2x, ANI2xt
+           optimizing_engine="AIMNET",   # AIMNET / aimnet registry name / ANI2x / ANI2xt / custom model path
 
            # GPU settings
            use_gpu=True,
@@ -404,7 +416,7 @@ syntax, Python uses ``param_name`` in ``Auto3DOptions``.
      - Energy window in kcal/mol (*use ``k`` OR ``window``)
    * - ``optimizing_engine``
      - AIMNET
-     - Neural network: ``AIMNET``, ``ANI2x``, ``ANI2xt``, or path to custom model
+     - Neural network: ``AIMNET`` (= ``aimnet2``), any aimnet registry name (``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``, ...), ``ANI2x``, ``ANI2xt``, or path to custom model
    * - ``use_gpu``
      - True
      - Enable GPU acceleration

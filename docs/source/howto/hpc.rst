@@ -95,12 +95,13 @@ For limited GPU memory:
        use_gpu=True,
    )
 
-Or use single model instead of ensemble:
+If memory is still tight, also lower ``capacity`` so fewer molecules are held
+per GB of RAM:
 
 .. code:: console
 
-   export AUTO3D_USE_ENSEMBLE=0
-   auto3d run input.smi --k=1 --gpu
+   auto3d run input.smi --k=1 --gpu -c low_memory.yaml
+   # low_memory.yaml: batchsize_atoms: 512  /  capacity: 20
 
 Chunked Processing
 ~~~~~~~~~~~~~~~~~~
@@ -244,17 +245,23 @@ From fastest to slowest:
 
 1. **ANI2xt**: Ultra-fast, good for screening
 2. **ANI2x**: Very fast, well-validated
-3. **AIMNET single**: Fast, most versatile (default)
-4. **AIMNET ensemble**: Slower, highest accuracy
+3. **AIMNET**: Fast, most versatile (default, resolves to ``aimnet2``)
+
+Auto3D always uses a single AIMNet2 model (there is no ensemble). For
+specialized chemistry, select a different registry model instead of the
+default ``aimnet2`` (auto-downloaded on first use):
 
 .. code:: console
 
    # Fastest for screening
    auto3d run input.smi --k=1 --gpu --engine=ANI2xt
 
-   # Best accuracy
-   export AUTO3D_USE_ENSEMBLE=1
+   # Default AIMNet2
    auto3d run input.smi --k=1 --gpu --engine=AIMNET
+
+   # Specialized registry models (radicals / Pd, etc.)
+   auto3d run input.smi --k=1 --gpu --engine=aimnet2-nse
+   auto3d run input.smi --k=1 --gpu --engine=aimnet2-pd
 
 Optimal Batch Sizes
 ~~~~~~~~~~~~~~~~~~~

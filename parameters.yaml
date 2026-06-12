@@ -23,6 +23,9 @@ mode_oe: 'classic'
 mpi_np: 4
 
 # Optimization settings
+# optimizing_engine accepts: AIMNET (= aimnet2), any aimnet registry name
+#   (aimnet2-2025, aimnet2-nse, aimnet2-pd, ...), ANI2x, ANI2xt,
+#   or a path to a custom NNP model file.
 optimizing_engine: 'AIMNET'
 use_gpu: True
 gpu_idx: [0]

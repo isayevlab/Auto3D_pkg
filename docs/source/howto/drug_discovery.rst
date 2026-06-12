@@ -585,6 +585,14 @@ Best Practices
 
       auto3d run hits.smi --k=10 --engine=AIMNET --gpu
 
+   For specialized chemistry, select a different AIMNet2 registry model:
+   ``aimnet2-nse`` for open-shell / radical species, or ``aimnet2-pd`` for
+   palladium-containing compounds (auto-downloaded on first use).
+
+   .. code:: console
+
+      auto3d run radicals.smi --k=10 --engine=aimnet2-nse --gpu
+
 3. **Consider tautomers**: Enable for drug-like molecules with N-H or O-H groups
 
    .. code:: console

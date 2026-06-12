@@ -54,8 +54,8 @@ Quick Settings Reference
    # Balanced (default)
    auto3d run input.smi --k=1 --engine=AIMNET --gpu
 
-   # High accuracy (for final production runs)
-   AUTO3D_USE_ENSEMBLE=1 auto3d run input.smi --k=1 --engine=AIMNET --gpu
+   # Specialized chemistry (pick a different registry model)
+   auto3d run input.smi --k=1 --engine=aimnet2-nse --gpu
 
 Configuration Presets
 ~~~~~~~~~~~~~~~~~~~~~
@@ -219,9 +219,6 @@ Control Auto3D behavior via environment variables:
    # Enable torch.compile for ANI models
    export AUTO3D_COMPILE_MODEL=1
 
-   # Use AIMNET ensemble (slower, highest accuracy)
-   export AUTO3D_USE_ENSEMBLE=1
-
    # Set OpenEye license path
    export OE_LICENSE=/path/to/oe_license.txt
 
@@ -238,9 +235,9 @@ Control Auto3D behavior via environment variables:
    * - ``AUTO3D_COMPILE_MODEL``
      - ``0``
      - Enable torch.compile() for ANI models
-   * - ``AUTO3D_USE_ENSEMBLE``
-     - ``0``
-     - Use AIMNET 8-model ensemble
+   * - ``AIMNET_CACHE_DIR``
+     - ``~/.cache/aimnet``
+     - Override cache directory for auto-downloaded AIMNet2 models
    * - ``OE_LICENSE``
      - (none)
      - OpenEye license for Omega isomer engine
@@ -494,10 +491,22 @@ Available Models
      - Supported Elements
      - Charges
      - Speed
-   * - ``AIMNET``
+   * - ``AIMNET`` (= ``aimnet2``)
      - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
      - Neutral + charged
      - Fast (default)
+   * - ``aimnet2-2025``
+     - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
+     - Neutral + charged
+     - Updated AIMNet2 release
+   * - ``aimnet2-nse``
+     - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
+     - Neutral + charged
+     - Open-shell / radical chemistry
+   * - ``aimnet2-pd``
+     - AIMNet2 elements + Pd
+     - Neutral + charged
+     - Palladium-containing systems
    * - ``ANI2x``
      - H, C, N, O, F, S, Cl
      - Neutral only
@@ -507,21 +516,28 @@ Available Models
      - Neutral only
      - Ultra-fast
 
-Single Model vs Ensemble (AIMNET)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Choosing an AIMNet2 Registry Model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-By default, Auto3D uses a single AIMNet2 model for ~35x faster optimization:
+Auto3D always uses a single AIMNet2 model (served by the ``aimnet`` package)
+for fast optimization; there is no multi-model ensemble. The default
+``AIMNET`` engine resolves to ``aimnet2``, and that single model is accurate
+enough for conformer generation and ranking. For specialized chemistry, select
+a different registry model, which is auto-downloaded on first use:
 
 .. code:: console
 
-   # Default: single model (fast)
+   # Default: aimnet2
    auto3d run input.smi --k=1 --gpu
 
-   # Ensemble: highest accuracy (slower)
-   AUTO3D_USE_ENSEMBLE=1 auto3d run input.smi --k=1 --gpu
+   # Updated AIMNet2 release
+   auto3d run input.smi --k=1 --engine=aimnet2-2025 --gpu
 
-The single model is accurate enough for conformer generation and ranking.
-Use ensemble only when you need the most accurate absolute energies.
+   # Open-shell / radical chemistry
+   auto3d run input.smi --k=1 --engine=aimnet2-nse --gpu
+
+   # Palladium-containing systems
+   auto3d run input.smi --k=1 --engine=aimnet2-pd --gpu
 
 Model Factory API (Python)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -564,8 +580,12 @@ If you encounter CUDA out-of-memory errors:
    EOF
    auto3d run input.smi --k=1 -c low_memory.yaml --gpu
 
-   # 2. Disable ensemble
-   AUTO3D_USE_ENSEMBLE=0 auto3d run input.smi --k=1 --gpu
+   # 2. Process fewer molecules per GB of RAM
+   cat > low_memory.yaml << EOF
+   batchsize_atoms: 512
+   capacity: 20
+   EOF
+   auto3d run input.smi --k=1 -c low_memory.yaml --gpu
 
    # 3. Use CPU as fallback
    auto3d run input.smi --k=1 --no-gpu

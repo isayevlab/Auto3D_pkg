@@ -50,7 +50,7 @@ Installation Issues
       # With CUDA
       pip install torch --index-url https://download.pytorch.org/whl/cu118
 
-2. Check version compatibility (requires PyTorch >= 2.1.0):
+2. Check version compatibility (requires PyTorch >= 2.8):
 
    .. code:: python
 
@@ -96,12 +96,16 @@ CUDA Out of Memory
           batchsize_atoms=512,  # Reduce from default 1024
       )
 
-2. Use single model instead of ensemble:
+2. Reduce ``batchsize_atoms`` and ``capacity``:
 
-   .. code:: console
+   .. code:: python
 
-      export AUTO3D_USE_ENSEMBLE=0
-      auto3d run input.smi --k=1 --gpu
+      config = Auto3DOptions(
+          path="input.smi",
+          k=1,
+          batchsize_atoms=512,  # Smaller optimization batches
+          capacity=20,          # Fewer molecules per GB
+      )
 
 3. Process smaller chunks:
 
@@ -638,7 +642,7 @@ Common Error Messages
    * - ``RuntimeError: CUDA out of memory``
      - Reduce ``batchsize_atoms`` or use CPU
    * - ``ModuleNotFoundError: No module named 'torchani'``
-     - Install TorchANI: ``conda install -c conda-forge torchani``
+     - Install the ANI extra: ``pip install "Auto3D[ani]"`` (or ``conda install -c conda-forge torchani``)
    * - ``FileNotFoundError: input.smi``
      - Check file path exists
    * - ``KeyError: 'E_tot'``

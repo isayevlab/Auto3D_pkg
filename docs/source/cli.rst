@@ -85,7 +85,7 @@ Run conformer generation on input molecules.
      - Energy window in kcal/mol (alternative to ``--k``)
    * - ``--engine``
      - AIMNET
-     - Optimization engine: ``AIMNET``, ``ANI2x``, ``ANI2xt``
+     - Optimization engine: ``AIMNET`` (= ``aimnet2``), any aimnet registry name (``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``, ...), ``ANI2x``, ``ANI2xt``, or a path to a custom model
    * - ``--gpu`` / ``--no-gpu``
      - --no-gpu
      - Enable/disable GPU acceleration
@@ -120,6 +120,12 @@ Run conformer generation on input molecules.
 
    # Use ANI2x engine
    auto3d run molecules.smi --k=1 --engine=ANI2x
+
+   # Use a specialized AIMNet2 registry model (auto-downloaded on first use)
+   auto3d run molecules.smi --k=1 --engine=aimnet2-nse
+
+   # Use a custom NNP by file path
+   auto3d run molecules.smi --k=1 --engine=/path/to/my_model.pt
 
    # JSON output for scripting
    auto3d run molecules.smi --k=1 --json
@@ -409,8 +415,8 @@ Environment Variables
      - Description
    * - ``AUTO3D_COMPILE_MODEL``
      - Set to ``1`` to enable torch.compile() for ANI models
-   * - ``AUTO3D_USE_ENSEMBLE``
-     - Set to ``1`` to use AIMNET 8-model ensemble (slower, more accurate)
+   * - ``AIMNET_CACHE_DIR``
+     - Override the cache directory for auto-downloaded AIMNet2 models (default ``~/.cache/aimnet``)
    * - ``OE_LICENSE``
      - Path to OpenEye license file (for Omega isomer engine)
    * - ``CUDA_VISIBLE_DEVICES``
