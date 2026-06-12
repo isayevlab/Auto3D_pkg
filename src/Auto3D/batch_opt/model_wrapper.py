@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
+from Auto3D.exceptions import OptimizationError
 from Auto3D.utils import hartree2ev
 
 if TYPE_CHECKING:
@@ -202,9 +203,27 @@ class EnForce_ANI(nn.Module):
         # Ensure at least 1 molecule per batch to avoid empty batches
         batch_size = max(1, self.batchsize_atoms // N)
 
-        for batch in idx.split(batch_size):
-            _e, _f = self(coord[batch], numbers[batch], charges[batch])
-            e_list.append(_e)
-            f_list.append(_f)
+        def _run(batch_idx: torch.Tensor, bsize: int) -> None:
+            # Process a slice of molecules; on CUDA OOM, free the cache and retry
+            # the failing slice with a halved batch. A single molecule that still
+            # OOMs cannot be split further (an NNP needs the whole molecule), so
+            # raise a clear, actionable error instead of crashing opaquely.
+            for sub in batch_idx.split(bsize):
+                try:
+                    _e, _f = self(coord[sub], numbers[sub], charges[sub])
+                except torch.cuda.OutOfMemoryError:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if sub.numel() == 1:
+                        raise OptimizationError(
+                            f"A single molecule with {N} atoms exhausted GPU memory even "
+                            f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
+                        )
+                    _run(sub, max(1, sub.numel() // 2))
+                    continue
+                e_list.append(_e)
+                f_list.append(_f)
+
+        _run(idx, batch_size)
 
         return torch.cat(e_list, dim=0), torch.cat(f_list, dim=0)
