@@ -56,11 +56,19 @@ def main(args: Auto3DOptions) -> str:
 
     from Auto3D.workflow import WorkflowOrchestrator
 
-    # Set multiprocessing start method (spawn is safer for CUDA)
-    try:
-        mp.set_start_method("spawn")
-    except RuntimeError:
-        pass  # Already set by another call
+    # Force the 'spawn' start method for the optimization worker processes.
+    #
+    # The workers run PyTorch. Forking a process that has already initialized a
+    # CUDA context yields a broken context in the child: the worker crashes and
+    # the run produces no output (surfacing as "no 3D structure converged").
+    # force=True is REQUIRED, not optional: a default-context ProcessPoolExecutor
+    # (the isomer-embedding pool, or an earlier pipeline run in the same process)
+    # can already have locked the global start method to the platform default
+    # ('fork' on Linux). The previous best-effort set_start_method("spawn") would
+    # then raise RuntimeError, get swallowed, and the pipeline silently ran on
+    # fork -- breaking whenever any CUDA work had touched the parent process
+    # (e.g. a prior use_gpu=True call in the same interpreter / test session).
+    mp.set_start_method("spawn", force=True)
 
     orchestrator = WorkflowOrchestrator(args)
     return orchestrator.run()
