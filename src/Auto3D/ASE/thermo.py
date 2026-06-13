@@ -33,7 +33,15 @@ logger = get_logger(__name__)
 
 
 def _is_collinear(atoms: ase.Atoms) -> bool:
-    """True if all atoms lie on a single line (within tolerance)."""
+    """True if all atoms lie on a single line (within tolerance).
+
+    The rank tolerance (1e-3, in Angstrom) is an absolute geometric threshold,
+    so a slightly bent but floppy molecule whose deviation from a line is below
+    ~1e-3 A is classified linear. That changes the vibrational DOF count
+    (3N-5 vs 3N-6) and the rotational partition function (1 vs 3 rotational
+    constants). A moment-of-inertia cross-check (one near-zero principal moment
+    => linear) would be more robust for borderline geometries; not done here.
+    """
     pos = atoms.get_positions()
     if len(pos) <= 2:
         return True
@@ -147,7 +155,14 @@ class Calculator(ase.calculators.calculator.Calculator):
 def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMNET') -> dict:
     """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
     conf = mol.GetConformer()
-    coord = torch.tensor(conf.GetPositions(), device=device).unsqueeze(0)
+    # RDKit positions are float64; build the coordinate tensor as float32 to
+    # match the model weights (the other thermo entry point, Calculator.calculate,
+    # also feeds model-dtype coords). Passing fp64 coords to the fp32 model is a
+    # silent dtype mismatch; the energy/force adapters cast anyway, so fp32 is
+    # the consistent, lossless choice here.
+    coord = torch.tensor(
+        conf.GetPositions(), dtype=torch.float32, device=device
+    ).unsqueeze(0)
     numbers = torch.tensor([a.GetAtomicNum() for a in mol.GetAtoms()],
                             device=device).unsqueeze(0)
     charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
@@ -245,7 +260,7 @@ def do_mol_thermo(mol: Chem.Mol,
                   atoms: ase.Atoms,
                   model: torch.nn.Module,
                   device=torch.device('cpu'),
-                  T=298.0, model_name='AIMNET'):
+                  T=298.15, model_name='AIMNET'):
     """For a RDKit mol object, calculate its thermochemistry properties.
     model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian"""
     vib = vib_hessian(mol, atoms.get_calculator(), model, device, model_name=model_name)
@@ -282,6 +297,10 @@ def do_mol_thermo(mol: Chem.Mol,
     # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
     # Hartree. Name the property accordingly so a downstream G = H - T*S
     # reconstruction is not off by a factor of T.
+    # Standard state is 1 atm (101325 Pa). ASE's internal reference is 1 bar
+    # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
+    # 1 atm -- matching ORCA/Gaussian. The translational-entropy difference vs
+    # 1 bar is ~0.016 kcal/mol.
     S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
     G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
 
@@ -370,11 +389,25 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         model_name: ANI2x, ANI2xt, AIMNET or a path to a userNNP model.
         mol_info_func: A function that returns the name and temperature (idx, T)
             from a rdkit mol object. If not provided, the thermodynamic properties
-            will be calculated at 298 K.
+            will be calculated at 298.15 K.
         gpu_idx: GPU cuda index. Defaults to 0.
         opt_tol: Convergence threshold for geometry optimization. Defaults to 0.0002.
         opt_steps: Maximum geometry optimization steps. Defaults to 2000.
+
+    Notes:
+        Gibbs energies are reported at the 1 atm standard state (matching
+        ORCA/Gaussian). Rotational symmetry numbers default to 1 unless a
+        per-mol integer 'symmetry_number' property is set; for symmetric
+        molecules (e.g. benzene, sigma=12) the default over-counts rotational
+        entropy by up to a few kcal/mol in T*S, so set that property when known.
     """
+    # Surface the symmetry-number caveat once per run (not per molecule) so it is
+    # visible without spamming the log.
+    logger.info(
+        "Thermochemistry uses symmetry number sigma=1 unless a 'symmetry_number' "
+        "molecule property is set; set it for symmetric species to avoid "
+        "over-counting rotational entropy."
+    )
     # Prepare output name
     out_mols, mols_failed = [], []
     path_obj = Path(path)
@@ -403,7 +436,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
         if mol_info_func is None:
             idx = mol.GetProp("_Name").strip()
-            T = 298
+            T = 298.15
         else:
             idx, T = mol_info_func(mol)
 
