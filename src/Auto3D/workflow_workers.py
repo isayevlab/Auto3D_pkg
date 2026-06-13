@@ -113,6 +113,7 @@ def optim_rank_wrapper(
     queue: Queue[tuple[str, str, str, int] | str],
     logging_queue: Queue[LogRecord | None],
     gpu_idx: int,
+    progress_queue: Queue[dict] | None = None,
 ) -> list[list[Chem.Mol]]:
     #prepare logging
     logger = logging.getLogger("auto3d")
@@ -141,8 +142,20 @@ def optim_rank_wrapper(
                 device = torch.device(f"cuda:{gpu_idx}")
             else:
                 device = torch.device("cpu")
+            # When a progress queue is supplied (interactive `auto3d run`), tag
+            # each event with this chunk's job id and forward it to the main
+            # process for the live display. Guarded so a full/closed queue can
+            # never break the optimization.
+            progress_cb = None
+            if progress_queue is not None:
+                def progress_cb(event, _q=progress_queue, _job=job):
+                    try:
+                        _q.put({**event, "job": _job})
+                    except Exception:
+                        pass
             optimizer = optimizing(enumerated_sdf, optimized_og,
-                                   optimizing_engine, device, opt_config)
+                                   optimizing_engine, device, opt_config,
+                                   progress_cb=progress_cb)
             optimizer.run()
 
             # optimizing.run() returns early without writing optimized_og when

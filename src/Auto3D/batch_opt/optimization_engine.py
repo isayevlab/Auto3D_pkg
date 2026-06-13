@@ -6,6 +6,7 @@ This module contains the main optimization loop (n_steps) and status reporting
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -51,6 +52,21 @@ def _validate_state(state: dict[str, Any]) -> None:
         )
 
 
+def optimization_counts(state: dict[str, Any], patience: int) -> tuple[int, int, int, int]:
+    """Return (total, converged, dropped, active) structure counts from state.
+
+    ``converged`` excludes structures dropped for oscillation; ``active`` is the
+    number still being optimized. Performs a small host-device sync (sum of two
+    boolean masks), so callers gate how often they invoke it.
+    """
+    num_total = int(state['numbers'].size()[0])
+    num_converged_dropped = int(torch.sum(state['converged_mask']).to('cpu'))
+    num_dropped = int(torch.sum(state['oscillating_count'].to('cpu') >= patience))
+    num_converged = num_converged_dropped - num_dropped
+    num_active = num_total - num_converged_dropped
+    return num_total, num_converged, num_dropped, num_active
+
+
 def print_stats(state: dict[str, Any], patience: int) -> None:
     """Print the optimization status.
 
@@ -64,13 +80,7 @@ def print_stats(state: dict[str, Any], patience: int) -> None:
             - oscillating_count: Oscillation counter tensor, shape (batch,)
         patience: Number of steps without force decrease before dropping a structure.
     """
-    numbers = state['numbers']
-    num_total = numbers.size()[0]
-    num_converged_dropped = torch.sum(state['converged_mask']).to('cpu')
-    oscillating_count = state['oscillating_count'].to('cpu') >= patience
-    num_dropped = torch.sum(oscillating_count)
-    num_converged = num_converged_dropped - num_dropped
-    num_active = num_total - num_converged_dropped
+    num_total, num_converged, num_dropped, num_active = optimization_counts(state, patience)
     logger.info("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" %
           (num_total, num_converged, num_dropped, num_active))
 
@@ -83,6 +93,7 @@ def n_steps(
     energy_tol: float = DEFAULT_ENERGY_TOL,
     energy_patience: int = 3,
     species_pad: int = -1,
+    progress_cb: Callable[[dict], None] | None = None,
 ) -> None:
     """Run n optimization steps for each input structure.
 
@@ -232,6 +243,27 @@ def n_steps(
         # Print stats every 10% of steps (avoid division by zero for small n)
         if n >= 10 and (istep % (n // 10)) == 0:
             print_stats(state, patience)
+
+        # Emit a live-progress event for the CLI display. Reuses the istep % 10
+        # sync cadence; only active when a callback was supplied (i.e. interactive
+        # `auto3d run`), so the default/library path adds nothing. Guarded so a
+        # progress hiccup can never abort the optimization.
+        if progress_cb is not None and istep % 10 == 0:
+            try:
+                total, converged, dropped, active = optimization_counts(state, patience)
+                progress_cb({"step": istep, "total": total, "converged": converged,
+                             "dropped": dropped, "active": active})
+            except Exception:
+                pass
+
+    # Final event so the display reflects the converged end state.
+    if progress_cb is not None:
+        try:
+            total, converged, dropped, active = optimization_counts(state, patience)
+            progress_cb({"step": istep, "total": total, "converged": converged,
+                         "dropped": dropped, "active": active})
+        except Exception:
+            pass
 
     # Energy and fmax stored during the loop are evaluated at the pre-step
     # geometry, while the stored coordinates are post-step (the loop always takes
