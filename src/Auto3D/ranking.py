@@ -167,22 +167,24 @@ class ConformerRanker:
         logger.info("Begin to select structures that satisfy the requirements...")
         results = []
 
-        supplier = Chem.SDMolSupplier(self.input_path, removeHs=False)
         mols, names, energies = [], [], []
-        for mol in supplier:
-            if mol is None:
-                continue
-            # Guard the Converged read: a record lacking the property is
-            # treated as not-converged and skipped, matching the lenient
-            # pattern the RMSD filters use (filter_unique / filtering).
-            try:
-                converged = mol.GetProp('Converged').lower() == 'true'
-            except KeyError:
-                converged = False
-            if converged:
-                mols.append(mol)
-                names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
-                energies.append(float(mol.GetProp('E_tot')))
+        # Context-managed so the SDF file handle is released promptly rather than
+        # left to GC. The mols are materialized into `mols` inside the block.
+        with Chem.SDMolSupplier(self.input_path, removeHs=False) as supplier:
+            for mol in supplier:
+                if mol is None:
+                    continue
+                # Guard the Converged read: a record lacking the property is
+                # treated as not-converged and skipped, matching the lenient
+                # pattern the RMSD filters use (filter_unique / filtering).
+                try:
+                    converged = mol.GetProp('Converged').lower() == 'true'
+                except KeyError:
+                    converged = False
+                if converged:
+                    mols.append(mol)
+                    names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
+                    energies.append(float(mol.GetProp('E_tot')))
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         groups = df.groupby("names")
