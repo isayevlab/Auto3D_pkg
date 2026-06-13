@@ -106,9 +106,23 @@ def execute_run(
         from Auto3D.auto3D import main
 
         if not quiet and not json_output:
-            with console.status("[bold]Running Auto3D workflow..."):
-                output_path = main(options)
+            # Interactive: render a live optimization panel (converged/active/
+            # dropped/step) fed by per-step events from the optimizer workers.
+            from rich.live import Live
+
+            from Auto3D.cli.progress import OptimizationDisplay
+
+            display = OptimizationDisplay(0)
+            jobs: dict = {}
+            with Live(display.make_panel(), console=console, refresh_per_second=8) as live:
+                def progress_cb(event: dict) -> None:
+                    jobs[event.get("job", 0)] = event
+                    display.update_from_jobs(jobs)
+                    live.update(display.make_panel())
+
+                output_path = main(options, progress_callback=progress_cb)
         else:
+            # Quiet / JSON: no live display, keep stdout clean for piping.
             output_path = main(options)
 
         elapsed = time.time() - start_time
