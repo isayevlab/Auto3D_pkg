@@ -21,7 +21,8 @@ from tqdm import tqdm
 
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
-from Auto3D.model_factory import create_model
+from Auto3D.model_factory import create_model, get_device
+from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
 
@@ -381,7 +382,9 @@ def aimnet_hessian_helper(
         return e  # energy unit: eV
 
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
-                gpu_idx=0, opt_tol=0.0002, opt_steps=2000):
+                gpu_idx=0, opt_tol=0.0002, opt_steps=2000,
+                use_gpu: bool = True, allow_tf32: bool = False,
+                out_path: str | None = None):
     """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.
 
     Args:
@@ -393,6 +396,10 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         gpu_idx: GPU cuda index. Defaults to 0.
         opt_tol: Convergence threshold for geometry optimization. Defaults to 0.0002.
         opt_steps: Maximum geometry optimization steps. Defaults to 2000.
+        use_gpu: Use the GPU when available. Defaults to True.
+        allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
+        out_path: Output SDF path. Defaults to ``<input_stem>_<model>_G.sdf`` next
+            to the input file.
 
     Notes:
         Gibbs energies are reported at the 1 atm standard state (matching
@@ -408,18 +415,21 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         "molecule property is set; set it for symmetric species to avoid "
         "over-counting rotational entropy."
     )
-    # Prepare output name
+    # Apply the shared torch configuration so allow_tf32 is honored here too
+    # (this path previously ignored it).
+    configure_torch(TorchConfig(allow_tf32=allow_tf32))
+
+    # Prepare output name (unless overridden)
     out_mols, mols_failed = [], []
     path_obj = Path(path)
-    if Path(model_name).exists():
+    if out_path is not None:
+        outpath = Path(out_path)
+    elif Path(model_name).exists():
         outpath = path_obj.parent / f"{path_obj.stem}_userNNP_G.sdf"
     else:
         outpath = path_obj.parent / f"{path_obj.stem}_{model_name}_G.sdf"
 
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{gpu_idx}")
-    else:
-        device = torch.device("cpu")
+    device = get_device(gpu_idx, use_gpu=use_gpu)
 
     hessian_model = _load_hessian_model(model_name, device)
     model, calculator = model_name2model_calculator(model_name, device)
