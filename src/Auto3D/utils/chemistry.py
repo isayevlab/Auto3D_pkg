@@ -528,7 +528,7 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
         except (KeyError, ValueError):
             e_i = None
         unique = True
-        for mol_j_noH, e_j in zip(unique_noH, unique_energies):
+        for mol_j_noH, e_j in zip(unique_noH, unique_energies, strict=True):
             try:
                 # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # removing Hs speeds up the calculation
