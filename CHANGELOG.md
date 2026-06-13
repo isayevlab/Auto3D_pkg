@@ -5,42 +5,79 @@ All notable changes to Auto3D will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.0] - 2026-06-13
+
+### Breaking Changes
+
+- **Python 3.11+ and PyTorch 2.8+ required** - Dropped support for Python 3.10
+  and PyTorch < 2.8. `torchani` now requires >= 2.8 for the ANI2x/ANI2xt engines.
+
+- **Bundled AIMNet2 `.jpt` models removed** - AIMNet2 is now provided by the
+  `aimnet` package (a core dependency) instead of files shipped inside Auto3D.
+  Models are auto-downloaded and sha256-validated into `~/.cache/aimnet` on
+  first use; set `AIMNET_CACHE_DIR` to override the cache location. Network
+  access is required once per model.
+
+- **Default AIMNet energies and forces differ from 3.x** - The `aimnet`
+  registry `.pt` externalizes D3 dispersion (vs the embedded-D3 `.jpt` used in
+  3.x). Absolute `E_tot` values shift and conformer rankings may differ
+  slightly as a result.
+
+- **Thermo entropy property renamed** - The thermochemistry output SDF property
+  `S_hartree` is now `S_hartree_per_K`, correctly reflecting its units
+  (Hartree/Kelvin). Update any code that reads the old property name.
 
 ### Added
+
+- **Registry model selection** - `optimizing_engine` now accepts any `aimnet`
+  registry name (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`, `aimnet2-pd`, ...) and
+  custom model file paths, in addition to `AIMNET`, `ANI2x`, and `ANI2xt`.
+  `AIMNET` remains an alias for the registry default `aimnet2`.
+
+- **CLI surfaces the registry** - `auto3d models list` now shows the AIMNet2
+  registry families, and `auto3d models info` reports the correct 14-element
+  AIMNet2 set (H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I).
 
 - **First-class property subcommands** - `auto3d energy`, `auto3d optimize`,
   `auto3d thermo`, and `auto3d tautomers` expose single-point energy, geometry
   optimization, thermochemistry, and tautomer ranking from the CLI (previously
   Python-only). Each supports `--engine`, `--gpu/--no-gpu`, `--gpu-idx`,
   `-o/--output`, and `--json`.
+
 - **`auto3d models test <engine>`** - loads an engine and runs a tiny forward
   pass as a health check (catches a missing torchani, a failed aimnet registry
   download, or a broken custom model file before a full run).
+
+- **Live optimization progress** - interactive `auto3d run` shows a live panel
+  (converged / active / dropped / step) during geometry optimization instead of
+  a static spinner.
+
 - **CLI ergonomics** - `auto3d run` gains `--job-name` and `--save-intermediate`;
   `config init` gains `--force`; choice flags use enums with shell completion;
   input paths are validated up front; and commands return differentiated exit
   codes (2 config/input, 3 dependency, 4 GPU, 5 model).
-- **API**: `calc_spe`, `opt_geometry`, and `calc_thermo` accept `out_path`,
-  `use_gpu`, and `allow_tf32` (backwards-compatible).
-- **`generate_conformers`** - canonical, self-describing alias for `main()`
-  (`main` remains exported). `get_stable_tautomers` and `select_tautomers` are
-  now part of the public API (`Auto3D.__all__`).
-- **`main()` returns a `WorkflowResult`** - a `str` subclass holding the output
-  SDF path (drop-in for the previous return value) plus `n_molecules` /
-  `n_conformers` counts, so callers no longer need to re-read the output.
+
+- **API additions (backwards-compatible)** - `calc_spe`, `opt_geometry`, and
+  `calc_thermo` accept `out_path`, `use_gpu`, and `allow_tf32`. A canonical
+  `generate_conformers` alias for `main()` is exported (`main` still works), and
+  `get_stable_tautomers` / `select_tautomers` are now part of the public API
+  (`Auto3D.__all__`). `main()` returns a `WorkflowResult` -- a `str` subclass
+  holding the output SDF path (drop-in for the previous return) plus
+  `n_molecules` / `n_conformers` counts.
 
 ### Changed
+
+- `use_ensemble` no longer loads a bundled 8-model ensemble file. A single
+  registry member is used; passing `use_ensemble=True` now emits a warning.
 
 - **`allow_tf32` now applies to the energy/optimize/thermo paths.** These
   previously selected the device inline and ignored TF32; they now route through
   the shared device + torch configuration, so enabling TF32 affects them too
   (a small numerical change for anyone who had set it expecting it to apply).
+
 - **Thermochemistry reference temperature is now 298.15 K** - The default
   temperature for thermodynamic property calculation changed from 298 K to the
   standard 298.15 K.
-- **Entropy SDF property renamed** - The thermo output property `S_hartree` is
-  now `S_hartree_per_K`, correctly reflecting its units (Hartree/Kelvin).
 
 ### Fixed
 
@@ -63,45 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input molecules that produced no conformer instead of always reporting zero.
 - **Deterministic file handling** - `combine_smi` preserves input order, and
   `.smi` molecule indexing is gap-free when blank lines are present.
+- **Read the Docs build** - the docs build now runs on Python 3.11 to match
+  `requires-python`, fixing the failing hosted documentation build.
 
 ### Removed
 
 - Dead `torch.jit.optimized_execution` guard in the batch optimizer (a no-op for
   the eager-mode model wrapper).
-
-## [3.5.0] - 2026-06-11
-
-### Breaking Changes
-
-- **Python 3.11+ and PyTorch 2.8+ required** - Dropped support for Python 3.10
-  and PyTorch < 2.8. `torchani` now requires >= 2.8 for the ANI2x/ANI2xt engines.
-
-- **Bundled AIMNet2 `.jpt` models removed** - AIMNet2 is now provided by the
-  `aimnet` package (a core dependency) instead of files shipped inside Auto3D.
-  Models are auto-downloaded and sha256-validated into `~/.cache/aimnet` on
-  first use; set `AIMNET_CACHE_DIR` to override the cache location. Network
-  access is required once per model.
-
-- **Default AIMNet energies and forces differ from 3.x** - The `aimnet`
-  registry `.pt` externalizes D3 dispersion (vs the embedded-D3 `.jpt` used in
-  3.x). Absolute `E_tot` values shift and conformer rankings may differ
-  slightly as a result.
-
-### Added
-
-- **Registry model selection** - `optimizing_engine` now accepts any `aimnet`
-  registry name (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`, `aimnet2-pd`, ...) and
-  custom model file paths, in addition to `AIMNET`, `ANI2x`, and `ANI2xt`.
-  `AIMNET` remains an alias for the registry default `aimnet2`.
-
-- **CLI surfaces the registry** - `auto3d models list` now shows the AIMNet2
-  registry families, and `auto3d models info` reports the correct 14-element
-  AIMNet2 set (H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I).
-
-### Changed
-
-- `use_ensemble` no longer loads a bundled 8-model ensemble file. A single
-  registry member is used; passing `use_ensemble=True` now emits a warning.
 
 ## [3.0.0] - 2026-01-02
 
