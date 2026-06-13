@@ -6,15 +6,13 @@ from __future__ import annotations
 
 import os
 
-import torch
 from rdkit import Chem
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import OptimizationConfig
+from Auto3D.model_factory import get_device
+from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
-
-# TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
-# and the allow_tf32 option in Auto3DOptions.
 
 
 def opt_geometry(
@@ -25,6 +23,9 @@ def opt_geometry(
     opt_steps: int = 2000,
     patience: int | None = None,
     batchsize_atoms: int = 1024,
+    use_gpu: bool = True,
+    allow_tf32: bool = False,
+    out_path: str | None = None,
 ) -> str:
     """Geometry optimization interface with FIRE optimizer.
 
@@ -46,6 +47,10 @@ def opt_geometry(
         batchsize_atoms: Number of atoms per optimization batch. Larger values
             use more GPU memory but may be faster. Defaults to 1024.
             Recommendation: ~1024 per GB of GPU memory.
+        use_gpu: Use the GPU when available. Defaults to True.
+        allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
+        out_path: Output SDF path. Defaults to ``<input_stem>_<model>_opt.sdf``
+            next to the input file.
 
     Returns:
         Path to output SDF file with optimized geometries.
@@ -61,21 +66,25 @@ def opt_geometry(
         ... )
     """
     ev2hatree = 1 / hartree2ev
-    # Create output path in the same directory as the input file.
-    # splitext (not split(".")) so an input like 'batch.v2.sdf' keeps 'batch.v2'
-    # instead of collapsing to 'batch' and risking output collisions.
-    dir = os.path.dirname(path)
-    stem = os.path.splitext(os.path.basename(path))[0]
-    if os.path.exists(model_name):  # custom NNP passed as a file path
-        basename = stem + "_userNNP_opt.sdf"
-    else:
-        basename = stem + f"_{model_name}_opt.sdf"
-    outpath = os.path.join(dir, basename)
+    # Apply the shared torch configuration so allow_tf32 is honored here too
+    # (this path previously ignored it).
+    configure_torch(TorchConfig(allow_tf32=allow_tf32))
 
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{gpu_idx}")
+    # Create output path in the same directory as the input file (unless
+    # overridden). splitext (not split(".")) so an input like 'batch.v2.sdf'
+    # keeps 'batch.v2' instead of collapsing to 'batch' and risking collisions.
+    if out_path is not None:
+        outpath = out_path
     else:
-        device = torch.device("cpu")
+        dir = os.path.dirname(path)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        if os.path.exists(model_name):  # custom NNP passed as a file path
+            basename = stem + "_userNNP_opt.sdf"
+        else:
+            basename = stem + f"_{model_name}_opt.sdf"
+        outpath = os.path.join(dir, basename)
+
+    device = get_device(gpu_idx, use_gpu=use_gpu)
 
     opt_config = OptimizationConfig(
         opt_steps=opt_steps,

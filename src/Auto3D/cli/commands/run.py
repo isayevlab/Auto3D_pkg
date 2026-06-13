@@ -12,7 +12,6 @@ from Auto3D.cli.errors import handle_error
 from Auto3D.cli.results import (
     WorkflowResults,
     output_json,
-    print_failures,
     print_results_summary,
 )
 from Auto3D.exceptions import Auto3DError
@@ -27,6 +26,8 @@ def execute_run(
     engine: str | None = None,
     gpu: bool | None = None,
     gpu_idx: str | None = None,
+    job_name: str | None = None,
+    save_intermediate: bool = False,
     verbose: int = 0,
     quiet: bool = False,
     json_output: bool = False,
@@ -41,13 +42,16 @@ def execute_run(
         engine: Optimization engine override.
         gpu: GPU enable/disable override.
         gpu_idx: GPU index override.
-        verbose: Verbosity level (0-2).
+        job_name: Output folder/run name override.
+        save_intermediate: Keep all intermediate metadata (Auto3DOptions.verbose).
+        verbose: Logging verbosity level (0-2).
         quiet: Suppress non-error output.
         json_output: Output results as JSON.
     """
     start_time = time.time()
 
-    # Configure logging based on verbosity
+    # Configure logging based on verbosity. Diagnostics already go to stderr (see
+    # configure_logging), so --json stdout stays a clean, parseable document.
     configure_logging(verbose=verbose > 0)
 
     try:
@@ -71,6 +75,10 @@ def execute_run(
             "optimizing_engine": engine,
             "use_gpu": gpu,
             "gpu_idx": gpu_idx,
+            "job_name": job_name,
+            # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
+            # Only override when set, so a config-file `verbose: true` is preserved.
+            "verbose": True if save_intermediate else None,
         }
         config = merge_configs(config, {key: val for key, val in overrides.items() if val is not None})
 
@@ -126,14 +134,14 @@ def execute_run(
             failures=[],
         )
 
-        # Output results
+        # Output results. Per-molecule failure *details* are not yet wired through
+        # the workflow (results.failures is always empty), so we report the count
+        # via the summary but do not promise a detail list that cannot exist.
         if json_output:
             output_json(results)
         elif not quiet:
             console.print()
             print_results_summary(results)
-            if results.failures:
-                print_failures(results.failures, verbose=verbose > 0)
 
     except Auto3DError as e:
         handle_error(e)

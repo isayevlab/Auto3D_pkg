@@ -198,117 +198,42 @@ def test_cli_module_console_is_rich():
 class TestCLIExceptionHandling:
     """Test that CLI wraps exceptions properly."""
 
-    def test_cli_catches_auto3d_error_and_exits_with_code_1(self):
-        """CLI should catch Auto3DError and exit with code 1 (legacy YAML mode)."""
-        # Mock main() to raise Auto3DError - main is imported inside _run_legacy_yaml
-        with patch('Auto3D.auto3D.main') as mock_main:
-            mock_main.side_effect = ConfigurationError("Test configuration error")
+    # Legacy YAML path now (a) checks the file exists and (b) maps exception
+    # types to differentiated exit codes (see Auto3D.cli.errors.EXIT_CODES):
+    # ConfigurationError -> 2, GPUError -> 4, generic Auto3DError/Optimization -> 1.
+    _LEGACY_YAML = {
+        'path': '/fake/path.smi', 'k': 1, 'window': None, 'memory': None,
+        'capacity': 40, 'enumerate_tautomer': False, 'tauto_engine': 'rdkit',
+        'pKaNorm': True, 'isomer_engine': 'rdkit', 'max_confs': None,
+        'enumerate_isomer': True, 'mode_oe': 'classic', 'mpi_np': 4,
+        'optimizing_engine': 'AIMNET', 'use_gpu': False, 'gpu_idx': 0,
+        'opt_steps': 2000, 'convergence_threshold': 0.01, 'patience': 250,
+        'threshold': 0.3, 'verbose': False, 'job_name': '',
+    }
 
-            # Mock sys.argv to provide minimal arguments (legacy YAML mode)
+    def _run_legacy_with_error(self, error):
+        """Drive the legacy YAML path with main() raising `error`; return exit code."""
+        with patch('Auto3D.auto3D.main') as mock_main:
+            mock_main.side_effect = error
             with patch.object(sys, 'argv', ['auto3d', 'config.yaml']):
-                # Mock yaml.safe_load to return valid config
-                with patch('yaml.safe_load', return_value={
-                    'path': '/fake/path.smi',
-                    'k': 1,
-                    'window': None,
-                    'memory': None,
-                    'capacity': 40,
-                    'enumerate_tautomer': False,
-                    'tauto_engine': 'rdkit',
-                    'pKaNorm': True,
-                    'isomer_engine': 'rdkit',
-                    'max_confs': None,
-                    'enumerate_isomer': True,
-                    'mode_oe': 'classic',
-                    'mpi_np': 4,
-                    'optimizing_engine': 'AIMNET',
-                    'use_gpu': False,
-                    'gpu_idx': 0,
-                    'opt_steps': 2000,
-                    'convergence_threshold': 0.01,
-                    'patience': 250,
-                    'threshold': 0.3,
-                    'verbose': False,
-                    'job_name': '',
-                }):
-                    with patch('builtins.open', MagicMock()):
+                with patch('yaml.safe_load', return_value=dict(self._LEGACY_YAML)):
+                    with patch('builtins.open', MagicMock()), \
+                         patch('pathlib.Path.is_file', return_value=True):
                         with pytest.raises(SystemExit) as exc_info:
                             cli()
+                        return exc_info.value.code
 
-                        # Should exit with code 1
-                        assert exc_info.value.code == 1
+    def test_cli_configuration_error_exits_2(self):
+        """ConfigurationError -> exit code 2 (legacy YAML mode)."""
+        assert self._run_legacy_with_error(ConfigurationError("bad config")) == 2
 
-    def test_cli_catches_gpu_error_and_exits_with_code_1(self):
-        """CLI should catch GPUError and exit with code 1 (legacy YAML mode)."""
-        with patch('Auto3D.auto3D.main') as mock_main:
-            mock_main.side_effect = GPUError("No CUDA device available")
+    def test_cli_gpu_error_exits_4(self):
+        """GPUError -> exit code 4 (legacy YAML mode)."""
+        assert self._run_legacy_with_error(GPUError("No CUDA device available")) == 4
 
-            with patch.object(sys, 'argv', ['auto3d', 'config.yaml']):
-                with patch('yaml.safe_load', return_value={
-                    'path': '/fake/path.smi',
-                    'k': 1,
-                    'window': None,
-                    'memory': None,
-                    'capacity': 40,
-                    'enumerate_tautomer': False,
-                    'tauto_engine': 'rdkit',
-                    'pKaNorm': True,
-                    'isomer_engine': 'rdkit',
-                    'max_confs': None,
-                    'enumerate_isomer': True,
-                    'mode_oe': 'classic',
-                    'mpi_np': 4,
-                    'optimizing_engine': 'AIMNET',
-                    'use_gpu': True,
-                    'gpu_idx': 0,
-                    'opt_steps': 2000,
-                    'convergence_threshold': 0.01,
-                    'patience': 250,
-                    'threshold': 0.3,
-                    'verbose': False,
-                    'job_name': '',
-                }):
-                    with patch('builtins.open', MagicMock()):
-                        with pytest.raises(SystemExit) as exc_info:
-                            cli()
-
-                        assert exc_info.value.code == 1
-
-    def test_cli_catches_optimization_error_and_exits_with_code_1(self):
-        """CLI should catch OptimizationError and exit with code 1 (legacy YAML mode)."""
-        with patch('Auto3D.auto3D.main') as mock_main:
-            mock_main.side_effect = OptimizationError("No structures converged")
-
-            with patch.object(sys, 'argv', ['auto3d', 'config.yaml']):
-                with patch('yaml.safe_load', return_value={
-                    'path': '/fake/path.smi',
-                    'k': 1,
-                    'window': None,
-                    'memory': None,
-                    'capacity': 40,
-                    'enumerate_tautomer': False,
-                    'tauto_engine': 'rdkit',
-                    'pKaNorm': True,
-                    'isomer_engine': 'rdkit',
-                    'max_confs': None,
-                    'enumerate_isomer': True,
-                    'mode_oe': 'classic',
-                    'mpi_np': 4,
-                    'optimizing_engine': 'AIMNET',
-                    'use_gpu': False,
-                    'gpu_idx': 0,
-                    'opt_steps': 2000,
-                    'convergence_threshold': 0.01,
-                    'patience': 250,
-                    'threshold': 0.3,
-                    'verbose': False,
-                    'job_name': '',
-                }):
-                    with patch('builtins.open', MagicMock()):
-                        with pytest.raises(SystemExit) as exc_info:
-                            cli()
-
-                        assert exc_info.value.code == 1
+    def test_cli_optimization_error_exits_1(self):
+        """OptimizationError -> generic exit code 1 (legacy YAML mode)."""
+        assert self._run_legacy_with_error(OptimizationError("No structures converged")) == 1
 
 
 class TestSmiles2MolsExceptionHandling:

@@ -177,13 +177,14 @@ def test_config_init_default_path(runner, tmp_path_cwd):
 
 
 def test_config_init_invalid_preset(runner, tmp_path_cwd):
-    """config init with invalid preset should fail."""
+    """config init with an invalid preset is now a Typer enum usage error (exit 2)."""
     from Auto3D.cli.app import app
 
     result = runner.invoke(app, ["config", "init", "-p", "invalid"])
 
-    assert result.exit_code == 1
-    assert "Unknown preset" in result.stderr
+    assert result.exit_code == 2
+    # Click reports the valid choices for the enum option.
+    assert "quick" in result.output
 
 
 def test_config_show_displays_file(runner, tmp_path_cwd):
@@ -359,8 +360,8 @@ def test_models_info_unkeyed_aimnet2_variant_resolves(runner):
 
 
 def test_config_validate_missing_file(runner, tmp_path_cwd):
-    """config validate on a missing file should fail with a not-found hint."""
+    """config validate on a missing file is now a Typer path-existence error (exit 2)."""
     from Auto3D.cli.app import app
     result = runner.invoke(app, ["config", "validate", "nonexistent.yaml"])
-    assert result.exit_code == 1
-    assert "not found" in result.stderr
+    assert result.exit_code == 2
+    assert "does not exist" in result.output

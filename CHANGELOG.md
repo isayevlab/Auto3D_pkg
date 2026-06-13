@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **First-class property subcommands** - `auto3d energy`, `auto3d optimize`,
+  `auto3d thermo`, and `auto3d tautomers` expose single-point energy, geometry
+  optimization, thermochemistry, and tautomer ranking from the CLI (previously
+  Python-only). Each supports `--engine`, `--gpu/--no-gpu`, `--gpu-idx`,
+  `-o/--output`, and `--json`.
+- **CLI ergonomics** - `auto3d run` gains `--job-name` and `--save-intermediate`;
+  `config init` gains `--force`; choice flags use enums with shell completion;
+  input paths are validated up front; and commands return differentiated exit
+  codes (2 config/input, 3 dependency, 4 GPU, 5 model).
+- **API**: `calc_spe`, `opt_geometry`, and `calc_thermo` accept `out_path`,
+  `use_gpu`, and `allow_tf32` (backwards-compatible).
+
 ### Changed
 
+- **`allow_tf32` now applies to the energy/optimize/thermo paths.** These
+  previously selected the device inline and ignored TF32; they now route through
+  the shared device + torch configuration, so enabling TF32 affects them too
+  (a small numerical change for anyone who had set it expecting it to apply).
 - **Thermochemistry reference temperature is now 298.15 K** - The default
   temperature for thermodynamic property calculation changed from 298 K to the
   standard 298.15 K.
