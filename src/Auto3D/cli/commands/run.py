@@ -113,12 +113,13 @@ def execute_run(
 
         elapsed = time.time() - start_time
 
-        # Build results from the real output file
-        from Auto3D.cli.results import count_from_output, count_input_molecules
-        if output_path and Path(output_path).exists():
-            molecules, conformers = count_from_output(str(output_path))
-        else:
-            molecules, conformers = 0, 0
+        # main() returns a WorkflowResult (a path str carrying the counts), so we
+        # read them off the result instead of re-opening the output SDF here.
+        # getattr keeps the old graceful (0, 0) if a caller/mocks ever hand back a
+        # plain str instead of a WorkflowResult.
+        from Auto3D.cli.results import count_input_molecules
+        molecules = getattr(output_path, "n_molecules", 0)
+        conformers = getattr(output_path, "n_conformers", 0)
         # Failures = input molecules that produced no conformer. Per-molecule
         # failure *details* are not yet wired through the workflow, but the count
         # is recoverable as inputs minus produced molecules so the summary no
