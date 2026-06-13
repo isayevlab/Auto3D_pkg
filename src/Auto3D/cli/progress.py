@@ -91,6 +91,23 @@ class OptimizationDisplay:
         if best_energy is not None:
             self.best_energy = best_energy
 
+    def update_from_jobs(self, jobs: dict) -> None:
+        """Aggregate the latest per-job progress events into the display.
+
+        Each value in ``jobs`` is the most recent event for one optimizer worker
+        (``{"total", "converged", "dropped", "active", "step"}``). Counts are
+        summed across jobs and the step shown is the furthest along, so a single
+        optimizer (the common case) renders exactly its own progress and a
+        multi-GPU run shows a sensible aggregate.
+        """
+        if not jobs:
+            return
+        self.total = sum(j.get("total", 0) for j in jobs.values())
+        self.converged = sum(j.get("converged", 0) for j in jobs.values())
+        self.dropped = sum(j.get("dropped", 0) for j in jobs.values())
+        self.active = sum(j.get("active", 0) for j in jobs.values())
+        self.step = max((j.get("step", 0) for j in jobs.values()), default=0)
+
     def make_panel(self) -> Panel:
         """Create a Rich panel showing current status.
 
