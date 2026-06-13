@@ -4,7 +4,7 @@ path: "tests/files/smiles2.smi"
 
 # Output selection (k and window are mutually exclusive - specify only one)
 k: 1
-window: False
+window: None
 
 # General settings
 memory: None

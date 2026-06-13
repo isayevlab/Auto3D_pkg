@@ -230,13 +230,13 @@ Key parameters for tautomer enumeration:
    * - Parameter
      - Description
    * - ``enumerate_tautomer``
-     - Enable tautomer enumeration (True/False)
+     - ``Auto3DOptions`` field: enable tautomer enumeration (True/False)
    * - ``tauto_engine``
-     - Engine: "rdkit" (free) or "oechem" (requires license)
+     - ``Auto3DOptions`` field: "rdkit" (free) or "oechem" (requires license)
    * - ``tauto_k``
-     - Number of stable tautomers to keep per input
+     - ``get_stable_tautomers()`` argument: number of stable tautomers to keep per input
    * - ``tauto_window``
-     - Energy window for tautomer selection (kcal/mol)
+     - ``get_stable_tautomers()`` argument: energy window for tautomer selection (kcal/mol)
 
 Stereoisomer Handling
 ---------------------
@@ -556,7 +556,9 @@ Comparing Conformer Ensembles
 
    mols = list(Chem.SDMolSupplier("output.sdf"))
 
-   # Group by molecule ID
+   # Group by molecule ID. In a standard output.sdf the _Name is already the
+   # molecule ID; the "id@tautN" form only appears in tautomer outputs, so
+   # split("@")[0] is a safe no-op there.
    conformers = {}
    for mol in mols:
        mol_id = mol.GetProp("_Name").split("@")[0]
