@@ -116,11 +116,12 @@ def test_engine_autocomplete():
 
 def test_run_save_intermediate_sets_verbose(smi):
     """--save-intermediate must propagate to Auto3DOptions.verbose."""
+    from Auto3D.results import WorkflowResult
     captured = {}
 
     def fake_main(options):
         captured["verbose"] = options.verbose
-        return "nonexistent_out.sdf"  # count_from_output skips a missing file
+        return WorkflowResult("nonexistent_out.sdf")  # counts -> 0 (missing file)
 
     with patch("Auto3D.auto3D.main", side_effect=fake_main):
         res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", "--save-intermediate"])
@@ -129,11 +130,12 @@ def test_run_save_intermediate_sets_verbose(smi):
 
 
 def test_run_without_save_intermediate_keeps_verbose_false(smi):
+    from Auto3D.results import WorkflowResult
     captured = {}
 
     def fake_main(options):
         captured["verbose"] = options.verbose
-        return "nonexistent_out.sdf"
+        return WorkflowResult("nonexistent_out.sdf")
 
     with patch("Auto3D.auto3D.main", side_effect=fake_main):
         res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
