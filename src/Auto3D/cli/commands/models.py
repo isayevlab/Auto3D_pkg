@@ -182,9 +182,10 @@ def execute_models_info(engine: str) -> None:
         engine_upper = "AIMNET"
 
     if engine_upper not in ENGINE_INFO:
+        from Auto3D.model_factory import ModelFactory
         print_error(
             f"Unknown engine: {engine}",
-            hint=f"Available: {', '.join(ENGINE_INFO.keys())}",
+            hint=f"Available: {', '.join(ModelFactory.available_models())}",
         )
         raise SystemExit(1)
 
@@ -207,3 +208,50 @@ def execute_models_info(engine: str) -> None:
         content += f"  - {note}\n"
 
     console.print(Panel(content, title=f"[cyan]{engine_upper}[/cyan]", border_style="blue"))
+
+
+def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0) -> None:
+    """Health-check an engine: load it and run one tiny forward pass.
+
+    Catches the common environment problems up front -- a missing torchani for
+    ANI, a failed/blocked aimnet registry download, or a broken custom model
+    file -- instead of having them surface deep inside a run.
+    """
+    from Auto3D.cli.console import print_success
+    from Auto3D.cli.errors import handle_error
+
+    try:
+        import time
+
+        import torch
+
+        from Auto3D.exceptions import NumericalError
+        from Auto3D.model_factory import create_model, get_device
+
+        device = get_device(gpu_idx, use_gpu=gpu)
+        with console.status(f"[bold]Loading {engine} on {device}..."):
+            t0 = time.time()
+            adapter = create_model(engine, device)
+            # A single methane molecule (H, C only -> supported by every engine).
+            coords = torch.tensor(
+                [[[0.0, 0.0, 0.0], [0.63, 0.63, 0.63], [-0.63, -0.63, 0.63],
+                  [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]],
+                dtype=torch.float, device=device,
+            )
+            species = torch.tensor([[6, 1, 1, 1, 1]], device=device)
+            charges = torch.tensor([0.0], device=device)
+            energy, forces = adapter.forward(coords, species, charges)
+            elapsed = time.time() - t0
+
+        if not (torch.isfinite(energy).all() and torch.isfinite(forces).all()):
+            raise NumericalError(
+                f"{engine} produced non-finite energy/forces on the test molecule."
+            )
+
+        e_ev = float(energy.reshape(-1)[0])
+        print_success(
+            f"{engine} is working on {device} "
+            f"(methane E = {e_ev:.4f} eV, {elapsed:.1f}s incl. load)."
+        )
+    except Exception as e:  # noqa: BLE001 - present every failure as a clean panel
+        handle_error(e)

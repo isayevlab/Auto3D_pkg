@@ -356,6 +356,30 @@ Show detailed information about a specific engine.
    # Get ANI2x details
    auto3d models info ANI2x
 
+auto3d models test
+^^^^^^^^^^^^^^^^^^
+
+Load an engine and run a single tiny forward pass to confirm it works in the
+current environment -- catching a missing ``torchani``, a failed aimnet registry
+download, or a broken custom model file up front rather than mid-run.
+
+**Usage:**
+
+.. code:: console
+
+   auto3d models test ENGINE [--gpu/--no-gpu] [--gpu-idx N]
+
+**Examples:**
+
+.. code:: console
+
+   auto3d models test AIMNET            # verify the default engine on GPU
+   auto3d models test ANI2x --no-gpu    # verify ANI2x loads/runs on CPU
+   auto3d models test ./my_model.pt     # verify a custom NNP file
+
+Exits 0 on success; 3 if a dependency is missing, 5 if the model loads but
+produces non-finite output.
+
 Shell Completion
 ----------------
 
