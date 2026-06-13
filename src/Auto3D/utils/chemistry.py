@@ -274,8 +274,14 @@ def check_connectivity(mol: Chem.Mol) -> bool:
     """
     # Initialize UFF bond radii (Rappe et al. JACS 1992)
     # Units of angstroms
-    # These radii neglect the bond-order and electronegativity corrections in the original paper.
-    # Where several values exist for the same atom, the largest was used.
+    # These radii neglect the bond-order and electronegativity corrections in the
+    # original paper. Where several values exist for the same atom, the largest
+    # was used. Consequence: a single bond-order-blind reference length makes the
+    # broken-bond (1.25x) check lenient and the formed-bond (1.1x) check strict,
+    # so a stretched aromatic/conjugated bond or a short multiple bond can be
+    # mis-judged. The molecular graph already carries bond orders (see
+    # get_mol_connectivity); a bond-order-aware reference would be more accurate
+    # but is intentionally not used here.
     Radii = {
         1: 0.354,
         5: 0.838,

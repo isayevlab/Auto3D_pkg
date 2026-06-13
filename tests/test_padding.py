@@ -202,6 +202,19 @@ class TestPadFromMols:
         assert q[0].item() == 0   # Methane is neutral
         assert q[1].item() == -1  # Hydroxide has -1 charge
 
+    def test_charges_are_float(self):
+        """Charges are float (parity with the ASE Calculator / AIMNet2 cast)."""
+        mol = Chem.AddHs(Chem.MolFromSmiles("[O-]"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        device = torch.device("cpu")
+
+        _, _, q_mols = pad_from_mols([mol], "AIMNET", device,
+                                     coord_pad=0.0, species_pad=0)
+        _, _, q_batch = pad_molecular_batch([[(0.0, 0.0, 0.0)]], [[8]], [-1],
+                                            device, coord_pad=0.0, species_pad=0)
+        assert q_mols.dtype == torch.float32
+        assert q_batch.dtype == torch.float32
+
     def test_coords_match_conformer(self):
         """Coordinates should match RDKit conformer positions."""
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))

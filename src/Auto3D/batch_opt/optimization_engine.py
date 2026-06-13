@@ -130,8 +130,11 @@ def n_steps(
     # The following two terms are used to detect oscillating conformers
     smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999,
                                   dtype=torch.float).to(coord.device)
-    oscillating_count0 = torch.tensor(np.zeros(len(coord)),
-                                      dtype=torch.float).to(coord.device)
+    # Integer step counter (matches energy_stable_count below); only ever
+    # incremented by a bool mask and compared to `patience`, so use torch.long
+    # rather than float for a quantity that is conceptually an integer count.
+    oscillating_count0 = torch.zeros(len(coord), dtype=torch.long,
+                                     device=coord.device)
 
     # Energy-based convergence tracking
     prev_energy = torch.full((len(coord),), float('inf'), dtype=torch.double, device=coord.device)

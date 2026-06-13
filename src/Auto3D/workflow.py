@@ -16,7 +16,7 @@ from Auto3D.config import Auto3DOptions, optimizer_worker_indices
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.model_factory import ModelFactory
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils import check_input, reorder_sdf
+from Auto3D.utils import check_input, check_valid_configuration, reorder_sdf
 from Auto3D.utils.file_ops import decode_ids, encode_ids
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.workflow_workers import (
@@ -146,6 +146,27 @@ class WorkflowOrchestrator:
         # Generate job name if not provided
         if self.config.job_name == "":
             self.config.job_name = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+        # Fail fast on an invalid configuration (notably an out-of-range gpu_idx).
+        # Without this the bad index only surfaces deep inside a spawned worker as
+        # an opaque "no structure converged". check_valid_configuration already
+        # validates the index against torch.cuda.device_count(); reuse it.
+        config_errors = check_valid_configuration(
+            path=self.config.path,
+            k=self.config.k,
+            window=self.config.window,
+            use_gpu=self.config.use_gpu,
+            gpu_idx=self.config.gpu_idx,
+            optimizing_engine=self.config.optimizing_engine,
+            isomer_engine=self.config.isomer_engine,
+            opt_steps=self.config.opt_steps,
+            enumerate_tautomer=self.config.enumerate_tautomer,
+            tauto_engine=self.config.tauto_engine,
+        )
+        if config_errors:
+            raise ConfigurationError(
+                "Invalid configuration:\n  - " + "\n  - ".join(config_errors)
+            )
 
         check_input(self.config)
 

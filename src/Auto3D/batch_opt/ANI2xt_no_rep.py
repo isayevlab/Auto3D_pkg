@@ -164,6 +164,12 @@ class ANI2xt(nn.Module):
         else:
             species_idx = species
 
+        # Padded atoms carry species == species_pad == -1 (set by the batch
+        # padder). -1 is not in periodict2idx, so it survives unchanged here and
+        # is passed to the AEV computer, which relies on TorchANI's convention
+        # that a species index of -1 marks a dummy/masked atom (excluded from the
+        # AEV and the per-element energy loop below, where no elem_idx == -1).
+        # This correctness depends on -1 being TorchANI's masked-atom sentinel.
         # Compute AEVs (use new API: aev_computer(species, coords))
         aev = self.aev_computer(species_idx, coords)  # (batch, num_atoms, aev_dim)
 
