@@ -332,7 +332,7 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     attempted = []
 
     class _BoomOptimizing:
-        def __init__(self, in_f, out_f, engine, device, config):
+        def __init__(self, in_f, out_f, engine, device, config, progress_cb=None):
             self._enumerated = in_f
 
         def run(self):

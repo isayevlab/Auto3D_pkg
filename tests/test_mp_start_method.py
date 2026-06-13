@@ -41,7 +41,7 @@ def test_main_forces_spawn_even_when_fork_is_locked(monkeypatch):
         monkeypatch.setattr(
             workflow,
             "WorkflowOrchestrator",
-            lambda args: types.SimpleNamespace(run=lambda: "out.sdf"),
+            lambda args, progress_callback=None: types.SimpleNamespace(run=lambda: "out.sdf"),
         )
 
         out = auto3D.main(Auto3DOptions(path="unused.smi", k=1))

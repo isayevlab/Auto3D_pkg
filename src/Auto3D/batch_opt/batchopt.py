@@ -7,6 +7,8 @@ import torch
 from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from Auto3D.config import OptimizationConfig
 
 logger = get_logger(__name__)
@@ -49,6 +51,7 @@ def ensemble_opt(
     param: dict,
     device: torch.device,
     species_pad: int = -1,
+    progress_cb: "Callable[[dict], None] | None" = None,
 ) -> dict:
     """Optimize a group of molecules using batch optimization.
 
@@ -117,7 +120,7 @@ def ensemble_opt(
     energy_patience = param.get('energy_patience', 3)
     n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
             energy_tol=energy_tol, energy_patience=energy_patience,
-            species_pad=species_pad)
+            species_pad=species_pad, progress_cb=progress_cb)
 
     return dict(
         coord=state['coord'].tolist(),
@@ -142,6 +145,7 @@ class optimizing:
         device: torch.device,
         config: "OptimizationConfig | dict",
         use_ensemble: bool = False,
+        progress_cb: "Callable[[dict], None] | None" = None,
     ):
         """Initialize optimization runner.
 
@@ -158,6 +162,7 @@ class optimizing:
         self.out_f = out_f
         self.name = name
         self.device = device
+        self.progress_cb = progress_cb
 
         # Support both OptimizationConfig and legacy dict
         if isinstance(config, dict):
@@ -246,7 +251,8 @@ class optimizing:
         # `with torch.jit.optimized_execution(False)` guard here was a no-op.
         optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
                                self._config_dict, self.device,
-                               species_pad=self.species_pad)  # Magic step
+                               species_pad=self.species_pad,
+                               progress_cb=self.progress_cb)  # Magic step
         return optdict
 
     def run(self):
