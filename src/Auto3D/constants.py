@@ -62,6 +62,10 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # (~1e-3 eV) so truly identical conformers still dedup.
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
+# eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by
+# the thermochemistry path (calc_thermo): a true minimum is needed before a
+# Hessian/frequency calculation, unlike conformer generation where 0.01 suffices.
+DEFAULT_THERMO_CONVERGENCE_THRESHOLD = 2e-4
 DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
 DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
