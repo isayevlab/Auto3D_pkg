@@ -114,3 +114,28 @@ def test_merge_cli_overrides():
     merged = merge_configs(base, overrides)
     assert merged.k == 10
     assert merged.use_gpu is False
+
+
+def test_config_exposes_batchsize_and_tf32():
+    """batchsize_atoms and allow_tf32 are accepted by CLIConfig and forwarded to
+    Auto3DOptions (so the shipped parameters.yaml loads via `auto3d run -c`)."""
+    from Auto3D.cli.config_schema import CLIConfig
+
+    cfg = CLIConfig(path="x.smi", k=1, batchsize_atoms=2048, allow_tf32=True)
+    assert cfg.batchsize_atoms == 2048
+    assert cfg.allow_tf32 is True
+    opts = cfg.to_auto3d_options()
+    assert opts.batchsize_atoms == 2048
+    assert opts.allow_tf32 is True
+
+
+def test_shipped_parameters_yaml_loads():
+    """The repo-root parameters.yaml must validate against the modern CLI schema."""
+    from Auto3D.cli.config_schema import load_yaml_config
+
+    repo_root = Path(__file__).resolve().parent.parent
+    cfg = load_yaml_config(repo_root / "parameters.yaml")
+    # k/window are mutually exclusive; the example sets k and leaves window unset.
+    assert cfg.k == 1
+    assert cfg.window is None
+    cfg.to_auto3d_options()  # must not raise

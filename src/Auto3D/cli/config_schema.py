@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from Auto3D.config import Auto3DOptions
 from Auto3D.constants import (
+    DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CAPACITY,
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
@@ -54,10 +55,12 @@ class CLIConfig(BaseModel):
     convergence_threshold: float = Field(DEFAULT_CONVERGENCE_THRESHOLD, gt=0)
     patience: int = Field(DEFAULT_PATIENCE, ge=1)
     threshold: float = Field(DEFAULT_RMSD_THRESHOLD, gt=0)
+    batchsize_atoms: int = Field(DEFAULT_BATCHSIZE_ATOMS, ge=1)
 
     # Resource settings
     memory: int | None = Field(None, ge=1)
     capacity: int = Field(DEFAULT_CAPACITY, ge=1)
+    allow_tf32: bool = False
 
     # Output settings
     verbose: bool = False
@@ -125,8 +128,10 @@ class CLIConfig(BaseModel):
             convergence_threshold=self.convergence_threshold,
             patience=self.patience,
             threshold=self.threshold,
+            batchsize_atoms=self.batchsize_atoms,
             memory=self.memory,
             capacity=self.capacity,
+            allow_tf32=self.allow_tf32,
             verbose=self.verbose,
             job_name=self.job_name,
         )

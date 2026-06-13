@@ -147,10 +147,13 @@ CUDA Out of Memory
       pip uninstall torch
       pip install torch --index-url https://download.pytorch.org/whl/cu118
 
-"Invalid device ordinal"
+"GPU index N is invalid"
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Problem**: Requested GPU index doesn't exist.
+**Problem**: The requested ``gpu_idx`` is out of range. Auto3D validates the GPU
+index up front and raises ``Invalid configuration: GPU index N is invalid.
+Available GPUs: M`` rather than letting CUDA fail later with "invalid device
+ordinal".
 
 **Solutions**:
 
@@ -632,7 +635,7 @@ Common Error Messages
 
    * - Error
      - Solution
-   * - ``ValueError: k and window cannot both be set``
+   * - ``ValueError: Only k OR window needs to be specified``
      - Use only ``k`` OR ``window``, not both
    * - ``RuntimeError: CUDA out of memory``
      - Reduce ``batchsize_atoms`` or use CPU
