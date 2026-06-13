@@ -122,6 +122,39 @@ class TestSmiles2Smi:
         assert all("_" not in i for i in ids)
 
 
+class TestCombineSmi:
+    """Tests for combine_smi (order-preserving dedup)."""
+
+    def test_preserves_order_and_dedups(self, tmp_path):
+        f1 = tmp_path / "a.smi"
+        f2 = tmp_path / "b.smi"
+        f1.write_text("CCO ethanol\nCCC propane\n")
+        f2.write_text("CCC propane\nCCCC butane\n")  # propane duplicated
+        out = tmp_path / "combined.smi"
+
+        combine_smi([str(f1), str(f2)], str(out))
+
+        lines = out.read_text().strip().split("\n")
+        # Deduped (propane once) and in first-seen input order.
+        assert lines == ["CCO ethanol", "CCC propane", "CCCC butane"]
+
+
+class TestEncodeIdsSmiDenseIndex:
+    """encode_ids must use a dense, gap-free index for .smi inputs."""
+
+    def test_blank_lines_do_not_create_index_gaps(self, tmp_path):
+        smi = tmp_path / "in.smi"
+        # Blank lines interspersed: the old code used the file line number as the
+        # index, leaving gaps. The dense record counter must yield 0,1,2.
+        smi.write_text("CCO a\n\nCCC b\n\n\nCCCC c\n")
+
+        new_path, mapping = encode_ids(str(smi))
+
+        assert sorted(mapping.values()) == [0, 1, 2]
+        ids = [line.split()[1] for line in Path(new_path).read_text().strip().split("\n")]
+        assert ids == ["0", "1", "2"]
+
+
 class TestGuessFileType:
     """Tests for guess_file_type function."""
 

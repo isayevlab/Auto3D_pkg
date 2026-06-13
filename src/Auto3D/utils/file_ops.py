@@ -479,7 +479,10 @@ def combine_smi(smies: list[str], out: str) -> None:
         with open(smi) as f:
             datai = f.readlines()
         data += datai
-    data = list(set(data))
+    # Order-preserving dedup: list(set(...)) randomizes line order across runs
+    # (hash seed), making the combined output non-deterministic. dict.fromkeys
+    # keeps first-seen order while removing exact duplicates.
+    data = list(dict.fromkeys(data))
     with open(out, "w+") as f2:
         for line in data:
             if not line.isspace():
@@ -562,13 +565,17 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
         mapping: dict[str, int] = {}
         # iter_smi_records raises InputValidationError on a <2-token line
         # (on_malformed="raise"). Duplicate-id detection stays here because the
-        # helper does not dedup. The 0-based index `i` preserves the original
-        # byte-identical mapping/output (line_no is 1-based).
-        for line_no, smi, id in iter_smi_records(path, on_malformed="raise"):
-            i = line_no - 1
+        # helper does not dedup. Index by a dense record counter, not the file
+        # line number: blank/skipped lines would otherwise leave gaps in the
+        # index space, which is inconsistent with the dense positions the chunk
+        # manager assumes downstream. The original file line_no is still used in
+        # the error message so it points at the real offending line.
+        for i, (line_no, smi, id) in enumerate(
+            iter_smi_records(path, on_malformed="raise")
+        ):
             if id in mapping:
                 raise InputValidationError(
-                    f"Duplicate molecule ID {id!r} on line {i + 1}. "
+                    f"Duplicate molecule ID {id!r} on line {line_no}. "
                     "IDs must be unique."
                 )
             mapping[id] = i
