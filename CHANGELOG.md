@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optimization, thermochemistry, and tautomer ranking from the CLI (previously
   Python-only). Each supports `--engine`, `--gpu/--no-gpu`, `--gpu-idx`,
   `-o/--output`, and `--json`.
+- **`auto3d models test <engine>`** - loads an engine and runs a tiny forward
+  pass as a health check (catches a missing torchani, a failed aimnet registry
+  download, or a broken custom model file before a full run).
 - **CLI ergonomics** - `auto3d run` gains `--job-name` and `--save-intermediate`;
   `config init` gains `--force`; choice flags use enums with shell completion;
   input paths are validated up front; and commands return differentiated exit
