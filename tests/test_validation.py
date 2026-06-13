@@ -167,3 +167,26 @@ class TestCheckInputExceptions:
             isomer_engine="rdkit", verbose=False,
         )
         check_input(args)  # must not raise for a valid registry engine
+
+
+class TestCheckValidConfigurationGpuIndex:
+    """check_valid_configuration must flag an out-of-range gpu_idx so the
+    workflow can fail fast instead of crashing inside a spawned worker."""
+
+    def test_out_of_range_index_flagged(self, tmp_path):
+        from Auto3D.utils.validation import check_valid_configuration
+        p = tmp_path / "in.smi"
+        p.write_text("CCO mol\n")
+        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True), \
+             patch('Auto3D.utils.validation.torch.cuda.device_count', return_value=1):
+            errors = check_valid_configuration(path=str(p), k=1, use_gpu=True, gpu_idx=5)
+        assert any("GPU index 5 is invalid" in e for e in errors)
+
+    def test_valid_index_not_flagged(self, tmp_path):
+        from Auto3D.utils.validation import check_valid_configuration
+        p = tmp_path / "in.smi"
+        p.write_text("CCO mol\n")
+        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True), \
+             patch('Auto3D.utils.validation.torch.cuda.device_count', return_value=4):
+            errors = check_valid_configuration(path=str(p), k=1, use_gpu=True, gpu_idx=0)
+        assert errors == []

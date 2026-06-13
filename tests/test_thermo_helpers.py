@@ -80,6 +80,13 @@ def test_resolve_multiplicity_respects_explicit_property():
     assert _resolve_multiplicity(m) == 4
 
 
+def test_do_mol_thermo_default_temperature_is_298_15():
+    """Reference temperature must be the thermochemistry standard 298.15 K."""
+    import inspect
+    from Auto3D.ASE.thermo import do_mol_thermo
+    assert inspect.signature(do_mol_thermo).parameters["T"].default == 298.15
+
+
 @pytest.mark.slow
 def test_load_hessian_model_aimnet(aimnet_hessian_model):
     m = aimnet_hessian_model

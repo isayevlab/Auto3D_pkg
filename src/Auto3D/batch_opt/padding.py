@@ -59,7 +59,9 @@ def pad_molecular_batch(
         dtype=torch.long,
         device=device
     )
-    charges_tensor = torch.tensor(charges, dtype=torch.long, device=device)
+    # Float (not long) for parity with pad_from_mols and the ASE Calculator, and
+    # to match the dtype the AIMNet2 adapter casts charges to (ANI ignores them).
+    charges_tensor = torch.tensor(charges, dtype=torch.float32, device=device)
 
     # Fill in actual values - create tensors directly on target device
     for i, (coord, spec) in enumerate(zip(coords, species, strict=True)):
@@ -136,6 +138,9 @@ def pad_from_mols(
 
         charges.append(rdmolops.GetFormalCharge(mol))
 
-    charges_tensor = torch.tensor(charges, dtype=torch.long, device=device)
+    # Float (not long) to match the ASE Calculator path (ASE/thermo.py) and the
+    # dtype the AIMNet2 adapter casts charges to internally; formal charges are
+    # integers exactly representable in float32, and ANI models ignore charge.
+    charges_tensor = torch.tensor(charges, dtype=torch.float32, device=device)
 
     return coords_tensor.requires_grad_(True), species_tensor, charges_tensor

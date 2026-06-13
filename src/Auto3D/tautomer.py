@@ -18,8 +18,17 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     Only k or window needs to be specified, NOT both.
 
     sdf: main function output
-    
-    Output: the path of the low-energy tautomer 3D conformers"""
+
+    Output: the path of the low-energy tautomer 3D conformers
+
+    Note:
+        Tautomers are ranked by the optimized NNP *electronic* energy (``E_tot``)
+        only -- no zero-point energy or thermal/entropy correction. Tautomer
+        equilibria (e.g. keto/enol, 2-pyridone/2-hydroxypyridine) are often
+        decided by ZPE/entropy differences of 1-2 kcal/mol that can invert the
+        electronic-energy ordering, so the "most stable" tautomer here is an
+        electronic-energy estimate, not a free-energy one. Use the thermo module
+        (Auto3D.ASE.thermo) for a free-energy comparison when that matters."""
     logger.info("Begin to select stable tautomers based on their conformer energies...")
     results = []
     if (k is not None) and (window is not None):

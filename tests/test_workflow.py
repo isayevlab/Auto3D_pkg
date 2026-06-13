@@ -79,6 +79,28 @@ class TestWorkflowExceptions:
             with pytest.raises(ConfigurationError, match="k or window"):
                 orchestrator._validate_input()
 
+    def test_validate_input_invalid_config_raises_configuration_error(self, tmp_path):
+        """An invalid config (e.g. out-of-range gpu_idx) must fail fast in
+        _validate_input via check_valid_configuration, not deep in a worker."""
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        smi_file = tmp_path / "test.smi"
+        smi_file.write_text("CCO ethanol")
+        config = Auto3DOptions(path=str(smi_file), k=1)
+        orchestrator = WorkflowOrchestrator(config)
+
+        with patch('Auto3D.workflow.encode_ids') as mock_encode, \
+             patch(
+                 'Auto3D.workflow.check_valid_configuration',
+                 return_value=["GPU index 5 is invalid. Available GPUs: 1"],
+             ):
+            mock_encode.return_value = (str(tmp_path / "test_encoded.smi"), {})
+            (tmp_path / "test_encoded.smi").write_text("CCO ethanol")
+
+            with pytest.raises(ConfigurationError, match="GPU index 5 is invalid"):
+                orchestrator._validate_input()
+
     def test_finalize_output_no_structures_raises_optimization_error(self, tmp_path):
         """Should raise OptimizationError when no 3D structures converged."""
         from Auto3D.config import Auto3DOptions

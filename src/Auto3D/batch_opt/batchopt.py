@@ -241,10 +241,12 @@ class optimizing:
             coord_pad=self.coord_pad, species_pad=self.species_pad
         )
 
-        with torch.jit.optimized_execution(False):
-            optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
-                                   self._config_dict, self.device,
-                                   species_pad=self.species_pad)  # Magic step
+        # torch.jit.optimized_execution only affects TorchScript modules; the
+        # default AIMNet2 path is eager and ANI uses torch.compile, so the old
+        # `with torch.jit.optimized_execution(False)` guard here was a no-op.
+        optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
+                               self._config_dict, self.device,
+                               species_pad=self.species_pad)  # Magic step
         return optdict
 
     def run(self):
