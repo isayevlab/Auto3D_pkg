@@ -164,6 +164,49 @@ def test_config_init_preset_enum_valid(tmp_path):
     assert target.exists()
 
 
+def test_models_test_success(monkeypatch):
+    """`models test` loads the engine and runs a forward; reports success."""
+    import torch
+
+    class _StubAdapter:
+        def forward(self, coords, species, charges):
+            return torch.zeros(1), torch.zeros(1, 5, 3)
+
+    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
+    res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
+    assert res.exit_code == 0, res.output
+    assert "working" in res.output
+
+
+def test_models_test_load_failure_exit_code(monkeypatch):
+    """A load failure (e.g. missing dependency) exits with the mapped code."""
+    from Auto3D.exceptions import DependencyError
+
+    def _boom(*a, **k):
+        raise DependencyError("torchani not installed")
+
+    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: __import__("torch").device("cpu"))
+    monkeypatch.setattr("Auto3D.model_factory.create_model", _boom)
+    res = runner.invoke(app, ["models", "test", "ANI2x", "--no-gpu"])
+    assert res.exit_code == 3  # DependencyError -> 3
+    assert "Traceback" not in res.output
+
+
+def test_models_test_non_finite_exit_code(monkeypatch):
+    """Non-finite outputs are reported as a model (numerical) error -> exit 5."""
+    import torch
+
+    class _NanAdapter:
+        def forward(self, coords, species, charges):
+            return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
+
+    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _NanAdapter())
+    res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
+    assert res.exit_code == 5  # NumericalError (ModelError) -> 5
+
+
 def test_api_functions_expose_new_params():
     """calc_spe/opt_geometry/calc_thermo must accept out_path/use_gpu/allow_tf32
     so the CLI can drive output location, GPU choice, and TF32 uniformly."""

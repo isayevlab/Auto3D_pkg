@@ -235,6 +235,23 @@ def models_info(
     execute_models_info(engine=engine)
 
 
+@models_app.command("test")
+def models_test(
+    engine: Annotated[
+        str,
+        typer.Argument(
+            autocompletion=engine_autocomplete,
+            help="Engine to health-check: AIMNET, ANI2x, ANI2xt, a registry name, or a model path.",
+        ),
+    ],
+    gpu: Annotated[bool, typer.Option("--gpu/--no-gpu", help="Use GPU when available.")] = True,
+    gpu_idx: Annotated[int, typer.Option("--gpu-idx", help="CUDA device index.")] = 0,
+) -> None:
+    """Load an engine and run a tiny forward pass to verify it works."""
+    from Auto3D.cli.commands.models import execute_models_test
+    execute_models_test(engine=engine, gpu=gpu, gpu_idx=gpu_idx)
+
+
 @app.command()
 def validate(
     input_file: InputFile,
