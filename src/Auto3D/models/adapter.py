@@ -52,6 +52,14 @@ def _validate_outputs(energy: torch.Tensor, forces: torch.Tensor) -> None:
     Raises:
         NumericalError: If NaN or Inf values are detected.
     """
+    # This runs on every NN forward, i.e. every FIRE step. Each `.any()`/`.item()`
+    # on a CUDA tensor is a host-device sync that serializes the stream, so the
+    # happy path (finite outputs) does a SINGLE combined reduction. The detailed,
+    # additionally-synchronizing NaN/Inf breakdown is computed only on the rare
+    # failure branch, where one extra sync is irrelevant.
+    if bool(torch.isfinite(energy).all() & torch.isfinite(forces).all()):
+        return
+
     if torch.isnan(energy).any():
         nan_count = torch.isnan(energy).sum().item()
         raise NumericalError(

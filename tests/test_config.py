@@ -183,3 +183,30 @@ def test_default_and_valid_k_window_accepted():
     Auto3DOptions(path="x.smi", k=5)
     Auto3DOptions(path="x.smi", window=2.0)
     Auto3DOptions(path="x.smi", k=0)  # 0 is "not specified", allowed
+
+
+class TestOptimizerWorkerIndices:
+    """One optimizer process per GPU on GPU; a single worker otherwise.
+
+    A CPU run with a list of gpu_idx must collapse to ONE worker (the index is
+    unused on CPU) so N processes do not contend for the same cores / load the
+    model N times. The spawn site and the isomer worker's sentinel count both
+    derive from this, so they cannot drift.
+    """
+
+    def test_single_int_index(self):
+        from Auto3D.config import optimizer_worker_indices
+        assert optimizer_worker_indices(True, 0) == [0]
+        assert optimizer_worker_indices(False, 2) == [2]
+
+    def test_gpu_list_fans_out(self):
+        from Auto3D.config import optimizer_worker_indices
+        assert optimizer_worker_indices(True, [0, 1, 2]) == [0, 1, 2]
+
+    def test_cpu_list_collapses_to_one(self):
+        from Auto3D.config import optimizer_worker_indices
+        assert optimizer_worker_indices(False, [0, 1]) == [0]
+
+    def test_cpu_empty_list_is_safe(self):
+        from Auto3D.config import optimizer_worker_indices
+        assert optimizer_worker_indices(False, []) == [0]

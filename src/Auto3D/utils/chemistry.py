@@ -20,6 +20,7 @@ from Auto3D.constants import (
     CONFORMER_MULTIPLIER,
     CONFORMER_ROTATABLE_COEFF,
     CONFORMER_ROTATABLE_EXP,
+    DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_RMSD_THRESHOLD,
     EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
@@ -511,12 +512,23 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
     # both sides of every comparison (O(n^2)); GetBestRMS on no-H forms is
     # symmetric so results are unchanged. The ORIGINAL (H-explicit) mols are
     # returned; no-H forms are comparison-only.
+    #
+    # Heavy-atom RMSD alone collapses conformers that differ only in an O-H / N-H
+    # rotor orientation. Guard with an energy check: a pair counts as duplicate
+    # only when the RMSD is below ``crit`` AND the energies agree within
+    # DEFAULT_DUPLICATE_ENERGY_TOL. Mols without a usable 'E_tot' fall back to
+    # RMSD-only (energy guard cannot apply).
     unique_mols: list[Chem.Mol] = []
     unique_noH: list[Chem.Mol] = []
+    unique_energies: list[float | None] = []
     for mol_i in mols:
         mol_i_noH = Chem.RemoveHs(mol_i)
+        try:
+            e_i: float | None = float(mol_i.GetProp("E_tot"))
+        except (KeyError, ValueError):
+            e_i = None
         unique = True
-        for mol_j_noH in unique_noH:
+        for mol_j_noH, e_j in zip(unique_noH, unique_energies, strict=True):
             try:
                 # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # removing Hs speeds up the calculation
@@ -526,10 +538,16 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
                 # conformer is kept. Using 0 would make it look like a perfect
                 # duplicate and drop a genuinely distinct structure.
                 rmsd = float("inf")
-            if rmsd < crit:
+            energy_close = (
+                e_i is None
+                or e_j is None
+                or abs(e_i - e_j) < DEFAULT_DUPLICATE_ENERGY_TOL
+            )
+            if rmsd < crit and energy_close:
                 unique = False
                 break
         if unique:
             unique_mols.append(mol_i)
             unique_noH.append(mol_i_noH)
+            unique_energies.append(e_i)
     return unique_mols

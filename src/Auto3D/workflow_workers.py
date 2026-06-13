@@ -20,6 +20,7 @@ from rdkit import Chem
 from send2trash import send2trash
 
 from Auto3D.batch_opt.batchopt import optimizing
+from Auto3D.config import optimizer_worker_indices
 from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.processors import TautomerProcessor
 from Auto3D.ranking import ranking
@@ -57,10 +58,9 @@ def isomer_wrapper(
     # Each optimizer blocks on queue.get() until it receives a "Done" sentinel,
     # so we must emit exactly one sentinel per optimizer in a `finally` block to
     # avoid deadlocking the optimizers when isomer generation fails partway.
-    if isinstance(args.gpu_idx, int):
-        n_optimizers = 1
-    else:
-        n_optimizers = len(args.gpu_idx)
+    # Use the same rule as the spawn site (a CPU run with a list of gpu_idx runs
+    # a single optimizer, not one per index) so the counts cannot drift.
+    n_optimizers = len(optimizer_worker_indices(args.use_gpu, args.gpu_idx))
 
     try:
         for i, path_dir in enumerate(chunk_info):
