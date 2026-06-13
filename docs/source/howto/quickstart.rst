@@ -22,7 +22,8 @@ Installation
 
 .. code:: console
 
-   conda install -c conda-forge auto3d
+   # from a clone of the repository (creates a ready-to-use environment)
+   conda env create -f installation.yml
 
 Verify installation:
 
@@ -63,8 +64,8 @@ Auto3D creates a timestamped folder with results:
 The output SDF file contains:
 
 - Optimized 3D coordinates
-- Energy in Hartree (``E_tot`` property)
-- Relative energy in kcal/mol (``E_relative`` property)
+- Energy in Hartree (``E_tot`` / ``E_tot(Hartree)`` property)
+- Relative energy in kcal/mol (``E_rel(kcal/mol)`` property)
 - Original SMILES and molecule name
 
 View in Python:
