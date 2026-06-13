@@ -112,7 +112,7 @@ def _filter_within_cluster(
         e_i = _mol_energy(mol_i)
         is_unique = True
 
-        for mol_j_noH, e_j in zip(unique_noH, unique_energies):
+        for mol_j_noH, e_j in zip(unique_noH, unique_energies, strict=True):
             try:
                 # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # Removing Hs speeds up the calculation
