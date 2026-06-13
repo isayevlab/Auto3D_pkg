@@ -5,7 +5,11 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 
-from Auto3D.constants import DEFAULT_ENERGY_CLUSTER_WINDOW, DEFAULT_RMSD_THRESHOLD
+from Auto3D.constants import (
+    DEFAULT_DUPLICATE_ENERGY_TOL,
+    DEFAULT_ENERGY_CLUSTER_WINDOW,
+    DEFAULT_RMSD_THRESHOLD,
+)
 from Auto3D.utils import check_connectivity
 
 
@@ -78,12 +82,18 @@ def filter_unique_optimized(
 def _filter_within_cluster(
     mols: list[Chem.Mol],
     rmsd_threshold: float,
+    energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL,
 ) -> list[Chem.Mol]:
     """Filter unique molecules within an energy cluster.
 
     Args:
         mols: List of RDKit Mol objects to filter.
         rmsd_threshold: RMSD threshold for considering structures similar (Angstrom).
+        energy_tol: Energy tolerance (eV). A pair is treated as duplicate only
+            when the heavy-atom RMSD is below ``rmsd_threshold`` AND the energies
+            agree within this tolerance, so conformers that differ only in an
+            O-H / N-H rotor orientation (RMSD~=0 on heavy atoms but distinct
+            minima with different energies) are preserved.
 
     Returns:
         List of unique molecules within the cluster.
@@ -96,11 +106,13 @@ def _filter_within_cluster(
     # ORIGINAL (H-explicit) mols are returned; no-H forms are comparison-only.
     unique: list[Chem.Mol] = []
     unique_noH: list[Chem.Mol] = []
+    unique_energies: list[float] = []
     for mol_i in mols:
         mol_i_noH = Chem.RemoveHs(mol_i)
+        e_i = _mol_energy(mol_i)
         is_unique = True
 
-        for mol_j_noH in unique_noH:
+        for mol_j_noH, e_j in zip(unique_noH, unique_energies, strict=True):
             try:
                 # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # Removing Hs speeds up the calculation
@@ -108,12 +120,31 @@ def _filter_within_cluster(
             except RuntimeError:
                 rmsd = float("inf")  # incomparable pair -> treat as distinct
 
-            if rmsd < rmsd_threshold:
+            # Heavy-atom RMSD alone collapses distinct H-rotamers; require the
+            # energies to also agree before declaring a duplicate. Missing/NaN
+            # energy => fall back to RMSD-only (energy guard cannot apply).
+            energy_close = (
+                e_i is None or e_j is None or abs(e_i - e_j) < energy_tol
+            )
+            if rmsd < rmsd_threshold and energy_close:
                 is_unique = False
                 break
 
         if is_unique:
             unique.append(mol_i)
             unique_noH.append(mol_i_noH)
+            unique_energies.append(e_i)
 
     return unique
+
+
+def _mol_energy(mol: Chem.Mol) -> float | None:
+    """Return a mol's optimized energy (eV) from the ``E_tot`` property, or None.
+
+    Used by the duplicate-conformer test as an energy guard; ``None`` signals
+    "no usable energy" so callers fall back to RMSD-only comparison.
+    """
+    try:
+        return float(mol.GetProp("E_tot"))
+    except (KeyError, ValueError):
+        return None

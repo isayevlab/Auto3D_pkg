@@ -41,11 +41,13 @@ class TestConformerRankerWithOptimizedFiltering:
         """ConformerRanker should use optimized filtering by default."""
         from Auto3D.ranking import ConformerRanker
 
-        # Create test molecules - all with same SMILES root name
-        # Use close energies so they fall in same energy cluster (within 0.1 eV)
+        # Create test molecules - all with same SMILES root name.
+        # Identical geometry AND near-identical energy (within the duplicate
+        # energy tolerance, ~0.01 eV), as truly identical conformers would be,
+        # so they deduplicate to one.
         mol1 = _create_mol_with_energy("C", -10.0, "mol_1")
-        mol2 = _create_mol_with_energy("C", -10.05, "mol_2")  # Same structure, close energy
-        mol3 = _create_mol_with_energy("C", -10.08, "mol_3")  # Same structure, close energy
+        mol2 = _create_mol_with_energy("C", -10.005, "mol_2")  # same structure & energy
+        mol3 = _create_mol_with_energy("C", -10.008, "mol_3")  # same structure & energy
 
         input_path = str(tmp_path / "input.sdf")
         output_path = str(tmp_path / "output.sdf")
@@ -69,9 +71,10 @@ class TestConformerRankerWithOptimizedFiltering:
         """ConformerRanker should support legacy filtering when explicitly requested."""
         from Auto3D.ranking import ConformerRanker
 
-        # Create test molecules - all with same SMILES root name
+        # Same structure and near-identical energy (within the duplicate energy
+        # tolerance) -> one unique structure.
         mol1 = _create_mol_with_energy("C", -10.0, "mol_1")
-        mol2 = _create_mol_with_energy("C", -9.0, "mol_2")
+        mol2 = _create_mol_with_energy("C", -10.005, "mol_2")
 
         input_path = str(tmp_path / "input.sdf")
         output_path = str(tmp_path / "output.sdf")
@@ -98,10 +101,11 @@ class TestConformerRankerWithOptimizedFiltering:
         """
         from Auto3D.ranking import ConformerRanker
 
-        # Create identical molecules with same base name - these should be deduplicated
+        # Identical molecules (same structure AND near-identical energy, within
+        # the duplicate energy tolerance) - these should be deduplicated.
         mol1 = _create_mol_with_energy("CCCC", -10.0, "a_1")
-        mol2 = _create_mol_with_energy("CCCC", -10.05, "a_2")  # Same structure
-        mol3 = _create_mol_with_energy("CCCC", -10.08, "a_3")  # Same structure
+        mol2 = _create_mol_with_energy("CCCC", -10.005, "a_2")  # same structure & energy
+        mol3 = _create_mol_with_energy("CCCC", -10.008, "a_3")  # same structure & energy
 
         input_path = str(tmp_path / "input.sdf")
         output_optimized = str(tmp_path / "output_optimized.sdf")

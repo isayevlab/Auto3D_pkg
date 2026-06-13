@@ -74,6 +74,32 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     return 1
 
 
+def _resolve_multiplicity(mol: Chem.Mol) -> int:
+    """Spin multiplicity (2S+1) for IdealGasThermo's electronic-degeneracy term.
+
+    Uses an explicit integer 'multiplicity' molecule property when present.
+    Otherwise derives it from the radical-electron count
+    (multiplicity = unpaired electrons + 1) and records it on the mol, instead of
+    silently assuming a closed-shell singlet -- which would zero the electronic
+    entropy term for every radical. The NNP *energy* stays closed-shell
+    regardless (AIMNet2 takes only coords/species/charge, no spin), so warn for
+    open-shell species that the energy is an approximation.
+    """
+    if mol.HasProp("multiplicity"):
+        return mol.GetUnsignedProp("multiplicity")
+    n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
+    multiplicity = n_radical + 1
+    mol.SetUnsignedProp("multiplicity", int(multiplicity))
+    if n_radical > 0:
+        logger.warning(
+            "Open-shell species detected (%d unpaired electron(s), "
+            "multiplicity %d); the NNP energy is a closed-shell approximation.",
+            n_radical,
+            multiplicity,
+        )
+    return multiplicity
+
+
 class Calculator(ase.calculators.calculator.Calculator):
     """ASE calculator interface for AIMNET and ANI2xt"""
     implemented_properties = ['energy', 'forces']
@@ -227,8 +253,22 @@ def do_mol_thermo(mol: Chem.Mol,
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
     symmetry = _symmetry_number(mol)
-    multiplicity = mol.GetUnsignedProp("multiplicity") if mol.HasProp("multiplicity") else 1
+
+    multiplicity = _resolve_multiplicity(mol)
     spin = (multiplicity - 1) / 2.0
+
+    # NNP Hessians at the loose conformer-generation convergence threshold
+    # routinely yield one or two tiny artifact imaginary modes. Dropping them
+    # (ignore_imag_modes=True) keeps otherwise-valid thermochemistry instead of
+    # ASE raising ValueError and the whole molecule being discarded.
+    n_imag = int(np.sum(np.abs(np.imag(vib_e)) > 0))
+    if n_imag > 0:
+        logger.warning(
+            "%d imaginary vibrational mode(s) ignored in thermochemistry for "
+            "%s; treat the result as approximate.",
+            n_imag,
+            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+        )
     thermo = IdealGasThermo(
         vib_energies=vib_e,
         potentialenergy=e,
@@ -236,13 +276,17 @@ def do_mol_thermo(mol: Chem.Mol,
         geometry=geometry,
         symmetrynumber=symmetry,
         spin=spin,
+        ignore_imag_modes=True,
     )
     H = thermo.get_enthalpy(temperature=T) * ev2hatree
+    # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
+    # Hartree. Name the property accordingly so a downstream G = H - T*S
+    # reconstruction is not off by a factor of T.
     S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
     G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
 
     mol.SetProp("H_hartree", str(H))
-    mol.SetProp("S_hartree", str(S))
+    mol.SetProp("S_hartree_per_K", str(S))
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
     mol.SetProp("E_hartree", str(e * ev2hatree))

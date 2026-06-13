@@ -55,6 +55,31 @@ def test_symmetry_number_invalid_property_falls_back():
     assert _symmetry_number(m) == 1
 
 
+def test_resolve_multiplicity_closed_shell_is_singlet():
+    from rdkit import Chem
+    from Auto3D.ASE.thermo import _resolve_multiplicity
+    m = Chem.MolFromSmiles("CCO")
+    assert _resolve_multiplicity(m) == 1
+    # Derived multiplicity is recorded on the mol.
+    assert m.GetUnsignedProp("multiplicity") == 1
+
+
+def test_resolve_multiplicity_radical_is_doublet():
+    from rdkit import Chem
+    from Auto3D.ASE.thermo import _resolve_multiplicity
+    m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
+    assert _resolve_multiplicity(m) == 2
+    assert m.GetUnsignedProp("multiplicity") == 2
+
+
+def test_resolve_multiplicity_respects_explicit_property():
+    from rdkit import Chem
+    from Auto3D.ASE.thermo import _resolve_multiplicity
+    m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
+    m.SetUnsignedProp("multiplicity", 4)  # ... but an explicit value wins
+    assert _resolve_multiplicity(m) == 4
+
+
 @pytest.mark.slow
 def test_load_hessian_model_aimnet(aimnet_hessian_model):
     m = aimnet_hessian_model
