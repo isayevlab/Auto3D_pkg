@@ -5,6 +5,43 @@ All notable changes to Auto3D will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Thermochemistry reference temperature is now 298.15 K** - The default
+  temperature for thermodynamic property calculation changed from 298 K to the
+  standard 298.15 K.
+- **Entropy SDF property renamed** - The thermo output property `S_hartree` is
+  now `S_hartree_per_K`, correctly reflecting its units (Hartree/Kelvin).
+
+### Fixed
+
+- **`smiles2mols()` no longer silently drops inputs that share an InChIKey** -
+  Distinct inputs that collapse to the same standard InChIKey (e.g. some
+  tautomers, or the same molecule written two ways) are now disambiguated with a
+  suffixed id and a log message instead of being dropped.
+- **Energy-guarded conformer deduplication** - Conformers within the heavy-atom
+  RMSD threshold are merged only when their energies also agree within
+  `DEFAULT_DUPLICATE_ENERGY_TOL`, so genuine O-H/N-H rotamers are no longer
+  collapsed.
+- **Thermochemistry robustness** - Spin multiplicity is derived from the
+  molecule's radical electrons (with a warning that NNP energies are
+  closed-shell), and imaginary vibrational modes are ignored rather than
+  failing the whole molecule.
+- **GPU index is validated up front** - An out-of-range `gpu_idx` now raises a
+  clear configuration error instead of crashing inside a worker; a CPU run with
+  a list of GPU indices no longer spawns redundant contending workers.
+- **CLI reports a real failure count** - `auto3d run` reports the number of
+  input molecules that produced no conformer instead of always reporting zero.
+- **Deterministic file handling** - `combine_smi` preserves input order, and
+  `.smi` molecule indexing is gap-free when blank lines are present.
+
+### Removed
+
+- Dead `torch.jit.optimized_execution` guard in the batch optimizer (a no-op for
+  the eager-mode model wrapper).
+
 ## [3.5.0] - 2026-06-11
 
 ### Breaking Changes

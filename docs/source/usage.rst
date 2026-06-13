@@ -222,8 +222,8 @@ Output Control
    # JSON output (for scripting)
    auto3d run molecules.smi --k=1 --json
 
-   # Custom output directory
-   auto3d run molecules.smi --k=1 --job-name=my_results
+   # Custom output directory name (job_name is set via a config file, not a flag)
+   auto3d run molecules.smi --k=1 -c config.yaml   # config.yaml: job_name: my_results
 
 Legacy YAML Mode
 ~~~~~~~~~~~~~~~~
@@ -476,7 +476,7 @@ Auto3D creates a timestamped folder with results:
 The output SDF contains:
 
 - **Optimized 3D coordinates** for each conformer
-- **E_tot**: Total energy in Hartree
-- **E_rel** or **E_relative**: Relative energy in kcal/mol
+- **E_tot** / **E_tot(Hartree)**: Total energy in Hartree
+- **E_rel(kcal/mol)**: Relative energy in kcal/mol
 - **_Name**: Molecule identifier
 - Original SMILES (if input was SMILES file)

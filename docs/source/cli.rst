@@ -163,10 +163,8 @@ Validate input SMILES/SDF file without running optimization.
 
 This command checks:
 
-- File exists and is readable
-- SMILES syntax is valid
-- Molecules can be parsed by RDKit
-- Required atoms are supported by selected engine
+- File format is ``.smi`` or ``.sdf``
+- Each SMILES/SDF record parses successfully with RDKit
 
 auto3d config
 ~~~~~~~~~~~~~
