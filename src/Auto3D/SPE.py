@@ -15,6 +15,8 @@ from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+__all__ = ["calc_spe"]
+
 ev2hatree = 1/hartree2ev
 
 

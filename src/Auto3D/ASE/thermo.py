@@ -21,10 +21,13 @@ from tqdm import tqdm
 
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
+from Auto3D.constants import DEFAULT_OPT_STEPS, DEFAULT_THERMO_CONVERGENCE_THRESHOLD
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
+
+__all__ = ["calc_thermo"]
 
 # TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions.
@@ -382,7 +385,8 @@ def aimnet_hessian_helper(
         return e  # energy unit: eV
 
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
-                gpu_idx=0, opt_tol=0.0002, opt_steps=2000,
+                gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
+                opt_steps=DEFAULT_OPT_STEPS,
                 use_gpu: bool = True, allow_tf32: bool = False,
                 out_path: str | None = None):
     """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.

@@ -139,3 +139,19 @@ def test_shipped_parameters_yaml_loads():
     assert cfg.k == 1
     assert cfg.window is None
     cfg.to_auto3d_options()  # must not raise
+
+
+def test_cliconfig_covers_all_auto3doptions_fields():
+    """Guard against config-layer drift: every user-facing Auto3DOptions field
+    must be reachable from the CLI/YAML via CLIConfig. ``input_format`` is set
+    internally by the workflow, so it is the only allowed exclusion."""
+    import dataclasses
+
+    from Auto3D.cli.config_schema import CLIConfig
+    from Auto3D.config import Auto3DOptions
+
+    excluded = {"input_format"}
+    opt_fields = {f.name for f in dataclasses.fields(Auto3DOptions)} - excluded
+    cli_fields = set(CLIConfig.model_fields)
+    missing = opt_fields - cli_fields
+    assert not missing, f"CLIConfig is missing Auto3DOptions fields: {missing}"
