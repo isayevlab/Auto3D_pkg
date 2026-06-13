@@ -238,7 +238,7 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
             m.SetProp("_Name", str(i)); w.write(m)
 
     def fake_ensemble_opt(net, coord, numbers, charges, param, device,
-                          species_pad=-1):
+                          species_pad=-1, progress_cb=None):
         n = len(coord)
         return dict(coord=coord.tolist(), ids=list(range(n)), energy=[0.0]*n,
                     fmax=[0.0]*n, he=[], close=[], timing={},

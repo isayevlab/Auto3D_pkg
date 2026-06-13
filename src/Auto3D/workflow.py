@@ -26,6 +26,7 @@ from Auto3D.workflow_workers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from logging import LogRecord
     from multiprocessing import Queue
 
@@ -44,13 +45,22 @@ class WorkflowOrchestrator:
         >>> output_path = orchestrator.run()
     """
 
-    def __init__(self, config: Auto3DOptions) -> None:
+    def __init__(
+        self,
+        config: Auto3DOptions,
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> None:
         """Initialize the orchestrator with configuration.
 
         Args:
             config: Auto3D configuration options.
+            progress_callback: Optional callable invoked (in the main process)
+                with per-step optimizer progress events for a live display. When
+                None (the default, and every library/test caller) the pipeline
+                runs exactly as before -- no progress queue, plain blocking joins.
         """
         self.config = config
+        self.progress_callback = progress_callback
         self.job_name: str = ""
         self.job_dir: Path = Path()
         self.input_path: Path = Path()
@@ -276,6 +286,14 @@ class WorkflowOrchestrator:
         """
         chunk_queue: Queue[tuple[str, str, str, int] | str] = mp.Manager().Queue()
 
+        # Process-safe channel for live progress events, created only when a
+        # progress callback was supplied (interactive `auto3d run`). When None,
+        # the optimizer workers emit nothing and the supervise loop below falls
+        # back to plain blocking joins -- the default/library path is unchanged.
+        progress_queue = (
+            mp.Manager().Queue() if self.progress_callback is not None else None
+        )
+
         # Per-run config carrying the memory-scaled batch size for optimization.
         # Built with dataclasses.replace so the caller's shared config is never
         # mutated (review findings #35/#36).
@@ -301,7 +319,8 @@ class WorkflowOrchestrator:
             p2s.append(
                 mp.Process(
                     target=optim_rank_wrapper,
-                    args=(opt_config, chunk_queue, self.logging_queue, idx),
+                    args=(opt_config, chunk_queue, self.logging_queue, idx,
+                          progress_queue),
                 )
             )
 
@@ -313,22 +332,64 @@ class WorkflowOrchestrator:
         # Wait for completion and supervise exit codes. The isomer worker emits
         # a "Done" sentinel per optimizer in a `finally`, so even if it crashed
         # the optimizers will drain and exit rather than block on queue.get().
-        p1.join()
-        if p1.exitcode not in (0, None):
+        if progress_queue is not None:
+            self._supervise_with_progress(p1, p2s, progress_queue)
+        else:
+            p1.join()
+            self._check_exit(p1, "Isomer generation")
+            for p2 in p2s:
+                p2.join()
+                self._check_exit(p2, "Optimization")
+
+    def _check_exit(self, proc: mp.Process, label: str) -> None:
+        """Log a warning if a worker process exited abnormally."""
+        if proc.exitcode not in (0, None):
             logger.error(
-                "Isomer generation process exited with code %s; "
-                "output may be incomplete.",
-                p1.exitcode,
+                "%s process exited with code %s; output may be incomplete.",
+                label, proc.exitcode,
             )
 
+    def _supervise_with_progress(
+        self, p1: mp.Process, p2s: list[mp.Process], progress_queue: Queue[dict]
+    ) -> None:
+        """Drain progress events to the callback while workers run, then join.
+
+        Used only when a progress callback is set. The progress queue is an
+        unbounded Manager queue, so workers never block on put even if draining
+        lags; after the workers exit we drain any buffered events, then join
+        (immediate) and run the same exit-code checks as the default path.
+        """
+        import queue as _queue
+
+        procs = [p1, *p2s]
+        while any(p.is_alive() for p in procs):
+            try:
+                event = progress_queue.get(timeout=0.2)
+            except _queue.Empty:
+                continue
+            self._emit_progress(event)
+        # Drain events buffered after the liveness check.
+        while True:
+            try:
+                event = progress_queue.get_nowait()
+            except _queue.Empty:
+                break
+            self._emit_progress(event)
+
+        p1.join()
+        self._check_exit(p1, "Isomer generation")
         for p2 in p2s:
             p2.join()
-            if p2.exitcode not in (0, None):
-                logger.error(
-                    "Optimization process exited with code %s; "
-                    "output may be incomplete.",
-                    p2.exitcode,
-                )
+            self._check_exit(p2, "Optimization")
+
+    def _emit_progress(self, event: dict) -> None:
+        """Forward one progress event to the callback; never raise."""
+        if self.progress_callback is None:
+            return
+        try:
+            self.progress_callback(event)
+        except Exception:
+            logger.debug("Progress callback failed for event %r", event, exc_info=True)
 
     def _finalize_output(self, start_time: float) -> str:
         """Combine outputs and finalize the pipeline.

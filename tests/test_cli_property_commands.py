@@ -119,7 +119,7 @@ def test_run_save_intermediate_sets_verbose(smi):
     from Auto3D.results import WorkflowResult
     captured = {}
 
-    def fake_main(options):
+    def fake_main(options, progress_callback=None):
         captured["verbose"] = options.verbose
         return WorkflowResult("nonexistent_out.sdf")  # counts -> 0 (missing file)
 
@@ -133,7 +133,7 @@ def test_run_without_save_intermediate_keeps_verbose_false(smi):
     from Auto3D.results import WorkflowResult
     captured = {}
 
-    def fake_main(options):
+    def fake_main(options, progress_callback=None):
         captured["verbose"] = options.verbose
         return WorkflowResult("nonexistent_out.sdf")
 
@@ -205,6 +205,39 @@ def test_models_test_non_finite_exit_code(monkeypatch):
     monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _NanAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
     assert res.exit_code == 5  # NumericalError (ModelError) -> 5
+
+
+def test_run_interactive_forwards_progress_callback(smi):
+    """Interactive `auto3d run` supplies a live-progress callback to main()."""
+    from Auto3D.results import WorkflowResult
+    captured = {}
+
+    def fake_main(options, progress_callback=None):
+        captured["cb"] = progress_callback
+        if progress_callback:  # exercise the render path with a sample event
+            progress_callback({"job": 1, "step": 10, "total": 2,
+                               "converged": 1, "dropped": 0, "active": 1})
+        return WorkflowResult("nonexistent_out.sdf")
+
+    with patch("Auto3D.auto3D.main", side_effect=fake_main):
+        res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
+    assert res.exit_code == 0, res.output
+    assert callable(captured["cb"])
+
+
+def test_run_quiet_passes_no_progress_callback(smi):
+    """--quiet keeps stdout clean: no live display, callback is None."""
+    from Auto3D.results import WorkflowResult
+    captured = {}
+
+    def fake_main(options, progress_callback=None):
+        captured["cb"] = progress_callback
+        return WorkflowResult("nonexistent_out.sdf")
+
+    with patch("Auto3D.auto3D.main", side_effect=fake_main):
+        res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", "--quiet"])
+    assert res.exit_code == 0
+    assert captured["cb"] is None
 
 
 def test_api_functions_expose_new_params():

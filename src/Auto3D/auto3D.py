@@ -13,6 +13,8 @@ import torch
 from rdkit import Chem
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from Auto3D.results import WorkflowResult
 
 from Auto3D.batch_opt.batchopt import optimizing
@@ -43,11 +45,18 @@ logger = get_logger(__name__)
 # and the allow_tf32 option in Auto3DOptions. Configuration is applied at pipeline start.
 
 
-def main(args: Auto3DOptions) -> WorkflowResult:
+def main(
+    args: Auto3DOptions,
+    progress_callback: Callable[[dict], None] | None = None,
+) -> WorkflowResult:
     """Run the Auto3D conformer generation pipeline.
 
     Args:
         args: Configuration options as an ``Auto3DOptions`` instance.
+        progress_callback: Optional callable invoked with per-step optimizer
+            progress events (dicts with ``job``/``step``/``total``/``converged``/
+            ``dropped``/``active``) for a live display. Defaults to None, which
+            leaves the pipeline behavior unchanged.
 
     Returns:
         A :class:`Auto3D.results.WorkflowResult` -- a ``str`` subclass holding
@@ -78,7 +87,7 @@ def main(args: Auto3DOptions) -> WorkflowResult:
 
     from Auto3D.results import WorkflowResult
 
-    orchestrator = WorkflowOrchestrator(args)
+    orchestrator = WorkflowOrchestrator(args, progress_callback=progress_callback)
     return WorkflowResult(orchestrator.run())
 
 def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
