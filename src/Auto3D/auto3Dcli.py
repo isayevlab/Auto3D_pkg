@@ -49,51 +49,65 @@ def _run_legacy_yaml(yaml_path: str) -> None:
     Args:
         yaml_path: Path to YAML configuration file.
     """
-    from Auto3D.cli.console import console, print_banner
+    import warnings
 
-    # Show deprecation hint
-    console.print(
-        "[dim]Hint: New syntax is 'auto3d run input.smi -c config.yaml'[/dim]\n"
+    from Auto3D.cli.console import console, print_banner, print_warning
+    from Auto3D.cli.errors import handle_error
+
+    # Real, visible deprecation notice steering users to the modern CLI.
+    warnings.warn(
+        "The 'auto3d <config.yaml>' invocation is deprecated; use "
+        "'auto3d run INPUT -c config.yaml' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print_warning(
+        "The 'auto3d <config.yaml>' form is deprecated and will be removed in a "
+        "future release. Use 'auto3d run INPUT -c config.yaml' instead."
     )
 
-    # Load and run with legacy logic
-    import yaml
-
-    from Auto3D.auto3D import main
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.exceptions import Auto3DError
-    from Auto3D.utils.logging_config import configure_logging
-
-    with open(yaml_path) as f:
-        parameters = yaml.safe_load(f)
-
-    # Convert 'None' strings to None
-    for key, val in list(parameters.items()):
-        if val == "None":
-            parameters[key] = None
-
-    configure_logging(verbose=parameters.get("verbose", False))
-
-    # Print banner
-    gpu_info = f"CUDA:{parameters.get('gpu_idx', 0)}" if parameters.get("use_gpu", True) else "CPU"
-    k = parameters.get("k")
-    window = parameters.get("window")
-    output_info = f"k={k}" if k else f"window={window}" if window else "k=1"
-
-    print_banner(
-        input_path=parameters.get("path", "?"),
-        engine=parameters.get("optimizing_engine", "AIMNET"),
-        gpu_info=gpu_info,
-        output_info=output_info,
-    )
-    console.print()
-
+    # Everything below funnels through handle_error so a bad path, malformed YAML,
+    # or a runtime failure produces a clean error panel + exit code, never a
+    # raw traceback (parity with the modern `run` command).
     try:
+        import yaml
+
+        from Auto3D.auto3D import main
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import InputValidationError
+        from Auto3D.utils.logging_config import configure_logging
+
+        if not Path(yaml_path).is_file():
+            raise InputValidationError(f"Config file not found: {yaml_path}")
+
+        with open(yaml_path) as f:
+            parameters = yaml.safe_load(f)
+
+        # Convert 'None' strings to None
+        for key, val in list(parameters.items()):
+            if val == "None":
+                parameters[key] = None
+
+        configure_logging(verbose=parameters.get("verbose", False))
+
+        # Print banner
+        gpu_info = f"CUDA:{parameters.get('gpu_idx', 0)}" if parameters.get("use_gpu", True) else "CPU"
+        k = parameters.get("k")
+        window = parameters.get("window")
+        output_info = f"k={k}" if k else f"window={window}" if window else "k=1"
+
+        print_banner(
+            input_path=parameters.get("path", "?"),
+            engine=parameters.get("optimizing_engine", "AIMNET"),
+            gpu_info=gpu_info,
+            output_info=output_info,
+        )
+        console.print()
+
         options = Auto3DOptions(**parameters)
         result = main(options)
         console.print(f"\n[green]✓[/green] Output: [cyan]{result}[/cyan]")
-    except Auto3DError as e:
-        from Auto3D.cli.errors import handle_error
+    except Exception as e:  # noqa: BLE001 - present every failure as a clean panel
         handle_error(e)
 
 

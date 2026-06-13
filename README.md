@@ -82,6 +82,10 @@ for mol in mols:
 | Command | Description |
 |---------|-------------|
 | `auto3d run <input> [options]` | Generate conformers from SMILES/SDF |
+| `auto3d energy <input.sdf>` | Single-point energy for an SDF |
+| `auto3d optimize <input.sdf>` | Geometry-optimize the structures in an SDF |
+| `auto3d thermo <input.sdf>` | Thermochemistry (enthalpy/entropy/Gibbs); needs the `ase` extra |
+| `auto3d tautomers <input.smi>` | Enumerate and rank stable tautomers |
 | `auto3d config init` | Create a configuration template |
 | `auto3d config show <file>` | Display config with syntax highlighting |
 | `auto3d config validate <file>` | Validate a configuration file |

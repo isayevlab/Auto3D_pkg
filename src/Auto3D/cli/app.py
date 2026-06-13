@@ -3,13 +3,34 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 import Auto3D
+from Auto3D.cli.commands.properties import engine_autocomplete
 from Auto3D.cli.console import console
+
+
+class Preset(StrEnum):
+    """Configuration presets for `auto3d config init`."""
+
+    quick = "quick"
+    balanced = "balanced"
+    thorough = "thorough"
+
+
+# Reusable input-file argument with Typer-level existence/readability validation,
+# so a missing/unreadable path fails fast and cleanly before heavy imports load.
+InputFile = Annotated[
+    Path,
+    typer.Argument(
+        exists=True, dir_okay=False, readable=True,
+        help="Input file (must exist).",
+    ),
+]
 
 # Create main app
 app = typer.Typer(
@@ -64,6 +85,7 @@ def run(
     input_file: Annotated[
         Path,
         typer.Argument(
+            exists=True, dir_okay=False, readable=True,
             help="Input .smi or .sdf file containing molecules.",
         ),
     ],
@@ -101,9 +123,20 @@ def run(
         str | None,
         typer.Option(help="GPU index(es), e.g., '0' or '0,1,2'."),
     ] = None,
+    job_name: Annotated[
+        str | None,
+        typer.Option("--job-name", help="Name for the output folder/run."),
+    ] = None,
+    save_intermediate: Annotated[
+        bool,
+        typer.Option(
+            "--save-intermediate",
+            help="Keep all intermediate metadata files (Auto3DOptions.verbose).",
+        ),
+    ] = False,
     verbose: Annotated[
         int,
-        typer.Option("-v", "--verbose", count=True, help="Increase verbosity."),
+        typer.Option("-v", "--verbose", count=True, help="Increase logging verbosity."),
     ] = 0,
     quiet: Annotated[
         bool,
@@ -124,6 +157,8 @@ def run(
         engine=engine,
         gpu=gpu,
         gpu_idx=gpu_idx,
+        job_name=job_name,
+        save_intermediate=save_intermediate,
         verbose=verbose,
         quiet=quiet,
         json_output=json_output,
@@ -137,13 +172,21 @@ def config_init(
         typer.Option("-o", "--output", help="Output file path."),
     ] = Path("auto3d.yaml"),
     preset: Annotated[
-        str | None,
-        typer.Option("-p", "--preset", help="Configuration preset: quick, balanced, thorough."),
+        Preset | None,
+        typer.Option("-p", "--preset", help="Configuration preset."),
     ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("-f", "--force", help="Overwrite an existing config file."),
+    ] = False,
 ) -> None:
     """Generate a configuration file with sensible defaults."""
     from Auto3D.cli.commands.config import execute_config_init
-    execute_config_init(output=output, preset=preset)
+    execute_config_init(
+        output=output,
+        preset=preset.value if preset else None,
+        force=force,
+    )
 
 
 @config_app.command("show")
@@ -162,7 +205,10 @@ def config_show(
 def config_validate(
     config_file: Annotated[
         Path,
-        typer.Argument(help="Config file to validate."),
+        typer.Argument(
+            exists=True, dir_okay=False, readable=True,
+            help="Config file to validate.",
+        ),
     ],
 ) -> None:
     """Validate a configuration file without running."""
@@ -191,11 +237,107 @@ def models_info(
 
 @app.command()
 def validate(
-    input_file: Annotated[
-        Path,
-        typer.Argument(help="Input file to validate."),
-    ],
+    input_file: InputFile,
 ) -> None:
     """Validate input SMILES/SDF file without running optimization."""
     from Auto3D.cli.commands.validate import execute_validate
     execute_validate(input_file=input_file)
+
+
+# Shared option annotations for the property commands ------------------------
+
+EngineOption = Annotated[
+    str,
+    typer.Option(
+        "--engine",
+        autocompletion=engine_autocomplete,
+        help=(
+            "Engine: AIMNET, ANI2x, ANI2xt, an aimnet registry name "
+            "(aimnet2, aimnet2-2025, ...), or a path to a custom model file."
+        ),
+    ),
+]
+GpuFlag = Annotated[bool, typer.Option("--gpu/--no-gpu", help="Use GPU when available.")]
+GpuIdxOption = Annotated[int, typer.Option("--gpu-idx", help="CUDA device index.")]
+OutputOption = Annotated[
+    Path | None,
+    typer.Option("-o", "--output", help="Output SDF path (default: next to input)."),
+]
+Tf32Flag = Annotated[bool, typer.Option("--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs.")]
+JsonFlag = Annotated[bool, typer.Option("--json", help="Emit the result as JSON.")]
+
+
+@app.command()
+def energy(
+    input_file: InputFile,
+    engine: EngineOption = "AIMNET",
+    gpu: GpuFlag = True,
+    gpu_idx: GpuIdxOption = 0,
+    output: OutputOption = None,
+    tf32: Tf32Flag = False,
+    json_output: JsonFlag = False,
+) -> None:
+    """Single-point energy for an SDF (writes an SDF with E_hartree)."""
+    from Auto3D.cli.commands.properties import execute_energy
+    execute_energy(input_file, engine, gpu, gpu_idx, output, tf32, json_output)
+
+
+@app.command()
+def optimize(
+    input_file: InputFile,
+    engine: EngineOption = "AIMNET",
+    gpu: GpuFlag = True,
+    gpu_idx: GpuIdxOption = 0,
+    output: OutputOption = None,
+    opt_tol: Annotated[float, typer.Option("--opt-tol", help="Max-force convergence (eV/A).")] = 0.01,
+    opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max optimization steps.")] = 2000,
+    patience: Annotated[int | None, typer.Option("--patience", help="Drop a conformer after this many non-improving steps.")] = None,
+    batchsize_atoms: Annotated[int, typer.Option("--batchsize-atoms", help="Atoms per optimization batch.")] = 1024,
+    tf32: Tf32Flag = False,
+    json_output: JsonFlag = False,
+) -> None:
+    """Geometry-optimize the structures in an SDF (no enumeration)."""
+    from Auto3D.cli.commands.properties import execute_optimize
+    execute_optimize(
+        input_file, engine, gpu, gpu_idx, output, opt_tol, opt_steps,
+        patience, batchsize_atoms, tf32, json_output,
+    )
+
+
+@app.command()
+def thermo(
+    input_file: InputFile,
+    engine: EngineOption = "AIMNET",
+    gpu: GpuFlag = True,
+    gpu_idx: GpuIdxOption = 0,
+    output: OutputOption = None,
+    temperature: Annotated[float, typer.Option("--temperature", "-T", help="Temperature in Kelvin.")] = 298.15,
+    opt_tol: Annotated[float, typer.Option("--opt-tol", help="Pre-optimization max-force convergence (eV/A).")] = 0.0002,
+    opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max pre-optimization steps.")] = 2000,
+    tf32: Tf32Flag = False,
+    json_output: JsonFlag = False,
+) -> None:
+    """Thermochemistry (enthalpy/entropy/Gibbs) for an SDF. Requires the ase extra."""
+    from Auto3D.cli.commands.properties import execute_thermo
+    execute_thermo(
+        input_file, engine, gpu, gpu_idx, output, temperature,
+        opt_tol, opt_steps, tf32, json_output,
+    )
+
+
+@app.command()
+def tautomers(
+    input_file: InputFile,
+    engine: EngineOption = "AIMNET",
+    gpu: GpuFlag = True,
+    gpu_idx: Annotated[str | None, typer.Option("--gpu-idx", help="GPU index(es), e.g. '0' or '0,1'.")] = None,
+    tauto_k: Annotated[int | None, typer.Option("--tauto-k", help="Keep the top-k stable tautomers.")] = None,
+    tauto_window: Annotated[float | None, typer.Option("--tauto-window", help="Keep tautomers within this kcal/mol window.")] = None,
+    output: OutputOption = None,
+    json_output: JsonFlag = False,
+) -> None:
+    """Enumerate tautomers and rank/select the most stable ones."""
+    from Auto3D.cli.commands.properties import execute_tautomers
+    execute_tautomers(
+        input_file, engine, gpu, gpu_idx, tauto_k, tauto_window, output, json_output,
+    )

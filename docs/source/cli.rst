@@ -166,6 +166,56 @@ This command checks:
 - File format is ``.smi`` or ``.sdf``
 - Each SMILES/SDF record parses successfully with RDKit
 
+Property commands
+~~~~~~~~~~~~~~~~~
+
+These wrap the corresponding Python API functions so single-point energy,
+geometry optimization, thermochemistry, and tautomer ranking are first-class CLI
+operations (not Python-only). Each takes an input file (validated for existence),
+shares ``--engine``, ``--gpu/--no-gpu``, ``--gpu-idx``, ``-o/--output``, and
+``--json``, writes an SDF, and prints its path.
+
+.. code:: console
+
+   # Single-point energy -> writes <input>_<engine>_E.sdf (adds E_hartree)
+   auto3d energy molecules.sdf --engine AIMNET
+
+   # Geometry-only optimization of an existing SDF
+   auto3d optimize molecules.sdf --opt-tol 0.01 --opt-steps 2000
+
+   # Thermochemistry (enthalpy/entropy/Gibbs) at a temperature; needs the ase extra
+   auto3d thermo molecules.sdf --temperature 298.15
+
+   # Enumerate tautomers and keep the most stable ones
+   auto3d tautomers molecules.smi --tauto-k 3      # or --tauto-window 2.0
+
+``--engine`` accepts ``AIMNET``, ``ANI2x``, ``ANI2xt``, an aimnet registry name,
+or a path to a custom model; known names are offered via shell completion.
+
+Exit codes
+~~~~~~~~~~
+
+Commands return differentiated exit codes for scripting:
+
+.. list-table::
+   :widths: 15 85
+   :header-rows: 1
+
+   * - Code
+     - Meaning
+   * - ``0``
+     - Success
+   * - ``1``
+     - Generic / unexpected error
+   * - ``2``
+     - Configuration or input-validation error (also Click usage errors)
+   * - ``3``
+     - Missing optional dependency (e.g. ASE for ``thermo``)
+   * - ``4``
+     - GPU/CUDA error (e.g. invalid GPU index)
+   * - ``5``
+     - Model error (not found / failed to load / numerical)
+
 auto3d config
 ~~~~~~~~~~~~~
 

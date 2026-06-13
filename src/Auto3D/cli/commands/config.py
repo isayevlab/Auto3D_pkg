@@ -89,8 +89,18 @@ def generate_commented_yaml(config: dict) -> str:
     return "\n".join(lines)
 
 
-def execute_config_init(output: Path, preset: str | None = None) -> None:
+def execute_config_init(
+    output: Path, preset: str | None = None, force: bool = False
+) -> None:
     """Generate a configuration file."""
+    # Don't clobber an existing config without explicit consent.
+    if output.exists() and not force:
+        print_error(
+            f"{output} already exists.",
+            hint="Pass --force/-f to overwrite, or choose a different -o path.",
+        )
+        raise SystemExit(1)
+
     config = DEFAULT_CONFIG.copy()
 
     if preset:
