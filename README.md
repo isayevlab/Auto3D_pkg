@@ -91,6 +91,7 @@ for mol in mols:
 | `auto3d config validate <file>` | Validate a configuration file |
 | `auto3d models list` | List available NNP models |
 | `auto3d models info <engine>` | Show model details |
+| `auto3d models test <engine>` | Load an engine and run a forward pass to verify it works |
 | `auto3d validate <input>` | Validate input file |
 
 ### Common Options
