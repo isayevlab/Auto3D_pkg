@@ -36,6 +36,7 @@ __all__ = [
     "__version__",
     # Core API
     "main",
+    "generate_conformers",  # canonical alias for main()
     "smiles2mols",
     # Configuration
     "Auto3DOptions",
@@ -44,43 +45,39 @@ __all__ = [
     # Model creation
     "create_model",
     "ModelFactory",
-    # Utilities
+    # Property calculators
     "calc_spe",
     "opt_geometry",
     "calc_thermo",
+    # Tautomers
+    "get_stable_tautomers",
+    "select_tautomers",
 ]
+
+# name -> (module, attribute) for lazy public-API imports. generate_conformers is
+# the canonical, self-describing alias for main(); main stays for back-compat.
+_LAZY_API: dict[str, tuple[str, str]] = {
+    "main": ("Auto3D.auto3D", "main"),
+    "generate_conformers": ("Auto3D.auto3D", "main"),
+    "smiles2mols": ("Auto3D.auto3D", "smiles2mols"),
+    "Auto3DOptions": ("Auto3D.config", "Auto3DOptions"),
+    "OptimizationConfig": ("Auto3D.config", "OptimizationConfig"),
+    "NNPModel": ("Auto3D.config", "NNPModel"),
+    "create_model": ("Auto3D.model_factory", "create_model"),
+    "ModelFactory": ("Auto3D.model_factory", "ModelFactory"),
+    "calc_spe": ("Auto3D.SPE", "calc_spe"),
+    "opt_geometry": ("Auto3D.ASE.geometry", "opt_geometry"),
+    "calc_thermo": ("Auto3D.ASE.thermo", "calc_thermo"),
+    "get_stable_tautomers": ("Auto3D.tautomer", "get_stable_tautomers"),
+    "select_tautomers": ("Auto3D.tautomer", "select_tautomers"),
+}
+
 
 # Lazy imports for public API
 def __getattr__(name: str):
-    """Lazy import for public API functions."""
-    if name == "main":
-        from Auto3D.auto3D import main
-        return main
-    elif name == "smiles2mols":
-        from Auto3D.auto3D import smiles2mols
-        return smiles2mols
-    elif name == "Auto3DOptions":
-        from Auto3D.config import Auto3DOptions
-        return Auto3DOptions
-    elif name == "OptimizationConfig":
-        from Auto3D.config import OptimizationConfig
-        return OptimizationConfig
-    elif name == "NNPModel":
-        from Auto3D.config import NNPModel
-        return NNPModel
-    elif name == "create_model":
-        from Auto3D.model_factory import create_model
-        return create_model
-    elif name == "ModelFactory":
-        from Auto3D.model_factory import ModelFactory
-        return ModelFactory
-    elif name == "calc_spe":
-        from Auto3D.SPE import calc_spe
-        return calc_spe
-    elif name == "opt_geometry":
-        from Auto3D.ASE.geometry import opt_geometry
-        return opt_geometry
-    elif name == "calc_thermo":
-        from Auto3D.ASE.thermo import calc_thermo
-        return calc_thermo
+    """Lazy import for public API functions (see _LAZY_API)."""
+    if name in _LAZY_API:
+        import importlib
+        module_name, attr = _LAZY_API[name]
+        return getattr(importlib.import_module(module_name), attr)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

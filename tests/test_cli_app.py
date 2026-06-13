@@ -275,7 +275,8 @@ def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
     with Chem.SDWriter(str(out)) as w:
         m = Chem.AddHs(Chem.MolFromSmiles("CCO")); AllChem.EmbedMolecule(m, randomSeed=1)
         m.SetProp("_Name", "mol1"); w.write(m)
-    monkeypatch.setattr(a3d, "main", lambda options: str(out))
+    from Auto3D.results import WorkflowResult
+    monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
 
     result = runner.invoke(app, ["run", str(smi), "--json"])
     assert result.exit_code == 0
