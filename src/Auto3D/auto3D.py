@@ -7,9 +7,13 @@ from __future__ import annotations
 import multiprocessing as mp
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 from rdkit import Chem
+
+if TYPE_CHECKING:
+    from Auto3D.results import WorkflowResult
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
@@ -39,14 +43,16 @@ logger = get_logger(__name__)
 # and the allow_tf32 option in Auto3DOptions. Configuration is applied at pipeline start.
 
 
-def main(args: Auto3DOptions) -> str:
+def main(args: Auto3DOptions) -> WorkflowResult:
     """Run the Auto3D conformer generation pipeline.
 
     Args:
         args: Configuration options as an ``Auto3DOptions`` instance.
 
     Returns:
-        Path to the output SDF file containing generated conformers.
+        A :class:`Auto3D.results.WorkflowResult` -- a ``str`` subclass holding
+        the output SDF path (so it works anywhere the path string did) plus the
+        run's ``n_molecules`` / ``n_conformers`` counts.
 
     Raises:
         SystemExit: If input validation fails or no structures converge.
@@ -70,8 +76,10 @@ def main(args: Auto3DOptions) -> str:
     # (e.g. a prior use_gpu=True call in the same interpreter / test session).
     mp.set_start_method("spawn", force=True)
 
+    from Auto3D.results import WorkflowResult
+
     orchestrator = WorkflowOrchestrator(args)
-    return orchestrator.run()
+    return WorkflowResult(orchestrator.run())
 
 def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     """Find low-energy conformers for a list of SMILES.

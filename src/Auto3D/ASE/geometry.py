@@ -10,19 +10,26 @@ from rdkit import Chem
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import OptimizationConfig
+from Auto3D.constants import (
+    DEFAULT_BATCHSIZE_ATOMS,
+    DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_OPT_STEPS,
+)
 from Auto3D.model_factory import get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
+
+__all__ = ["opt_geometry"]
 
 
 def opt_geometry(
     path: str,
     model_name: str,
     gpu_idx: int = 0,
-    opt_tol: float = 0.01,
-    opt_steps: int = 2000,
+    opt_tol: float = DEFAULT_CONVERGENCE_THRESHOLD,
+    opt_steps: int = DEFAULT_OPT_STEPS,
     patience: int | None = None,
-    batchsize_atoms: int = 1024,
+    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS,
     use_gpu: bool = True,
     allow_tf32: bool = False,
     out_path: str | None = None,

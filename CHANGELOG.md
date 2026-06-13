@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   codes (2 config/input, 3 dependency, 4 GPU, 5 model).
 - **API**: `calc_spe`, `opt_geometry`, and `calc_thermo` accept `out_path`,
   `use_gpu`, and `allow_tf32` (backwards-compatible).
+- **`generate_conformers`** - canonical, self-describing alias for `main()`
+  (`main` remains exported). `get_stable_tautomers` and `select_tautomers` are
+  now part of the public API (`Auto3D.__all__`).
+- **`main()` returns a `WorkflowResult`** - a `str` subclass holding the output
+  SDF path (drop-in for the previous return value) plus `n_molecules` /
+  `n_conformers` counts, so callers no longer need to re-read the output.
 
 ### Changed
 

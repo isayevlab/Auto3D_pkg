@@ -129,21 +129,13 @@ def count_input_molecules(input_path: str) -> int:
 def count_from_output(output_path: str) -> tuple[int, int]:
     """Return (unique_molecule_count, conformer_count) from an output SDF.
 
-    Molecule identity is the input ID - the part of the conformer name
-    before the first '@' (the tautomer separator, "id@tautN"), so all
-    tautomers of one input molecule count as a single molecule.
+    Thin back-compat wrapper around :func:`Auto3D.results.count_output` (the
+    single source of truth). ``main()`` now returns a ``WorkflowResult`` that
+    carries these counts, so the CLI reads them off the result instead.
     """
-    from rdkit import Chem
+    from Auto3D.results import count_output
 
-    suppl = Chem.SDMolSupplier(output_path, removeHs=False)
-    ids: set[str] = set()
-    conformers = 0
-    for mol in suppl:
-        if mol is None:
-            continue
-        conformers += 1
-        ids.add(mol.GetProp("_Name").split("@")[0].strip())
-    return len(ids), conformers
+    return count_output(output_path)
 
 
 def output_json(results: WorkflowResults) -> None:

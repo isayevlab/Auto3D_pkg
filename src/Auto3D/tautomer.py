@@ -12,6 +12,8 @@ from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+__all__ = ["select_tautomers", "get_stable_tautomers"]
+
 
 def select_tautomers(sdf: str, k: int | None = None, window: float | None = None) -> str:
     """Select and Write the top-k or E <= window tautomers for each input SMILES
