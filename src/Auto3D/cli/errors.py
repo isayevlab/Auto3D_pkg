@@ -12,8 +12,28 @@ from Auto3D.exceptions import (
     DependencyError,
     GPUError,
     InputValidationError,
+    ModelError,
     ModelNotFoundError,
 )
+
+# Differentiated exit codes for scripting/CI. 1 = generic; the rest let callers
+# branch on error class. (Click reserves 2 for usage errors, which aligns with
+# our configuration/input errors below.)
+EXIT_CODES: dict[type, int] = {
+    ConfigurationError: 2,
+    InputValidationError: 2,
+    DependencyError: 3,
+    GPUError: 4,
+    ModelError: 5,  # includes ModelNotFoundError / ModelLoadError / NumericalError
+}
+
+
+def exit_code_for(error: Exception) -> int:
+    """Return the differentiated exit code for an exception (1 if unmapped)."""
+    for exc_type, code in EXIT_CODES.items():
+        if isinstance(error, exc_type):
+            return code
+    return 1
 
 
 def get_error_hint(error: Auto3DError) -> str | None:
@@ -75,4 +95,4 @@ def handle_error(error: Exception) -> None:
             border_style="red",
         ))
 
-    raise SystemExit(1)
+    raise SystemExit(exit_code_for(error))

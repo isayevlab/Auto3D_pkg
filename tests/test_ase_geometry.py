@@ -10,7 +10,9 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
         def run(self): pass
     monkeypatch.setattr(geo, "optimizing", _Stub)
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [])
-    monkeypatch.setattr(geo.torch.cuda, "is_available", lambda: False)
+    import torch
+    monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
 
     out = geo.opt_geometry(str(sdf), "AIMNET")
     assert out.endswith("mols_AIMNET_opt.sdf")
@@ -48,7 +50,9 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     monkeypatch.setattr(
         geo.Chem, "SDMolSupplier", lambda *a, **k: [None, no_etot, good]
     )
-    monkeypatch.setattr(geo.torch.cuda, "is_available", lambda: False)
+    import torch
+    monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
 
     out = geo.opt_geometry(str(sdf), "AIMNET")  # must not raise
 
