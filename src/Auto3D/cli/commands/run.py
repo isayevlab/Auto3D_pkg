@@ -106,17 +106,20 @@ def execute_run(
         elapsed = time.time() - start_time
 
         # Build results from the real output file
-        from Auto3D.cli.results import count_from_output
+        from Auto3D.cli.results import count_from_output, count_input_molecules
         if output_path and Path(output_path).exists():
             molecules, conformers = count_from_output(str(output_path))
         else:
             molecules, conformers = 0, 0
+        # Failures = input molecules that produced no conformer. Per-molecule
+        # failure *details* are not yet wired through the workflow, but the count
+        # is recoverable as inputs minus produced molecules so the summary no
+        # longer always reports zero failures.
+        input_count = count_input_molecules(config.path) if config.path else 0
+        failed_count = max(0, input_count - molecules)
         results = WorkflowResults(
             success_count=molecules,
-            # NOTE: per-molecule failure capture is not yet wired through the
-            # workflow, so failed_count is always 0 here. Until that lands, the
-            # summary reflects what was produced, not what was dropped.
-            failed_count=0,
+            failed_count=failed_count,
             total_conformers=conformers,
             output_path=str(output_path) if output_path else "N/A",
             elapsed_seconds=elapsed,
