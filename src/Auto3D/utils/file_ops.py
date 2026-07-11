@@ -725,6 +725,11 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
             discovery_order.append(id)
         id_mols[id].append(mol)
 
+    # Release the RDKit supplier's file handle before overwriting `sdf`.
+    # On Windows an open handle makes the later os.replace() fail with
+    # "Access is denied" (WinError 5); on POSIX the replace would succeed.
+    del supp
+
     # Order: ids present in `source` first (in source order), then any
     # unmatched molecules appended in their original order so nothing is lost.
     source_id_set = set(ids)
