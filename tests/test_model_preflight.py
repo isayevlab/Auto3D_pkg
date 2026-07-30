@@ -28,6 +28,18 @@ Verified against production (not assumed from the plan):
   even exist there) never intercepts construction; the fresh
   ``from ... import ...`` re-resolves the attribute on ``aimnet.calculators``
   every call, so that module attribute is the genuine interception point.
+
+The two ``TestColdCacheDiagnosis`` tests must stay sensitive to a fix landing
+at EITHER of two layers, since the natural fix for C8/M22 is a parent-side
+pre-flight in ``WorkflowOrchestrator._validate_input`` (workers run in
+separate spawned processes with no access to the parent's in-memory model or
+cache, so that is the only place a pre-flight check can usefully live) -- but
+today no such pre-flight exists, so the failure only surfaces deeper, in
+``optim_rank_wrapper`` + ``_finalize_output``. Each test therefore tries
+``_validate_input()`` first and asserts on whatever it raises; only if that
+passes through harmlessly (today's behavior) does it fall through to the
+worker chain. This keeps the tripwire falsifiable regardless of which layer a
+future fix targets.
 """
 from __future__ import annotations
 
@@ -80,7 +92,18 @@ class TestColdCacheDiagnosis:
         "WorkflowOrchestrator._finalize_output's 'no 3D structure converged'",
     )
     def test_network_failure_names_the_network(self, isolated_input, monkeypatch):
-        """An offline cold cache must produce a model/network error, not a chemistry one."""
+        """An offline cold cache must produce a model/network error, not a chemistry one.
+
+        The stated fix for C8 is to pre-flight the model in the parent
+        process before spawning workers (the only sane place, since workers
+        run in separate spawned processes with no access to the parent's
+        in-memory state). So this test must observe a fix landing EITHER
+        there (``WorkflowOrchestrator._validate_input``) OR left as today,
+        deeper in the worker (``optim_rank_wrapper`` + ``_finalize_output``).
+        It tries the parent-side path first; today that passes through
+        harmlessly (``check_input`` never constructs a model), so it falls
+        through to the worker chain, where the failure is actually swallowed.
+        """
         import aimnet.calculators as aimnet_calculators
 
         from Auto3D import workflow_workers as ww
@@ -94,7 +117,26 @@ class TestColdCacheDiagnosis:
 
         chunk_path = isolated_input("smiles2.smi")
         args = Auto3DOptions(path=chunk_path, k=1, use_gpu=False)
+        orchestrator = WorkflowOrchestrator(args)
 
+        try:
+            orchestrator._validate_input()
+        except Auto3DError as exc:
+            # A future parent-side pre-flight check caught it here instead --
+            # the same diagnostic bar applies regardless of which layer fixed it.
+            message = str(exc).lower()
+            assert any(word in message for word in ("network", "download", "cache", "model")), (
+                f"error does not mention the real cause: {exc}"
+            )
+            assert "patience" not in message, (
+                "the three-wrong-reasons message leaked into a model-load failure"
+            )
+            return
+
+        # No parent-side pre-flight exists today (C8): _validate_input()
+        # passed through harmlessly. The failure only surfaces once the
+        # worker attempts to construct the model, and even then it is
+        # swallowed by optim_rank_wrapper's blanket except.
         job_root = Path(chunk_path).parent
         job_dir = job_root / "job1"
         job_dir.mkdir()
@@ -110,7 +152,6 @@ class TestColdCacheDiagnosis:
         result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
         assert result == []
 
-        orchestrator = WorkflowOrchestrator(args)
         orchestrator.job_dir = job_root
         orchestrator.input_path = Path(chunk_path)
         orchestrator.logger = None
@@ -133,7 +174,14 @@ class TestColdCacheDiagnosis:
         "identically forever; Auto3D adds no hint about deleting it",
     )
     def test_checksum_mismatch_says_to_delete_the_file(self, isolated_input, monkeypatch):
-        """A corrupted cache entry must name the file and tell the user to remove it."""
+        """A corrupted cache entry must name the file and tell the user to remove it.
+
+        Same two-layer shape as ``test_network_failure_names_the_network``:
+        try the parent-side pre-flight first (``_validate_input``), which
+        passes through harmlessly today, then fall through to the worker
+        chain where the real (buggy) swallow happens. This way a fix landing
+        at either layer is observed and can legitimately XPASS.
+        """
         import aimnet.calculators as aimnet_calculators
 
         from Auto3D import workflow_workers as ww
@@ -147,7 +195,23 @@ class TestColdCacheDiagnosis:
 
         chunk_path = isolated_input("smiles2.smi")
         args = Auto3DOptions(path=chunk_path, k=1, use_gpu=False)
+        orchestrator = WorkflowOrchestrator(args)
 
+        try:
+            orchestrator._validate_input()
+        except Auto3DError as exc:
+            # A future parent-side pre-flight check caught it here instead.
+            message = str(exc).lower()
+            assert "checksum" in message or "corrupt" in message
+            assert any(w in message for w in ("delete", "remove", "aimnet_cache_dir")), (
+                f"no recovery guidance in: {exc}"
+            )
+            return
+
+        # No parent-side pre-flight exists today (M22): _validate_input()
+        # passed through harmlessly; the failure only surfaces once the
+        # worker attempts to construct the model, and even then it is
+        # swallowed by optim_rank_wrapper's blanket except.
         job_root = Path(chunk_path).parent
         job_dir = job_root / "job1"
         job_dir.mkdir()
@@ -160,7 +224,6 @@ class TestColdCacheDiagnosis:
         result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
         assert result == []
 
-        orchestrator = WorkflowOrchestrator(args)
         orchestrator.job_dir = job_root
         orchestrator.input_path = Path(chunk_path)
         orchestrator.logger = None
