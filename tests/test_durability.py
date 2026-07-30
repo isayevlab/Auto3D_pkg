@@ -45,7 +45,17 @@ class TestReorderSdfDurability:
     """A failed reorder must leave the original file intact."""
 
     def test_original_survives_a_writer_failure(self, job_dir, monkeypatch):
-        """If SDWriter raises mid-rewrite, the input SDF must be unchanged."""
+        """If SDWriter raises mid-rewrite, the input SDF must be unchanged.
+
+        The stand-in wraps the *real* SDWriter (via the module-level
+        ``_real_sdwriter`` captured before any monkeypatching -- same
+        technique as ``FlakyWriter`` in ``TestOptGeometryDurability`` below)
+        so opening it performs a genuine truncate-on-open against whatever
+        path ``reorder_sdf`` actually hands it. A stub that never touches
+        disk would pass identically whether ``reorder_sdf`` writes to a tmp
+        file (correct) or directly to ``sdf`` (a regression) -- this makes
+        the test sensitive to *which path* gets opened.
+        """
         sdf = job_dir / "out.sdf"
         smi = job_dir / "in.smi"
         _write_sdf(sdf, ["a", "b"])
@@ -54,19 +64,20 @@ class TestReorderSdfDurability:
         original = sdf.read_bytes()
 
         class ExplodingWriter:
-            def __init__(self, *a, **k):
-                pass
+            def __init__(self, path, *a, **k):
+                self._real = _real_sdwriter(path, *a, **k)
 
             def write(self, *a, **k):
                 raise RuntimeError("disk full")
 
             def close(self):
-                pass
+                self._real.close()
 
             def __enter__(self):
                 return self
 
             def __exit__(self, *a):
+                self._real.close()
                 return False
 
         monkeypatch.setattr(Chem, "SDWriter", ExplodingWriter)
@@ -77,13 +88,23 @@ class TestReorderSdfDurability:
         assert sdf.read_bytes() == original, "the original SDF was corrupted"
 
     def test_no_temp_file_is_left_behind(self, job_dir, monkeypatch):
-        """A failed reorder must not leave a .tmp artifact next to the output."""
+        """A failed reorder must not leave a .tmp artifact next to the output.
+
+        ``boom`` actually opens (and closes) the real writer at whatever path
+        it is given before raising, so a genuine tmp file exists on disk
+        ahead of the simulated crash -- otherwise there would be nothing for
+        the cleanup code (``file_ops.py``'s ``tmp_path.unlink()``) to ever
+        leave behind if that cleanup were removed, and this test would pass
+        vacuously.
+        """
         sdf = job_dir / "out.sdf"
         smi = job_dir / "in.smi"
         _write_sdf(sdf, ["a"])
         smi.write_text("CCO a\n")
 
-        def boom(*a, **k):
+        def boom(path, *a, **k):
+            w = _real_sdwriter(path, *a, **k)
+            w.close()
             raise RuntimeError("disk full")
 
         monkeypatch.setattr(Chem, "SDWriter", boom)
