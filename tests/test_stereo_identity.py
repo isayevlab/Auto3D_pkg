@@ -5,8 +5,7 @@ emitted with a different configuration than it was given is a correctness
 failure, not a quality one. Every test here is hermetic: these defects occur
 during enumeration, before any neural network potential runs.
 
-Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path),
-C9 (no post-optimization validation).
+Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path).
 """
 from __future__ import annotations
 
@@ -80,7 +79,19 @@ class TestTautomerStereoPreservation:
         "as unassigned -- a 50% chance of the wrong enantiomer",
     )
     def test_specified_center_survives_tautomer_enumeration(self):
-        """At least one output tautomer must retain the input's specified center."""
+        """At least one output tautomer must retain the input's specified center.
+
+        This center is itself alpha to the ketone, so a tautomer genuinely
+        produced by enolizing through the stereocenter's own alpha-hydrogen
+        could legitimately racemize it -- that would be real chemistry, not a
+        bug. The defect under test is that RDKit's ``SetRemoveSp3Stereo(True)``
+        strips the center indiscriminately from EVERY output tautomer,
+        including ones produced by enolizing the ketone's other,
+        non-stereogenic alpha carbon, which cannot touch this center at all.
+        That is unconditional information loss, not equilibrium modeling, and
+        the eventual fix must not over-correct to "preserve stereo across all
+        tautomers unconditionally."
+        """
         from rdkit.Chem.MolStandardize import rdMolStandardize
 
         source = "C[C@H](C(=O)C)N"
@@ -101,27 +112,74 @@ class TestSdfInputStereo:
 
     @pytest.mark.xfail(
         strict=True,
-        reason="M19: RDKitSdfIsomer calls only AddHs + EmbedMultipleConfs, so "
-        "ETKDG returns a mixture of configurations written as conformers of one "
-        "species; RDKitSdfIsomerAdapter does not even accept enumerate_isomers",
+        reason="M19: RDKitSdfIsomer.run() (driven here through the real "
+        "create_isomer_engine('rdkit_sdf', ...) / RDKitSdfIsomerAdapter factory "
+        "path) calls only AddHs + EmbedMultipleConfs on the SDF-parsed mol, so "
+        "ETKDG returns a stereochemical mixture that is written to the output "
+        "SDF as numbered conformers under a single species name",
     )
     def test_unspecified_center_is_enumerated_or_refused(self, job_dir):
-        """Either both configurations appear as separate species, or it is refused."""
+        """Drive Auto3D's real SDF isomer engine on a flat, unspecified center.
+
+        This writes a genuine flat (2D, no wedge bonds, no parity flags) SDF
+        record for alanine to disk and feeds it through the production
+        ``rdkit_sdf`` engine -- the same ``RDKitSdfIsomerAdapter`` /
+        ``RDKitSdfIsomer.run()`` the pipeline dispatches to for SDF input --
+        via ``Auto3D.isomers.factory.create_isomer_engine``. It then inspects
+        the SDF file Auto3D actually writes, grouped by species name (the
+        conformer-index suffix stripped). Either the two configurations must
+        come out as distinct, internally consistent species, or ambiguous
+        input must be explicitly refused (a ``ValueError``). Instead, both
+        configurations are written as numbered conformers under one species
+        name -- the defect this test targets.
+        """
         from rdkit.Chem import AllChem
 
-        # Alanine drawn flat, with no stereo specified.
-        mol = Chem.AddHs(Chem.MolFromSmiles("CC(N)C(=O)O"))
+        from Auto3D.isomers.factory import create_isomer_engine
+
+        # Alanine drawn flat (2D), with no stereo specified anywhere: no
+        # wedge/hash bonds, no parity flags in the mol block.
+        mol = Chem.MolFromSmiles("CC(N)C(=O)O")
         mol.SetProp("_Name", "alanine_flat")
-        AllChem.EmbedMultipleConfs(mol, numConfs=12, randomSeed=42)
+        AllChem.Compute2DCoords(mol)
 
-        codes = set()
-        for conf in mol.GetConformers():
-            single = Chem.Mol(mol, confId=conf.GetId())
-            Chem.AssignStereochemistryFrom3D(single)
-            found = Chem.FindMolChiralCenters(single, useLegacyImplementation=False)
-            codes.update(code for _, code in found)
+        input_sdf = job_dir / "alanine_flat.sdf"
+        with Chem.SDWriter(str(input_sdf)) as writer:
+            writer.write(mol)
 
-        assert len(codes) <= 1, (
-            f"embedding produced a stereochemical mixture {sorted(codes)} labeled as "
-            f"conformers of one species; the pipeline must enumerate or refuse instead"
+        output_sdf = job_dir / "alanine_enumerated.sdf"
+        engine = create_isomer_engine(
+            "rdkit_sdf",
+            input_path=str(input_sdf),
+            output_path=str(output_sdf),
+            max_confs=12,
+            threshold=0.3,
+            n_jobs=1,
+        )
+
+        try:
+            engine.run()
+        except ValueError:
+            # Explicit refusal of ambiguous stereochemistry is an acceptable
+            # resolution; there is nothing further to check.
+            return
+
+        per_species: dict[str, set[str]] = {}
+        for out_mol in Chem.SDMolSupplier(str(output_sdf), removeHs=False):
+            if out_mol is None:
+                continue
+            name = out_mol.GetProp("_Name")
+            species = name.rsplit("_", 1)[0]
+            Chem.AssignStereochemistryFrom3D(out_mol)
+            found = Chem.FindMolChiralCenters(out_mol, useLegacyImplementation=False)
+            per_species.setdefault(species, set()).update(code for _, code in found)
+
+        mixed = {
+            name: sorted(codes) for name, codes in per_species.items() if len(codes) > 1
+        }
+        assert not mixed, (
+            f"RDKitSdfIsomer wrote a stereochemical mixture under a single species "
+            f"name: {mixed}; the pipeline must enumerate distinct species or refuse "
+            f"ambiguous input instead of silently mixing configurations as "
+            f"conformers of one species"
         )
