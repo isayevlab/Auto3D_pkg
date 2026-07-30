@@ -164,8 +164,17 @@ markers = [
     "openeye: marks tests requiring OpenEye license",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::UserWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+    # Auto3D's own deprecation and chemistry warnings are public contract and
+    # must stay visible so tests can assert them (audit M34).
+    "default::DeprecationWarning:Auto3D.*",
+    "default::UserWarning:Auto3D.*",
+    # Third-party noise we do not control.
+    "ignore:.*pkg_resources is deprecated.*:DeprecationWarning",
+    "ignore:.*Importing 'parser.split_arg_string' is deprecated.*:DeprecationWarning",
+    "ignore::DeprecationWarning:torch.*",
+    "ignore::DeprecationWarning:ase.*",
+    "ignore::UserWarning:torch.*",
 ]
 
 [tool.coverage.run]
