@@ -43,8 +43,17 @@ def test_custom_eager_module_loads_and_runs(tmp_path):
     species = torch.tensor([[1, 6, -1]])  # last atom is padding
     charges = torch.zeros(1)
     e, f = adapter.forward(coords, species, charges)
-    assert e.shape == (1,) and torch.isfinite(e).all()
-    assert f.shape == coords.shape and torch.isfinite(f).all()
+    assert e.shape == (1,)
+    assert f.shape == coords.shape
+    # _TinyNNP masks padding: E = sum(coords^2) over real atoms only, so
+    # dE/dx = 2*coords for real atoms and 0 for the padded slot => F = -dE/dx.
+    # Asserting the value, not just finiteness, is what catches a sign flip in
+    # the adapter's force path (audit M32).
+    mask = (species != _TinyNNP.species_pad).unsqueeze(-1)
+    expected_forces = -2.0 * coords * mask
+    torch.testing.assert_close(f, expected_forces, rtol=1e-5, atol=1e-6)
+    expected_energy = (coords * mask).pow(2).sum(dim=(1, 2))
+    torch.testing.assert_close(e, expected_energy, rtol=1e-5, atol=1e-6)
 
 
 def test_load_custom_nnp_eager_and_double(tmp_path):
