@@ -83,11 +83,16 @@ jobs:
           PY
       - name: Run slow NNP + pipeline tests
         # Previously limited to three files because the heavy end-to-end modules
-        # were flaky under combined/randomized ordering. Task 1's job_dir/isolated_input
-        # fixtures remove the shared output directories that caused it, so the
-        # full slow tier now runs (audit M31).
+        # were flaky under combined ordering. None of the five newly un-skipped
+        # modules (test_auto3D.py, test_SPE.py, test_thermo.py,
+        # test_isomer_engine.py, test_tauto.py) actually use Task 1's
+        # job_dir/isolated_input fixtures, so those fixtures are not what
+        # protects this run. What actually protects it: main()'s
+        # microsecond-resolution job naming, strictly serial CI execution, and
+        # the autouse GPU-teardown fixture applied via the `slow` marker --
+        # assessed at 70-80% confidence, not guaranteed (audit M31).
         run: >
-          pytest tests/ -m slow -q -p no:randomly
+          pytest tests/ -m slow -q
 
   lint:
     name: ruff + mypy

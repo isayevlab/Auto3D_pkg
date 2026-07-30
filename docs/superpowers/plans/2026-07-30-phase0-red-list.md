@@ -2,12 +2,20 @@
 
 Every entry below is an `xfail` test that fails on `a426cf4` and is mapped to
 the phase that owns its fix. When the owning phase lands its fix the test
-XPASSes; for the 27 entries marked `strict=True`, that XPASS is a hard pytest
-failure, and the implementer must delete the marker in the same PR. **One
-entry — the `test_utils_stereochemistry.py` C1 row — is `xfail(strict=False)`
-by design** (it is being kept, not deleted, to preserve the record that the
-buggy behavior was once asserted as correct; see "Known deviations" below).
-That row's tripwire is not self-enforcing and needs a manual check.
+XPASSes; for all 28 entries, now all marked `strict=True`, that XPASS is a
+hard pytest failure, and the implementer must delete the marker in the same
+PR.
+
+**Update (fix wave following the final whole-branch review):** the
+`test_utils_stereochemistry.py` C1 row was originally shipped as
+`xfail(strict=False)`, on the reasoning that it was "kept, not deleted, to
+preserve the record that it was once intended" and that its body would be
+rewritten later. That reasoning justified keeping the test, not leaving it
+non-strict — its body already asserts the correct behavior (structurally
+identical to the strict `test_stereo_identity.py:37` row above), so the
+non-strict marker was tightened to `strict=True`. Confirmed it still reports
+`xfailed`, not `xpassed`. See "Discrepancies against the brief's draft table"
+item 5 below for the historical context this closes out.
 
 **A phase is complete when every marker in its row is gone and no other test
 turned red.**
@@ -27,7 +35,7 @@ draft" for everywhere the two disagree.
 | C1 | `test_stereo_identity.py::TestEnantiomerPredicate::test_two_achiral_molecules_are_not_enantiomers` | 2 |
 | C1 | `test_stereo_identity.py::TestEZIsomersSurvive::test_but_2_ene_keeps_both_geometric_isomers` | 2 |
 | C1 | `test_stereo_identity.py::TestEZIsomersSurvive::test_fumaric_and_maleic_acid_both_survive` | 2 |
-| C1 | `test_utils_stereochemistry.py::TestEnantiomerHelper::test_enantiomer_helper_keeps_non_chiral` (`strict=False` — see note above) | 2 |
+| C1 | `test_utils_stereochemistry.py::TestEnantiomerHelper::test_enantiomer_helper_keeps_non_chiral` | 2 |
 | C2 | `test_stereo_identity.py::TestTautomerStereoPreservation::test_specified_center_survives_tautomer_enumeration` | 2 |
 | M19 | `test_stereo_identity.py::TestSdfInputStereo::test_unspecified_center_is_enumerated_or_refused` | 2 |
 | C5 | `test_thermo_reference.py::TestHessianGeometry::test_hessian_geometry_matches_relaxed_atoms` | 3 |
@@ -118,10 +126,18 @@ These are not red — they are gaps that had no test at all, now closed:
 - `test_pipeline_e2e.py::TestEnergyAndRankingSanity` (2 tests) — the first end-to-end assertions on actual numbers
 - `test_model_adapter.py` / `test_custom_nnp_eager.py` — analytic force values, catching a sign flip that previously passed (M32)
 - `test_batchopt.py::TestConvergenceFlagDerivation` — replaces two tests that asserted production logic against a copy of itself (M32)
+- `tests/test_batchopt.py::TestGPUCleanup::test_run_method_includes_gpu_cleanup`
+  was **deleted outright, not replaced.** It asserted on `inspect.getsource`
+  output — a source-text grep, not behavior — so unlike the two convergence
+  tests above there was no behavioral property to replace it with; the
+  whole `TestGPUCleanup` class (`tests/test_batchopt.py:145-188` at the time
+  of deletion) is gone.
 
 Beyond those, and beyond the three self-referential `test_batchopt.py`
-assertions Task 2 replaced, this phase found and fixed **three more tests
-that could never have failed regardless of the code under test**:
+assertions Task 2 removed (the two convergence tests, replaced by
+`TestConvergenceFlagDerivation` above, and the deleted GPU-cleanup test),
+this phase found and fixed **three more tests that could never have failed
+regardless of the code under test**:
 
 - A duplicate `class TestCombineSmi` in `tests/test_utils_file_ops.py` shadowed
   an earlier class of the same name, so pytest collected only the later
@@ -179,27 +195,49 @@ reality differs from it in the following ways:
    spy on the module-global `vib_hessian`, so a fix landing inside
    `do_mol_thermo` itself — not just in `vib_hessian`'s signature — is
    observed.
-5. **One marker is `xfail(strict=False)`, not `strict=True`.** The brief's
-   mechanic assumes every red-list entry is `strict=True` so that an XPASS is
-   a hard failure forcing marker deletion.
+5. **One marker shipped as `xfail(strict=False)`, not `strict=True`.**
+   (**Resolved by the post-review fix wave — see the "Update" note at the
+   top of this document.**) The brief's mechanic assumes every red-list
+   entry is `strict=True` so that an XPASS is a hard failure forcing marker
+   deletion.
    `test_utils_stereochemistry.py::TestEnantiomerHelper::test_enantiomer_helper_keeps_non_chiral`
-   is the one exception (introduced in commit `de81699`, not adjusted in any
-   later fix round, and not called out anywhere in the task ledger). Its
-   `reason` text says it is "kept (not deleted) to preserve the record that it
-   was once intended" and that "Phase 2 rewrites it" — consistent with the
-   design doc's own instruction for this specific test
-   (`2026-07-30-audit-remediation-design.md:137`) — but because it is
-   non-strict, an XPASS here will **not** turn CI red. Phase 2 must delete or
-   rewrite this marker as a manual step; the gate will not force it. Flagged
-   here explicitly so it is not lost.
+   was the one exception (introduced in commit `de81699`, not adjusted in
+   any later fix round, and not called out anywhere in the task ledger). Its
+   `reason` text said it was "kept (not deleted) to preserve the record that
+   it was once intended" and that "Phase 2 rewrites it" — consistent with
+   the design doc's own instruction for this specific test
+   (`2026-07-30-audit-remediation-design.md:137`) — but because it was
+   non-strict, an XPASS there would **not** have turned CI red on its own. A
+   final whole-branch review caught that the test's body had, in fact,
+   already been rewritten to assert correct behavior, so the non-strict
+   marker was tightened to `strict=True` rather than left for Phase 2 to
+   catch manually. All 28 red-list entries are now `strict=True`.
 6. All other findings, node IDs, and phase assignments in the brief's draft
    table were verified correct against the measured inventory and the design
    doc, with no further discrepancy.
 
 ## Handoff notes for later phases
 
-- **Phase 1:** no additional handoff beyond the red list above; note the
-  local-box `torchani` collection caveat when re-verifying C3/C4 in CI.
+- **Phase 1:** note the local-box `torchani` collection caveat when
+  re-verifying C3/C4 in CI. Additionally: spec break B1 changes
+  `pad_from_mols` to return a 4-tuple, and that silently affects four
+  tripwires outside Phase 1's own three:
+  - `test_species_conversion.py:71` (C3) and `:133` (C4) unpack 3 values
+    from `pad_from_mols`; after B1 that call raises `ValueError`, which
+    satisfies each test's `xfail(strict=True)` for the wrong reason — both
+    stay XFAIL even after a correct C3/C4 fix.
+  - `test_config_parity.py:123`'s `fake_pad` stub (used by the C11 test,
+    `TestAuxiliaryEntryPointGuards::test_calc_spe_rejects_charged_input_for_ani`)
+    returns 3 values; `SPE.py:96` will unpack 4 and raise `ValueError`,
+    which is not an `Auto3DError` — the C11 tripwire goes dark.
+  - `test_durability.py:262` uses the same 3-value `fake_pad` stub, but its
+    `pytest.raises((Auto3DError, ValueError))` at `:271` accepts the
+    `ValueError` — so C14's `test_output_equal_to_input_is_rejected` would
+    falsely XPASS during Phase 1, and because it is `strict=True`, that
+    turns CI red for a reason unrelated to C14 itself.
+  Phase 1 must update all four stubs (the two `pad_from_mols` call sites and
+  the two `fake_pad` stubs) to the new 4-tuple shape in the same PR as the
+  B1 change.
 
 - **Phase 2:** the M19 fix must land **inside `RDKitSdfIsomer` /
   `RDKitSdfIsomerAdapter`**, not behind a new or alternate registry key. Both
@@ -221,7 +259,9 @@ reality differs from it in the following ways:
   because the bug persists but because the test is looking at the wrong
   name. Phase 3 must either adopt `Thermo_converged`/`Thermo_warning` as the
   property names or update the test to whatever name it chooses — in the
-  same PR as the fix, not as an afterthought.
+  same PR as the fix, not as an afterthought. Whatever name is chosen,
+  pick one consistent with `Thermo_failed`, which spec break B7 already
+  commits to for M14 in this same phase.
 
 - **Phase 4:** the C8 and M22 tests in `TestColdCacheDiagnosis` each try
   `WorkflowOrchestrator._validate_input()` first and only fall through to the
@@ -249,6 +289,16 @@ reality differs from it in the following ways:
   unaddressed reason, because `remove_enantiomers` runs first in the
   pipeline and can independently merge the two inputs before ranking ever
   sees them. Both sites must be fixed for this test to XPASS correctly.
+
+  Additionally: `test_config_parity.py:29,39,49,66` (`C10` x2, `M27`,
+  `M28`) all use `pytest.raises(Auto3DError)`, but `Auto3DOptions.__post_init__`
+  (`src/Auto3D/config.py:151,153`) currently raises bare `ValueError` for
+  both the negative-k and negative-window checks, which is not an
+  `Auto3DError`. Extending `__post_init__` in its existing style (more bare
+  `ValueError`s) leaves all four tripwires dark. Phase 5 must raise
+  `ConfigurationError` per spec break B9/M29 instead. Collateral: `tests/test_config.py:168-176`
+  (`test_negative_k_rejected`, `test_negative_window_rejected`) currently
+  expects `ValueError` and will need updating in the same PR once M29 lands.
 
 - **Phase 6:** no additional handoff beyond the red list above.
 
@@ -284,5 +334,29 @@ a regression:
   these five files actually use. A same-second job-directory collision in
   `test_isomer_engine.py` was already found and fixed during this phase
   (timestamp-only naming with unprotected `os.mkdir`); further collisions
-  under combined/randomized ordering remain possible and are the reason for
-  the confidence estimate rather than a guarantee.
+  under combined ordering remain possible and are the reason for the
+  confidence estimate rather than a guarantee.
+- **`PytestUnraisableExceptionWarning` is untested on the slow tier.**
+  `error::pytest.PytestUnraisableExceptionWarning` (added to `pyproject.toml`
+  `filterwarnings`) has never been exercised against the slow tier, which
+  opens many `SDWriter`/`SDMolSupplier` objects and does CUDA teardown —
+  either can plausibly emit an unraisable-exception warning during garbage
+  collection. This is an independent source of first-run red, unrelated to
+  the un-skip itself. Keep the filter, but do not misdiagnose a red here as
+  a regression in the un-skipped modules.
+- **`test_thermo_reference.py:157-161` imports private `Auto3D.ASE.thermo`
+  symbols.** It imports `_load_hessian_model` and `model_name2model_calculator`
+  directly (both private/module-level, not part of the public API). Phase
+  3's M40 reroutes `_load_hessian_model` through `ModelFactory`; if that
+  change renames or removes the symbol rather than keeping it as a thin
+  wrapper, the C5 tripwire (`TestHessianGeometry::test_hessian_geometry_matches_relaxed_atoms`)
+  goes dark with an `ImportError` instead of exercising the geometry-sync
+  bug.
+
+## Notes on this checkout
+
+- `docs/superpowers/specs/` and `.claude/review-manifests/` are untracked
+  working documents in this checkout (excluded via `.git/info/exclude`, not
+  `.gitignore`). Cross-references to files under either path — including
+  `docs/superpowers/specs/2026-07-30-audit-remediation-design.md`, cited
+  throughout this document — will dangle on a fresh clone of the repository.

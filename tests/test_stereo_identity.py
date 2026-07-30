@@ -78,8 +78,14 @@ class TestTautomerStereoPreservation:
         "so rd_taut writes stereo-stripped SMILES that are then re-enumerated "
         "as unassigned -- a 50% chance of the wrong enantiomer",
     )
-    def test_specified_center_survives_tautomer_enumeration(self):
+    def test_specified_center_survives_tautomer_enumeration(self, job_dir):
         """At least one output tautomer must retain the input's specified center.
+
+        This drives Auto3D's real ``rdkit`` tautomer engine -- the same
+        ``TautomerEngine.rd_taut()`` the pipeline dispatches to, reached via
+        ``Auto3D.isomers.factory.create_tautomer_engine`` -- rather than a
+        bare RDKit ``TautomerEnumerator``, so the defect is attributed to
+        Auto3D's tautomer path and not to RDKit in isolation.
 
         This center is itself alpha to the ketone, so a tautomer genuinely
         produced by enolizing through the stereocenter's own alpha-hydrogen
@@ -92,17 +98,19 @@ class TestTautomerStereoPreservation:
         the eventual fix must not over-correct to "preserve stereo across all
         tautomers unconditionally."
         """
-        from rdkit.Chem.MolStandardize import rdMolStandardize
+        from Auto3D.isomers.factory import create_tautomer_engine
 
-        source = "C[C@H](C(=O)C)N"
-        enumerator = rdMolStandardize.TautomerEnumerator()
-        outputs = [
-            Chem.MolToSmiles(t)
-            for t in enumerator.Enumerate(Chem.MolFromSmiles(source))
-        ]
+        in_smi = job_dir / "taut_stereo.smi"
+        in_smi.write_text("C[C@H](C(=O)C)N taut_test\n")
+        out_smi = job_dir / "taut_stereo_out.smi"
 
+        create_tautomer_engine(
+            "rdkit", str(in_smi), str(out_smi), pka_norm=False
+        ).run()
+
+        outputs = out_smi.read_text().splitlines()
         assert outputs, "tautomer enumeration returned nothing"
-        assert any("@" in smi for smi in outputs), (
+        assert any("@" in line for line in outputs), (
             f"every tautomer lost the specified stereocenter: {sorted(outputs)}"
         )
 

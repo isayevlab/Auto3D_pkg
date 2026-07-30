@@ -94,18 +94,28 @@ class TestStationaryPointGating:
         # guaranteed to either skip straight past the gate or fail to
         # converge in a single BFGS step, regardless of which of those two
         # code paths is taken.
-        path = _write_mol(job_dir / "raw.sdf", smiles="CCCCO", optimize=False)
+        path = _write_mol(job_dir / "raw.sdf", smiles="CCCCO", name="butanol", optimize=False)
 
         out = calc_thermo(str(path), "AIMNET", opt_steps=1, use_gpu=False)
 
-        for mol in Chem.SDMolSupplier(str(out), removeHs=False):
-            if mol is None:
-                continue
-            if mol.HasProp("G_hartree"):
-                assert mol.HasProp("Thermo_converged") or mol.HasProp("Thermo_warning"), (
-                    "G was reported for a structure that could not have converged in "
-                    "one step, with no flag distinguishing it"
-                )
+        results = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
+        with_g = [m for m in results if m.HasProp("G_hartree")]
+        for mol in with_g:
+            assert mol.HasProp("Thermo_converged") or mol.HasProp("Thermo_warning"), (
+                "G was reported for a structure that could not have converged in "
+                "one step, with no flag distinguishing it"
+            )
+
+        # Non-vacuity check: the invariant above is only meaningful if at
+        # least one record actually reported G_hartree. If do_mol_thermo
+        # instead raises for this deliberately-unconverged geometry, the
+        # record lands in mols_failed with no G_hartree at all, the loop
+        # above never executes its assertion, and this test would otherwise
+        # pass for the wrong reason.
+        assert with_g, (
+            "no output record carried G_hartree -- the unconverged-geometry gate "
+            "above was never exercised; this does not confirm the bug is fixed"
+        )
 
 
 class TestHessianGeometry:

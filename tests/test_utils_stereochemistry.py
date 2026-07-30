@@ -74,10 +74,10 @@ class TestEnantiomerHelper:
         assert result[0] in smiles
 
     @pytest.mark.xfail(
-        strict=False,
-        reason="C1: this test asserts the buggy behavior is correct. Phase 2 "
-        "rewrites it to assert that two distinct achiral molecules both survive. "
-        "Kept (not deleted) to preserve the record that it was once intended.",
+        strict=True,
+        reason="C1: enantiomer([], []) returns True vacuously, so two distinct "
+        "achiral molecules are wrongly treated as an enantiomeric pair and one "
+        "is dropped by enantiomer_helper.",
     )
     def test_enantiomer_helper_keeps_non_chiral(self):
         """Two distinct achiral molecules must both survive enantiomer filtering.
