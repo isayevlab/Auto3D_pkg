@@ -42,7 +42,7 @@ def test_get_stable_tautomers1():
     out_folder = os.path.dirname(os.path.abspath(tautomer_out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 
@@ -64,7 +64,7 @@ def test_get_stable_tautomers2():
     out_folder = os.path.dirname(os.path.abspath(tautomer_out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 if __name__ == '__main__':

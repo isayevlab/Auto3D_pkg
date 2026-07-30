@@ -47,23 +47,23 @@ def test_rd_isomer_class():
     assert(rmsd_greater(mols, threshold) == True)
     try:
         os.remove(smiles_enumerated)
-    except:
+    except OSError:
         pass
     try:
         os.remove(smiles_reduced)
-    except:
+    except OSError:
         pass
     try:
         os.remove(smiles_hashed)
-    except:
+    except OSError:
         pass
     try:
         os.remove(sdf_enumerated)
-    except:
+    except OSError:
         pass
     try:
         shutil.rmtree(job_name)
-    except:
+    except OSError:
         pass
 
 
@@ -79,7 +79,7 @@ def test_rd_isomer_conformer_func():
         num_conformers.append(num_conformers_)
         try:
             shutil.rmtree(job_name)
-        except:
+        except OSError:
             pass
     assert(num_conformers[0] >= num_conformers[1])
     assert(num_conformers[1] >= num_conformers[2])
@@ -126,11 +126,11 @@ def test_rd_isomer_with_parallel_embedding():
     for f in [smiles_enum_par, smiles_reduced_par, smiles_hashed_par, sdf_enum_par]:
         try:
             os.remove(f)
-        except:
+        except OSError:
             pass
     try:
         shutil.rmtree(job_name)
-    except:
+    except OSError:
         pass
 
 
@@ -149,7 +149,7 @@ def test_rd_isomer_parallel_embedding_default_off():
 
     try:
         shutil.rmtree(job_name)
-    except:
+    except OSError:
         pass
 
 
@@ -172,7 +172,7 @@ def test_rd_isomer_parallel_embedding_threshold():
 
     try:
         shutil.rmtree(job_name)
-    except:
+    except OSError:
         pass
 
 

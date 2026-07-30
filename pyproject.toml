@@ -137,6 +137,32 @@ ignore = [
     "UP031",  # format specifiers (% format is fine for simple cases)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Task 11 (CI wiring) put `tests/` under `ruff check` for the first time. Bare
+# `except:` blocks (E722) were fixed directly -- a narrow, mechanical swap to
+# `except OSError:`/`except ImportError:` at each site. Everything below is
+# pre-existing style debt spread across most test files (not specific to the
+# newly-gated modules); fixing it is a wholesale test-suite reformat out of
+# scope for a CI-wiring change, so it is narrowed here instead of edited.
+"tests/*" = [
+    "I001",   # unsorted imports -- reordering would touch most test files
+    "F401",   # unused imports (legacy test scaffolding, e.g. optional-dep guards)
+    "E712",   # `== True`/`== False` comparisons (common in older tests)
+    "E702",   # multiple statements on one line (semicolons in legacy tests)
+    "B017",   # assertRaises(Exception) -- broad but intentional in smoke tests
+    "F841",   # unused local variables (e.g. captured-for-inspection results)
+    "N816",   # mixedCase globals (e.g. `test_userNNP1` availability flags)
+    "UP008",  # super() with parameters (legacy style, harmless)
+    "SIM117", # nested `with` statements (sometimes clearer split out)
+    "N811",   # constant imported as non-constant (legacy aliasing)
+    "B905",   # zip() without strict= (pre-3.10-style call sites)
+    "E401",   # multiple imports on one line
+    "F811",   # redefinition of unused name (legacy fixture shadowing)
+    "N813",   # camelCase import aliased to lowercase
+    "SIM222", # `... or True` (test scaffolding for short-circuit checks)
+    "SIM300", # yoda conditions
+]
+
 [tool.ruff.lint.isort]
 known-first-party = ["Auto3D"]
 

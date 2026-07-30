@@ -57,7 +57,7 @@ try:
             energies = self.model((species, coords)).energies * 27.211386245988
             return energies
     test_userNNP1 = True
-except:
+except ImportError:
     test_userNNP1 = False
 
 class userNNP2(torch.nn.Module):
