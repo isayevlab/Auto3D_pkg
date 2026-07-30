@@ -65,7 +65,7 @@ class TestThermoPathConverts:
         coords_b, species_b, charges_b = pad_from_mols([mol], "ANI2xt", device)
         e_batch = float(model.forward(coords_b, species_b, charges_b)[0][0])
 
-        thermo_in = mol2aimnet_input(mol, device)
+        thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
         e_thermo = float(
             model.forward(
                 thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]
@@ -90,7 +90,7 @@ class TestThermoPathConverts:
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
         model = create_model("ANI2xt", device)
-        thermo_in = mol2aimnet_input(mol, device)
+        thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
 
         energy, _ = model.forward(
             thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]

@@ -16,6 +16,8 @@ from collections.abc import Sequence
 
 from rdkit import Chem
 
+from Auto3D.constants import MODEL_ANI2XT
+
 # Atomic number -> ANI2xt network index. The order matches the ModuleList in
 # batch_opt/ANI2xt_no_rep.py; changing one without the other misroutes elements.
 ANI2XT_INDEX: dict[int, int] = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
@@ -28,9 +30,11 @@ def to_model_species(atomic_numbers: Sequence[int], model_name: str) -> list[int
 
     Args:
         atomic_numbers: Atomic numbers, one per atom.
-        model_name: Engine name. Only ``"ANI2xt"`` remaps; every other value
-            (AIMNET, any aimnet registry name, ANI2x, a custom model path) is
-            passed through unchanged.
+        model_name: Engine name, matched case-insensitively against
+            ``"ANI2xt"`` (the same convention ``ModelFactory.create_model``
+            uses). Only a match remaps; every other value (AIMNET, any aimnet
+            registry name, ANI2x, a custom model path) is passed through
+            unchanged.
 
     Returns:
         Species values in the model's own convention.
@@ -40,7 +44,12 @@ def to_model_species(atomic_numbers: Sequence[int], model_name: str) -> list[int
             outside its supported set. The message names the atomic number,
             the element symbol, and the model.
     """
-    if model_name != "ANI2xt":
+    # Case-insensitive match, matching ModelFactory.create_model's own
+    # normalization (model_factory.py: name.upper() in cls._adapters). Without
+    # this, "auto3d models test ani2xt" loads the correct ANI2xt adapter via
+    # create_model but this function silently passes atomic numbers through
+    # unconverted -- a C4-shaped bug hiding behind incidental case-matching.
+    if model_name.upper() != MODEL_ANI2XT.upper():
         return list(atomic_numbers)
 
     converted: list[int] = []

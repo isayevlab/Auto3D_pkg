@@ -33,6 +33,19 @@ class TestAni2xtMapping:
         assert "ANI2xt" in message, "error must name the model"
 
 
+class TestCaseInsensitiveMatch:
+    """create_model dispatches case-insensitively (model_factory.py: name.upper()
+    in cls._adapters), so to_model_species must match that convention -- otherwise
+    `auto3d models test ani2xt` loads the correct adapter via create_model and then
+    silently evaluates raw atomic numbers through it (a C4-shaped regression hiding
+    behind incidental case-matching)."""
+
+    @pytest.mark.parametrize("model_name", ["ani2xt", "ANI2XT", "Ani2xt"])
+    def test_ani2xt_matches_regardless_of_case(self, model_name):
+        """Any casing of the engine name must still convert to indices."""
+        assert to_model_species([6, 1, 1, 1, 1], model_name) == [1, 0, 0, 0, 0]
+
+
 class TestPassthroughModels:
     """Every other engine consumes atomic numbers unchanged."""
 

@@ -116,7 +116,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
 class Calculator(ase.calculators.calculator.Calculator):
     """ASE calculator interface for AIMNET and ANI2xt"""
     implemented_properties = ['energy', 'forces']
-    def __init__(self, model, charge=0, model_name='AIMNET'):
+    def __init__(self, model, charge=0, *, model_name):
         super().__init__()
         self.model = model
         # Engine name in Auto3D's own convention (e.g. 'ANI2xt'), used by
@@ -166,7 +166,7 @@ class Calculator(ase.calculators.calculator.Calculator):
         self.results['forces'] = forces.squeeze(0).to('cpu').numpy()
 
 
-def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMNET') -> dict:
+def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), *, model_name) -> dict:
     """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
     conf = mol.GetConformer()
     # RDKit positions are float64; build the coordinate tensor as float32 to
