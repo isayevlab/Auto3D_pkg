@@ -19,10 +19,6 @@ from Auto3D.config import Auto3DOptions
 pytestmark = pytest.mark.slow
 
 
-def _count_records(sdf_path: str) -> int:
-    return sum(1 for m in Chem.SDMolSupplier(sdf_path, removeHs=False) if m is not None)
-
-
 def _input_ids(smi_path: str) -> set[str]:
     ids = set()
     with open(smi_path) as fh:
@@ -41,12 +37,37 @@ class TestInputOutputAccounting:
         reason="C7: neither _finalize_output nor smiles2mols reconciles inputs "
         "against outputs; find_smiles_not_in_sdf has zero production callers",
     )
-    def test_every_input_is_present_or_reported(self, isolated_input):
-        """Each input ID must appear in the output or in a reported failure list."""
+    def test_every_input_is_present_or_reported(self, job_dir):
+        """Each input ID must appear in the output or in a reported failure list.
+
+        A run of only valid molecules has no *structural* reason to lose any
+        of them, so their absence would depend on non-deterministic
+        convergence luck rather than the C7 defect itself. Instead, mix in the
+        same guaranteed-unconvertible sodium counterion used by
+        ``test_one_bad_molecule_does_not_remove_the_others`` below, and force
+        one molecule per job (the same capacity/memory=1 technique used in
+        ``TestExitStatus``) so sodium's job fails alone -- deterministically,
+        via optim_rank_wrapper's bare except/continue -- while the other jobs
+        succeed independently. Total output is nonzero (no OptimizationError),
+        but the failing ID vanishes with no report anywhere reachable from
+        main()'s return value. That is the reconciliation gap C7 describes,
+        exercised without relying on any molecule's numerical luck.
+        """
         from Auto3D.auto3D import main
 
-        smi = isolated_input("smiles10.smi")
-        args = Auto3DOptions(path=smi, k=1, use_gpu=False, max_confs=2)
+        smi = job_dir / "mixed10.smi"
+        # Na is outside AIMNet2's 14-element set and guaranteed to fail; the
+        # other three are simple, well-behaved organics guaranteed to succeed.
+        smi.write_text(
+            "CCO ethanol\n"
+            "CCCO propanol\n"
+            "c1ccccc1 benzene\n"
+            "[Na+].CC(=O)[O-] sodium_acetate\n"
+        )
+
+        args = Auto3DOptions(
+            path=str(smi), k=1, use_gpu=False, max_confs=2, capacity=1, memory=1
+        )
         out = main(args)
 
         produced = set()
@@ -54,10 +75,17 @@ class TestInputOutputAccounting:
             if mol is not None:
                 produced.add(mol.GetProp("_Name").split("_")[0])
 
-        expected = _input_ids(smi)
-        missing = expected - produced
+        # No public interface reports failed inputs today (that is exactly
+        # C7), so this is always empty -- but written this way, a later fix
+        # that starts populating a failure list on the result would make this
+        # test XPASS without any edits here.
+        reported_failures = set(getattr(out, "failures", None) or [])
+
+        expected = _input_ids(str(smi))
+        missing = expected - produced - reported_failures
         assert not missing, (
-            f"{len(missing)} of {len(expected)} inputs vanished with no report: "
+            f"{len(missing)} of {len(expected)} inputs vanished with no report "
+            f"(absent from the output SDF and from any reported failure list): "
             f"{sorted(missing)}"
         )
 
