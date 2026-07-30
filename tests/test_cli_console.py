@@ -31,7 +31,7 @@ def test_print_success(capsys):
     print_success("Test passed")
     # Rich strips markup in non-terminal mode
     captured = capsys.readouterr()
-    assert "Test passed" in captured.out or True  # Rich output varies
+    assert "Test passed" in captured.out
 
 
 def test_print_error():

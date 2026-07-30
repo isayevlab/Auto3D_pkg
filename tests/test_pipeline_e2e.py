@@ -1,0 +1,210 @@
+"""Every input molecule must be accounted for, and success must mean success.
+
+The pipeline isolates failure per chunk, per molecule, with sentinel-guaranteed
+queue drains -- but has no compensating reporting layer, so failure is reliably
+contained and just as reliably invisible. _finalize_output raises only when zero
+outputs exist, so 9 of 10 failed chunks exits 0 (C6). find_smiles_not_in_sdf,
+the reconciliation function, exists and is exported and tested with zero
+production callers (C7).
+
+Slow tier: uses the real aimnet2 registry model on CPU.
+"""
+from __future__ import annotations
+
+import pytest
+from rdkit import Chem
+
+from Auto3D.config import Auto3DOptions
+
+pytestmark = pytest.mark.slow
+
+
+def _input_ids(smi_path: str) -> set[str]:
+    ids = set()
+    with open(smi_path) as fh:
+        for line in fh:
+            parts = line.split()
+            if len(parts) >= 2:
+                ids.add(parts[1])
+    return ids
+
+
+class TestInputOutputAccounting:
+    """No input may vanish without being reported."""
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="C7: neither _finalize_output nor smiles2mols reconciles inputs "
+        "against outputs; find_smiles_not_in_sdf has zero production callers",
+    )
+    def test_every_input_is_present_or_reported(self, job_dir):
+        """Each input ID must appear in the output or in a reported failure list.
+
+        A run of only valid molecules has no *structural* reason to lose any
+        of them, so their absence would depend on non-deterministic
+        convergence luck rather than the C7 defect itself. Instead, mix in the
+        same guaranteed-unconvertible sodium counterion used by
+        ``test_one_bad_molecule_does_not_remove_the_others`` below, and force
+        one molecule per job (the same capacity/memory=1 technique used in
+        ``TestExitStatus``) so sodium's job fails alone -- deterministically,
+        via optim_rank_wrapper's bare except/continue -- while the other jobs
+        succeed independently. Total output is nonzero (no OptimizationError),
+        but the failing ID vanishes with no report anywhere reachable from
+        main()'s return value. That is the reconciliation gap C7 describes,
+        exercised without relying on any molecule's numerical luck.
+        """
+        from Auto3D.auto3D import main
+
+        smi = job_dir / "mixed10.smi"
+        # Na is outside AIMNet2's 14-element set and guaranteed to fail; the
+        # other three are simple, well-behaved organics guaranteed to succeed.
+        smi.write_text(
+            "CCO ethanol\n"
+            "CCCO propanol\n"
+            "c1ccccc1 benzene\n"
+            "[Na+].CC(=O)[O-] sodium_acetate\n"
+        )
+
+        args = Auto3DOptions(
+            path=str(smi), k=1, use_gpu=False, max_confs=2, capacity=1, memory=1
+        )
+        out = main(args)
+
+        produced = set()
+        for mol in Chem.SDMolSupplier(out, removeHs=False):
+            if mol is not None:
+                produced.add(mol.GetProp("_Name").split("_")[0])
+
+        # No public interface reports failed inputs today (that is exactly
+        # C7), so this is always empty -- but written this way, a later fix
+        # that starts populating a failure list on the result would make this
+        # test XPASS without any edits here.
+        reported_failures = set(getattr(out, "failures", None) or [])
+
+        expected = _input_ids(str(smi))
+        missing = expected - produced - reported_failures
+        assert not missing, (
+            f"{len(missing)} of {len(expected)} inputs vanished with no report "
+            f"(absent from the output SDF and from any reported failure list): "
+            f"{sorted(missing)}"
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="C6: one unsupported element raises inside ensemble_opt, and "
+        "optim_rank_wrapper's bare `except Exception: continue` discards every "
+        "molecule in that chunk",
+    )
+    def test_one_bad_molecule_does_not_remove_the_others(self, job_dir):
+        """A sodium counterion must not take the rest of the file down with it."""
+        from Auto3D.auto3D import main
+
+        smi = job_dir / "mixed.smi"
+        # Na is outside AIMNet2's 14-element set; the other three are fine.
+        smi.write_text(
+            "CCO ethanol\n"
+            "CCCO propanol\n"
+            "[Na+].CC(=O)[O-] sodium_acetate\n"
+            "c1ccccc1 benzene\n"
+        )
+
+        args = Auto3DOptions(path=str(smi), k=1, use_gpu=False, max_confs=2)
+        out = main(args)
+
+        produced = {
+            m.GetProp("_Name").split("_")[0]
+            for m in Chem.SDMolSupplier(out, removeHs=False)
+            if m is not None
+        }
+        for good in ("ethanol", "propanol", "benzene"):
+            assert good in produced, (
+                f"{good} was lost because an unrelated molecule failed; produced "
+                f"{sorted(produced)}"
+            )
+
+
+class TestExitStatus:
+    """Losing molecules must not exit 0."""
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="C6: execute_run ends its try block with print_results_summary and "
+        "never raises SystemExit on failed_count > 0, so `auto3d run --json && "
+        "next_step` proceeds on a partial run",
+    )
+    def test_cli_exits_nonzero_when_molecules_are_missing(self, job_dir):
+        """auto3d run must signal partial failure through its exit code."""
+        from typer.testing import CliRunner
+
+        from Auto3D.cli.app import app
+
+        smi = job_dir / "mixed.smi"
+        smi.write_text("CCO ethanol\n[Na+].CC(=O)[O-] sodium_acetate\n")
+
+        # `auto3d run` has no --capacity/--memory/--max-confs flags (verified via
+        # `auto3d run --help`), so a plain two-molecule file lands both rows in a
+        # single default-sized chunk (capacity=42/GB memory). One unsupported
+        # element in a *shared* chunk currently takes the whole chunk down (C6),
+        # which would leave zero total output and make _finalize_output raise
+        # OptimizationError on its own -- a *correct* nonzero exit for an
+        # unrelated reason, not the silent partial-failure this test targets.
+        # A tiny capacity/memory (via --config) forces one molecule per chunk,
+        # so ethanol's chunk succeeds independently of sodium_acetate's chunk
+        # failing: a genuine partial run that should exit 0 today.
+        config = job_dir / "config.yaml"
+        config.write_text(f"path: {smi}\ncapacity: 1\nmemory: 1\n")
+
+        result = CliRunner().invoke(
+            app,
+            ["run", str(smi), "--config", str(config), "--k", "1", "--no-gpu"],
+        )
+        assert result.exit_code != 0, (
+            f"exited 0 despite losing a molecule; output:\n{result.output}"
+        )
+
+
+class TestEnergyAndRankingSanity:
+    """Assert on the numbers, not merely that the program ran."""
+
+    def test_energies_are_negative_and_ordered(self, isolated_input):
+        """E_tot must be negative and ascending within a conformer group."""
+        from Auto3D.auto3D import main
+
+        args = Auto3DOptions(
+            path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=4
+        )
+        out = main(args)
+
+        groups: dict[str, list[float]] = {}
+        for mol in Chem.SDMolSupplier(out, removeHs=False):
+            if mol is None:
+                continue
+            base = mol.GetProp("_Name").split("_")[0]
+            groups.setdefault(base, []).append(float(mol.GetProp("E_tot")))
+
+        assert groups, "no molecules in the output"
+        for base, energies in groups.items():
+            assert all(e < 0 for e in energies), f"{base}: non-negative energy {energies}"
+            assert energies == sorted(energies), (
+                f"{base}: conformers are not energy-ordered: {energies}"
+            )
+
+    def test_top_k_returns_distinct_conformers(self, isolated_input):
+        """k=3 must yield at most 3 per molecule, and the first is the minimum."""
+        from Auto3D.auto3D import main
+
+        args = Auto3DOptions(
+            path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=6
+        )
+        out = main(args)
+
+        groups: dict[str, list[float]] = {}
+        for mol in Chem.SDMolSupplier(out, removeHs=False):
+            if mol is None:
+                continue
+            base = mol.GetProp("_Name").split("_")[0]
+            groups.setdefault(base, []).append(float(mol.GetProp("E_tot")))
+
+        for base, energies in groups.items():
+            assert len(energies) <= 3, f"{base}: k=3 but got {len(energies)}"
+            assert energies[0] == min(energies), f"{base}: first is not the minimum"

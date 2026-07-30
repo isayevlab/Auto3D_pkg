@@ -66,7 +66,7 @@ try:
             energies = self.model((species, coords)).energies * 27.211386245988
             return energies
     test_userNNP1 = True
-except:
+except ImportError:
     test_userNNP1 = False
 
 class userNNP2(torch.nn.Module):
@@ -141,7 +141,7 @@ def test_auto3D_rdkit_aimnet():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 # @pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
@@ -153,7 +153,7 @@ def test_auto3D_rdkit_ani2xt():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 def test_auto3D_rdkit_ani2x():
@@ -164,7 +164,7 @@ def test_auto3D_rdkit_ani2x():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
@@ -176,7 +176,7 @@ def test_auto3D_omega_aimnet():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 
@@ -190,7 +190,7 @@ def test_auto3D_omega_ani2xt():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
@@ -202,7 +202,7 @@ def test_auto3D_omega_ani2x():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
@@ -214,7 +214,7 @@ def test_auto3D_config1():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
@@ -226,7 +226,7 @@ def test_auto3D_config2():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
     
@@ -238,7 +238,7 @@ def test_auto3D_config3():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
@@ -250,7 +250,7 @@ def test_auto3D_config4():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
@@ -263,7 +263,7 @@ def test_auto3D_config5():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
@@ -276,7 +276,7 @@ def test_auto3D_config6():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
@@ -288,7 +288,7 @@ def test_auto3D_sdf_omega_aimnet():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 def test_auto3D_sdf_rdkit_aimnet():
@@ -299,7 +299,7 @@ def test_auto3D_sdf_rdkit_aimnet():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 def test_auto3D_sdf_rdkit_ani2x():
@@ -310,7 +310,7 @@ def test_auto3D_sdf_rdkit_ani2x():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 def test_auto3D_sdf_rdkit_ani2xt():
@@ -321,7 +321,7 @@ def test_auto3D_sdf_rdkit_ani2xt():
     out_folder = os.path.dirname(os.path.abspath(out))
     try:
         send2trash(out_folder)
-    except:
+    except OSError:
         shutil.rmtree(out_folder)
 
 def test_auto3D_smiles2mols():

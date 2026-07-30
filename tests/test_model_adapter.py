@@ -275,7 +275,14 @@ def test_custom_model_adapter_runs(tmp_path):
     e, f = ad.forward(coords, species, charges)
     assert e.shape == (2,)
     assert f.shape == (2, 4, 3)
-    assert torch.isfinite(e).all() and torch.isfinite(f).all()
+    # _Toy does not mask padding, so E = sum(coords^2) over every slot =>
+    # dE/dx = 2*coords => F = -dE/dx = -2*coords. Asserting the value, not
+    # just finiteness, is what catches a sign flip in the adapter's force
+    # path (audit M32).
+    expected_forces = -2.0 * coords
+    torch.testing.assert_close(f, expected_forces, rtol=1e-5, atol=1e-6)
+    expected_energy = (coords ** 2).sum(dim=(1, 2))
+    torch.testing.assert_close(e, expected_energy, rtol=1e-5, atol=1e-6)
 
 
 class TestValidateOutputs:

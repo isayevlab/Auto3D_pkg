@@ -142,50 +142,68 @@ class TestConvergenceStatus:
         assert len(result['converged_mask']) == 2
         assert len(result['oscillating_count']) == 2
 
-    def test_convergence_mask_excludes_oscillating(self):
-        """Convergence mask should exclude oscillating structures (Issue #90)."""
-        # Simulate a case where structure converged but is oscillating
-        converged_mask = [True, True, False]
-        oscillating_count = [10, 2, 1]  # First one is oscillating (count >= patience)
-        patience = 5
 
-        # This is the logic from batchopt.py
-        final_convergence = [
-            converged and osc_count < patience
-            for converged, osc_count in zip(converged_mask, oscillating_count)
-        ]
+@pytest.mark.slow
+class TestConvergenceFlagDerivation:
+    """The Converged/Dropped_Oscillating flags must come from production code.
 
-        # First structure: converged=True but oscillating_count >= patience → False
-        # Second structure: converged=True and oscillating_count < patience → True
-        # Third structure: converged=False → False
-        assert final_convergence == [False, True, False]
+    The previous tests in this class re-implemented the derivation inside the
+    test body and asserted it against itself, so no production code executed
+    (audit M32).
+    """
 
-    def test_convergence_with_energy_stability(self):
-        """Structures converged via energy stability should be marked converged."""
-        # This tests the scenario from issue #90 where energy convergence
-        # is used but the force is between opttol and 10*opttol
-        converged_mask = [True, True]  # Both converged (one via force, one via energy)
-        oscillating_count = [2, 3]     # Neither oscillating
-        patience = 5
+    def test_oscillating_structure_is_not_reported_converged(self, job_dir):
+        """A structure at/over the patience limit must not be Converged=True."""
+        pytest.importorskip("torchani")
 
-        final_convergence = [
-            converged and osc_count < patience
-            for converged, osc_count in zip(converged_mask, oscillating_count)
-        ]
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
 
-        # Both should be marked as converged
-        assert final_convergence == [True, True]
+        from Auto3D.batch_opt.batchopt import optimizing
 
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", "osc_test")
 
-class TestGPUCleanup:
-    """Tests for GPU memory cleanup in batchopt."""
+        sdf = job_dir / "in.sdf"
+        with Chem.SDWriter(str(sdf)) as w:
+            w.write(mol)
 
-    def test_run_method_includes_gpu_cleanup(self):
-        """Verify run() method includes GPU memory cleanup code."""
-        import inspect
-        source = inspect.getsource(optimizing.run)
-        assert 'empty_cache' in source, "GPU cleanup missing from run() method"
-        assert 'cuda.is_available' in source, "CUDA availability check missing"
+        # patience=1 guarantees the oscillation path is taken on any structure
+        # that does not reduce fmax on its very first step.
+        opt = optimizing(
+            in_f=str(sdf),
+            out_f=str(job_dir / "out.sdf"),
+            name="ANI2xt",
+            device=torch.device("cpu"),
+            config={"opt_steps": 5, "opttol": 1e-9, "patience": 1, "batchsize_atoms": 1024},
+        )
+        opt.run()
+
+        out = [m for m in Chem.SDMolSupplier(str(job_dir / "out.sdf"), removeHs=False) if m]
+        assert out, "optimizer produced no output"
+
+        # Invariant: this must hold for every molecule regardless of which path
+        # its trajectory took, so it can never no-op. It fails if a regression
+        # decouples Converged/Dropped_Oscillating (e.g. dropping the
+        # `osc_count_i < patience` guard from `convergence_i`).
+        for m in out:
+            if m.HasProp("Dropped_Oscillating") and m.GetProp("Dropped_Oscillating") == "True":
+                assert m.GetProp("Converged") != "True", (
+                    "a structure dropped for oscillation was reported as converged"
+                )
+
+        # Non-vacuity check: the invariant above is only meaningful if the
+        # oscillation path was actually taken. If this fails, the fixture
+        # (patience=1, opttol=1e-9, ethanol's FIRE trajectory) has stopped
+        # reproducing the oscillating condition on this platform/torch
+        # version -- it does not mean the Converged/Dropped_Oscillating
+        # invariant itself is broken.
+        assert any(m.HasProp("Dropped_Oscillating") and m.GetProp("Dropped_Oscillating") == "True" for m in out), (
+            "fixture did not reproduce an oscillating structure (patience=1 "
+            "should force this on the very first non-converging step); the "
+            "invariant above was never exercised"
+        )
 
 
 def test_make_buckets_groups_by_size(tmp_path, monkeypatch):

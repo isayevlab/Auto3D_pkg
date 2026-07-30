@@ -73,20 +73,22 @@ class TestEnantiomerHelper:
         assert len(result) == 1
         assert result[0] in smiles
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="C1: enantiomer([], []) returns True vacuously, so two distinct "
+        "achiral molecules are wrongly treated as an enantiomeric pair and one "
+        "is dropped by enantiomer_helper.",
+    )
     def test_enantiomer_helper_keeps_non_chiral(self):
-        """Test that non-chiral molecules are handled.
+        """Two distinct achiral molecules must both survive enantiomer filtering.
 
-        Note: Non-chiral molecules have empty stereo center lists.
-        The enantiomer check on empty lists returns True (vacuously),
-        so subsequent non-chiral molecules are filtered as "enantiomers".
-        This is the expected behavior of the original function.
+        CCO and CCCO are different compounds. The current implementation drops
+        the second because both have empty stereo-center lists and
+        ``enantiomer([], [])`` returns True vacuously.
         """
         smiles = ["CCO", "CCCO"]
         result = enantiomer_helper(smiles)
-        # First molecule is always kept; second has same (empty) stereo info
-        # so it's considered an "enantiomer" and filtered out
-        assert len(result) == 1
-        assert result[0] == "CCO"
+        assert len(result) == 2, f"a distinct achiral molecule was dropped: {result}"
 
     def test_enantiomer_helper_empty_list(self):
         """Test handling of empty list."""

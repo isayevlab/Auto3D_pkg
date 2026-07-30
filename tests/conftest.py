@@ -16,14 +16,6 @@ TEST_DIR = Path(__file__).parent
 FILES_DIR = TEST_DIR / "files"
 
 
-def pytest_configure(config):
-    """Register custom markers."""
-    config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
-    config.addinivalue_line("markers", "integration: marks tests as integration tests")
-    config.addinivalue_line("markers", "gpu: marks tests requiring GPU")
-    config.addinivalue_line("markers", "openeye: marks tests requiring OpenEye license")
-
-
 # Session-scoped device fixture
 @pytest.fixture(scope="session")
 def device():
@@ -115,3 +107,33 @@ def _release_gpu_memory_after_slow_tests(request):
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+@pytest.fixture
+def job_dir(tmp_path):
+    """Give each test its own pipeline output directory.
+
+    The pipeline writes job folders next to its input file. Tests that share an
+    input directory therefore collide under combined or randomized ordering,
+    which is why the heavy end-to-end modules were excluded from CI. Copying the
+    input into a per-test directory removes the shared state (audit M31).
+    """
+    d = tmp_path / "job"
+    d.mkdir()
+    return d
+
+
+@pytest.fixture
+def isolated_input(job_dir):
+    """Copy a file from tests/files into this test's own directory.
+
+    Returns a callable: ``isolated_input("smiles2.smi") -> str`` (absolute path).
+    """
+    import shutil
+
+    def _copy(name: str) -> str:
+        dest = job_dir / name
+        shutil.copy(FILES_DIR / name, dest)
+        return str(dest)
+
+    return _copy

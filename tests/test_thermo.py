@@ -59,7 +59,7 @@ try:
             energies = self.model((species, coords)).energies * 27.211386245988
             return energies
     test_userNNP1 = True
-except:
+except ImportError:
     test_userNNP1 = False
 
 class userNNP2(torch.nn.Module):
@@ -168,7 +168,7 @@ def test_calc_thermo_aimnet():
     assert(abs(reference_H - H_out) <= 0.02)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 def test_vib_hessian_includes_external_dispersion():
@@ -248,7 +248,7 @@ def test_opt_geometry1():
     out = opt_geometry(path, 'ANI2x', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 def test_opt_geometry2():
@@ -256,7 +256,7 @@ def test_opt_geometry2():
     out = opt_geometry(path, 'ANI2xt', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 def test_opt_geometry3():
@@ -264,7 +264,7 @@ def test_opt_geometry3():
     out = opt_geometry(path, 'AIMNET', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 
@@ -283,7 +283,7 @@ def test_opt_geometry_with_patience_and_batchsize():
     assert os.path.exists(out)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
@@ -298,7 +298,7 @@ def test_opt_geometry4():
         out = opt_geometry(path, model_path, gpu_idx=0, opt_tol=0.1, opt_steps=5000)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 def test_opt_geometry5():
@@ -312,7 +312,7 @@ def test_opt_geometry5():
         out = opt_geometry(path, model_path, gpu_idx=0, opt_tol=0.1, opt_steps=5000)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 
@@ -345,11 +345,11 @@ def test_calc_thermo_userNNP1():
     assert(abs(H_out - H_out2) <= 0.02)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
     try:
         os.remove(out2)
-    except:
+    except OSError:
         pass
 
 
@@ -376,7 +376,7 @@ def test_calc_thermo_userNNP2():
     assert(abs(reference_H - H_out) <= 0.02)
     try:
         os.remove(out)
-    except:
+    except OSError:
         pass
 
 

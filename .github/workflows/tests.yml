@@ -33,6 +33,10 @@ jobs:
       - name: Install ani extra
         if: matrix.ani
         run: pip install -e ".[ani]"
+      - name: Verify every test module imports
+        # --continue-on-collection-errors on the fast run hides a module that
+        # fails to import, so assert collection cleanliness separately.
+        run: pytest tests/ --collect-only -q
       - name: Run fast tests
         run: pytest tests/ -q -m "not slow" --continue-on-collection-errors
 
@@ -60,17 +64,35 @@ jobs:
           python -m pip install --upgrade pip
           # ase for thermo, ani for the torchani-gated slow tests, dev for pytest
           pip install -e ".[ase,ani,dev]"
-      - name: Run NNP integration tests (moved out of the fast gate)
-        # These slow tests load a real AIMNet2 model -- energy/forces
-        # correctness, adapter/factory return types, and the Hessian-model load.
-        # This is exactly the real-NNP coverage moved out of the fast gate, so it
-        # still runs on every push/PR. The broader `-m slow` suite (full-pipeline
-        # test_auto3D / test_SPE / test_thermo) is intentionally NOT run here:
-        # those heavy end-to-end tests are flaky under combined/randomized
-        # ordering (they pass individually) and need separate isolation work.
+      - name: Warm the AIMNet2 model cache (hard failure if unreachable)
+        # An unavailable gate must never be reportable as a passing gate. If the
+        # registry or network is down, fail here loudly rather than letting the
+        # suite skip or silently pass (audit: the remediation gate depends on
+        # this model being present).
+        run: |
+          python - <<'PY'
+          import sys
+          import torch
+          from Auto3D.model_factory import create_model
+          try:
+              create_model("AIMNET", torch.device("cpu"))
+          except Exception as exc:
+              print(f"::error::AIMNet2 model unavailable, gate cannot run: {exc}")
+              sys.exit(1)
+          print("AIMNet2 model cache warm")
+          PY
+      - name: Run slow NNP + pipeline tests
+        # Previously limited to three files because the heavy end-to-end modules
+        # were flaky under combined ordering. None of the five newly un-skipped
+        # modules (test_auto3D.py, test_SPE.py, test_thermo.py,
+        # test_isomer_engine.py, test_tauto.py) actually use Task 1's
+        # job_dir/isolated_input fixtures, so those fixtures are not what
+        # protects this run. What actually protects it: main()'s
+        # microsecond-resolution job naming, strictly serial CI execution, and
+        # the autouse GPU-teardown fixture applied via the `slow` marker --
+        # assessed at 70-80% confidence, not guaranteed (audit M31).
         run: >
-          pytest tests/test_model_adapter.py tests/test_model_factory.py
-          tests/test_thermo_helpers.py -m slow -q
+          pytest tests/ -m slow -q
 
   lint:
     name: ruff + mypy
@@ -83,6 +105,6 @@ jobs:
       - name: Install tooling
         run: pip install ruff mypy
       - name: ruff
-        run: ruff check src/Auto3D/
+        run: ruff check src/Auto3D/ tests/
       - name: mypy (non-blocking until type debt is cleared)
         run: mypy src/Auto3D/ --ignore-missing-imports || true
