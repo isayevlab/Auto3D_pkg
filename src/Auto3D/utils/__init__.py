@@ -9,7 +9,6 @@ This package contains utility functions split into focused modules:
 """
 
 from Auto3D.utils.chemistry import (
-    ANI2XT_INDEX,
     EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
@@ -20,7 +19,6 @@ from Auto3D.utils.chemistry import (
     get_mol_charge,
     get_mol_connectivity,
     get_rmsd,
-    getidx,
     hartree2ev,
     hartree2kcalpermol,
     min_pairwise_distance,
@@ -66,7 +64,6 @@ __all__ = [
     "get_logger",
     "configure_logging",
     # Chemistry module exports
-    "ANI2XT_INDEX",
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
     "EV_TO_KCAL_PER_MOL",
@@ -78,7 +75,6 @@ __all__ = [
     "relieve_clash",
     "get_rmsd",
     "check_connectivity",
-    "getidx",
     "amend_mol",
     "get_mol_connectivity",
     "filter_unique",

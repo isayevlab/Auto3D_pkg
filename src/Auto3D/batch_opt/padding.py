@@ -100,8 +100,6 @@ def pad_from_mols(
     """
     from rdkit.Chem import rdmolops
 
-    from Auto3D.utils.chemistry import getidx
-
     batch_size = len(mols)
     max_atoms = max(mol.GetNumAtoms() for mol in mols)
 
@@ -128,12 +126,9 @@ def pad_from_mols(
             conf.GetPositions(), dtype=torch.float32, device=device
         )
 
-        if model_name == "ANI2xt":
-            # getidx raises a friendly ValueError naming the element + model
-            # for atoms ANI2xt does not support (anything outside H,C,N,O,F,S,Cl).
-            spec = [getidx(a.GetAtomicNum(), model="ANI2xt") for a in mol.GetAtoms()]
-        else:
-            spec = [a.GetAtomicNum() for a in mol.GetAtoms()]
+        from Auto3D.batch_opt.species import to_model_species
+
+        spec = to_model_species([a.GetAtomicNum() for a in mol.GetAtoms()], model_name)
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)
 
         charges.append(rdmolops.GetFormalCharge(mol))
