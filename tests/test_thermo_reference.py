@@ -113,43 +113,57 @@ class TestHessianGeometry:
 
     @pytest.mark.xfail(
         strict=True,
-        reason="C5: vib_hessian re-reads mol.GetConformer() at thermo.py:225 "
-        "-- the geometry as it stood before BFGS ran -- instead of the "
-        "positions actually held by the atoms object it was handed, whose "
-        "energy is read at thermo.py:272 after BFGS has moved it",
+        reason="C5: do_mol_thermo calls vib_hessian at thermo.py:270 while "
+        "mol's conformer still holds the pre-BFGS geometry -- the sync back "
+        "from atoms only happens at thermo.py:318-320, after the Hessian and "
+        "the energy (:272) have already been computed from two different "
+        "geometries",
     )
-    def test_hessian_geometry_matches_relaxed_atoms(self, job_dir):
-        """vib_hessian must evaluate the Hessian at atoms' current geometry.
+    def test_hessian_geometry_matches_relaxed_atoms(self, job_dir, monkeypatch):
+        """do_mol_thermo's Hessian must come from the same geometry as its energy.
 
         A tolerance-banded comparison of two independently-computed G values
         is a coin flip: whether they differ by more than an arbitrary
         threshold depends on how far the input happened to sit from the
         model's minimum. Instead, compare a quantity that is EXACTLY
         determined by the code path, with no numerical judgment call: the
-        Cartesian geometry vib_hessian's returned VibrationsData was built
-        from vs. the geometry the same `atoms` object actually holds after
-        BFGS has moved it. If the Hessian and the energy come from the same
+        Cartesian geometry the Hessian was built from vs. the geometry the
+        same `atoms` object actually holds when the energy is read
+        (thermo.py:272). If the Hessian and the energy come from the same
         structure, these must be bit-for-bit identical (the same array
-        round-tripped through the same object); if vib_hessian re-reads a
-        stale mol conformer, they will differ by the full relaxation
-        displacement -- typically tenths of an Angstrom for a raw,
-        non-force-field-relaxed embedding, i.e. many orders of magnitude
-        above float64 noise. There is no threshold to tune and no way for
-        this to pass by numerical accident.
+        round-tripped through the same object); if the Hessian is stale, they
+        differ by the full relaxation displacement -- typically tenths of an
+        Angstrom for a raw, non-force-field-relaxed embedding, many orders of
+        magnitude above float64 noise. There is no threshold to tune and no
+        way for this to pass by numerical accident.
+
+        This drives `do_mol_thermo` itself -- the sole production caller of
+        `vib_hessian` (thermo.py:270) -- rather than calling `vib_hessian`
+        directly, and only records what the real, unmodified `vib_hessian`
+        returns (via a pass-through spy) rather than asserting on its
+        internals. That binds the test to both plausible fix locations: if
+        the fix reorders `do_mol_thermo`'s mol-conformer sync to happen
+        before it calls `vib_hessian` (the sync currently at :318-320), the
+        real `vib_hessian` it calls will see an already-synced `mol` and this
+        assertion will pass; if instead the fix changes `vib_hessian` itself
+        to source its geometry from `atoms` rather than from `mol`, the
+        spied return value reflects that directly too. Either fix location
+        makes this XPASS; only calling `vib_hessian` directly (bypassing
+        `do_mol_thermo`) would have missed a fix made by reordering the sync.
         """
         from ase.optimize import BFGS
 
+        from Auto3D.ASE import thermo as thermo_mod
         from Auto3D.ASE.thermo import (
             _load_hessian_model,
             mol2atoms,
             model_name2model_calculator,
-            vib_hessian,
         )
         from Auto3D.model_factory import get_device
 
         # Raw ETKDG embedding, no MMFF relaxation: guarantees a large initial
         # force, so BFGS is guaranteed to actually move the atoms before
-        # vib_hessian is ever called.
+        # do_mol_thermo calls vib_hessian.
         path = _write_mol(job_dir / "raw.sdf", smiles="CCO", optimize=False)
         mol = next(m for m in Chem.SDMolSupplier(path, removeHs=False) if m)
 
@@ -159,20 +173,37 @@ class TestHessianGeometry:
         calculator.set_charge(Chem.GetFormalCharge(mol))
 
         # This is exactly what calc_thermo's optimize branch does: BFGS
-        # mutates `atoms` in place. mol's RDKit conformer is untouched.
+        # mutates `atoms` in place. mol's RDKit conformer is untouched -- the
+        # only sync back into mol happens inside do_mol_thermo, at the very
+        # end (thermo.py:318-320).
         atoms = mol2atoms(mol)
         atoms.set_calculator(calculator)
         opt = BFGS(atoms)
         opt.run(fmax=3e-3, steps=100)
 
-        vib = vib_hessian(mol, atoms.get_calculator(), hessian_model, device,
-                          model_name="AIMNET")
+        # Spy on the module-level vib_hessian: call straight through to the
+        # real implementation and record the geometry it actually built the
+        # Hessian from. do_mol_thermo resolves `vib_hessian` as a bare global
+        # at call time (thermo.py:270), so patching the module attribute
+        # intercepts that specific call without altering its behavior.
+        real_vib_hessian = thermo_mod.vib_hessian
+        captured: dict[str, np.ndarray] = {}
 
+        def _spy(*args, **kwargs):
+            vib = real_vib_hessian(*args, **kwargs)
+            captured["positions"] = vib.atoms.get_positions().copy()
+            return vib
+
+        monkeypatch.setattr(thermo_mod, "vib_hessian", _spy)
+
+        thermo_mod.do_mol_thermo(mol, atoms, hessian_model, device, model_name="AIMNET")
+
+        assert "positions" in captured, "do_mol_thermo never called vib_hessian"
         # The geometry the Hessian was computed at must be the geometry the
         # energy (and moments of inertia) were computed at: the same `atoms`
         # object, post-relaxation.
-        assert np.allclose(vib.atoms.get_positions(), atoms.get_positions(), atol=1e-8), (
-            "vib_hessian's Hessian was evaluated at a different geometry than "
-            "the relaxed atoms object -- the Hessian is stale relative to the "
-            "reported energy"
+        assert np.allclose(captured["positions"], atoms.get_positions(), atol=1e-8), (
+            "do_mol_thermo's Hessian was evaluated at a different geometry "
+            "than the relaxed atoms object it read the energy from -- the "
+            "Hessian is stale relative to the reported energy"
         )
