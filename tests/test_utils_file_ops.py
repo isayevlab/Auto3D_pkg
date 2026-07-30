@@ -122,8 +122,13 @@ class TestSmiles2Smi:
         assert all("_" not in i for i in ids)
 
 
-class TestCombineSmi:
-    """Tests for combine_smi (order-preserving dedup)."""
+class TestCombineSmiOrderPreservingDedup:
+    """Tests for combine_smi (order-preserving dedup).
+
+    Named distinctly from the ``TestCombineSmi`` class below -- both defined
+    ``TestCombineSmi`` until a lint audit found the second definition was
+    silently shadowing this one, so pytest never collected the test below.
+    """
 
     def test_preserves_order_and_dedups(self, tmp_path):
         f1 = tmp_path / "a.smi"

@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+import uuid
 import pytest
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
@@ -37,7 +38,10 @@ def rmsd_greater(mols, rmsd=0.3):
     return True
             
 def test_rd_isomer_class():
-    job_name = time.strftime('%Y%m%d-%H%M%S')
+    # time.strftime is second-resolution; append a uuid4 fragment so this
+    # collides with neither a same-second run of this test nor a leftover
+    # directory from a prior failed run that skipped cleanup.
+    job_name = time.strftime('%Y%m%d-%H%M%S') + '_' + uuid.uuid4().hex[:8]
     os.mkdir(job_name)
     engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                         sdf_enumerated, job_name, max_confs, threshold, n_process)
@@ -71,7 +75,9 @@ def test_rd_isomer_conformer_func():
     smi_name = ("C#CCOOC", "1_0")
     num_conformers = []
     for threshold in [0.1, 0.2, 0.3]:
-        job_name = time.strftime('%Y%m%d-%H%M%S')
+        # Same-second collision risk across loop iterations; see
+        # test_rd_isomer_class for why a uuid4 fragment is appended.
+        job_name = time.strftime('%Y%m%d-%H%M%S') + '_' + uuid.uuid4().hex[:8]
         os.mkdir(job_name)
         engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                             sdf_enumerated, job_name, max_confs, threshold, n_process)

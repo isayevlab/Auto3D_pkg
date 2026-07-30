@@ -144,6 +144,14 @@ ignore = [
 # pre-existing style debt spread across most test files (not specific to the
 # newly-gated modules); fixing it is a wholesale test-suite reformat out of
 # scope for a CI-wiring change, so it is narrowed here instead of edited.
+#
+# F811 (redefined-while-unused) and SIM222 (`... or True`) were deliberately
+# NOT added here, even though both fired in tests/. A fix-round review found
+# each one was flagging a real, currently-active bug rather than a style
+# nit -- a duplicate `TestCombineSmi` class silently shadowing another
+# class's test, and a vacuous `assert ... or True` that could never fail.
+# Both were fixed at the source instead (see git history), and both codes
+# stay enabled for tests/ so a regression here is caught by lint again.
 "tests/*" = [
     "I001",   # unsorted imports -- reordering would touch most test files
     "F401",   # unused imports (legacy test scaffolding, e.g. optional-dep guards)
@@ -157,9 +165,7 @@ ignore = [
     "N811",   # constant imported as non-constant (legacy aliasing)
     "B905",   # zip() without strict= (pre-3.10-style call sites)
     "E401",   # multiple imports on one line
-    "F811",   # redefinition of unused name (legacy fixture shadowing)
     "N813",   # camelCase import aliased to lowercase
-    "SIM222", # `... or True` (test scaffolding for short-circuit checks)
     "SIM300", # yoda conditions
 ]
 
