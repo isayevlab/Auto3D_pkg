@@ -182,11 +182,28 @@ class TestConvergenceFlagDerivation:
 
         out = [m for m in Chem.SDMolSupplier(str(job_dir / "out.sdf"), removeHs=False) if m]
         assert out, "optimizer produced no output"
+
+        # Invariant: this must hold for every molecule regardless of which path
+        # its trajectory took, so it can never no-op. It fails if a regression
+        # decouples Converged/Dropped_Oscillating (e.g. dropping the
+        # `osc_count_i < patience` guard from `convergence_i`).
         for m in out:
             if m.HasProp("Dropped_Oscillating") and m.GetProp("Dropped_Oscillating") == "True":
                 assert m.GetProp("Converged") != "True", (
                     "a structure dropped for oscillation was reported as converged"
                 )
+
+        # Non-vacuity check: the invariant above is only meaningful if the
+        # oscillation path was actually taken. If this fails, the fixture
+        # (patience=1, opttol=1e-9, ethanol's FIRE trajectory) has stopped
+        # reproducing the oscillating condition on this platform/torch
+        # version -- it does not mean the Converged/Dropped_Oscillating
+        # invariant itself is broken.
+        assert any(m.HasProp("Dropped_Oscillating") and m.GetProp("Dropped_Oscillating") == "True" for m in out), (
+            "fixture did not reproduce an oscillating structure (patience=1 "
+            "should force this on the very first non-converging step); the "
+            "invariant above was never exercised"
+        )
 
 
 def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
