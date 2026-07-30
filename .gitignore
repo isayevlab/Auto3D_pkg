@@ -130,3 +130,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Local coding-assistant instructions (developer-specific, not part of the package)
+/CLAUDE.md
