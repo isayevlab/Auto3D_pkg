@@ -48,12 +48,6 @@ class TestThermoPathConverts:
     """The thermo path must convert atomic numbers the same way the batch path does."""
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C3: ASE/thermo.py:146-147 passes atoms.get_atomic_numbers() and "
-        ":170-171 passes a.GetAtomicNum() straight to ANI2xtAdapter, so H(Z=1) "
-        "hits the carbon network and C(Z=6) hits the chlorine network",
-    )
     def test_thermo_and_batch_paths_agree_on_methane(self, device):
         """The same molecule must get the same energy from both thermo entry points."""
         from rdkit import Chem
@@ -84,11 +78,6 @@ class TestThermoPathConverts:
         )
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C3: N/O/F/S/Cl have Z = 7,8,9,16,17, all >= len(self.networks) == 7, "
-        "so they index out of range instead of being converted",
-    )
     def test_heteroatom_molecule_does_not_crash_thermo_path(self, device):
         """Ethanol has oxygen (Z=8), which is out of range for 7 networks."""
         from rdkit import Chem
@@ -113,12 +102,6 @@ class TestHealthCheckIsHonest:
     """auto3d models test must not report success on a mis-specified molecule."""
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C4: cli/commands/models.py:241-243 passes [[6, 1, 1, 1, 1]] "
-        "(atomic numbers) as species, so index 6 is Cl and index 1 is C -- the "
-        "'methane' health check evaluates a Cl+4C species and prints 'working'",
-    )
     def test_health_check_energy_matches_real_methane(self, device):
         """The reported health-check energy must match a correctly-built methane."""
         from rdkit import Chem
