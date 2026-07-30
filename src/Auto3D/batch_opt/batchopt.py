@@ -50,7 +50,7 @@ def ensemble_opt(
     charges: list | torch.Tensor,
     param: dict,
     device: torch.device,
-    species_pad: int = -1,
+    atom_mask: torch.Tensor | None = None,
     progress_cb: "Callable[[dict], None] | None" = None,
 ) -> dict:
     """Optimize a group of molecules using batch optimization.
@@ -68,10 +68,14 @@ def ensemble_opt(
             - energy_tol: (optional) Energy convergence tolerance in eV
             - energy_patience: (optional) Steps energy must be stable
         device: Torch device for computation.
-        species_pad: Atomic-number value used to pad short molecules in this
-            batch. Forwarded to n_steps so forces on padded atom slots are
-            ignored by the force-convergence check (default -1, a no-op for
-            unpadded batches or any caller that omits it).
+        atom_mask: Boolean mask, shape (N, m), True for real atoms and False
+            for padded slots. Forwarded to n_steps so forces on padded atom
+            slots are ignored by the force-convergence check. Deriving this
+            from a species sentinel value breaks for any model whose padding
+            value collides with a real species index (audit C13), so an
+            explicit mask is required instead. Defaults to None, which is a
+            no-op (every atom treated as real) for unpadded batches or any
+            caller that omits it.
 
     Returns:
         Dictionary containing:
@@ -101,6 +105,11 @@ def ensemble_opt(
         charges = torch.tensor(charges, dtype=torch.long, device=device)
     else:
         charges = charges.detach().to(dtype=torch.long, device=device)
+    if atom_mask is not None:
+        if not isinstance(atom_mask, torch.Tensor):
+            atom_mask = torch.tensor(atom_mask, dtype=torch.bool, device=device)
+        else:
+            atom_mask = atom_mask.detach().to(dtype=torch.bool, device=device)
     converged_mask = torch.zeros(coord.shape[0], dtype=torch.bool, device=device)
     fmax = torch.full(coord.shape[:1], INITIAL_FMAX_SENTINEL,
                       device=coord.device)  # size=N, representing the current maximum forces at each conformer.
@@ -120,7 +129,7 @@ def ensemble_opt(
     energy_patience = param.get('energy_patience', 3)
     n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
             energy_tol=energy_tol, energy_patience=energy_patience,
-            species_pad=species_pad, progress_cb=progress_cb)
+            atom_mask=atom_mask, progress_cb=progress_cb)
 
     return dict(
         coord=state['coord'].tolist(),
@@ -241,7 +250,7 @@ class optimizing:
             The optdict from :func:`ensemble_opt` (per-molecule lists indexed by
             position within ``bucket_mols``).
         """
-        coord_padded, numbers_padded, charges = pad_from_mols(
+        coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(
             bucket_mols, self.name, self.device,
             coord_pad=self.coord_pad, species_pad=self.species_pad
         )
@@ -251,7 +260,7 @@ class optimizing:
         # `with torch.jit.optimized_execution(False)` guard here was a no-op.
         optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
                                self._config_dict, self.device,
-                               species_pad=self.species_pad,
+                               atom_mask=atom_mask,
                                progress_cb=self.progress_cb)  # Magic step
         return optdict
 

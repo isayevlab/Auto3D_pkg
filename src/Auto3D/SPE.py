@@ -92,8 +92,10 @@ def calc_spe(
             pass
         return str(outpath)
 
-    # Use new vectorized padding that returns tensors directly
-    coord_padded, numbers_padded, charges = pad_from_mols(
+    # Use new vectorized padding that returns tensors directly. calc_spe only
+    # needs energies (not forces), so the atom mask pad_from_mols also returns
+    # is unused here.
+    coord_padded, numbers_padded, charges, _atom_mask = pad_from_mols(
         mols, model_name, device,
         coord_pad=model_adapter.coord_pad, species_pad=model_adapter.species_pad
     )

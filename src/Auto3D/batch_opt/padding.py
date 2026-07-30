@@ -8,68 +8,7 @@ vectorized PyTorch operations.
 """
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import torch
-
-
-def pad_molecular_batch(
-    coords: Sequence[Sequence[tuple[float, float, float]]],
-    species: Sequence[Sequence[int]],
-    charges: Sequence[int],
-    device: torch.device,
-    coord_pad: float = 0.0,
-    species_pad: int = -1,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Vectorized padding of molecular data.
-
-    Efficiently pads coordinate and species lists to create uniform tensors
-    for batch processing. Pre-allocates tensors with padding values and fills
-    in actual molecular data.
-
-    Args:
-        coords: List of coordinate lists, each inner list has (x, y, z) tuples
-            representing atomic positions in Angstroms.
-        species: List of atomic number lists (or mapped indices for ANI2xt).
-        charges: List of molecular charges (integers).
-        device: Target device for tensors (CPU or CUDA).
-        coord_pad: Padding value for coordinates. Default 0.0.
-        species_pad: Padding value for species. Default -1 (convention for
-            masked atoms in TorchANI models).
-
-    Returns:
-        Tuple of (coords_tensor, species_tensor, charges_tensor) where:
-        - coords_tensor: Shape (batch, max_atoms, 3), dtype float32, requires_grad=True
-        - species_tensor: Shape (batch, max_atoms), dtype long
-        - charges_tensor: Shape (batch,), dtype long
-    """
-    batch_size = len(coords)
-    max_atoms = max(len(s) for s in species)
-
-    # Pre-allocate tensors with padding values
-    coords_tensor = torch.full(
-        (batch_size, max_atoms, 3),
-        coord_pad,
-        dtype=torch.float32,
-        device=device
-    )
-    species_tensor = torch.full(
-        (batch_size, max_atoms),
-        species_pad,
-        dtype=torch.long,
-        device=device
-    )
-    # Float (not long) for parity with pad_from_mols and the ASE Calculator, and
-    # to match the dtype the AIMNet2 adapter casts charges to (ANI ignores them).
-    charges_tensor = torch.tensor(charges, dtype=torch.float32, device=device)
-
-    # Fill in actual values - create tensors directly on target device
-    for i, (coord, spec) in enumerate(zip(coords, species, strict=True)):
-        n = len(spec)
-        coords_tensor[i, :n] = torch.tensor(coord, dtype=torch.float32, device=device)
-        species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)
-
-    return coords_tensor.requires_grad_(True), species_tensor, charges_tensor
 
 
 def pad_from_mols(
@@ -78,11 +17,11 @@ def pad_from_mols(
     device: torch.device,
     coord_pad: float = 0.0,
     species_pad: int = -1,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Pad molecular data directly from RDKit Mol objects.
 
-    Builds the padded coordinate, species, and charge tensors in a single pass,
-    avoiding intermediate per-molecule list creation.
+    Builds the padded coordinate, species, charge, and atom-mask tensors in a
+    single pass, avoiding intermediate per-molecule list creation.
 
     Args:
         mols: List of RDKit Mol objects with conformers.
@@ -93,10 +32,19 @@ def pad_from_mols(
         species_pad: Padding value for species. Default -1.
 
     Returns:
-        Tuple of (coords_tensor, species_tensor, charges_tensor) where:
+        Tuple of (coords_tensor, species_tensor, charges_tensor, atom_mask)
+        where:
         - coords_tensor: Shape (batch, max_atoms, 3), dtype float32, requires_grad=True
         - species_tensor: Shape (batch, max_atoms), dtype long
-        - charges_tensor: Shape (batch,), dtype long
+        - charges_tensor: Shape (batch,), dtype float32 (see note below)
+        - atom_mask: Shape (batch, max_atoms), dtype bool, True for real atoms
+          and False for padded slots. Callers must use this mask to identify
+          padding rather than comparing species against ``species_pad``: a
+          custom NNP's ``species_pad`` value can collide with a real species
+          index (e.g. Auto3D's own ANI2xt convention maps hydrogen to index 0,
+          the same value some adapters use as ``species_pad``), which would
+          silently zero and exclude real atoms from the force-convergence
+          check (audit C13).
     """
     from rdkit.Chem import rdmolops
 
@@ -116,6 +64,9 @@ def pad_from_mols(
         dtype=torch.long,
         device=device
     )
+    atom_mask = torch.zeros(
+        (batch_size, max_atoms), dtype=torch.bool, device=device
+    )
     charges = []
 
     # Fill in actual values - create tensors directly on target device
@@ -130,6 +81,7 @@ def pad_from_mols(
 
         spec = to_model_species([a.GetAtomicNum() for a in mol.GetAtoms()], model_name)
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)
+        atom_mask[i, :n] = True
 
         charges.append(rdmolops.GetFormalCharge(mol))
 
@@ -138,4 +90,4 @@ def pad_from_mols(
     # integers exactly representable in float32, and ANI models ignore charge.
     charges_tensor = torch.tensor(charges, dtype=torch.float32, device=device)
 
-    return coords_tensor.requires_grad_(True), species_tensor, charges_tensor
+    return coords_tensor.requires_grad_(True), species_tensor, charges_tensor, atom_mask

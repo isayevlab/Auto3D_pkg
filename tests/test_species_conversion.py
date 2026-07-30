@@ -35,7 +35,7 @@ class TestBatchPathIsCorrect:
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
-        _, species, _ = pad_from_mols([mol], "ANI2xt", device)
+        _, species, _, _ = pad_from_mols([mol], "ANI2xt", device)
         values = sorted(int(v) for v in species[0])
 
         # ANI2XT_INDEX: H=0, C=1. Methane is one carbon and four hydrogens.
@@ -62,7 +62,7 @@ class TestThermoPathConverts:
 
         model = create_model("ANI2xt", device)
 
-        coords_b, species_b, charges_b = pad_from_mols([mol], "ANI2xt", device)
+        coords_b, species_b, charges_b, _ = pad_from_mols([mol], "ANI2xt", device)
         e_batch = float(model.forward(coords_b, species_b, charges_b)[0][0])
 
         thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
@@ -113,7 +113,7 @@ class TestHealthCheckIsHonest:
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
         model = create_model("ANI2xt", device)
-        coords, species, charges = pad_from_mols([mol], "ANI2xt", device)
+        coords, species, charges, _ = pad_from_mols([mol], "ANI2xt", device)
         reference = float(model.forward(coords, species, charges)[0][0])
 
         # _health_check_energy does not exist -- cli/commands/models.py builds

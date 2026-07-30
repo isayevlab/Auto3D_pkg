@@ -292,6 +292,14 @@ class TestNSteps:
 
 
 def test_fmax_ignores_padded_atoms():
+    """The padded-atom force is ignored via an explicit atom_mask (audit C13).
+
+    Deriving the mask from `numbers == species_pad` breaks whenever the
+    sentinel collides with a real species index -- here species 0 is a real
+    atom (hydrogen, in ANI2xt's convention) at index 0 of this molecule, and
+    species 0 is *also* the padded last slot. An explicit mask keeps the two
+    unambiguous.
+    """
     import torch
 
     from Auto3D.batch_opt.optimization_engine import n_steps
@@ -309,7 +317,8 @@ def test_fmax_ignores_padded_atoms():
         "converged_mask": torch.zeros(1, dtype=torch.bool),
         "fmax": torch.full((1,), 999.0), "energy": torch.full((1,), float("inf"), dtype=torch.double),
     }
-    n_steps(state, n=1, opttol=0.01, patience=5, species_pad=0)
+    atom_mask = torch.tensor([[True, True, False]])  # last slot is padding
+    n_steps(state, n=1, opttol=0.01, patience=5, atom_mask=atom_mask)
     assert state["fmax"].item() < 1.0  # padded-atom force ignored
 
 
