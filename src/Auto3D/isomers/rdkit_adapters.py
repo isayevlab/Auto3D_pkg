@@ -100,15 +100,17 @@ class RDKitSdfIsomerAdapter(BaseIsomerEngine):
         max_confs: int | None = None,
         threshold: float = 0.3,
         n_jobs: int = 4,
+        enumerate_isomers: bool = True,
     ) -> None:
         """Initialize the RDKit SDF isomer adapter.
 
         Args:
             input_path: Path to input SDF file.
             output_path: Path for output SDF file.
-            max_confs: Maximum conformers per molecule.
+            max_confs: Maximum conformers per stereoisomer.
             threshold: RMSD threshold for duplicate removal.
             n_jobs: Number of CPU threads for conformer generation.
+            enumerate_isomers: Whether to enumerate unspecified stereocenters.
         """
         super().__init__(
             input_path=input_path,
@@ -117,6 +119,7 @@ class RDKitSdfIsomerAdapter(BaseIsomerEngine):
             threshold=threshold,
             n_jobs=n_jobs,
         )
+        self.enumerate_isomers = enumerate_isomers
 
     def run(self) -> str:
         """Execute RDKit SDF-based conformer generation.
@@ -132,5 +135,6 @@ class RDKitSdfIsomerAdapter(BaseIsomerEngine):
             max_confs=self.max_confs,
             threshold=self.threshold,
             np=self.n_jobs,
+            flipper=self.enumerate_isomers,
         )
         return engine.run()

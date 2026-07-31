@@ -97,14 +97,6 @@ class TestTautomerStereoPreservation:
 class TestSdfInputStereo:
     """A 2D SDF with an unspecified center must not be silently randomized."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M19: RDKitSdfIsomer.run() (driven here through the real "
-        "create_isomer_engine('rdkit_sdf', ...) / RDKitSdfIsomerAdapter factory "
-        "path) calls only AddHs + EmbedMultipleConfs on the SDF-parsed mol, so "
-        "ETKDG returns a stereochemical mixture that is written to the output "
-        "SDF as numbered conformers under a single species name",
-    )
     def test_unspecified_center_is_enumerated_or_refused(self, job_dir):
         """Drive Auto3D's real SDF isomer engine on a flat, unspecified center.
 

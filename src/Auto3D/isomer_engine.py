@@ -362,16 +362,22 @@ class RDKitIsomer:
 
 
 class RDKitSdfIsomer:
-    """Enumerate conformers from an SDF file.
+    """Enumerate stereoisomers and conformers from an SDF file.
 
-    Preserves specified stereo centers and enumerates unspecified ones.
+    Preserves specified stereo centers and enumerates unspecified ones, so each
+    output species has one definite configuration. Conformers are named
+    ``<name>_<isomer>_<conformer>``, matching the SMILES path, which is what
+    lets :class:`~Auto3D.ranking.ConformerRanker` group them correctly.
 
     Args:
         sdf: Path to input SDF file.
         enumerated_sdf: Path for output SDF file.
-        max_confs: Maximum conformers per molecule. None for dynamic.
+        max_confs: Maximum conformers per stereoisomer. None for dynamic.
         threshold: RMSD threshold for duplicate removal (Å).
         np: Number of CPU threads for parallelization.
+        flipper: Whether to enumerate unspecified stereocenters. When False,
+            a molecule with unspecified stereo is embedded as-is and its
+            conformers are a mixture of configurations; a warning says so.
     """
 
     def __init__(
@@ -381,15 +387,56 @@ class RDKitSdfIsomer:
         max_confs: int | None,
         threshold: float,
         np: int,
+        flipper: bool = True,
     ) -> None:
         self.sdf = sdf
         self.enumerated_sdf = enumerated_sdf
         self.n_conformers = max_confs
         self.threshold = threshold
         self.np = np
+        self.flipper = flipper
+
+    @staticmethod
+    def count_unspecified_stereo(mol: Chem.Mol) -> int:
+        """Count stereo elements the input leaves unspecified."""
+        return sum(
+            1
+            for element in Chem.FindPotentialStereo(mol)
+            if element.specified == Chem.StereoSpecified.Unspecified
+        )
+
+    def stereoisomers(self, mol: Chem.Mol, name: str) -> list[Chem.Mol]:
+        """Return the distinct configurations to embed for one input record.
+
+        A 3D SDF whose centers are all specified yields exactly one entry, so
+        this is a no-op for that input; only unspecified centers enumerate.
+        """
+        if not self.flipper:
+            unspecified = self.count_unspecified_stereo(mol)
+            if unspecified:
+                logger.warning(
+                    f"{name!r} has {unspecified} unspecified stereo element(s) "
+                    "and stereoisomer enumeration is disabled, so its conformers "
+                    "will be a mixture of configurations. Enable isomer "
+                    "enumeration to get one consistent species per configuration."
+                )
+            return [mol]
+
+        opts = StereoEnumerationOptions(
+            unique=True, maxIsomers=MAX_STEREOISOMERS, onlyUnassigned=True
+        )
+        isomers = list(EnumerateStereoisomers(mol, options=opts))
+        if len(isomers) >= MAX_STEREOISOMERS:
+            logger.warning(
+                f"Stereoisomer enumeration hit the cap of {MAX_STEREOISOMERS} "
+                f"for {name!r}; results may be truncated."
+            )
+        # EnumerateStereoisomers returns an empty sequence for a molecule it
+        # cannot enumerate; embedding the input unchanged beats dropping it.
+        return isomers or [mol]
 
     def run(self) -> str:
-        """Enumerate conformers and write to output SDF file.
+        """Enumerate stereoisomers and conformers into the output SDF file.
 
         Returns:
             Path to the enumerated SDF file.
@@ -402,24 +449,33 @@ class RDKitSdfIsomer:
                         "Skipping molecule: failed to parse (SDMolSupplier yielded None)."
                     )
                     continue
-                #enumerate conformers
-                mol2 = Chem.AddHs(mol)
-                if self.n_conformers is None:
-                    # Compute the conformer budget on the H-complete (AddHs) mol
-                    # so the SDF path agrees with the SMILES path on the RICHER
-                    # with-H count. AddHs is idempotent for a mol that already
-                    # carries explicit Hs (3D SDFs read with removeHs=False), so
-                    # this yields the same count regardless of input format.
-                    n_conformers = calculate_conformer_count(mol2)
-                else:
-                    n_conformers = self.n_conformers
-                AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np, pruneRmsThresh=self.threshold)
-                #set conformer names
                 name = mol.GetProp('_Name')
-                for i, conf in enumerate(mol2.GetConformers()):
-                    mol2.SetProp('_Name', f'{name}_{i}')
-                    mol2.SetProp('ID', f'{name}_{i}')
-                    writer.write(mol2, confId=i)
+                for isomer_idx, isomer in enumerate(self.stereoisomers(mol, name)):
+                    mol2 = Chem.AddHs(isomer)
+                    if self.n_conformers is None:
+                        # Compute the conformer budget on the H-complete (AddHs)
+                        # mol so the SDF path agrees with the SMILES path on the
+                        # RICHER with-H count. AddHs is idempotent for a mol that
+                        # already carries explicit Hs (3D SDFs read with
+                        # removeHs=False), so this yields the same count
+                        # regardless of input format.
+                        n_conformers = calculate_conformer_count(mol2)
+                    else:
+                        n_conformers = self.n_conformers
+                    AllChem.EmbedMultipleConfs(
+                        mol2,
+                        numConfs=n_conformers,
+                        randomSeed=CONFORMER_RANDOM_SEED,
+                        numThreads=self.np,
+                        pruneRmsThresh=self.threshold,
+                    )
+                    # Three name components (species _ isomer _ conformer) match
+                    # the SMILES path, whose consumers group on the first one.
+                    for conf_idx, conf in enumerate(mol2.GetConformers()):
+                        conf_name = f'{name}_{isomer_idx}_{conf_idx}'
+                        mol2.SetProp('_Name', conf_name)
+                        mol2.SetProp('ID', conf_name)
+                        writer.write(mol2, confId=conf.GetId())
         return self.enumerated_sdf
 
 
