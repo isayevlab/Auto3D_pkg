@@ -14,6 +14,39 @@ from Auto3D.utils.stereo_check import stereo_preserved
 logger = get_logger(__name__)
 
 
+def species_id(name: str) -> str:
+    """Recover the species id from a conformer's ``_Name``.
+
+    Conformer names are ``<species_id>_<isomer>_<conformer>``: two trailing
+    integer components appended after the id every caller of this module
+    actually feeds it -- the SDF input path always (RDKitSdfIsomer names
+    "uniformly, including when there is only one isomer" per its docstring),
+    and the SMILES path (RDKitIsomer) with the default ``enumerate_isomer``
+    enabled (isomer index from ``write_enumerated_smi``, conformer index from
+    ``embed_conformer``).
+
+    Stripping on the FIRST underscore is wrong whenever ``species_id`` itself
+    contains an underscore -- notably ``smiles2smi``'s InChIKey-collision
+    disambiguation (``utils/file_ops.py``), which renames a duplicate input's
+    id to ``f"{inchikey}_{count}"`` (e.g. ``KEY_2``) specifically so it is not
+    dropped. Stripping the trailing two components with ``rsplit(..., 2)``
+    instead recovers ``species_id`` intact (embedded underscores and all), so
+    conformers of one species still group together AND a disambiguated id
+    like ``KEY_2`` stays distinct from ``KEY``.
+
+    Known residual gap (pre-existing, not introduced here): the SMILES path
+    with ``enumerate_isomer=False`` appends only ONE trailing component (the
+    conformer index, no isomer index), so a disambiguated id there produces a
+    name indistinguishable in shape from the isomer-enabled case (e.g.
+    ``KEY_2_0`` could be species "KEY_2" conformer 0, or species "KEY" isomer
+    2 conformer 0) -- this function cannot tell them apart without knowing
+    which mode produced the name. An InChIKey collision combined with
+    ``enumerate_isomer=False`` still mis-groups, exactly as it did before this
+    fix; unlike the default path, this combination has no test pinning it.
+    """
+    return name.strip().rsplit("_", 2)[0].strip()
+
+
 class ConformerRanker:
     """Select conformers that satisfy user-defined energy criteria.
 
@@ -109,7 +142,10 @@ class ConformerRanker:
                 out_mols = out_mols_
 
         if len(out_mols) == 0:
-            name = names[0].split("_")[0].strip()
+            # names[0] is already the group's species id (see species_id()
+            # above) -- no further splitting here, or a disambiguated id
+            # like "KEY_2" would misreport as "KEY" in this message.
+            name = names[0].strip()
             logger.info(f"No structure converged for {name}.")
         else:
             #Adding relative energies
@@ -143,7 +179,9 @@ class ConformerRanker:
         out_mols = []
 
         if len(out_mols_) == 0:
-            name = names[0].split("_")[0].strip()
+            # names[0] is already the group's species id -- see the note in
+            # top_k above.
+            name = names[0].strip()
             logger.info(f"No structure converged for {name}.")
         else:
             ref_energy = float(out_mols_[0].GetProp('E_tot'))
@@ -197,7 +235,7 @@ class ConformerRanker:
                     converged = False
                 if converged:
                     mols.append(mol)
-                    names.append(mol.GetProp('_Name').strip().split("_")[0].strip())
+                    names.append(species_id(mol.GetProp('_Name')))
                     energies.append(float(mol.GetProp('E_tot')))
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
@@ -224,9 +262,11 @@ class ConformerRanker:
                 mol.SetProp('E_tot(Hartree)', mol.GetProp('E_tot'))
                 mol.SetProp('E_rel(kcal/mol)', str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol))
                 mol.ClearProp('E_rel(eV)')
-                #Remove _ in the molecule title
+                # Strip the trailing <isomer>_<conformer> suffix, keeping the
+                # species id intact (see species_id()) so a disambiguated
+                # "KEY_2" is not re-collapsed onto "KEY" in the final output.
                 t = mol.GetProp("_Name")
-                t_simplified = t.split("_")[0].strip()
+                t_simplified = species_id(t)
                 mol.SetProp("_Name", t_simplified)
                 f.write(mol)
         return results

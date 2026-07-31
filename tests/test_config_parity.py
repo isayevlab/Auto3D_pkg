@@ -216,16 +216,6 @@ class TestDuplicateInchikeyInputs:
     finding it claims to.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M17: smiles2smi disambiguates a repeated InChIKey as 'KEY_2' "
-        "specifically so the input is not dropped (utils/file_ops.py:117-127), "
-        "but the pipeline's grouping steps (remove_enantiomers and "
-        "ranking.run) key on _Name.split('_')[0], mapping the disambiguated "
-        "id back onto the first input -- the two merge into one ranking "
-        "group and, with k=1, reorder_sdf finds no molecule for the "
-        "disambiguated id and the second input silently vanishes",
-    )
     def test_duplicate_smiles_both_survive(self, isolated_input, monkeypatch):
         """Two identical SMILES (same InChIKey) must each yield a structure
         in the output -- not collapse into a single winner.
