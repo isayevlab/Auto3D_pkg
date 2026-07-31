@@ -50,8 +50,14 @@ PRESETS: dict[str, dict[str, Any]] = {
         "opt_steps": 2000,
     },
     "thorough": {
+        # k=10 only -- NOT also window=5.0 (M28). Both were set here before;
+        # ConformerRanker.run tested k before window, so k always won and
+        # window was silently inert -- and is now rejected outright by
+        # Auto3DOptions/CLIConfig if both are set. Kept k rather than
+        # switching to window because that is the value every user of this
+        # preset has actually been getting since it shipped; picking window
+        # instead would be a silent behavior change dressed up as a bug fix.
         "k": 10,
-        "window": 5.0,
         "opt_steps": 5000,
     },
 }

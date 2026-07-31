@@ -164,9 +164,21 @@ class ConformerRanker:
             List of selected RDKit Mol objects.
 
         Raises:
-            ValueError: If neither k nor window is specified.
+            ValueError: If neither k nor window is specified, or if both are
+                (top-k and energy-window selection are alternatives, not
+                composable -- only one is ever consulted below, so setting
+                both would silently make one of them inert; callers reaching
+                here through Auto3DOptions/CLIConfig already had this caught
+                earlier, at construction time, with ConfigurationError -- this
+                is the same guard for callers that construct ConformerRanker
+                directly).
         """
         logger.info("Begin to select structures that satisfy the requirements...")
+        if self.k and self.window:
+            raise ValueError(
+                "Only one of k or window may be specified, got "
+                f"k={self.k!r} and window={self.window!r}"
+            )
         results = []
 
         mols, names, energies = [], [], []

@@ -60,7 +60,6 @@ class TestAuto3DOptions:
         config = Auto3DOptions(
             path="/path/to/input.smi",
             k=5,
-            window=2.0,
             verbose=True,
             job_name="test_job",
             use_gpu=False,
@@ -69,11 +68,17 @@ class TestAuto3DOptions:
 
         assert config.path == "/path/to/input.smi"
         assert config.k == 5
-        assert config.window == 2.0
         assert config.verbose is True
         assert config.job_name == "test_job"
         assert config.use_gpu is False
         assert config.optimizing_engine == "ANI2x"
+
+    def test_custom_window_value(self):
+        """window (used alone, not alongside k -- see TestMutuallyExclusiveSelectors
+        in test_config_parity.py) can be set to a custom value."""
+        config = Auto3DOptions(path="/path/to/input.smi", window=2.0)
+
+        assert config.window == 2.0
 
     def test_dict_access(self):
         """Test that config can be accessed like a dict."""

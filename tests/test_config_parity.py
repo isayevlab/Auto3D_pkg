@@ -44,12 +44,6 @@ class TestAuto3DOptionsBounds:
 class TestMutuallyExclusiveSelectors:
     """k and window are documented as mutually exclusive; passing both must raise."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M28: ConformerRanker.run tests `if self.k:` before "
-        "`elif self.window:`, so window is silently ignored -- which is why the "
-        "shipped 'thorough' preset's window: 5.0 has no effect",
-    )
     def test_k_and_window_together_raise(self, isolated_input):
         """select_tautomers raises for this; the conformer ranker must too."""
         with pytest.raises(Auto3DError):

@@ -78,6 +78,46 @@ def check_field_bounds(values: dict) -> None:
             raise ConfigurationError(
                 f"{name} must be {symbol} {limit}, got {value!r}"
             )
+    _check_selectors_mutually_exclusive(values)
+
+
+def _check_selectors_mutually_exclusive(values: dict) -> None:
+    """Reject ``k`` and ``window`` when both are specified (M28).
+
+    They are alternative conformer-selection strategies -- top-k vs. an
+    energy window -- and ``ConformerRanker.run`` (ranking.py) only consults
+    one of them, so specifying both means one is silently inert. This is
+    what the shipped ``thorough`` preset (cli/commands/config.py) did before
+    this fix: ``k=10`` and ``window=5.0`` together, with ``k`` always
+    winning.
+
+    Called from inside ``check_field_bounds`` (rather than as a second call
+    each caller must remember to make) so both ``Auto3DOptions.__post_init__``
+    and ``CLIConfig``'s model validator inherit it automatically -- neither
+    needed a code change to pick this up.
+
+    ``select_tautomers`` (Auto3D/tautomer.py) already rejects the equivalent
+    combination for tautomer selection, but with a bare ``ValueError`` (one
+    of the un-typed raises M29 tracks) -- not an ``Auto3DError`` subclass.
+    This raises ``ConfigurationError`` instead, matching this module's own
+    convention (every other bound above does the same) and its docstring's
+    "incompatible parameter combinations" case, so it can be caught the same
+    way as any other configuration-shape violation. The message deliberately
+    echoes select_tautomers's wording ("Only k OR window needs to be
+    specified") rather than inventing new phrasing.
+
+    ``None``/``False`` mean "not specified", the same convention used above:
+    by the time this runs, an out-of-range k/window (e.g. ``k=0``) has
+    already raised in the loop above, so a value reaching here is either
+    unset or a valid, deliberately-specified one.
+    """
+    k = values.get("k")
+    window = values.get("window")
+    if k and window:
+        raise ConfigurationError(
+            "Only one of k or window may be specified, got "
+            f"k={k!r} and window={window!r}"
+        )
 
 
 def optimizer_worker_indices(
