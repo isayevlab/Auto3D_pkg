@@ -130,13 +130,21 @@ class TestEnantiomerValidation:
         result = enantiomer(l1, l2)
         assert result is False
 
-    def test_enantiomer_empty_lists_returns_true(self):
-        """Empty lists (no stereo centers) should return True."""
+    def test_enantiomer_empty_lists_returns_false(self):
+        """Two molecules with no stereo centers are not an enantiomeric pair.
+
+        This asserted ``True`` until 4.0.0, matching the implementation's
+        vacuous result: the comparison loop never executed and ``indicator``
+        kept its ``True`` initial value. A molecule with no stereo centers is
+        its own mirror image, so it has no enantiomer to be paired with, and
+        the old behavior made ``enantiomer_helper`` discard distinct achiral
+        compounds -- including one geometric isomer of every unspecified C=C.
+        """
         l1: list[tuple[int, str]] = []
         l2: list[tuple[int, str]] = []
 
         result = enantiomer(l1, l2)
-        assert result is True
+        assert result is False
 
 
 class TestNoEnantiomerHelperValidation:
