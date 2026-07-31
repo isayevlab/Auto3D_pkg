@@ -121,14 +121,6 @@ class TestStationaryPointGating:
 class TestHessianGeometry:
     """The Hessian and the energy must be evaluated at the same geometry."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C5: do_mol_thermo calls vib_hessian at thermo.py:270 while "
-        "mol's conformer still holds the pre-BFGS geometry -- the sync back "
-        "from atoms only happens at thermo.py:318-320, after the Hessian and "
-        "the energy (:272) have already been computed from two different "
-        "geometries",
-    )
     def test_hessian_geometry_matches_relaxed_atoms(self, job_dir, monkeypatch):
         """do_mol_thermo's Hessian must come from the same geometry as its energy.
 

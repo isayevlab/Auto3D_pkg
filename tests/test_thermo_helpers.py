@@ -342,3 +342,60 @@ class TestMultiplicity:
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             _resolve_multiplicity(_mol("CCO"))
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
+
+
+class TestHessianGeometrySourcing:
+    """vib_hessian must build the Hessian from the geometry it is handed."""
+
+    def test_positions_argument_overrides_the_conformer(self, monkeypatch):
+        """Passing positions must win over mol's (possibly stale) conformer.
+
+        This is the sourcing half of the C5 fix. The slow tier exercises the
+        whole path with a real potential; this pins the contract without one.
+        """
+        import numpy as np
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.ASE import thermo as thermo_mod
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        stale = mol.GetConformer().GetPositions()
+        relaxed = stale + 0.25
+
+        seen = {}
+
+        class _FakeAtoms:
+            def __init__(self, *args, **kwargs):
+                seen["positions"] = np.asarray(args[1], dtype=float)
+
+            def set_calculator(self, calc):
+                pass
+
+        monkeypatch.setattr(thermo_mod, "Atoms", _FakeAtoms)
+        monkeypatch.setattr(
+            thermo_mod, "VibrationsData", lambda atoms, hess: ("vib", atoms)
+        )
+
+        class _FakeCalculator:
+            pass
+
+        # A bare object is enough: the AIMNet2Calculator isinstance check fails
+        # for it, so the autograd branch is taken and we stop at the fake
+        # VibrationsData before any model runs.
+        try:
+            thermo_mod.vib_hessian(
+                mol, _FakeCalculator(), model=None,
+                model_name="AIMNET", positions=relaxed,
+            )
+        except Exception:
+            # Reaching the model call is fine; we only need the geometry that
+            # was handed to Atoms, which happens first.
+            pass
+
+        assert "positions" in seen, "vib_hessian never constructed Atoms"
+        np.testing.assert_allclose(seen["positions"], relaxed)
+        assert not np.allclose(seen["positions"], stale), (
+            "vib_hessian used the stale conformer instead of the positions given"
+        )

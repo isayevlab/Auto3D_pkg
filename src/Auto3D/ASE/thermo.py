@@ -302,7 +302,8 @@ def mol2atoms(mol: Chem.Mol) -> Atoms:
     return atoms
 
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,
-                device=torch.device('cpu'), model_name='AIMNET'):
+                device=torch.device('cpu'), model_name='AIMNET',
+                *, positions=None):
     '''return a VibrationsData object
     model: an AIMNet2Calculator (AIMNET / aimnet registry) or an nn.Module
     (ANI2xt / ANI2x / userNNP) that can be used to calculate the Hessian.
@@ -313,9 +314,23 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     aimnet nn.Module instead silently drops those external energy terms (D3 is
     attractive at bonding range), stiffening every bond and shifting C-H
     stretches up by ~4% (~130 cm-1). ANI/custom models are plain nn.Modules
-    with the full energy in the graph, so they keep the autograd path.'''
+    with the full energy in the graph, so they keep the autograd path.
+
+    Args:
+        positions: Geometry to build the Hessian from. Defaults to the mol's
+            conformer, which is only correct when no relaxation has happened
+            since the conformer was last synced.'''
     # get the ASE atoms object
-    coord = mol.GetConformer().GetPositions()
+    # The caller passes the geometry the energy was evaluated at. BFGS mutates
+    # the ASE atoms in place while mol's conformer still holds the input
+    # structure, so reading the conformer here built the Hessian from a
+    # different geometry than the energy and the moments of inertia -- and
+    # since the relaxed coordinates are what get written, nothing downstream
+    # could tell.
+    coord = (
+        mol.GetConformer().GetPositions() if positions is None
+        else np.asarray(positions, dtype=float)
+    )
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     charge = rdmolops.GetFormalCharge(mol)
     atoms = Atoms(species, coord)
@@ -435,7 +450,14 @@ def do_mol_thermo(mol: Chem.Mol,
                   T=298.15, model_name='AIMNET'):
     """For a RDKit mol object, calculate its thermochemistry properties.
     model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian"""
-    vib = vib_hessian(mol, atoms.get_calculator(), model, device, model_name=model_name)
+    # Sync first: everything below -- the Hessian, the energy, the geometry
+    # classification and the moments of inertia -- must describe one structure.
+    coord = atoms.get_positions()
+    conformer = mol.GetConformer()
+    for i in range(mol.GetNumAtoms()):
+        conformer.SetAtomPosition(i, coord[i])
+    vib = vib_hessian(mol, atoms.get_calculator(), model, device,
+                      model_name=model_name, positions=coord)
     vib_e = vib.get_energies()
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
@@ -502,11 +524,7 @@ def do_mol_thermo(mol: Chem.Mol,
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
     mol.SetProp("E_hartree", str(e * ev2hatree))
-    
-    #Updating ASE atoms coordinates into mol
-    coord = atoms.get_positions()
-    for i, atom in enumerate(mol.GetAtoms()):
-        mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+
     return mol
 
 def _load_hessian_model(model_name: str, device):
