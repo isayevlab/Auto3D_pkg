@@ -202,8 +202,13 @@ class TestOptGeometryDurability:
         monkeypatch.setattr(geometry.Chem, "SDWriter", FlakyWriter)
 
         with pytest.raises(Exception):
+            # Model name must resolve (C11 added an engine-name guard inside
+            # opt_geometry itself): "fake-model" was never load-bearing here
+            # -- FakeOptimizing.__init__ doesn't even store it -- the point of
+            # this test is durability of the input file against a failed
+            # rewrite, not the model name, so a valid engine name is used.
             geometry.opt_geometry(
-                str(sdf), "fake-model", out_path=str(outpath), use_gpu=False
+                str(sdf), "AIMNET", out_path=str(outpath), use_gpu=False
             )
 
         assert "bytes" in completed, "the fake optimizer never ran"

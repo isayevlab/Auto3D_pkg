@@ -7,8 +7,12 @@ by CLIConfig's `_check_bounds` model validator (both call
 `auto3d config.yaml` invocation (auto3Dcli._run_legacy_yaml) both build a
 CLIConfig and convert it with `.to_auto3d_options()`, so both also get
 extra="forbid", the engine registry check, and Literal validation -- the
-legacy path no longer constructs Auto3DOptions directly. Three auxiliary
-entry points still skip the element/charge guard entirely (C11, Task 6+).
+legacy path no longer constructs Auto3DOptions directly. Task 3 (C11) closed
+the last gap: calc_spe, opt_geometry and calc_thermo now call
+`Auto3D.utils.validation.check_engine_supports_molecules` (the guard
+extracted from check_smi_format/check_sdf_format's formerly-duplicated
+element set) and `resolve_engine_name`, the same two checks main() and
+smiles2mols already ran via check_input.
 """
 from __future__ import annotations
 
@@ -53,12 +57,6 @@ class TestMutuallyExclusiveSelectors:
 class TestAuxiliaryEntryPointGuards:
     """calc_spe / opt_geometry / calc_thermo must run the same guard as main()."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C11: check_input's charge/element guard runs only in main() and "
-        "smiles2mols, so a charged species handed to ANI2x is evaluated as the "
-        "neutral molecule -- tens of kcal/mol wrong, with wrong forces",
-    )
     def test_calc_spe_rejects_charged_input_for_ani(self, job_dir, monkeypatch):
         """A carboxylate must be refused by ANI2x, not silently neutralized.
 

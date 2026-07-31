@@ -15,6 +15,7 @@ from rdkit.Chem.rdMolDescriptors import (
     CalcNumUnspecifiedAtomStereoCenters,
 )
 
+from Auto3D.constants import BUILTIN_ANI_MODELS
 from Auto3D.exceptions import (
     ConfigurationError,
     DependencyError,
@@ -31,6 +32,72 @@ if TYPE_CHECKING:
     pass
 
 logger = get_logger(__name__)
+
+#: Elements ANI2x/ANI2xt were trained on. AIMNET (and any aimnet registry
+#: model) and a custom NNP path are not restricted to this set.
+ANI_ELEMENTS = frozenset({1, 6, 7, 8, 9, 16, 17})
+
+
+def _requires_aimnet(mol: Chem.Mol) -> bool:
+    """True if `mol` cannot be represented by ANI2x/ANI2xt.
+
+    A molecule needs AIMNET when it carries an element outside ANI_ELEMENTS or
+    a nonzero net formal charge. Single implementation of this test --
+    check_smi_format and check_sdf_format used to each inline it as their own
+    copy of the identical {1, 6, 7, 8, 9, 16, 17} literal, which is exactly
+    how the two would silently drift apart (C11).
+    """
+    elements = {a.GetAtomicNum() for a in mol.GetAtoms()}
+    charge = Chem.rdmolops.GetFormalCharge(mol)
+    return (not elements.issubset(ANI_ELEMENTS)) or charge != 0
+
+
+def check_engine_supports_molecules(
+    mols: Chem.Mol | list[Chem.Mol], optimizing_engine: str
+) -> None:
+    """Raise if `optimizing_engine` cannot represent every molecule in `mols`.
+
+    ANI2x/ANI2xt can only represent uncharged molecules built from
+    {H, C, N, O, F, S, Cl}. A charged or out-of-set species handed to either
+    is silently evaluated as a different, neutral, in-set species -- tens of
+    kcal/mol wrong energy and wrong forces, so a downstream "optimized"
+    geometry is wrong too (C11).
+
+    `check_input` already runs this check (via check_smi_format /
+    check_sdf_format, which call `_requires_aimnet` above) for main() and
+    smiles2mols. calc_spe, opt_geometry and calc_thermo take an SDF path
+    directly and never go through check_input, so they call this function
+    themselves instead.
+
+    AIMNET (and any aimnet registry name) and a path to a custom NNP are not
+    restricted by this element set, so this is a no-op for them.
+
+    Args:
+        mols: A single RDKit Mol or an iterable of them, read from the
+            caller's input SDF.
+        optimizing_engine: The engine name exactly as passed to
+            calc_spe/opt_geometry/calc_thermo (e.g. 'ANI2x', 'AIMNET', a
+            registry name, or a custom NNP path).
+
+    Raises:
+        ConfigurationError: `optimizing_engine` is ANI2x/ANI2xt (matched
+            case-insensitively, mirroring ModelFactory.create) and at least
+            one molecule is charged or contains an element outside the ANI
+            training set.
+    """
+    if optimizing_engine.upper() not in BUILTIN_ANI_MODELS:
+        return
+    mol_list = [mols] if isinstance(mols, Chem.Mol) else list(mols)
+    incompatible = [
+        mol.GetProp("_Name") if mol.HasProp("_Name") else "<unnamed>"
+        for mol in mol_list
+        if _requires_aimnet(mol)
+    ]
+    if incompatible:
+        raise ConfigurationError(
+            f"Only AIMNET can handle: {incompatible}, but {optimizing_engine} "
+            "was parsed to Auto3D."
+        )
 
 
 def check_input(args: Any) -> None:
@@ -156,7 +223,6 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     Raises:
         InputValidationError: If a non-blank line lacks a SMILES and an ID.
     """
-    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
     ANI = True
 
     smiles_all = []
@@ -205,9 +271,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         if mol is None:
             logger.warning(f"Skipping invalid SMILES: {smiles}")
             continue
-        charge = Chem.rdmolops.GetFormalCharge(mol)
-        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
-        if not elements.issubset(ANI_elements) or charge != 0:
+        if _requires_aimnet(mol):
             ANI = False
             only_aimnet_smiles.append(smiles)
     return ANI, only_aimnet_smiles
@@ -233,7 +297,6 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     Raises:
         ValueError: If molecule ID is empty (_Name property is empty).
     """
-    ANI_elements = {1, 6, 7, 8, 9, 16, 17}
     ANI = True
 
     supp = Chem.SDMolSupplier(args.path, removeHs=False)
@@ -247,9 +310,7 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
             raise ValueError("Empty molecule ID (empty _Name property)")
         mols.append(mol)
 
-        charge = Chem.rdmolops.GetFormalCharge(mol)
-        elements = set([a.GetAtomicNum() for a in mol.GetAtoms()])
-        if not elements.issubset(ANI_elements) or charge != 0:
+        if _requires_aimnet(mol):
             ANI = False
             only_aimnet_ids.append(id)
 

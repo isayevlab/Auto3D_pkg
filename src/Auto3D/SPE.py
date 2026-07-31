@@ -9,9 +9,11 @@ from rdkit import Chem
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.padding import pad_from_mols
 from Auto3D.model_factory import create_model, get_device
+from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.validation import check_engine_supports_molecules
 
 logger = get_logger(__name__)
 
@@ -42,6 +44,12 @@ def calc_spe(
     Returns:
         Path to output SDF file with energies.
     """
+    # Fail fast on an unrecognized engine name -- the same guard the CLI's
+    # `energy` command already runs before calling this function
+    # (cli/commands/properties.py), now also enforced for direct Python-API
+    # callers. Pure offline registry lookup: no network, no model load.
+    resolve_engine_name(model_name)
+
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
@@ -91,6 +99,12 @@ def calc_spe(
         with Chem.SDWriter(str(outpath)):
             pass
         return str(outpath)
+
+    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
+    # charged or out-of-set species handed to either would otherwise be
+    # silently evaluated as a different, neutral species by the forward pass
+    # below -- tens of kcal/mol wrong, with wrong forces.
+    check_engine_supports_molecules(mols, model_name)
 
     # Use new vectorized padding that returns tensors directly. calc_spe only
     # needs energies (not forces), so the atom mask pad_from_mols also returns
