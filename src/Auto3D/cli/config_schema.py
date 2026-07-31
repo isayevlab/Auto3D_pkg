@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from Auto3D.config import Auto3DOptions
+from Auto3D.config import Auto3DOptions, check_field_bounds
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CAPACITY,
@@ -34,8 +34,8 @@ class CLIConfig(BaseModel):
     """Path to input .smi or .sdf file."""
 
     # Output control
-    k: int | None = Field(None, ge=1, description="Top-k conformers per molecule")
-    window: float | None = Field(None, gt=0, description="Energy window in kcal/mol")
+    k: int | None = Field(None, description="Top-k conformers per molecule")
+    window: float | None = Field(None, description="Energy window in kcal/mol")
 
     # Engine settings
     optimizing_engine: str = "AIMNET"
@@ -50,18 +50,18 @@ class CLIConfig(BaseModel):
     isomer_engine: Literal["rdkit", "omega"] = "rdkit"
     mode_oe: str = "classic"
     max_confs: int | None = None
-    mpi_np: int = Field(4, ge=1)
+    mpi_np: int = 4
 
     # Optimization settings
-    opt_steps: int = Field(DEFAULT_OPT_STEPS, ge=1)
-    convergence_threshold: float = Field(DEFAULT_CONVERGENCE_THRESHOLD, gt=0)
-    patience: int = Field(DEFAULT_PATIENCE, ge=1)
-    threshold: float = Field(DEFAULT_RMSD_THRESHOLD, gt=0)
-    batchsize_atoms: int = Field(DEFAULT_BATCHSIZE_ATOMS, ge=1)
+    opt_steps: int = DEFAULT_OPT_STEPS
+    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD
+    patience: int = DEFAULT_PATIENCE
+    threshold: float = DEFAULT_RMSD_THRESHOLD
+    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
 
     # Resource settings
-    memory: int | None = Field(None, ge=1)
-    capacity: int = Field(DEFAULT_CAPACITY, ge=1)
+    memory: int | None = None
+    capacity: int = DEFAULT_CAPACITY
     allow_tf32: bool = False
 
     # Output settings
@@ -107,6 +107,18 @@ class CLIConfig(BaseModel):
     def normalize_lowercase(cls, v: str) -> str:
         """Normalize to lowercase."""
         return v.lower() if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> CLIConfig:
+        """Enforce Auto3D.config.FIELD_BOUNDS -- the same table Auto3DOptions
+        uses -- instead of a second, hand-maintained set of Field(ge=/gt=)
+        constraints that could silently drift from it.
+        """
+        try:
+            check_field_bounds(self.__dict__)
+        except ConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
     def to_auto3d_options(self) -> Auto3DOptions:
         """Convert to Auto3DOptions for core workflow."""

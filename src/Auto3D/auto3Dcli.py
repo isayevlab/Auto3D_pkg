@@ -84,7 +84,7 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         import yaml
 
         from Auto3D.auto3D import main
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.cli.config_schema import CLIConfig
         from Auto3D.exceptions import InputValidationError
         from Auto3D.utils.logging_config import configure_logging
 
@@ -115,7 +115,16 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         )
         console.print()
 
-        options = Auto3DOptions(**parameters)
+        # CLIConfig gives this legacy path the same validation as `auto3d run
+        # -c`: every Field bound (shared with Auto3DOptions via
+        # check_field_bounds/FIELD_BOUNDS), the engine registry check,
+        # parse_gpu_idx, and Literal validation on tauto_engine/isomer_engine.
+        # It also means extra="forbid": a YAML key CLIConfig doesn't
+        # recognize now raises a pydantic ValidationError (caught below by
+        # the blanket `except Exception`) instead of silently passing
+        # through to Auto3DOptions as it used to.
+        config = CLIConfig(**parameters)
+        options = config.to_auto3d_options()
         result = main(options)
         console.print(f"\n[green]✓[/green] Output: [cyan]{result}[/cyan]")
     except Exception as e:  # noqa: BLE001 - present every failure as a clean panel

@@ -5,6 +5,7 @@ This module provides typed configuration using dataclasses and Protocols
 for better type safety and IDE support.
 """
 
+import operator
 from dataclasses import dataclass
 from typing import Protocol, TypedDict, runtime_checkable
 
@@ -20,6 +21,63 @@ from Auto3D.constants import (
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
 )
+from Auto3D.exceptions import ConfigurationError
+
+# Single source of truth for the numeric bounds every entry point must
+# enforce (Auto3DOptions.__post_init__ below and CLIConfig's model
+# validator in cli/config_schema.py). Keeping one table -- rather than a
+# hand-maintained bound list in each place -- is the point of this phase:
+# a bound added/changed here takes effect on every path with no second edit.
+#
+# name -> (comparison, limit). A field's value must satisfy
+# ``value <comparison> limit``; see _BOUND_OPS for the supported set.
+FIELD_BOUNDS: dict[str, tuple[str, float]] = {
+    "k": ("ge", 1),
+    "window": ("gt", 0),
+    "mpi_np": ("ge", 1),
+    "opt_steps": ("ge", 1),
+    "convergence_threshold": ("gt", 0),
+    "patience": ("ge", 1),
+    "threshold": ("gt", 0),
+    "batchsize_atoms": ("ge", 1),
+    "memory": ("ge", 1),
+    "capacity": ("ge", 1),
+    "max_confs": ("ge", 1),
+}
+
+_BOUND_OPS: dict[str, tuple[object, str]] = {
+    "ge": (operator.ge, ">="),
+    "gt": (operator.gt, ">"),
+}
+
+
+def check_field_bounds(values: dict) -> None:
+    """Validate ``values`` (field name -> value) against ``FIELD_BOUNDS``.
+
+    Shared by Auto3DOptions.__post_init__ and CLIConfig's model validator so
+    both entry points reject the same out-of-range values with the same
+    message -- this is what closes C10/M27 on every path instead of just one.
+
+    A value of ``None`` or ``False`` means "not specified" (dynamic/default
+    behavior) on the optional numeric fields (k, window, max_confs, memory)
+    and is skipped, matching both classes' existing sentinel conventions.
+    Fields missing from ``values`` are skipped too, so callers may pass a
+    partial mapping.
+
+    Raises:
+        ConfigurationError: naming the field and the received value.
+    """
+    for name, (kind, limit) in FIELD_BOUNDS.items():
+        if name not in values:
+            continue
+        value = values[name]
+        if value is None or value is False:
+            continue
+        cmp, symbol = _BOUND_OPS[kind]
+        if not cmp(value, limit):
+            raise ConfigurationError(
+                f"{name} must be {symbol} {limit}, got {value!r}"
+            )
 
 
 def optimizer_worker_indices(
@@ -145,12 +203,7 @@ class Auto3DOptions:
         self.tauto_engine = self.tauto_engine.lower()
         self.isomer_engine = self.isomer_engine.lower()
         self.mode_oe = self.mode_oe.lower()
-        # Reject genuinely negative k/window. The default `False` (a bool, which
-        # is an int subclass) and 0 both mean "not specified" and are allowed.
-        if self.k is not None and self.k is not False and self.k < 0:
-            raise ValueError(f"k must be non-negative, got {self.k}")
-        if self.window is not None and self.window is not False and self.window < 0:
-            raise ValueError(f"window must be non-negative, got {self.window}")
+        check_field_bounds({name: getattr(self, name) for name in FIELD_BOUNDS})
 
     def __getitem__(self, key: str):
         """Allow dict-like access for backward compatibility."""

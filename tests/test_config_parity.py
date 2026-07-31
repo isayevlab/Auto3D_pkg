@@ -1,49 +1,38 @@
 """The same configuration must be validated identically through every door.
 
-auto3d run -c goes through CLIConfig and gets extra="forbid", Literal engine
-validation, and every Field bound. Auto3DOptions validates only k and window,
-and the legacy `auto3d config.yaml` path constructs Auto3DOptions directly --
-so the Python API that scientific users script against is the least protected
-(C10, M27), and three auxiliary entry points skip the element/charge guard
-entirely (C11).
+Task 1 (C10, M27) closed the gap: Auto3D.config.FIELD_BOUNDS is the single
+table of numeric bounds, enforced by Auto3DOptions.__post_init__ directly and
+by CLIConfig's `_check_bounds` model validator (both call
+`Auto3D.config.check_field_bounds`). `auto3d run -c` and the legacy
+`auto3d config.yaml` invocation (auto3Dcli._run_legacy_yaml) both build a
+CLIConfig and convert it with `.to_auto3d_options()`, so both also get
+extra="forbid", the engine registry check, and Literal validation -- the
+legacy path no longer constructs Auto3DOptions directly. Three auxiliary
+entry points still skip the element/charge guard entirely (C11, Task 6+).
 """
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
+from Auto3D.cli.config_schema import CLIConfig
 from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import Auto3DError
+from Auto3D.exceptions import Auto3DError, ConfigurationError
 
 
 class TestAuto3DOptionsBounds:
     """Auto3DOptions must enforce what CLIConfig enforces."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C10: threshold=-1 is accepted, which sets pruneRmsThresh=-1 and "
-        "makes `rmsd < -1` never true, silently disabling duplicate-conformer "
-        "removal while presenting the output as deduplicated",
-    )
     def test_negative_threshold_is_rejected(self, isolated_input):
         """A non-positive RMSD threshold must raise, not silently disable dedup."""
         with pytest.raises(Auto3DError):
             Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, threshold=-1)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M27: max_confs has no Field(ge=1) in any path, so max_confs=0 "
-        "reaches EmbedMultipleConfs(numConfs=0) and every molecule yields nothing",
-    )
     def test_zero_max_confs_is_rejected(self, isolated_input):
         """max_confs must be at least 1."""
         with pytest.raises(Auto3DError):
             Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, max_confs=0)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C10: convergence_threshold=0 makes `fmax > opttol` permanently "
-        "true, so every structure burns the full 2000-step budget",
-    )
     def test_zero_convergence_threshold_is_rejected(self, isolated_input):
         """A zero force threshold is unsatisfiable and must be refused."""
         with pytest.raises(Auto3DError):
@@ -300,3 +289,131 @@ class TestDuplicateInchikeyInputs:
             f"expected one output structure per input (2), got {len(mols)}: "
             f"{[m.GetProp('_Name') for m in mols]}"
         )
+
+
+class TestValidationParityAcrossEntryPoints:
+    """Phase 5's exit criterion, asserted directly: the same configuration
+    must be judged identically by `auto3d run -c`, the legacy
+    `auto3d config.yaml` invocation, and the Python API's
+    `Auto3DOptions(**yaml)`.
+    """
+
+    @staticmethod
+    def _params(isolated_input) -> dict:
+        # optimizing_engine is 'ANI2xt' (a built-in name), not the default
+        # 'AIMNET', so resolving it never imports the optional `aimnet`
+        # package -- see the matching note on tests/test_cli.py's
+        # _LEGACY_YAML for why that import is avoided in tests.
+        return {
+            "path": isolated_input("smiles2.smi"),
+            "k": 1,
+            "window": None,
+            "memory": None,
+            "capacity": 42,
+            "enumerate_tautomer": False,
+            "tauto_engine": "rdkit",
+            "pKaNorm": True,
+            "isomer_engine": "rdkit",
+            "max_confs": None,
+            "enumerate_isomer": True,
+            "mode_oe": "classic",
+            "mpi_np": 4,
+            "optimizing_engine": "ANI2xt",
+            "use_gpu": False,
+            "gpu_idx": 0,
+            "opt_steps": 2000,
+            "convergence_threshold": 0.01,
+            "patience": 250,
+            "threshold": 0.3,
+            "batchsize_atoms": 1024,
+            "allow_tf32": False,
+            "verbose": False,
+            "job_name": "",
+        }
+
+    @staticmethod
+    def _run_legacy_and_capture(tmp_path, params, monkeypatch):
+        """Drive auto3Dcli._run_legacy_yaml against a real YAML file built
+        from `params` (using the same "None"-string encoding the shipped
+        parameters.yaml example uses), with Auto3D.auto3D.main stubbed out
+        so no pipeline actually runs.
+
+        Returns (options, error): `options` is the Auto3DOptions that would
+        have been passed to main() on success; `error` is the exception
+        _run_legacy_yaml caught and handed to handle_error on failure.
+        Exactly one of the two is None.
+        """
+        import yaml as yaml_mod
+
+        from Auto3D.auto3Dcli import _run_legacy_yaml
+
+        text_params = dict(params)
+        for key in ("window", "memory", "max_confs"):
+            if text_params[key] is None:
+                text_params[key] = "None"
+        yaml_path = tmp_path / "legacy_params.yaml"
+        yaml_path.write_text(yaml_mod.dump(text_params))
+
+        captured: dict = {}
+
+        def fake_main(options, **kwargs):
+            captured["options"] = options
+            return "fake_output.sdf"
+
+        monkeypatch.setattr("Auto3D.auto3D.main", fake_main)
+
+        errors: list[Exception] = []
+        monkeypatch.setattr(
+            "Auto3D.cli.errors.handle_error",
+            lambda error, verbose=0: errors.append(error),
+        )
+
+        _run_legacy_yaml(str(yaml_path))
+        if errors:
+            return None, errors[0]
+        return captured["options"], None
+
+    def test_valid_config_agrees_across_entry_points(
+        self, tmp_path, isolated_input, monkeypatch
+    ):
+        """A config every path accepts must produce the same Auto3DOptions."""
+        params = self._params(isolated_input)
+
+        via_cliconfig = CLIConfig(**params).to_auto3d_options()
+        via_api = Auto3DOptions(**params)
+        via_legacy, error = self._run_legacy_and_capture(tmp_path, params, monkeypatch)
+
+        assert error is None, f"legacy YAML path rejected a valid config: {error}"
+        # k/window are "not specified" via either None (CLIConfig's sentinel)
+        # or False (Auto3DOptions's own sentinel) -- both falsy, both meaning
+        # the same thing to ranking.py's `if self.k: ... elif self.window:`
+        # -- so compare truthiness for those two, exact value for the rest.
+        for field in ("k", "window"):
+            assert bool(getattr(via_cliconfig, field)) == bool(getattr(via_api, field)), field
+            assert bool(getattr(via_legacy, field)) == bool(getattr(via_api, field)), field
+        for field in (
+            "threshold", "convergence_threshold", "max_confs",
+            "optimizing_engine", "opt_steps", "mpi_np", "patience",
+            "batchsize_atoms", "memory", "capacity",
+        ):
+            assert getattr(via_cliconfig, field) == getattr(via_api, field), field
+            assert getattr(via_legacy, field) == getattr(via_api, field), field
+
+    def test_negative_threshold_rejected_by_all_three_entry_points(
+        self, tmp_path, isolated_input, monkeypatch
+    ):
+        """threshold=-1 (C10) must be rejected by every entry point -- not
+        silently accepted through one door while another guards it.
+        """
+        params = self._params(isolated_input)
+        params["threshold"] = -1
+
+        with pytest.raises(ConfigurationError):
+            Auto3DOptions(**params)
+
+        with pytest.raises(ValidationError):
+            CLIConfig(**params)
+
+        options, error = self._run_legacy_and_capture(tmp_path, params, monkeypatch)
+        assert options is None, "legacy YAML path accepted threshold=-1"
+        assert isinstance(error, ValidationError)

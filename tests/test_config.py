@@ -166,14 +166,30 @@ def test_capacity_default_matches_across_layers():
 
 def test_negative_k_rejected():
     from Auto3D.config import Auto3DOptions
-    with pytest.raises(ValueError):
+    from Auto3D.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=-1)
 
 
 def test_negative_window_rejected():
     from Auto3D.config import Auto3DOptions
-    with pytest.raises(ValueError):
+    from Auto3D.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", window=-0.5)
+
+
+def test_zero_k_rejected():
+    """k=0 used to be treated as "not specified" (falsy) and silently
+    accepted, but CLIConfig has always rejected it (its k >= 1 bound applies
+    to any non-None value, and 0 is not None) -- Auto3DOptions must match,
+    per Task 1's "one set of bounds, on every path". Only None/False mean
+    "not specified" now; see test_default_and_valid_k_window_accepted for
+    those sentinels.
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError):
+        Auto3DOptions(path="x.smi", k=0)
 
 
 def test_default_and_valid_k_window_accepted():
@@ -182,7 +198,7 @@ def test_default_and_valid_k_window_accepted():
     Auto3DOptions(path="x.smi")
     Auto3DOptions(path="x.smi", k=5)
     Auto3DOptions(path="x.smi", window=2.0)
-    Auto3DOptions(path="x.smi", k=0)  # 0 is "not specified", allowed
+    Auto3DOptions(path="x.smi", k=False)  # False is "not specified", allowed
 
 
 class TestOptimizerWorkerIndices:
