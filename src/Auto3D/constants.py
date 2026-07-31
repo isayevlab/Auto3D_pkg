@@ -95,3 +95,18 @@ DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
 # off linear), which measures 5.2e-2. 1e-2 sits about an order of magnitude
 # above the thermal case and ~5x below the genuinely bent one.
 LINEARITY_MOMENT_RATIO = 1e-2
+
+# Imaginary modes below this magnitude (cm^-1) are numerical artifacts of an
+# NNP Hessian at conformer-generation convergence; above it, the structure is a
+# saddle point and its "free energy" is not a minimum's.
+IMAGINARY_MODE_CUTOFF_CM = 50.0
+
+# Optional Truhlar-style raising: real modes below this wavenumber are raised
+# to it before the entropy sum. A 10 cm^-1 torsion contributes ~2.4 kcal/mol to
+# -T*S at 298 K, which swamps most differences this module resolves. Zero
+# disables raising, which is the default so existing numbers do not move
+# without the caller asking.
+LOW_FREQUENCY_CUTOFF_CM = 0.0
+
+# eV per wavenumber, for reporting vibrational energies in cm^-1.
+EV_PER_WAVENUMBER = 1.0 / 8065.54429

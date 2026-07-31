@@ -4,6 +4,7 @@ Calculating thermodynamic properties using Auto3D output
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
@@ -25,7 +26,10 @@ from Auto3D.batch_opt.species import to_model_species
 from Auto3D.constants import (
     DEFAULT_OPT_STEPS,
     DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
+    EV_PER_WAVENUMBER,
+    IMAGINARY_MODE_CUTOFF_CM,
     LINEARITY_MOMENT_RATIO,
+    LOW_FREQUENCY_CUTOFF_CM,
 )
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
@@ -293,6 +297,81 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     vib = VibrationsData(atoms, hess)
     return vib
 
+@dataclass
+class VibrationAnalysis:
+    """Verdict on a vibrational spectrum, computed without touching a model."""
+
+    energies: list[complex]
+    n_imag: int
+    max_imag_cm: float
+    n_raised: int
+
+    @property
+    def is_transition_state(self) -> bool:
+        """True when an imaginary mode is too large to be numerical noise."""
+        return self.max_imag_cm >= IMAGINARY_MODE_CUTOFF_CM
+
+
+def analyze_vibrations(
+    vib_energies,
+    *,
+    imag_cutoff_cm: float = IMAGINARY_MODE_CUTOFF_CM,
+    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+) -> VibrationAnalysis:
+    """Classify a vibrational spectrum and optionally raise its low modes.
+
+    ASE's ``ignore_imag_modes`` sorts by absolute value and drops every
+    imaginary mode alike, so a -400 cm^-1 reaction coordinate is discarded on
+    the same footing as a -15 cm^-1 artifact and the saddle point is reported
+    as a minimum. Separating the two is the point of ``max_imag_cm``: the
+    caller can keep tolerating artifacts while refusing to publish a Gibbs
+    energy for a transition state.
+
+    Raising (Truhlar) lifts real modes below ``low_freq_cutoff_cm`` to the
+    cutoff before the entropy sum, bounding the contribution of a nearly-free
+    torsion. It is off by default so no existing number moves unasked.
+
+    Args:
+        vib_energies: Complex vibrational energies in eV, as ASE returns them;
+            an imaginary mode has a nonzero imaginary part.
+        imag_cutoff_cm: Magnitude above which an imaginary mode means the
+            structure is a saddle point, not a noisy minimum.
+        low_freq_cutoff_cm: Raise real modes below this wavenumber to it. Zero
+            disables raising.
+
+    Returns:
+        A :class:`VibrationAnalysis`. ``energies`` preserves input order and
+        keeps imaginary modes untouched -- raising applies to real modes only,
+        since raising an imaginary mode would silently convert a saddle point
+        into a minimum.
+    """
+    processed: list[complex] = []
+    n_imag = 0
+    max_imag_cm = 0.0
+    n_raised = 0
+    cutoff_ev = low_freq_cutoff_cm * EV_PER_WAVENUMBER
+
+    for energy in vib_energies:
+        value = complex(energy)
+        if abs(value.imag) > 0.0:
+            n_imag += 1
+            max_imag_cm = max(max_imag_cm, abs(value.imag) / EV_PER_WAVENUMBER)
+            processed.append(value)
+            continue
+        if cutoff_ev > 0.0 and value.real < cutoff_ev:
+            processed.append(complex(cutoff_ev, 0.0))
+            n_raised += 1
+        else:
+            processed.append(value)
+
+    return VibrationAnalysis(
+        energies=processed,
+        n_imag=n_imag,
+        max_imag_cm=max_imag_cm,
+        n_raised=n_raised,
+    )
+
+
 def do_mol_thermo(mol: Chem.Mol,
                   atoms: ase.Atoms,
                   model: torch.nn.Module,
@@ -313,14 +392,35 @@ def do_mol_thermo(mol: Chem.Mol,
     # routinely yield one or two tiny artifact imaginary modes. Dropping them
     # (ignore_imag_modes=True) keeps otherwise-valid thermochemistry instead of
     # ASE raising ValueError and the whole molecule being discarded.
-    n_imag = int(np.sum(np.abs(np.imag(vib_e)) > 0))
-    if n_imag > 0:
+    name = mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule"
+    analysis = analyze_vibrations(vib_e)
+    if analysis.n_imag > 0:
         logger.warning(
-            "%d imaginary vibrational mode(s) ignored in thermochemistry for "
-            "%s; treat the result as approximate.",
-            n_imag,
-            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
+            "they are dropped from the thermochemistry, so treat the result "
+            "as approximate.",
+            analysis.n_imag, name, analysis.max_imag_cm,
         )
+    if analysis.is_transition_state:
+        # Well above the numerical-artifact scale: this is a reaction
+        # coordinate, and a "free energy" computed here is a saddle point's,
+        # not a minimum's. Record it so a consumer can filter, rather than
+        # emitting a number that looks like every other one.
+        logger.warning(
+            "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
+            "artifact threshold: this geometry is a saddle point, not a "
+            "minimum. Its thermochemistry is reported but marked.",
+            name, analysis.max_imag_cm, IMAGINARY_MODE_CUTOFF_CM,
+        )
+    mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
+    mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
+    mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
+    if analysis.n_raised:
+        logger.info(
+            "Raised %d low-frequency mode(s) of %s to the cutoff.",
+            analysis.n_raised, name,
+        )
+    vib_e = analysis.energies
     thermo = IdealGasThermo(
         vib_energies=vib_e,
         potentialenergy=e,

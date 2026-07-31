@@ -208,3 +208,74 @@ def test_load_hessian_model_aimnet_is_fp32(aimnet_hessian_model):
     # The underlying aimnet module stays fp32 (no whole-graph fp64 upcast).
     p = next(aimnet_hessian_model.model.parameters())
     assert p.dtype == torch.float32
+
+
+from Auto3D.ASE.thermo import analyze_vibrations  # noqa: E402
+
+EV_PER_CM = 1.0 / 8065.54429  # eV per wavenumber
+
+
+def _ev(*wavenumbers_cm):
+    """Build a vibrational-energy array in eV from wavenumbers.
+
+    A negative wavenumber is an imaginary mode, which ASE represents as a
+    complex energy with a nonzero imaginary part.
+    """
+    out = []
+    for w in wavenumbers_cm:
+        if w < 0:
+            out.append(complex(0.0, abs(w) * EV_PER_CM))
+        else:
+            out.append(complex(w * EV_PER_CM, 0.0))
+    return np.array(out)
+
+
+class TestVibrationAnalysis:
+    def test_a_clean_spectrum_is_untouched(self):
+        result = analyze_vibrations(_ev(200, 800, 1600, 3000))
+        assert result.n_imag == 0
+        assert result.max_imag_cm == pytest.approx(0.0)
+        assert result.n_raised == 0
+
+    def test_a_small_imaginary_mode_is_counted_but_tolerated(self):
+        """A -15 cm-1 artifact is the reason ignore_imag_modes exists."""
+        result = analyze_vibrations(_ev(-15, 800, 1600))
+        assert result.n_imag == 1
+        assert result.max_imag_cm == pytest.approx(15.0, abs=0.5)
+        assert result.is_transition_state is False
+
+    def test_a_large_imaginary_mode_is_a_transition_state(self):
+        """-400 cm-1 is a reaction coordinate, not numerical noise.
+
+        ASE sorts by absolute value and deletes both indiscriminately, so
+        without this distinction a saddle point is reported as a minimum.
+        """
+        result = analyze_vibrations(_ev(-400, 800, 1600))
+        assert result.n_imag == 1
+        assert result.max_imag_cm == pytest.approx(400.0, abs=1.0)
+        assert result.is_transition_state is True
+
+    def test_the_largest_imaginary_mode_decides(self):
+        result = analyze_vibrations(_ev(-12, -350, 900))
+        assert result.n_imag == 2
+        assert result.max_imag_cm == pytest.approx(350.0, abs=1.0)
+        assert result.is_transition_state is True
+
+    def test_low_frequencies_are_raised_to_the_cutoff(self):
+        """A 10 cm-1 torsion contributes ~2.4 kcal/mol to -T*S at 298 K."""
+        result = analyze_vibrations(_ev(10, 40, 800), low_freq_cutoff_cm=100.0)
+        real_cm = sorted(round(e.real / EV_PER_CM) for e in result.energies)
+        assert real_cm == [100, 100, 800], real_cm
+        assert result.n_raised == 2
+
+    def test_raising_is_off_by_default_at_zero_cutoff(self):
+        result = analyze_vibrations(_ev(10, 40, 800), low_freq_cutoff_cm=0.0)
+        real_cm = sorted(round(e.real / EV_PER_CM) for e in result.energies)
+        assert real_cm == [10, 40, 800], real_cm
+        assert result.n_raised == 0
+
+    def test_imaginary_modes_are_not_raised(self):
+        """Raising applies to real low frequencies, never to imaginary ones."""
+        result = analyze_vibrations(_ev(-20, 10, 800), low_freq_cutoff_cm=100.0)
+        assert result.n_raised == 1
+        assert result.n_imag == 1
