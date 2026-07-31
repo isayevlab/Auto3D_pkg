@@ -21,6 +21,7 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.models.preflight import preflight_model
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
     check_input,
@@ -104,7 +105,11 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         List of RDKit Mol objects representing low-energy conformers.
 
     Raises:
-        ConfigurationError: If neither k nor window is specified.
+        ConfigurationError: If neither k nor window is specified, or the
+            optimizing engine name is not recognized.
+        ModelLoadError: If the optimizing model could not be obtained or
+            loaded.
+        DependencyError: If a required optional dependency is missing.
     """
     # Configure PyTorch settings (TF32, cuDNN benchmark)
     from Auto3D.torch_config import TorchConfig, configure_torch
@@ -124,6 +129,17 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             )
         args.input_format = 'smi'
         check_input(args)
+
+        # Resolve and construct the optimizing model HERE (C8/M22), before the
+        # `optimizing` step below constructs its own copy for real work. A
+        # cold cache with no network, a corrupted cached file, or an
+        # unwritable cache directory would otherwise surface only deep inside
+        # ranking/optimization as an opaque failure. cpu is used regardless of
+        # the run's real device: these failure modes (cold cache, checksum
+        # mismatch, unwritable cache dir) are download/cache issues, not
+        # device issues, and cpu avoids contending for GPU memory just to
+        # validate.
+        preflight_model(args.optimizing_engine, torch.device("cpu"))
 
         # smi to sdf
         meta = create_chunk_meta_names(path0, tmpdirname)

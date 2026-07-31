@@ -10,11 +10,14 @@ from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import torch
+
 import Auto3D
 from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions, optimizer_worker_indices
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.model_factory import ModelFactory
+from Auto3D.models.preflight import preflight_model
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, check_valid_configuration, reorder_sdf
 from Auto3D.utils.file_ops import decode_ids, encode_ids
@@ -120,9 +123,20 @@ class WorkflowOrchestrator:
     def _validate_input(self) -> None:
         """Validate input configuration and prepare encoded input file.
 
+        Also resolves and constructs the optimizing model (see
+        ``preflight_model``), so a bad model name, a cold cache with no
+        network, a corrupted cached file, or an unwritable cache directory
+        all fail here -- before any worker is forked -- instead of surfacing
+        as an opaque failure deep inside a spawned worker.
+
         Raises:
-            ConfigurationError: If path is None or k/window not specified.
+            ConfigurationError: If path is None, k/window not specified, or
+                the configuration (including the optimizing engine name) is
+                otherwise invalid.
             FileFormatError: If input file format is not supported.
+            ModelLoadError: If the optimizing model could not be obtained or
+                loaded.
+            DependencyError: If a required optional dependency is missing.
         """
         if self.config.path is None:
             raise ConfigurationError("Please specify the input file path.")
@@ -179,6 +193,18 @@ class WorkflowOrchestrator:
             )
 
         check_input(self.config)
+
+        # Resolve and construct the optimizing model HERE, in the parent,
+        # before any worker is forked (C8/M22). Every worker builds its own
+        # copy of the model regardless (spawned processes share no memory
+        # with the parent), so this construction is purely diagnostic: a cold
+        # cache with no network, a corrupted cached file, or an unwritable
+        # cache directory would otherwise surface only inside
+        # optim_rank_wrapper's blanket per-chunk except, as an opaque "no 3D
+        # structure converged". cpu is used regardless of the run's real
+        # device -- these failure modes are download/cache issues, not device
+        # issues, and cpu avoids contending for GPU memory just to validate.
+        preflight_model(self.config.optimizing_engine, torch.device("cpu"))
 
     def _setup_job_directory(self) -> None:
         """Create the job directory for output files."""
@@ -404,12 +430,17 @@ class WorkflowOrchestrator:
         output_files = list(self.job_dir.glob("job*/*_3d.sdf"))
 
         if not output_files:
+            log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
-                "The optimization engine did not run, or no 3D structure converged.\n"
-                "The reason might be one of the following:\n"
-                "1. Allocated memory is not enough;\n"
-                "2. The input SMILES encodes invalid chemical structures;\n"
-                "3. Patience is too small"
+                "No chunk produced a 3D structure output file, so no 3D "
+                "structure converged. The model itself loaded successfully "
+                "(pre-flight validation passed before any chunk was "
+                "processed), so this is not a model-loading problem. Likely "
+                "causes: insufficient memory for the batch size used, input "
+                "SMILES that do not encode valid chemical structures, or "
+                "optimization settings (opt_steps/patience) too aggressive "
+                f"for these molecules. See {log_path} for the per-chunk "
+                "errors already recorded during this run."
             )
 
         # Combine output data

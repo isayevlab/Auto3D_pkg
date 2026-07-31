@@ -77,13 +77,6 @@ class TestRegistryNameValidation:
 class TestColdCacheDiagnosis:
     """A model that cannot be fetched must say so, not blame the user's chemistry."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C8: AIMNet2Adapter.__init__ (models/adapter.py:239) has no "
-        "try/except and runs inside optim_rank_wrapper's blanket except "
-        "(workflow_workers.py), so a ConnectionError becomes "
-        "WorkflowOrchestrator._finalize_output's 'no 3D structure converged'",
-    )
     def test_network_failure_names_the_network(self, isolated_input, monkeypatch):
         """An offline cold cache must produce a model/network error, not a chemistry one.
 
@@ -160,12 +153,6 @@ class TestColdCacheDiagnosis:
             "the three-wrong-reasons message leaked into a model-load failure"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M22: aimnet's _maybe_download_asset raises on a checksum "
-        "mismatch and leaves the bad file in place, so every later run fails "
-        "identically forever; Auto3D adds no hint about deleting it",
-    )
     def test_checksum_mismatch_says_to_delete_the_file(self, isolated_input, monkeypatch):
         """A corrupted cache entry must name the file and tell the user to remove it.
 
