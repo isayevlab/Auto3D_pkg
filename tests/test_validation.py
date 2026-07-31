@@ -37,8 +37,11 @@ class TestCheckInputExceptions:
         args.path = "/fake/path.smi"
 
         with patch.dict('os.environ', {}, clear=True):
-            with pytest.raises(DependencyError, match="OE_LICENSE"):
+            with pytest.raises(DependencyError, match="OE_LICENSE") as exc_info:
                 check_input(args)
+        # M26: dependency_name must be set so cli/errors.get_error_hint can
+        # show the openeye install hint instead of falling back to "unknown".
+        assert exc_info.value.dependency_name == "openeye"
 
     def test_omega_without_openeye_raises_dependency_error(self):
         """Should raise DependencyError when omega used but openeye not installed."""
@@ -55,8 +58,9 @@ class TestCheckInputExceptions:
             # Import of openeye should fail
             with patch.dict('sys.modules', {'openeye': None, 'openeye.oechem': None}):
                 with patch('builtins.__import__', side_effect=ImportError("No module named 'openeye'")):
-                    with pytest.raises(DependencyError, match="openeye"):
+                    with pytest.raises(DependencyError, match="openeye") as exc_info:
                         check_input(args)
+        assert exc_info.value.dependency_name == "openeye"
 
     def test_ani2x_without_torchani_raises_dependency_error(self):
         """Should raise DependencyError when ANI2x used but torchani not installed."""
@@ -78,8 +82,9 @@ class TestCheckInputExceptions:
             return original_import(name, *args, **kwargs)
 
         with patch('builtins.__import__', side_effect=mock_import):
-            with pytest.raises(DependencyError, match="TorchANI"):
+            with pytest.raises(DependencyError, match="TorchANI") as exc_info:
                 check_input(args)
+        assert exc_info.value.dependency_name == "torchani"
 
     def test_custom_nnp_load_failure_raises_model_load_error(self, tmp_path):
         """Should raise ModelLoadError when custom NNP cannot be loaded."""

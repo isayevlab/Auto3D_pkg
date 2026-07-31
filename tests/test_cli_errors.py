@@ -62,6 +62,68 @@ def test_auto3derror_verbose1_shows_traceback(capsys):
     assert "ConfigurationError" in captured.err
 
 
+# --- M26: DependencyError's hint must be reachable, not just its type -------
+#
+# Before this fix, DependencyError defined no `dependency_name` and none of
+# its four raise sites set one, so `get_error_hint`'s
+# `getattr(error, "dependency_name", "unknown")` always fell through to
+# "unknown" and the openeye/torchani/ase entries in its hints map were dead.
+# A test asserting only `pytest.raises(DependencyError)` would not catch that
+# regression -- these pin the actual hint text handle_error prints.
+
+def test_dependency_error_hint_pins_openeye_install(capsys):
+    from Auto3D.exceptions import DependencyError
+
+    with pytest.raises(SystemExit) as exc_info:
+        handle_error(
+            DependencyError("OE_LICENSE not detected", dependency_name="openeye"),
+            verbose=0,
+        )
+    assert exc_info.value.code == 3  # DependencyError -> 3, unchanged mapping
+
+    captured = capsys.readouterr()
+    assert "conda install -c openeye openeye-toolkits" in captured.err
+    assert "unknown" not in captured.err
+
+
+def test_dependency_error_hint_pins_torchani_install(capsys):
+    from Auto3D.exceptions import DependencyError
+
+    with pytest.raises(SystemExit):
+        handle_error(
+            DependencyError("TorchANI is not installed", dependency_name="torchani"),
+            verbose=0,
+        )
+    captured = capsys.readouterr()
+    assert "pip install torchani" in captured.err
+    assert "unknown" not in captured.err
+
+
+def test_dependency_error_hint_pins_ase_install(capsys):
+    from Auto3D.exceptions import DependencyError
+
+    with pytest.raises(SystemExit):
+        handle_error(
+            DependencyError("ASE is not installed", dependency_name="ase"),
+            verbose=0,
+        )
+    captured = capsys.readouterr()
+    assert "pip install ase" in captured.err
+    assert "unknown" not in captured.err
+
+
+def test_dependency_error_without_dependency_name_falls_back_to_unknown(capsys):
+    """A DependencyError raised without naming a dependency (e.g. by future or
+    third-party code) must still produce a hint, not crash the hint lookup --
+    this is the one case where "unknown" is the correct, honest answer."""
+    from Auto3D.exceptions import DependencyError
+
+    with pytest.raises(SystemExit):
+        handle_error(DependencyError("something is missing"), verbose=0)
+    captured = capsys.readouterr()
+    assert "Install the missing dependency: unknown" in captured.err
+
+
 def test_unexpected_error_verbose0_identifies_type_and_points_to_verbose(capsys):
     """Judgment call: even at verbose=0, an unexpected (non-Auto3DError)
     failure must name the exception type and say how to get more, because

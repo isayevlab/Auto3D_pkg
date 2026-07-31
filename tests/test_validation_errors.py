@@ -2,8 +2,12 @@
 
 These tests verify that validation functions raise real exceptions (not
 AssertionError) for invalid input data, ensuring reliable validation even with
-Python's -O flag. The .smi reader raises the structured InputValidationError so
-the CLI's `except Auto3DError` path produces an actionable hint.
+Python's -O flag. Both the .smi and .sdf readers raise the structured
+InputValidationError for the same empty-ID defect, so the CLI's
+`except Auto3DError` path produces an actionable hint regardless of input
+format. (check_sdf_format used to raise a bare ValueError here -- an
+asymmetry with check_smi_format's InputValidationError for the same defect,
+fixed as part of M26/M29.)
 """
 import tempfile
 from pathlib import Path
@@ -122,8 +126,10 @@ class TestCheckSmiFormatErrors:
 class TestCheckSdfFormatErrors:
     """Tests for error handling in check_sdf_format function."""
 
-    def test_empty_molecule_id_raises_value_error(self):
-        """Empty molecule ID should raise ValueError, not AssertionError."""
+    def test_empty_molecule_id_raises_input_validation_error(self):
+        """Empty molecule ID should raise the structured InputValidationError,
+        not a bare ValueError -- matching check_smi_format's missing-ID error
+        for the same defect (the .smi/.sdf asymmetry named in M26/M29)."""
         # Create a simple SDF with empty _Name property
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)
@@ -139,7 +145,7 @@ class TestCheckSdfFormatErrors:
             args.path = f.name
             args.enumerate_isomer = False
 
-            with pytest.raises(ValueError, match="[Ee]mpty.*ID|[Ee]mpty.*_Name"):
+            with pytest.raises(InputValidationError, match="[Ee]mpty.*ID|[Ee]mpty.*_Name"):
                 check_sdf_format(args)
 
         Path(f.name).unlink()

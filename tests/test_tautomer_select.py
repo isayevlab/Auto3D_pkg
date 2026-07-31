@@ -36,6 +36,7 @@ def test_select_tautomers_rejects_nonpositive_k(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
+    from Auto3D.exceptions import ConfigurationError
     from Auto3D.tautomer import select_tautomers
 
     sdf = tmp_path / "in.sdf"
@@ -46,5 +47,49 @@ def test_select_tautomers_rejects_nonpositive_k(tmp_path):
         m.SetProp("E_tot", "-1.0")
         w.write(m)
 
-    with pytest.raises(ValueError, match="tauto_k"):
+    with pytest.raises(ConfigurationError, match="tauto_k"):
         select_tautomers(str(sdf), k=0)
+
+
+def test_select_tautomers_rejects_k_and_window_together(tmp_path):
+    """M29: this used to be a bare ValueError, not an Auto3DError -- so the
+    CLI's differentiated exit code/hint never applied to a direct Python API
+    call, only to the CLI's own pre-check in execute_tautomers."""
+    import pytest
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.tautomer import select_tautomers
+
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "molA@taut1")
+        m.SetProp("E_tot", "-1.0")
+        w.write(m)
+
+    with pytest.raises(ConfigurationError, match="Only k OR window"):
+        select_tautomers(str(sdf), k=1, window=2.0)
+
+
+def test_select_tautomers_rejects_neither_k_nor_window(tmp_path):
+    """Same M29 gap as above, for the neither-given branch."""
+    import pytest
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.tautomer import select_tautomers
+
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "molA@taut1")
+        m.SetProp("E_tot", "-1.0")
+        w.write(m)
+
+    with pytest.raises(ConfigurationError, match="Either k OR window"):
+        select_tautomers(str(sdf))

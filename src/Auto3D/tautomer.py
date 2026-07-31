@@ -7,6 +7,7 @@ from rdkit import Chem
 
 from Auto3D.auto3D import main
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError
 from Auto3D.utils import hartree2kcalpermol
 from Auto3D.utils.logging_config import get_logger
 
@@ -30,13 +31,21 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
         decided by ZPE/entropy differences of 1-2 kcal/mol that can invert the
         electronic-energy ordering, so the "most stable" tautomer here is an
         electronic-energy estimate, not a free-energy one. Use the thermo module
-        (Auto3D.ASE.thermo) for a free-energy comparison when that matters."""
+        (Auto3D.ASE.thermo) for a free-energy comparison when that matters.
+
+    Raises:
+        ConfigurationError: If both k and window are given, if neither is
+            given, or if k < 1. ``auto3d tautomers`` already rejects the
+            both-given case in ``execute_tautomers`` before calling this
+            function, but ``select_tautomers``/``get_stable_tautomers`` are
+            also public Python API entry points that can be called directly,
+            bypassing that CLI-level guard."""
     logger.info("Begin to select stable tautomers based on their conformer energies...")
     results = []
     if (k is not None) and (window is not None):
-        raise ValueError("Only k OR window needs to be specified")
+        raise ConfigurationError("Only k OR window needs to be specified")
     if (k is not None) and (k < 1):
-        raise ValueError(f"tauto_k must be >= 1, got {k}")
+        raise ConfigurationError(f"tauto_k must be >= 1, got {k}")
 
     supplier = Chem.SDMolSupplier(sdf, removeHs=False)
     mols = [m for m in supplier if m is not None]
@@ -77,7 +86,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
                     mol.SetProp("_Name", group_name)
                     out_mols.append(mol)
         else:
-            raise ValueError("Either k OR window needs to be specified")
+            raise ConfigurationError("Either k OR window needs to be specified")
         results += out_mols
         
 

@@ -14,7 +14,6 @@ from Auto3D.exceptions import (
     GPUError,
     InputValidationError,
     ModelError,
-    ModelNotFoundError,
 )
 
 # Differentiated exit codes for scripting/CI. 1 = generic; the rest let callers
@@ -25,7 +24,7 @@ EXIT_CODES: dict[type, int] = {
     InputValidationError: 2,
     DependencyError: 3,
     GPUError: 4,
-    ModelError: 5,  # includes ModelNotFoundError / ModelLoadError / NumericalError
+    ModelError: 5,  # includes ModelLoadError / NumericalError
 }
 
 
@@ -51,9 +50,6 @@ def get_error_hint(error: Auto3DError) -> str | None:
 
     if isinstance(error, InputValidationError):
         return "Run 'auto3d validate <file>' to check your input file"
-
-    if isinstance(error, ModelNotFoundError):
-        return "Available engines: AIMNET, ANI2x, ANI2xt\nRun 'auto3d models list' for details"
 
     if isinstance(error, GPUError):
         return "Try --no-gpu to run on CPU, or check CUDA installation"

@@ -420,16 +420,6 @@ def test_error_hint_input_validation_error():
     assert "validate" in hint
 
 
-def test_error_hint_model_not_found_error():
-    """get_error_hint should return hint for ModelNotFoundError."""
-    from Auto3D.cli.errors import get_error_hint
-    from Auto3D.exceptions import ModelNotFoundError
-
-    hint = get_error_hint(ModelNotFoundError("test"))
-    assert hint is not None
-    assert "AIMNET" in hint
-
-
 def test_error_hint_gpu_error():
     """get_error_hint should return hint for GPUError."""
     from Auto3D.cli.errors import get_error_hint

@@ -103,6 +103,7 @@ def execute_thermo(
         except ImportError as e:
             raise DependencyError(
                 "Thermochemistry requires ASE, which is not installed.",
+                dependency_name="ase",
             ) from e
 
         # Scalar --temperature -> the per-mol (id, T) callback calc_thermo expects.

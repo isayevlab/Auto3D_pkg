@@ -138,7 +138,8 @@ def check_input(args: Any) -> None:
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
         raise DependencyError(
             "Omega is used as the isomer engine, but OE_LICENSE is not detected. "
-            "Please use rdkit."
+            "Please use rdkit.",
+            dependency_name="openeye",
         )
 
     # Check the installation for open toolkits, torchani
@@ -147,7 +148,8 @@ def check_input(args: Any) -> None:
             from openeye import oechem  # noqa: F401
         except ImportError:
             raise DependencyError(
-                "Omega is used as isomer engine, but openeye toolkits are not installed."
+                "Omega is used as isomer engine, but openeye toolkits are not installed.",
+                dependency_name="openeye",
             )
 
     if args.optimizing_engine == "ANI2x":
@@ -155,7 +157,8 @@ def check_input(args: Any) -> None:
             import torchani  # noqa: F401
         except ImportError:
             raise DependencyError(
-                "ANI2x is used as optimizing engine, but TorchANI is not installed."
+                "ANI2x is used as optimizing engine, but TorchANI is not installed.",
+                dependency_name="torchani",
             )
 
     if Path(args.optimizing_engine).exists():
@@ -295,7 +298,7 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
             - only_aimnet_ids: List of molecule IDs that require AIMNET
 
     Raises:
-        ValueError: If molecule ID is empty (_Name property is empty).
+        InputValidationError: If molecule ID is empty (_Name property is empty).
     """
     ANI = True
 
@@ -307,7 +310,10 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
             continue
         id = mol.GetProp("_Name")
         if len(id) == 0:
-            raise ValueError("Empty molecule ID (empty _Name property)")
+            # Same defect as check_smi_format's missing-ID check above --
+            # both must raise the same Auto3DError subclass so the CLI shows
+            # the same hint and exit code regardless of input format.
+            raise InputValidationError("Empty molecule ID (empty _Name property)")
         mols.append(mol)
 
         if _requires_aimnet(mol):

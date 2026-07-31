@@ -84,6 +84,12 @@ def test_thermo_without_ase_raises_dependency_error(sdf, monkeypatch):
     res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu"])
     assert res.exit_code == 3  # DependencyError -> exit 3
     assert "Traceback" not in res.output
+    # M26: DependencyError used to carry no dependency_name, so this hint was
+    # unreachable and every dependency failure showed "Install the missing
+    # dependency: unknown" -- pin the actual install hint the user sees, not
+    # just the exit code (which would still pass on that regression).
+    assert "pip install ase" in res.output
+    assert "unknown" not in res.output
 
 
 # --- engine-name validation (M21 / C11) --------------------------------------
@@ -146,14 +152,14 @@ def test_exit_code_mapping():
         DependencyError,
         GPUError,
         InputValidationError,
-        ModelNotFoundError,
+        ModelLoadError,
         OptimizationError,
     )
     assert exit_code_for(ConfigurationError("x")) == 2
     assert exit_code_for(InputValidationError("x")) == 2
     assert exit_code_for(DependencyError("x")) == 3
     assert exit_code_for(GPUError("x")) == 4
-    assert exit_code_for(ModelNotFoundError("x")) == 5
+    assert exit_code_for(ModelLoadError("x")) == 5  # ModelError subclass -> 5
     assert exit_code_for(OptimizationError("x")) == 1  # generic
     assert exit_code_for(RuntimeError("x")) == 1
 
