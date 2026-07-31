@@ -12,9 +12,9 @@ class _FakeAIMNet2Adapter:
     """Lightweight stand-in for ``AIMNet2Adapter``.
 
     Mirrors the real constructor signature so ``ModelFactory.create`` builds
-    its cache key (registry_name, device, use_ensemble, compile_model) and
-    stores/returns instances exactly as in production, but skips the multi-
-    second real AIMNet2 model load. The caching dict, identity semantics, and
+    its cache key (registry_name, device, compile_model) and stores/returns
+    instances exactly as in production, but skips the multi-second real
+    AIMNet2 model load. The caching dict, identity semantics, and
     ``get_cache_info()`` size are all exercised unchanged; only the expensive
     object construction is replaced with an instant one.
     """
@@ -24,12 +24,10 @@ class _FakeAIMNet2Adapter:
         model_name="aimnet2",
         device=None,
         compile_model=False,
-        use_ensemble=False,
     ):
         self.model_name = model_name
         self.device = device
         self.compile_model = compile_model
-        self.use_ensemble = use_ensemble
 
 
 class TestModelCaching:
@@ -70,13 +68,6 @@ class TestModelCaching:
         model_aimnet = create_model("AIMNET", device)
         model_ani2xt = create_model("ANI2xt", device)
         assert model_aimnet is not model_ani2xt
-
-    def test_different_ensemble_settings_create_different_instances(self):
-        """Test that different use_ensemble settings create different instances."""
-        device = torch.device("cpu")
-        model_single = create_model("AIMNET", device, use_ensemble=False)
-        model_ensemble = create_model("AIMNET", device, use_ensemble=True)
-        assert model_single is not model_ensemble
 
     def test_clear_cache_removes_models(self):
         """Test that clear_cache removes all cached models."""

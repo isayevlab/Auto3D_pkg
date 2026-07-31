@@ -279,3 +279,42 @@ def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
     monkeypatch.setattr(model_factory, "CustomModelAdapter", _FakeCustom)
     model_factory.create_model(str(f), torch.device("cpu"), use_cache=False)
     assert captured["path"] == str(f)
+
+
+class TestRemovedParameters:
+    """use_ensemble and **kwargs were dead and are gone in 4.0.
+
+    These assert against ``create_model``'s call signature via
+    ``inspect.signature(...).bind(...)`` rather than calling ``create_model``
+    directly. Before the fix, both keywords are silently accepted (the second
+    via **kwargs) and the call falls through to actually loading a real
+    AIMNet2 model -- unsafe on this shared-GPU box with 8 shared CUDA devices.
+    ``Signature.bind`` raises the exact same ``TypeError`` a real call would
+    raise at argument-binding time (before the function body ever runs), so
+    this is behaviorally equivalent to ``pytest.raises(TypeError): create_model(...)``
+    without ever entering the function body or touching a model.
+    """
+
+    def test_use_ensemble_is_rejected(self):
+        """Passing the removed parameter must fail loudly, not be ignored."""
+        import inspect
+
+        import torch
+
+        from Auto3D.model_factory import create_model
+
+        sig = inspect.signature(create_model)
+        with pytest.raises(TypeError):
+            sig.bind("AIMNET", torch.device("cpu"), use_ensemble=True)
+
+    def test_unknown_kwarg_is_rejected(self):
+        """**kwargs previously swallowed typos silently."""
+        import inspect
+
+        import torch
+
+        from Auto3D.model_factory import create_model
+
+        sig = inspect.signature(create_model)
+        with pytest.raises(TypeError):
+            sig.bind("AIMNET", torch.device("cpu"), use_ensembel=True)

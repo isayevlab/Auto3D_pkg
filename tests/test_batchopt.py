@@ -31,7 +31,7 @@ class TestOptimizingUsesModelFactory:
             opt = optimizing("dummy.sdf", "out.sdf", "AIMNET", device, config)
 
             # Check that create_model was called with the right model name and device
-            mock_factory.assert_called_once_with("AIMNET", device, use_ensemble=False)
+            mock_factory.assert_called_once_with("AIMNET", device)
             # Verify the adapter's properties are used
             assert opt.coord_pad == 0.0
             assert opt.species_pad == 0

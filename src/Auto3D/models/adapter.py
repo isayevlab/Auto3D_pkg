@@ -213,7 +213,6 @@ class AIMNet2Adapter(BaseModelAdapter):
         model_name: str = "aimnet2",
         device: torch.device | None = None,
         compile_model: bool = False,
-        use_ensemble: bool = False,
     ) -> None:
         """Initialize the AIMNet2 adapter.
 
@@ -221,21 +220,12 @@ class AIMNet2Adapter(BaseModelAdapter):
             model_name: aimnet registry name/alias.
             device: Target device.
             compile_model: Forwarded to AIMNet2Calculator (torch.compile).
-            use_ensemble: Reserved; a single registry member is used in 3.5.
         """
         from aimnet.calculators import AIMNet2Calculator
 
         if device is None:
             device = torch.device("cpu")
         self.model_name = model_name
-        self._use_ensemble = use_ensemble
-        if use_ensemble:
-            import warnings
-            warnings.warn(
-                "use_ensemble is not supported for the aimnet backend in 3.5; "
-                "using a single registry member.",
-                UserWarning, stacklevel=2,
-            )
         calc = AIMNet2Calculator(model_name, device=device, compile_model=compile_model)
         super().__init__(calc.model, device, coord_pad=0.0, species_pad=0, compile_model=False)
         self._calc = calc

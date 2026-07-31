@@ -153,7 +153,6 @@ class optimizing:
         name: str,
         device: torch.device,
         config: "OptimizationConfig | dict",
-        use_ensemble: bool = False,
         progress_cb: "Callable[[dict], None] | None" = None,
     ):
         """Initialize optimization runner.
@@ -164,8 +163,6 @@ class optimizing:
             name: Model name ('AIMNET', 'ANI2x', 'ANI2xt', or path to custom model).
             device: Torch device for computation.
             config: OptimizationConfig dataclass or legacy dict with parameters.
-            use_ensemble: For AIMNET only - whether to use ensemble (default False).
-                Single model is ~35x faster. Set True for highest accuracy.
         """
         self.in_f = in_f
         self.out_f = out_f
@@ -181,7 +178,7 @@ class optimizing:
             self._config_dict = config.to_dict()
 
         # Use ModelFactory to create the model adapter
-        self.model = create_model(name, device, use_ensemble=use_ensemble)
+        self.model = create_model(name, device)
         self.coord_pad = self.model.coord_pad
         self.species_pad = self.model.species_pad
 
