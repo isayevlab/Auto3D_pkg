@@ -12,7 +12,12 @@ the last gap: calc_spe, opt_geometry and calc_thermo now call
 `Auto3D.utils.validation.check_engine_supports_molecules` (the guard
 extracted from check_smi_format/check_sdf_format's formerly-duplicated
 element set) and `resolve_engine_name`, the same two checks main() and
-smiles2mols already ran via check_input.
+smiles2mols already ran via check_input. Task 4 (M15) closed
+`TestSmiles2MolsHonesty`'s gap: smiles2mols now raises ConfigurationError for
+enumerate_tautomer/a non-rdkit isomer_engine instead of silently ignoring
+them, calls check_valid_configuration the same way main() does, and takes a
+private copy of its config argument up front so it never mutates the
+caller's object.
 """
 from __future__ import annotations
 
@@ -156,12 +161,6 @@ class TestSmiles2MolsHonesty:
         monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
         monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M15: enumerate_tautomer, isomer_engine and mode_oe have no effect "
-        "-- there is no TautomerProcessor in the function and the RDKit engine is "
-        "hardcoded at auto3D.py:131",
-    )
     def test_unsupported_option_raises(self, isolated_input, monkeypatch):
         """Requesting tautomer enumeration must raise rather than be ignored.
 
@@ -181,12 +180,6 @@ class TestSmiles2MolsHonesty:
         with pytest.raises((Auto3DError, NotImplementedError)):
             smiles2mols(["CCO"], args)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M15: auto3D.py:117 sets args['path'] = path0 and :125 sets "
-        "args.input_format on the caller's object, leaving path pointing into a "
-        "deleted TemporaryDirectory",
-    )
     def test_caller_config_is_not_mutated(self, isolated_input, monkeypatch):
         """smiles2mols must not modify the config object it was given.
 

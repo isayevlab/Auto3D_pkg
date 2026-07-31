@@ -477,6 +477,69 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
     assert opt_configs, "optimizer did not receive the memory-scaled batchsize"
 
 
+def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
+    """A second main(args) call in the same process must not reuse the first
+    run's job_name (M16).
+
+    main() builds a fresh WorkflowOrchestrator(args) on every call but the
+    two calls share the same Auto3DOptions object. Before this fix, run()
+    validated and mutated that shared object directly (job_name/input_format,
+    see _validate_input), so a second call would see job_name already
+    non-empty and skip generating its own -- silently reusing the first
+    run's job_name. run() now copies the shared config once at its own top,
+    so each run's mutations land on a private copy and the shared object
+    passed in is never touched.
+
+    Exercises WorkflowOrchestrator directly (constructing it twice with the
+    same shared config, exactly as two main(args) calls would) rather than
+    calling main() twice end-to-end: a real run loads an optimizing model and
+    forks worker processes, both disallowed on this box. Only Phase 1
+    (_validate_input) is relevant to this defect, so every later phase is
+    stubbed to stop the pipeline the moment it is reached -- optimizing_engine
+    is pinned to 'ANI2xt' (bundled, no registry/network lookup) so even Phase
+    1's real preflight_model check stays offline.
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.workflow import WorkflowOrchestrator
+
+    smi = tmp_path / "mol.smi"
+    smi.write_text("CCO ethanol\n")
+    shared_config = Auto3DOptions(
+        path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
+    )
+    assert shared_config.job_name == ""
+
+    class _StopAfterValidateError(Exception):
+        pass
+
+    def _stub_setup_job_directory(self):
+        raise _StopAfterValidateError()
+
+    monkeypatch.setattr(
+        WorkflowOrchestrator, "_setup_job_directory", _stub_setup_job_directory
+    )
+
+    orch1 = WorkflowOrchestrator(shared_config)
+    with pytest.raises(_StopAfterValidateError):
+        orch1.run()
+    first_job_name = orch1.config.job_name
+    assert first_job_name != ""
+
+    orch2 = WorkflowOrchestrator(shared_config)
+    with pytest.raises(_StopAfterValidateError):
+        orch2.run()
+    second_job_name = orch2.config.job_name
+    assert second_job_name != ""
+
+    assert second_job_name != first_job_name, (
+        "second run reused the first run's job_name -- the shared config "
+        "object was mutated in place (M16)"
+    )
+    # The object the caller still holds a reference to must show no trace of
+    # either run's mutation.
+    assert shared_config.job_name == ""
+
+
 def test_smiles2mols_uses_args_threshold(monkeypatch):
     """smiles2mols must pass args.threshold (not a hardcoded value) to the
     isomer engine, matching main()'s candidate-pool behavior (review #35/#36)."""
