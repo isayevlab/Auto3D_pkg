@@ -962,7 +962,7 @@ class TestEnumerationDisabled:
         """With enumeration off the user is told the output is a mixture."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="auto3d"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.isomer_engine"):
             per_species = _run_engine(
                 job_dir, "CC(N)C(=O)O", "alanine_off", three_d=False,
                 enumerate_isomers=False,
@@ -973,9 +973,9 @@ class TestEnumerationDisabled:
         )
 ```
 
-Two things to check before running, and to report rather than paper over:
-1. `caplog` capture depends on the logger name `Auto3D.utils.logging_config.get_logger` produces. Read `logging_config.py` and use the real name. If Auto3D's logger sets `propagate = False`, `caplog` will see nothing — in that case attach `caplog.handler` to the module logger explicitly or assert on a different observable, and say so in the report.
-2. `_run_engine`'s `**kwargs` passes `enumerate_isomers` to `create_isomer_engine`. Confirm the wrapper accepts it as a keyword.
+Two facts already verified on this box — use them, do not re-derive:
+1. `get_logger(__name__)` returns `logging.getLogger(name)` with no `propagate = False` anywhere in `logging_config.py`, so `isomer_engine.py`'s logger is named `Auto3D.isomer_engine` and `caplog` reaches it. (`workflow_workers.py` uses a *different* logger named `auto3d`; do not use that name here.) If the capture still comes up empty, fall back to a bare `caplog.at_level(logging.WARNING)` before inventing anything else, and say so in the report.
+2. `create_isomer_engine` declares `enumerate_isomers: bool = True` and forwards it to `IsomerEngineFactory.create`, so `_run_engine`'s `**kwargs` reaches the factory. Only the `rdkit_sdf` branch inside `create` drops it — that is the line Step 5 fixes.
 
 - [ ] **Step 8: Run the new module**
 
