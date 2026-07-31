@@ -91,12 +91,21 @@ class TestInputOutputAccounting:
 
     @pytest.mark.xfail(
         strict=True,
-        reason="C6: one unsupported element raises inside ensemble_opt, and "
-        "optim_rank_wrapper's bare `except Exception: continue` discards every "
-        "molecule in that chunk",
+        reason="C6: an unsupported element must fail its own molecule without "
+        "taking the chunk down -- optim_rank_wrapper's bare `except Exception: "
+        "continue` discards every molecule in the chunk. The molecule must also "
+        "actually fail: Auto3D validates atomic numbers against no model "
+        "species list, so an unsupported element can instead be assigned an "
+        "energy the model has no basis to produce",
     )
     def test_one_bad_molecule_does_not_remove_the_others(self, job_dir):
-        """A sodium counterion must not take the rest of the file down with it."""
+        """A sodium counterion must fail, and must fail alone.
+
+        Both halves matter and the original test only checked the second, so
+        it went green while `optim_rank_wrapper`'s bare `except Exception:
+        continue` was still in place -- passing because nothing had gone
+        wrong, not because a failure had been contained.
+        """
         from Auto3D.auto3D import main
 
         smi = job_dir / "mixed.smi"
@@ -116,6 +125,29 @@ class TestInputOutputAccounting:
             for m in Chem.SDMolSupplier(out, removeHs=False)
             if m is not None
         }
+
+        # A test for "one failure does not cascade" has to establish that a
+        # failure happened. Without this the assertions below pass whenever
+        # sodium_acetate quietly succeeds, which says nothing about C6 -- and
+        # that is exactly how this test XPASSed against a codebase where the
+        # bare `except Exception: continue` in optim_rank_wrapper is still
+        # there, unchanged.
+        #
+        # Na (Z=11) is genuinely absent from AIMNet2's implemented species
+        # (verified against the cached checkpoints: [1, 5, 6, 7, 8, 9, 14, 15,
+        # 16, 17, 33, 34, 35, 53]), and nothing in Auto3D checks that list. So
+        # if sodium_acetate appears in the output, the model returned a number
+        # for an element it does not implement -- a silently wrong energy,
+        # which is a worse finding than the chunk loss this test was written
+        # for, and one that must not hide behind a green assertion.
+        assert "sodium_acetate" not in produced, (
+            "sodium_acetate was optimized and written to the output even though "
+            "Na (Z=11) is not among AIMNet2's implemented species. Nothing in "
+            "Auto3D validates atomic numbers against the model's species list, "
+            "so this is an energy computed for an unsupported element rather "
+            f"than the chunk loss C6 describes; produced {sorted(produced)}"
+        )
+
         for good in ("ethanol", "propanol", "benzene"):
             assert good in produced, (
                 f"{good} was lost because an unrelated molecule failed; produced "
