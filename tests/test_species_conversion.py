@@ -1,12 +1,16 @@
 """ANI2xt species must be model indices, not atomic numbers.
 
 ANI2xt is built with periodic_table_index=False at every construction site
-(nothing passes True), so its forward expects 0-based indices H=0..Cl=6. Only
-batch_opt/padding.py:131-134 converts. ASE/thermo.py:146-147 and :170-171 pass
-raw atomic numbers, as does cli/commands/models.py:241-243 (C3, C4).
+(nothing passes True), so its forward expects 0-based indices H=0..Cl=6.
+`ASE/thermo.py` and `cli/commands/models.py` previously passed raw atomic
+numbers instead of converting them, evaluating hydrogen with the carbon
+network and carbon with the chlorine network (audit C3, C4). Both call sites
+now convert through `Auto3D.batch_opt.species.to_model_species` before
+calling the model, and the tests below guard against that regressing.
 
 The decisive asymmetry: ANI2x gets periodic_table_index=True at both of its
-sites (thermo.py:338, models/adapter.py:346), so it is correct.
+sites (thermo.py:338, models/adapter.py:346), so it was always correct and
+needs no conversion.
 """
 from __future__ import annotations
 

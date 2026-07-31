@@ -48,6 +48,7 @@ Contents
 
    installation
    migration
+   migration-4.0
    usage
    cli
    advanced_usage

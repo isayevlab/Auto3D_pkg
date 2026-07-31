@@ -294,11 +294,15 @@ class TestNSteps:
 def test_fmax_ignores_padded_atoms():
     """The padded-atom force is ignored via an explicit atom_mask (audit C13).
 
-    Deriving the mask from `numbers == species_pad` breaks whenever the
-    sentinel collides with a real species index -- here species 0 is a real
-    atom (hydrogen, in ANI2xt's convention) at index 0 of this molecule, and
-    species 0 is *also* the padded last slot. An explicit mask keeps the two
-    unambiguous.
+    Species 0 is a real atom (hydrogen, in ANI2xt's convention) at index 0 of
+    this molecule, and species 0 is *also* the value historically used to
+    flag the padded last slot -- a genuine collision. Deriving the mask from
+    `numbers == species_pad` would therefore mark BOTH the real atom at index
+    0 and the padded slot at index 2 as padding, incorrectly zeroing the real
+    atom's force too. The explicit atom_mask keeps the two unambiguous: only
+    index 2 is padding, so the huge force placed on the real atom at index 0
+    must be retained (not zeroed) while the padded slot's huge force is
+    dropped.
     """
     import torch
 
@@ -308,18 +312,22 @@ def test_fmax_ignores_padded_atoms():
         def forward_batched(self, coord, numbers, charges):
             e = torch.zeros(coord.shape[0])
             f = torch.zeros_like(coord)
-            f[:, -1, :] = 100.0  # huge force on the (padded) last atom
+            f[:, 0, :] = 100.0  # huge force on the real atom at index 0 (species 0)
+            f[:, -1, :] = 100.0  # huge force on the (padded) last slot (also species 0)
             return e, f
     coord = torch.zeros(1, 3, 3)
     state = {
-        "coord": coord, "numbers": torch.tensor([[6, 8, 0]]),  # last is pad (species 0)
+        "coord": coord, "numbers": torch.tensor([[0, 8, 0]]),  # index 0 is real H; last is pad, both species 0
         "charges": torch.zeros(1, dtype=torch.long), "nn": MockNN(),
         "converged_mask": torch.zeros(1, dtype=torch.bool),
         "fmax": torch.full((1,), 999.0), "energy": torch.full((1,), float("inf"), dtype=torch.double),
     }
-    atom_mask = torch.tensor([[True, True, False]])  # last slot is padding
+    atom_mask = torch.tensor([[True, True, False]])  # only the last slot is padding
     n_steps(state, n=1, opttol=0.01, patience=5, atom_mask=atom_mask)
-    assert state["fmax"].item() < 1.0  # padded-atom force ignored
+    # The real atom at index 0 keeps its force; only the padded slot's huge
+    # force is dropped. A value-derived mask (numbers == 0) would have zeroed
+    # index 0 too, collapsing fmax toward 0 instead.
+    assert state["fmax"].item() > 50.0  # real slot-0 force retained, not zeroed
 
 
 def test_stored_energy_matches_stored_coord():

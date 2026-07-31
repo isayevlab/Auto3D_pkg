@@ -58,7 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Padded atoms can no longer be mistaken for real ones** - a custom NNP
   declaring `species_pad=0` with 0-based species indices previously had every
   hydrogen's force zeroed and excluded from the convergence check, producing
-  output marked `Converged=True` with an understated `fmax`.
+  output marked `Converged=True` with an understated `fmax`. That masking
+  happened before the FIRE optimizer step, and FIRE's velocity update is
+  purely force-driven from `v = 0`, so every affected hydrogen was frozen at
+  its input coordinate for the entire run - the output geometry itself was
+  wrong, not merely the convergence metadata.
 
 ## [3.5.0] - 2026-06-13
 
