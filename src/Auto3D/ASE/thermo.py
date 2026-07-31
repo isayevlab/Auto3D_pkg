@@ -160,6 +160,23 @@ def _drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
     }
 
 
+def _electron_count(mol: Chem.Mol) -> int:
+    """Total electron count: sum of atomic numbers minus the formal charge.
+
+    Sums over ``Chem.AddHs(mol)`` rather than ``mol`` directly: a mol built
+    without explicit hydrogens (e.g. straight from ``MolFromSmiles``, no
+    ``AddHs`` call) stores them only as an implicit-H count on each heavy
+    atom, not as their own ``Atom`` objects, so summing ``GetAtomicNum()``
+    over ``mol.GetAtoms()`` would silently skip every implicit hydrogen and
+    undercount electrons. ``Chem.AddHs`` returns a new mol (the input is not
+    mutated) and is idempotent when hydrogens are already explicit, so this
+    is correct either way.
+    """
+    return sum(
+        a.GetAtomicNum() for a in Chem.AddHs(mol).GetAtoms()
+    ) - rdmolops.GetFormalCharge(mol)
+
+
 def _resolve_multiplicity(mol: Chem.Mol) -> int:
     """Spin multiplicity (2S+1) for IdealGasThermo's electronic-degeneracy term.
 
@@ -180,6 +197,19 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     as nonsense (spin = 2147483647.0 and -0.5, respectively). ``int()`` on the
     same string preserves the sign, so both are correctly rejected as
     multiplicities below the physically valid minimum of 1 (2S+1 for S >= 0).
+
+    The lower bound alone is not sufficient: ``int("4294967295")`` parses
+    cleanly (no wraparound -- that only afflicts ``GetUnsignedProp``) to a
+    huge but nominally ">= 1" value, which passed the lower-bound check
+    unchanged and fed spin = 2147483647.0 into ``R*ln(multiplicity)`` with no
+    warning, shifting Gibbs energy by 13.1 kcal/mol at 298.15 K. A
+    multiplicity is also bounded above: a molecule with ``n_electrons``
+    electrons cannot exceed multiplicity ``n_electrons + 1`` (every electron
+    unpaired), and 2S+1 must have parity opposite the electron count --
+    integer S (odd multiplicity) for an even-electron species, half-integer S
+    (even multiplicity) for an odd-electron one. Both the too-large and the
+    wrong-parity cases are rejected the same way as the too-small case:
+    warn and fall back to the radical-derived value.
     """
     if mol.HasProp("multiplicity"):
         try:
@@ -191,15 +221,37 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                 mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
             )
         else:
-            if value >= 1:
+            n_electrons = _electron_count(mol)
+            max_multiplicity = n_electrons + 1
+            if value < 1:
+                logger.warning(
+                    "Molecule %s has an invalid 'multiplicity' property (%d); "
+                    "multiplicity must be >= 1 (2S+1 for spin S >= 0). "
+                    "Deriving it from the radical-electron count instead.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value,
+                )
+            elif value > max_multiplicity:
+                logger.warning(
+                    "Molecule %s has an invalid 'multiplicity' property (%d); "
+                    "a %d-electron species cannot exceed multiplicity %d "
+                    "(2S+1 with every electron unpaired). Deriving it from "
+                    "the radical-electron count instead.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value, n_electrons, max_multiplicity,
+                )
+            elif value % 2 == n_electrons % 2:
+                logger.warning(
+                    "Molecule %s has an invalid 'multiplicity' property (%d); "
+                    "its parity is inconsistent with a %d-electron species "
+                    "(2S+1 requires odd multiplicity for an even-electron "
+                    "species, even multiplicity for an odd-electron one). "
+                    "Deriving it from the radical-electron count instead.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value, n_electrons,
+                )
+            else:
                 return value
-            logger.warning(
-                "Molecule %s has an invalid 'multiplicity' property (%d); "
-                "multiplicity must be >= 1 (2S+1 for spin S >= 0). Deriving "
-                "it from the radical-electron count instead.",
-                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
-                value,
-            )
     n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
     multiplicity = n_radical + 1
     mol.SetUnsignedProp("multiplicity", int(multiplicity))
@@ -466,6 +518,21 @@ def analyze_vibrations(
     ``vib_energies[-(3*natoms-6):]`` / ``[-(3*natoms-5):]`` / ``[]``, as
     installed (ase 3.27.0). If a future ASE version changes this slicing, this
     function's behavior should follow the installed source, not this comment.
+
+    One classification detail deliberately does NOT mirror ASE: this function
+    calls a mode imaginary when ``imag(v) != 0``, while ASE's own
+    ``_clean_vib_energies`` keeps a mode only when ``real(v) > 0``, i.e. it
+    treats ``real(v) <= 0`` as imaginary. The two agree everywhere except for
+    a mode that is exactly zero (``complex(0, 0)``): this function calls that
+    real (not imaginary), ASE calls it imaginary. An exactly-zero mode is not
+    a numerical-noise case -- floating-point Hessian eigenvalues essentially
+    never land on precisely zero -- so in practice it only shows up for a
+    genuinely singular mode, e.g. a dissociated system where a fragment's
+    separation coordinate carries no restoring force at all. Matching ASE
+    exactly here would reclassify legitimate near-zero (but nonzero-real,
+    zero-imaginary) vibrational modes as imaginary, which is not wanted, so
+    this divergence is intentional and only matters for that dissociated-system
+    edge case.
 
     Args:
         vib_energies: Complex vibrational energies in eV, as ASE returns them

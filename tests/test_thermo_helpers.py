@@ -270,36 +270,61 @@ class TestVibrationAnalysis:
         assert result.max_imag_cm == pytest.approx(400.0, abs=1.0)
         assert result.is_transition_state is True
 
-    def test_the_largest_imaginary_mode_decides(self):
-        """The largest-magnitude imaginary mode comes FIRST in a real
-        spectrum, not last: VibrationsData.get_energies() diagonalizes with
-        np.linalg.eigh, which returns eigenvalues ascending, so the most
-        negative omega^2 (largest imaginary energy) sorts to the front. The
-        previous version of this test put the largest imaginary mode last,
-        which would not have caught a max(...) -> last-wins regression.
-        """
-        result = analyze_vibrations(
-            _ev(-350, -12, 900), n_atoms=3, geometry="nonlinear"
-        )
-        assert result.n_imag == 2
-        assert result.max_imag_cm == pytest.approx(350.0, abs=1.0)
-        assert result.is_transition_state is True
+    # A prior version of this class had a
+    # "test_the_largest_imaginary_mode_decides" test, meant to catch a
+    # max(...) -> last-wins regression in the running max_imag_cm
+    # computation by putting the largest-magnitude imaginary mode first in
+    # the input. That achieves nothing: analyze_vibrations sorts a *copy* of
+    # the energies by magnitude before ever touching max_imag_cm, so input
+    # order never reaches the loop that computes it -- every element the
+    # loop sees is already in ascending-magnitude order regardless of how
+    # the caller ordered the input, so a last-wins mutation over that
+    # (already-sorted) iteration order is indistinguishable from a genuine
+    # running max. There is no input ordering that makes the two diverge.
+    # Verified by mutation: replacing the running
+    # ``max(max_imag_cm, ...)`` with an unconditional last-write and
+    # re-running the whole class (any ordering of inputs) still passes.
+    # Deleted rather than "fixed" -- there is nothing order-sensitive here
+    # for a test to assert on.
 
     def test_energies_preserve_the_full_mode_count(self):
-        """.energies must stay the full 3N set, imaginary modes included.
+        """.energies must stay the full 3N set, and the 3N-6 trim that
+        separates genuine vibrations from translation/rotation must
+        actually remove modes, not be a no-op.
 
-        IdealGasThermo is handed this same list and performs its own
-        equivalent 3N-6/3N-5 slice internally; if analyze_vibrations instead
-        trimmed .energies down to the vibration-only subset, that second cut
-        would delete genuine vibrations, but every other test in this class
-        would still pass since none of them checks the length of .energies.
+        The previous version of this test used n_atoms=4 with exactly 6
+        input modes, so 3N-6 == 6 == len(modes): the trim (keep the last
+        3N-6 of a magnitude-sorted copy) selected all 6 elements right back,
+        a no-op. A bug that assigned ``.energies`` from the trimmed
+        vibrational-only list instead of the untouched input would have had
+        the *same* length (6) in that case, so ``len(result.energies) ==
+        len(modes)`` could never fail regardless. Supplying the full
+        3N=12-mode spectrum here -- with every mode imaginary -- makes the
+        two diverge: ``.energies`` must retain all 12 entries, while
+        ``n_imag`` (computed over the trimmed window only) must be exactly
+        3N-6=6, not 12 -- so a regression to counting over the full input
+        (or to trimming ``.energies`` itself) is now visible either way.
         """
-        modes = _ev(-400, 10, 20, 800, 1600, 3000)
+        modes = _ev(-1, -2, -3, -4, -5, -6, -400, -500, -600, -700, -800, -900)
         result = analyze_vibrations(modes, n_atoms=4, geometry="nonlinear")
         assert len(result.energies) == len(modes)
-        assert any(abs(e.imag) > 0.0 for e in result.energies), (
-            "an imaginary mode did not survive into .energies"
-        )
+        assert result.n_imag == 3 * 4 - 6
+
+    def test_linear_geometry_uses_3n_minus_5(self):
+        """A linear molecule has 5 translation/rotation degrees of freedom,
+        not 6 (only 2 independent rotational axes instead of 3), so its
+        retained window is 3N-5 -- one mode wider than the nonlinear case.
+
+        Nothing in this class exercised ``geometry="linear"`` before this
+        test, so a mutation collapsing the linear branch onto the nonlinear
+        one (3N-5 -> 3N-6) -- silently discarding one genuine vibration for
+        every linear molecule, e.g. CO2's doubly-degenerate bend -- would
+        have gone undetected.
+        """
+        modes = _ev(-1, -2, -3, -4, -5, -600, -700, -800, -900)
+        result = analyze_vibrations(modes, n_atoms=3, geometry="linear")
+        assert len(result.energies) == len(modes)
+        assert result.n_imag == 3 * 3 - 5
 
     def test_translation_rotation_pseudo_imaginary_modes_are_excluded(self):
         """The critical bug: VibrationsData.get_energies() returns all 3N
@@ -356,7 +381,11 @@ import logging  # noqa: E402
 
 from rdkit import Chem  # noqa: E402
 
-from Auto3D.ASE.thermo import _resolve_multiplicity, _symmetry_number  # noqa: E402
+from Auto3D.ASE.thermo import (  # noqa: E402
+    _electron_count,
+    _resolve_multiplicity,
+    _symmetry_number,
+)
 
 
 def _mol(smiles, **props):
@@ -464,6 +493,61 @@ class TestMultiplicity:
     def test_an_ordinary_closed_shell_molecule_is_not_flagged(self, caplog):
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             _resolve_multiplicity(_mol("CCO"))
+        assert not any("multiplicity" in r.message.lower() for r in caplog.records)
+
+    def test_an_unsigned_wraparound_value_falls_back_to_the_radical_count(
+        self, caplog
+    ):
+        """The other side of the guard: int("4294967295") parses cleanly (no
+        wraparound -- that only afflicts GetUnsignedProp) to a value that is
+        ">= 1" and so slipped past a lower-bound-only check, feeding
+        spin = 2147483647.0 into R*ln(multiplicity) with no warning -- a 13.1
+        kcal/mol shift in Gibbs energy at 298.15 K. It must be rejected by the
+        upper bound (n_electrons + 1)."""
+        mol = _mol("CCO")
+        mol.SetProp("multiplicity", "4294967295")
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 1
+        assert any("multiplicity" in r.message.lower() for r in caplog.records)
+
+    def test_a_value_just_above_the_electron_bound_falls_back(self, caplog):
+        """n_electrons + 1 is the physical ceiling (every electron unpaired);
+        one above that is invalid regardless of parity."""
+        mol = _mol("CCO")
+        n_electrons = _electron_count(mol)
+        mol.SetProp("multiplicity", str(n_electrons + 3))  # same parity, over the cap
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 1
+        assert any("multiplicity" in r.message.lower() for r in caplog.records)
+
+    def test_a_wrong_parity_value_falls_back(self, caplog):
+        """CCO is a 26-electron (even) closed-shell species, so a valid
+        multiplicity must be odd; 2 (even) is unreachable by any spin state
+        and must be rejected even though it is within the electron-count
+        bound."""
+        mol = _mol("CCO", multiplicity=2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 1
+        assert any("multiplicity" in r.message.lower() for r in caplog.records)
+
+    def test_a_legitimate_high_multiplicity_on_an_even_electron_species_passes(
+        self, caplog
+    ):
+        """A triplet (multiplicity 3) on an even-electron species is
+        physically legitimate (e.g. a diradical or an excited state) and
+        must pass through unchanged and unwarned."""
+        mol = _mol("CCO", multiplicity=3)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 3
+        assert not any("multiplicity" in r.message.lower() for r in caplog.records)
+
+    def test_a_legitimate_doublet_on_a_radical_passes(self, caplog):
+        """The methyl radical is a 9-electron (odd) species, so multiplicity
+        2 (even) is exactly the physically expected doublet and must pass
+        through unchanged and unwarned."""
+        mol = _mol("[CH3]", multiplicity=2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 2
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
 
 

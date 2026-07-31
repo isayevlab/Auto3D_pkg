@@ -239,6 +239,8 @@ and behaves the same for a diatomic and for a long chain."
 
 `do_mol_thermo` passes `ignore_imag_modes=True` unconditionally. ASE sorts by `np.abs` and deletes imaginary modes indiscriminately, so a −400 cm⁻¹ transition-state mode is treated exactly like a −15 cm⁻¹ numerical artifact. Separately, every retained ~10 cm⁻¹ torsion contributes roughly 2.4 kcal/mol to −T·S at 298 K, which is larger than most of the energy differences this module exists to resolve.
 
+> **Post-implementation correction:** this task originally also planned an optional Truhlar-style "raising" of low-frequency real modes (`low_freq_cutoff_cm`, `VibrationAnalysis.n_raised`, described in Steps 1 and 3 below) to bound that −T·S contribution. It was implemented and then removed: `analyze_vibrations`'s processed `energies` feed directly into `IdealGasThermo`, which uses them for the zero-point and enthalpy vibrational sums as well as entropy, so raising a mode's energy shifted ZPE and H, not just S — that is not Truhlar's method, which raises frequencies only inside the entropy expression. The shipped `analyze_vibrations` has no raising and no `n_raised`; the low-frequency-torsion concern remains unaddressed by this module. The code and test snippets below are left as originally written for the historical record of what was planned and briefly shipped, but do not reflect the current interface.
+
 **Files:**
 - Modify: `src/Auto3D/ASE/thermo.py` (new `analyze_vibrations`; `do_mol_thermo` consumes it)
 - Modify: `src/Auto3D/constants.py`
@@ -246,7 +248,7 @@ and behaves the same for a diatomic and for a long chain."
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces:
+- Produces (as originally planned; raising was removed post-implementation, see note above):
   - `analyze_vibrations(vib_energies, *, imag_cutoff_cm=..., low_freq_cutoff_cm=...) -> VibrationAnalysis`
   - `VibrationAnalysis` — a `dataclass` with fields `energies` (processed, list), `n_imag: int`, `max_imag_cm: float`, `n_raised: int`.
 
@@ -496,11 +498,7 @@ imaginary mode alike, so a -400 cm-1 reaction coordinate was discarded on the
 same footing as a -15 cm-1 numerical artifact and the saddle point was
 reported as a minimum. Imaginary modes are now counted and sized, and a
 structure whose largest exceeds the artifact threshold is recorded as a
-transition state on the output record.
-
-Adds optional Truhlar raising of low-frequency modes, off by default: a
-10 cm-1 torsion contributes about 2.4 kcal/mol to -T*S at 298 K, larger than
-most differences this module is used to resolve."
+transition state on the output record."
 ```
 
 ---
