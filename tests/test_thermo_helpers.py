@@ -279,3 +279,66 @@ class TestVibrationAnalysis:
         result = analyze_vibrations(_ev(-20, 10, 800), low_freq_cutoff_cm=100.0)
         assert result.n_raised == 1
         assert result.n_imag == 1
+
+
+import logging  # noqa: E402
+
+from rdkit import Chem  # noqa: E402
+
+from Auto3D.ASE.thermo import _resolve_multiplicity, _symmetry_number  # noqa: E402
+
+
+def _mol(smiles, **props):
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    for key, value in props.items():
+        mol.SetProp(key, str(value))
+    return mol
+
+
+class TestSymmetryNumber:
+    def test_defaulting_warns_prominently(self, caplog):
+        """sigma=1 biases G by RT*ln(sigma) and does not cancel between isomers."""
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            _symmetry_number(_mol("c1ccccc1"))
+        assert any("symmetry_number" in r.message for r in caplog.records), (
+            f"defaulting to sigma=1 was not warned about: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_an_explicit_value_does_not_warn(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            _symmetry_number(_mol("c1ccccc1", symmetry_number=12))
+        assert not any("symmetry_number" in r.message for r in caplog.records)
+
+    def test_a_malformed_property_warns_as_well_as_falling_back(self, caplog):
+        """The fallback value is already covered; the warning is new."""
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _symmetry_number(_mol("CCO", symmetry_number="not-a-number")) == 1
+        assert any("symmetry_number" in r.message for r in caplog.records)
+
+
+class TestMultiplicity:
+    def test_a_malformed_property_falls_back_to_the_radical_count(self):
+        """The accessor was unguarded where _symmetry_number's is guarded."""
+        mol = _mol("CCO")
+        mol.SetProp("multiplicity", "triplet")
+        assert _resolve_multiplicity(mol) == 1
+
+    def test_dioxygen_is_flagged_as_ambiguous(self, caplog):
+        """O=O draws closed-shell but is a ground-state triplet.
+
+        The radical-electron count is 0 here, so nothing signals that the
+        closed-shell assumption is wrong for this molecule.
+        """
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            multiplicity = _resolve_multiplicity(_mol("O=O"))
+        assert multiplicity == 1
+        assert any("multiplicity" in r.message.lower() for r in caplog.records), (
+            f"an ambiguous open-shell drawing was not flagged: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_an_ordinary_closed_shell_molecule_is_not_flagged(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            _resolve_multiplicity(_mol("CCO"))
+        assert not any("multiplicity" in r.message.lower() for r in caplog.records)

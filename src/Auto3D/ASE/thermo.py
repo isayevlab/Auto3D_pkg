@@ -93,13 +93,50 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     cyclohexane 128x), biasing Gibbs energy by up to ~3 kcal/mol. sigma=1 is a
     safe default; set the 'symmetry_number' property to the correct value
     (e.g. 2 for water, 12 for benzene, 6 for ethane) when known.
+
+    Defaulting to sigma=1 (whether because the property is absent or
+    unparseable) now warns, since the bias does not cancel between tautomers,
+    isomers or reaction partners the way it does between conformers of one
+    species.
     """
     if mol.HasProp("symmetry_number"):
         try:
             return max(1, int(mol.GetProp("symmetry_number")))
         except (ValueError, TypeError):
+            logger.warning(
+                "Molecule %s has an unparseable 'symmetry_number' property "
+                "(%r); falling back to sigma=1.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                mol.GetProp("symmetry_number"),
+            )
             return 1
+    logger.warning(
+        "No 'symmetry_number' property on %s; using sigma=1. Gibbs energy is "
+        "biased low by RT*ln(sigma) -- 1.47 kcal/mol for benzene at 298 K. "
+        "This cancels between conformers of one species but NOT between "
+        "tautomers, isomers or reaction partners. Set the 'symmetry_number' "
+        "property (2 for water, 6 for ethane, 12 for benzene) when known.",
+        mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+    )
     return 1
+
+
+#: SMARTS for species that draw closed-shell but whose ground state is not.
+#: Deliberately tiny -- a general open-shell perception is a research problem,
+#: and a wrong "this is fine" is worse than no entry. O2 is the case that
+#: actually appears in practice.
+_OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
+
+
+def _drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
+    """True for known species whose closed-shell drawing hides an open shell."""
+    try:
+        canonical = Chem.MolToSmiles(Chem.RemoveHs(mol))
+    except (ValueError, RuntimeError):
+        return False
+    return canonical in {
+        Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in _OPEN_SHELL_DRAWN_CLOSED
+    }
 
 
 def _resolve_multiplicity(mol: Chem.Mol) -> int:
@@ -114,7 +151,14 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     open-shell species that the energy is an approximation.
     """
     if mol.HasProp("multiplicity"):
-        return mol.GetUnsignedProp("multiplicity")
+        try:
+            return mol.GetUnsignedProp("multiplicity")
+        except (ValueError, TypeError, RuntimeError):
+            logger.warning(
+                "Molecule %s has an unparseable 'multiplicity' property; "
+                "deriving it from the radical-electron count instead.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            )
     n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
     multiplicity = n_radical + 1
     mol.SetUnsignedProp("multiplicity", int(multiplicity))
@@ -124,6 +168,18 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             "multiplicity %d); the NNP energy is a closed-shell approximation.",
             n_radical,
             multiplicity,
+        )
+    elif _drawn_closed_shell_but_open_shell(mol):
+        # O=O draws as a closed-shell double bond and carries zero radical
+        # electrons, but its ground state is a triplet. Nothing in the graph
+        # distinguishes it, so the electronic entropy term is silently wrong
+        # unless the caller sets 'multiplicity' explicitly.
+        logger.warning(
+            "%s matches a species whose ground state is open-shell but whose "
+            "drawing is closed-shell; multiplicity 1 is assumed and the "
+            "electronic entropy term will be wrong. Set the 'multiplicity' "
+            "property explicitly.",
+            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
         )
     return multiplicity
 
