@@ -9,7 +9,6 @@ Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path).
 """
 from __future__ import annotations
 
-import pytest
 from rdkit import Chem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,

@@ -89,7 +89,7 @@ def _mirror_image(mol: Chem.Mol) -> Chem.Mol:
     return work
 
 
-def _enantiomer_key(smi: str) -> tuple[str, ...]:
+def enantiomer_key(smi: str) -> tuple[str, ...]:
     """Return a key two SMILES share iff they are one molecule or mirror images.
 
     The key is the sorted set of the molecule's own canonical SMILES and its
@@ -102,6 +102,9 @@ def _enantiomer_key(smi: str) -> tuple[str, ...]:
     ``amend_configuration_w`` appends for it -- the same molecule written two
     ways, which a pairwise enantiomer test cannot catch because the two are not
     an enantiomeric pair.
+
+    Public because the SDF isomer engine deduplicates enumerated stereoisomers
+    with the same key, so both input paths remove enantiomers by one rule.
     """
     mol = Chem.MolFromSmiles(smi)
     if mol is None:
@@ -153,7 +156,7 @@ def are_enantiomers(smi1: str, smi2: str) -> bool:
     if Chem.MolToSmiles(mol1) == Chem.MolToSmiles(mol2):
         # The same molecule is not its own enantiomeric partner.
         return False
-    return _enantiomer_key(smi1) == _enantiomer_key(smi2)
+    return enantiomer_key(smi1) == enantiomer_key(smi2)
 
 
 def enantiomer_helper(smiles: list[str]) -> list[str]:
@@ -179,7 +182,7 @@ def enantiomer_helper(smiles: list[str]) -> list[str]:
     non_enantiomers: list[str] = []
     seen: set[tuple[str, ...]] = set()
     for smi in smiles:
-        key = _enantiomer_key(smi)
+        key = enantiomer_key(smi)
         if key in seen:
             continue
         seen.add(key)

@@ -393,7 +393,7 @@ class TestEnantiomerHelperDiastereomers:
     def test_duplicate_smiles_collapse_to_one(self):
         """The same molecule twice is a duplicate, not an enantiomeric pair.
 
-        ``enantiomer_helper`` now filters on ``_enantiomer_key``, the sorted
+        ``enantiomer_helper`` now filters on ``enantiomer_key``, the sorted
         set of a molecule's own canonical SMILES and its mirror image's.
         Identical SMILES canonicalize to the same string and so share a key
         regardless of the mirror-image half of that set, which is why the

@@ -26,6 +26,7 @@ from Auto3D.utils import (
 )
 from Auto3D.utils.chemistry import calculate_conformer_count
 from Auto3D.utils.file_ops import combine_smi, iter_smi_records
+from Auto3D.utils.stereochemistry import enantiomer_key
 
 try:
     from openeye import oechem, oeomega, oequacpac
@@ -365,9 +366,18 @@ class RDKitSdfIsomer:
     """Enumerate stereoisomers and conformers from an SDF file.
 
     Preserves specified stereo centers and enumerates unspecified ones, so each
-    output species has one definite configuration. Conformers are named
-    ``<name>_<isomer>_<conformer>``, matching the SMILES path, which is what
-    lets :class:`~Auto3D.ranking.ConformerRanker` group them correctly.
+    output species has one definite configuration. Enantiomeric pairs are
+    reduced to one representative -- the same rule the SMILES path applies via
+    ``remove_enantiomers`` -- since mirror images are exactly degenerate under
+    any reflection-invariant potential. Conformers are named
+    ``<name>_<isomer>_<conformer>`` uniformly, including when there is only one
+    isomer, so this path's own output has one consistent shape to parse (the
+    SMILES path is not identical: with ``enumerate_isomers`` disabled there it
+    emits only two components). The isomer component is what
+    :func:`Auto3D.utils.file_ops.decode_ids` relies on to rebuild
+    ``<original>_<isomer>_<conformer>`` IDs after the pipeline's numeric-ID
+    encoding step; :class:`~Auto3D.ranking.ConformerRanker` groups on the
+    leading component only, so it is unaffected by the isomer index.
 
     Args:
         sdf: Path to input SDF file.
@@ -431,9 +441,23 @@ class RDKitSdfIsomer:
                 f"Stereoisomer enumeration hit the cap of {MAX_STEREOISOMERS} "
                 f"for {name!r}; results may be truncated."
             )
+        # Mirror images are exactly degenerate under any reflection-invariant
+        # potential, so optimizing both spends half the budget for nothing and
+        # leaves top_k choosing between them on numerical noise. The SMILES
+        # path drops them in remove_enantiomers; this is the same rule, applied
+        # to the enumerated list directly. Geometric isomers are NOT affected:
+        # a reflection cannot change E/Z, so cis and trans keep distinct keys.
+        deduplicated: list[Chem.Mol] = []
+        seen: set[tuple[str, ...]] = set()
+        for isomer in isomers:
+            key = enantiomer_key(Chem.MolToSmiles(isomer))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduplicated.append(isomer)
         # EnumerateStereoisomers returns an empty sequence for a molecule it
         # cannot enumerate; embedding the input unchanged beats dropping it.
-        return isomers or [mol]
+        return deduplicated or [mol]
 
     def run(self) -> str:
         """Enumerate stereoisomers and conformers into the output SDF file.
@@ -469,6 +493,13 @@ class RDKitSdfIsomer:
                         numThreads=self.np,
                         pruneRmsThresh=self.threshold,
                     )
+                    if mol2.GetNumConformers() == 0:
+                        logger.warning(
+                            f"Stereoisomer {isomer_idx} of {name!r} produced no "
+                            "conformers; ETKDG could not embed it. This species "
+                            "is absent from the output."
+                        )
+                        continue
                     # Three name components (species _ isomer _ conformer) match
                     # the SMILES path, whose consumers group on the first one.
                     for conf_idx, conf in enumerate(mol2.GetConformers()):
