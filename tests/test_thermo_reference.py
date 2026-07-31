@@ -193,7 +193,14 @@ class TestHessianGeometry:
 
         def _spy(*args, **kwargs):
             vib = real_vib_hessian(*args, **kwargs)
-            captured["positions"] = vib.atoms.get_positions().copy()
+            # ``VibrationsData`` stores its Atoms privately as ``_atoms`` and
+            # exposes it only through ``get_atoms()``, which returns a copy.
+            # This spy originally read ``vib.atoms`` -- an attribute ASE has
+            # never had -- so the test raised AttributeError on its very first
+            # execution rather than checking anything. It is slow-marked and
+            # needs a loaded potential, so that first execution was in CI,
+            # long after it was written.
+            captured["positions"] = vib.get_atoms().get_positions().copy()
             return vib
 
         monkeypatch.setattr(thermo_mod, "vib_hessian", _spy)
