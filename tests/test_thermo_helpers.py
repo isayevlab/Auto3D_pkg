@@ -768,3 +768,103 @@ class TestFailedRecordKeepsInputGeometry:
             "a converged record's conformer was not updated to the relaxed "
             "geometry"
         )
+
+
+class TestHessianHelperDispatch:
+    """An unrecognized model name must raise, not return None."""
+
+    def test_an_unknown_name_raises(self):
+        import torch
+
+        from Auto3D.ASE.thermo import aimnet_hessian_helper
+
+        with pytest.raises(ValueError, match="not-a-real-model"):
+            aimnet_hessian_helper(
+                torch.zeros(1, 1, 3),
+                numbers=torch.ones(1, 1, dtype=torch.long),
+                charge=torch.zeros(1),
+                model=None,
+                model_name="not-a-real-model",
+            )
+
+    def test_a_registry_alias_raises_rather_than_returning_none(self):
+        """aimnet2-2025 matched no branch and fell off the end as None.
+
+        None then flowed into torch.autograd.functional.hessian, whose error
+        names neither the model nor the dispatch.
+        """
+        import torch
+
+        from Auto3D.ASE.thermo import aimnet_hessian_helper
+
+        with pytest.raises(ValueError, match="aimnet2-2025"):
+            aimnet_hessian_helper(
+                torch.zeros(1, 1, 3),
+                numbers=torch.ones(1, 1, dtype=torch.long),
+                charge=torch.zeros(1),
+                model=None,
+                model_name="aimnet2-2025",
+            )
+
+
+class TestLoadHessianModelRouting:
+    """ANI2xt/ANI2x/custom-path branches of _load_hessian_model now route
+    through ModelFactory instead of hand-rolling the dispatch (M40).
+
+    These monkeypatch ``create_model`` itself, so no real NNP is loaded and
+    torchani need not be installed -- only the wiring (which arguments reach
+    ModelFactory, and that the returned module is the adapter's raw
+    ``.model``, upcast to fp64) is under test. The AIMNET/registry branch is
+    deliberately NOT exercised here: constructing it for real would load an
+    actual NNP (forbidden in this environment), and its contract is already
+    pinned by the slow ``test_load_hessian_model_aimnet*`` tests above.
+    """
+
+    def _install_fake_factory(self, monkeypatch):
+        import torch
+
+        from Auto3D.ASE import thermo as thermo_mod
+
+        calls = {}
+
+        class _FakeModule(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.zeros(1))
+
+        class _FakeAdapter:
+            def __init__(self):
+                self.model = _FakeModule()
+
+        def _fake_create_model(name, device, compile_model=None, use_cache=True):
+            calls["args"] = (name, device, compile_model, use_cache)
+            return _FakeAdapter()
+
+        monkeypatch.setattr(thermo_mod, "create_model", _fake_create_model)
+        return calls, thermo_mod, torch.device("cpu")
+
+    def test_ani2xt_routes_through_model_factory_uncached_uncompiled(self, monkeypatch):
+        import torch
+
+        calls, thermo_mod, device = self._install_fake_factory(monkeypatch)
+
+        result = thermo_mod._load_hessian_model("ANI2xt", device)
+
+        # use_cache=False: this module is about to be mutated to fp64 in
+        # place, and the factory cache is shared with the fp32 instance
+        # model_name2model_calculator loads right after in calc_thermo.
+        # compile_model=False: nothing here benefits from torch.compile.
+        assert calls["args"] == ("ANI2xt", device, False, False)
+        assert result.weight.dtype == torch.float64
+
+    def test_custom_path_routes_through_model_factory(self, monkeypatch, tmp_path):
+        import torch
+
+        calls, thermo_mod, device = self._install_fake_factory(monkeypatch)
+        fake_path = tmp_path / "custom_model.pt"
+        fake_path.write_text("stands in for a model file; never actually loaded")
+
+        result = thermo_mod._load_hessian_model(str(fake_path), device)
+
+        assert calls["args"] == (str(fake_path), device, False, False)
+        assert result.weight.dtype == torch.float64

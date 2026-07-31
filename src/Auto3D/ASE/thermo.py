@@ -21,7 +21,6 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
-from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.species import to_model_species
 from Auto3D.constants import (
@@ -608,19 +607,28 @@ def _load_hessian_model(model_name: str, device):
     routes it through the calculator's native analytic Hessian, which runs the
     full energy pipeline including external D3 dispersion and Coulomb; returning
     the bare ``calc.model`` and autograd-differentiating it would silently drop
-    those external terms. ANI2xt/ANI2x and custom paths return fp64 nn.Modules,
-    which vib_hessian differentiates with torch.autograd.functional.hessian.
+    those external terms. This branch is intentionally NOT routed through
+    ModelFactory (M40): ModelFactory's AIMNet2Adapter exposes only a fp32
+    (coords, species, charges) -> (energy, forces) interface built for the
+    optimizer loop, with no way to get back the calculator itself, so forcing
+    this branch through the factory would lose the analytic Hessian -- a real
+    regression, not a cleanup. The alias resolution duplicated from
+    ModelFactory below is the accepted cost of keeping it.
+
+    ANI2xt/ANI2x and custom paths return fp64 nn.Modules, which vib_hessian
+    differentiates with torch.autograd.functional.hessian. These ARE routed
+    through ModelFactory (the single owner of name -> adapter dispatch) with
+    its cache disabled: the module handed back here is upcast to fp64 in
+    place, and the cache is shared with model_name2model_calculator's fp32
+    instance used for the optimization loop immediately afterwards in
+    calc_thermo -- reusing a cached entry here would silently upcast that
+    shared fp32 model too.
     """
-    if model_name == "ANI2xt":
-        return ANI2xt(device).double()
-    if model_name == "ANI2x":
-        import torchani
-        return torchani.models.ANI2x(periodic_table_index=True).to(device).double()
-    if Path(model_name).exists():
-        # Custom NNP: TorchScript archive or eager nn.Module, cast to fp64
-        # (shared load contract -- see Auto3D.models.loading.load_custom_nnp).
-        from Auto3D.models.loading import load_custom_nnp
-        return load_custom_nnp(model_name, device, double=True)
+    if model_name in ("ANI2xt", "ANI2x") or Path(model_name).exists():
+        # compile_model=False: torch.compile guards on dtype, and nothing in
+        # this autograd-Hessian path benefits from it anyway.
+        adapter = create_model(model_name, device, compile_model=False, use_cache=False)
+        return adapter.model.double()
     # AIMNET or any aimnet registry alias
     from aimnet.calculators import AIMNet2Calculator
 
@@ -665,6 +673,18 @@ def aimnet_hessian_helper(
     elif Path(model_name).exists():
         e = model.forward(numbers, coord, charge)
         return e  # energy unit: eV
+    else:
+        # Every aimnet registry alias (aimnet2-2025, aimnet2-nse, ...) and the
+        # lowercase 'aimnet' reach here: none matched a branch, and without
+        # this the function fell off the end returning None, which then flowed
+        # into torch.autograd.functional.hessian and failed with an error
+        # naming neither the model nor the dispatch.
+        raise ValueError(
+            f"aimnet_hessian_helper cannot evaluate model_name={model_name!r}. "
+            "Recognized values are 'AIMNET', 'ANI2xt', 'ANI2x', or a path to a "
+            "custom NNP file. AIMNet2 registry models are evaluated through "
+            "the calculator's analytic Hessian, not this autograd path."
+        )
 
 def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> bool:
     """Relax ``atoms`` and report whether it reached a stationary point.
