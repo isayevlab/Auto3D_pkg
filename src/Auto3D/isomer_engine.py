@@ -332,6 +332,7 @@ class RDKitIsomer:
                         f"Skipping molecule {name!r}: failed to parse {smi!r}"
                     )
                     continue
+                n_written = 0
                 for i in range(mol.GetNumConformers()):
                     # Relieve atom clashes (MMFF, UFF fallback) and keep the
                     # conformer only if it ends up clash-free.
@@ -340,6 +341,18 @@ class RDKitIsomer:
                         mol.SetProp('ID', conf_id)
                         mol.SetProp('_Name', conf_id)
                         writer.write(mol, confId=i)
+                        n_written += 1
+                if n_written == 0:
+                    # Every embedded conformer was rejected by clash relief
+                    # (or none embedded at all): the species is silently
+                    # absent from the output and never reaches ranking, so
+                    # not even "No structure converged" would appear for it.
+                    # Name it here, once, mirroring the SDF path's equivalent
+                    # warning for a stereoisomer ETKDG could not embed.
+                    logger.warning(
+                        f"{name!r} produced no conformers after clash relief; "
+                        "this species is absent from the output."
+                    )
 
     def _run_parallel_embedding(
         self, smi_name_tuples: list[tuple[str, str]]
@@ -409,10 +422,18 @@ class RDKitSdfIsomer:
     @staticmethod
     def count_unspecified_stereo(mol: Chem.Mol) -> int:
         """Count stereo elements the input leaves unspecified."""
+        # A double bond drawn with no geometry (e.g. a flat 2D depiction of
+        # C=C) is reported by RDKit as Chem.StereoSpecified.Unknown, not
+        # Unspecified -- Unspecified is what an sp3 center with no wedge
+        # gets. Counting only Unspecified silently misses every unspecified
+        # C=C, which is the exact case this warning exists to catch (e.g. a
+        # flat fumaric/maleic-acid SDF mixing two geometries ~5 kcal/mol
+        # apart into one species with no warning).
+        unspecified = (Chem.StereoSpecified.Unspecified, Chem.StereoSpecified.Unknown)
         return sum(
             1
             for element in Chem.FindPotentialStereo(mol)
-            if element.specified == Chem.StereoSpecified.Unspecified
+            if element.specified in unspecified
         )
 
     def stereoisomers(self, mol: Chem.Mol, name: str) -> list[Chem.Mol]:

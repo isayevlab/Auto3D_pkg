@@ -8,6 +8,8 @@ tautomer engine through the production factory.
 """
 from __future__ import annotations
 
+from rdkit import Chem
+
 from Auto3D.isomers.factory import create_tautomer_engine
 
 
@@ -23,12 +25,38 @@ def _run_rd_taut(job_dir, smiles: str) -> list[str]:
 
 
 class TestSpecifiedStereoSurvives:
-    def test_center_remote_from_the_tautomeric_site_is_kept(self, job_dir):
-        """A center the tautomerization cannot reach keeps its configuration."""
-        outputs = _run_rd_taut(job_dir, "CC(=O)CCCC[C@H](C)O")
+    def test_center_on_the_tautomeric_site_survives_the_identity_tautomer(
+        self, job_dir
+    ):
+        """The input's own configuration survives the tautomer that does not shift it.
+
+        ``CC(=O)[C@@H](C)CC`` puts the stereocenter directly on the
+        tautomeric core -- the carbon alpha to the carbonyl -- unlike a
+        remote center, which RDKit's old default never touched either way
+        and so could not discriminate pre- from post-fix. On RDKit's old
+        default (no ``SetRemoveSp3Stereo(False)``), the tautomer enumerator
+        strips sp3 stereo from every atom in the core in every output,
+        including the identity tautomer (same skeleton as the input, no
+        enolization applied): it comes back as ``CCC(C)C(C)=O`` with the
+        configuration gone. With the fix, that same identity tautomer
+        instead keeps it (as ``CC[C@H](C)C(C)=O``). A tautomer whose
+        enolization genuinely consumes the stereocenter's fourth substituent
+        (``CCC(C)=C(C)O``) correctly still loses the descriptor -- this test
+        only checks the tautomer with the same skeleton as the input.
+        """
+        outputs = _run_rd_taut(job_dir, "CC(=O)[C@@H](C)CC")
         assert outputs, "tautomer enumeration returned nothing"
-        assert all("@" in smi for smi in outputs), (
-            f"a remote stereocenter was stripped: {sorted(outputs)}"
+        reference_skeleton = Chem.MolToSmiles(
+            Chem.MolFromSmiles("CC(=O)[C@@H](C)CC"), isomericSmiles=False
+        )
+        identity_tautomers = [
+            smi for smi in outputs
+            if Chem.MolToSmiles(Chem.MolFromSmiles(smi), isomericSmiles=False)
+            == reference_skeleton
+        ]
+        assert identity_tautomers, f"no identity tautomer in output: {sorted(outputs)}"
+        assert all("@" in smi for smi in identity_tautomers), (
+            f"the identity tautomer lost its stereocenter: {sorted(outputs)}"
         )
 
     def test_specified_double_bond_geometry_is_kept(self, job_dir):

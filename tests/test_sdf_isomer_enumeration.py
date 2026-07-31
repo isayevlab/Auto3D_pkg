@@ -167,3 +167,32 @@ class TestEnumerationDisabled:
         assert any("unspecified stereo" in record.message for record in caplog.records), (
             f"no warning about the mixture: {[r.message for r in caplog.records]}"
         )
+
+    def test_disabled_enumeration_warns_about_an_unspecified_double_bond(
+        self, job_dir, caplog
+    ):
+        """A flat, undrawn C=C must trigger the mixture warning too.
+
+        RDKit reports a double bond with no drawn geometry as
+        ``Chem.StereoSpecified.Unknown``, not ``Unspecified``. A count that
+        only checks ``Unspecified`` misses every unspecified C=C -- exactly
+        the case this warning exists for: a flat 2D fumaric/maleic-acid SDF
+        (``OC(=O)C=CC(=O)O``) would otherwise be written as one species
+        silently mixing two geometries ~5 kcal/mol apart.
+        """
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.isomer_engine"):
+            per_species = _run_engine(
+                job_dir, "OC(=O)C=CC(=O)O", "fumaric_off", three_d=False,
+                enumerate_isomers=False,
+            )
+        assert len(per_species) == 1, f"enumeration ran while disabled: {per_species}"
+        assert any(
+            "1 unspecified stereo element" in record.message
+            and "fumaric_off" in record.message
+            for record in caplog.records
+        ), (
+            "no warning naming the unspecified stereo element: "
+            f"{[r.message for r in caplog.records]}"
+        )

@@ -54,6 +54,16 @@ def stereo_descriptors_from_3d(
         inversion from being reported as a false positive. Other stereo
         elements RDKit does not perceive this way (e.g. atropisomers) are
         likewise invisible to this function.
+
+        A double bond explicitly marked ``Chem.BondStereo.STEREOANY``
+        (drawn with no defined geometry) is also invisible to a change:
+        ``AssignStereochemistryFrom3D`` leaves an existing ``STEREOANY``
+        flag untouched rather than deriving E/Z from the coordinates, so
+        the "before" and "after" readings both report ``STEREOANY`` for
+        that bond even if optimization rotated it from cis to trans. This
+        function cannot detect that rotation; only the unspecified-stereo
+        warning at enumeration time (see
+        ``RDKitSdfIsomer.count_unspecified_stereo``) flags the bond at all.
     """
     work = Chem.Mol(mol)
     Chem.AssignStereochemistryFrom3D(work, confId=conf_id)

@@ -12,6 +12,7 @@ from rdkit import Chem
 from Auto3D.utils.stereochemistry import (
     amend_configuration,
     amend_configuration_w,
+    are_enantiomers,
     check_value,
     create_enantiomer,
     enantiomer,
@@ -428,6 +429,48 @@ class TestEnantiomerHelperDiastereomers:
         assert len(result) == 2, (
             f"tartaric acid must yield one of L/D plus meso, once: {result}"
         )
+
+
+class TestAreEnantiomers:
+    """Direct tests for are_enantiomers().
+
+    ``enantiomer_helper`` filters via ``enantiomer_key`` instead of this
+    function, so nothing else in the pipeline calls it; it is public and
+    documented in CHANGELOG.md, so it gets its own coverage here rather than
+    being left an advertised-but-untested predicate.
+    """
+
+    def test_true_enantiomeric_pair(self):
+        """A single inverted tetrahedral center is a genuine enantiomer pair."""
+        assert are_enantiomers("C[C@H](O)F", "C[C@@H](O)F") is True
+
+    def test_identical_smiles_are_not_enantiomers(self):
+        """A molecule is not its own enantiomeric partner."""
+        assert are_enantiomers("CCO", "CCO") is False
+
+    def test_achiral_pair_is_not_enantiomers(self):
+        """Two different achiral molecules have no stereocenter to invert."""
+        assert are_enantiomers("CCO", "CCCO") is False
+
+    def test_geometric_pair_is_not_enantiomers(self):
+        """A reflection cannot change E/Z, so cis/trans isomers are not a pair."""
+        assert are_enantiomers("C/C=C/C", "C/C=C\\C") is False
+
+    def test_partially_inverted_two_center_diastereomer_is_not_enantiomers(self):
+        """Inverting only one of two centers gives a diastereomer, not a pair."""
+        assert are_enantiomers(
+            "C[C@H](O)[C@H](F)Cl", "C[C@@H](O)[C@H](F)Cl"
+        ) is False
+
+    def test_fully_inverted_two_center_pair_is_enantiomers(self):
+        """Inverting both centers of a two-center molecule gives its enantiomer."""
+        assert are_enantiomers(
+            "C[C@H](O)[C@H](F)Cl", "C[C@@H](O)[C@@H](F)Cl"
+        ) is True
+
+    def test_unparseable_smiles_returns_false_without_raising(self):
+        """Unparseable input is handled, not propagated as an exception."""
+        assert are_enantiomers("not_a_smiles(((", "C[C@H](O)F") is False
 
 
 if __name__ == "__main__":

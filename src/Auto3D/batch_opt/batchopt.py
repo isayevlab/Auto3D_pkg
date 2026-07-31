@@ -1,4 +1,5 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -355,7 +356,15 @@ class optimizing:
                 f.write(mol)
 
         if n_stereo_changed:
-            logger.warning(
+            # This module's logger ("Auto3D.batch_opt.batchopt") is not an
+            # ancestor of "auto3d", the logger name the worker's QueueHandler
+            # is attached to (see Auto3D.workflow_workers), so a warning
+            # through the module logger never reaches the run log. Emit
+            # through logging.getLogger("auto3d") directly instead -- the
+            # same fix Auto3D.utils.chemistry.relieve_clash already uses --
+            # because this count is documented as user-visible in the log
+            # (CHANGELOG.md, docs/source/migration-4.0.rst).
+            logging.getLogger("auto3d").warning(
                 f"{n_stereo_changed} conformer(s) changed stereochemistry during "
                 "optimization and will be excluded from the results."
             )
