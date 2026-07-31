@@ -32,6 +32,42 @@ if TYPE_CHECKING:
 
     from Auto3D.config import Auto3DOptions
 
+# Both logger trees a module warning must reach the run log through.
+#
+# Auto3D.utils.logging_config.get_logger(__name__) produces loggers named
+# "Auto3D.*" (matching each module's real __name__, e.g. "Auto3D.ASE.thermo").
+# Several call sites instead log through logging.getLogger("auto3d")
+# directly -- lowercase -- to work around the fact that "Auto3D.*" is a
+# different, case-distinct tree with no ancestor relationship to "auto3d"
+# (Auto3D.workflow's self.logger, Auto3D.utils.chemistry's module logger, the
+# stereochemistry-change warning in Auto3D.batch_opt.batchopt). Attaching a
+# QueueHandler onto BOTH trees here -- writing to the very same queue -- lets
+# get_logger(__name__) warnings reach the run log too, without touching any
+# of the call sites above that already rely on "auto3d" working: "auto3d" and
+# "Auto3D" are unrelated siblings under the root logger (dotted-name lookup
+# is exact-prefix and case-sensitive), so a single log call is only ever
+# routed through one of them and nothing is ever delivered twice.
+_RUN_LOG_LOGGER_NAMES = ("auto3d", "Auto3D")
+
+
+def _attach_run_log_handlers(
+    logging_queue: Queue[LogRecord | None],
+) -> list[tuple[str, logging.Handler]]:
+    """Attach a run-log QueueHandler onto every tree it must reach.
+
+    Returns the ``(logger_name, handler)`` pairs added, so a caller (chiefly
+    tests) can remove them again; production callers can ignore the return
+    value since these handlers live for the worker process's lifetime.
+    """
+    added: list[tuple[str, logging.Handler]] = []
+    for logger_name in _RUN_LOG_LOGGER_NAMES:
+        tree_logger = logging.getLogger(logger_name)
+        handler = QueueHandler(logging_queue)
+        tree_logger.addHandler(handler)
+        tree_logger.setLevel(logging.INFO)
+        added.append((logger_name, handler))
+    return added
+
 
 def isomer_wrapper(
     chunk_info: list[tuple[str, str]],
@@ -49,8 +85,7 @@ def isomer_wrapper(
     """
     #prepare logging
     logger = logging.getLogger("auto3d")
-    logger.addHandler(QueueHandler(logging_queue))
-    logger.setLevel(logging.INFO)
+    _attach_run_log_handlers(logging_queue)
 
     tautomer_processor = TautomerProcessor(args)
 
@@ -117,8 +152,7 @@ def optim_rank_wrapper(
 ) -> list[list[Chem.Mol]]:
     #prepare logging
     logger = logging.getLogger("auto3d")
-    logger.addHandler(QueueHandler(logging_queue))
-    logger.setLevel(logging.INFO)
+    _attach_run_log_handlers(logging_queue)
 
     conformers = []
     while True:
