@@ -230,6 +230,19 @@ class AIMNet2Adapter(BaseModelAdapter):
         super().__init__(calc.model, device, coord_pad=0.0, species_pad=0, compile_model=False)
         self._calc = calc
 
+    @property
+    def calculator(self):
+        """Return the underlying AIMNet2Calculator.
+
+        Exposed for callers (e.g. ``Auto3D.ASE.thermo._load_hessian_model``)
+        that need the calculator itself rather than this adapter's
+        ``(coords, species, charges) -> (energy, forces)`` forward()
+        interface -- e.g. to reach the calculator's native analytic Hessian,
+        which includes the external D3 dispersion and Coulomb terms that
+        differentiating the bare ``.model`` would drop.
+        """
+        return self._calc
+
     def forward(
         self,
         coords: torch.Tensor,

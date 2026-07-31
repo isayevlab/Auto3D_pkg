@@ -670,39 +670,51 @@ def _load_hessian_model(model_name: str, device):
     """Return a Hessian/energy evaluator for vib_hessian.
 
     For AIMNET and aimnet registry names this returns the AIMNet2Calculator
-    itself (fp32 — whole-graph fp64 upcast is false precision). vib_hessian
-    routes it through the calculator's native analytic Hessian, which runs the
-    full energy pipeline including external D3 dispersion and Coulomb; returning
-    the bare ``calc.model`` and autograd-differentiating it would silently drop
-    those external terms. This branch is intentionally NOT routed through
-    ModelFactory (M40): ModelFactory's AIMNet2Adapter exposes only a fp32
-    (coords, species, charges) -> (energy, forces) interface built for the
-    optimizer loop, with no way to get back the calculator itself, so forcing
-    this branch through the factory would lose the analytic Hessian -- a real
-    regression, not a cleanup. The alias resolution duplicated from
-    ModelFactory below is the accepted cost of keeping it.
+    itself (fp32 — whole-graph fp64 upcast is false precision), obtained via
+    ``create_model(...).calculator`` -- ModelFactory is the single owner of
+    name -> adapter dispatch (including alias resolution, e.g. "AIMNET" ->
+    the registry default), so this branch is routed through it rather than
+    hand-rolling that resolution and constructing a second AIMNet2Calculator
+    here. AIMNet2Adapter stores the calculator it built internally
+    (``self._calc``); the ``calculator`` property on the adapter exposes it.
+    This is required (not merely convenient) because vib_hessian dispatches
+    on ``isinstance(model, AIMNet2Calculator)`` to use the calculator's
+    native analytic Hessian, which runs the full energy pipeline including
+    the external D3 dispersion and Coulomb modules -- returning the adapter's
+    bare ``.model`` instead (or differentiating it) would silently drop those
+    external terms. ``use_cache=True`` (the default, left unset below) is
+    safe here: nothing on this path mutates the returned object's dtype in
+    place, unlike the ANI2xt/ANI2x/custom branches below. Keeping the cache
+    also means this shares the same cached AIMNet2Adapter as
+    model_name2model_calculator's call for the optimization loop earlier in
+    calc_thermo (when torch.compile is off, the normal case, both calls
+    resolve to the same (name, device, compile_model) cache key), avoiding a
+    second full AIMNet2 load per calc_thermo call.
 
     ANI2xt/ANI2x and custom paths return fp64 nn.Modules, which vib_hessian
     differentiates with torch.autograd.functional.hessian. These ARE routed
     through ModelFactory (the single owner of name -> adapter dispatch) with
     its cache disabled: the module handed back here is upcast to fp64 in
-    place, and the cache is shared with model_name2model_calculator's fp32
-    instance used for the optimization loop immediately afterwards in
-    calc_thermo -- reusing a cached entry here would silently upcast that
-    shared fp32 model too.
+    place. For ANI2xt/ANI2x, ModelFactory's cache is shared with
+    model_name2model_calculator's fp32 instance used for the optimization
+    loop immediately afterwards in calc_thermo -- reusing a cached entry here
+    would silently upcast that shared fp32 model too, so use_cache=False
+    matters there. For a custom model path, ModelFactory.create() returns a
+    fresh CustomModelAdapter before ever consulting its cache (a custom path
+    is never cached, see ModelFactory.create's step 2), so use_cache has no
+    effect on that branch specifically; it is still passed as False here for
+    a single uniform call across all three cases, not because it changes
+    behavior for the custom path.
     """
     if model_name in ("ANI2xt", "ANI2x") or Path(model_name).exists():
         # compile_model=False: torch.compile guards on dtype, and nothing in
         # this autograd-Hessian path benefits from it anyway.
         adapter = create_model(model_name, device, compile_model=False, use_cache=False)
         return adapter.model.double()
-    # AIMNET or any aimnet registry alias
-    from aimnet.calculators import AIMNet2Calculator
-
-    from Auto3D.constants import DEFAULT_AIMNET_MODEL
-    name = DEFAULT_AIMNET_MODEL if model_name.upper() == "AIMNET" else model_name
-    calc = AIMNet2Calculator(name, device=device)
-    return calc
+    # AIMNET or any aimnet registry alias: ModelFactory resolves the "AIMNET"
+    # legacy alias to the registry default internally (see
+    # ModelFactory.create step 3), so model_name is passed through unchanged.
+    return create_model(model_name, device, compile_model=False).calculator
 
 
 def aimnet_hessian_helper(

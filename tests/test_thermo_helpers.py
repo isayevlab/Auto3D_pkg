@@ -195,11 +195,19 @@ def test_do_mol_thermo_default_temperature_is_298_15():
 
 @pytest.mark.slow
 def test_load_hessian_model_aimnet(aimnet_hessian_model):
+    from aimnet.calculators import AIMNet2Calculator
+
     m = aimnet_hessian_model
     # An AIMNet2Calculator from the aimnet registry (not a bundled .jpt);
     # vib_hessian routes it through the calculator's full-pipeline analytic Hessian.
     assert m is not None
     assert hasattr(m, "model")  # the calculator wraps the underlying nn.Module
+    # AIMNet2Adapter also has an fp32 .model, so the hasattr check above would
+    # pass just as well if AIMNET were wrongly routed to return the adapter
+    # instead of the calculator -- silently dropping the external D3 and
+    # Coulomb terms and shifting C-H stretches by ~4%. This isinstance check
+    # is what actually pins the calculator, not just "something with .model".
+    assert isinstance(m, AIMNet2Calculator)
 
 
 @pytest.mark.slow
@@ -950,5 +958,12 @@ class TestLoadHessianModelRouting:
 
         result = thermo_mod._load_hessian_model(str(fake_path), device)
 
-        assert calls["args"] == (str(fake_path), device, False, False)
+        name, device_arg, compile_model, _use_cache = calls["args"]
+        # use_cache is deliberately not asserted: ModelFactory.create's
+        # custom-path branch returns a fresh CustomModelAdapter before ever
+        # consulting cls._cache (a custom path is never cached), so this
+        # parameter has no observable effect for this branch -- pinning its
+        # value here would be asserting a no-op. (It does matter for the
+        # ANI2xt/ANI2x branch above, which the previous test covers.)
+        assert (name, device_arg, compile_model) == (str(fake_path), device, False)
         assert result.weight.dtype == torch.float64
