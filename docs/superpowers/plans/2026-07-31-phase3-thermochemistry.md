@@ -73,7 +73,9 @@ The spec's own text authorizes the minimum, so this is a choice within its state
 | File | Change | Task |
 |---|---|---|
 | `src/Auto3D/ASE/thermo.py` | `_is_collinear` → moment-of-inertia test | 1 |
-| `tests/test_thermo_helpers.py` | **Create** — hermetic coverage for all pure helpers | 1, 2, 3 |
+| `tests/test_thermo_helpers.py` | **Extend** — hermetic coverage for all pure helpers | 1, 2, 3 |
+
+**`tests/test_thermo_helpers.py` already exists on `main`** with ten tests, and the plan text originally said "create" — that was wrong. Its existing coverage is: `_detect_geometry` (linear vs nonlinear), `_symmetry_number` (default, explicit property, malformed property), `_resolve_multiplicity` (closed shell, radical, explicit property), `do_mol_thermo`'s default `T`, and two **`@pytest.mark.slow`** checks of `_load_hessian_model` that load a real AIMNet2 model. Every task **appends** to this file and must leave the existing tests untouched unless its own text says otherwise. Tasks 3 and 7 are affected most; see their notes.
 | `src/Auto3D/ASE/thermo.py` | New `analyze_vibrations`; `do_mol_thermo` consumes it | 2 |
 | `src/Auto3D/constants.py` | Imaginary-mode and low-frequency thresholds | 2 |
 | `src/Auto3D/ASE/thermo.py` | `_symmetry_number` warning; `_resolve_multiplicity` guard | 3 |
@@ -509,6 +511,8 @@ most differences this module is used to resolve."
 
 **Read the deviation note above before starting.** Do **not** derive σ from RDKit graph symmetry.
 
+**Existing coverage you must not duplicate or break.** `tests/test_thermo_helpers.py` already contains `test_symmetry_number_defaults_to_one`, `test_symmetry_number_reads_property`, `test_symmetry_number_invalid_property_falls_back`, `test_resolve_multiplicity_closed_shell_is_singlet`, `test_resolve_multiplicity_radical_is_doublet` and `test_resolve_multiplicity_respects_explicit_property`. Those already pin the *return values* for every case this task touches. **Leave all six in place and do not restate them.** Write only the tests below, which cover behavior that does not exist yet: the warning when σ defaults, the warning when a property is malformed, the guarded multiplicity accessor, and the dioxygen ambiguity flag. If any of the six existing tests goes red because of your change, that is a real regression — report it rather than editing the test.
+
 **Files:**
 - Modify: `src/Auto3D/ASE/thermo.py` (`_symmetry_number`, `_resolve_multiplicity`)
 - Modify: `tests/test_thermo_helpers.py`
@@ -536,12 +540,6 @@ def _mol(smiles, **props):
 
 
 class TestSymmetryNumber:
-    def test_explicit_property_is_used(self):
-        assert _symmetry_number(_mol("c1ccccc1", symmetry_number=12)) == 12
-
-    def test_default_is_one(self):
-        assert _symmetry_number(_mol("CCO")) == 1
-
     def test_defaulting_warns_prominently(self, caplog):
         """sigma=1 biases G by RT*ln(sigma) and does not cancel between isomers."""
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
@@ -556,24 +554,19 @@ class TestSymmetryNumber:
             _symmetry_number(_mol("c1ccccc1", symmetry_number=12))
         assert not any("symmetry_number" in r.message for r in caplog.records)
 
-    def test_a_malformed_property_falls_back_to_one(self):
-        assert _symmetry_number(_mol("CCO", symmetry_number="not-a-number")) == 1
+    def test_a_malformed_property_warns_as_well_as_falling_back(self, caplog):
+        """The fallback value is already covered; the warning is new."""
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _symmetry_number(_mol("CCO", symmetry_number="not-a-number")) == 1
+        assert any("symmetry_number" in r.message for r in caplog.records)
 
 
 class TestMultiplicity:
-    def test_explicit_property_is_used(self):
-        mol = _mol("CCO")
-        mol.SetUnsignedProp("multiplicity", 3)
-        assert _resolve_multiplicity(mol) == 3
-
     def test_a_malformed_property_falls_back_to_the_radical_count(self):
         """The accessor was unguarded where _symmetry_number's is guarded."""
         mol = _mol("CCO")
         mol.SetProp("multiplicity", "triplet")
         assert _resolve_multiplicity(mol) == 1
-
-    def test_a_radical_gives_a_doublet(self):
-        assert _resolve_multiplicity(Chem.MolFromSmiles("[CH3]")) == 2
 
     def test_dioxygen_is_flagged_as_ambiguous(self, caplog):
         """O=O draws closed-shell but is a ground-state triplet.
@@ -1321,6 +1314,8 @@ At the end of `aimnet_hessian_helper`, after the `elif Path(model_name).exists()
 ```
 
 - [ ] **Step 3: Route `_load_hessian_model` through `ModelFactory`**
+
+**Two existing slow tests pin `_load_hessian_model`'s contract and must keep passing:** `test_load_hessian_model_aimnet` asserts the return value is not `None` and has a `.model` attribute (i.e. it is the calculator, not a bare module), and `test_load_hessian_model_aimnet_is_fp32` asserts `next(result.model.parameters()).dtype is torch.float32`. Both are `@pytest.mark.slow` and load a real model, so **you cannot run them here** — read them before you change anything and make sure your change cannot break either. If your refactor would alter what the function returns for AIMNET, stop and report instead.
 
 Read `src/Auto3D/model_factory.py` first and match its real API — `create_model(name, device, ...)` per `CLAUDE.md`, but confirm the signature rather than assuming, and confirm whether it exposes a way to request the fp64 modules `vib_hessian`'s autograd path needs.
 
