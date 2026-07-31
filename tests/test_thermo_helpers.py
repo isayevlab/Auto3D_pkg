@@ -22,6 +22,16 @@ from ase import Atoms  # noqa: E402
 from Auto3D.ASE.thermo import _detect_geometry, _is_collinear  # noqa: E402
 
 
+def _bent_triatomic(symbols: str, bond_length: float, angle_deg: float):
+    """A symmetric bent triatomic with the given apex angle, apex first."""
+    half = np.radians(angle_deg) / 2.0
+    return Atoms(symbols, [
+        (0.0, 0.0, 0.0),
+        (bond_length * np.sin(half), bond_length * np.cos(half), 0.0),
+        (-bond_length * np.sin(half), bond_length * np.cos(half), 0.0),
+    ])
+
+
 class TestLinearity:
     """Linearity decides 3N-5 vs 3N-6 modes and 1 vs 3 rotational constants."""
 
@@ -54,6 +64,61 @@ class TestLinearity:
         """Guard the other direction: the test must not accept everything."""
         atoms = Atoms("OCO", [(-1.16, 0, 0), (0, 0.30, 0), (1.16, 0, 0)])
         assert _is_collinear(atoms) is False
+
+    def test_a_thermally_bent_co2_is_still_linear(self):
+        """CO2's bend is thermally populated to several degrees at 298 K.
+
+        The threshold must sit well above that, or an imperfectly optimized
+        linear molecule loses a real 667 cm-1 mode and gains a rotational
+        degree of freedom it does not have.
+        """
+        assert _is_collinear(_bent_triatomic("COO", 1.16, 170.0)) is True
+
+    def test_a_clearly_bent_triatomic_is_nonlinear(self):
+        """30 degrees from linear is a bent molecule, not a floppy linear one."""
+        assert _is_collinear(_bent_triatomic("COO", 1.16, 150.0)) is False
+
+    def test_a_real_bent_species_is_nonlinear(self):
+        """NO2 at 134 degrees is the most nearly-linear genuinely bent case."""
+        assert _is_collinear(_bent_triatomic("NOO", 1.19, 134.1)) is False
+
+
+class TestIsotopeMasses:
+    """mol2atoms must carry isotope labels into ASE's per-atom masses.
+
+    The moment-of-inertia linearity test and IdealGasThermo's rotational
+    partition function both depend on mass, not just on element identity; an
+    isotope label RDKit tracks (e.g. deuterium) is meaningless downstream if
+    mol2atoms silently reduces every atom to its natural-abundance element mass.
+    """
+
+    def test_deuterated_species_is_heavier_than_protiated(self):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.ASE.thermo import mol2atoms
+
+        def embedded(smiles):
+            mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            AllChem.EmbedMolecule(mol, randomSeed=42)
+            return mol2atoms(mol)
+
+        deuterated = embedded("[2H]C#N")
+        protiated = embedded("C#N")
+        assert deuterated.get_masses().sum() > protiated.get_masses().sum()
+
+    def test_unlabeled_species_uses_ordinary_masses(self):
+        """No isotopes set -> the symbol-only path, byte-for-byte unchanged."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.ASE.thermo import mol2atoms
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("C#N"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        atoms = mol2atoms(mol)
+        assert atoms.get_chemical_symbols() == [a.GetSymbol() for a in mol.GetAtoms()]
+        assert list(atoms.get_masses()) == list(Atoms(atoms.get_chemical_symbols()).get_masses())
 
 
 @pytest.fixture(scope="module")

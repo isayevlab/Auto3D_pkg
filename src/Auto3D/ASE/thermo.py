@@ -229,6 +229,16 @@ def mol2atoms(mol: Chem.Mol) -> Atoms:
     coord = mol.GetConformer().GetPositions()
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     atoms = Atoms(species, coord)
+    if any(a.GetIsotope() for a in mol.GetAtoms()):
+        # Isotope masses feed the rotational partition function directly, and
+        # (since the moment-of-inertia linearity test) now the linear/nonlinear
+        # classification too: ASE's per-element default is the natural-abundance
+        # average mass, so a labeled D/13C/15N atom would silently keep
+        # protium/12C/14N mass otherwise. RDKit's Atom.GetMass() already returns
+        # the isotope-specific mass when GetIsotope() is nonzero and the
+        # ordinary average mass otherwise, so this is a no-op for unlabeled
+        # input -- the symbol-only path above is unchanged for ordinary molecules.
+        atoms.set_masses([a.GetMass() for a in mol.GetAtoms()])
     return atoms
 
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,

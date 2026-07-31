@@ -78,9 +78,20 @@ DEFAULT_ENERGY_TOL = 1e-3
 DEFAULT_ENERGY_PATIENCE = 3  # Steps energy must be stable before converging
 DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
 
-# A linear molecule has one vanishing principal moment of inertia. This is the
-# largest smallest-to-largest moment ratio still treated as linear; it is
+# A linear molecule has one vanishing principal moment of inertia; a bent one
+# has two comparable large moments and a much smaller third. This is the
+# largest smallest-to-largest moment ratio still treated as linear. It is
 # dimensionless, so unlike an absolute coordinate tolerance it behaves the same
-# for a diatomic and for a long chain. 1e-3 keeps a CO2 bent by 0.01 A linear
-# while classifying a 0.3 A bend as nonlinear.
-LINEARITY_MOMENT_RATIO = 1e-3
+# for a diatomic and for a long chain.
+#
+# Placed by measurement, not by fitting test cases: sweeping a symmetric
+# triatomic's bend angle puts this boundary at ~22 degrees from linear (ratio
+# vs. angle-off-linear for a CO2-like triatomic: 10 deg -> 2.1e-3, 20 deg ->
+# 8.4e-3, 22 deg -> 1.0e-2, 30 deg -> 1.9e-2). That separates a linear
+# molecule left imperfectly optimized -- CO2's real bending mode is thermally
+# populated to several degrees at room temperature, e.g. 20 degrees off linear
+# still measures only 8.4e-3 -- from a molecule that is genuinely bent, e.g.
+# NO2, the most nearly-linear common bent species, at 134 degrees (46 degrees
+# off linear), which measures 5.2e-2. 1e-2 sits about an order of magnitude
+# above the thermal case and ~5x below the genuinely bent one.
+LINEARITY_MOMENT_RATIO = 1e-2
