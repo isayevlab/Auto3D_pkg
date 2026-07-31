@@ -26,15 +26,18 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
 
     Two molecules are enantiomers if all their stereo centers have opposite
     configurations. This function compares lists of (atom_index, stereo_type)
-    tuples from RDKit's FindMolChiralCenters.
+    tuples describing each stereo center's atom index and configuration
+    label, regardless of what produced them.
 
     Args:
         l1: List of (atom_index, stereo_type) tuples for first molecule.
         l2: List of (atom_index, stereo_type) tuples for second molecule.
 
     Returns:
-        True if l1 and l2 represent enantiomers (all stereo centers inverted),
-        False otherwise.
+        True if l1 and l2 represent enantiomers (both non-empty, same indices,
+        every configuration inverted), False otherwise. Two empty lists are
+        False: a molecule with no stereo centers is its own mirror image, so it
+        has no enantiomer to pair with.
 
     Raises:
         ValueError: If l1 and l2 have different lengths or mismatched indices.
@@ -50,7 +53,12 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
         raise ValueError(
             f"Stereo center lists must have same length: {len(l1)} vs {len(l2)}"
         )
-    indicator = True
+    # Two molecules with no stereo centers at all are not an enantiomeric pair:
+    # they are either the same molecule or two unrelated achiral compounds. The
+    # loop below cannot express that, because an empty loop leaves `indicator`
+    # at its True initial value, so the caller must be told here.
+    if not l1:
+        return False
     for i in range(len(l1)):
         tp1 = l1[i]
         tp2 = l2[i]
@@ -61,9 +69,95 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
                 f"Stereo center indices must match: {idx1} vs {idx2} at position {i}"
             )
         if stereo1 == stereo2:
-            indicator = False
-            return indicator
-    return indicator
+            return False
+    return True
+
+
+def _mirror_image(mol: Chem.Mol) -> Chem.Mol:
+    """Return a copy of ``mol`` with every tetrahedral center inverted.
+
+    Reflection through a plane inverts tetrahedral configuration and leaves
+    double-bond (E/Z) geometry untouched, which is why this function only
+    swaps chiral tags: a cis alkene reflects to a cis alkene.
+    """
+    work = Chem.Mol(mol)
+    for atom in work.GetAtoms():
+        tag = atom.GetChiralTag()
+        if tag == Chem.ChiralType.CHI_TETRAHEDRAL_CW:
+            atom.SetChiralTag(Chem.ChiralType.CHI_TETRAHEDRAL_CCW)
+        elif tag == Chem.ChiralType.CHI_TETRAHEDRAL_CCW:
+            atom.SetChiralTag(Chem.ChiralType.CHI_TETRAHEDRAL_CW)
+    return work
+
+
+def enantiomer_key(smi: str) -> tuple[str, ...]:
+    """Return a key two SMILES share iff they are one molecule or mirror images.
+
+    The key is the sorted set of the molecule's own canonical SMILES and its
+    mirror image's. An achiral molecule is its own mirror image, so its key has
+    one element and cannot collide with anything but itself; a chiral molecule
+    and its enantiomer produce the same two-element key from either side.
+
+    Keying is what makes the filter linear rather than a pairwise sweep, and it
+    also collapses a meso form against the string-inverted twin that
+    ``amend_configuration_w`` appends for it -- the same molecule written two
+    ways, which a pairwise enantiomer test cannot catch because the two are not
+    an enantiomeric pair.
+
+    Public because the SDF isomer engine deduplicates enumerated stereoisomers
+    with the same key, so both input paths remove enantiomers by one rule.
+    """
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        # Keep unparseable input unique to its own text so it is neither merged
+        # with a real molecule nor dropped. The prefix cannot occur in a SMILES.
+        return ("\x00unparseable", smi)
+    canonical = Chem.MolToSmiles(mol)
+    return tuple(sorted({canonical, Chem.MolToSmiles(_mirror_image(mol))}))
+
+
+def are_enantiomers(smi1: str, smi2: str) -> bool:
+    """Check whether two SMILES are a pair of enantiomers.
+
+    Builds the mirror image of the first molecule and compares canonical
+    SMILES. This needs no atom mapping between the two inputs, which matters
+    because the two SMILES are independently canonicalized and their atom
+    orderings are not guaranteed to agree.
+
+    Being index-free also makes the test exact for double-bond stereo: a
+    reflection cannot change E/Z, so two molecules that differ in a C=C
+    configuration never compare equal, and geometric isomers -- which are
+    distinct compounds, not an enantiomeric pair -- are both retained.
+
+    Args:
+        smi1: First SMILES string.
+        smi2: Second SMILES string.
+
+    Returns:
+        True only if the two are distinct molecules related by reflection.
+        False for identical molecules, for unparseable input, and for any
+        molecule with no tetrahedral center (it is its own mirror image).
+
+        Only tetrahedral configuration is inverted. A molecule that combines a
+        tetrahedral center with a square-planar, trigonal-bipyramidal or
+        octahedral center reflects incorrectly and two such diastereomers can
+        be reported as an enantiomeric pair. No supported neural network
+        potential covers the elements those stereo classes require.
+
+    Example:
+        >>> are_enantiomers('C[C@H](O)F', 'C[C@@H](O)F')
+        True
+        >>> are_enantiomers('C/C=C/C', 'C/C=C\\\\C')
+        False
+    """
+    mol1 = Chem.MolFromSmiles(smi1)
+    mol2 = Chem.MolFromSmiles(smi2)
+    if mol1 is None or mol2 is None:
+        return False
+    if Chem.MolToSmiles(mol1) == Chem.MolToSmiles(mol2):
+        # The same molecule is not its own enantiomeric partner.
+        return False
+    return enantiomer_key(smi1) == enantiomer_key(smi2)
 
 
 def enantiomer_helper(smiles: list[str]) -> list[str]:
@@ -83,24 +177,17 @@ def enantiomer_helper(smiles: list[str]) -> list[str]:
         >>> result = enantiomer_helper(smiles)
         >>> len(result)  # Only one enantiomer kept
         1
+        >>> enantiomer_helper(['C/C=C/C', 'C/C=C\\\\C'])  # E/Z are not enantiomers
+        ['C/C=C/C', 'C/C=C\\\\C']
     """
-    mols = [Chem.MolFromSmiles(smi) for smi in smiles]
-    stereo_centers = [
-        Chem.FindMolChiralCenters(mol, useLegacyImplementation=False) for mol in mols
-    ]
     non_enantiomers: list[str] = []
-    non_centers: list[list[tuple[int, str]]] = []
-    for i in range(len(stereo_centers)):
-        smi = smiles[i]
-        stereo = stereo_centers[i]
-        indicator = True
-        for j in range(len(non_centers)):
-            stereo_j = non_centers[j]
-            if enantiomer(stereo_j, stereo):
-                indicator = False
-        if indicator:
-            non_centers.append(stereo)
-            non_enantiomers.append(smi)
+    seen: set[tuple[str, ...]] = set()
+    for smi in smiles:
+        key = enantiomer_key(smi)
+        if key in seen:
+            continue
+        seen.add(key)
+        non_enantiomers.append(smi)
     return non_enantiomers
 
 
@@ -135,9 +222,8 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
         try:
             new_values = enantiomer_helper(values)
         except (ValueError, RuntimeError, AttributeError) as e:
-            # ValueError: from enantiomer() on mismatched stereo center lists
-            # RuntimeError: from RDKit SMILES parsing or FindMolChiralCenters
-            # AttributeError: if MolFromSmiles returns None and we try to access it
+            # Defensive against RDKit internals: if stereo perception raises for
+            # this group, keep every original SMILES rather than lose one.
             new_values = values
             logger.debug(f"Enantiomer detection failed for {key}: {type(e).__name__}: {e}")
             logger.warning(f"Enantiomers not removed for {key}")

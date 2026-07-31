@@ -57,19 +57,6 @@ class TestNoEnantiomerLengthMismatch:
         assert result is False
 
 
-def test_detect_stereo_change():
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-
-    from Auto3D.utils.stereo_check import stereo_changed
-
-    m = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)Cl"))
-    AllChem.EmbedMolecule(m, randomSeed=1)
-    Chem.AssignStereochemistryFrom3D(m)
-    assert stereo_changed(m, reference_smiles="C[C@H](O)Cl") is False
-    assert stereo_changed(m, reference_smiles="C[C@@H](O)Cl") is True
-
-
 class TestEnantiomerValidation:
     """Tests for the enantiomer() function validation."""
 
@@ -130,13 +117,21 @@ class TestEnantiomerValidation:
         result = enantiomer(l1, l2)
         assert result is False
 
-    def test_enantiomer_empty_lists_returns_true(self):
-        """Empty lists (no stereo centers) should return True."""
+    def test_enantiomer_empty_lists_returns_false(self):
+        """Two molecules with no stereo centers are not an enantiomeric pair.
+
+        This asserted ``True`` until 4.0.0, matching the implementation's
+        vacuous result: the comparison loop never executed and ``indicator``
+        kept its ``True`` initial value. A molecule with no stereo centers is
+        its own mirror image, so it has no enantiomer to be paired with, and
+        the old behavior made ``enantiomer_helper`` discard distinct achiral
+        compounds -- including one geometric isomer of every unspecified C=C.
+        """
         l1: list[tuple[int, str]] = []
         l2: list[tuple[int, str]] = []
 
         result = enantiomer(l1, l2)
-        assert result is True
+        assert result is False
 
 
 class TestNoEnantiomerHelperValidation:

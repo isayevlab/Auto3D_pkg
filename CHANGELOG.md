@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **Molecules with unspecified double-bond stereo now produce roughly twice the
+  conformer groups.** One geometric isomer of every such molecule was previously
+  discarded before embedding, because the enantiomer filter treated two empty
+  stereo-center lists as an enantiomeric pair and `FindMolChiralCenters` never
+  reports double-bond stereo. Which isomer survived was decided by SMILES sort
+  order. Fumaric and maleic acid differ by ~5 kcal/mol, and one of them silently
+  disappeared. Expect larger output and longer runs for affected inputs; this is
+  the cis/trans enumeration that was already being requested.
+
+- **Conformers whose configuration changed during optimization are excluded from
+  the results.** Optimization can invert a stereocenter or rotate through a
+  double bond, producing a molecule of different chemical identity than its
+  title. Such records are marked with a `Stereo_changed` SD property and dropped
+  by the conformer filters, with a count logged. A molecule whose every
+  conformer changed configuration now yields no output where it previously
+  yielded a mislabeled structure. Every surviving record now carries
+  `Stereo_changed` too, set to `False` - this SD property did not exist on 3.x
+  output at all, so code that enumerates every SD property on a record should
+  expect it. Clash relief (`relieve_clash`, the force-field relaxation that runs
+  on the enumerated SDF before the neural network optimization) can invert a
+  center or rotate a double bond by the same mechanism and is now guarded the
+  same way at its own call site: a conformer whose configuration changes during
+  clash relief is discarded there, with a warning logged, before it can reach
+  the optimization step and be baked in as that step's unwitting "before" state.
+
+- **SDF input enumerates unspecified stereocenters and removes enantiomers.**
+  `RDKitSdfIsomer` embedded a single molecule per record, so ETKDG returned a
+  mixture of configurations written as numbered conformers of one species. Each
+  configuration is now embedded separately, and conformers are named
+  `<species>_<isomer>_<conformer>` to match the SMILES path. Enantiomeric pairs
+  are also reduced to one representative here, the same rule the SMILES path
+  already applies via `remove_enantiomers` - without it, this path emitted twice
+  the species (alanine: 1 -> 2, glucose: 16 -> 32). `max_confs` is therefore a
+  per-stereoisomer budget on this path, as it already was on the SMILES path,
+  but "per-stereoisomer" now means *per surviving* stereoisomer: a flat SDF with
+  one unspecified center and no other stereo element has only one surviving
+  isomer, because the two configurations at a lone center are always
+  enantiomers of each other, so `max_confs=12` produces up to 12 conformers, not
+  24; a molecule with two independent unspecified centers (e.g. threonine) keeps
+  two surviving diastereomers, so `max_confs=12` there does produce up to 24. An
+  isomer ETKDG cannot embed is now named in a logged warning instead of
+  disappearing from the output with no trace.
+
+- **`Auto3D.utils.stereo_check.stereo_changed` removed.** It had no caller and
+  compared CIP codes by raw atom index against a separately parsed reference
+  SMILES. Use `stereo_descriptors_from_3d` to read a molecule's configuration
+  and `stereo_preserved` to test the marker the pipeline sets.
+
 - **`pad_from_mols` returns a 4-tuple** - `(coords, species, charges, atom_mask)`.
   `atom_mask` is a `(batch, max_atoms)` boolean tensor, `True` for real atoms.
   `ensemble_opt` and `n_steps` now take `atom_mask` in place of `species_pad`.
@@ -63,6 +111,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   purely force-driven from `v = 0`, so every affected hydrogen was frozen at
   its input coordinate for the entire run - the output geometry itself was
   wrong, not merely the convergence metadata.
+
+- **Geometric isomers are no longer discarded as enantiomers** - `enantiomer()`
+  returned `True` for two empty descriptor lists because its loop body never
+  executed. `enantiomer_helper` no longer does a pairwise, index-keyed
+  comparison at all: it now deduplicates by `enantiomer_key(smi)` - a
+  molecule's canonical SMILES paired with its mirror image's - which needs no
+  atom mapping between two independently canonicalized structures and is exact
+  on E/Z, since a reflection cannot change double-bond geometry and geometric
+  isomers therefore never share a key. This also removes the latent failure
+  where the old index-keyed comparison could raise `ValueError` on a legitimate
+  pair and silently disable the filter for that whole batch, and it fixes a
+  meso compound being emitted twice: the same key collapses a meso form against
+  the string-inverted twin `amend_configuration_w` appends for it, which a
+  pairwise enantiomer test could not recognize as one molecule written two
+  ways. `enantiomer()` itself is fixed and still public; new public
+  `are_enantiomers(smi1, smi2)` and `enantiomer_key(smi)` helpers are also
+  available from `Auto3D.utils.stereochemistry`.
+
+- **Tautomer enumeration preserves specified stereochemistry** - RDKit's
+  `TautomerEnumerator` defaults to `SetRemoveSp3Stereo(True)`, so every output
+  tautomer was written stereo-stripped and then re-enumerated downstream as
+  unassigned. A submitted (S) molecule came back as (R) roughly half the time,
+  at identical energy and undetectable from the output. Affects
+  `enumerate_tautomer=True` runs only.
+
+  Preserving sp3 and bond stereo this way is only safe for single-step
+  flattening: across a multi-step path (D-erythrose reaching the shared
+  2,3-enediol, which flattens both of its centers) RDKit restores a definite
+  tag rather than leaving the center unspecified, and for one output that tag
+  is the input's mirror image. A tautomer that reproduces the input's
+  constitution with a different configuration is therefore rejected outright -
+  without that check, D-erythrose came back with L-erythrose emitted as one of
+  its own tautomers. Tautomers of a genuinely different constitution are left
+  untouched, since a keto/enol shift can legitimately relabel an untouched
+  center's CIP priority without inverting it, and no new descriptors are
+  assigned.
+
+- **SDF input no longer randomizes unspecified stereocenters** - the SDF path
+  ignored `enumerate_isomers` entirely; the adapter did not accept it. With
+  enumeration disabled, a molecule with unspecified stereo now logs a warning
+  naming the count instead of silently emitting a mixture.
 
 ## [3.5.0] - 2026-06-13
 

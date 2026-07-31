@@ -145,6 +145,7 @@ class IsomerEngineFactory:
                 max_confs=max_confs,
                 threshold=threshold,
                 n_jobs=n_jobs,
+                enumerate_isomers=enumerate_isomers,
             )
         elif engine_type == "omega":
             return adapter_class(

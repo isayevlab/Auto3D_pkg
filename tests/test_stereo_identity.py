@@ -9,7 +9,6 @@ Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path).
 """
 from __future__ import annotations
 
-import pytest
 from rdkit import Chem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
@@ -29,11 +28,6 @@ def _enumerate(smiles: str) -> list[str]:
 class TestEnantiomerPredicate:
     """The enantiomer predicate must not treat 'no stereocenters' as 'enantiomers'."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C1: enantiomer([], []) returns True vacuously -- the loop body "
-        "never executes and `indicator` stays True",
-    )
     def test_two_achiral_molecules_are_not_enantiomers(self):
         """Molecules with no stereocenters cannot be an enantiomeric pair."""
         assert enantiomer([], []) is False
@@ -42,11 +36,6 @@ class TestEnantiomerPredicate:
 class TestEZIsomersSurvive:
     """E/Z configuration is invariant under reflection, so it is never enantiomeric."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C1: FindMolChiralCenters does not report double-bond stereo, so "
-        "both descriptor lists are empty and one geometric isomer is discarded",
-    )
     def test_but_2_ene_keeps_both_geometric_isomers(self):
         """CC=CC must yield both E and Z after enantiomer filtering."""
         enumerated = _enumerate("CC=CC")
@@ -55,11 +44,6 @@ class TestEZIsomersSurvive:
         kept = enantiomer_helper(enumerated)
         assert len(kept) == 2, f"a geometric isomer was discarded: kept {kept}"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C1: fumaric and maleic acid differ by ~5 kcal/mol and one is "
-        "discarded as an 'enantiomer' of the other",
-    )
     def test_fumaric_and_maleic_acid_both_survive(self):
         """The two diacids are distinct compounds, not an enantiomeric pair."""
         enumerated = _enumerate("OC(=O)C=CC(=O)O")
@@ -72,12 +56,6 @@ class TestEZIsomersSurvive:
 class TestTautomerStereoPreservation:
     """Tautomer enumeration must not silently erase a specified stereocenter."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C2: RDKit TautomerEnumerator defaults to SetRemoveSp3Stereo(True), "
-        "so rd_taut writes stereo-stripped SMILES that are then re-enumerated "
-        "as unassigned -- a 50% chance of the wrong enantiomer",
-    )
     def test_specified_center_survives_tautomer_enumeration(self, job_dir):
         """At least one output tautomer must retain the input's specified center.
 
@@ -118,14 +96,6 @@ class TestTautomerStereoPreservation:
 class TestSdfInputStereo:
     """A 2D SDF with an unspecified center must not be silently randomized."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M19: RDKitSdfIsomer.run() (driven here through the real "
-        "create_isomer_engine('rdkit_sdf', ...) / RDKitSdfIsomerAdapter factory "
-        "path) calls only AddHs + EmbedMultipleConfs on the SDF-parsed mol, so "
-        "ETKDG returns a stereochemical mixture that is written to the output "
-        "SDF as numbered conformers under a single species name",
-    )
     def test_unspecified_center_is_enumerated_or_refused(self, job_dir):
         """Drive Auto3D's real SDF isomer engine on a flat, unspecified center.
 

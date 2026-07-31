@@ -28,6 +28,7 @@ from Auto3D.constants import (
     MAX_CONFORMERS_CAP,
     MIN_ATOM_DISTANCE,
 )
+from Auto3D.utils.stereo_check import stereo_descriptors_from_3d, stereo_preserved
 
 logger = logging.getLogger("auto3d")
 
@@ -175,6 +176,35 @@ def relieve_clash(
     the function falls back to UFF so the conformer is not discarded for lack
     of a force field.
 
+    The force-field relaxation can itself invert a stereocenter or rotate a
+    double bond. This runs before the enumerated SDF is written, so the
+    downstream post-optimization stereochemistry check would otherwise read an
+    already-changed geometry as its own "before" reference and never notice.
+    Stereochemistry is therefore checked before and after the relaxation, on
+    this same molecule object, and a conformer whose configuration changed is
+    rejected here rather than passed downstream.
+
+    Known limitation: the "before" snapshot is read while the conformer is
+    still in violation of ``min_distance`` — by definition, since that is the
+    only way execution reaches this branch. CIP perception on a geometry that
+    is itself clashing is not a trustworthy baseline, unlike the equivalent
+    check in ``batch_opt/batchopt.py``, whose "before" reading is always
+    taken from a valid, non-clashing conformer. This matters only when the
+    branch is actually reached: across roughly 650 conformers sampled from
+    Auto3D's real ``EmbedMultipleConfs`` output (glucose, cholesterol, a
+    tripeptide, macrocycles, a cage compound, and molecules with B/Se/
+    hypervalent Si), none ever fell below the clash threshold. Under 196
+    artificially forced clashes, this guard rejected 96 conformers, and about
+    56% of those rejections had a post-relaxation configuration that actually
+    matched the molecule's true configuration -- spurious rejections caused
+    by the unreliable baseline rather than a real inversion. The known
+    improvement is to compare against the molecule's graph-encoded stereo
+    tags instead of a 3D read of the clashing geometry, but that needs its
+    own measurement first: RDKit's graph ``AssignStereochemistry`` and
+    ``AssignStereochemistryFrom3D`` label pseudoasymmetric centers
+    differently (``r``/``s`` vs ``R``/``S``), which could introduce a
+    systematic false positive.
+
     Args:
         mol: RDKit molecule holding the conformer.
         conf_id: Index of the conformer to check/optimize.
@@ -182,7 +212,9 @@ def relieve_clash(
 
     Returns:
         True if the (possibly optimized) conformer's minimum pairwise distance
-        is >= ``min_distance`` and should be kept; False if it still clashes.
+        is >= ``min_distance`` and its stereochemistry survived unchanged;
+        False if it still clashes or if the relaxation changed its
+        configuration.
     """
     positions = mol.GetConformer(conf_id).GetPositions()
     # Closing the dead band: a conformer exactly at the threshold is kept.
@@ -190,10 +222,23 @@ def relieve_clash(
         return True
 
     # Clashing conformer: try MMFF, fall back to UFF when MMFF is unavailable.
+    before = stereo_descriptors_from_3d(mol, conf_id=conf_id)
     if AllChem.MMFFHasAllMoleculeParams(mol):
         AllChem.MMFFOptimizeMolecule(mol, confId=conf_id)
     else:
         AllChem.UFFOptimizeMolecule(mol, confId=conf_id)
+
+    # Clash relief is a force-field relaxation and can invert a center just as
+    # the neural network optimization can. It runs before the enumerated SDF is
+    # written, so the post-optimization check downstream would read an already
+    # inverted geometry as its reference and never notice. Reject the conformer
+    # here instead; the embedder simply keeps the ones that survive.
+    if stereo_descriptors_from_3d(mol, conf_id=conf_id) != before:
+        logger.warning(
+            "Discarding a conformer whose stereochemistry changed during clash "
+            "relief."
+        )
+        return False
 
     positions = mol.GetConformer(conf_id).GetPositions()
     return min_pairwise_distance(positions) >= min_distance
@@ -440,6 +485,7 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
 
     Args:
         mols: List of RDKit molecule objects with 'Converged' property set.
+            Records marked 'Stereo_changed' are excluded.
         crit: RMSD threshold for considering two structures as identical.
             Structures with RMSD below this value are considered duplicates.
             Defaults to DEFAULT_RMSD_THRESHOLD (0.3 Angstroms).
@@ -466,7 +512,7 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
         except KeyError:
             convergence_flag = False
         has_valid_bonds = check_connectivity(mol)
-        if convergence_flag and has_valid_bonds:
+        if convergence_flag and has_valid_bonds and stereo_preserved(mol):
             mols_.append(mol)
     mols = mols_
 

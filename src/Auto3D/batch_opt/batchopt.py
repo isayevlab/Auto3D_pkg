@@ -1,4 +1,5 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +40,7 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
 from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.model_factory import create_model
+from Auto3D.utils.stereo_check import apply_optimized_coords
 
 from .padding import pad_from_mols
 
@@ -323,6 +325,7 @@ class optimizing:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        n_stereo_changed = 0
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):
                 mol = mols[i]
@@ -341,10 +344,30 @@ class optimizing:
                 is_oscillating = converged_i and osc_count_i >= patience
                 mol.SetProp('Dropped_Oscillating', str(is_oscillating))
                 mol.SetProp('ID', idx)
-                coord = coords_out[i]
-                for atom_idx, atom in enumerate(mol.GetAtoms()):
-                    mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[atom_idx])
+                # Reads the configuration from the pre-optimization coordinates,
+                # writes the optimized ones, reads again, and records the
+                # comparison on the molecule. Both readings come from this same
+                # object, so no atom mapping is needed. This covers the neural
+                # network optimization step only; clash relief (a separate,
+                # earlier force-field relaxation) is guarded at its own call
+                # site in Auto3D.utils.chemistry.relieve_clash.
+                if not apply_optimized_coords(mol, coords_out[i]):
+                    n_stereo_changed += 1
                 f.write(mol)
+
+        if n_stereo_changed:
+            # This module's logger ("Auto3D.batch_opt.batchopt") is not an
+            # ancestor of "auto3d", the logger name the worker's QueueHandler
+            # is attached to (see Auto3D.workflow_workers), so a warning
+            # through the module logger never reaches the run log. Emit
+            # through logging.getLogger("auto3d") directly instead -- the
+            # same fix Auto3D.utils.chemistry.relieve_clash already uses --
+            # because this count is documented as user-visible in the log
+            # (CHANGELOG.md, docs/source/migration-4.0.rst).
+            logging.getLogger("auto3d").warning(
+                f"{n_stereo_changed} conformer(s) changed stereochemistry during "
+                "optimization and will be excluded from the results."
+            )
 
         # Clean up GPU memory after optimization
         if torch.cuda.is_available():

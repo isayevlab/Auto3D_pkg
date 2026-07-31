@@ -26,11 +26,40 @@ from Auto3D.utils import (
 )
 from Auto3D.utils.chemistry import calculate_conformer_count
 from Auto3D.utils.file_ops import combine_smi, iter_smi_records
+from Auto3D.utils.stereochemistry import enantiomer_key
 
 try:
     from openeye import oechem, oeomega, oequacpac
 except ImportError:
     pass
+
+
+def _contradicts_reference_stereo(reference: Chem.Mol, tautomer: Chem.Mol) -> bool:
+    """True if ``tautomer`` is the input's skeleton with a different configuration.
+
+    Preserving sp3 stereo through enumeration is only safe for single-step
+    flattening. Across a multi-step path -- D-erythrose reaching the 2,3-enediol,
+    which flattens both of its centers -- RDKit restores a DEFINITE tag instead
+    of leaving the center unspecified, and for one output that tag is the
+    input's mirror image. Unfiltered, D-erythrose yields L-erythrose as a
+    "tautomer": the wrong-identity defect that preserving stereo exists to
+    prevent.
+
+    The test is deliberately narrow. A tautomer whose constitution differs from
+    the input is a genuinely different species, and its stereo descriptors are
+    not comparable to the input's -- a keto/enol shift can relabel an untouched
+    center from R to S purely by changing a neighboring branch's CIP priority,
+    which is a relabeling and not an inversion. Only when the constitution is
+    identical does "different configuration" mean the molecule came back wrong.
+
+    Comparing canonical SMILES rather than per-atom descriptors also means this
+    depends on no assumption about the enumerator preserving atom ordering.
+    """
+    if Chem.MolToSmiles(tautomer, isomericSmiles=False) != Chem.MolToSmiles(
+        reference, isomericSmiles=False
+    ):
+        return False
+    return Chem.MolToSmiles(tautomer) != Chem.MolToSmiles(reference)
 
 
 class TautomerEngine:
@@ -69,6 +98,20 @@ class TautomerEngine:
     def rd_taut(self) -> None:
         """Enumerate tautomers using RDKit."""
         enumerator = rdMolStandardize.TautomerEnumerator()
+        # RDKit strips stereo from every atom in the tautomer core, in every
+        # output tautomer, including tautomers formed at a site that cannot
+        # reach a given center -- enolizing a ketone's other alpha carbon,
+        # say. The stripped SMILES are then re-enumerated downstream by
+        # EnumerateStereoisomers(onlyUnassigned=True) and one epimer is kept
+        # arbitrarily, so a submitted (S) molecule comes back as (R) half the
+        # time at identical energy. Disabling that default removal here
+        # preserves what the user specified -- but is only safe for
+        # single-step flattening: across a multi-step path RDKit can restore
+        # a DEFINITE tag on a center it destroyed, and the tag it picks can
+        # be the input's mirror image, so contradicting tautomers are
+        # filtered out below via _contradicts_reference_stereo().
+        enumerator.SetRemoveSp3Stereo(False)
+        enumerator.SetRemoveBondStereo(False)
         smiles = []
         for _line_no, smi, idx in iter_smi_records(self.input_f, on_malformed="skip"):
             smiles.append((smi, idx))
@@ -81,6 +124,8 @@ class TautomerEngine:
                 continue
             tauts = enumerator.Enumerate(mol)
             for taut in tauts:
+                if _contradicts_reference_stereo(mol, taut):
+                    continue
                 tautomers.append((Chem.MolToSmiles(taut), idx))
         with open(self.output, 'w+') as f:
             for smi_idx in tautomers:
@@ -287,6 +332,7 @@ class RDKitIsomer:
                         f"Skipping molecule {name!r}: failed to parse {smi!r}"
                     )
                     continue
+                n_written = 0
                 for i in range(mol.GetNumConformers()):
                     # Relieve atom clashes (MMFF, UFF fallback) and keep the
                     # conformer only if it ends up clash-free.
@@ -295,6 +341,18 @@ class RDKitIsomer:
                         mol.SetProp('ID', conf_id)
                         mol.SetProp('_Name', conf_id)
                         writer.write(mol, confId=i)
+                        n_written += 1
+                if n_written == 0:
+                    # Every embedded conformer was rejected by clash relief
+                    # (or none embedded at all): the species is silently
+                    # absent from the output and never reaches ranking, so
+                    # not even "No structure converged" would appear for it.
+                    # Name it here, once, mirroring the SDF path's equivalent
+                    # warning for a stereoisomer ETKDG could not embed.
+                    logger.warning(
+                        f"{name!r} produced no conformers after clash relief; "
+                        "this species is absent from the output."
+                    )
 
     def _run_parallel_embedding(
         self, smi_name_tuples: list[tuple[str, str]]
@@ -318,16 +376,31 @@ class RDKitIsomer:
 
 
 class RDKitSdfIsomer:
-    """Enumerate conformers from an SDF file.
+    """Enumerate stereoisomers and conformers from an SDF file.
 
-    Preserves specified stereo centers and enumerates unspecified ones.
+    Preserves specified stereo centers and enumerates unspecified ones, so each
+    output species has one definite configuration. Enantiomeric pairs are
+    reduced to one representative -- the same rule the SMILES path applies via
+    ``remove_enantiomers`` -- since mirror images are exactly degenerate under
+    any reflection-invariant potential. Conformers are named
+    ``<name>_<isomer>_<conformer>`` uniformly, including when there is only one
+    isomer, so this path's own output has one consistent shape to parse (the
+    SMILES path is not identical: with ``enumerate_isomers`` disabled there it
+    emits only two components). The isomer component is what
+    :func:`Auto3D.utils.file_ops.decode_ids` relies on to rebuild
+    ``<original>_<isomer>_<conformer>`` IDs after the pipeline's numeric-ID
+    encoding step; :class:`~Auto3D.ranking.ConformerRanker` groups on the
+    leading component only, so it is unaffected by the isomer index.
 
     Args:
         sdf: Path to input SDF file.
         enumerated_sdf: Path for output SDF file.
-        max_confs: Maximum conformers per molecule. None for dynamic.
+        max_confs: Maximum conformers per stereoisomer. None for dynamic.
         threshold: RMSD threshold for duplicate removal (Å).
         np: Number of CPU threads for parallelization.
+        flipper: Whether to enumerate unspecified stereocenters. When False,
+            a molecule with unspecified stereo is embedded as-is and its
+            conformers are a mixture of configurations; a warning says so.
     """
 
     def __init__(
@@ -337,15 +410,78 @@ class RDKitSdfIsomer:
         max_confs: int | None,
         threshold: float,
         np: int,
+        flipper: bool = True,
     ) -> None:
         self.sdf = sdf
         self.enumerated_sdf = enumerated_sdf
         self.n_conformers = max_confs
         self.threshold = threshold
         self.np = np
+        self.flipper = flipper
+
+    @staticmethod
+    def count_unspecified_stereo(mol: Chem.Mol) -> int:
+        """Count stereo elements the input leaves unspecified."""
+        # A double bond drawn with no geometry (e.g. a flat 2D depiction of
+        # C=C) is reported by RDKit as Chem.StereoSpecified.Unknown, not
+        # Unspecified -- Unspecified is what an sp3 center with no wedge
+        # gets. Counting only Unspecified silently misses every unspecified
+        # C=C, which is the exact case this warning exists to catch (e.g. a
+        # flat fumaric/maleic-acid SDF mixing two geometries ~5 kcal/mol
+        # apart into one species with no warning).
+        unspecified = (Chem.StereoSpecified.Unspecified, Chem.StereoSpecified.Unknown)
+        return sum(
+            1
+            for element in Chem.FindPotentialStereo(mol)
+            if element.specified in unspecified
+        )
+
+    def stereoisomers(self, mol: Chem.Mol, name: str) -> list[Chem.Mol]:
+        """Return the distinct configurations to embed for one input record.
+
+        A 3D SDF whose centers are all specified yields exactly one entry, so
+        this is a no-op for that input; only unspecified centers enumerate.
+        """
+        if not self.flipper:
+            unspecified = self.count_unspecified_stereo(mol)
+            if unspecified:
+                logger.warning(
+                    f"{name!r} has {unspecified} unspecified stereo element(s) "
+                    "and stereoisomer enumeration is disabled, so its conformers "
+                    "will be a mixture of configurations. Enable isomer "
+                    "enumeration to get one consistent species per configuration."
+                )
+            return [mol]
+
+        opts = StereoEnumerationOptions(
+            unique=True, maxIsomers=MAX_STEREOISOMERS, onlyUnassigned=True
+        )
+        isomers = list(EnumerateStereoisomers(mol, options=opts))
+        if len(isomers) >= MAX_STEREOISOMERS:
+            logger.warning(
+                f"Stereoisomer enumeration hit the cap of {MAX_STEREOISOMERS} "
+                f"for {name!r}; results may be truncated."
+            )
+        # Mirror images are exactly degenerate under any reflection-invariant
+        # potential, so optimizing both spends half the budget for nothing and
+        # leaves top_k choosing between them on numerical noise. The SMILES
+        # path drops them in remove_enantiomers; this is the same rule, applied
+        # to the enumerated list directly. Geometric isomers are NOT affected:
+        # a reflection cannot change E/Z, so cis and trans keep distinct keys.
+        deduplicated: list[Chem.Mol] = []
+        seen: set[tuple[str, ...]] = set()
+        for isomer in isomers:
+            key = enantiomer_key(Chem.MolToSmiles(isomer))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduplicated.append(isomer)
+        # EnumerateStereoisomers returns an empty sequence for a molecule it
+        # cannot enumerate; embedding the input unchanged beats dropping it.
+        return deduplicated or [mol]
 
     def run(self) -> str:
-        """Enumerate conformers and write to output SDF file.
+        """Enumerate stereoisomers and conformers into the output SDF file.
 
         Returns:
             Path to the enumerated SDF file.
@@ -358,24 +494,40 @@ class RDKitSdfIsomer:
                         "Skipping molecule: failed to parse (SDMolSupplier yielded None)."
                     )
                     continue
-                #enumerate conformers
-                mol2 = Chem.AddHs(mol)
-                if self.n_conformers is None:
-                    # Compute the conformer budget on the H-complete (AddHs) mol
-                    # so the SDF path agrees with the SMILES path on the RICHER
-                    # with-H count. AddHs is idempotent for a mol that already
-                    # carries explicit Hs (3D SDFs read with removeHs=False), so
-                    # this yields the same count regardless of input format.
-                    n_conformers = calculate_conformer_count(mol2)
-                else:
-                    n_conformers = self.n_conformers
-                AllChem.EmbedMultipleConfs(mol2, numConfs=n_conformers, randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np, pruneRmsThresh=self.threshold)
-                #set conformer names
                 name = mol.GetProp('_Name')
-                for i, conf in enumerate(mol2.GetConformers()):
-                    mol2.SetProp('_Name', f'{name}_{i}')
-                    mol2.SetProp('ID', f'{name}_{i}')
-                    writer.write(mol2, confId=i)
+                for isomer_idx, isomer in enumerate(self.stereoisomers(mol, name)):
+                    mol2 = Chem.AddHs(isomer)
+                    if self.n_conformers is None:
+                        # Compute the conformer budget on the H-complete (AddHs)
+                        # mol so the SDF path agrees with the SMILES path on the
+                        # RICHER with-H count. AddHs is idempotent for a mol that
+                        # already carries explicit Hs (3D SDFs read with
+                        # removeHs=False), so this yields the same count
+                        # regardless of input format.
+                        n_conformers = calculate_conformer_count(mol2)
+                    else:
+                        n_conformers = self.n_conformers
+                    AllChem.EmbedMultipleConfs(
+                        mol2,
+                        numConfs=n_conformers,
+                        randomSeed=CONFORMER_RANDOM_SEED,
+                        numThreads=self.np,
+                        pruneRmsThresh=self.threshold,
+                    )
+                    if mol2.GetNumConformers() == 0:
+                        logger.warning(
+                            f"Stereoisomer {isomer_idx} of {name!r} produced no "
+                            "conformers; ETKDG could not embed it. This species "
+                            "is absent from the output."
+                        )
+                        continue
+                    # Three name components (species _ isomer _ conformer) match
+                    # the SMILES path, whose consumers group on the first one.
+                    for conf_idx, conf in enumerate(mol2.GetConformers()):
+                        conf_name = f'{name}_{isomer_idx}_{conf_idx}'
+                        mol2.SetProp('_Name', conf_name)
+                        mol2.SetProp('ID', conf_name)
+                        writer.write(mol2, confId=conf.GetId())
         return self.enumerated_sdf
 
 
