@@ -57,13 +57,6 @@ from Auto3D.workflow import WorkflowOrchestrator
 class TestRegistryNameValidation:
     """A typo'd registry model name must fail during validation, not in a worker."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M21: utils/validation.py:329-333 accepts any string starting "
-        "with 'aimnet2' without consulting the registry, so "
-        "WorkflowOrchestrator._validate_input never raises for a typo'd name "
-        "-- the failure only surfaces later, inside the spawned worker",
-    )
     def test_unknown_registry_name_is_rejected_up_front(self, isolated_input):
         """--engine aimnet2-2025x must fail validation and name valid options."""
         args = Auto3DOptions(
@@ -236,3 +229,41 @@ class TestColdCacheDiagnosis:
         assert any(w in message for w in ("delete", "remove", "aimnet_cache_dir")), (
             f"no recovery guidance in: {exc.value}"
         )
+
+
+class TestEngineNameResolution:
+    """resolve_engine_name is a pure offline lookup -- no model is loaded."""
+
+    def test_named_engines_pass_through(self):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("ANI2x") == "ANI2x"
+        assert resolve_engine_name("ANI2xt") == "ANI2xt"
+
+    def test_auto3d_alias_maps_onto_the_registry(self):
+        """The registry does not know 'AIMNET'; Auto3D maps it to aimnet2."""
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("AIMNET") == resolve_engine_name("aimnet2")
+
+    def test_a_registry_alias_resolves(self):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("aimnet2-2025") == "aimnet2-b973c-2025-d3_0"
+
+    def test_a_typo_names_the_alternatives(self):
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.models.preflight import resolve_engine_name
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            resolve_engine_name("aimnet2-2025x")
+        message = str(excinfo.value)
+        assert "aimnet2-2025x" in message
+        assert "aimnet2-2025" in message, f"valid names not listed: {message}"
+
+    def test_a_custom_path_passes_through(self, tmp_path):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        model = tmp_path / "custom.pt"
+        model.write_bytes(b"")
+        assert resolve_engine_name(str(model)) == str(model)
