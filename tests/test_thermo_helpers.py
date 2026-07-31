@@ -231,15 +231,28 @@ def _ev(*wavenumbers_cm):
 
 
 class TestVibrationAnalysis:
+    """analyze_vibrations must count imaginary modes over the vibration-only
+    subset (3N-6 / 3N-5), mirroring IdealGasThermo's own slice exactly, while
+    still returning the full 3N-mode set in ``.energies`` for IdealGasThermo
+    to slice itself. Most cases below use n_atoms chosen so 3N-6 (nonlinear)
+    equals the number of modes given, i.e. every mode supplied is a genuine
+    vibration and none of it is trans/rot -- the trans/rot exclusion itself is
+    covered separately below.
+    """
+
     def test_a_clean_spectrum_is_untouched(self):
-        result = analyze_vibrations(_ev(200, 800, 1600, 3000))
+        result = analyze_vibrations(
+            _ev(200, 800, 1600, 3000), n_atoms=4, geometry="nonlinear"
+        )
         assert result.n_imag == 0
         assert result.max_imag_cm == pytest.approx(0.0)
-        assert result.n_raised == 0
+        assert len(result.energies) == 4
 
     def test_a_small_imaginary_mode_is_counted_but_tolerated(self):
         """A -15 cm-1 artifact is the reason ignore_imag_modes exists."""
-        result = analyze_vibrations(_ev(-15, 800, 1600))
+        result = analyze_vibrations(
+            _ev(-15, 800, 1600), n_atoms=3, geometry="nonlinear"
+        )
         assert result.n_imag == 1
         assert result.max_imag_cm == pytest.approx(15.0, abs=0.5)
         assert result.is_transition_state is False
@@ -250,35 +263,93 @@ class TestVibrationAnalysis:
         ASE sorts by absolute value and deletes both indiscriminately, so
         without this distinction a saddle point is reported as a minimum.
         """
-        result = analyze_vibrations(_ev(-400, 800, 1600))
+        result = analyze_vibrations(
+            _ev(-400, 800, 1600), n_atoms=3, geometry="nonlinear"
+        )
         assert result.n_imag == 1
         assert result.max_imag_cm == pytest.approx(400.0, abs=1.0)
         assert result.is_transition_state is True
 
     def test_the_largest_imaginary_mode_decides(self):
-        result = analyze_vibrations(_ev(-12, -350, 900))
+        """The largest-magnitude imaginary mode comes FIRST in a real
+        spectrum, not last: VibrationsData.get_energies() diagonalizes with
+        np.linalg.eigh, which returns eigenvalues ascending, so the most
+        negative omega^2 (largest imaginary energy) sorts to the front. The
+        previous version of this test put the largest imaginary mode last,
+        which would not have caught a max(...) -> last-wins regression.
+        """
+        result = analyze_vibrations(
+            _ev(-350, -12, 900), n_atoms=3, geometry="nonlinear"
+        )
         assert result.n_imag == 2
         assert result.max_imag_cm == pytest.approx(350.0, abs=1.0)
         assert result.is_transition_state is True
 
-    def test_low_frequencies_are_raised_to_the_cutoff(self):
-        """A 10 cm-1 torsion contributes ~2.4 kcal/mol to -T*S at 298 K."""
-        result = analyze_vibrations(_ev(10, 40, 800), low_freq_cutoff_cm=100.0)
-        real_cm = sorted(round(e.real / EV_PER_CM) for e in result.energies)
-        assert real_cm == [100, 100, 800], real_cm
-        assert result.n_raised == 2
+    def test_energies_preserve_the_full_mode_count(self):
+        """.energies must stay the full 3N set, imaginary modes included.
 
-    def test_raising_is_off_by_default_at_zero_cutoff(self):
-        result = analyze_vibrations(_ev(10, 40, 800), low_freq_cutoff_cm=0.0)
-        real_cm = sorted(round(e.real / EV_PER_CM) for e in result.energies)
-        assert real_cm == [10, 40, 800], real_cm
-        assert result.n_raised == 0
+        IdealGasThermo is handed this same list and performs its own
+        equivalent 3N-6/3N-5 slice internally; if analyze_vibrations instead
+        trimmed .energies down to the vibration-only subset, that second cut
+        would delete genuine vibrations, but every other test in this class
+        would still pass since none of them checks the length of .energies.
+        """
+        modes = _ev(-400, 10, 20, 800, 1600, 3000)
+        result = analyze_vibrations(modes, n_atoms=4, geometry="nonlinear")
+        assert len(result.energies) == len(modes)
+        assert any(abs(e.imag) > 0.0 for e in result.energies), (
+            "an imaginary mode did not survive into .energies"
+        )
 
-    def test_imaginary_modes_are_not_raised(self):
-        """Raising applies to real low frequencies, never to imaginary ones."""
-        result = analyze_vibrations(_ev(-20, 10, 800), low_freq_cutoff_cm=100.0)
-        assert result.n_raised == 1
-        assert result.n_imag == 1
+    def test_translation_rotation_pseudo_imaginary_modes_are_excluded(self):
+        """The critical bug: VibrationsData.get_energies() returns all 3N
+        modes, including translation/rotation. Those eigenvalues should be
+        exactly zero but come out as small positive or negative numerical
+        noise, so several of them routinely present as spurious "imaginary"
+        modes. Measured case: a 5-atom Lennard-Jones cluster at Auto3D's own
+        0.01 eV/A convergence threshold reports 5 spurious imaginary modes up
+        to 19i cm-1 counting over the raw 3N set, while ASE's own
+        IdealGasThermo -- which performs the 3N-6 cut before counting --
+        reports 0. A user filtering N_imaginary_modes == 0 would discard
+        every valid conformer without this fix.
+        """
+        # 5 atoms, nonlinear: 15 modes total, 6 trans/rot (of which several
+        # are spuriously "imaginary", all tiny in magnitude) and 9 genuine,
+        # entirely real vibrations.
+        trans_rot = _ev(-19, -12, -8, 3, 5, 7)
+        vibrational = _ev(120, 300, 450, 600, 800, 1000, 1400, 1800, 3000)
+        modes = np.concatenate([trans_rot, vibrational])
+        result = analyze_vibrations(modes, n_atoms=5, geometry="nonlinear")
+        assert result.n_imag == 0
+        assert result.max_imag_cm == pytest.approx(0.0)
+        assert len(result.energies) == len(modes)
+
+    def test_monatomic_has_no_vibrational_modes(self):
+        """A single atom has 3N=3 modes, all translation -- nothing to cut."""
+        result = analyze_vibrations(_ev(5, -3, 2), n_atoms=1, geometry="monatomic")
+        assert result.n_imag == 0
+        assert result.max_imag_cm == pytest.approx(0.0)
+        assert len(result.energies) == 3
+
+    def test_a_raised_cutoff_suppresses_the_transition_state_flag(self):
+        """imag_cutoff_cm must actually be read by is_transition_state, not
+        just accepted and ignored: at the 50 cm-1 default, a 100 cm-1
+        imaginary mode is a real artifact; raising the cutoff to 500 must
+        suppress the flag."""
+        result = analyze_vibrations(
+            _ev(-100, 800, 1600), n_atoms=3, geometry="nonlinear",
+            imag_cutoff_cm=500.0,
+        )
+        assert result.is_transition_state is False
+
+    def test_a_lowered_cutoff_triggers_the_transition_state_flag(self):
+        """A 30 cm-1 imaginary mode is noise at the 50 cm-1 default, but must
+        trigger the flag once the cutoff is lowered below it."""
+        result = analyze_vibrations(
+            _ev(-30, 800, 1600), n_atoms=3, geometry="nonlinear",
+            imag_cutoff_cm=20.0,
+        )
+        assert result.is_transition_state is True
 
 
 import logging  # noqa: E402
@@ -296,8 +367,15 @@ def _mol(smiles, **props):
 
 
 class TestSymmetryNumber:
-    def test_defaulting_warns_prominently(self, caplog):
+    def test_defaulting_warns_prominently(self, caplog, monkeypatch):
         """sigma=1 biases G by RT*ln(sigma) and does not cancel between isomers."""
+        from Auto3D.ASE import thermo as thermo_mod
+
+        # Isolate from the module-level once-per-run de-dup flag: another
+        # test (or test_symmetry_number_defaults_to_one, earlier in this
+        # file) may already have tripped it, which would otherwise make this
+        # assertion depend on test execution order.
+        monkeypatch.setattr(thermo_mod, "_symmetry_default_warned", False)
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             _symmetry_number(_mol("c1ccccc1"))
         assert any("symmetry_number" in r.message for r in caplog.records), (
@@ -311,10 +389,36 @@ class TestSymmetryNumber:
         assert not any("symmetry_number" in r.message for r in caplog.records)
 
     def test_a_malformed_property_warns_as_well_as_falling_back(self, caplog):
-        """The fallback value is already covered; the warning is new."""
+        """The fallback value is already covered; the warning is new.
+
+        Unaffected by the once-per-run de-dup flag: a malformed property
+        takes the except branch, not the defaulting-from-absence branch that
+        flag guards.
+        """
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             assert _symmetry_number(_mol("CCO", symmetry_number="not-a-number")) == 1
         assert any("symmetry_number" in r.message for r in caplog.records)
+
+    def test_defaulting_warns_only_once_per_run(self, caplog, monkeypatch):
+        """A 10,000-molecule batch must not emit 10,000 near-identical lines.
+
+        _symmetry_number is called once per molecule from inside
+        calc_thermo's loop, so this cannot rely on the "log once, outside the
+        loop" placement that keeps calc_thermo's own symmetry-number INFO log
+        to one line per run; it needs its own de-dup state, reset at the top
+        of calc_thermo the same way.
+        """
+        from Auto3D.ASE import thermo as thermo_mod
+
+        monkeypatch.setattr(thermo_mod, "_symmetry_default_warned", False)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            thermo_mod._symmetry_number(_mol("c1ccccc1"))
+            thermo_mod._symmetry_number(_mol("CCO"))
+        warnings = [r for r in caplog.records if "symmetry_number" in r.message]
+        assert len(warnings) == 1, (
+            f"expected exactly one defaulting warning across two calls in "
+            f"the same run, got {len(warnings)}: {[r.message for r in warnings]}"
+        )
 
 
 class TestMultiplicity:
@@ -323,6 +427,25 @@ class TestMultiplicity:
         mol = _mol("CCO")
         mol.SetProp("multiplicity", "triplet")
         assert _resolve_multiplicity(mol) == 1
+
+    def test_negative_multiplicity_falls_back_to_the_radical_count(self, caplog):
+        """GetUnsignedProp("-1") wraps around to 4294967295 rather than
+        raising, feeding spin = 2147483647.0 into IdealGasThermo's
+        R*ln(multiplicity) term. The value must be validated, not just
+        parsed."""
+        mol = _mol("CCO")
+        mol.SetProp("multiplicity", "-1")
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 1
+        assert any("multiplicity" in r.message.lower() for r in caplog.records)
+
+    def test_zero_multiplicity_falls_back_to_the_radical_count(self, caplog):
+        """GetUnsignedProp("0") parses cleanly to 0, giving spin = -0.5."""
+        mol = _mol("CCO")
+        mol.SetProp("multiplicity", "0")
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            assert _resolve_multiplicity(mol) == 1
+        assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
     def test_dioxygen_is_flagged_as_ambiguous(self, caplog):
         """O=O draws closed-shell but is a ground-state triplet.
@@ -348,12 +471,22 @@ class TestHessianGeometrySourcing:
     """vib_hessian must build the Hessian from the geometry it is handed."""
 
     def test_positions_argument_overrides_the_conformer(self, monkeypatch):
-        """Passing positions must win over mol's (possibly stale) conformer.
+        """Passing positions must win over mol's (possibly stale) conformer --
+        for BOTH the Atoms object and the coordinate array actually handed to
+        the Hessian machinery.
 
         This is the sourcing half of the C5 fix. The slow tier exercises the
         whole path with a real potential; this pins the contract without one.
+
+        Asserting only on the Atoms() construction is not enough: a mutation
+        where Atoms receives the relaxed positions but the code that builds
+        the Hessian's coordinate tensor separately re-reads
+        mol.GetConformer() would still pass a check confined to Atoms(). So
+        this also spies on torch.tensor (vib_hessian's first call to it is
+        always the coordinate tensor -- numbers and charge are tensorized
+        afterward) and asserts that array equals the relaxed positions too.
         """
-        import numpy as np
+        import torch
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
@@ -368,36 +501,60 @@ class TestHessianGeometrySourcing:
 
         class _FakeAtoms:
             def __init__(self, *args, **kwargs):
-                seen["positions"] = np.asarray(args[1], dtype=float)
+                self._positions = np.asarray(args[1], dtype=float)
+                seen["atoms_positions"] = self._positions
 
             def set_calculator(self, calc):
                 pass
+
+            def get_positions(self):
+                return self._positions
 
         monkeypatch.setattr(thermo_mod, "Atoms", _FakeAtoms)
         monkeypatch.setattr(
             thermo_mod, "VibrationsData", lambda atoms, hess: ("vib", atoms)
         )
 
+        real_tensor = torch.tensor
+
+        def _spy_tensor(data, *args, **kwargs):
+            if "hessian_coord" not in seen:
+                seen["hessian_coord"] = np.array(data, dtype=float)
+            return real_tensor(data, *args, **kwargs)
+
+        monkeypatch.setattr(torch, "tensor", _spy_tensor)
+
         class _FakeCalculator:
             pass
 
         # A bare object is enough: the AIMNet2Calculator isinstance check fails
-        # for it, so the autograd branch is taken and we stop at the fake
-        # VibrationsData before any model runs.
+        # for it, so the autograd branch is taken and we stop once the model
+        # call raises (model=None is not callable) -- well after both the
+        # Atoms object and the Hessian's coordinate tensor were built.
         try:
             thermo_mod.vib_hessian(
                 mol, _FakeCalculator(), model=None,
                 model_name="AIMNET", positions=relaxed,
             )
         except Exception:
-            # Reaching the model call is fine; we only need the geometry that
-            # was handed to Atoms, which happens first.
+            # Reaching the model call is fine; we only need the geometry
+            # that was handed to Atoms and to the Hessian tensor, both of
+            # which happen first.
             pass
 
-        assert "positions" in seen, "vib_hessian never constructed Atoms"
-        np.testing.assert_allclose(seen["positions"], relaxed)
-        assert not np.allclose(seen["positions"], stale), (
+        assert "atoms_positions" in seen, "vib_hessian never constructed Atoms"
+        np.testing.assert_allclose(seen["atoms_positions"], relaxed)
+        assert not np.allclose(seen["atoms_positions"], stale), (
             "vib_hessian used the stale conformer instead of the positions given"
+        )
+
+        assert "hessian_coord" in seen, "vib_hessian never built a coordinate tensor"
+        np.testing.assert_allclose(seen["hessian_coord"], relaxed)
+        assert not np.allclose(seen["hessian_coord"], stale), (
+            "the Hessian's coordinate tensor was built from the stale "
+            "conformer, not the positions handed to Atoms -- the Atoms "
+            "object alone is not evidence that the Hessian itself used the "
+            "relaxed geometry"
         )
 
 

@@ -29,7 +29,6 @@ from Auto3D.constants import (
     EV_PER_WAVENUMBER,
     IMAGINARY_MODE_CUTOFF_CM,
     LINEARITY_MOMENT_RATIO,
-    LOW_FREQUENCY_CUTOFF_CM,
 )
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
@@ -82,6 +81,15 @@ def _detect_geometry(atoms: ase.Atoms) -> str:
     return "nonlinear"
 
 
+#: Whether the sigma=1 defaulting warning has already fired this run. Reset by
+#: calc_thermo (mirroring the mechanism of the "once per run" INFO log there)
+#: so a 10,000-molecule batch logs the caveat once instead of once per
+#: defaulted molecule. The unparseable-property warning below is unrelated and
+#: intentionally NOT deduplicated -- it signals a data problem on a specific
+#: molecule, not a blanket default, and should be much rarer in practice.
+_symmetry_default_warned = False
+
+
 def _symmetry_number(mol: Chem.Mol) -> int:
     """External rotational symmetry number for IdealGasThermo.
 
@@ -97,8 +105,11 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     Defaulting to sigma=1 (whether because the property is absent or
     unparseable) now warns, since the bias does not cancel between tautomers,
     isomers or reaction partners the way it does between conformers of one
-    species.
+    species. The defaulting-from-absence warning fires once per calc_thermo
+    run, not once per molecule, since every molecule lacking the property
+    triggers the identical message.
     """
+    global _symmetry_default_warned
     if mol.HasProp("symmetry_number"):
         try:
             return max(1, int(mol.GetProp("symmetry_number")))
@@ -110,14 +121,18 @@ def _symmetry_number(mol: Chem.Mol) -> int:
                 mol.GetProp("symmetry_number"),
             )
             return 1
-    logger.warning(
-        "No 'symmetry_number' property on %s; using sigma=1. Gibbs energy is "
-        "biased low by RT*ln(sigma) -- 1.47 kcal/mol for benzene at 298 K. "
-        "This cancels between conformers of one species but NOT between "
-        "tautomers, isomers or reaction partners. Set the 'symmetry_number' "
-        "property (2 for water, 6 for ethane, 12 for benzene) when known.",
-        mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
-    )
+    if not _symmetry_default_warned:
+        logger.warning(
+            "No 'symmetry_number' property on %s; using sigma=1. Gibbs energy is "
+            "biased low by RT*ln(sigma) -- 1.47 kcal/mol for benzene at 298 K. "
+            "This cancels between conformers of one species but NOT between "
+            "tautomers, isomers or reaction partners. Set the 'symmetry_number' "
+            "property (2 for water, 6 for ethane, 12 for benzene) when known. "
+            "(Logged once per run; later molecules defaulting the same way are "
+            "silent.)",
+            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+        )
+        _symmetry_default_warned = True
     return 1
 
 
@@ -129,7 +144,13 @@ _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
 
 
 def _drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
-    """True for known species whose closed-shell drawing hides an open shell."""
+    """True for known species whose closed-shell drawing hides an open shell.
+
+    Caveat: singlet O2 (a real, if short-lived, excited state) is written with
+    the identical closed-shell SMILES/graph as ground-state triplet O2, so
+    this predicate cannot tell them apart -- the warning it drives may not
+    apply if the input was actually meant to represent singlet O2.
+    """
     try:
         canonical = Chem.MolToSmiles(Chem.RemoveHs(mol))
     except (ValueError, RuntimeError):
@@ -149,15 +170,35 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     entropy term for every radical. The NNP *energy* stays closed-shell
     regardless (AIMNet2 takes only coords/species/charge, no spin), so warn for
     open-shell species that the energy is an approximation.
+
+    The property is parsed with plain Python ``int()`` rather than RDKit's
+    ``GetUnsignedProp``: the latter parses as an *unsigned* C++ integer, so a
+    negative string like "-1" silently wraps around to 4294967295 (2**32 - 1)
+    and "0" parses cleanly to 0 -- neither of those failure modes raises, so a
+    try/except around ``GetUnsignedProp`` cannot catch them, and both then
+    flow into IdealGasThermo's ``R*ln(multiplicity)`` electronic-entropy term
+    as nonsense (spin = 2147483647.0 and -0.5, respectively). ``int()`` on the
+    same string preserves the sign, so both are correctly rejected as
+    multiplicities below the physically valid minimum of 1 (2S+1 for S >= 0).
     """
     if mol.HasProp("multiplicity"):
         try:
-            return mol.GetUnsignedProp("multiplicity")
-        except (ValueError, TypeError, RuntimeError):
+            value = int(mol.GetProp("multiplicity"))
+        except (ValueError, TypeError):
             logger.warning(
                 "Molecule %s has an unparseable 'multiplicity' property; "
                 "deriving it from the radical-electron count instead.",
                 mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            )
+        else:
+            if value >= 1:
+                return value
+            logger.warning(
+                "Molecule %s has an invalid 'multiplicity' property (%d); "
+                "multiplicity must be >= 1 (2S+1 for spin S >= 0). Deriving "
+                "it from the radical-electron count instead.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                value,
             )
     n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
     multiplicity = n_radical + 1
@@ -277,16 +318,23 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     return model_adapter, calculator
 
-def mol2atoms(mol: Chem.Mol) -> Atoms:
+def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     """Convert an RDKit molecule to an ASE Atoms object.
 
     Args:
         mol: RDKit molecule with a conformer.
+        positions: Coordinates to use instead of the mol's own conformer, for
+            callers (e.g. vib_hessian) that need a relaxed geometry the
+            conformer does not yet hold. Defaults to the conformer's positions.
 
     Returns:
-        ASE Atoms object with the same coordinates and species.
+        ASE Atoms object with the same species, the requested coordinates,
+        and isotope masses applied where the mol carries isotope labels.
     """
-    coord = mol.GetConformer().GetPositions()
+    coord = (
+        mol.GetConformer().GetPositions() if positions is None
+        else np.asarray(positions, dtype=float)
+    )
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     atoms = Atoms(species, coord)
     if any(a.GetIsotope() for a in mol.GetAtoms()):
@@ -319,25 +367,23 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     Args:
         positions: Geometry to build the Hessian from. Defaults to the mol's
             conformer, which is only correct when no relaxation has happened
-            since the conformer was last synced.'''
-    # get the ASE atoms object
-    # The caller passes the geometry the energy was evaluated at. BFGS mutates
-    # the ASE atoms in place while mol's conformer still holds the input
-    # structure, so reading the conformer here built the Hessian from a
-    # different geometry than the energy and the moments of inertia -- and
-    # since the relaxed coordinates are what get written, nothing downstream
-    # could tell.
-    coord = (
-        mol.GetConformer().GetPositions() if positions is None
-        else np.asarray(positions, dtype=float)
-    )
-    species = [a.GetSymbol() for a in mol.GetAtoms()]
-    charge = rdmolops.GetFormalCharge(mol)
-    atoms = Atoms(species, coord)
+            since the conformer was last synced. The caller (do_mol_thermo)
+            passes the relaxed geometry explicitly here in addition to
+            syncing mol's conformer beforehand, so the Hessian is guaranteed
+            to describe the same structure as the energy regardless of sync
+            order.'''
+    # Built through mol2atoms (not a bare Atoms(species, coord) call) so
+    # isotope masses are applied here exactly as they are for the other two
+    # Atoms constructions (mol2atoms's own default path, calc_thermo's
+    # optimization loop) -- otherwise the moments of inertia, VibrationsData's
+    # mass weighting, and the rotational partition function silently disagree
+    # for isotopically labeled input.
+    atoms = mol2atoms(mol, positions=positions)
     atoms.set_calculator(ase_calculator)
+    charge = rdmolops.GetFormalCharge(mol)
 
     # get the Hessian
-    coord = torch.tensor(coord).to(device).unsqueeze(0)
+    coord = torch.tensor(atoms.get_positions()).to(device).unsqueeze(0)
     num_atoms = coord.shape[1]
     numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
     # aimnet's AIMNet2 model requires a 1D charge tensor (one entry per
@@ -375,21 +421,22 @@ class VibrationAnalysis:
     energies: list[complex]
     n_imag: int
     max_imag_cm: float
-    n_raised: int
+    imag_cutoff_cm: float
 
     @property
     def is_transition_state(self) -> bool:
         """True when an imaginary mode is too large to be numerical noise."""
-        return self.max_imag_cm >= IMAGINARY_MODE_CUTOFF_CM
+        return self.max_imag_cm >= self.imag_cutoff_cm
 
 
 def analyze_vibrations(
     vib_energies,
+    n_atoms: int,
+    geometry: str,
     *,
     imag_cutoff_cm: float = IMAGINARY_MODE_CUTOFF_CM,
-    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
 ) -> VibrationAnalysis:
-    """Classify a vibrational spectrum and optionally raise its low modes.
+    """Classify a vibrational spectrum.
 
     ASE's ``ignore_imag_modes`` sorts by absolute value and drops every
     imaginary mode alike, so a -400 cm^-1 reaction coordinate is discarded on
@@ -398,48 +445,67 @@ def analyze_vibrations(
     caller can keep tolerating artifacts while refusing to publish a Gibbs
     energy for a transition state.
 
-    Raising (Truhlar) lifts real modes below ``low_freq_cutoff_cm`` to the
-    cutoff before the entropy sum, bounding the contribution of a nearly-free
-    torsion. It is off by default so no existing number moves unasked.
+    ``VibrationsData.get_energies()`` returns all 3N modes, including
+    translation and rotation -- eigenvalues that should be exactly zero but
+    come out as small positive or negative numerical noise, i.e. some of them
+    routinely present as spurious "imaginary" modes. Counting imaginary modes
+    over the raw 3N set therefore counts these alongside genuine vibrations:
+    measured on a 5-atom Lennard-Jones cluster at Auto3D's own 0.01 eV/A
+    convergence threshold, this reports 5 spurious imaginary modes up to 19i
+    cm^-1 while ASE's own IdealGasThermo (which performs the same cut before
+    counting) reports 0.
+
+    To avoid that, this mirrors ``ase.thermochemistry.IdealGasThermo.__init__``
+    exactly: sort a *copy* of the energies by absolute value, ascending, then
+    keep only the last ``3*n_atoms - 6`` (nonlinear) or ``3*n_atoms - 5``
+    (linear) entries -- ASE's own slice for separating genuine vibrations from
+    translation/rotation, which are the smallest-magnitude modes by
+    construction. Monatomic species have no vibrational modes at all. See
+    ``ase/thermochemistry.py``, ``IdealGasThermo.__init__``: ``vib_energies =
+    list(vib_energies); vib_energies.sort(key=np.abs)`` then
+    ``vib_energies[-(3*natoms-6):]`` / ``[-(3*natoms-5):]`` / ``[]``, as
+    installed (ase 3.27.0). If a future ASE version changes this slicing, this
+    function's behavior should follow the installed source, not this comment.
 
     Args:
-        vib_energies: Complex vibrational energies in eV, as ASE returns them;
-            an imaginary mode has a nonzero imaginary part.
+        vib_energies: Complex vibrational energies in eV, as ASE returns them
+            (all 3N modes, translation/rotation included); an imaginary mode
+            has a nonzero imaginary part.
+        n_atoms: Number of atoms, to compute how many of the 3N modes are
+            genuinely vibrational.
+        geometry: 'monatomic', 'linear', or 'nonlinear', as classified by
+            ``_detect_geometry``.
         imag_cutoff_cm: Magnitude above which an imaginary mode means the
             structure is a saddle point, not a noisy minimum.
-        low_freq_cutoff_cm: Raise real modes below this wavenumber to it. Zero
-            disables raising.
 
     Returns:
-        A :class:`VibrationAnalysis`. ``energies`` preserves input order and
-        keeps imaginary modes untouched -- raising applies to real modes only,
-        since raising an imaginary mode would silently convert a saddle point
-        into a minimum.
+        A :class:`VibrationAnalysis`. ``energies`` is the full, untouched
+        input, still all 3N modes in input order -- ``IdealGasThermo`` is
+        given this same full set and performs its own equivalent slice
+        internally, so trimming it here would double-cut and delete genuine
+        vibrations. Only ``n_imag`` and ``max_imag_cm`` are computed from the
+        vibration-only subset.
     """
-    processed: list[complex] = []
+    energies = [complex(e) for e in vib_energies]
+
+    if geometry == "monatomic":
+        vibrational: list[complex] = []
+    else:
+        n_needed = 3 * n_atoms - (5 if geometry == "linear" else 6)
+        vibrational = sorted(energies, key=abs)[-n_needed:] if n_needed > 0 else []
+
     n_imag = 0
     max_imag_cm = 0.0
-    n_raised = 0
-    cutoff_ev = low_freq_cutoff_cm * EV_PER_WAVENUMBER
-
-    for energy in vib_energies:
-        value = complex(energy)
+    for value in vibrational:
         if abs(value.imag) > 0.0:
             n_imag += 1
             max_imag_cm = max(max_imag_cm, abs(value.imag) / EV_PER_WAVENUMBER)
-            processed.append(value)
-            continue
-        if cutoff_ev > 0.0 and value.real < cutoff_ev:
-            processed.append(complex(cutoff_ev, 0.0))
-            n_raised += 1
-        else:
-            processed.append(value)
 
     return VibrationAnalysis(
-        energies=processed,
+        energies=energies,
         n_imag=n_imag,
         max_imag_cm=max_imag_cm,
-        n_raised=n_raised,
+        imag_cutoff_cm=imag_cutoff_cm,
     )
 
 
@@ -471,7 +537,7 @@ def do_mol_thermo(mol: Chem.Mol,
     # (ignore_imag_modes=True) keeps otherwise-valid thermochemistry instead of
     # ASE raising ValueError and the whole molecule being discarded.
     name = mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule"
-    analysis = analyze_vibrations(vib_e)
+    analysis = analyze_vibrations(vib_e, n_atoms=len(atoms), geometry=geometry)
     if analysis.n_imag > 0:
         logger.warning(
             "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
@@ -488,16 +554,11 @@ def do_mol_thermo(mol: Chem.Mol,
             "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
             "artifact threshold: this geometry is a saddle point, not a "
             "minimum. Its thermochemistry is reported but marked.",
-            name, analysis.max_imag_cm, IMAGINARY_MODE_CUTOFF_CM,
+            name, analysis.max_imag_cm, analysis.imag_cutoff_cm,
         )
     mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
     mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
     mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
-    if analysis.n_raised:
-        logger.info(
-            "Raised %d low-frequency mode(s) of %s to the cutoff.",
-            analysis.n_raised, name,
-        )
     vib_e = analysis.energies
     thermo = IdealGasThermo(
         vib_energies=vib_e,
@@ -658,6 +719,11 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         "molecule property is set; set it for symmetric species to avoid "
         "over-counting rotational entropy."
     )
+    # Reset _symmetry_number's own per-run de-dup flag for its defaulting
+    # WARNING, using the same "once per run, not per molecule" mechanism as
+    # the INFO log just above (module state reset at the top of each run).
+    global _symmetry_default_warned
+    _symmetry_default_warned = False
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
@@ -679,13 +745,15 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in tqdm(mols):
-        coord = mol.GetConformer().GetPositions()
-        species = [a.GetSymbol() for a in mol.GetAtoms()]
+        # Routed through mol2atoms (rather than a bare Atoms(species, coord))
+        # so isotope masses are applied consistently with vib_hessian's Atoms
+        # object -- otherwise the optimization and the Hessian/thermo stages
+        # would silently disagree on atomic mass for isotopically labeled input.
         charge = rdmolops.GetFormalCharge(mol)
-        atoms = Atoms(species, coord)
+        atoms = mol2atoms(mol)
 
         calculator.set_charge(charge)
-        atoms.set_calculator(calculator)        
+        atoms.set_calculator(calculator)
 
         if mol_info_func is None:
             idx = mol.GetProp("_Name").strip()
