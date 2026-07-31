@@ -33,6 +33,34 @@ except ImportError:
     pass
 
 
+def _contradicts_reference_stereo(reference: Chem.Mol, tautomer: Chem.Mol) -> bool:
+    """True if ``tautomer`` is the input's skeleton with a different configuration.
+
+    Preserving sp3 stereo through enumeration is only safe for single-step
+    flattening. Across a multi-step path -- D-erythrose reaching the 2,3-enediol,
+    which flattens both of its centers -- RDKit restores a DEFINITE tag instead
+    of leaving the center unspecified, and for one output that tag is the
+    input's mirror image. Unfiltered, D-erythrose yields L-erythrose as a
+    "tautomer": the wrong-identity defect that preserving stereo exists to
+    prevent.
+
+    The test is deliberately narrow. A tautomer whose constitution differs from
+    the input is a genuinely different species, and its stereo descriptors are
+    not comparable to the input's -- a keto/enol shift can relabel an untouched
+    center from R to S purely by changing a neighboring branch's CIP priority,
+    which is a relabeling and not an inversion. Only when the constitution is
+    identical does "different configuration" mean the molecule came back wrong.
+
+    Comparing canonical SMILES rather than per-atom descriptors also means this
+    depends on no assumption about the enumerator preserving atom ordering.
+    """
+    if Chem.MolToSmiles(tautomer, isomericSmiles=False) != Chem.MolToSmiles(
+        reference, isomericSmiles=False
+    ):
+        return False
+    return Chem.MolToSmiles(tautomer) != Chem.MolToSmiles(reference)
+
+
 class TautomerEngine:
     """Enumerate possible tautomers for input molecules.
 
@@ -69,6 +97,20 @@ class TautomerEngine:
     def rd_taut(self) -> None:
         """Enumerate tautomers using RDKit."""
         enumerator = rdMolStandardize.TautomerEnumerator()
+        # RDKit strips stereo from every atom in the tautomer core, in every
+        # output tautomer, including tautomers formed at a site that cannot
+        # reach a given center -- enolizing a ketone's other alpha carbon,
+        # say. The stripped SMILES are then re-enumerated downstream by
+        # EnumerateStereoisomers(onlyUnassigned=True) and one epimer is kept
+        # arbitrarily, so a submitted (S) molecule comes back as (R) half the
+        # time at identical energy. Disabling that default removal here
+        # preserves what the user specified -- but is only safe for
+        # single-step flattening: across a multi-step path RDKit can restore
+        # a DEFINITE tag on a center it destroyed, and the tag it picks can
+        # be the input's mirror image, so contradicting tautomers are
+        # filtered out below via _contradicts_reference_stereo().
+        enumerator.SetRemoveSp3Stereo(False)
+        enumerator.SetRemoveBondStereo(False)
         smiles = []
         for _line_no, smi, idx in iter_smi_records(self.input_f, on_malformed="skip"):
             smiles.append((smi, idx))
@@ -81,6 +123,8 @@ class TautomerEngine:
                 continue
             tauts = enumerator.Enumerate(mol)
             for taut in tauts:
+                if _contradicts_reference_stereo(mol, taut):
+                    continue
                 tautomers.append((Chem.MolToSmiles(taut), idx))
         with open(self.output, 'w+') as f:
             for smi_idx in tautomers:

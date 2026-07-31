@@ -57,12 +57,6 @@ class TestEZIsomersSurvive:
 class TestTautomerStereoPreservation:
     """Tautomer enumeration must not silently erase a specified stereocenter."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C2: RDKit TautomerEnumerator defaults to SetRemoveSp3Stereo(True), "
-        "so rd_taut writes stereo-stripped SMILES that are then re-enumerated "
-        "as unassigned -- a 50% chance of the wrong enantiomer",
-    )
     def test_specified_center_survives_tautomer_enumeration(self, job_dir):
         """At least one output tautomer must retain the input's specified center.
 
