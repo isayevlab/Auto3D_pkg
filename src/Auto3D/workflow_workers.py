@@ -55,13 +55,28 @@ def _attach_run_log_handlers(
 ) -> list[tuple[str, logging.Handler]]:
     """Attach a run-log QueueHandler onto every tree it must reach.
 
-    Returns the ``(logger_name, handler)`` pairs added, so a caller (chiefly
-    tests) can remove them again; production callers can ignore the return
-    value since these handlers live for the worker process's lifetime.
+    Idempotent per ``logging_queue``: if a tree already has a ``QueueHandler``
+    targeting this exact queue (e.g. a second in-process call to
+    ``isomer_wrapper``/``optim_rank_wrapper`` with the same queue, as tests --
+    not production -- sometimes do), that tree is left untouched instead of
+    growing a second handler that would deliver every subsequent record
+    twice. Production is unaffected: each run spawns a fresh worker process
+    with a fresh queue, so this only ever attaches once there.
+
+    Returns the ``(logger_name, handler)`` pairs newly added (never the ones
+    already present), so a caller (chiefly tests) can remove them again;
+    production callers can ignore the return value since these handlers live
+    for the worker process's lifetime.
     """
     added: list[tuple[str, logging.Handler]] = []
     for logger_name in _RUN_LOG_LOGGER_NAMES:
         tree_logger = logging.getLogger(logger_name)
+        already_attached = any(
+            isinstance(h, QueueHandler) and h.queue is logging_queue
+            for h in tree_logger.handlers
+        )
+        if already_attached:
+            continue
         handler = QueueHandler(logging_queue)
         tree_logger.addHandler(handler)
         tree_logger.setLevel(logging.INFO)

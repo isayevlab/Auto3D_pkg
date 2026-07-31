@@ -124,6 +124,16 @@ class CLIConfig(BaseModel):
         """Convert to Auto3DOptions for core workflow."""
         # Map built-in engine names back to the canonical form expected by
         # Auto3DOptions; registry names and custom paths pass through verbatim.
+        #
+        # This table is live, not dead: `_validate_engine` (above) now accepts
+        # any case of these three names -- `resolve_engine_name` case-folds
+        # them -- but it validates and returns `v` unchanged, so
+        # `self.optimizing_engine` still carries whatever case the caller
+        # typed (e.g. "ani2x"). This map is what normalizes that back to the
+        # exact mixed-case spelling (`ANI2x`/`ANI2xt`) that `MODEL_ANI2X`/
+        # `MODEL_ANI2XT` and their downstream exact-match comparisons expect.
+        # Registry names/aliases are deliberately left out of this map and
+        # pass through as typed -- see test_config_accepts_registry_and_path_engines.
         engine_map = {"ANI2X": "ANI2x", "ANI2XT": "ANI2xt", "AIMNET": "AIMNET"}
         engine = engine_map.get(self.optimizing_engine.upper(), self.optimizing_engine)
 

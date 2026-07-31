@@ -64,6 +64,43 @@ def test_get_logger_warning_reaches_worker_style_handler():
             logging.getLogger(logger_name).removeHandler(handler)
 
 
+def test_attach_run_log_handlers_is_idempotent_per_queue():
+    """A second call with the same queue must not double-attach.
+
+    Production always calls `_attach_run_log_handlers` once per fresh worker
+    process with a fresh queue, so this never mattered there. But tests that
+    call worker functions (`isomer_wrapper`/`optim_rank_wrapper`) directly,
+    in-process, can call it more than once with the same queue -- and before
+    this fix, each call unconditionally added another `QueueHandler`, so a
+    single logged message was enqueued once per call. Reproduced directly
+    against the real function (not a hand copy of its logic).
+    """
+    from Auto3D.workflow_workers import _attach_run_log_handlers
+
+    q: queue.Queue = queue.Queue()
+    first = _attach_run_log_handlers(q)
+    second = _attach_run_log_handlers(q)
+    try:
+        assert first, "first call should attach at least one handler"
+        assert second == [], (
+            "a second call with the same queue must attach nothing new"
+        )
+
+        mod_logger = get_logger("Auto3D.test_logging_config_idempotent")
+        mod_logger.setLevel(logging.INFO)
+        mod_logger.warning("only once, even after a repeat attach call")
+
+        queued = []
+        while not q.empty():
+            queued.append(q.get_nowait())
+        assert len(queued) == 1, f"expected exactly one queued record, got {len(queued)}"
+    finally:
+        for logger_name, handler in first:
+            logging.getLogger(logger_name).removeHandler(handler)
+        for logger_name, handler in second:
+            logging.getLogger(logger_name).removeHandler(handler)
+
+
 def test_run_log_handlers_do_not_duplicate_records():
     """A single warning must be delivered exactly once through the run-log
     queue, and exactly once via root propagation.

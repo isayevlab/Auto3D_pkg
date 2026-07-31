@@ -97,6 +97,38 @@ def test_config_accepts_registry_and_path_engines(tmp_path):
     assert CLIConfig(path="x.smi", optimizing_engine=str(f)).optimizing_engine == str(f)
 
 
+@pytest.mark.parametrize(
+    "raw,canonical",
+    [
+        ("ani2x", "ANI2x"),
+        ("ANI2X", "ANI2x"),
+        ("ani2xt", "ANI2xt"),
+        ("ANI2XT", "ANI2xt"),
+        ("Aimnet2", "Aimnet2"),  # not a named engine: passes through verbatim
+        ("AIMNET", "AIMNET"),
+        ("aimnet", "AIMNET"),
+    ],
+)
+def test_config_accepts_case_insensitive_engine_names(raw, canonical):
+    """Regression: `ani2x`/`ANI2X`/`ani2xt`/`ANI2XT`/`Aimnet2` must all be
+    accepted by CLIConfig -- they were all rejected with "Unknown
+    optimizing_engine" once `_validate_engine` started delegating to
+    `resolve_engine_name`, which (before this fix) compared engine names with
+    exact, case-sensitive equality. `auto3d run in.smi --engine ani2x` and
+    any YAML with `optimizing_engine: ani2x` died on this.
+
+    The CLIConfig field itself preserves the caller's casing verbatim (see
+    test_config_accepts_registry_and_path_engines); `to_auto3d_options()` is
+    what normalizes the three named engines to their canonical mixed-case
+    spelling via `engine_map`, checked here.
+    """
+    from Auto3D.cli.config_schema import CLIConfig
+
+    config = CLIConfig(path="x.smi", optimizing_engine=raw)
+    assert config.optimizing_engine == raw
+    assert config.to_auto3d_options().optimizing_engine == canonical
+
+
 def test_config_rejects_garbage_engine():
     import pytest
     from Auto3D.cli.config_schema import CLIConfig

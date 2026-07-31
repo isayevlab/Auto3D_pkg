@@ -282,13 +282,17 @@ shell script (``auto3d run --json && next_step``).
 
 4.0 exits ``6`` whenever any input molecule produced no output. The results
 summary and, with ``--json``, the JSON document are still printed *before*
-that exit -- a scripted consumer always receives a parseable description of
-what happened, even on the run that is about to signal failure. ``6``
-(``EXIT_PARTIAL_SUCCESS``) extends the exit codes ``cli/errors.py`` already
-used for exceptions raised before or during the run (``0`` success, ``1``
-generic, ``2`` configuration/input, ``3`` dependency, ``4`` GPU, ``5``
-model) with the next unused code, rather than reusing ``1`` and making a
-partial run indistinguishable from a crash.
+that exit -- a scripted consumer checking for exit ``6`` always receives a
+parseable description of what was missing. This guarantee is specific to
+that partial-success path: it holds because the run *completed* and
+``main()`` returned a result to report. If ``main()`` raises instead of
+returning -- a crash, not a partial run -- no JSON is emitted at all; the
+process exits ``1``-``5`` via the same ``handle_error`` panel on stderr as
+any other failure. ``6`` (``EXIT_PARTIAL_SUCCESS``) extends the exit codes
+``cli/errors.py`` already used for exceptions raised before or during the
+run (``0`` success, ``1`` generic, ``2`` configuration/input, ``3``
+dependency, ``4`` GPU, ``5`` model) with the next unused code, rather than
+reusing ``1`` and making a partial run indistinguishable from a crash.
 
 If your pipeline currently checks only ``$? -eq 0`` -- or chains
 ``auto3d run --json && next_step`` -- a run with partial output now stops

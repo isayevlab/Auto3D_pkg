@@ -277,6 +277,146 @@ class TestEngineNameResolution:
         model.write_bytes(b"")
         assert resolve_engine_name(str(model)) == str(model)
 
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("ani2x", "ANI2x"),
+            ("ANI2X", "ANI2x"),
+            ("AnI2x", "ANI2x"),
+            ("ani2xt", "ANI2xt"),
+            ("ANI2XT", "ANI2xt"),
+            ("aimnet", "aimnet2-wb97m-d3_0"),
+            ("AIMNET", "aimnet2-wb97m-d3_0"),
+            ("Aimnet2", "aimnet2-wb97m-d3_0"),
+        ],
+    )
+    def test_named_engines_are_case_insensitive(self, name, expected):
+        """C-regression: ani2x/ANI2X/ani2xt/ANI2XT/Aimnet2 must all resolve.
+
+        Measured before this fix: 'ANI2x', 'AIMNET', and 'aimnet2' resolved,
+        but 'ani2x', 'ANI2X', 'ani2xt', 'ANI2XT', and 'Aimnet2' were all
+        rejected with "Unknown optimizing_engine" -- a regression from
+        before resolve_engine_name existed, when a prefix/case-insensitive
+        match accepted all of these. `auto3d run in.smi --engine ani2x` and
+        any YAML with `optimizing_engine: ani2x` died on this.
+        """
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name(name) == expected
+
+    def test_mixed_case_registry_alias_resolves(self):
+        """A mixed-case registry alias (not just the three named engines)
+        must also resolve, since resolve_registry_model_name itself does a
+        plain, unfolded dict lookup against lowercase-only registry keys."""
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("AIMNET2-2025") == "aimnet2-b973c-2025-d3_0"
+        assert resolve_engine_name("Aimnet2-Nse") == "aimnet2-nse_0"
+
+
+class TestNamedEngineNotHijackedByCwdFile:
+    """A cwd file sharing a reserved engine's name must not hijack it.
+
+    ``ModelFactory.create`` (model_factory.py:109-116) deliberately checks
+    built-in engine names before ``Path(name).exists()``, precisely so a file
+    in the working directory cannot hijack a reserved name. ``resolve_engine_name``
+    used to check ``Path(name).exists()`` before consulting AIMNET's name at
+    all, so a file named literally ``AIMNET`` in the current working directory
+    made pre-flight skip the registry/model check entirely, treating "AIMNET"
+    as a custom NNP path instead of the aimnet registry default. Reproduced
+    here with no aimnet internals mocked -- creating the file and changing cwd
+    is enough, since this is all offline path/dict logic.
+    """
+
+    def test_file_named_aimnet_in_cwd_still_resolves_to_the_registry(
+        self, tmp_path, monkeypatch
+    ):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        (tmp_path / "AIMNET").write_bytes(b"not a model")
+        monkeypatch.chdir(tmp_path)
+
+        assert resolve_engine_name("AIMNET") == "aimnet2-wb97m-d3_0"
+
+    def test_file_named_ani2x_in_cwd_still_resolves_to_the_builtin(
+        self, tmp_path, monkeypatch
+    ):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        (tmp_path / "ANI2x").write_bytes(b"not a model")
+        monkeypatch.chdir(tmp_path)
+
+        assert resolve_engine_name("ANI2x") == "ANI2x"
+
+    def test_file_named_ani2xt_in_cwd_still_resolves_to_the_builtin(
+        self, tmp_path, monkeypatch
+    ):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        (tmp_path / "ANI2xt").write_bytes(b"not a model")
+        monkeypatch.chdir(tmp_path)
+
+        assert resolve_engine_name("ANI2xt") == "ANI2xt"
+
+    def test_unrelated_cwd_file_is_still_usable_as_a_custom_path(
+        self, tmp_path, monkeypatch
+    ):
+        """The fix must not disable custom-NNP-by-path for names that are not
+        reserved engine identifiers."""
+        from Auto3D.models.preflight import resolve_engine_name
+
+        custom = tmp_path / "my_custom_model.pt"
+        custom.write_bytes(b"not a model")
+        monkeypatch.chdir(tmp_path)
+
+        assert resolve_engine_name("my_custom_model.pt") == "my_custom_model.pt"
+
+
+class TestRequestsImportedLazily:
+    """`requests` must not be imported at module scope in preflight.py.
+
+    utils/validation.py imports preflight, and utils/__init__.py imports
+    that, so a module-scope `import requests` here made `import Auto3D.utils`
+    hard-fail without `requests` installed -- even though every other heavy
+    import in this module (aimnet.calculators.model_registry) is already
+    deferred into a function body. `requests` arrives only transitively via
+    aimnet's own dependency, so this module must not assume it is present
+    before entering a function.
+    """
+
+    def test_no_module_scope_requests_import(self):
+        import ast
+        import inspect
+
+        import Auto3D.models.preflight as preflight_mod
+
+        source = inspect.getsource(preflight_mod)
+        tree = ast.parse(source)
+
+        for node in tree.body:  # only top-level (module-scope) statements
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+                assert "requests" not in names, (
+                    "requests is imported at module scope in preflight.py"
+                )
+            if isinstance(node, ast.ImportFrom):
+                assert node.module != "requests", (
+                    "requests is imported at module scope in preflight.py"
+                )
+
+    def test_requests_not_a_module_attribute(self):
+        """Confirms the import really was moved, not just reformatted: if
+        `requests` were still imported at module scope, it would be bound as
+        a module-level attribute regardless of the exact import statement
+        shape (covers `import requests as X`, wildcard imports, etc. that the
+        AST check above does not enumerate)."""
+        import Auto3D.models.preflight as preflight_mod
+
+        assert not hasattr(preflight_mod, "requests"), (
+            "preflight module has a module-level `requests` attribute -- "
+            "the import was not fully moved into a function body"
+        )
+
 
 class TestUnwritableCacheDirectory:
     """A cache directory that cannot be created must be named, not double-faulted.

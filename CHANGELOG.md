@@ -14,11 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outputs existed at all, so a run that silently lost 9 of 10 chunks -- to
   memory pressure, a crashed worker, or any other per-chunk failure -- still
   printed a results summary and exited `0`, indistinguishable from complete
-  success to a calling shell script (`auto3d run --json && next_step`). The
-  results summary and, with `--json`, the JSON document are still printed
-  *before* the process exits -- a scripted consumer always receives a
-  parseable description of what happened, even on the run that is about to
-  signal failure. `6` (`EXIT_PARTIAL_SUCCESS`) extends `cli/errors.py`'s
+  success to a calling shell script (`auto3d run --json && next_step`). When
+  the run *completes* but is missing molecules, the results summary and, with
+  `--json`, the JSON document are still printed *before* the process exits
+  `6` -- a scripted consumer checking for that exit code always receives a
+  parseable description of what was missing. This guarantee is specific to
+  that partial-success path: if `main()` raises instead of returning (a
+  crash, not a partial run), no JSON is emitted at all -- the process exits
+  `1`-`5` via `handle_error`'s panel on stderr, same as before. `6`
+  (`EXIT_PARTIAL_SUCCESS`) extends `cli/errors.py`'s
   existing `0`-`5` exit-code convention (`2` configuration/input, `3`
   dependency, `4` GPU, `5` model) with the next unused code, rather than
   reusing `1` and making a partial run indistinguishable from a crash.

@@ -105,27 +105,6 @@ def print_failures(failures: list[FailedMolecule], verbose: bool = False) -> Non
         console.print("[dim]Run with -v to see details[/dim]")
 
 
-def count_input_molecules(input_path: str) -> int:
-    """Best-effort count of input molecules in a .smi or .sdf file.
-
-    Used to derive the failure count (inputs that produced no conformer) for the
-    results summary. Returns 0 for unrecognized extensions so the caller can fall
-    back gracefully.
-    """
-    from pathlib import Path
-
-    ext = Path(input_path).suffix.lower()
-    if ext == ".smi":
-        from Auto3D.utils.file_ops import iter_smi_records
-
-        return sum(1 for _ in iter_smi_records(input_path, on_malformed="skip"))
-    if ext == ".sdf":
-        from Auto3D.utils.file_ops import count_sdf
-
-        return count_sdf(input_path)
-    return 0
-
-
 def count_from_output(output_path: str) -> tuple[int, int]:
     """Return (unique_molecule_count, conformer_count) from an output SDF.
 
