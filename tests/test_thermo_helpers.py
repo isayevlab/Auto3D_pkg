@@ -399,3 +399,65 @@ class TestHessianGeometrySourcing:
         assert not np.allclose(seen["positions"], stale), (
             "vib_hessian used the stale conformer instead of the positions given"
         )
+
+
+class TestStationaryPointGate:
+    """A structure that never converged must not yield thermochemistry."""
+
+    def test_a_converged_run_reports_true(self, monkeypatch):
+        from Auto3D.ASE import thermo as thermo_mod
+
+        class _FakeOptimizer:
+            def __init__(self, atoms):
+                pass
+
+            def run(self, fmax, steps):
+                return True
+
+        monkeypatch.setattr(thermo_mod, "BFGS", _FakeOptimizer)
+        assert thermo_mod.relax_to_stationary_point(
+            object(), fmax=2e-4, steps=10, name="probe"
+        ) is True
+
+    def test_an_exhausted_run_reports_false_and_warns(self, monkeypatch, caplog):
+        import logging
+
+        from Auto3D.ASE import thermo as thermo_mod
+
+        class _FakeOptimizer:
+            def __init__(self, atoms):
+                pass
+
+            def run(self, fmax, steps):
+                return False
+
+        monkeypatch.setattr(thermo_mod, "BFGS", _FakeOptimizer)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            result = thermo_mod.relax_to_stationary_point(
+                object(), fmax=2e-4, steps=10, name="probe"
+            )
+        assert result is False
+        assert any("stationary point" in r.message for r in caplog.records), (
+            f"a non-converged relaxation was not warned about: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_the_run_receives_the_thresholds_it_was_given(self, monkeypatch):
+        """Guard against the hardcoded 3e-3 creeping back in."""
+        from Auto3D.ASE import thermo as thermo_mod
+
+        seen = {}
+
+        class _FakeOptimizer:
+            def __init__(self, atoms):
+                pass
+
+            def run(self, fmax, steps):
+                seen["fmax"], seen["steps"] = fmax, steps
+                return True
+
+        monkeypatch.setattr(thermo_mod, "BFGS", _FakeOptimizer)
+        thermo_mod.relax_to_stationary_point(
+            object(), fmax=2e-4, steps=123, name="probe"
+        )
+        assert seen == {"fmax": 2e-4, "steps": 123}

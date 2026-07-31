@@ -593,6 +593,36 @@ def aimnet_hessian_helper(
         e = model.forward(numbers, coord, charge)
         return e  # energy unit: eV
 
+def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> bool:
+    """Relax ``atoms`` and report whether it reached a stationary point.
+
+    ``BFGS.run`` returns True when it converged, and nothing used to read that.
+    A structure that exhausted its step budget therefore received a Hessian and
+    a Gibbs energy indistinguishable from a converged one -- but the harmonic
+    approximation is only defined at a stationary point, so those numbers are
+    not thermochemistry.
+
+    Args:
+        atoms: ASE atoms with a calculator attached. Relaxed in place.
+        fmax: Force convergence criterion, in eV/Angstrom.
+        steps: Maximum optimizer steps.
+        name: Molecule identifier, for the log message.
+
+    Returns:
+        True if the optimizer converged within ``steps``.
+    """
+    optimizer = BFGS(atoms)
+    converged = bool(optimizer.run(fmax=fmax, steps=steps))
+    if not converged:
+        logger.warning(
+            "%s did not reach fmax=%.1e within %d steps; the harmonic "
+            "approximation is only valid at a stationary point, so its "
+            "thermochemistry is not reported.",
+            name, fmax, steps,
+        )
+    return converged
+
+
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
                 opt_steps=DEFAULT_OPT_STEPS,
@@ -664,30 +694,36 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             idx, T = mol_info_func(mol)
 
         try:
-            try:
-                EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
-                _, f_ = model(EnForce_in['coord'].requires_grad_(True),
-                                EnForce_in['numbers'],
-                                EnForce_in['charge'])
-                fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
-                if fmax <= 0.01:
-                    mol = do_mol_thermo(mol, atoms, hessian_model,
-                                        device, T, model_name=model_name)
-                    out_mols.append(mol)
-                else:
-                    logger.info('optimize the input geometry')
-                    opt = BFGS(atoms)
-                    opt.run(fmax=3e-3, steps=opt_steps)
-                    mol = do_mol_thermo(mol, atoms, hessian_model,
-                                        device, T, model_name=model_name)
-                    out_mols.append(mol)
-            except ValueError:
-                logger.info('use tighter convergence threshold for geometry optimization')
-                opt = BFGS(atoms)
-                opt.run(fmax=opt_tol, steps=opt_steps)
-                mol = do_mol_thermo(mol, atoms, hessian_model,
-                                    device, T, model_name=model_name)
-                out_mols.append(mol)
+            EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
+            _, f_ = model(EnForce_in['coord'].requires_grad_(True),
+                          EnForce_in['numbers'],
+                          EnForce_in['charge'])
+            fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+
+            # Gate on the documented threshold, not a hardcoded 0.01.
+            # opt_tol was previously reachable only from the ValueError
+            # fallback, so constants.py's tighter value never applied to
+            # the primary path.
+            converged = fmax <= opt_tol
+            if not converged:
+                logger.info(
+                    "Relaxing %s to fmax=%.1e before the Hessian "
+                    "(input fmax=%.2e).", idx, opt_tol, fmax,
+                )
+                converged = relax_to_stationary_point(
+                    atoms, fmax=opt_tol, steps=opt_steps, name=idx,
+                )
+
+            if not converged:
+                # The harmonic approximation needs a stationary point.
+                # Emitting G here would look exactly like a real result.
+                mol.SetProp("Thermo_failed", "not_converged")
+                mols_failed.append(mol)
+                continue
+
+            mol = do_mol_thermo(mol, atoms, hessian_model,
+                                device, T, model_name=model_name)
+            out_mols.append(mol)
         except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
                 np.linalg.LinAlgError, ZeroDivisionError) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")

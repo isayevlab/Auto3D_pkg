@@ -76,13 +76,6 @@ class TestBatchRobustness:
 class TestStationaryPointGating:
     """G must not be reported for a structure the optimizer did not converge."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M8: opt.run()'s return value is never checked, so a geometry "
-        "that exhausts opt_steps proceeds to a Hessian and its G is reported "
-        "as if converged; opt_tol is used only in the except ValueError "
-        "fallback, and the entry gate at thermo.py:464 hardcodes 0.01",
-    )
     def test_unconverged_geometry_is_flagged_or_refused(self, job_dir):
         """With opt_steps=1 nothing can converge, so no G may be emitted unflagged."""
         from Auto3D.ASE.thermo import calc_thermo
