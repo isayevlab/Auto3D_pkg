@@ -32,11 +32,6 @@ def _input_ids(smi_path: str) -> set[str]:
 class TestInputOutputAccounting:
     """No input may vanish without being reported."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C7: neither _finalize_output nor smiles2mols reconciles inputs "
-        "against outputs; find_smiles_not_in_sdf has zero production callers",
-    )
     def test_every_input_is_present_or_reported(self, job_dir):
         """Each input ID must appear in the output or in a reported failure list.
 

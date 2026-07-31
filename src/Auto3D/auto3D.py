@@ -28,7 +28,7 @@ from Auto3D.utils import (
     create_chunk_meta_names,
     reorder_sdf,
 )
-from Auto3D.utils.file_ops import smiles2smi
+from Auto3D.utils.file_ops import find_smiles_not_in_sdf, smiles2smi
 from Auto3D.utils.logging_config import configure_logging, get_logger
 
 # Pipeline workers live in workflow_workers to break the auto3D<->workflow import
@@ -62,7 +62,9 @@ def main(
     Returns:
         A :class:`Auto3D.results.WorkflowResult` -- a ``str`` subclass holding
         the output SDF path (so it works anywhere the path string did) plus the
-        run's ``n_molecules`` / ``n_conformers`` counts.
+        run's ``n_molecules`` / ``n_conformers`` counts and its ``failures``
+        list (input molecule IDs reconciled away as missing from the output,
+        see ``WorkflowOrchestrator._finalize_output``).
 
     Raises:
         SystemExit: If input validation fails or no structures converge.
@@ -89,7 +91,13 @@ def main(
     from Auto3D.results import WorkflowResult
 
     orchestrator = WorkflowOrchestrator(args, progress_callback=progress_callback)
-    return WorkflowResult(orchestrator.run())
+    output_path = orchestrator.run()
+    # getattr, not a direct attribute access: mirrors the defensive read the
+    # CLI already does for n_molecules/n_conformers (cli/commands/run.py), so
+    # a test/mock that swaps in a bare stand-in for the orchestrator (e.g.
+    # test_mp_start_method.py) still gets a valid WorkflowResult instead of an
+    # AttributeError.
+    return WorkflowResult(output_path, failures=getattr(orchestrator, "failures", None))
 
 def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     """Find low-energy conformers for a list of SMILES.
@@ -175,6 +183,16 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
                               args.threshold, k=k, window=window)
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)
+
+        # Reconcile inputs against outputs (C7): smiles2mols never runs
+        # encode_ids/decode_ids -- path0 already holds the same (InChIKey-based)
+        # ids that ranking/reorder_sdf wrote to meta["output"] -- so this is
+        # already the right pair to compare, no decoding needed. This call's
+        # own logging is the report; smiles2mols keeps its `list[Chem.Mol]`
+        # return type (unlike main(), nothing here reads a `.failures` carrier
+        # today) so a missing input surfaces in the log rather than silently
+        # nowhere, closing the "zero production callers" gap for this path too.
+        find_smiles_not_in_sdf(path0, meta["output"])
 
         logger.info("Energy unit: Hartree if implicit.")
     return conformers
