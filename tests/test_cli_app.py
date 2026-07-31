@@ -283,6 +283,121 @@ def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
     json.loads(result.stdout)  # must not raise
 
 
+def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """C6/B8: a run that loses a molecule must still emit parseable JSON, then
+    exit non-zero.
+
+    Hermetic: `Auto3D.auto3D.main` is monkeypatched to return a
+    `WorkflowResult` carrying a non-empty `failures` list (Task 3's
+    reconciliation carrier), so this exercises the full `execute_run` ->
+    `output_json` -> `_exit_if_incomplete` path without a pipeline run or a
+    loaded potential.
+    """
+    import json
+
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\nCCCO mol2\n")
+
+    import Auto3D.auto3D as a3d
+    out = tmp_path_cwd / "in_out.sdf"
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    with Chem.SDWriter(str(out)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "mol1")
+        w.write(m)
+    from Auto3D.results import WorkflowResult
+    # mol2 has no corresponding output structure -- a lost molecule.
+    monkeypatch.setattr(
+        a3d, "main", lambda options: WorkflowResult(str(out), failures=["mol2"])
+    )
+
+    result = runner.invoke(app, ["run", str(smi), "--json"])
+
+    assert result.exit_code != 0, (
+        f"exited 0 despite a reported failure; output:\n{result.output}"
+    )
+    # Slice from the first '{': on this box, a one-time CUDA/device-library
+    # init banner (unrelated to Auto3D, triggered by whichever test first
+    # touches CUDA in the pytest process) can land on real stdout ahead of
+    # our JSON when this test runs in isolation. That banner contains no
+    # brace, so this only strips ambient noise -- it does not weaken the
+    # assertion that our own JSON is present, parseable, and written before
+    # SystemExit.
+    stdout = result.stdout
+    data = json.loads(stdout[stdout.index("{"):])  # must not raise
+    assert data["success"] is False
+    assert data["failed"] == 1
+    assert data["molecules"] == 1
+    assert [f["name"] for f in data["failures"]] == ["mol2"]
+
+
+def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeypatch):
+    """A complete run (no reconciled failures) must keep exiting 0."""
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    import Auto3D.auto3D as a3d
+    out = tmp_path_cwd / "in_out.sdf"
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    with Chem.SDWriter(str(out)) as w:
+        m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "mol1")
+        w.write(m)
+    from Auto3D.results import WorkflowResult
+    monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
+
+    result = runner.invoke(app, ["run", str(smi), "--json"])
+    assert result.exit_code == 0
+
+
+# Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
+# pinned without going through the CLI or a pipeline run at all.
+
+def test_exit_if_incomplete_raises_nonzero_when_failures_present():
+    from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS, _exit_if_incomplete
+    from Auto3D.cli.results import FailedMolecule, WorkflowResults
+
+    results = WorkflowResults(
+        success_count=1,
+        failed_count=1,
+        total_conformers=1,
+        output_path="out.sdf",
+        elapsed_seconds=0.1,
+        failures=[FailedMolecule(name="mol2", error="missing from output")],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _exit_if_incomplete(results)
+    assert exc_info.value.code == EXIT_PARTIAL_SUCCESS
+    assert EXIT_PARTIAL_SUCCESS != 0
+
+
+def test_exit_if_incomplete_does_not_raise_when_no_failures():
+    from Auto3D.cli.commands.run import _exit_if_incomplete
+    from Auto3D.cli.results import WorkflowResults
+
+    results = WorkflowResults(
+        success_count=2,
+        failed_count=0,
+        total_conformers=2,
+        output_path="out.sdf",
+        elapsed_seconds=0.1,
+        failures=[],
+    )
+
+    _exit_if_incomplete(results)  # must not raise
+
+
 # Error handling tests
 
 def test_error_hint_configuration_error():

@@ -10,12 +10,39 @@ from Auto3D.cli.config_schema import CLIConfig, load_yaml_config, merge_configs
 from Auto3D.cli.console import console, print_banner, print_warning
 from Auto3D.cli.errors import handle_error
 from Auto3D.cli.results import (
+    FailedMolecule,
     WorkflowResults,
     output_json,
     print_results_summary,
 )
 from Auto3D.exceptions import Auto3DError
 from Auto3D.utils.logging_config import configure_logging
+
+# A partial run (the process completed, but some input molecules produced no
+# output) is a different failure class than a crash. cli/errors.py's
+# exit_code_for reserves 0 for clean success and 1-5 for exceptions raised
+# before/during the run (1 generic, 2 configuration/input, 3 dependency, 4
+# GPU, 5 model) -- all cases where `handle_error` catches something and the
+# process never reaches a results summary. This path is the opposite: nothing
+# raised, a summary was printed, and the run is still incomplete. Reusing exit
+# code 1 would make that indistinguishable from a genuine crash to a calling
+# shell script (`auto3d run --json && next_step`), which is exactly the
+# silent-partial-run defect (C6/B8) this constant closes. 6 extends the
+# existing convention with the next unused code rather than inventing an
+# unrelated scheme.
+EXIT_PARTIAL_SUCCESS = 6
+
+
+def _exit_if_incomplete(results: WorkflowResults) -> None:
+    """Raise SystemExit(EXIT_PARTIAL_SUCCESS) if the run lost any molecules.
+
+    Callers must invoke this only after the results have already been printed
+    or emitted as JSON (see execute_run) -- a `--json` consumer must still
+    receive a parseable document describing the failure before the process
+    exits non-zero.
+    """
+    if results.failed_count > 0:
+        raise SystemExit(EXIT_PARTIAL_SUCCESS)
 
 
 def execute_run(
@@ -127,36 +154,50 @@ def execute_run(
 
         elapsed = time.time() - start_time
 
-        # main() returns a WorkflowResult (a path str carrying the counts), so we
-        # read them off the result instead of re-opening the output SDF here.
-        # getattr keeps the old graceful (0, 0) if a caller/mocks ever hand back a
-        # plain str instead of a WorkflowResult.
-        from Auto3D.cli.results import count_input_molecules
+        # main() returns a WorkflowResult (a path str carrying the counts and
+        # the reconciled failure list), so we read everything off the result
+        # instead of re-opening the output SDF or re-deriving a count here.
+        # getattr keeps the old graceful defaults if a caller/mock ever hands
+        # back a plain str instead of a WorkflowResult.
         molecules = getattr(output_path, "n_molecules", 0)
         conformers = getattr(output_path, "n_conformers", 0)
-        # Failures = input molecules that produced no conformer. Per-molecule
-        # failure *details* are not yet wired through the workflow, but the count
-        # is recoverable as inputs minus produced molecules so the summary no
-        # longer always reports zero failures.
-        input_count = count_input_molecules(config.path) if config.path else 0
-        failed_count = max(0, input_count - molecules)
+        # `failures` is Task 3's reconciliation carrier: the input molecule
+        # IDs that WorkflowOrchestrator._finalize_output could not find in
+        # the output SDF. This replaces the old `max(0, input_count -
+        # molecules)` derivation, which was wrong two ways: the `max(0, ...)`
+        # silently floored to zero whenever tautomer enumeration made
+        # `molecules` legitimately exceed the input count (more outputs than
+        # inputs is not a failure), and even when the arithmetic was right it
+        # was only ever a count -- it could never say *which* molecule was
+        # lost, so `results.failures` was hardcoded to `[]` regardless.
+        # `missing_ids` is one entry per input molecule absent from the
+        # output, independent of how many conformers it would have produced,
+        # so a molecule that generated 3 conformers is still exactly one
+        # success and never appears here.
+        missing_ids: list[str] = list(getattr(output_path, "failures", []) or [])
+        failed_count = len(missing_ids)
         results = WorkflowResults(
             success_count=molecules,
             failed_count=failed_count,
             total_conformers=conformers,
             output_path=str(output_path) if output_path else "N/A",
             elapsed_seconds=elapsed,
-            failures=[],
+            failures=[
+                FailedMolecule(name=mol_id, error="no conformer generated (missing from output)")
+                for mol_id in missing_ids
+            ],
         )
 
-        # Output results. Per-molecule failure *details* are not yet wired through
-        # the workflow (results.failures is always empty), so we report the count
-        # via the summary but do not promise a detail list that cannot exist.
+        # Output results before deciding whether to exit non-zero, so a
+        # --json consumer always receives a parseable document -- even on a
+        # run that is about to signal partial failure (C6/B8).
         if json_output:
             output_json(results)
         elif not quiet:
             console.print()
             print_results_summary(results)
+
+        _exit_if_incomplete(results)
 
     except Auto3DError as e:
         handle_error(e)
