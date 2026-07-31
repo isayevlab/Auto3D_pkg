@@ -32,13 +32,6 @@ def _write_mol(path, smiles="CCO", name="ethanol", optimize=True):
 class TestBatchRobustness:
     """One malformed record must not destroy a batch of Hessians."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M13: SDMolSupplier yields a None entry for an unparseable "
-        "record, and GetConformer(), GetProp('_Name') and set_calculator all "
-        "run before the try: at thermo.py:457 -- SPE.py:73-82 filters None "
-        "entries for exactly this reason, thermo.py does not",
-    )
     def test_malformed_record_does_not_abort_the_batch(self, job_dir):
         """A None record between two valid ones must be skipped, not crash.
 

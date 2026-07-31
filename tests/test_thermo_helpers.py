@@ -618,3 +618,153 @@ class TestStationaryPointGate:
             object(), fmax=2e-4, steps=123, name="probe"
         )
         assert seen == {"fmax": 2e-4, "steps": 123}
+
+
+class TestRecordFiltering:
+    """One malformed record must not destroy a batch of Hessians."""
+
+    def _mol_with_conformer(self, name):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", name)
+        return mol
+
+    def test_a_none_record_between_valid_ones_is_skipped(self):
+        from Auto3D.ASE.thermo import iter_thermo_records
+
+        good1 = self._mol_with_conformer("first")
+        good2 = self._mol_with_conformer("second")
+        kept = list(iter_thermo_records([good1, None, good2]))
+        assert [m.GetProp("_Name") for m in kept] == ["first", "second"]
+
+    def test_a_conformerless_record_is_skipped(self):
+        from rdkit import Chem
+
+        from Auto3D.ASE.thermo import iter_thermo_records
+
+        flat = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        flat.SetProp("_Name", "no_conformer")
+        good = self._mol_with_conformer("ok")
+        kept = list(iter_thermo_records([flat, good]))
+        assert [m.GetProp("_Name") for m in kept] == ["ok"]
+
+    def test_skipping_is_reported(self, caplog):
+        import logging
+
+        from Auto3D.ASE.thermo import iter_thermo_records
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            list(iter_thermo_records([None, self._mol_with_conformer("ok")]))
+        assert any("Skipping record" in r.message for r in caplog.records), (
+            f"a dropped record was not reported: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_an_all_valid_batch_is_untouched(self):
+        from Auto3D.ASE.thermo import iter_thermo_records
+
+        mols = [self._mol_with_conformer(f"m{i}") for i in range(3)]
+        assert len(list(iter_thermo_records(mols))) == 3
+
+
+class TestFailedRecordKeepsInputGeometry:
+    """A record that fails inside do_mol_thermo must keep its input geometry.
+
+    The conformer sync used to happen at the top of do_mol_thermo, before the
+    Hessian/vibrational-analysis/IdealGasThermo work that can actually raise.
+    calc_thermo appends the very same `mol` object (not a copy) to
+    mols_failed on an exception, so an early sync meant a failed record was
+    written with a relaxed-but-unvalidated geometry and none of the
+    properties that would justify it, while a converged record's conformer
+    should still end up holding the relaxed geometry it was optimized to. The
+    fix defers the sync to the very end of do_mol_thermo, after every thermo
+    property has been set successfully. Both tests below run with no real
+    NNP: vib_hessian is monkeypatched to a fake returning canned vibrational
+    energies, so only do_mol_thermo's own control flow is exercised.
+    """
+
+    def _ethanol_with_conformer(self):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", "probe")
+        return mol
+
+    def _relaxed_atoms(self, mol, displacement):
+        from ase import Atoms
+
+        original = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
+        relaxed = original + displacement
+        symbols = [a.GetSymbol() for a in mol.GetAtoms()]
+        atoms = Atoms(symbols, relaxed)
+        atoms.get_calculator = lambda: None
+        return atoms, original, relaxed
+
+    def test_a_failure_after_the_hessian_leaves_the_conformer_at_its_input_geometry(
+        self, monkeypatch
+    ):
+        from Auto3D.ASE import thermo as thermo_mod
+
+        mol = self._ethanol_with_conformer()
+        atoms, original, relaxed = self._relaxed_atoms(mol, displacement=0.5)
+        atoms.get_potential_energy = lambda: 0.0
+
+        n_modes = 3 * mol.GetNumAtoms()
+
+        class _FakeVib:
+            def get_energies(self):
+                return [0.01 + 0j] * n_modes
+
+        class _Boom:
+            def __init__(self, *args, **kwargs):
+                raise ValueError("synthetic thermo failure")
+
+        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: _FakeVib())
+        monkeypatch.setattr(thermo_mod, "IdealGasThermo", _Boom)
+
+        with pytest.raises(ValueError):
+            thermo_mod.do_mol_thermo(mol, atoms, model=None, model_name="AIMNET")
+
+        after = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
+        np.testing.assert_allclose(after, original)
+        assert not np.allclose(after, relaxed), (
+            "a failed record's conformer was overwritten with the relaxed "
+            "geometry even though no thermochemistry was ever computed for it"
+        )
+        # Some per-mol props are set before the point of failure; G_hartree
+        # is not among them, since it is only ever set after IdealGasThermo
+        # succeeds.
+        assert not mol.HasProp("G_hartree")
+
+    def test_a_converged_record_ends_with_the_relaxed_conformer(self, monkeypatch):
+        from Auto3D.ASE import thermo as thermo_mod
+
+        mol = self._ethanol_with_conformer()
+        atoms, original, relaxed = self._relaxed_atoms(mol, displacement=0.1)
+        atoms.get_potential_energy = lambda: -1234.5
+
+        n_atoms = mol.GetNumAtoms()
+        n_modes = 3 * n_atoms
+        vib_values = [1e-6] * 6 + [0.05 + 0.01 * i for i in range(n_modes - 6)]
+
+        class _FakeVib:
+            def get_energies(self):
+                return [complex(v) for v in vib_values]
+
+        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: _FakeVib())
+
+        result = thermo_mod.do_mol_thermo(mol, atoms, model=None, model_name="AIMNET")
+
+        assert result is mol
+        assert mol.HasProp("G_hartree")
+        after = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
+        np.testing.assert_allclose(after, relaxed)
+        assert not np.allclose(after, original), (
+            "a converged record's conformer was not updated to the relaxed "
+            "geometry"
+        )

@@ -4,6 +4,7 @@ Calculating thermodynamic properties using Auto3D output
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -516,12 +517,12 @@ def do_mol_thermo(mol: Chem.Mol,
                   T=298.15, model_name='AIMNET'):
     """For a RDKit mol object, calculate its thermochemistry properties.
     model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian"""
-    # Sync first: everything below -- the Hessian, the energy, the geometry
-    # classification and the moments of inertia -- must describe one structure.
+    # atoms already holds the relaxed (post-BFGS) geometry; everything below --
+    # the Hessian, the energy, the geometry classification and the moments of
+    # inertia -- is computed from these coordinates directly (vib_hessian takes
+    # them via the explicit `positions=` argument, not from mol's conformer),
+    # so nothing here depends on mol's conformer being in sync yet.
     coord = atoms.get_positions()
-    conformer = mol.GetConformer()
-    for i in range(mol.GetNumAtoms()):
-        conformer.SetAtomPosition(i, coord[i])
     vib = vib_hessian(mol, atoms.get_calculator(), model, device,
                       model_name=model_name, positions=coord)
     vib_e = vib.get_energies()
@@ -585,6 +586,17 @@ def do_mol_thermo(mol: Chem.Mol,
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
     mol.SetProp("E_hartree", str(e * ev2hatree))
+
+    # Only now, with every thermo property computed and set, overwrite mol's
+    # conformer with the relaxed geometry. Deliberately deferred from the top
+    # of this function: calc_thermo calls this inside a try block and appends
+    # `mol` itself (not a copy) to mols_failed on an exception, so syncing
+    # early would leave a failed record's conformer holding a partially- or
+    # never-converged relaxed geometry with none of the properties that would
+    # justify it, instead of the pristine input geometry it came in with.
+    conformer = mol.GetConformer()
+    for i in range(mol.GetNumAtoms()):
+        conformer.SetAtomPosition(i, coord[i])
 
     return mol
 
@@ -684,6 +696,33 @@ def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> b
     return converged
 
 
+def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
+    """Yield records `calc_thermo` can actually process, skipping the rest.
+
+    ``SDMolSupplier`` yields ``None`` for a record it cannot parse, and a
+    parsed record can still lack a conformer. Both used to reach
+    ``mol.GetConformer()`` outside the try block, so one bad record aborted a
+    batch that may already have computed hundreds of Hessians -- none of which
+    are written until the loop finishes. ``SPE.py`` filters for exactly this
+    reason; this is the same guard.
+    """
+    for position, mol in enumerate(mols):
+        if mol is None:
+            logger.warning(
+                "Skipping record %d: RDKit could not parse it.", position,
+            )
+            continue
+        if mol.GetNumConformers() == 0:
+            logger.warning(
+                "Skipping %s: no 3D conformer, so there is no geometry to "
+                "evaluate.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else
+                f"record {position}",
+            )
+            continue
+        yield mol
+
+
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
                 opt_steps=DEFAULT_OPT_STEPS,
@@ -744,7 +783,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
-    for mol in tqdm(mols):
+    for mol in tqdm(list(iter_thermo_records(mols))):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))
         # so isotope masses are applied consistently with vib_hessian's Atoms
         # object -- otherwise the optimization and the Hessian/thermo stages
@@ -796,19 +835,28 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 np.linalg.LinAlgError, ZeroDivisionError) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")
+            mol.SetProp("Thermo_failed", type(e).__name__)
             mols_failed.append(mol)
         except Exception as e:
             # Catch-all for truly unexpected errors - prevents batch failure
             # Log at ERROR level for debugging while allowing pipeline to continue
             logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed (unexpected): {idx}")
+            mol.SetProp("Thermo_failed", type(e).__name__)
             mols_failed.append(mol)
 
     logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
     logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
     with Chem.SDWriter(str(outpath)) as w:
-        all_mols = out_mols + mols_failed
-        for mol in all_mols:
+        for mol in out_mols:
+            # Positive marker as well as the negative one, so a consumer can
+            # filter on a single property either way without needing to know
+            # which failure modes exist.
+            mol.SetProp("Thermo_failed", "")
+            w.write(mol)
+        for mol in mols_failed:
+            if not mol.HasProp("Thermo_failed"):
+                mol.SetProp("Thermo_failed", "unknown")
             w.write(mol)
     return str(outpath)
 
