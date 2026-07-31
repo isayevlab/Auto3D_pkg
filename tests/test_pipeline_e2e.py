@@ -89,22 +89,31 @@ class TestInputOutputAccounting:
             f"{sorted(missing)}"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C6: an unsupported element must fail its own molecule without "
-        "taking the chunk down -- optim_rank_wrapper's bare `except Exception: "
-        "continue` discards every molecule in the chunk. The molecule must also "
-        "actually fail: Auto3D validates atomic numbers against no model "
-        "species list, so an unsupported element can instead be assigned an "
-        "energy the model has no basis to produce",
-    )
     def test_one_bad_molecule_does_not_remove_the_others(self, job_dir):
         """A sodium counterion must fail, and must fail alone.
 
-        Both halves matter and the original test only checked the second, so
-        it went green while `optim_rank_wrapper`'s bare `except Exception:
-        continue` was still in place -- passing because nothing had gone
-        wrong, not because a failure had been contained.
+        This began as an ``xfail(strict=True)`` for C6, whose claim was that an
+        unsupported element raises inside ``ensemble_opt`` and
+        ``optim_rank_wrapper``'s bare ``except Exception: continue`` then
+        discards every molecule in that chunk. **That claim does not hold for
+        this input, and the marker was removed rather than the test.**
+
+        The original assertion only checked that the good molecules survived,
+        which passes whenever the bad one quietly succeeds, so it established
+        nothing and XPASSed for months. Adding the ``sodium_acetate not in
+        produced`` precondition made the result meaningful, and CI then showed
+        both halves already hold: sodium_acetate is absent (it genuinely
+        failed) *and* ethanol, propanol and benzene are all present (its
+        failure was contained). Whatever rejects the sodium salt does so at a
+        granularity finer than the chunk.
+
+        What this does NOT show: that the bare ``except Exception: continue``
+        in ``optim_rank_wrapper`` is harmless. It is still there and still
+        chunk-scoped, so a failure mode that reaches it -- a CUDA OOM, an
+        mkdir collision -- would still take the whole chunk down. This test
+        now stands as a regression guard for the element case only. The other
+        half of C6, that the CLI exits 0 after losing molecules, is unaffected
+        and still tripwired in ``TestExitStatus`` below.
         """
         from Auto3D.auto3D import main
 
