@@ -55,13 +55,14 @@ INSIDE the function, so the module attribute is what a monkeypatch must target.
 """
 from __future__ import annotations
 
+import os
 import queue as queue_mod
 from pathlib import Path
 
 import pytest
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import Auto3DError
+from Auto3D.exceptions import Auto3DError, ModelLoadError
 from Auto3D.model_factory import ModelFactory
 from Auto3D.workflow import WorkflowOrchestrator
 
@@ -275,3 +276,65 @@ class TestEngineNameResolution:
         model = tmp_path / "custom.pt"
         model.write_bytes(b"")
         assert resolve_engine_name(str(model)) == str(model)
+
+
+class TestUnwritableCacheDirectory:
+    """A cache directory that cannot be created must be named, not double-faulted.
+
+    ``preflight_model`` names the cache directory in each of its three error
+    messages. The directory string is resolved once, before the ``try``
+    (``Auto3D.models.preflight._cache_dir_for_message``), specifically so
+    that naming it never re-invokes anything that can fail. The bug this
+    guards against: naming the directory by calling the real
+    ``aimnet.calculators.model_registry.get_cache_dir()`` from *inside* an
+    ``except`` handler re-runs that function's own ``os.makedirs`` -- and
+    when the failure being diagnosed *is* an uncreatable cache directory,
+    that re-invocation fails identically, double-faulting into a raw,
+    unhandled ``PermissionError`` instead of the intended ``ModelLoadError``.
+
+    Reproduced genuinely, with no aimnet internals mocked: ``AIMNET_CACHE_DIR``
+    points under a real ``0500`` (read+execute, no write) directory owned by
+    this same non-root test process, so ``os.makedirs`` fails with a real
+    ``PermissionError`` inside ``get_registry_model_path -> create_assets_dir
+    -> get_cache_dir``. That failure happens before ``get_registry_model_path``
+    ever reaches its download step (``load_model_registry`` and
+    ``resolve_registry_model_name`` are both offline dict/YAML reads that run
+    first), so this never risks a network call or a model load -- only a
+    directory-creation failure.
+    """
+
+    @pytest.fixture
+    def unwritable_cache_parent(self, tmp_path):
+        """A 0500 directory to point ``AIMNET_CACHE_DIR`` underneath.
+
+        Teardown restores write permission unconditionally -- including when
+        the test body fails or raises -- so pytest's own ``tmp_path`` cleanup
+        can still remove it. A failing test must never leave an undeletable
+        directory behind.
+        """
+        parent = tmp_path / "unwritable"
+        parent.mkdir()
+        parent.chmod(0o500)
+        try:
+            yield parent
+        finally:
+            parent.chmod(0o700)
+
+    def test_unwritable_cache_dir_raises_model_load_error_naming_it(
+        self, unwritable_cache_parent, monkeypatch
+    ):
+        """AIMNET_CACHE_DIR under an unwritable parent must raise ModelLoadError, not PermissionError."""
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root bypasses directory permission bits")
+
+        from Auto3D.models.preflight import preflight_model
+
+        cache_dir = unwritable_cache_parent / "aimnet"
+        monkeypatch.setenv("AIMNET_CACHE_DIR", str(cache_dir))
+
+        with pytest.raises(ModelLoadError) as excinfo:
+            preflight_model("AIMNET")
+
+        message = str(excinfo.value)
+        assert "AIMNET_CACHE_DIR" in message, f"no cache-dir hint in: {message}"
+        assert str(cache_dir) in message, f"the directory itself is not named: {message}"

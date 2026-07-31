@@ -10,8 +10,6 @@ from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import torch
-
 import Auto3D
 from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions, optimizer_worker_indices
@@ -211,9 +209,8 @@ class WorkflowOrchestrator:
         # cold cache with no network, a corrupted cached file, or an
         # unwritable cache directory would otherwise surface only inside
         # optim_rank_wrapper's blanket per-chunk except, as an opaque "no 3D
-        # structure converged". The device argument is unused (see
-        # ``preflight_model``'s docstring) but kept for call-site stability.
-        preflight_model(self.config.optimizing_engine, torch.device("cpu"))
+        # structure converged".
+        preflight_model(self.config.optimizing_engine)
 
     def _setup_job_directory(self) -> None:
         """Create the job directory for output files."""
@@ -459,9 +456,18 @@ class WorkflowOrchestrator:
             combined_data.extend(file_path.read_text().splitlines(keepends=True))
 
         if not any(line.strip() == "$$$$" for line in combined_data):
+            log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
-                "No 3D structure converged. None of the input molecules produced "
-                "an optimized conformer. Check input validity, memory, and patience settings."
+                "No 3D structure converged. Every chunk produced an output "
+                "file, but none of them contain a converged structure. The "
+                "model was already verified obtainable before any chunk was "
+                "processed (pre-flight passed), ruling out a cold cache, "
+                "network failure, or corrupted download as the cause. "
+                "Likely causes: every input molecule failed geometry "
+                "optimization (opt_steps/patience too aggressive for these "
+                "molecules), or the energy window/top-k filtering removed "
+                f"all conformers. See {log_path} for the per-chunk errors "
+                "already recorded during this run."
             )
 
         # Write combined output

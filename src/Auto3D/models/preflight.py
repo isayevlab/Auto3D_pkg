@@ -8,12 +8,39 @@ that quietly produced nothing.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import requests
 
 from Auto3D.constants import DEFAULT_AIMNET_MODEL, MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
 from Auto3D.exceptions import ConfigurationError, ModelLoadError
+
+
+def _cache_dir_for_message() -> str:
+    """Return the model cache directory path as a string, for error messages only.
+
+    Mirrors the path resolution in
+    ``aimnet.calculators.model_registry.get_cache_dir`` (``AIMNET_CACHE_DIR``
+    env var, falling back to ``~/.cache/aimnet``) but -- unlike that
+    function -- never calls ``os.makedirs``, so it cannot itself raise.
+
+    This must be computed before entering the ``try`` in ``preflight_model``
+    and passed into every ``except`` handler as a plain string. Calling the
+    real ``get_cache_dir()`` from inside a handler double-faults whenever the
+    failure being diagnosed *is* an uncreatable cache directory:
+    ``get_registry_model_path`` reaches that same directory via
+    ``create_assets_dir() -> get_cache_dir() -> os.makedirs(...)``, so naming
+    the directory by calling ``get_cache_dir()`` again just re-runs the
+    identical failing ``os.makedirs`` call, raising a second, unhandled
+    ``PermissionError`` instead of the intended ``ModelLoadError`` -- losing
+    the ``AIMNET_CACHE_DIR`` hint and the ``Auto3DError`` -> exit-code mapping
+    along with it.
+    """
+    cache_dir = os.environ.get("AIMNET_CACHE_DIR")
+    if cache_dir is None:
+        cache_dir = os.path.join(str(Path.home()), ".cache", "aimnet")
+    return cache_dir
 
 
 def resolve_engine_name(name: str) -> str:
@@ -57,7 +84,7 @@ def resolve_engine_name(name: str) -> str:
         ) from exc
 
 
-def preflight_model(engine: str, device) -> None:
+def preflight_model(engine: str) -> None:
     """Resolve the engine name and verify the model is obtainable, before any fork.
 
     This used to *construct* the full model here (see git history), which
@@ -98,10 +125,6 @@ def preflight_model(engine: str, device) -> None:
 
     Args:
         engine: The configured ``optimizing_engine`` value.
-        device: Unused. Kept so existing call sites do not need to change --
-            path-only verification has no notion of "device", but a future
-            check that does need one is a plausible extension of this
-            function's contract.
 
     Raises:
         ConfigurationError: The engine name is not recognized.
@@ -118,6 +141,11 @@ def preflight_model(engine: str, device) -> None:
     # (pure, offline) functions importable without pulling in the model stack.
     from aimnet.calculators.model_registry import get_registry_model_path
 
+    # Resolved as a plain string before the try, and reused in every handler
+    # below -- never call the real get_cache_dir() from inside a handler (see
+    # _cache_dir_for_message's docstring for why that double-faults).
+    cache_dir = _cache_dir_for_message()
+
     try:
         get_registry_model_path(resolved)
     except ValueError as exc:
@@ -126,32 +154,27 @@ def preflight_model(engine: str, device) -> None:
         # shaped like a ValueError is not ours to explain.
         if "checksum" not in str(exc).lower():
             raise
-        from aimnet.calculators.model_registry import get_cache_dir
 
         raise ModelLoadError(
             f"The cached model file for optimizing_engine={engine!r} failed a "
             f"checksum check: {exc}. The cached copy is corrupted, and "
             "aimnet will keep failing on it identically on every future run "
             "until it is removed -- delete the file named above from the "
-            f"cache directory ({get_cache_dir()!r}; override with "
+            f"cache directory ({cache_dir!r}; override with "
             "AIMNET_CACHE_DIR) and rerun; it will be re-downloaded "
             "automatically."
         ) from exc
     except (ConnectionError, TimeoutError, requests.exceptions.RequestException) as exc:
-        from aimnet.calculators.model_registry import get_cache_dir
-
         raise ModelLoadError(
             f"Could not download the model for optimizing_engine={engine!r}: "
             f"a network error occurred ({exc}). Check network connectivity, "
-            f"or pre-populate the cache directory ({get_cache_dir()!r}; "
+            f"or pre-populate the cache directory ({cache_dir!r}; "
             "override with AIMNET_CACHE_DIR) with the required file from a "
             "machine that has network access."
         ) from exc
     except OSError as exc:
-        from aimnet.calculators.model_registry import get_cache_dir
-
         raise ModelLoadError(
             "Could not read or write the model cache directory for "
-            f"optimizing_engine={engine!r} ({get_cache_dir()!r}; override "
+            f"optimizing_engine={engine!r} ({cache_dir!r}; override "
             f"with AIMNET_CACHE_DIR): {exc}"
         ) from exc

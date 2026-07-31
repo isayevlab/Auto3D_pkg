@@ -142,10 +142,8 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         # (C8/M22), before the `optimizing` step below constructs its own copy
         # for real work. A cold cache with no network, a corrupted cached
         # file, or an unwritable cache directory would otherwise surface only
-        # deep inside ranking/optimization as an opaque failure. The device
-        # argument is unused (see ``preflight_model``'s docstring) but kept
-        # for call-site stability.
-        preflight_model(args.optimizing_engine, torch.device("cpu"))
+        # deep inside ranking/optimization as an opaque failure.
+        preflight_model(args.optimizing_engine)
 
         # smi to sdf
         meta = create_chunk_meta_names(path0, tmpdirname)
