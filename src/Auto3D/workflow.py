@@ -15,9 +15,15 @@ from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions, optimizer_worker_indices
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 from Auto3D.model_factory import ModelFactory
+from Auto3D.models.preflight import preflight_model
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import check_input, check_valid_configuration, reorder_sdf
-from Auto3D.utils.file_ops import decode_ids, encode_ids
+from Auto3D.utils.file_ops import (
+    decode_ids,
+    encode_ids,
+    find_ids_not_in_sdf,
+    find_smiles_not_in_sdf,
+)
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.workflow_workers import (
     isomer_wrapper,
@@ -65,6 +71,10 @@ class WorkflowOrchestrator:
         self.job_dir: Path = Path()
         self.input_path: Path = Path()
         self.id_mapping: dict[str, str] = {}
+        # Input molecule IDs reconciled away as missing from the final output
+        # (C7), populated by _finalize_output. Read by main() to build the
+        # WorkflowResult.failures carrier.
+        self.failures: list[str] = []
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
         self._logger_p: mp.Process | None = None
@@ -120,9 +130,21 @@ class WorkflowOrchestrator:
     def _validate_input(self) -> None:
         """Validate input configuration and prepare encoded input file.
 
+        Also resolves the optimizing engine name and verifies the model is
+        obtainable (see ``preflight_model``), so a bad model name, a cold
+        cache with no network, a corrupted cached file, or an unwritable
+        cache directory all fail here -- before any worker is forked --
+        instead of surfacing as an opaque failure deep inside a spawned
+        worker.
+
         Raises:
-            ConfigurationError: If path is None or k/window not specified.
+            ConfigurationError: If path is None, k/window not specified, or
+                the configuration (including the optimizing engine name) is
+                otherwise invalid.
             FileFormatError: If input file format is not supported.
+            ModelLoadError: If the optimizing model could not be obtained or
+                loaded.
+            DependencyError: If a required optional dependency is missing.
         """
         if self.config.path is None:
             raise ConfigurationError("Please specify the input file path.")
@@ -179,6 +201,16 @@ class WorkflowOrchestrator:
             )
 
         check_input(self.config)
+
+        # Resolve the engine name and verify the model is obtainable HERE, in
+        # the parent, before any worker is forked (C8/M22). Every worker
+        # builds its own copy of the model regardless (spawned processes
+        # share no memory with the parent), so this is purely diagnostic: a
+        # cold cache with no network, a corrupted cached file, or an
+        # unwritable cache directory would otherwise surface only inside
+        # optim_rank_wrapper's blanket per-chunk except, as an opaque "no 3D
+        # structure converged".
+        preflight_model(self.config.optimizing_engine)
 
     def _setup_job_directory(self) -> None:
         """Create the job directory for output files."""
@@ -404,12 +436,18 @@ class WorkflowOrchestrator:
         output_files = list(self.job_dir.glob("job*/*_3d.sdf"))
 
         if not output_files:
+            log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
-                "The optimization engine did not run, or no 3D structure converged.\n"
-                "The reason might be one of the following:\n"
-                "1. Allocated memory is not enough;\n"
-                "2. The input SMILES encodes invalid chemical structures;\n"
-                "3. Patience is too small"
+                "No chunk produced a 3D structure output file, so no 3D "
+                "structure converged. The model was already verified "
+                "obtainable before any chunk was processed (pre-flight "
+                "passed), ruling out a cold cache, network failure, or "
+                "corrupted download as the cause. Likely causes: "
+                "insufficient memory for the batch size used, input SMILES "
+                "that do not encode valid chemical structures, or "
+                "optimization settings (opt_steps/patience) too aggressive "
+                f"for these molecules. See {log_path} for the per-chunk "
+                "errors already recorded during this run."
             )
 
         # Combine output data
@@ -418,9 +456,18 @@ class WorkflowOrchestrator:
             combined_data.extend(file_path.read_text().splitlines(keepends=True))
 
         if not any(line.strip() == "$$$$" for line in combined_data):
+            log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
-                "No 3D structure converged. None of the input molecules produced "
-                "an optimized conformer. Check input validity, memory, and patience settings."
+                "No 3D structure converged. Every chunk produced an output "
+                "file, but none of them contain a converged structure. The "
+                "model was already verified obtainable before any chunk was "
+                "processed (pre-flight passed), ruling out a cold cache, "
+                "network failure, or corrupted download as the cause. "
+                "Likely causes: every input molecule failed geometry "
+                "optimization (opt_steps/patience too aggressive for these "
+                "molecules), or the energy window/top-k filtering removed "
+                f"all conformers. See {log_path} for the per-chunk errors "
+                "already recorded during this run."
             )
 
         # Write combined output
@@ -441,10 +488,55 @@ class WorkflowOrchestrator:
         if self.logger:
             self.logger.info(f"Output path: {path_output}")
 
+        # Reconcile inputs against outputs (C7): a molecule that vanished
+        # mid-pipeline must leave a trace. Compare the ORIGINAL input
+        # (self.config.path -- untouched, user-facing IDs) against the
+        # DECODED output (path_output), not self.input_path (the encoded temp
+        # file, whose IDs are encode_ids' numeric indices) or path_combined
+        # (still numeric) -- either of those would make every molecule look
+        # missing.
+        self._reconcile_output(path_output)
+
         # Clear model cache to free GPU memory
         ModelFactory.clear_cache()
 
         return path_output
+
+    def _reconcile_output(self, path_output: str) -> None:
+        """Compare the original input against the final output SDF (C7).
+
+        Populates ``self.failures`` with every input molecule ID absent from
+        ``path_output``, and logs them (both to the module logger and, when
+        available, this run's own Auto3D.log). ``main()`` reads
+        ``self.failures`` off the orchestrator to build the returned
+        ``WorkflowResult.failures``.
+
+        Args:
+            path_output: Path to the final, decoded output SDF.
+        """
+        if self.config.input_format == "smi":
+            missing = find_smiles_not_in_sdf(self.config.path, path_output)
+            self.failures = [mol_id for mol_id, _smiles in missing]
+        elif self.config.input_format == "sdf":
+            # find_smiles_not_in_sdf reads its expected-IDs list from a .smi
+            # file, which does not exist for SDF input; find_ids_not_in_sdf is
+            # the SDF-native equivalent (reads _Name directly from the source
+            # SDF), so SDF input gets the same reconciliation coverage instead
+            # of silently skipping it.
+            self.failures = find_ids_not_in_sdf(self.config.path, path_output)
+        else:
+            # _validate_input already rejects any other extension before this
+            # point is ever reached.
+            self.failures = []
+
+        if self.failures:
+            msg = (
+                f"{len(self.failures)} input molecule(s) produced no output "
+                f"and were not reported anywhere else: {sorted(self.failures)}"
+            )
+            logger.warning(msg)
+            if self.logger:
+                self.logger.warning(msg)
 
     def _log_timing(self, start_time: float) -> None:
         """Log pipeline execution time.

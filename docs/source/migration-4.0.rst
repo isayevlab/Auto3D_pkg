@@ -267,3 +267,75 @@ conformers, not 24. A molecule with two independent unspecified centers (e.g.
 threonine) keeps two surviving diastereomers, so the same ``max_confs=12``
 does produce up to 24 there. A stereoisomer ETKDG cannot embed is now named in
 a logged warning instead of disappearing from the output with no trace.
+
+CLI behavior changes
+--------------------
+
+``auto3d run`` exits non-zero when molecules are missing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x's ``_finalize_output`` raised only when *zero* outputs existed at all. A
+run that silently lost 9 of 10 chunks -- to memory pressure, a crashed
+worker, or any other per-chunk failure -- still printed a results summary
+and exited ``0``, indistinguishable from a fully successful run to a calling
+shell script (``auto3d run --json && next_step``).
+
+4.0 exits ``6`` whenever any input molecule produced no output. The results
+summary and, with ``--json``, the JSON document are still printed *before*
+that exit -- a scripted consumer always receives a parseable description of
+what happened, even on the run that is about to signal failure. ``6``
+(``EXIT_PARTIAL_SUCCESS``) extends the exit codes ``cli/errors.py`` already
+used for exceptions raised before or during the run (``0`` success, ``1``
+generic, ``2`` configuration/input, ``3`` dependency, ``4`` GPU, ``5``
+model) with the next unused code, rather than reusing ``1`` and making a
+partial run indistinguishable from a crash.
+
+If your pipeline currently checks only ``$? -eq 0`` -- or chains
+``auto3d run --json && next_step`` -- a run with partial output now stops
+it where 3.x would have continued silently. Check ``$?`` explicitly against
+``6`` if a partial run is something you want to detect and handle rather
+than treat as a hard failure, and inspect the JSON ``failures`` list (or
+``WorkflowResult.failures`` from the Python API, see below) for which
+molecules were missing.
+
+Missing molecules are reported by ID
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x's CLI derived a failure *count* as ``max(0, input_count - molecules)``.
+That floored to zero whenever tautomer enumeration made the output count
+legitimately exceed the input count, and it could never say *which*
+molecule was lost -- ``results.failures`` was hardcoded to an empty list
+regardless. Separately, ``find_smiles_not_in_sdf`` existed, was exported,
+and was tested, but had no production caller at all, so a molecule that
+vanished mid-pipeline left no trace anywhere reachable from ``main()``'s
+return value.
+
+4.0 reconciles the original input against the final output SDF and reports
+every missing molecule by ID:
+
+- ``main()`` returns the missing input IDs as ``WorkflowResult.failures`` --
+  the same ``str``-subclass return type as before (it already carried
+  ``n_molecules``/``n_conformers``; this is not a new return type).
+- ``auto3d run``'s summary and ``--json`` output list them under
+  ``failures`` (each entry has a ``name`` and an ``error``).
+- ``smiles2mols()`` logs missing molecules directly, since its
+  ``list[Chem.Mol]`` return has no carrier for a failure list.
+- SDF input is reconciled too, via a new ``find_ids_not_in_sdf`` that reads
+  the expected IDs from the source SDF's ``_Name`` property (``.smi`` input
+  keeps using ``find_smiles_not_in_sdf``).
+
+.. code:: python
+
+   result = main(options)
+   if result.failures:
+       print(f"{len(result.failures)} molecule(s) produced no output:")
+       for mol_id in result.failures:
+           print(f"  {mol_id}")
+
+A known limitation: engine-name validation (``resolve_engine_name``) was
+also tightened this release, but only at the CLI layer (``CLIConfig`` and
+the ``energy``/``optimize``/``thermo`` commands) and inside
+``WorkflowOrchestrator``/``smiles2mols``. Calling ``calc_spe``,
+``opt_geometry``, or ``calc_thermo`` directly from Python with an
+unrecognized ``model_name`` is still unguarded and fails the same opaque
+way it did in 3.x.

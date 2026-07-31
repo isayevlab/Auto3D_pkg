@@ -24,6 +24,7 @@ from Auto3D.exceptions import (
     ModelLoadError,
 )
 from Auto3D.models.loading import load_custom_nnp
+from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -322,20 +323,15 @@ def check_valid_configuration(
                 if idx >= torch.cuda.device_count():
                     errors.append(f"GPU index {idx} is invalid. Available GPUs: {torch.cuda.device_count()}")
 
-    # Check optimizing_engine. Besides the named engines, any name starting with
-    # "aimnet2" is a valid AIMNet registry model (aimnet2-2025, aimnet2-nse,
-    # aimnet2-pd, ...) resolved lazily by model_factory, matching the CLI schema.
-    valid_engines = {"ANI2x", "ANI2xt", "AIMNET"}
-    if (
-        optimizing_engine not in valid_engines
-        and not optimizing_engine.lower().startswith("aimnet2")
-        and not Path(optimizing_engine).exists()
-    ):
-        errors.append(
-            f"optimizing_engine must be one of {valid_engines}, an aimnet registry "
-            f"name (aimnet2, aimnet2-2025, ...), or a valid path to a custom model. "
-            f"Got: {optimizing_engine}"
-        )
+    # Resolve rather than prefix-match: `aimnet2-2025x` starts with "aimnet2"
+    # and so used to pass here, then failed inside a worker where
+    # optim_rank_wrapper's per-chunk handler swallowed it. The registry lookup
+    # is a pure offline dict read against a bundled YAML, so validating costs
+    # nothing.
+    try:
+        resolve_engine_name(optimizing_engine)
+    except ConfigurationError as exc:
+        errors.append(str(exc))
 
     # Check isomer_engine
     valid_isomer_engines = {"rdkit", "omega"}

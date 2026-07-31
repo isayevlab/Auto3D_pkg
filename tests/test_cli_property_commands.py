@@ -86,6 +86,59 @@ def test_thermo_without_ase_raises_dependency_error(sdf, monkeypatch):
     assert "Traceback" not in res.output
 
 
+# --- engine-name validation (M21 / C11) --------------------------------------
+#
+# calc_spe/opt_geometry/calc_thermo pass `engine` straight to create_model with
+# no CLIConfig/resolve_engine_name gate of their own; the docstring comment
+# above KNOWN_ENGINES used to claim this was "validated downstream" without
+# that ever being verified. It was not: before this fix, none of these three
+# commands rejected a typo'd registry name (e.g. 'aimnet2-2025x') until it
+# failed deep inside model construction. Each API function is mocked here so
+# a real NNP is never constructed; `m.assert_not_called()` confirms the
+# rejection happens before the mocked call, i.e. before any work is done.
+
+def test_energy_rejects_unknown_engine_before_doing_any_work(sdf):
+    with patch("Auto3D.SPE.calc_spe") as m:
+        res = runner.invoke(
+            app, ["energy", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"]
+        )
+    assert res.exit_code == 2  # ConfigurationError -> exit 2
+    assert "aimnet2-2025x" in res.output
+    m.assert_not_called()
+
+
+def test_optimize_rejects_unknown_engine_before_doing_any_work(sdf):
+    with patch("Auto3D.ASE.geometry.opt_geometry") as m:
+        res = runner.invoke(
+            app, ["optimize", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"]
+        )
+    assert res.exit_code == 2  # ConfigurationError -> exit 2
+    assert "aimnet2-2025x" in res.output
+    m.assert_not_called()
+
+
+def test_thermo_rejects_unknown_engine_before_doing_any_work(sdf):
+    with patch("Auto3D.ASE.thermo.calc_thermo") as m:
+        res = runner.invoke(
+            app, ["thermo", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"]
+        )
+    assert res.exit_code == 2  # ConfigurationError -> exit 2
+    assert "aimnet2-2025x" in res.output
+    m.assert_not_called()
+
+
+def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
+    """tautomers already routes optimizing_engine through CLIConfig, so this
+    was not part of the M21 gap -- confirming it stays closed."""
+    with patch("Auto3D.tautomer.get_stable_tautomers") as m:
+        res = runner.invoke(
+            app, ["tautomers", str(smi), "--no-gpu", "--engine", "aimnet2-2025x"]
+        )
+    assert res.exit_code != 0
+    assert "aimnet2-2025x" in res.output
+    m.assert_not_called()
+
+
 def test_exit_code_mapping():
     from Auto3D.cli.errors import exit_code_for
     from Auto3D.exceptions import (

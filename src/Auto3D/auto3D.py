@@ -21,13 +21,14 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.models.preflight import preflight_model
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
     check_input,
     create_chunk_meta_names,
     reorder_sdf,
 )
-from Auto3D.utils.file_ops import smiles2smi
+from Auto3D.utils.file_ops import find_smiles_not_in_sdf, smiles2smi
 from Auto3D.utils.logging_config import configure_logging, get_logger
 
 # Pipeline workers live in workflow_workers to break the auto3D<->workflow import
@@ -61,7 +62,9 @@ def main(
     Returns:
         A :class:`Auto3D.results.WorkflowResult` -- a ``str`` subclass holding
         the output SDF path (so it works anywhere the path string did) plus the
-        run's ``n_molecules`` / ``n_conformers`` counts.
+        run's ``n_molecules`` / ``n_conformers`` counts and its ``failures``
+        list (input molecule IDs reconciled away as missing from the output,
+        see ``WorkflowOrchestrator._finalize_output``).
 
     Raises:
         SystemExit: If input validation fails or no structures converge.
@@ -88,7 +91,13 @@ def main(
     from Auto3D.results import WorkflowResult
 
     orchestrator = WorkflowOrchestrator(args, progress_callback=progress_callback)
-    return WorkflowResult(orchestrator.run())
+    output_path = orchestrator.run()
+    # getattr, not a direct attribute access: mirrors the defensive read the
+    # CLI already does for n_molecules/n_conformers (cli/commands/run.py), so
+    # a test/mock that swaps in a bare stand-in for the orchestrator (e.g.
+    # test_mp_start_method.py) still gets a valid WorkflowResult instead of an
+    # AttributeError.
+    return WorkflowResult(output_path, failures=getattr(orchestrator, "failures", None))
 
 def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     """Find low-energy conformers for a list of SMILES.
@@ -104,7 +113,11 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         List of RDKit Mol objects representing low-energy conformers.
 
     Raises:
-        ConfigurationError: If neither k nor window is specified.
+        ConfigurationError: If neither k nor window is specified, or the
+            optimizing engine name is not recognized.
+        ModelLoadError: If the optimizing model could not be obtained or
+            loaded.
+        DependencyError: If a required optional dependency is missing.
     """
     # Configure PyTorch settings (TF32, cuDNN benchmark)
     from Auto3D.torch_config import TorchConfig, configure_torch
@@ -124,6 +137,13 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             )
         args.input_format = 'smi'
         check_input(args)
+
+        # Resolve the engine name and verify the model is obtainable HERE
+        # (C8/M22), before the `optimizing` step below constructs its own copy
+        # for real work. A cold cache with no network, a corrupted cached
+        # file, or an unwritable cache directory would otherwise surface only
+        # deep inside ranking/optimization as an opaque failure.
+        preflight_model(args.optimizing_engine)
 
         # smi to sdf
         meta = create_chunk_meta_names(path0, tmpdirname)
@@ -161,6 +181,16 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
                               args.threshold, k=k, window=window)
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)
+
+        # Reconcile inputs against outputs (C7): smiles2mols never runs
+        # encode_ids/decode_ids -- path0 already holds the same (InChIKey-based)
+        # ids that ranking/reorder_sdf wrote to meta["output"] -- so this is
+        # already the right pair to compare, no decoding needed. This call's
+        # own logging is the report; smiles2mols keeps its `list[Chem.Mol]`
+        # return type (unlike main(), nothing here reads a `.failures` carrier
+        # today) so a missing input surfaces in the log rather than silently
+        # nowhere, closing the "zero production callers" gap for this path too.
+        find_smiles_not_in_sdf(path0, meta["output"])
 
         logger.info("Energy unit: Hartree if implicit.")
     return conformers

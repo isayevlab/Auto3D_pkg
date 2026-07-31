@@ -210,7 +210,9 @@ def execute_models_info(engine: str) -> None:
     console.print(Panel(content, title=f"[cyan]{engine_upper}[/cyan]", border_style="blue"))
 
 
-def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0) -> None:
+def execute_models_test(
+    engine: str, gpu: bool = True, gpu_idx: int = 0, verbose: int = 0
+) -> None:
     """Health-check an engine: load it and run one tiny forward pass.
 
     Catches the common environment problems up front -- a missing torchani for
@@ -260,4 +262,4 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0) -> None
             f"(methane E = {e_ev:.4f} eV, {elapsed:.1f}s incl. load)."
         )
     except Exception as e:  # noqa: BLE001 - present every failure as a clean panel
-        handle_error(e)
+        handle_error(e, verbose=verbose)

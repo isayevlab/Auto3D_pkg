@@ -18,9 +18,11 @@ from pathlib import Path
 from Auto3D.cli.console import console, print_success
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError, DependencyError
+from Auto3D.models.preflight import resolve_engine_name
 
 # Engine names offered for shell completion. Free-form registry names and custom
-# model paths are still accepted (validated downstream); this only seeds tab
+# model paths are also accepted -- each command below validates them with
+# ``resolve_engine_name`` before doing any work; this list only seeds tab
 # completion and discoverability.
 KNOWN_ENGINES = [
     "AIMNET", "ANI2x", "ANI2xt",
@@ -44,9 +46,16 @@ def _report(output_path: str, command: str, json_output: bool) -> None:
 def execute_energy(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int,
     output: Path | None, allow_tf32: bool, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Single-point energy: wraps calc_spe."""
     try:
+        # Validate before doing any work: calc_spe passes `engine` straight to
+        # create_model with no CLIConfig/resolve_engine_name gate of its own,
+        # so a typo like 'aimnet2-2025x' would otherwise only fail deep inside
+        # model construction (C11-shaped gap: a guard present in `main()` via
+        # WorkflowOrchestrator._validate_input, absent here).
+        resolve_engine_name(engine)
         from Auto3D.SPE import calc_spe
         out = calc_spe(
             str(input_file), engine, gpu_idx=gpu_idx, use_gpu=gpu,
@@ -54,16 +63,19 @@ def execute_energy(
         )
         _report(out, "energy", json_output)
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
-        handle_error(e)
+        handle_error(e, verbose=verbose)
 
 
 def execute_optimize(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int, output: Path | None,
     opt_tol: float, opt_steps: int, patience: int | None, batchsize_atoms: int,
     allow_tf32: bool, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Geometry-only optimization of an existing SDF: wraps opt_geometry."""
     try:
+        # Validate before doing any work -- see execute_energy's comment.
+        resolve_engine_name(engine)
         from Auto3D.ASE.geometry import opt_geometry
         out = opt_geometry(
             str(input_file), engine, gpu_idx=gpu_idx, opt_tol=opt_tol,
@@ -73,16 +85,19 @@ def execute_optimize(
         )
         _report(out, "optimize", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e)
+        handle_error(e, verbose=verbose)
 
 
 def execute_thermo(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int, output: Path | None,
     temperature: float, opt_tol: float, opt_steps: int,
     allow_tf32: bool, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra."""
     try:
+        # Validate before doing any work -- see execute_energy's comment.
+        resolve_engine_name(engine)
         try:
             from Auto3D.ASE.thermo import calc_thermo
         except ImportError as e:
@@ -102,13 +117,14 @@ def execute_thermo(
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e)
+        handle_error(e, verbose=verbose)
 
 
 def execute_tautomers(
     input_file: Path, engine: str, gpu: bool, gpu_idx: str | None,
     tauto_k: int | None, tauto_window: float | None,
     output: Path | None, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Tautomer enumeration + stable-tautomer ranking: wraps get_stable_tautomers."""
     try:
@@ -137,4 +153,4 @@ def execute_tautomers(
             out = str(output)
         _report(out, "tautomers", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e)
+        handle_error(e, verbose=verbose)

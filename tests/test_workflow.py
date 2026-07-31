@@ -501,10 +501,21 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
             return None
 
     class _StubRank:
-        def __init__(self, *args, **kwargs):
-            pass
+        def __init__(self, in_f, out_f, *args, **kwargs):
+            self._out_f = out_f
 
         def run(self):
+            # find_smiles_not_in_sdf (C7 reconciliation, now wired into
+            # smiles2mols) reads this file, so it must be a real SDF -- the
+            # real ranking.run() always writes one, even a valid empty one
+            # would still not parse (RDKit rejects a 0-byte SDF), so write
+            # the one molecule this test actually asks for.
+            from rdkit import Chem
+
+            with Chem.SDWriter(self._out_f) as w:
+                mol = Chem.MolFromSmiles("CCO")
+                mol.SetProp("_Name", "stub")
+                w.write(mol)
             return []
 
     monkeypatch.setattr(
@@ -533,3 +544,250 @@ def test_orchestrator_input_format_single_source_of_truth(tmp_path):
     orch._validate_input()
     assert orch.config.input_format == "smi"
     assert not hasattr(orch, "input_format")
+
+
+def _encoded_mol(encoded_id):
+    """A minimal mol shaped like decode_ids expects: numeric _Name + ID."""
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles("C")
+    mol.SetProp("_Name", str(encoded_id))
+    mol.SetProp("ID", f"{encoded_id}_conf1")
+    return mol
+
+
+class TestFinalizeOutputReconciliation:
+    """C7: _finalize_output must compare input against output and report gaps.
+
+    These pin the reconciliation wired into _finalize_output/_reconcile_output
+    directly (the real production call site), rather than only exercising
+    find_smiles_not_in_sdf/find_ids_not_in_sdf in isolation -- that is exactly
+    what would fail to catch a regression back to "zero production callers".
+    """
+
+    def test_smi_input_reports_missing_id_and_sets_failures(self, tmp_path, caplog):
+        """mol_c (encoded id 2) never produced a chunk output -> reported."""
+        import logging
+
+        from rdkit import Chem
+
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        orig_smi = tmp_path / "orig.smi"
+        # Original (decoded) ids -- this, not the encoded temp file, is what
+        # reconciliation must compare against.
+        orig_smi.write_text("C mol_a\nC mol_b\nC mol_c\n")
+
+        config = Auto3DOptions(path=str(orig_smi), k=1, use_gpu=False)
+        config.input_format = "smi"
+        orch = WorkflowOrchestrator(config)
+        orch.job_dir = tmp_path
+        orch.input_path = tmp_path / "orig_encoded.smi"
+        orch.input_path.write_text("C 0\nC 1\nC 2\n")
+        orch.id_mapping = {"mol_a": 0, "mol_b": 1, "mol_c": 2}
+        orch.logger = None
+
+        job = tmp_path / "job1"
+        job.mkdir()
+        combined = job / "orig_encoded_3d.sdf"
+        with Chem.SDWriter(str(combined)) as w:
+            for encoded_id in (0, 1):  # id 2 (mol_c) never converged
+                w.write(_encoded_mol(encoded_id))
+
+        with caplog.at_level(logging.WARNING):
+            path_output = orch._finalize_output(start_time=0.0)
+
+        assert orch.failures == ["mol_c"], orch.failures
+        assert any("mol_c" in r.message for r in caplog.records), (
+            "the missing id was not logged anywhere"
+        )
+
+        produced = {
+            m.GetProp("_Name") for m in Chem.SDMolSupplier(path_output) if m is not None
+        }
+        assert produced == {"mol_a", "mol_b"}
+
+    def test_smi_input_reports_no_failures_when_everything_present(self, tmp_path):
+        """No false positives when every input molecule made it to the output."""
+        from rdkit import Chem
+
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        orig_smi = tmp_path / "orig.smi"
+        orig_smi.write_text("C mol_a\nC mol_b\n")
+
+        config = Auto3DOptions(path=str(orig_smi), k=1, use_gpu=False)
+        config.input_format = "smi"
+        orch = WorkflowOrchestrator(config)
+        orch.job_dir = tmp_path
+        orch.input_path = tmp_path / "orig_encoded.smi"
+        orch.input_path.write_text("C 0\nC 1\n")
+        orch.id_mapping = {"mol_a": 0, "mol_b": 1}
+        orch.logger = None
+
+        job = tmp_path / "job1"
+        job.mkdir()
+        combined = job / "orig_encoded_3d.sdf"
+        with Chem.SDWriter(str(combined)) as w:
+            for encoded_id in (0, 1):
+                w.write(_encoded_mol(encoded_id))
+
+        orch._finalize_output(start_time=0.0)
+        assert orch.failures == []
+
+    def test_sdf_input_reports_missing_id_and_sets_failures(self, tmp_path):
+        """SDF input must be reconciled too, not silently skipped (C7 scope)."""
+        from rdkit import Chem
+
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        orig_sdf = tmp_path / "orig.sdf"
+        with Chem.SDWriter(str(orig_sdf)) as w:
+            for name in ("mol_a", "mol_b", "mol_c"):
+                mol = Chem.MolFromSmiles("C")
+                mol.SetProp("_Name", name)
+                w.write(mol)
+
+        config = Auto3DOptions(path=str(orig_sdf), k=1, use_gpu=False)
+        config.input_format = "sdf"
+        orch = WorkflowOrchestrator(config)
+        orch.job_dir = tmp_path
+        orch.input_path = tmp_path / "orig_encoded.sdf"
+        with Chem.SDWriter(str(orch.input_path)) as w:
+            for encoded_id in (0, 1, 2):
+                w.write(_encoded_mol(encoded_id))
+        orch.id_mapping = {"mol_a": 0, "mol_b": 1, "mol_c": 2}
+        orch.logger = None
+
+        job = tmp_path / "job1"
+        job.mkdir()
+        combined = job / "orig_encoded_3d.sdf"
+        with Chem.SDWriter(str(combined)) as w:
+            for encoded_id in (0, 1):  # id 2 (mol_c) never converged
+                w.write(_encoded_mol(encoded_id))
+
+        orch._finalize_output(start_time=0.0)
+        assert orch.failures == ["mol_c"], orch.failures
+
+    def test_workflow_uses_the_canonical_file_ops_reconciliation_functions(self):
+        """Guard against a regression to a hand-rolled duplicate: workflow.py
+        must call the exact functions tested in test_utils_file_ops.py, not a
+        reimplementation that could silently diverge from them."""
+        import Auto3D.utils.file_ops as file_ops
+        import Auto3D.workflow as workflow
+
+        assert workflow.find_smiles_not_in_sdf is file_ops.find_smiles_not_in_sdf
+        assert workflow.find_ids_not_in_sdf is file_ops.find_ids_not_in_sdf
+
+
+def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch, tmp_path):
+    """main() must surface WorkflowOrchestrator.failures on its returned
+    WorkflowResult -- the carrier a later CLI fix reads to populate
+    results.failures and drive a non-zero exit code. Wires main() end-to-end
+    without a real pipeline run: WorkflowOrchestrator.run() (the isomer/optim/
+    finalize phases) is stubbed, but the WorkflowResult construction and the
+    getattr(out, "failures", ...) contract the C7 tripwire relies on are real.
+    """
+    from Auto3D.auto3D import main
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.results import WorkflowResult
+    from Auto3D.workflow import WorkflowOrchestrator
+
+    fake_output = str(tmp_path / "out.sdf")
+
+    def fake_run(self):
+        self.failures = ["mol_c"]
+        return fake_output
+
+    monkeypatch.setattr(WorkflowOrchestrator, "run", fake_run)
+
+    smi = tmp_path / "in.smi"
+    smi.write_text("C mol_a\nC mol_b\nC mol_c\n")
+    args = Auto3DOptions(path=str(smi), k=1, use_gpu=False)
+
+    result = main(args)
+
+    assert isinstance(result, WorkflowResult)
+    assert str(result) == fake_output
+    assert result.failures == ["mol_c"]
+    # getattr access, exactly as the C7 tripwire and the CLI use it.
+    assert getattr(result, "failures", None) == ["mol_c"]
+
+
+def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(
+    monkeypatch, caplog
+):
+    """smiles2mols must reconcile its SMILES input against what it produced,
+    the same way main()/_finalize_output do, and the report must name the
+    molecule that vanished -- proven against the real find_smiles_not_in_sdf,
+    not a stand-in, so a regression to zero callers would fail this test."""
+    import logging
+
+    import Auto3D.auto3D as auto3D_mod
+    from Auto3D.config import Auto3DOptions
+    from rdkit import Chem
+    from rdkit.Chem import inchi
+
+    ethanol_id = inchi.MolToInchiKey(Chem.MolFromSmiles("CCO"))
+    written: dict[str, str] = {}
+
+    class _StubIsomerEngine:
+        def run(self):
+            return None
+
+    def _capture_create(**kwargs):
+        return _StubIsomerEngine()
+
+    class _StubOpt:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run(self):
+            return None
+
+    class _StubRank:
+        def __init__(self, in_f, out_f, threshold, k=None, window=None):
+            written["out_f"] = out_f
+
+        def run(self):
+            # Only ethanol "converges"; propanol vanishes mid-pipeline with no
+            # trace other than what reconciliation now reports.
+            with Chem.SDWriter(written["out_f"]) as w:
+                mol = Chem.MolFromSmiles("CCO")
+                mol.SetProp("_Name", ethanol_id)
+                w.write(mol)
+            return []
+
+    monkeypatch.setattr(
+        auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create)
+    )
+    monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
+    monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
+    monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
+
+    calls = []
+    real_find = auto3D_mod.find_smiles_not_in_sdf
+
+    def spy(smi_path, sdf_path):
+        result = real_find(smi_path, sdf_path)
+        calls.append((smi_path, sdf_path, result))
+        return result
+
+    monkeypatch.setattr(auto3D_mod, "find_smiles_not_in_sdf", spy)
+
+    args = Auto3DOptions(k=1, use_gpu=False)
+    with caplog.at_level(logging.WARNING):
+        auto3D_mod.smiles2mols(["CCO", "CCC"], args)
+
+    assert calls, (
+        "find_smiles_not_in_sdf was never called by smiles2mols -- regression "
+        "to zero production callers (C7)"
+    )
+    _smi_path, _sdf_path, bad = calls[0]
+    missing_ids = [mol_id for mol_id, _smi in bad]
+    assert ethanol_id not in missing_ids
+    assert len(missing_ids) == 1
+    assert any(missing_ids[0] in r.message for r in caplog.records)

@@ -820,7 +820,14 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
         if mol is None:
             logger.warning("Skipping molecule at index %d: failed to parse", i)
             continue
-        sdf_data.append(mol.GetProp("_Name"))
+        name = mol.GetProp("_Name")
+        # decode_ids keeps a "@tautN" suffix on tautomer-enumerated conformers
+        # (see decode_ids), but the .smi input has only the base id. Strip it
+        # the same way reorder_sdf/count_output do, or every tautomer-derived
+        # molecule would be misreported as missing.
+        if "@taut" in name:
+            name = name.split("@taut")[0]
+        sdf_data.append(name)
     sdf_data = list(set(sdf_data))
 
     # Find molecules without 3D structures
@@ -836,5 +843,67 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
             logger.warning(f"{mol_id} {smiles_str}")
     else:
         logger.info("Every SMILES has at least an 3D structure in the SDF file.")
+
+    return bad
+
+
+def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
+    """Find molecule IDs from an SDF input that have no 3D structure in the output SDF.
+
+    The SDF-input counterpart to :func:`find_smiles_not_in_sdf`. That function
+    reads its expected-IDs list from a ``.smi`` file, which does not exist when
+    the pipeline's input is itself an SDF file; this reads the same expected-IDs
+    list from the source SDF's ``_Name`` property instead, so SDF-input runs get
+    the same input/output reconciliation SMILES-input runs do.
+
+    Args:
+        source_sdf: Path to the original input SDF file (pre-encoding IDs).
+        sdf: Path to the output SDF file (decoded IDs).
+
+    Returns:
+        List of input molecule IDs with no corresponding structure in ``sdf``.
+
+    Example:
+        >>> missing = find_ids_not_in_sdf("input.sdf", "output.sdf")
+        >>> for mol_id in missing:
+        ...     print(f"Failed: {mol_id}")
+    """
+    # Find all input molecule IDs
+    source_ids: list[str] = []
+    suppl = Chem.SDMolSupplier(source_sdf, removeHs=False)
+    for i, mol in enumerate(suppl):
+        if mol is None:
+            logger.warning("Skipping molecule at index %d: failed to parse", i)
+            continue
+        source_ids.append(mol.GetProp("_Name").strip())
+
+    # Get all molecule names from the output SDF
+    sdf_ids: set[str] = set()
+    mols = Chem.SDMolSupplier(sdf)
+    for i, mol in enumerate(mols):
+        if mol is None:
+            logger.warning("Skipping molecule at index %d: failed to parse", i)
+            continue
+        name = mol.GetProp("_Name")
+        if "@taut" in name:
+            name = name.split("@taut")[0]
+        sdf_ids.add(name)
+
+    # Find molecules without 3D structures, preserving source order and
+    # de-duplicating (an id can appear once per tautomer/isomer conformer
+    # group in some callers, though not in the raw source SDF).
+    bad: list[str] = []
+    seen: set[str] = set()
+    for mol_id in source_ids:
+        if mol_id not in sdf_ids and mol_id not in seen:
+            bad.append(mol_id)
+            seen.add(mol_id)
+
+    if bad:
+        logger.warning("The following input IDs have no 3D structure in the SDF file.")
+        for mol_id in bad:
+            logger.warning(mol_id)
+    else:
+        logger.info("Every input molecule has at least one 3D structure in the SDF file.")
 
     return bad

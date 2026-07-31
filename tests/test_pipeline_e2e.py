@@ -32,11 +32,6 @@ def _input_ids(smi_path: str) -> set[str]:
 class TestInputOutputAccounting:
     """No input may vanish without being reported."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C7: neither _finalize_output nor smiles2mols reconciles inputs "
-        "against outputs; find_smiles_not_in_sdf has zero production callers",
-    )
     def test_every_input_is_present_or_reported(self, job_dir):
         """Each input ID must appear in the output or in a reported failure list.
 
@@ -167,12 +162,6 @@ class TestInputOutputAccounting:
 class TestExitStatus:
     """Losing molecules must not exit 0."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C6: execute_run ends its try block with print_results_summary and "
-        "never raises SystemExit on failed_count > 0, so `auto3d run --json && "
-        "next_step` proceeds on a partial run",
-    )
     def test_cli_exits_nonzero_when_molecules_are_missing(self, job_dir):
         """auto3d run must signal partial failure through its exit code."""
         from typer.testing import CliRunner

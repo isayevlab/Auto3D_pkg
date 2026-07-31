@@ -33,23 +33,36 @@ The two ``TestColdCacheDiagnosis`` tests must stay sensitive to a fix landing
 at EITHER of two layers, since the natural fix for C8/M22 is a parent-side
 pre-flight in ``WorkflowOrchestrator._validate_input`` (workers run in
 separate spawned processes with no access to the parent's in-memory model or
-cache, so that is the only place a pre-flight check can usefully live) -- but
-today no such pre-flight exists, so the failure only surfaces deeper, in
-``optim_rank_wrapper`` + ``_finalize_output``. Each test therefore tries
-``_validate_input()`` first and asserts on whatever it raises; only if that
-passes through harmlessly (today's behavior) does it fall through to the
+cache, so that is the only place a pre-flight check can usefully live). Each
+test therefore tries ``_validate_input()`` first and asserts on whatever it
+raises; only if that passes through harmlessly does it fall through to the
 worker chain. This keeps the tripwire falsifiable regardless of which layer a
 future fix targets.
+
+That parent-side pre-flight (``Auto3D.models.preflight.preflight_model``) now
+exists and is called from ``_validate_input``, so both tests are expected to
+be caught at the first (parent-side) layer today -- the worker-chain fallback
+below is exercised only if a future change removes or bypasses that call.
+``preflight_model`` verifies the model is obtainable by calling
+``aimnet.calculators.model_registry.get_registry_model_path`` (it no longer
+constructs an ``AIMNet2Calculator`` -- that used to build a full model just to
+validate it, which is what made the fast suite build a real AIMNet2 model on
+every test in this class). That is therefore the genuine interception point
+these two tests must patch, by the same "re-resolved every call" reasoning
+the second bullet above gives for ``AIMNet2Calculator``: ``preflight_model``
+does ``from aimnet.calculators.model_registry import get_registry_model_path``
+INSIDE the function, so the module attribute is what a monkeypatch must target.
 """
 from __future__ import annotations
 
+import os
 import queue as queue_mod
 from pathlib import Path
 
 import pytest
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import Auto3DError
+from Auto3D.exceptions import Auto3DError, ModelLoadError
 from Auto3D.model_factory import ModelFactory
 from Auto3D.workflow import WorkflowOrchestrator
 
@@ -57,13 +70,6 @@ from Auto3D.workflow import WorkflowOrchestrator
 class TestRegistryNameValidation:
     """A typo'd registry model name must fail during validation, not in a worker."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M21: utils/validation.py:329-333 accepts any string starting "
-        "with 'aimnet2' without consulting the registry, so "
-        "WorkflowOrchestrator._validate_input never raises for a typo'd name "
-        "-- the failure only surfaces later, inside the spawned worker",
-    )
     def test_unknown_registry_name_is_rejected_up_front(self, isolated_input):
         """--engine aimnet2-2025x must fail validation and name valid options."""
         args = Auto3DOptions(
@@ -84,27 +90,22 @@ class TestRegistryNameValidation:
 class TestColdCacheDiagnosis:
     """A model that cannot be fetched must say so, not blame the user's chemistry."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C8: AIMNet2Adapter.__init__ (models/adapter.py:239) has no "
-        "try/except and runs inside optim_rank_wrapper's blanket except "
-        "(workflow_workers.py), so a ConnectionError becomes "
-        "WorkflowOrchestrator._finalize_output's 'no 3D structure converged'",
-    )
     def test_network_failure_names_the_network(self, isolated_input, monkeypatch):
         """An offline cold cache must produce a model/network error, not a chemistry one.
 
-        The stated fix for C8 is to pre-flight the model in the parent
-        process before spawning workers (the only sane place, since workers
-        run in separate spawned processes with no access to the parent's
-        in-memory state). So this test must observe a fix landing EITHER
-        there (``WorkflowOrchestrator._validate_input``) OR left as today,
-        deeper in the worker (``optim_rank_wrapper`` + ``_finalize_output``).
-        It tries the parent-side path first; today that passes through
-        harmlessly (``check_input`` never constructs a model), so it falls
-        through to the worker chain, where the failure is actually swallowed.
+        The fix for C8 is a pre-flight in the parent process before spawning
+        workers (the only sane place, since workers run in separate spawned
+        processes with no access to the parent's in-memory state):
+        ``preflight_model`` (called from ``WorkflowOrchestrator._validate_input``)
+        verifies the model is obtainable via
+        ``aimnet.calculators.model_registry.get_registry_model_path`` -- so
+        that is the call to patch, not ``AIMNet2Calculator`` construction
+        (which this no longer reaches; see the module docstring). The test
+        still tries the parent-side path first and falls through to the
+        worker chain only if that passes through harmlessly, so it stays
+        falsifiable if a future change bypasses the parent-side pre-flight.
         """
-        import aimnet.calculators as aimnet_calculators
+        import aimnet.calculators.model_registry as model_registry
 
         from Auto3D import workflow_workers as ww
 
@@ -113,7 +114,7 @@ class TestColdCacheDiagnosis:
         def no_network(*a, **k):
             raise ConnectionError("Temporary failure in name resolution")
 
-        monkeypatch.setattr(aimnet_calculators, "AIMNet2Calculator", no_network)
+        monkeypatch.setattr(model_registry, "get_registry_model_path", no_network)
 
         chunk_path = isolated_input("smiles2.smi")
         args = Auto3DOptions(path=chunk_path, k=1, use_gpu=False)
@@ -133,10 +134,11 @@ class TestColdCacheDiagnosis:
             )
             return
 
-        # No parent-side pre-flight exists today (C8): _validate_input()
-        # passed through harmlessly. The failure only surfaces once the
-        # worker attempts to construct the model, and even then it is
-        # swallowed by optim_rank_wrapper's blanket except.
+        # Unreachable today: the parent-side pre-flight (patched above) always
+        # raises first, so this only runs if a future change bypasses it --
+        # in which case the failure only surfaces once the worker attempts to
+        # construct the model, and even then it is swallowed by
+        # optim_rank_wrapper's blanket except.
         job_root = Path(chunk_path).parent
         job_dir = job_root / "job1"
         job_dir.mkdir()
@@ -146,9 +148,8 @@ class TestColdCacheDiagnosis:
         q.put("Done")
         logq: queue_mod.Queue = queue_mod.Queue()
 
-        # optim_rank_wrapper's blanket except swallows the ConnectionError
-        # today (C8) -- this must not raise, matching the current (buggy)
-        # behavior, and no *_3d.sdf is ever written for job1.
+        # optim_rank_wrapper's blanket except would swallow the ConnectionError
+        # here -- this must not raise, and no *_3d.sdf is ever written for job1.
         result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
         assert result == []
 
@@ -167,22 +168,16 @@ class TestColdCacheDiagnosis:
             "the three-wrong-reasons message leaked into a model-load failure"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="M22: aimnet's _maybe_download_asset raises on a checksum "
-        "mismatch and leaves the bad file in place, so every later run fails "
-        "identically forever; Auto3D adds no hint about deleting it",
-    )
     def test_checksum_mismatch_says_to_delete_the_file(self, isolated_input, monkeypatch):
         """A corrupted cache entry must name the file and tell the user to remove it.
 
-        Same two-layer shape as ``test_network_failure_names_the_network``:
-        try the parent-side pre-flight first (``_validate_input``), which
-        passes through harmlessly today, then fall through to the worker
-        chain where the real (buggy) swallow happens. This way a fix landing
-        at either layer is observed and can legitimately XPASS.
+        Same shape as ``test_network_failure_names_the_network``: the parent-
+        side pre-flight (``_validate_input`` -> ``preflight_model`` ->
+        ``get_registry_model_path``) is patched and expected to catch this,
+        with the worker-chain code below kept only as a fallback for a future
+        change that bypasses the parent-side pre-flight.
         """
-        import aimnet.calculators as aimnet_calculators
+        import aimnet.calculators.model_registry as model_registry
 
         from Auto3D import workflow_workers as ww
 
@@ -191,7 +186,7 @@ class TestColdCacheDiagnosis:
         def bad_checksum(*a, **k):
             raise ValueError("Checksum mismatch for aimnet2_wb97m_0.pt")
 
-        monkeypatch.setattr(aimnet_calculators, "AIMNet2Calculator", bad_checksum)
+        monkeypatch.setattr(model_registry, "get_registry_model_path", bad_checksum)
 
         chunk_path = isolated_input("smiles2.smi")
         args = Auto3DOptions(path=chunk_path, k=1, use_gpu=False)
@@ -208,10 +203,11 @@ class TestColdCacheDiagnosis:
             )
             return
 
-        # No parent-side pre-flight exists today (M22): _validate_input()
-        # passed through harmlessly; the failure only surfaces once the
-        # worker attempts to construct the model, and even then it is
-        # swallowed by optim_rank_wrapper's blanket except.
+        # Unreachable today: the parent-side pre-flight (patched above) always
+        # raises first, so this only runs if a future change bypasses it --
+        # in which case the failure only surfaces once the worker attempts to
+        # construct the model, and even then it is swallowed by
+        # optim_rank_wrapper's blanket except.
         job_root = Path(chunk_path).parent
         job_dir = job_root / "job1"
         job_dir.mkdir()
@@ -236,3 +232,109 @@ class TestColdCacheDiagnosis:
         assert any(w in message for w in ("delete", "remove", "aimnet_cache_dir")), (
             f"no recovery guidance in: {exc.value}"
         )
+
+
+class TestEngineNameResolution:
+    """resolve_engine_name is a pure offline lookup -- no model is loaded."""
+
+    def test_named_engines_pass_through(self):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("ANI2x") == "ANI2x"
+        assert resolve_engine_name("ANI2xt") == "ANI2xt"
+
+    def test_auto3d_alias_maps_onto_the_registry(self):
+        """The registry does not know 'AIMNET'; Auto3D maps it to aimnet2.
+
+        Pinned against the concrete resolved value rather than comparing two
+        calls to the same function -- that comparison would still pass even if
+        resolve_engine_name had a constant-return bug (e.g. always returning
+        its input unchanged, or always returning the same fixed string).
+        """
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("AIMNET") == "aimnet2-wb97m-d3_0"
+
+    def test_a_registry_alias_resolves(self):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        assert resolve_engine_name("aimnet2-2025") == "aimnet2-b973c-2025-d3_0"
+
+    def test_a_typo_names_the_alternatives(self):
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.models.preflight import resolve_engine_name
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            resolve_engine_name("aimnet2-2025x")
+        message = str(excinfo.value)
+        assert "aimnet2-2025x" in message
+        assert "aimnet2-2025" in message, f"valid names not listed: {message}"
+
+    def test_a_custom_path_passes_through(self, tmp_path):
+        from Auto3D.models.preflight import resolve_engine_name
+
+        model = tmp_path / "custom.pt"
+        model.write_bytes(b"")
+        assert resolve_engine_name(str(model)) == str(model)
+
+
+class TestUnwritableCacheDirectory:
+    """A cache directory that cannot be created must be named, not double-faulted.
+
+    ``preflight_model`` names the cache directory in each of its three error
+    messages. The directory string is resolved once, before the ``try``
+    (``Auto3D.models.preflight._cache_dir_for_message``), specifically so
+    that naming it never re-invokes anything that can fail. The bug this
+    guards against: naming the directory by calling the real
+    ``aimnet.calculators.model_registry.get_cache_dir()`` from *inside* an
+    ``except`` handler re-runs that function's own ``os.makedirs`` -- and
+    when the failure being diagnosed *is* an uncreatable cache directory,
+    that re-invocation fails identically, double-faulting into a raw,
+    unhandled ``PermissionError`` instead of the intended ``ModelLoadError``.
+
+    Reproduced genuinely, with no aimnet internals mocked: ``AIMNET_CACHE_DIR``
+    points under a real ``0500`` (read+execute, no write) directory owned by
+    this same non-root test process, so ``os.makedirs`` fails with a real
+    ``PermissionError`` inside ``get_registry_model_path -> create_assets_dir
+    -> get_cache_dir``. That failure happens before ``get_registry_model_path``
+    ever reaches its download step (``load_model_registry`` and
+    ``resolve_registry_model_name`` are both offline dict/YAML reads that run
+    first), so this never risks a network call or a model load -- only a
+    directory-creation failure.
+    """
+
+    @pytest.fixture
+    def unwritable_cache_parent(self, tmp_path):
+        """A 0500 directory to point ``AIMNET_CACHE_DIR`` underneath.
+
+        Teardown restores write permission unconditionally -- including when
+        the test body fails or raises -- so pytest's own ``tmp_path`` cleanup
+        can still remove it. A failing test must never leave an undeletable
+        directory behind.
+        """
+        parent = tmp_path / "unwritable"
+        parent.mkdir()
+        parent.chmod(0o500)
+        try:
+            yield parent
+        finally:
+            parent.chmod(0o700)
+
+    def test_unwritable_cache_dir_raises_model_load_error_naming_it(
+        self, unwritable_cache_parent, monkeypatch
+    ):
+        """AIMNET_CACHE_DIR under an unwritable parent must raise ModelLoadError, not PermissionError."""
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root bypasses directory permission bits")
+
+        from Auto3D.models.preflight import preflight_model
+
+        cache_dir = unwritable_cache_parent / "aimnet"
+        monkeypatch.setenv("AIMNET_CACHE_DIR", str(cache_dir))
+
+        with pytest.raises(ModelLoadError) as excinfo:
+            preflight_model("AIMNET")
+
+        message = str(excinfo.value)
+        assert "AIMNET_CACHE_DIR" in message, f"no cache-dir hint in: {message}"
+        assert str(cache_dir) in message, f"the directory itself is not named: {message}"

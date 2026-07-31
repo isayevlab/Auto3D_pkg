@@ -15,6 +15,19 @@ _loggers: dict[str, logging.Logger] = {}
 def get_logger(name: str) -> logging.Logger:
     """Get a logger for the given module name.
 
+    Returns a logger named after ``name`` (typically ``Auto3D.<module>``,
+    since callers pass ``__name__``), so it propagates to the "Auto3D" root
+    logger that :func:`configure_logging` attaches a stderr handler to.
+
+    A run's on-disk log (Auto3D.log) is fed separately, through a
+    multiprocessing queue: ``Auto3D.workflow_workers`` attaches a
+    ``QueueHandler`` onto BOTH this "Auto3D" tree and the lowercase "auto3d"
+    tree that ``Auto3D.workflow``, ``Auto3D.utils.chemistry`` and one warning
+    in ``Auto3D.batch_opt.batchopt`` log through directly -- "auto3d" and
+    "Auto3D" are case-distinct, unrelated sibling trees under root, so a
+    warning from a logger returned here now reaches the run log too, without
+    disturbing anything that already logged through the lowercase tree.
+
     Args:
         name: Module name (typically __name__).
 

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`auto3d run` exits non-zero (code `6`) when input molecules are missing
+  from the output.** `_finalize_output` previously raised only when *zero*
+  outputs existed at all, so a run that silently lost 9 of 10 chunks -- to
+  memory pressure, a crashed worker, or any other per-chunk failure -- still
+  printed a results summary and exited `0`, indistinguishable from complete
+  success to a calling shell script (`auto3d run --json && next_step`). The
+  results summary and, with `--json`, the JSON document are still printed
+  *before* the process exits -- a scripted consumer always receives a
+  parseable description of what happened, even on the run that is about to
+  signal failure. `6` (`EXIT_PARTIAL_SUCCESS`) extends `cli/errors.py`'s
+  existing `0`-`5` exit-code convention (`2` configuration/input, `3`
+  dependency, `4` GPU, `5` model) with the next unused code, rather than
+  reusing `1` and making a partial run indistinguishable from a crash.
+  Scripts that treat exit `0` as "everything succeeded" must now also check
+  for `6`, and can inspect the JSON `failures` list (or
+  `WorkflowResult.failures` from the Python API) for which molecules were
+  missing.
+
 - **`calc_thermo` relaxes more inputs, and relaxes them further, before it will
   compute a Hessian.** The entry gate and the optimizer's convergence
   threshold both now use `opt_tol` (`DEFAULT_THERMO_CONVERGENCE_THRESHOLD`,
@@ -283,6 +301,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names before checking for a same-named file on disk, so a stray file named
   e.g. `ANI2xt` in the working directory can no longer shadow the built-in
   engine.
+
+- **Unknown `optimizing_engine` names are rejected up front instead of
+  failing silently inside a worker.** `optimizing_engine` validation
+  prefix-matched on `"aimnet2"`, so a typo like `"aimnet2-2025x"` passed
+  both `utils/validation.py`'s `check_valid_configuration` and the CLI's
+  `CLIConfig` schema, survived config parsing, and only failed once a
+  spawned worker tried to resolve it -- where `optim_rank_wrapper`'s
+  per-chunk handler swallowed the error and the run quietly produced
+  nothing. Both call sites now resolve the name through
+  `models/preflight.py`'s `resolve_engine_name` (a pure, offline registry
+  lookup), which raises `ConfigurationError` listing the valid registry
+  aliases. `CLIConfig._validate_engine` and the three auxiliary CLI
+  commands (`auto3d energy`/`optimize`/`thermo`) are now validated the same
+  way -- those three previously passed `engine` straight through to
+  `calc_spe`/`opt_geometry`/`calc_thermo` with no validation at all, despite
+  a comment claiming it was "validated downstream". That downstream
+  validation still does not exist: `calc_spe`, `opt_geometry`, and
+  `calc_thermo` themselves remain unguarded, so a script that calls any of
+  the three directly with a bad engine name gets exactly the old, opaque
+  failure. Only the CLI layer (`auto3d run`/`energy`/`optimize`/`thermo`)
+  rejects it up front.
+
+- **The optimizing model's availability is verified, without loading it,
+  before any worker is forked.** `WorkflowOrchestrator._validate_input` (and
+  `smiles2mols`) call `preflight_model`, which resolves the engine name and
+  confirms the model file can be obtained -- a cache hit, a successful
+  download and checksum, or an ANI2xt/custom-path model that exists on disk
+  -- before any chunk is processed. A cold cache with no network, a cached
+  file whose checksum no longer matches, or an unwritable cache directory
+  previously surfaced only inside a spawned worker's per-chunk handler,
+  reported as an opaque "no 3D structure converged"; the failure now names
+  the network, the cache directory (respecting `AIMNET_CACHE_DIR`), and, for
+  a checksum mismatch, the exact file to delete. `preflight_model` resolves
+  only the model's on-disk path
+  (`aimnet.calculators.model_registry.get_registry_model_path`); it does
+  **not** construct or load the model. An earlier version of this fix built
+  the full model to validate it, which made the fast test suite construct a
+  real AIMNet2 model six times over (wall time 20s -> 75s, peak RSS 1.38GB
+  on a ~2GB box) and would have made every fast CI job attempt a network
+  download; that version was replaced with the path-only check before
+  landing, and `preflight_model` also lost its unused `device` parameter.
+  Separately, the cache-directory-naming fallback inside `preflight_model`'s
+  error handlers could itself raise: calling the real `get_cache_dir()` from
+  inside a handler re-ran the same failing `os.makedirs` call that triggered
+  the handler, double-faulting into a raw `PermissionError` instead of the
+  intended `ModelLoadError` and losing the `AIMNET_CACHE_DIR` hint along
+  with it. The directory is now resolved once, before the `try`, as a plain
+  string that cannot itself fail. The two "no 3D structure converged"
+  messages in `workflow.py` were reworded to state what pre-flight has
+  actually ruled out, replacing a stock three-reason guess ("1. Allocated
+  memory is not enough; 2. invalid SMILES; 3. Patience is too small") that
+  named causes irrelevant to, e.g., a cold cache behind a firewall.
+
+- **`main()`/`smiles2mols()` report every input molecule that produced no
+  output, by ID.** `find_smiles_not_in_sdf` existed, was exported, and was
+  tested, but had no production caller, so a molecule that vanished
+  mid-pipeline left no trace anywhere reachable from `main()`'s return
+  value. `WorkflowOrchestrator._finalize_output` now reconciles the original
+  input against the final, decoded output SDF -- via `find_smiles_not_in_sdf`
+  for `.smi` input, and a new `find_ids_not_in_sdf` for `.sdf` input -- and
+  populates `self.failures`; `main()` carries that list through as
+  `WorkflowResult.failures` (the existing `str`-subclass return type, not a
+  new one -- it already carried `n_molecules`/`n_conformers`).
+  `smiles2mols` calls `find_smiles_not_in_sdf` directly and logs the result,
+  since its `list[Chem.Mol]` return has no carrier for a failure list.
+  `auto3d run`'s CLI summary and `--json` output now report *which*
+  molecules failed, replacing a count derived as
+  `max(0, input_count - molecules)` that silently floored to zero whenever
+  tautomer enumeration made the output count legitimately exceed the input
+  count and could never say which molecule was lost.
+
+- **Warnings logged via `get_logger(__name__)` now reach the run's
+  `Auto3D.log` file, not just stderr.** `get_logger` produces loggers under
+  the `Auto3D.*` tree, but the worker processes' `QueueHandler` (the
+  mechanism that feeds `Auto3D.log`) was attached only to the case-distinct,
+  unrelated `auto3d` tree, so no warning issued through `get_logger` --
+  including several diagnostics added earlier in this release, e.g. the
+  stereochemistry-change count and the symmetry-number default warning --
+  ever reached the run log; `Auto3D.workflow`, `Auto3D.utils.chemistry`, and
+  one warning in `Auto3D.batch_opt.batchopt` avoided this only by logging
+  through `auto3d` directly. `workflow_workers.py`'s worker functions
+  (`isomer_wrapper`, `optim_rank_wrapper`) now attach a `QueueHandler` to
+  both the `auto3d` and `Auto3D` trees. A gap remains: a warning fired
+  purely in the main process, outside `chunk_manager`/`workflow.py` (i.e.
+  not inside a spawned worker, and not one of the call sites above that
+  already logs through `auto3d`), still reaches only stderr, not
+  `Auto3D.log`.
+
+- **`--verbose` shows a full traceback for an unexpected (non-`Auto3DError`)
+  failure.** `handle_error` previously printed only `str(error)` at every
+  verbosity, so an internal bug (e.g. a bare `KeyError('ID')` from a missing
+  SDF property) rendered as an unactionable red box with no file, line, or
+  stack -- and every CLI entry point funnels through `handle_error`. The
+  panel now always names the exception type and points at `-v`/`--verbose`;
+  passing `-v` (or, for the legacy `auto3d parameters.yaml` entry point,
+  setting `verbose: true` in the YAML, which has no `-v` flag of its own)
+  additionally prints the traceback via `rich.traceback.Traceback`. Wired
+  into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
+  `models test`, and the legacy YAML path).
 
 ## [3.5.0] - 2026-06-13
 

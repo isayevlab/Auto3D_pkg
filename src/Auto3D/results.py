@@ -5,6 +5,12 @@ output SDF path (so every existing caller -- ``Path(out)``, ``open(out)``,
 ``print(out)``, string ops -- keeps working unchanged) but also exposes the
 molecule/conformer counts of the run. The counts are computed lazily on first
 access and cached, so callers that only need the path pay nothing.
+
+It also carries ``failures``: the input molecule IDs that ``WorkflowOrchestrator``
+reconciled away against the output SDF and found missing (C7). Unlike the
+counts, this cannot be recomputed lazily from the output path alone -- it
+depends on the original input, which the orchestrator already compared during
+``_finalize_output`` -- so it is passed in explicitly at construction.
 """
 from __future__ import annotations
 
@@ -43,6 +49,22 @@ class WorkflowResult(str):
     string the pipeline historically returned. ``n_molecules`` / ``n_conformers``
     are read from the output SDF lazily and cached.
     """
+
+    failures: list[str]
+
+    def __new__(cls, value: str, failures: list[str] | None = None) -> WorkflowResult:
+        """Construct the result.
+
+        Args:
+            value: The output SDF path (the string value of this instance).
+            failures: Input molecule IDs with no corresponding output structure,
+                as reconciled by ``WorkflowOrchestrator._finalize_output``.
+                Defaults to an empty list so any existing caller that builds a
+                ``WorkflowResult`` from just a path keeps working.
+        """
+        obj = super().__new__(cls, value)
+        obj.failures = list(failures) if failures else []
+        return obj
 
     @cached_property
     def _counts(self) -> tuple[int, int]:

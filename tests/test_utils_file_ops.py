@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pytest
+from rdkit import Chem
 
 from Auto3D.utils.file_ops import (
     smiles2smi,
@@ -19,6 +20,7 @@ from Auto3D.utils.file_ops import (
     decode_ids,
     reorder_sdf,
     count_sdf,
+    find_ids_not_in_sdf,
     find_smiles_not_in_sdf,
     iter_smi_records,
 )
@@ -1132,6 +1134,97 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
     # Exactly one of the two logfiles must have been successfully moved.
     moved = list(dest.glob("oeomega_*.log"))
     assert len(moved) == 1, f"Expected 1 moved file, got {[f.name for f in moved]}"
+
+
+class TestFindSmilesNotInSdfTautStripping:
+    """C7: a decoded '@tautN' suffix must not cause a false "missing" report."""
+
+    def test_taut_suffixed_output_name_matches_base_smi_id(self, tmp_path):
+        """decode_ids keeps 'id@tautN' on tautomer conformers; the .smi only
+        has the base id, so find_smiles_not_in_sdf must strip the suffix
+        before comparing or every tautomer-derived molecule is misreported."""
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol_a\n")
+
+        sdf = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(sdf))
+        writer.write(_make_mol("mol_a@taut0"))
+        writer.close()
+
+        bad = find_smiles_not_in_sdf(str(smi), str(sdf))
+        assert bad == [], f"mol_a wrongly reported missing: {bad}"
+
+
+class TestFindIdsNotInSdf:
+    """find_ids_not_in_sdf: the SDF-input counterpart to find_smiles_not_in_sdf."""
+
+    def test_missing_id_is_reported(self, tmp_path):
+        """An id present in the source SDF but absent from the output SDF is reported."""
+        source = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source))
+        for name in ["mol_a", "mol_b"]:
+            writer.write(_make_mol(name))
+        writer.close()
+
+        out = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(out))
+        writer.write(_make_mol("mol_a"))  # mol_b never produced a structure
+        writer.close()
+
+        bad = find_ids_not_in_sdf(str(source), str(out))
+        assert bad == ["mol_b"]
+
+    def test_no_missing_ids_returns_empty_list(self, tmp_path):
+        """Every source id present in the output -> nothing reported."""
+        source = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source))
+        for name in ["mol_a", "mol_b"]:
+            writer.write(_make_mol(name))
+        writer.close()
+
+        out = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(out))
+        for name in ["mol_b", "mol_a"]:
+            writer.write(_make_mol(name))
+        writer.close()
+
+        assert find_ids_not_in_sdf(str(source), str(out)) == []
+
+    def test_taut_suffixed_output_name_matches_base_id(self, tmp_path):
+        """Same '@tautN' stripping as find_smiles_not_in_sdf, for SDF input."""
+        source = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source))
+        writer.write(_make_mol("mol_a"))
+        writer.close()
+
+        out = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(out))
+        writer.write(_make_mol("mol_a@taut1"))
+        writer.close()
+
+        assert find_ids_not_in_sdf(str(source), str(out)) == []
+
+    def test_skips_none_records_on_both_sides(self, tmp_path, monkeypatch):
+        """A None record (unparseable) in either SDF must not crash or miscount."""
+        import Auto3D.utils.file_ops as file_ops
+
+        valid_source = _make_mol("mol_a")
+        calls = {"n": 0}
+
+        def fake_supplier(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return [valid_source, None]  # source SDF
+            return [None, _make_mol("mol_a")]  # output SDF
+
+        monkeypatch.setattr(file_ops.Chem, "SDMolSupplier", fake_supplier)
+
+        source = tmp_path / "source.sdf"
+        source.write_text("placeholder")
+        out = tmp_path / "out.sdf"
+        out.write_text("placeholder")
+
+        assert find_ids_not_in_sdf(str(source), str(out)) == []
 
 
 if __name__ == "__main__":
