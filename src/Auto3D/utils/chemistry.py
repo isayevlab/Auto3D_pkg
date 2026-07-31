@@ -184,6 +184,27 @@ def relieve_clash(
     this same molecule object, and a conformer whose configuration changed is
     rejected here rather than passed downstream.
 
+    Known limitation: the "before" snapshot is read while the conformer is
+    still in violation of ``min_distance`` — by definition, since that is the
+    only way execution reaches this branch. CIP perception on a geometry that
+    is itself clashing is not a trustworthy baseline, unlike the equivalent
+    check in ``batch_opt/batchopt.py``, whose "before" reading is always
+    taken from a valid, non-clashing conformer. This matters only when the
+    branch is actually reached: across roughly 650 conformers sampled from
+    Auto3D's real ``EmbedMultipleConfs`` output (glucose, cholesterol, a
+    tripeptide, macrocycles, a cage compound, and molecules with B/Se/
+    hypervalent Si), none ever fell below the clash threshold. Under 196
+    artificially forced clashes, this guard rejected 96 conformers, and about
+    56% of those rejections had a post-relaxation configuration that actually
+    matched the molecule's true configuration -- spurious rejections caused
+    by the unreliable baseline rather than a real inversion. The known
+    improvement is to compare against the molecule's graph-encoded stereo
+    tags instead of a 3D read of the clashing geometry, but that needs its
+    own measurement first: RDKit's graph ``AssignStereochemistry`` and
+    ``AssignStereochemistryFrom3D`` label pseudoasymmetric centers
+    differently (``r``/``s`` vs ``R``/``S``), which could introduce a
+    systematic false positive.
+
     Args:
         mol: RDKit molecule holding the conformer.
         conf_id: Index of the conformer to check/optimize.

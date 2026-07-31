@@ -26,7 +26,8 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
 
     Two molecules are enantiomers if all their stereo centers have opposite
     configurations. This function compares lists of (atom_index, stereo_type)
-    tuples from RDKit's FindMolChiralCenters.
+    tuples describing each stereo center's atom index and configuration
+    label, regardless of what produced them.
 
     Args:
         l1: List of (atom_index, stereo_type) tuples for first molecule.
