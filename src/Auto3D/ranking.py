@@ -9,6 +9,7 @@ from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
 from Auto3D.utils.chemistry import check_connectivity
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.stereo_check import stereo_preserved
 
 logger = get_logger(__name__)
 
@@ -78,6 +79,7 @@ class ConformerRanker:
 
         Args:
             df_group: DataFrame group with 'names', 'energies', 'mols' columns.
+                Mols marked 'Stereo_changed' are excluded.
             k: Number of top structures to return.
 
         Returns:
@@ -96,7 +98,7 @@ class ConformerRanker:
         if k == 1:
             out_mols = []
             for mol in df2["mols"]:
-                if check_connectivity(mol):
+                if stereo_preserved(mol) and check_connectivity(mol):
                     out_mols = [mol]
                     break
         else:

@@ -28,6 +28,7 @@ from Auto3D.constants import (
     MAX_CONFORMERS_CAP,
     MIN_ATOM_DISTANCE,
 )
+from Auto3D.utils.stereo_check import stereo_preserved
 
 logger = logging.getLogger("auto3d")
 
@@ -440,6 +441,7 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
 
     Args:
         mols: List of RDKit molecule objects with 'Converged' property set.
+            Records marked 'Stereo_changed' are excluded.
         crit: RMSD threshold for considering two structures as identical.
             Structures with RMSD below this value are considered duplicates.
             Defaults to DEFAULT_RMSD_THRESHOLD (0.3 Angstroms).
@@ -466,7 +468,7 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
         except KeyError:
             convergence_flag = False
         has_valid_bonds = check_connectivity(mol)
-        if convergence_flag and has_valid_bonds:
+        if convergence_flag and has_valid_bonds and stereo_preserved(mol):
             mols_.append(mol)
     mols = mols_
 

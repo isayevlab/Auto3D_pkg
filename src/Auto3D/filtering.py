@@ -11,6 +11,7 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.utils import check_connectivity
+from Auto3D.utils.stereo_check import stereo_preserved
 
 
 def filter_unique_optimized(
@@ -31,6 +32,7 @@ def filter_unique_optimized(
 
     Args:
         mols: List of RDKit Mol objects with 'E_tot' and 'Converged' properties.
+            Records marked 'Stereo_changed' are excluded.
         rmsd_threshold: RMSD threshold for considering structures similar (Angstrom).
         energy_cluster_window: Energy window for clustering (eV).
 
@@ -46,7 +48,7 @@ def filter_unique_optimized(
             converged = mol.GetProp('Converged').lower() == 'true'
         except KeyError:
             converged = False
-        if converged and check_connectivity(mol):
+        if converged and stereo_preserved(mol) and check_connectivity(mol):
             valid_mols.append(mol)
 
     if not valid_mols:
