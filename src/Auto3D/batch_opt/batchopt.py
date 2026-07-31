@@ -346,7 +346,10 @@ class optimizing:
                 # Reads the configuration from the pre-optimization coordinates,
                 # writes the optimized ones, reads again, and records the
                 # comparison on the molecule. Both readings come from this same
-                # object, so no atom mapping is needed.
+                # object, so no atom mapping is needed. This covers the neural
+                # network optimization step only; clash relief (a separate,
+                # earlier force-field relaxation) is guarded at its own call
+                # site in Auto3D.utils.chemistry.relieve_clash.
                 if not apply_optimized_coords(mol, coords_out[i]):
                     n_stereo_changed += 1
                 f.write(mol)

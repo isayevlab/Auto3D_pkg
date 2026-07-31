@@ -28,7 +28,7 @@ from Auto3D.constants import (
     MAX_CONFORMERS_CAP,
     MIN_ATOM_DISTANCE,
 )
-from Auto3D.utils.stereo_check import stereo_preserved
+from Auto3D.utils.stereo_check import stereo_descriptors_from_3d, stereo_preserved
 
 logger = logging.getLogger("auto3d")
 
@@ -176,6 +176,14 @@ def relieve_clash(
     the function falls back to UFF so the conformer is not discarded for lack
     of a force field.
 
+    The force-field relaxation can itself invert a stereocenter or rotate a
+    double bond. This runs before the enumerated SDF is written, so the
+    downstream post-optimization stereochemistry check would otherwise read an
+    already-changed geometry as its own "before" reference and never notice.
+    Stereochemistry is therefore checked before and after the relaxation, on
+    this same molecule object, and a conformer whose configuration changed is
+    rejected here rather than passed downstream.
+
     Args:
         mol: RDKit molecule holding the conformer.
         conf_id: Index of the conformer to check/optimize.
@@ -183,7 +191,9 @@ def relieve_clash(
 
     Returns:
         True if the (possibly optimized) conformer's minimum pairwise distance
-        is >= ``min_distance`` and should be kept; False if it still clashes.
+        is >= ``min_distance`` and its stereochemistry survived unchanged;
+        False if it still clashes or if the relaxation changed its
+        configuration.
     """
     positions = mol.GetConformer(conf_id).GetPositions()
     # Closing the dead band: a conformer exactly at the threshold is kept.
@@ -191,10 +201,23 @@ def relieve_clash(
         return True
 
     # Clashing conformer: try MMFF, fall back to UFF when MMFF is unavailable.
+    before = stereo_descriptors_from_3d(mol, conf_id=conf_id)
     if AllChem.MMFFHasAllMoleculeParams(mol):
         AllChem.MMFFOptimizeMolecule(mol, confId=conf_id)
     else:
         AllChem.UFFOptimizeMolecule(mol, confId=conf_id)
+
+    # Clash relief is a force-field relaxation and can invert a center just as
+    # the neural network optimization can. It runs before the enumerated SDF is
+    # written, so the post-optimization check downstream would read an already
+    # inverted geometry as its reference and never notice. Reject the conformer
+    # here instead; the embedder simply keeps the ones that survive.
+    if stereo_descriptors_from_3d(mol, conf_id=conf_id) != before:
+        logger.warning(
+            "Discarding a conformer whose stereochemistry changed during clash "
+            "relief."
+        )
+        return False
 
     positions = mol.GetConformer(conf_id).GetPositions()
     return min_pairwise_distance(positions) >= min_distance

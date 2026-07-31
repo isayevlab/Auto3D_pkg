@@ -74,6 +74,48 @@ class TestDescriptorReading:
             conf.SetAtomPosition(i, position)
         assert stereo_descriptors_from_3d(mol) == before
 
+    def test_rotating_a_double_bond_past_ninety_degrees_is_detected(self):
+        """E/Z is the other half of the identity check and needs its own case.
+
+        Reflection cannot exercise it: mirroring is E/Z-invariant by
+        construction, so every other test here leaves the bond descriptor alone.
+        """
+        from rdkit.Chem import rdMolTransforms
+
+        mol = _embedded("C/C=C/C")
+        atoms_before, bonds_before = stereo_descriptors_from_3d(mol)
+        assert bonds_before, "no double-bond descriptor was read"
+
+        conf = mol.GetConformer()
+        rdMolTransforms.SetDihedralDeg(conf, 0, 1, 2, 3, 0.0)
+        atoms_after, bonds_after = stereo_descriptors_from_3d(mol)
+
+        assert bonds_after != bonds_before, "a rotated C=C was not detected"
+        assert atoms_after == atoms_before
+
+    def test_inverting_one_center_of_two_is_detected(self):
+        """A single inverted center must register even when others hold.
+
+        Reflection inverts every center at once, so on its own it cannot
+        distinguish "the molecule was mirrored" from "one center moved".
+        """
+        mol = _embedded("C[C@H](O)[C@H](F)Cl")
+        before = stereo_descriptors_from_3d(mol)
+        assert len(before[0]) == 2, f"expected two centers: {before}"
+
+        conf = mol.GetConformer()
+        idx = sorted(i for i, _ in before[0])[0]
+        neighbors = [n.GetIdx() for n in mol.GetAtomWithIdx(idx).GetNeighbors()]
+        first, second = neighbors[0], neighbors[1]
+        position_a = list(conf.GetAtomPosition(first))
+        position_b = list(conf.GetAtomPosition(second))
+        conf.SetAtomPosition(first, position_b)
+        conf.SetAtomPosition(second, position_a)
+
+        after = stereo_descriptors_from_3d(mol)
+        assert after[0] != before[0], "inverting one center was not detected"
+        assert len(after[0]) == len(before[0]), after
+
 
 class TestApplyOptimizedCoords:
     def test_inversion_is_detected_and_marked(self):
@@ -164,5 +206,5 @@ class TestFiltersExcludeStereoChangedRecords:
     def test_unmarked_records_still_survive_every_filter(self):
         """No regression for molecules that never went through the check."""
         mols = [_optimized(-1.0, changed=None), _optimized(-2.0, changed=None)]
-        assert len(filter_unique_optimized(mols, rmsd_threshold=0.3)) >= 1
-        assert len(filter_unique(mols, crit=0.3)) >= 1
+        assert len(filter_unique_optimized(mols, rmsd_threshold=0.3)) == 2
+        assert len(filter_unique(mols, crit=0.3)) == 2

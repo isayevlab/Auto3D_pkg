@@ -41,6 +41,19 @@ def stereo_descriptors_from_3d(
         Indices are only meaningful within one molecule object. Compare two
         readings taken from the same ``mol``; never compare readings from two
         separately parsed molecules, whose atom orderings need not agree.
+
+    Scope:
+        Only atoms RDKit assigns a ``_CIPCode`` (genuine tetrahedral
+        stereocenters) and bonds it assigns a non-``STEREONONE`` label
+        (defined double bonds) are covered. Trivalent (sp3) nitrogen never
+        receives a ``_CIPCode`` from ``AssignStereochemistryFrom3D``, so an
+        inverting amine nitrogen -- a real stereocenter in principle, but one
+        that freely interconverts at room temperature and is not treated as
+        configurational by RDKit's perception -- is never flagged. That is
+        the intended trade-off: it is exactly what keeps ordinary amine
+        inversion from being reported as a false positive. Other stereo
+        elements RDKit does not perceive this way (e.g. atropisomers) are
+        likewise invisible to this function.
     """
     work = Chem.Mol(mol)
     Chem.AssignStereochemistryFrom3D(work, confId=conf_id)
