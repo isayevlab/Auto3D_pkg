@@ -1,12 +1,16 @@
 """ANI2xt species must be model indices, not atomic numbers.
 
 ANI2xt is built with periodic_table_index=False at every construction site
-(nothing passes True), so its forward expects 0-based indices H=0..Cl=6. Only
-batch_opt/padding.py:131-134 converts. ASE/thermo.py:146-147 and :170-171 pass
-raw atomic numbers, as does cli/commands/models.py:241-243 (C3, C4).
+(nothing passes True), so its forward expects 0-based indices H=0..Cl=6.
+`ASE/thermo.py` and `cli/commands/models.py` previously passed raw atomic
+numbers instead of converting them, evaluating hydrogen with the carbon
+network and carbon with the chlorine network (audit C3, C4). Both call sites
+now convert through `Auto3D.batch_opt.species.to_model_species` before
+calling the model, and the tests below guard against that regressing.
 
 The decisive asymmetry: ANI2x gets periodic_table_index=True at both of its
-sites (thermo.py:338, models/adapter.py:346), so it is correct.
+sites (thermo.py:338, models/adapter.py:346), so it was always correct and
+needs no conversion.
 """
 from __future__ import annotations
 
@@ -35,7 +39,7 @@ class TestBatchPathIsCorrect:
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
-        _, species, _ = pad_from_mols([mol], "ANI2xt", device)
+        _, species, _, _ = pad_from_mols([mol], "ANI2xt", device)
         values = sorted(int(v) for v in species[0])
 
         # ANI2XT_INDEX: H=0, C=1. Methane is one carbon and four hydrogens.
@@ -48,12 +52,6 @@ class TestThermoPathConverts:
     """The thermo path must convert atomic numbers the same way the batch path does."""
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C3: ASE/thermo.py:146-147 passes atoms.get_atomic_numbers() and "
-        ":170-171 passes a.GetAtomicNum() straight to ANI2xtAdapter, so H(Z=1) "
-        "hits the carbon network and C(Z=6) hits the chlorine network",
-    )
     def test_thermo_and_batch_paths_agree_on_methane(self, device):
         """The same molecule must get the same energy from both thermo entry points."""
         from rdkit import Chem
@@ -68,10 +66,10 @@ class TestThermoPathConverts:
 
         model = create_model("ANI2xt", device)
 
-        coords_b, species_b, charges_b = pad_from_mols([mol], "ANI2xt", device)
+        coords_b, species_b, charges_b, _ = pad_from_mols([mol], "ANI2xt", device)
         e_batch = float(model.forward(coords_b, species_b, charges_b)[0][0])
 
-        thermo_in = mol2aimnet_input(mol, device)
+        thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
         e_thermo = float(
             model.forward(
                 thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]
@@ -84,11 +82,6 @@ class TestThermoPathConverts:
         )
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C3: N/O/F/S/Cl have Z = 7,8,9,16,17, all >= len(self.networks) == 7, "
-        "so they index out of range instead of being converted",
-    )
     def test_heteroatom_molecule_does_not_crash_thermo_path(self, device):
         """Ethanol has oxygen (Z=8), which is out of range for 7 networks."""
         from rdkit import Chem
@@ -101,7 +94,7 @@ class TestThermoPathConverts:
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
         model = create_model("ANI2xt", device)
-        thermo_in = mol2aimnet_input(mol, device)
+        thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
 
         energy, _ = model.forward(
             thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]
@@ -113,12 +106,6 @@ class TestHealthCheckIsHonest:
     """auto3d models test must not report success on a mis-specified molecule."""
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C4: cli/commands/models.py:241-243 passes [[6, 1, 1, 1, 1]] "
-        "(atomic numbers) as species, so index 6 is Cl and index 1 is C -- the "
-        "'methane' health check evaluates a Cl+4C species and prints 'working'",
-    )
     def test_health_check_energy_matches_real_methane(self, device):
         """The reported health-check energy must match a correctly-built methane."""
         from rdkit import Chem
@@ -130,7 +117,7 @@ class TestHealthCheckIsHonest:
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
         model = create_model("ANI2xt", device)
-        coords, species, charges = pad_from_mols([mol], "ANI2xt", device)
+        coords, species, charges, _ = pad_from_mols([mol], "ANI2xt", device)
         reference = float(model.forward(coords, species, charges)[0][0])
 
         # _health_check_energy does not exist -- cli/commands/models.py builds

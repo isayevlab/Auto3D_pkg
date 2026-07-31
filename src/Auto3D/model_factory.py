@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 import torch
 
@@ -24,8 +23,6 @@ from Auto3D.models.adapter import (
 
 # Environment variable to enable torch.compile() by default
 _COMPILE_ENV_VAR = "AUTO3D_COMPILE_MODEL"
-# Environment variable to disable ensemble for faster optimization
-_ENSEMBLE_ENV_VAR = "AUTO3D_USE_ENSEMBLE"
 
 
 class ModelFactory:
@@ -55,8 +52,8 @@ class ModelFactory:
     }
     assert set(_adapters) == set(BUILTIN_ANI_MODELS)
 
-    # Model instance cache: key = (name, device_str, use_ensemble, compile_model)
-    _cache: dict[tuple[str, str, bool, bool], BaseModelAdapter] = {}
+    # Model instance cache: key = (name, device_str, compile_model)
+    _cache: dict[tuple[str, str, bool], BaseModelAdapter] = {}
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -82,9 +79,7 @@ class ModelFactory:
         name: str,
         device: torch.device | None = None,
         compile_model: bool | None = None,
-        use_ensemble: bool | None = None,
         use_cache: bool = True,
-        **kwargs: Any,
     ) -> BaseModelAdapter:
         """Create a model adapter by name.
 
@@ -93,12 +88,8 @@ class ModelFactory:
             device: Target device for the model.
             compile_model: Whether to use torch.compile() for optimization.
                 If None, checks AUTO3D_COMPILE_MODEL environment variable.
-            use_ensemble: For AIMNET only: whether to use ensemble model (default False).
-                Single model is ~35x faster and accurate enough for geometry optimization.
-                Set True for highest accuracy. If None, checks AUTO3D_USE_ENSEMBLE env var.
             use_cache: Whether to cache and reuse model instances. Default True.
                 Set False to force creating a new model instance.
-            **kwargs: Additional arguments passed to the adapter constructor.
 
         Returns:
             Initialized model adapter on the specified device.
@@ -113,11 +104,6 @@ class ModelFactory:
         if compile_model is None:
             compile_model = os.environ.get(_COMPILE_ENV_VAR, "").lower() in ("1", "true", "yes")
 
-        # Check environment variable for use_ensemble (default False for speed)
-        if use_ensemble is None:
-            env_val = os.environ.get(_ENSEMBLE_ENV_VAR, "").lower()
-            use_ensemble = env_val in ("1", "true", "yes") if env_val else False
-
         # 1. Existing path on disk -> custom NNP (file/custom model selection).
         if Path(name).exists():
             return CustomModelAdapter(name, device, compile_model=compile_model)
@@ -126,7 +112,7 @@ class ModelFactory:
 
         # 2. Built-in ANI engines.
         if name_upper in cls._adapters:
-            cache_key = (name_upper, str(device), use_ensemble, compile_model)
+            cache_key = (name_upper, str(device), compile_model)
             if use_cache and cache_key in cls._cache:
                 return cls._cache[cache_key]
             adapter = cls._adapters[name_upper](device, compile_model=compile_model)
@@ -137,12 +123,10 @@ class ModelFactory:
         # 3. Everything else -> aimnet registry name. "AIMNET" is the legacy
         #    alias for the registry default.
         registry_name = DEFAULT_AIMNET_MODEL if name_upper == MODEL_AIMNET.upper() else name
-        cache_key = (registry_name, str(device), use_ensemble, compile_model)
+        cache_key = (registry_name, str(device), compile_model)
         if use_cache and cache_key in cls._cache:
             return cls._cache[cache_key]
-        adapter = AIMNet2Adapter(
-            registry_name, device, compile_model=compile_model, use_ensemble=use_ensemble
-        )
+        adapter = AIMNet2Adapter(registry_name, device, compile_model=compile_model)
         if use_cache:
             cls._cache[cache_key] = adapter
         return adapter
@@ -157,9 +141,7 @@ def create_model(
     name: str,
     device: torch.device | None = None,
     compile_model: bool | None = None,
-    use_ensemble: bool | None = None,
     use_cache: bool = True,
-    **kwargs: Any,
 ) -> BaseModelAdapter:
     """Convenience function to create a model adapter.
 
@@ -168,26 +150,20 @@ def create_model(
         device: Target device (default: CPU).
         compile_model: Whether to use torch.compile() for optimization.
             If None, checks AUTO3D_COMPILE_MODEL environment variable.
-        use_ensemble: For AIMNET: use ensemble model (default False).
-            Single model is ~35x faster. Set True for highest accuracy.
         use_cache: Whether to cache and reuse model instances. Default True.
-        **kwargs: Additional model arguments.
 
     Returns:
         Initialized model adapter.
 
     Example:
         >>> model = create_model("AIMNET", device=torch.device("cuda:0"))  # Fast single model (default)
-        >>> # Use ensemble for highest accuracy (slower)
-        >>> model = create_model("AIMNET", device=torch.device("cuda:0"), use_ensemble=True)
         >>> # Enable torch.compile for ANI models
         >>> model = create_model("ANI2xt", device=torch.device("cuda:0"), compile_model=True)
         >>> # Clear cache when done
         >>> ModelFactory.clear_cache()
     """
     return ModelFactory.create(
-        name, device, compile_model=compile_model, use_ensemble=use_ensemble,
-        use_cache=use_cache, **kwargs
+        name, device, compile_model=compile_model, use_cache=use_cache
     )
 
 

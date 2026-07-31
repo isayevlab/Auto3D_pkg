@@ -5,132 +5,7 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.batch_opt.padding import pad_molecular_batch, pad_from_mols
-
-
-class TestPadMolecularBatch:
-    """Tests for pad_molecular_batch function."""
-
-    def test_basic_padding_shapes(self):
-        """Vectorized padding should produce correct tensor shapes."""
-        coords = [
-            [(0, 0, 0), (1, 0, 0), (0, 1, 0)],  # 3 atoms
-            [(0, 0, 0), (1, 0, 0)],              # 2 atoms
-        ]
-        species = [[6, 1, 1], [8, 1]]
-        charges = [0, 0]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=0.0, species_pad=-1)
-
-        assert c.shape == (2, 3, 3)  # batch=2, max_atoms=3, xyz=3
-        assert s.shape == (2, 3)
-        assert q.shape == (2,)
-
-    def test_padding_values(self):
-        """Padding values should be correctly applied."""
-        coords = [
-            [(0, 0, 0), (1, 0, 0), (0, 1, 0)],  # 3 atoms
-            [(0, 0, 0), (1, 0, 0)],              # 2 atoms
-        ]
-        species = [[6, 1, 1], [8, 1]]
-        charges = [0, 0]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=0.0, species_pad=-1)
-
-        # Check padding values
-        assert s[1, 2].item() == -1  # padding for species
-        assert torch.allclose(c[1, 2], torch.tensor([0.0, 0.0, 0.0]))
-
-    def test_actual_values_preserved(self):
-        """Actual molecular data should be preserved correctly."""
-        coords = [
-            [(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)],
-            [(7.0, 8.0, 9.0)],
-        ]
-        species = [[6, 1], [8]]
-        charges = [0, -1]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=0.0, species_pad=-1)
-
-        # Check actual values are preserved
-        assert torch.allclose(c[0, 0], torch.tensor([1.0, 2.0, 3.0]))
-        assert torch.allclose(c[0, 1], torch.tensor([4.0, 5.0, 6.0]))
-        assert torch.allclose(c[1, 0], torch.tensor([7.0, 8.0, 9.0]))
-        assert s[0, 0].item() == 6
-        assert s[0, 1].item() == 1
-        assert s[1, 0].item() == 8
-        assert q[0].item() == 0
-        assert q[1].item() == -1
-
-    def test_requires_grad_enabled(self):
-        """Coords tensor should have requires_grad=True for force calculation."""
-        coords = [[(0, 0, 0), (1, 0, 0)]]
-        species = [[6, 1]]
-        charges = [0]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=0.0, species_pad=-1)
-
-        assert c.requires_grad is True
-
-    def test_custom_padding_values(self):
-        """Custom padding values should be used correctly."""
-        coords = [
-            [(0, 0, 0), (1, 0, 0)],
-            [(0, 0, 0)],
-        ]
-        species = [[6, 1], [8]]
-        charges = [0, 0]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=99.0, species_pad=0)
-
-        # Check custom padding values
-        assert s[1, 1].item() == 0  # custom species_pad
-        assert torch.allclose(c[1, 1], torch.tensor([99.0, 99.0, 99.0]))
-
-    def test_single_molecule(self):
-        """Should work with a single molecule."""
-        coords = [[(0, 0, 0), (1, 0, 0), (0, 1, 0)]]
-        species = [[6, 1, 1]]
-        charges = [0]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=0.0, species_pad=-1)
-
-        assert c.shape == (1, 3, 3)
-        assert s.shape == (1, 3)
-        assert q.shape == (1,)
-
-    def test_uniform_molecule_sizes(self):
-        """Should work when all molecules have the same number of atoms."""
-        coords = [
-            [(0, 0, 0), (1, 0, 0)],
-            [(2, 0, 0), (3, 0, 0)],
-        ]
-        species = [[6, 1], [7, 1]]
-        charges = [0, 0]
-        device = torch.device("cpu")
-
-        c, s, q = pad_molecular_batch(coords, species, charges, device,
-                                       coord_pad=0.0, species_pad=-1)
-
-        assert c.shape == (2, 2, 3)
-        assert s.shape == (2, 2)
-        # No padding should be applied since all molecules have same size
-        assert s[0, 0].item() == 6
-        assert s[0, 1].item() == 1
-        assert s[1, 0].item() == 7
-        assert s[1, 1].item() == 1
+from Auto3D.batch_opt.padding import pad_from_mols
 
 
 class TestPadFromMols:
@@ -148,12 +23,14 @@ class TestPadFromMols:
         mols = [mol1, mol2]
         device = torch.device("cpu")
 
-        c, s, q = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
 
         # Methane has 5 atoms (1C + 4H), water has 3 atoms (1O + 2H)
         assert c.shape == (2, 5, 3)  # max_atoms = 5
         assert s.shape == (2, 5)
         assert q.shape == (2,)
+        assert mask.shape == (2, 5)
+        assert mask.dtype == torch.bool
 
     def test_species_values_aimnet(self):
         """AIMNET model should use atomic numbers directly."""
@@ -163,7 +40,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
 
         # Carbon is atomic number 6, Hydrogen is 1
         species_list = s[0].tolist()
@@ -178,7 +55,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q = pad_from_mols(mols, "ANI2xt", device, coord_pad=0.0, species_pad=-1)
+        c, s, q, mask = pad_from_mols(mols, "ANI2xt", device, coord_pad=0.0, species_pad=-1)
 
         # ANI2xt mapping: H->0, C->1, N->2, O->3, F->4, S->5, Cl->6
         species_list = s[0].tolist()
@@ -197,7 +74,7 @@ class TestPadFromMols:
         mols = [mol1, mol2]
         device = torch.device("cpu")
 
-        c, s, q = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
 
         assert q[0].item() == 0   # Methane is neutral
         assert q[1].item() == -1  # Hydroxide has -1 charge
@@ -208,12 +85,9 @@ class TestPadFromMols:
         AllChem.EmbedMolecule(mol, randomSeed=42)
         device = torch.device("cpu")
 
-        _, _, q_mols = pad_from_mols([mol], "AIMNET", device,
-                                     coord_pad=0.0, species_pad=0)
-        _, _, q_batch = pad_molecular_batch([[(0.0, 0.0, 0.0)]], [[8]], [-1],
-                                            device, coord_pad=0.0, species_pad=0)
+        _, _, q_mols, _ = pad_from_mols([mol], "AIMNET", device,
+                                        coord_pad=0.0, species_pad=0)
         assert q_mols.dtype == torch.float32
-        assert q_batch.dtype == torch.float32
 
     def test_coords_match_conformer(self):
         """Coordinates should match RDKit conformer positions."""
@@ -223,7 +97,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
 
         # Get positions from RDKit
         conf = mol.GetConformer()
@@ -243,7 +117,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
 
         assert c.requires_grad is True
 
@@ -262,3 +136,65 @@ class TestPadFromMols:
             pad_from_mols(mols, "ANI2xt", device, coord_pad=0.0, species_pad=-1)
         msg = str(exc.value)
         assert "ANI2xt" in msg and ("15" in msg or "P" in msg)
+
+
+class TestAtomMaskIsExplicit:
+    """Padding must be identified by an explicit mask, not a sentinel value.
+
+    Deriving the mask by value-matching `numbers == species_pad` breaks for a
+    custom NNP that declares species_pad=0 while using 0-based species indices
+    -- the exact convention Auto3D itself uses for ANI2xt, where 0 is hydrogen.
+    Every hydrogen's force would be zeroed and excluded from fmax, and the
+    structure written out with Converged=True and a false fmax (audit C13).
+    """
+
+    def test_mask_marks_real_atoms_only(self, device):
+        """A short molecule batched with a long one is masked by count."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.batch_opt.padding import pad_from_mols
+
+        def _mol(smiles):
+            m = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            AllChem.EmbedMolecule(m, randomSeed=42)
+            return m
+
+        small, large = _mol("CCO"), _mol("c1ccccc1CCCCO")
+        _, _, _, atom_mask = pad_from_mols([small, large], "AIMNET", device)
+
+        assert atom_mask.shape == (2, large.GetNumAtoms())
+        assert atom_mask[0].sum().item() == small.GetNumAtoms()
+        assert atom_mask[1].sum().item() == large.GetNumAtoms()
+        assert atom_mask[0, : small.GetNumAtoms()].all()
+        assert not atom_mask[0, small.GetNumAtoms() :].any()
+
+    def test_mask_is_correct_when_species_pad_collides_with_a_real_index(self, device):
+        """species_pad=0 must not be mistaken for hydrogen at index 0."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.batch_opt.padding import pad_from_mols
+
+        def _mol(smiles):
+            m = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            AllChem.EmbedMolecule(m, randomSeed=42)
+            return m
+
+        small, large = _mol("CCO"), _mol("c1ccccc1CCCCO")
+        # species_pad=0 collides with ANI2xt's hydrogen index. The mask must be
+        # derived from atom counts, so the collision cannot matter.
+        _, species, _, atom_mask = pad_from_mols(
+            [small, large], "ANI2xt", device, coord_pad=0.0, species_pad=0
+        )
+
+        n_small = small.GetNumAtoms()
+        assert atom_mask[0, :n_small].all(), "real atoms must be masked True"
+        assert not atom_mask[0, n_small:].any(), "padded slots must be masked False"
+
+        n_hydrogens = sum(1 for a in small.GetAtoms() if a.GetAtomicNum() == 1)
+        real_zeros = int((species[0, :n_small] == 0).sum())
+        assert real_zeros == n_hydrogens, (
+            "sanity check: hydrogens really do sit at species index 0, so a "
+            "value-derived mask would have zeroed them"
+        )

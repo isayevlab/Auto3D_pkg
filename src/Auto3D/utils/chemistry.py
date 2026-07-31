@@ -37,7 +37,6 @@ __all__ = [
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
     "EV_TO_KCAL_PER_MOL",
-    "ANI2XT_INDEX",
     # Backward compatibility aliases
     "hartree2ev",
     "hartree2kcalpermol",
@@ -49,14 +48,10 @@ __all__ = [
     "relieve_clash",
     "get_rmsd",
     "check_connectivity",
-    "getidx",
     "amend_mol",
     "get_mol_connectivity",
     "filter_unique",
 ]
-
-# ANI2xt element mapping: atomic number -> index
-ANI2XT_INDEX = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
 
 # Backward compatibility aliases for energy conversion factors
 hartree2ev: float = HARTREE_TO_EV
@@ -336,45 +331,6 @@ def check_connectivity(mol: Chem.Mol) -> bool:
                 if dist < reference_length * 1.1:
                     return False
     return True
-
-
-def getidx(atomic_num: int, model: str = "default") -> int:
-    """Get the element index for a given atomic number.
-
-    Maps atomic numbers to element indices used by different neural network models.
-    For ANI2xt, this maps to the specific element ordering (H=0, C=1, N=2, O=3, F=4, S=5, Cl=6).
-    For other models, the atomic number is returned unchanged.
-
-    Args:
-        atomic_num: The atomic number of the element (e.g., 1 for H, 6 for C).
-        model: The model name. Use "ANI2xt" for ANI2xt-specific indexing,
-            or any other value for standard atomic number passthrough.
-
-    Returns:
-        The element index appropriate for the specified model.
-
-    Raises:
-        ValueError: If the element is not supported by the specified model
-            (ANI2xt only). The message names the offending element (atomic
-            number + symbol) and the model, so callers do not need to wrap a
-            bare ``KeyError`` themselves.
-
-    Example:
-        >>> getidx(6, model="ANI2xt")  # Carbon in ANI2xt
-        1
-        >>> getidx(6)  # Carbon with default model
-        6
-    """
-    if model == "ANI2xt":
-        try:
-            return ANI2XT_INDEX[atomic_num]
-        except KeyError:
-            symbol = Chem.GetPeriodicTable().GetElementSymbol(atomic_num)
-            raise ValueError(
-                f"Element Z={atomic_num} ({symbol}) is not supported by "
-                f"ANI2xt (supported: H, C, N, O, F, S, Cl)."
-            ) from None
-    return atomic_num
 
 
 def amend_mol(

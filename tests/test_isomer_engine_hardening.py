@@ -293,7 +293,8 @@ class TestSpeFiltersAndAligns:
             coords = torch.zeros(n, 1, 3, requires_grad=True)
             numbers = torch.zeros(n, 1, dtype=torch.long)
             charges = torch.zeros(n, dtype=torch.long)
-            return coords, numbers, charges
+            atom_mask = torch.ones(n, 1, dtype=torch.bool)
+            return coords, numbers, charges, atom_mask
 
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 

@@ -53,13 +53,13 @@ class TestPaddingInvariance:
         coord_pad, species_pad = model.coord_pad, model.species_pad
 
         # Alone: no padding at all.
-        c1, s1, q1 = pad_from_mols(
+        c1, s1, q1, _ = pad_from_mols(
             [small], engine, device, coord_pad=coord_pad, species_pad=species_pad
         )
         e_alone = model.forward(c1, s1, q1)[0][0]
 
         # Batched with a larger molecule: `small` is now padded to `large`'s size.
-        c2, s2, q2 = pad_from_mols(
+        c2, s2, q2, _ = pad_from_mols(
             [small, large], engine, device, coord_pad=coord_pad, species_pad=species_pad
         )
         e_padded = model.forward(c2, s2, q2)[0][0]

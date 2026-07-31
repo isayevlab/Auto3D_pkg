@@ -31,7 +31,7 @@ class TestOptimizingUsesModelFactory:
             opt = optimizing("dummy.sdf", "out.sdf", "AIMNET", device, config)
 
             # Check that create_model was called with the right model name and device
-            mock_factory.assert_called_once_with("AIMNET", device, use_ensemble=False)
+            mock_factory.assert_called_once_with("AIMNET", device)
             # Verify the adapter's properties are used
             assert opt.coord_pad == 0.0
             assert opt.species_pad == 0
@@ -256,7 +256,7 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
             m.SetProp("_Name", str(i)); w.write(m)
 
     def fake_ensemble_opt(net, coord, numbers, charges, param, device,
-                          species_pad=-1, progress_cb=None):
+                          atom_mask=None, progress_cb=None):
         n = len(coord)
         return dict(coord=coord.tolist(), ids=list(range(n)), energy=[0.0]*n,
                     fmax=[0.0]*n, he=[], close=[], timing={},

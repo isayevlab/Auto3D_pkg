@@ -5,7 +5,6 @@ neural network models, avoiding redundant loading across tests.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -63,21 +62,6 @@ def smiles10_path():
 def cyclooctane_path():
     """Path to cyclooctane.sdf test file."""
     return str(FILES_DIR / "cyclooctane.sdf")
-
-
-# Skip markers
-@pytest.fixture
-def skip_without_openeye():
-    """Skip test if OpenEye license is not available."""
-    if not os.environ.get("OE_LICENSE"):
-        pytest.skip("No OE_LICENSE environment variable set")
-
-
-@pytest.fixture
-def skip_without_gpu():
-    """Skip test if GPU is not available."""
-    if not torch.cuda.is_available():
-        pytest.skip("No GPU available")
 
 
 @pytest.fixture(autouse=True)

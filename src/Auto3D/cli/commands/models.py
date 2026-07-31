@@ -225,6 +225,7 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0) -> None
 
         import torch
 
+        from Auto3D.batch_opt.species import to_model_species
         from Auto3D.exceptions import NumericalError
         from Auto3D.model_factory import create_model, get_device
 
@@ -238,7 +239,12 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0) -> None
                   [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]],
                 dtype=torch.float, device=device,
             )
-            species = torch.tensor([[6, 1, 1, 1, 1]], device=device)
+            # Build species in the engine's own convention. Passing raw atomic
+            # numbers made the ANI2xt check evaluate a Cl+4C species and report
+            # success (audit C4).
+            species = torch.tensor(
+                [to_model_species([6, 1, 1, 1, 1], engine)], device=device
+            )
             charges = torch.tensor([0.0], device=device)
             energy, forces = adapter.forward(coords, species, charges)
             elapsed = time.time() - t0

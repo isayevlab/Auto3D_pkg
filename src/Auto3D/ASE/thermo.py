@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
+from Auto3D.batch_opt.species import to_model_species
 from Auto3D.constants import DEFAULT_OPT_STEPS, DEFAULT_THERMO_CONVERGENCE_THRESHOLD
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
@@ -115,9 +116,13 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
 class Calculator(ase.calculators.calculator.Calculator):
     """ASE calculator interface for AIMNET and ANI2xt"""
     implemented_properties = ['energy', 'forces']
-    def __init__(self, model, charge=0):
+    def __init__(self, model, charge=0, *, model_name):
         super().__init__()
         self.model = model
+        # Engine name in Auto3D's own convention (e.g. 'ANI2xt'), used by
+        # calculate() to route species through to_model_species so ANI2xt's
+        # 0-based network indices are built correctly (audit C3).
+        self.model_name = model_name
         params = list(self.model.parameters())
         for p in params:
             p.requires_grad_(False)
@@ -143,8 +148,13 @@ class Calculator(ase.calculators.calculator.Calculator):
 
         # Atomic numbers directly from ASE (element-complete: no hardcoded
         # symbol table, so any aimnet-supported element incl. Pd works).
-        species = torch.tensor(self.atoms.get_atomic_numbers(),
-                               dtype=torch.long, device=self.device)
+        # ANI2xt consumes 0-based network indices, not atomic numbers; every
+        # other engine passes through. Routing via the single owner keeps this
+        # site from drifting out of sync with batch_opt/padding.py (audit C3).
+        species = torch.tensor(
+            to_model_species(self.atoms.get_atomic_numbers().tolist(), self.model_name),
+            dtype=torch.long, device=self.device,
+        )
         coordinates = torch.tensor(self.atoms.get_positions()).to(self.device).to(self.dtype)
         coordinates = coordinates.requires_grad_(True)
 
@@ -156,7 +166,7 @@ class Calculator(ase.calculators.calculator.Calculator):
         self.results['forces'] = forces.squeeze(0).to('cpu').numpy()
 
 
-def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMNET') -> dict:
+def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), *, model_name) -> dict:
     """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
     conf = mol.GetConformer()
     # RDKit positions are float64; build the coordinate tensor as float32 to
@@ -167,8 +177,10 @@ def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), model_name='AIMN
     coord = torch.tensor(
         conf.GetPositions(), dtype=torch.float32, device=device
     ).unsqueeze(0)
-    numbers = torch.tensor([a.GetAtomicNum() for a in mol.GetAtoms()],
-                            device=device).unsqueeze(0)
+    numbers = torch.tensor(
+        to_model_species([a.GetAtomicNum() for a in mol.GetAtoms()], model_name),
+        device=device,
+    ).unsqueeze(0)
     charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
     return dict(coord=coord, numbers=numbers, charge=charge)
 
@@ -190,7 +202,7 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     # Wrap in EnForce_ANI for compatibility with existing code
     model = EnForce_ANI(model_adapter)
-    calculator = Calculator(model, charge)
+    calculator = Calculator(model, charge, model_name=model_name)
 
     return model_adapter, calculator
 
@@ -373,8 +385,10 @@ def aimnet_hessian_helper(
         return model(dct)['energy']  # energy unit: eV
     elif model_name == 'ANI2xt':
         device = coord.device
-        periodict2idx = {1:0, 6:1, 7:2, 8:3, 9:4, 16:5, 17:6}
-        numbers2 = torch.tensor([periodict2idx[num.item()] for num in numbers.squeeze()], device=device).unsqueeze(0)
+        numbers2 = torch.tensor(
+            to_model_species([int(num) for num in numbers.squeeze().tolist()], "ANI2xt"),
+            device=device,
+        ).unsqueeze(0)
         e = model(numbers2, coord)
         return e  # energy unit: eV
     elif model_name == 'ANI2x':

@@ -92,7 +92,7 @@ def n_steps(
     patience: int,
     energy_tol: float = DEFAULT_ENERGY_TOL,
     energy_patience: int = 3,
-    species_pad: int = -1,
+    atom_mask: torch.Tensor | None = None,
     progress_cb: Callable[[dict], None] | None = None,
 ) -> None:
     """Run n optimization steps for each input structure.
@@ -122,16 +122,25 @@ def n_steps(
             kept above float32 ULP at typical total energies so the criterion is live).
         energy_patience: Number of steps energy must be stable before considering
             converged (default 3).
-        species_pad: Atomic-number value used to pad short molecules up to the
-            batch's atom count. Forces on these ghost atom slots are zeroed
-            before the force-convergence reduction so convergence does not
-            depend on how the model treats padded atoms (default -1, which
-            matches no real species and is therefore a no-op for unpadded
-            batches).
+        atom_mask: Boolean mask, shape (batch, n_atoms), True for real atoms and
+            False for padded (ghost) atom slots. Forces on padded slots are
+            zeroed before the force-convergence reduction so convergence does
+            not depend on how the model treats padded atoms. Stored into
+            ``state['atom_mask']`` and subset alongside ``numbers``/``coord``
+            each step. Deriving this mask from a species sentinel value
+            (``numbers == species_pad``) breaks whenever a custom NNP's
+            padding value collides with a real species index -- the exact
+            convention Auto3D itself uses for ANI2xt, where 0 is hydrogen
+            (audit C13). Defaults to None, which is a no-op (every atom
+            treated as real) for unpadded batches or any caller that omits it.
     """
     numbers = state['numbers']
     charges = state['charges']
     coord = state['coord']
+
+    if atom_mask is None:
+        atom_mask = torch.ones_like(numbers, dtype=torch.bool)
+    state['atom_mask'] = atom_mask
 
     # Validate input state tensors before processing
     _validate_state(state)
@@ -173,6 +182,7 @@ def n_steps(
             break
         numbers = state['numbers'][not_converged]
         charges = state['charges'][not_converged]
+        atom_mask_subset = state['atom_mask'][not_converged]
         smallest_fmax = smallest_fmax0[not_converged]
         oscillating_count = state["oscillating_count"][not_converged]
         prev_e_subset = prev_energy[not_converged]
@@ -184,11 +194,13 @@ def n_steps(
         coord.requires_grad_(False)
 
         # Zero forces on padded atom slots so convergence is independent of how
-        # the model treats ghost atoms (species == species_pad). Use the
-        # loop-local `numbers` subset (state['numbers'][not_converged]) so the
-        # mask aligns with the current batch of f. Masking before the optimizer
-        # step also keeps padded atoms from drifting.
-        pad_mask = (numbers == species_pad).unsqueeze(-1)
+        # the model treats ghost atoms. atom_mask is True for real atoms.
+        # Deriving this from a sentinel value (numbers == species_pad) broke
+        # for any model whose species_pad collides with a real index (audit
+        # C13). Use the loop-local `atom_mask_subset` (state['atom_mask'][not_converged])
+        # so the mask aligns with the current batch of f. Masking before the
+        # optimizer step also keeps padded atoms from drifting.
+        pad_mask = ~atom_mask_subset.unsqueeze(-1)
         f = f.masked_fill(pad_mask, 0.0)
         # Detach the optimizer output so the next step starts from a leaf tensor.
         # Production adapters return detached forces, so coord never tracks grad
@@ -276,8 +288,8 @@ def n_steps(
     state['energy'] = e_final.detach().to(state['energy'].dtype)
     # Zero padded-atom force slots before the reduction, matching the in-loop
     # convergence check, so reported fmax is independent of how the model treats
-    # ghost atoms.
-    f_final = f_final.detach().masked_fill((state['numbers'] == species_pad).unsqueeze(-1), 0.0)
+    # ghost atoms. atom_mask is True for real atoms (audit C13).
+    f_final = f_final.detach().masked_fill(~state['atom_mask'].unsqueeze(-1), 0.0)
     state['fmax'] = f_final.norm(dim=-1).max(dim=-1)[0].to(state['fmax'].dtype)
 
     if istep == (n):

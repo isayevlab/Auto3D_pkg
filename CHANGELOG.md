@@ -5,6 +5,65 @@ All notable changes to Auto3D will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - unreleased
+
+### Breaking Changes
+
+- **`pad_from_mols` returns a 4-tuple** - `(coords, species, charges, atom_mask)`.
+  `atom_mask` is a `(batch, max_atoms)` boolean tensor, `True` for real atoms.
+  `ensemble_opt` and `n_steps` now take `atom_mask` in place of `species_pad`.
+  Padding was previously reconstructed by value-matching the `species_pad`
+  sentinel, which broke for any model whose sentinel collided with a real
+  species index.
+
+- **`pad_molecular_batch` removed** - use `pad_from_mols`.
+
+- **`ANI2XT_INDEX` and `getidx` moved out of `Auto3D.utils`** - import from
+  `Auto3D.batch_opt.species` instead. `getidx`'s per-atom, model-name string
+  dispatch is replaced by `to_model_species(atomic_numbers, model_name)`, which
+  converts a whole molecule at once.
+
+- **`Calculator` and `mol2aimnet_input` now require `model_name`** - both
+  previously defaulted to `'AIMNET'` (`src/Auto3D/ASE/thermo.py`), so a caller
+  who omitted the argument silently got the atomic-number passthrough instead
+  of ANI2xt's index conversion -- the same class of defect this release fixes,
+  one layer up at the call-site contract. Both parameters are now
+  keyword-only with no default; omitting one raises `TypeError`.
+
+- **`use_ensemble` removed** from `create_model`, `ModelFactory.create` and
+  `optimizing`, along with the `AUTO3D_USE_ENSEMBLE` environment variable.
+  The parameter reached only a warning and was part of the model cache key, so
+  `True` and `False` produced two identical cached models.
+
+- **`**kwargs` removed** from `create_model` and `ModelFactory.create`. It was
+  documented as passed to the adapter constructor and never referenced, so
+  misspelled arguments were silently ignored.
+
+### Fixed
+
+- **ANI2xt species conversion in the thermochemistry and health-check paths** -
+  ANI2xt is constructed with `periodic_table_index=False` everywhere, so it
+  expects 0-based network indices, but `ASE/thermo.py` and
+  `auto3d models test` passed raw atomic numbers. Hydrogen was evaluated by the
+  carbon network and carbon by the chlorine network, while N/O/F/S/Cl fell
+  outside the seven networks entirely. `calc_thermo(..., "ANI2xt")` results
+  from earlier releases are invalid. ANI2x was unaffected.
+
+- **Case-insensitive engine matching in species conversion** - `create_model`
+  dispatches case-insensitively, but species conversion previously required an
+  exact `"ANI2xt"` match, so `auto3d models test ani2xt` loaded the correct
+  model and then silently evaluated raw atomic numbers. Both now derive from
+  the same `MODEL_ANI2XT` constant.
+
+- **Padded atoms can no longer be mistaken for real ones** - a custom NNP
+  declaring `species_pad=0` with 0-based species indices previously had every
+  hydrogen's force zeroed and excluded from the convergence check, producing
+  output marked `Converged=True` with an understated `fmax`. That masking
+  happened before the FIRE optimizer step, and FIRE's velocity update is
+  purely force-driven from `v = 0`, so every affected hydrogen was frozen at
+  its input coordinate for the entire run - the output geometry itself was
+  wrong, not merely the convergence metadata.
+
 ## [3.5.0] - 2026-06-13
 
 ### Breaking Changes

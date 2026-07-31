@@ -172,9 +172,7 @@ New API for creating models directly:
    # Create a model for custom workflows
    model = create_model("AIMNET", device="cuda:0")
 
-   # NOTE: ``use_ensemble`` is deprecated and has no effect in v3.5 -- a single
-   # registry model is always used (passing use_ensemble=True only warns). Pick a
-   # specific registry model instead:
+   # Pick a specific registry model for different accuracy/speed tradeoffs:
    model = create_model("aimnet2-2025", device="cuda:0")
 
 Environment variables
@@ -187,9 +185,12 @@ New environment variables for runtime configuration:
 
 .. note::
 
-   ``AUTO3D_USE_ENSEMBLE`` and the ``use_ensemble=True`` argument are deprecated
-   and have no effect in v3.5 (setting them only warns); a single AIMNet2
-   registry model is always used.
+   ``AUTO3D_USE_ENSEMBLE`` and the ``use_ensemble`` argument, deprecated (and
+   already a no-op) since v3.5, were removed entirely in v4.0 -- passing
+   ``use_ensemble`` now raises ``TypeError``. See :doc:`migration-4.0` for the
+   full list of v4.0 breaking changes. A single AIMNet2 registry model is
+   always used; pick a specific registry name (for example ``aimnet2-2025``)
+   for different accuracy/speed tradeoffs.
 
 Migration Checklist
 -------------------
