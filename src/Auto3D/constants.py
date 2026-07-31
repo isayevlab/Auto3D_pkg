@@ -77,3 +77,52 @@ DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
 DEFAULT_ENERGY_TOL = 1e-3
 DEFAULT_ENERGY_PATIENCE = 3  # Steps energy must be stable before converging
 DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
+
+# A linear molecule has one vanishing principal moment of inertia; a bent one
+# has two comparable large moments and a much smaller third. This is the
+# largest smallest-to-largest moment ratio still treated as linear. It is
+# dimensionless, so unlike an absolute coordinate tolerance it behaves the same
+# for a diatomic and for a long chain.
+#
+# Placed by measurement, not by fitting test cases: sweeping a symmetric
+# triatomic's bend angle puts this boundary at ~22 degrees from linear (ratio
+# vs. angle-off-linear for a CO2-like triatomic: 10 deg -> 2.1e-3, 20 deg ->
+# 8.4e-3, 22 deg -> 1.0e-2, 30 deg -> 1.9e-2). That separates a linear
+# molecule left imperfectly optimized -- CO2's real bending mode is thermally
+# populated to several degrees at room temperature, e.g. 20 degrees off linear
+# still measures only 8.4e-3 -- from a molecule that is genuinely bent, e.g.
+# NO2, the most nearly-linear common bent species, at 134 degrees (46 degrees
+# off linear), which measures 5.2e-2. 1e-2 sits about an order of magnitude
+# above the thermal case and ~5x below the genuinely bent one.
+LINEARITY_MOMENT_RATIO = 1e-2
+
+# The ratio above is a size-relative test, not a shape test: for a rigid rod,
+# the largest moment grows as N^2 (mass x length^2, summed over atoms further
+# and further from the center), so the same absolute bend shrinks the ratio as
+# the molecule gets longer. A long chain can therefore have every atom sitting
+# a full Angstrom off the molecular axis -- genuinely bent -- while still
+# passing the ratio test outright. 2,4,6-octatriyne (CC#CC#CC#CC) measures
+# ratio 5.7e-3 (below the 1e-2 threshold, i.e. "linear") with atoms 1.02 A off
+# axis; all-anti n-C18H38 measures 9.9e-3 with atoms 1.7 A off axis. Both are
+# visibly bent, not linear.
+#
+# This is an absolute-length companion test, so it is placed by measured
+# separation between the two populations rather than by fitting: the largest
+# perpendicular offset seen among genuinely linear cases (CO2 thermally bent
+# 10 degrees, still populated at room temperature) is 0.074 A; the smallest
+# offset seen among genuinely bent cases this test must catch (octatriyne) is
+# 1.023 A. 0.25 A sits 3.4x above the former and 4.1x below the latter.
+# _is_collinear requires both this test AND the ratio test to call a molecule
+# linear -- neither alone is safe: dropping the ratio test risks calling a
+# truly linear molecule nonlinear from residual optimizer noise, and ASE's
+# nonlinear rotational entropy divides by sqrt(I1*I2*I3), which blows up as
+# I_min -> 0.
+LINEARITY_MAX_PERP_ANGSTROM = 0.25  # Å, max allowed atom distance from the principal axis
+
+# Imaginary modes below this magnitude (cm^-1) are numerical artifacts of an
+# NNP Hessian at conformer-generation convergence; above it, the structure is a
+# saddle point and its "free energy" is not a minimum's.
+IMAGINARY_MODE_CUTOFF_CM = 50.0
+
+# eV per wavenumber, for reporting vibrational energies in cm^-1.
+EV_PER_WAVENUMBER = 1.0 / 8065.54429

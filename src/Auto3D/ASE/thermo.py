@@ -4,6 +4,8 @@ Calculating thermodynamic properties using Auto3D output
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
@@ -19,10 +21,16 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
-from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.species import to_model_species
-from Auto3D.constants import DEFAULT_OPT_STEPS, DEFAULT_THERMO_CONVERGENCE_THRESHOLD
+from Auto3D.constants import (
+    DEFAULT_OPT_STEPS,
+    DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
+    EV_PER_WAVENUMBER,
+    IMAGINARY_MODE_CUTOFF_CM,
+    LINEARITY_MAX_PERP_ANGSTROM,
+    LINEARITY_MOMENT_RATIO,
+)
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
@@ -38,20 +46,53 @@ logger = get_logger(__name__)
 
 
 def _is_collinear(atoms: ase.Atoms) -> bool:
-    """True if all atoms lie on a single line (within tolerance).
+    """True if all atoms lie on a single line.
 
-    The rank tolerance (1e-3, in Angstrom) is an absolute geometric threshold,
-    so a slightly bent but floppy molecule whose deviation from a line is below
-    ~1e-3 A is classified linear. That changes the vibrational DOF count
-    (3N-5 vs 3N-6) and the rotational partition function (1 vs 3 rotational
-    constants). A moment-of-inertia cross-check (one near-zero principal moment
-    => linear) would be more robust for borderline geometries; not done here.
+    Decided by the principal moments of inertia rather than by a rank test on
+    raw coordinates. A rank tolerance is an absolute length in Angstrom, so it
+    calls a CO2 bent by more than ~1e-3 A nonlinear -- inventing a third
+    rotational degree of freedom and discarding a real 667 cm-1 bend, worth
+    ~0.95 kcal/mol of zero-point energy before its thermal contribution. The
+    moment ratio is dimensionless and scales with the molecule, so it behaves
+    the same for a diatomic and for a long polyyne.
+
+    A linear molecule has one vanishing principal moment, so the first test is
+    that the smallest moment is negligible against the largest. That test
+    alone is not sufficient: the largest moment grows as N^2 (mass x
+    length^2, summed over atoms further and further from the center), so for
+    a long chain the same absolute bend shrinks the ratio as the molecule gets
+    longer -- the ratio becomes a size cutoff, not a shape test. 2,4,6-
+    octatriyne (CC#CC#CC#CC) is the case this misses: ratio 5.7e-3, below the
+    1e-2 threshold, with every atom sitting 1.02 A off the molecular axis --
+    visibly bent, not linear. The second, load-bearing test is therefore an
+    absolute one: no atom may sit more than LINEARITY_MAX_PERP_ANGSTROM from
+    the principal axis (the eigenvector of the smallest moment), measured
+    from the center of mass. A molecule is linear only when both tests agree;
+    see LINEARITY_MOMENT_RATIO and LINEARITY_MAX_PERP_ANGSTROM in constants.py
+    for the measurements that placed each threshold.
     """
-    pos = atoms.get_positions()
-    if len(pos) <= 2:
+    if len(atoms) <= 2:
         return True
-    v = pos - pos[0]
-    return bool(np.linalg.matrix_rank(v[1:], tol=1e-3) <= 1)
+    moments, axes = atoms.get_moments_of_inertia(vectors=True)
+    largest = float(np.max(moments))
+    if largest <= 0.0:
+        # All atoms coincident; degenerate but not meaningfully nonlinear.
+        return True
+    smallest_idx = int(np.argmin(moments))
+    ratio_ok = float(moments[smallest_idx]) / largest < LINEARITY_MOMENT_RATIO
+
+    # axes[i] is the eigenvector belonging to moments[i] (ASE returns the
+    # eigenvectors transposed, one full axis per row -- see
+    # Atoms.get_moments_of_inertia). The smallest-moment axis is the
+    # molecule's long axis for a rod-like structure.
+    axis = axes[smallest_idx]
+    axis = axis / np.linalg.norm(axis)
+    offsets = atoms.get_positions() - atoms.get_center_of_mass()
+    perpendicular = offsets - np.outer(offsets @ axis, axis)
+    max_perp = float(np.max(np.linalg.norm(perpendicular, axis=1)))
+    perp_ok = max_perp < LINEARITY_MAX_PERP_ANGSTROM
+
+    return bool(ratio_ok and perp_ok)
 
 
 def _detect_geometry(atoms: ase.Atoms) -> str:
@@ -67,6 +108,15 @@ def _detect_geometry(atoms: ase.Atoms) -> str:
     return "nonlinear"
 
 
+#: Whether the sigma=1 defaulting warning has already fired this run. Reset by
+#: calc_thermo (mirroring the mechanism of the "once per run" INFO log there)
+#: so a 10,000-molecule batch logs the caveat once instead of once per
+#: defaulted molecule. The unparseable-property warning below is unrelated and
+#: intentionally NOT deduplicated -- it signals a data problem on a specific
+#: molecule, not a blanket default, and should be much rarer in practice.
+_symmetry_default_warned = False
+
+
 def _symmetry_number(mol: Chem.Mol) -> int:
     """External rotational symmetry number for IdealGasThermo.
 
@@ -78,13 +128,80 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     cyclohexane 128x), biasing Gibbs energy by up to ~3 kcal/mol. sigma=1 is a
     safe default; set the 'symmetry_number' property to the correct value
     (e.g. 2 for water, 12 for benzene, 6 for ethane) when known.
+
+    Defaulting to sigma=1 (whether because the property is absent or
+    unparseable) now warns, since the bias does not cancel between tautomers,
+    isomers or reaction partners the way it does between conformers of one
+    species. The defaulting-from-absence warning fires once per calc_thermo
+    run, not once per molecule, since every molecule lacking the property
+    triggers the identical message.
     """
+    global _symmetry_default_warned
     if mol.HasProp("symmetry_number"):
         try:
             return max(1, int(mol.GetProp("symmetry_number")))
         except (ValueError, TypeError):
+            logger.warning(
+                "Molecule %s has an unparseable 'symmetry_number' property "
+                "(%r); falling back to sigma=1.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                mol.GetProp("symmetry_number"),
+            )
             return 1
+    if not _symmetry_default_warned:
+        logger.warning(
+            "No 'symmetry_number' property on %s; using sigma=1. Gibbs energy is "
+            "biased low by RT*ln(sigma) -- 1.47 kcal/mol for benzene at 298 K. "
+            "This cancels between conformers of one species but NOT between "
+            "tautomers, isomers or reaction partners. Set the 'symmetry_number' "
+            "property (2 for water, 6 for ethane, 12 for benzene) when known. "
+            "(Logged once per run; later molecules defaulting the same way are "
+            "silent.)",
+            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+        )
+        _symmetry_default_warned = True
     return 1
+
+
+#: SMARTS for species that draw closed-shell but whose ground state is not.
+#: Deliberately tiny -- a general open-shell perception is a research problem,
+#: and a wrong "this is fine" is worse than no entry. O2 is the case that
+#: actually appears in practice.
+_OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
+
+
+def _drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
+    """True for known species whose closed-shell drawing hides an open shell.
+
+    Caveat: singlet O2 (a real, if short-lived, excited state) is written with
+    the identical closed-shell SMILES/graph as ground-state triplet O2, so
+    this predicate cannot tell them apart -- the warning it drives may not
+    apply if the input was actually meant to represent singlet O2.
+    """
+    try:
+        canonical = Chem.MolToSmiles(Chem.RemoveHs(mol))
+    except (ValueError, RuntimeError):
+        return False
+    return canonical in {
+        Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in _OPEN_SHELL_DRAWN_CLOSED
+    }
+
+
+def _electron_count(mol: Chem.Mol) -> int:
+    """Total electron count: sum of atomic numbers minus the formal charge.
+
+    Sums over ``Chem.AddHs(mol)`` rather than ``mol`` directly: a mol built
+    without explicit hydrogens (e.g. straight from ``MolFromSmiles``, no
+    ``AddHs`` call) stores them only as an implicit-H count on each heavy
+    atom, not as their own ``Atom`` objects, so summing ``GetAtomicNum()``
+    over ``mol.GetAtoms()`` would silently skip every implicit hydrogen and
+    undercount electrons. ``Chem.AddHs`` returns a new mol (the input is not
+    mutated) and is idempotent when hydrogens are already explicit, so this
+    is correct either way.
+    """
+    return sum(
+        a.GetAtomicNum() for a in Chem.AddHs(mol).GetAtoms()
+    ) - rdmolops.GetFormalCharge(mol)
 
 
 def _resolve_multiplicity(mol: Chem.Mol) -> int:
@@ -97,9 +214,71 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     entropy term for every radical. The NNP *energy* stays closed-shell
     regardless (AIMNet2 takes only coords/species/charge, no spin), so warn for
     open-shell species that the energy is an approximation.
+
+    The property is parsed with plain Python ``int()`` rather than RDKit's
+    ``GetUnsignedProp``: the latter parses as an *unsigned* C++ integer, so a
+    negative string like "-1" silently wraps around to 4294967295 (2**32 - 1)
+    and "0" parses cleanly to 0 -- neither of those failure modes raises, so a
+    try/except around ``GetUnsignedProp`` cannot catch them, and both then
+    flow into IdealGasThermo's ``R*ln(multiplicity)`` electronic-entropy term
+    as nonsense (spin = 2147483647.0 and -0.5, respectively). ``int()`` on the
+    same string preserves the sign, so both are correctly rejected as
+    multiplicities below the physically valid minimum of 1 (2S+1 for S >= 0).
+
+    The lower bound alone is not sufficient: ``int("4294967295")`` parses
+    cleanly (no wraparound -- that only afflicts ``GetUnsignedProp``) to a
+    huge but nominally ">= 1" value, which passed the lower-bound check
+    unchanged and fed spin = 2147483647.0 into ``R*ln(multiplicity)`` with no
+    warning, shifting Gibbs energy by 13.1 kcal/mol at 298.15 K. A
+    multiplicity is also bounded above: a molecule with ``n_electrons``
+    electrons cannot exceed multiplicity ``n_electrons + 1`` (every electron
+    unpaired), and 2S+1 must have parity opposite the electron count --
+    integer S (odd multiplicity) for an even-electron species, half-integer S
+    (even multiplicity) for an odd-electron one. Both the too-large and the
+    wrong-parity cases are rejected the same way as the too-small case:
+    warn and fall back to the radical-derived value.
     """
     if mol.HasProp("multiplicity"):
-        return mol.GetUnsignedProp("multiplicity")
+        try:
+            value = int(mol.GetProp("multiplicity"))
+        except (ValueError, TypeError):
+            logger.warning(
+                "Molecule %s has an unparseable 'multiplicity' property; "
+                "deriving it from the radical-electron count instead.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            )
+        else:
+            n_electrons = _electron_count(mol)
+            max_multiplicity = n_electrons + 1
+            if value < 1:
+                logger.warning(
+                    "Molecule %s has an invalid 'multiplicity' property (%d); "
+                    "multiplicity must be >= 1 (2S+1 for spin S >= 0). "
+                    "Deriving it from the radical-electron count instead.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value,
+                )
+            elif value > max_multiplicity:
+                logger.warning(
+                    "Molecule %s has an invalid 'multiplicity' property (%d); "
+                    "a %d-electron species cannot exceed multiplicity %d "
+                    "(2S+1 with every electron unpaired). Deriving it from "
+                    "the radical-electron count instead.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value, n_electrons, max_multiplicity,
+                )
+            elif value % 2 == n_electrons % 2:
+                logger.warning(
+                    "Molecule %s has an invalid 'multiplicity' property (%d); "
+                    "its parity is inconsistent with a %d-electron species "
+                    "(2S+1 requires odd multiplicity for an even-electron "
+                    "species, even multiplicity for an odd-electron one). "
+                    "Deriving it from the radical-electron count instead.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value, n_electrons,
+                )
+            else:
+                return value
     n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
     multiplicity = n_radical + 1
     mol.SetUnsignedProp("multiplicity", int(multiplicity))
@@ -109,6 +288,18 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             "multiplicity %d); the NNP energy is a closed-shell approximation.",
             n_radical,
             multiplicity,
+        )
+    elif _drawn_closed_shell_but_open_shell(mol):
+        # O=O draws as a closed-shell double bond and carries zero radical
+        # electrons, but its ground state is a triplet. Nothing in the graph
+        # distinguishes it, so the electronic entropy term is silently wrong
+        # unless the caller sets 'multiplicity' explicitly.
+        logger.warning(
+            "%s matches a species whose ground state is open-shell but whose "
+            "drawing is closed-shell; multiplicity 1 is assumed and the "
+            "electronic entropy term will be wrong. Set the 'multiplicity' "
+            "property explicitly.",
+            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
         )
     return multiplicity
 
@@ -206,22 +397,40 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     return model_adapter, calculator
 
-def mol2atoms(mol: Chem.Mol) -> Atoms:
+def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     """Convert an RDKit molecule to an ASE Atoms object.
 
     Args:
         mol: RDKit molecule with a conformer.
+        positions: Coordinates to use instead of the mol's own conformer, for
+            callers (e.g. vib_hessian) that need a relaxed geometry the
+            conformer does not yet hold. Defaults to the conformer's positions.
 
     Returns:
-        ASE Atoms object with the same coordinates and species.
+        ASE Atoms object with the same species, the requested coordinates,
+        and isotope masses applied where the mol carries isotope labels.
     """
-    coord = mol.GetConformer().GetPositions()
+    coord = (
+        mol.GetConformer().GetPositions() if positions is None
+        else np.asarray(positions, dtype=float)
+    )
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     atoms = Atoms(species, coord)
+    if any(a.GetIsotope() for a in mol.GetAtoms()):
+        # Isotope masses feed the rotational partition function directly, and
+        # (since the moment-of-inertia linearity test) now the linear/nonlinear
+        # classification too: ASE's per-element default is the natural-abundance
+        # average mass, so a labeled D/13C/15N atom would silently keep
+        # protium/12C/14N mass otherwise. RDKit's Atom.GetMass() already returns
+        # the isotope-specific mass when GetIsotope() is nonzero and the
+        # ordinary average mass otherwise, so this is a no-op for unlabeled
+        # input -- the symbol-only path above is unchanged for ordinary molecules.
+        atoms.set_masses([a.GetMass() for a in mol.GetAtoms()])
     return atoms
 
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,
-                device=torch.device('cpu'), model_name='AIMNET'):
+                device=torch.device('cpu'), model_name='AIMNET',
+                *, positions=None):
     '''return a VibrationsData object
     model: an AIMNet2Calculator (AIMNET / aimnet registry) or an nn.Module
     (ANI2xt / ANI2x / userNNP) that can be used to calculate the Hessian.
@@ -232,16 +441,28 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     aimnet nn.Module instead silently drops those external energy terms (D3 is
     attractive at bonding range), stiffening every bond and shifting C-H
     stretches up by ~4% (~130 cm-1). ANI/custom models are plain nn.Modules
-    with the full energy in the graph, so they keep the autograd path.'''
-    # get the ASE atoms object
-    coord = mol.GetConformer().GetPositions()
-    species = [a.GetSymbol() for a in mol.GetAtoms()]
-    charge = rdmolops.GetFormalCharge(mol)
-    atoms = Atoms(species, coord)
+    with the full energy in the graph, so they keep the autograd path.
+
+    Args:
+        positions: Geometry to build the Hessian from. Defaults to the mol's
+            conformer, which is only correct when no relaxation has happened
+            since the conformer was last synced. The caller (do_mol_thermo)
+            passes the relaxed geometry explicitly here in addition to
+            syncing mol's conformer beforehand, so the Hessian is guaranteed
+            to describe the same structure as the energy regardless of sync
+            order.'''
+    # Built through mol2atoms (not a bare Atoms(species, coord) call) so
+    # isotope masses are applied here exactly as they are for the other two
+    # Atoms constructions (mol2atoms's own default path, calc_thermo's
+    # optimization loop) -- otherwise the moments of inertia, VibrationsData's
+    # mass weighting, and the rotational partition function silently disagree
+    # for isotopically labeled input.
+    atoms = mol2atoms(mol, positions=positions)
     atoms.set_calculator(ase_calculator)
+    charge = rdmolops.GetFormalCharge(mol)
 
     # get the Hessian
-    coord = torch.tensor(coord).to(device).unsqueeze(0)
+    coord = torch.tensor(atoms.get_positions()).to(device).unsqueeze(0)
     num_atoms = coord.shape[1]
     numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
     # aimnet's AIMNet2 model requires a 1D charge tensor (one entry per
@@ -272,6 +493,116 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     vib = VibrationsData(atoms, hess)
     return vib
 
+@dataclass
+class VibrationAnalysis:
+    """Verdict on a vibrational spectrum, computed without touching a model."""
+
+    energies: list[complex]
+    n_imag: int
+    max_imag_cm: float
+    imag_cutoff_cm: float
+
+    @property
+    def is_transition_state(self) -> bool:
+        """True when an imaginary mode is too large to be numerical noise."""
+        return self.max_imag_cm >= self.imag_cutoff_cm
+
+
+def analyze_vibrations(
+    vib_energies,
+    n_atoms: int,
+    geometry: str,
+    *,
+    imag_cutoff_cm: float = IMAGINARY_MODE_CUTOFF_CM,
+) -> VibrationAnalysis:
+    """Classify a vibrational spectrum.
+
+    ASE's ``ignore_imag_modes`` sorts by absolute value and drops every
+    imaginary mode alike, so a -400 cm^-1 reaction coordinate is discarded on
+    the same footing as a -15 cm^-1 artifact and the saddle point is reported
+    as a minimum. Separating the two is the point of ``max_imag_cm``: the
+    caller can keep tolerating artifacts while refusing to publish a Gibbs
+    energy for a transition state.
+
+    ``VibrationsData.get_energies()`` returns all 3N modes, including
+    translation and rotation -- eigenvalues that should be exactly zero but
+    come out as small positive or negative numerical noise, i.e. some of them
+    routinely present as spurious "imaginary" modes. Counting imaginary modes
+    over the raw 3N set therefore counts these alongside genuine vibrations:
+    measured on a 5-atom Lennard-Jones cluster at Auto3D's own 0.01 eV/A
+    convergence threshold, this reports 5 spurious imaginary modes up to 19i
+    cm^-1 while ASE's own IdealGasThermo (which performs the same cut before
+    counting) reports 0.
+
+    To avoid that, this mirrors ``ase.thermochemistry.IdealGasThermo.__init__``
+    exactly: sort a *copy* of the energies by absolute value, ascending, then
+    keep only the last ``3*n_atoms - 6`` (nonlinear) or ``3*n_atoms - 5``
+    (linear) entries -- ASE's own slice for separating genuine vibrations from
+    translation/rotation, which are the smallest-magnitude modes by
+    construction. Monatomic species have no vibrational modes at all. See
+    ``ase/thermochemistry.py``, ``IdealGasThermo.__init__``: ``vib_energies =
+    list(vib_energies); vib_energies.sort(key=np.abs)`` then
+    ``vib_energies[-(3*natoms-6):]`` / ``[-(3*natoms-5):]`` / ``[]``, as
+    installed (ase 3.27.0). If a future ASE version changes this slicing, this
+    function's behavior should follow the installed source, not this comment.
+
+    One classification detail deliberately does NOT mirror ASE: this function
+    calls a mode imaginary when ``imag(v) != 0``, while ASE's own
+    ``_clean_vib_energies`` keeps a mode only when ``real(v) > 0``, i.e. it
+    treats ``real(v) <= 0`` as imaginary. The two agree everywhere except for
+    a mode that is exactly zero (``complex(0, 0)``): this function calls that
+    real (not imaginary), ASE calls it imaginary. An exactly-zero mode is not
+    a numerical-noise case -- floating-point Hessian eigenvalues essentially
+    never land on precisely zero -- so in practice it only shows up for a
+    genuinely singular mode, e.g. a dissociated system where a fragment's
+    separation coordinate carries no restoring force at all. Matching ASE
+    exactly here would reclassify legitimate near-zero (but nonzero-real,
+    zero-imaginary) vibrational modes as imaginary, which is not wanted, so
+    this divergence is intentional and only matters for that dissociated-system
+    edge case.
+
+    Args:
+        vib_energies: Complex vibrational energies in eV, as ASE returns them
+            (all 3N modes, translation/rotation included); an imaginary mode
+            has a nonzero imaginary part.
+        n_atoms: Number of atoms, to compute how many of the 3N modes are
+            genuinely vibrational.
+        geometry: 'monatomic', 'linear', or 'nonlinear', as classified by
+            ``_detect_geometry``.
+        imag_cutoff_cm: Magnitude above which an imaginary mode means the
+            structure is a saddle point, not a noisy minimum.
+
+    Returns:
+        A :class:`VibrationAnalysis`. ``energies`` is the full, untouched
+        input, still all 3N modes in input order -- ``IdealGasThermo`` is
+        given this same full set and performs its own equivalent slice
+        internally, so trimming it here would double-cut and delete genuine
+        vibrations. Only ``n_imag`` and ``max_imag_cm`` are computed from the
+        vibration-only subset.
+    """
+    energies = [complex(e) for e in vib_energies]
+
+    if geometry == "monatomic":
+        vibrational: list[complex] = []
+    else:
+        n_needed = 3 * n_atoms - (5 if geometry == "linear" else 6)
+        vibrational = sorted(energies, key=abs)[-n_needed:] if n_needed > 0 else []
+
+    n_imag = 0
+    max_imag_cm = 0.0
+    for value in vibrational:
+        if abs(value.imag) > 0.0:
+            n_imag += 1
+            max_imag_cm = max(max_imag_cm, abs(value.imag) / EV_PER_WAVENUMBER)
+
+    return VibrationAnalysis(
+        energies=energies,
+        n_imag=n_imag,
+        max_imag_cm=max_imag_cm,
+        imag_cutoff_cm=imag_cutoff_cm,
+    )
+
+
 def do_mol_thermo(mol: Chem.Mol,
                   atoms: ase.Atoms,
                   model: torch.nn.Module,
@@ -279,7 +610,14 @@ def do_mol_thermo(mol: Chem.Mol,
                   T=298.15, model_name='AIMNET'):
     """For a RDKit mol object, calculate its thermochemistry properties.
     model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian"""
-    vib = vib_hessian(mol, atoms.get_calculator(), model, device, model_name=model_name)
+    # atoms already holds the relaxed (post-BFGS) geometry; everything below --
+    # the Hessian, the energy, the geometry classification and the moments of
+    # inertia -- is computed from these coordinates directly (vib_hessian takes
+    # them via the explicit `positions=` argument, not from mol's conformer),
+    # so nothing here depends on mol's conformer being in sync yet.
+    coord = atoms.get_positions()
+    vib = vib_hessian(mol, atoms.get_calculator(), model, device,
+                      model_name=model_name, positions=coord)
     vib_e = vib.get_energies()
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
@@ -292,14 +630,30 @@ def do_mol_thermo(mol: Chem.Mol,
     # routinely yield one or two tiny artifact imaginary modes. Dropping them
     # (ignore_imag_modes=True) keeps otherwise-valid thermochemistry instead of
     # ASE raising ValueError and the whole molecule being discarded.
-    n_imag = int(np.sum(np.abs(np.imag(vib_e)) > 0))
-    if n_imag > 0:
+    name = mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule"
+    analysis = analyze_vibrations(vib_e, n_atoms=len(atoms), geometry=geometry)
+    if analysis.n_imag > 0:
         logger.warning(
-            "%d imaginary vibrational mode(s) ignored in thermochemistry for "
-            "%s; treat the result as approximate.",
-            n_imag,
-            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
+            "they are dropped from the thermochemistry, so treat the result "
+            "as approximate.",
+            analysis.n_imag, name, analysis.max_imag_cm,
         )
+    if analysis.is_transition_state:
+        # Well above the numerical-artifact scale: this is a reaction
+        # coordinate, and a "free energy" computed here is a saddle point's,
+        # not a minimum's. Record it so a consumer can filter, rather than
+        # emitting a number that looks like every other one.
+        logger.warning(
+            "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
+            "artifact threshold: this geometry is a saddle point, not a "
+            "minimum. Its thermochemistry is reported but marked.",
+            name, analysis.max_imag_cm, analysis.imag_cutoff_cm,
+        )
+    mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
+    mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
+    mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
+    vib_e = analysis.energies
     thermo = IdealGasThermo(
         vib_energies=vib_e,
         potentialenergy=e,
@@ -316,7 +670,7 @@ def do_mol_thermo(mol: Chem.Mol,
     # Standard state is 1 atm (101325 Pa). ASE's internal reference is 1 bar
     # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
     # 1 atm -- matching ORCA/Gaussian. The translational-entropy difference vs
-    # 1 bar is ~0.016 kcal/mol.
+    # 1 bar is R*T*ln(1.01325) = ~0.0078 kcal/mol at 298.15 K.
     S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
     G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
 
@@ -325,41 +679,69 @@ def do_mol_thermo(mol: Chem.Mol,
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
     mol.SetProp("E_hartree", str(e * ev2hatree))
-    
-    #Updating ASE atoms coordinates into mol
-    coord = atoms.get_positions()
-    for i, atom in enumerate(mol.GetAtoms()):
-        mol.GetConformer().SetAtomPosition(atom.GetIdx(), coord[i])
+
+    # Only now, with every thermo property computed and set, overwrite mol's
+    # conformer with the relaxed geometry. Deliberately deferred from the top
+    # of this function: calc_thermo calls this inside a try block and appends
+    # `mol` itself (not a copy) to mols_failed on an exception, so syncing
+    # early would leave a failed record's conformer holding a partially- or
+    # never-converged relaxed geometry with none of the properties that would
+    # justify it, instead of the pristine input geometry it came in with.
+    conformer = mol.GetConformer()
+    for i in range(mol.GetNumAtoms()):
+        conformer.SetAtomPosition(i, coord[i])
+
     return mol
 
 def _load_hessian_model(model_name: str, device):
     """Return a Hessian/energy evaluator for vib_hessian.
 
     For AIMNET and aimnet registry names this returns the AIMNet2Calculator
-    itself (fp32 — whole-graph fp64 upcast is false precision). vib_hessian
-    routes it through the calculator's native analytic Hessian, which runs the
-    full energy pipeline including external D3 dispersion and Coulomb; returning
-    the bare ``calc.model`` and autograd-differentiating it would silently drop
-    those external terms. ANI2xt/ANI2x and custom paths return fp64 nn.Modules,
-    which vib_hessian differentiates with torch.autograd.functional.hessian.
-    """
-    if model_name == "ANI2xt":
-        return ANI2xt(device).double()
-    if model_name == "ANI2x":
-        import torchani
-        return torchani.models.ANI2x(periodic_table_index=True).to(device).double()
-    if Path(model_name).exists():
-        # Custom NNP: TorchScript archive or eager nn.Module, cast to fp64
-        # (shared load contract -- see Auto3D.models.loading.load_custom_nnp).
-        from Auto3D.models.loading import load_custom_nnp
-        return load_custom_nnp(model_name, device, double=True)
-    # AIMNET or any aimnet registry alias
-    from aimnet.calculators import AIMNet2Calculator
+    itself (fp32 — whole-graph fp64 upcast is false precision), obtained via
+    ``create_model(...).calculator`` -- ModelFactory is the single owner of
+    name -> adapter dispatch (including alias resolution, e.g. "AIMNET" ->
+    the registry default), so this branch is routed through it rather than
+    hand-rolling that resolution and constructing a second AIMNet2Calculator
+    here. AIMNet2Adapter stores the calculator it built internally
+    (``self._calc``); the ``calculator`` property on the adapter exposes it.
+    This is required (not merely convenient) because vib_hessian dispatches
+    on ``isinstance(model, AIMNet2Calculator)`` to use the calculator's
+    native analytic Hessian, which runs the full energy pipeline including
+    the external D3 dispersion and Coulomb modules -- returning the adapter's
+    bare ``.model`` instead (or differentiating it) would silently drop those
+    external terms. ``use_cache=True`` (the default, left unset below) is
+    safe here: nothing on this path mutates the returned object's dtype in
+    place, unlike the ANI2xt/ANI2x/custom branches below. Keeping the cache
+    also means this shares the same cached AIMNet2Adapter as
+    model_name2model_calculator's call for the optimization loop earlier in
+    calc_thermo (when torch.compile is off, the normal case, both calls
+    resolve to the same (name, device, compile_model) cache key), avoiding a
+    second full AIMNet2 load per calc_thermo call.
 
-    from Auto3D.constants import DEFAULT_AIMNET_MODEL
-    name = DEFAULT_AIMNET_MODEL if model_name.upper() == "AIMNET" else model_name
-    calc = AIMNet2Calculator(name, device=device)
-    return calc
+    ANI2xt/ANI2x and custom paths return fp64 nn.Modules, which vib_hessian
+    differentiates with torch.autograd.functional.hessian. These ARE routed
+    through ModelFactory (the single owner of name -> adapter dispatch) with
+    its cache disabled: the module handed back here is upcast to fp64 in
+    place. For ANI2xt/ANI2x, ModelFactory's cache is shared with
+    model_name2model_calculator's fp32 instance used for the optimization
+    loop immediately afterwards in calc_thermo -- reusing a cached entry here
+    would silently upcast that shared fp32 model too, so use_cache=False
+    matters there. For a custom model path, ModelFactory.create() returns a
+    fresh CustomModelAdapter before ever consulting its cache (a custom path
+    is never cached, see ModelFactory.create's step 2), so use_cache has no
+    effect on that branch specifically; it is still passed as False here for
+    a single uniform call across all three cases, not because it changes
+    behavior for the custom path.
+    """
+    if model_name in ("ANI2xt", "ANI2x") or Path(model_name).exists():
+        # compile_model=False: torch.compile guards on dtype, and nothing in
+        # this autograd-Hessian path benefits from it anyway.
+        adapter = create_model(model_name, device, compile_model=False, use_cache=False)
+        return adapter.model.double()
+    # AIMNET or any aimnet registry alias: ModelFactory resolves the "AIMNET"
+    # legacy alias to the registry default internally (see
+    # ModelFactory.create step 3), so model_name is passed through unchanged.
+    return create_model(model_name, device, compile_model=False).calculator
 
 
 def aimnet_hessian_helper(
@@ -397,6 +779,102 @@ def aimnet_hessian_helper(
     elif Path(model_name).exists():
         e = model.forward(numbers, coord, charge)
         return e  # energy unit: eV
+    else:
+        # Every aimnet registry alias (aimnet2-2025, aimnet2-nse, ...) and the
+        # lowercase 'aimnet' reach here: none matched a branch, and without
+        # this the function fell off the end returning None, which then flowed
+        # into torch.autograd.functional.hessian and failed with an error
+        # naming neither the model nor the dispatch.
+        raise ValueError(
+            f"aimnet_hessian_helper cannot evaluate model_name={model_name!r}. "
+            "Recognized values are 'AIMNET', 'ANI2xt', 'ANI2x', or a path to a "
+            "custom NNP file. AIMNet2 registry models are evaluated through "
+            "the calculator's analytic Hessian, not this autograd path."
+        )
+
+def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> bool:
+    """Relax ``atoms`` and report whether it reached a stationary point.
+
+    ``BFGS.run`` returns True when it converged, and nothing used to read that.
+    A structure that exhausted its step budget therefore received a Hessian and
+    a Gibbs energy indistinguishable from a converged one -- but the harmonic
+    approximation is only defined at a stationary point, so those numbers are
+    not thermochemistry.
+
+    Args:
+        atoms: ASE atoms with a calculator attached. Relaxed in place.
+        fmax: Force convergence criterion, in eV/Angstrom.
+        steps: Maximum optimizer steps.
+        name: Molecule identifier, for the log message.
+
+    Returns:
+        True if the optimizer converged within ``steps``.
+    """
+    optimizer = BFGS(atoms)
+    converged = bool(optimizer.run(fmax=fmax, steps=steps))
+    if not converged:
+        logger.warning(
+            "%s did not reach fmax=%.1e within %d steps; the harmonic "
+            "approximation is only valid at a stationary point, so its "
+            "thermochemistry is not reported.",
+            name, fmax, steps,
+        )
+    return converged
+
+
+def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
+    """Yield records `calc_thermo` can actually process, skipping the rest.
+
+    ``SDMolSupplier`` yields ``None`` for a record it cannot parse, and a
+    parsed record can still lack a conformer. Both used to reach
+    ``mol.GetConformer()`` outside the try block, so one bad record aborted a
+    batch that may already have computed hundreds of Hessians -- none of which
+    are written until the loop finishes. ``SPE.py`` filters for exactly this
+    reason; this is the same guard.
+    """
+    for position, mol in enumerate(mols):
+        if mol is None:
+            logger.warning(
+                "Skipping record %d: RDKit could not parse it.", position,
+            )
+            continue
+        if mol.GetNumConformers() == 0:
+            logger.warning(
+                "Skipping %s: no 3D conformer, so there is no geometry to "
+                "evaluate.",
+                mol.GetProp("_Name") if mol.HasProp("_Name") else
+                f"record {position}",
+            )
+            continue
+        yield mol
+
+
+def _write_thermo_output(
+    outpath: str | Path, out_mols: list[Chem.Mol], mols_failed: list[Chem.Mol],
+) -> None:
+    """Write successes and failures to one SDF, both carrying `Thermo_failed`.
+
+    This is the filtering contract CHANGELOG.md and the migration guide
+    document: ``if mol.GetProp("Thermo_failed") == "":`` selects a success.
+    Every ``out_mols`` record is marked with the empty-string positive marker
+    here (mirroring the negative one already set on every ``mols_failed``
+    record by its failure path in ``calc_thermo``), so a consumer can filter
+    on this single property either way without needing to know which failure
+    modes exist.
+
+    Every record reaching ``mols_failed`` already has ``Thermo_failed`` set by
+    the failure path that put it there (the stationary-point gate sets
+    ``"not_converged"``; both exception handlers set the exception type
+    name) -- there is no path that appends to ``mols_failed`` without setting
+    it first, so this does not need, and does not apply, a fallback value.
+    """
+    with Chem.SDWriter(str(outpath)) as w:
+        for mol in out_mols:
+            mol.SetProp("Thermo_failed", "")
+            w.write(mol)
+        for mol in mols_failed:
+            w.write(mol)
+
 
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
@@ -433,6 +911,11 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         "molecule property is set; set it for symmetric species to avoid "
         "over-counting rotational entropy."
     )
+    # Reset _symmetry_number's own per-run de-dup flag for its defaulting
+    # WARNING, using the same "once per run, not per molecule" mechanism as
+    # the INFO log just above (module state reset at the top of each run).
+    global _symmetry_default_warned
+    _symmetry_default_warned = False
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
@@ -453,14 +936,16 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     model, calculator = model_name2model_calculator(model_name, device)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
-    for mol in tqdm(mols):
-        coord = mol.GetConformer().GetPositions()
-        species = [a.GetSymbol() for a in mol.GetAtoms()]
+    for mol in tqdm(list(iter_thermo_records(mols))):
+        # Routed through mol2atoms (rather than a bare Atoms(species, coord))
+        # so isotope masses are applied consistently with vib_hessian's Atoms
+        # object -- otherwise the optimization and the Hessian/thermo stages
+        # would silently disagree on atomic mass for isotopically labeled input.
         charge = rdmolops.GetFormalCharge(mol)
-        atoms = Atoms(species, coord)
+        atoms = mol2atoms(mol)
 
         calculator.set_charge(charge)
-        atoms.set_calculator(calculator)        
+        atoms.set_calculator(calculator)
 
         if mol_info_func is None:
             idx = mol.GetProp("_Name").strip()
@@ -469,47 +954,52 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             idx, T = mol_info_func(mol)
 
         try:
-            try:
-                EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
-                _, f_ = model(EnForce_in['coord'].requires_grad_(True),
-                                EnForce_in['numbers'],
-                                EnForce_in['charge'])
-                fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
-                if fmax <= 0.01:
-                    mol = do_mol_thermo(mol, atoms, hessian_model,
-                                        device, T, model_name=model_name)
-                    out_mols.append(mol)
-                else:
-                    logger.info('optimize the input geometry')
-                    opt = BFGS(atoms)
-                    opt.run(fmax=3e-3, steps=opt_steps)
-                    mol = do_mol_thermo(mol, atoms, hessian_model,
-                                        device, T, model_name=model_name)
-                    out_mols.append(mol)
-            except ValueError:
-                logger.info('use tighter convergence threshold for geometry optimization')
-                opt = BFGS(atoms)
-                opt.run(fmax=opt_tol, steps=opt_steps)
-                mol = do_mol_thermo(mol, atoms, hessian_model,
-                                    device, T, model_name=model_name)
-                out_mols.append(mol)
+            EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
+            _, f_ = model(EnForce_in['coord'].requires_grad_(True),
+                          EnForce_in['numbers'],
+                          EnForce_in['charge'])
+            fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+
+            # Gate on the documented threshold, not a hardcoded 0.01.
+            # opt_tol was previously reachable only from the ValueError
+            # fallback, so constants.py's tighter value never applied to
+            # the primary path.
+            converged = fmax <= opt_tol
+            if not converged:
+                logger.info(
+                    "Relaxing %s to fmax=%.1e before the Hessian "
+                    "(input fmax=%.2e).", idx, opt_tol, fmax,
+                )
+                converged = relax_to_stationary_point(
+                    atoms, fmax=opt_tol, steps=opt_steps, name=idx,
+                )
+
+            if not converged:
+                # The harmonic approximation needs a stationary point.
+                # Emitting G here would look exactly like a real result.
+                mol.SetProp("Thermo_failed", "not_converged")
+                mols_failed.append(mol)
+                continue
+
+            mol = do_mol_thermo(mol, atoms, hessian_model,
+                                device, T, model_name=model_name)
+            out_mols.append(mol)
         except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
                 np.linalg.LinAlgError, ZeroDivisionError) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")
+            mol.SetProp("Thermo_failed", type(e).__name__)
             mols_failed.append(mol)
         except Exception as e:
             # Catch-all for truly unexpected errors - prevents batch failure
             # Log at ERROR level for debugging while allowing pipeline to continue
             logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed (unexpected): {idx}")
+            mol.SetProp("Thermo_failed", type(e).__name__)
             mols_failed.append(mol)
 
     logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
     logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
-    with Chem.SDWriter(str(outpath)) as w:
-        all_mols = out_mols + mols_failed
-        for mol in all_mols:
-            w.write(mol)
+    _write_thermo_output(outpath, out_mols, mols_failed)
     return str(outpath)
 

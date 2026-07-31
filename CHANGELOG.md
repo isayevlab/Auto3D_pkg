@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`calc_thermo` relaxes more inputs, and relaxes them further, before it will
+  compute a Hessian.** The entry gate and the optimizer's convergence
+  threshold both now use `opt_tol` (`DEFAULT_THERMO_CONVERGENCE_THRESHOLD`,
+  `2e-4` eV/Angstrom) throughout. 3.x gated entry on a hardcoded
+  `fmax <= 0.01` and relaxed only to `3e-3` - the tighter, documented
+  `opt_tol` was reachable only from a `ValueError` fallback branch that most
+  runs never hit. A structure whose starting force was between `3e-3` and
+  `0.01` previously skipped relaxation entirely and had its Hessian computed
+  at a non-stationary geometry; one that reached `3e-3` previously stopped
+  there. Both now continue relaxing to `2e-4`. Expect longer `calc_thermo`
+  runs, and treat thermochemistry computed with 3.x as having been produced
+  at a looser convergence than `constants.py` documented at the time.
+
+- **Thermochemistry is refused for a geometry the optimizer did not
+  converge.** `BFGS.run`'s return value was previously ignored entirely, so a
+  structure that exhausted `opt_steps` received a Hessian and a Gibbs energy
+  indistinguishable from a converged one, even though the harmonic
+  approximation this module relies on is only defined at a stationary point.
+  Such a record is no longer passed to the Hessian/vibrational analysis at
+  all; it carries `Thermo_failed = "not_converged"` and none of `G_hartree`,
+  `H_hartree`, or `S_hartree_per_K`.
+
+- **Every `calc_thermo` output record now carries a `Thermo_failed`
+  property.** Successes and failures were previously concatenated into one
+  output file with no marker distinguishing them, so a downstream
+  `mol.GetProp("G_hartree")` raised on an arbitrary record whenever a run had
+  any failures at all. `Thermo_failed` is now empty (`""`) on success,
+  `"not_converged"` for the stationary-point gate above, and the exception
+  type name (e.g. `"RuntimeError"`) for any other failure. Filter on this
+  property instead of on the presence of `G_hartree`.
+
+- **Records gain `N_imaginary_modes`, `Max_imaginary_mode_cm-1`, and
+  `Is_transition_state` properties.** `VibrationsData.get_energies()` returns
+  all 3N modes, including translation and rotation - eigenvalues that should
+  be exactly zero but come out as small numerical noise, some of which
+  routinely presents as spurious imaginary modes. `analyze_vibrations` now
+  selects the vibrational subset the same way `IdealGasThermo` does before
+  counting; without that exclusion, a clean, fully converged structure could
+  report several spurious imaginary modes - measured up to 19i cm-1 on a
+  relaxed 5-atom cluster - so `N_imaginary_modes` would have been untrustworthy
+  as a filter. `Is_transition_state` is `True` when `Max_imaginary_mode_cm-1`
+  is at or above the 50 cm-1 artifact threshold: 3.x's `ignore_imag_modes=True`
+  discarded every imaginary mode alike, so a genuine reaction coordinate (e.g.
+  -400 cm-1) was reported as an unmarked minimum on the same footing as a
+  numerical artifact.
+
 - **Molecules with unspecified double-bond stereo now produce roughly twice the
   conformer groups.** One geometric isomer of every such molecule was previously
   discarded before embedding, because the enantiomer filter treated two empty
@@ -152,6 +198,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignored `enumerate_isomers` entirely; the adapter did not accept it. With
   enumeration disabled, a molecule with unspecified stereo now logs a warning
   naming the count instead of silently emitting a mixture.
+
+- **Hessian computed at the relaxed geometry, not the input one** - BFGS
+  mutates the ASE atoms in place, but `mol`'s RDKit conformer was synced from
+  them only at the end of `do_mol_thermo`, after `vib_hessian` had already
+  read the conformer. The Hessian therefore described the input structure
+  while the energy, the geometry classification, and the moments of inertia
+  described the relaxed one, and since the relaxed coordinates are what get
+  written, nothing in the output revealed the mismatch. `do_mol_thermo` now
+  passes the relaxed positions to `vib_hessian` explicitly and defers the
+  conformer sync until every thermo property has been set, so a record that
+  fails partway through keeps its pristine input geometry instead of an
+  unvalidated relaxed one.
+
+- **Transition states are no longer indistinguishable from imaginary-mode
+  artifacts** - `ignore_imag_modes=True` let ASE sort by absolute value and
+  delete every imaginary mode alike, so a -400 cm-1 reaction coordinate was
+  discarded on the same footing as a -15 cm-1 numerical artifact and a saddle
+  point was reported as a minimum. Imaginary modes are now counted and sized
+  over the vibrational subset only (see `N_imaginary_modes`,
+  `Max_imaginary_mode_cm-1`, and `Is_transition_state` above), correctly
+  excluding the translational/rotational modes among the raw 3N that
+  `VibrationsData.get_energies()` returns.
+
+- **Defaulted rotational symmetry number now warns, and multiplicity is
+  validated rather than merely read** - `symmetry_number` defaulted to 1 with
+  only an informational log line, biasing Gibbs energy low by
+  `RT*ln(sigma)` - 1.47 kcal/mol for benzene - in a way that does not cancel
+  between tautomers, isomers, or reaction partners the way it does between
+  conformers of one species. Defaulting now warns once per run and says how
+  to set the property; sigma is still not derived automatically from the
+  molecular graph, since graph automorphisms overcount internal-rotor and
+  hydrogen-permutation symmetry (12x for ethane, 128x for cyclohexane).
+  Separately, an out-of-range `multiplicity` property - below 1, above
+  `n_electrons + 1`, or of the wrong parity for the molecule's electron count
+  - is now rejected with a warning and the radical-electron-derived value used
+  instead, rather than parsed and used as-is: `multiplicity="-1"` previously
+  became 4294967295 through RDKit's unsigned property accessor, giving a spin
+  of over two billion and shifting Gibbs energy by 13.1 kcal/mol at 298.15 K.
+
+- **Linearity is decided by moments of inertia and by off-axis atom distance,
+  and isotope masses are honored** - `_is_collinear` used to apply an absolute
+  1e-3 Angstrom rank tolerance to raw coordinates, putting the linear/nonlinear
+  boundary only ~7 degrees off linear - inside CO2's own thermal bending
+  amplitude, so a linear molecule merely left imperfectly optimized could flip
+  to nonlinear and lose a real vibrational mode's zero-point energy. The
+  boundary was then decided solely by the dimensionless ratio of the smallest
+  to largest principal moment of inertia, placed by measurement at roughly 22
+  degrees off linear for a small triatomic - an order of magnitude above CO2's
+  thermal excursion and well below NO2, the most nearly-linear common
+  genuinely bent species. That ratio alone is a size cutoff, not a shape test:
+  the largest moment grows as N^2, so the same absolute bend shrinks the ratio
+  as a molecule gets longer, and a long chain with substituents off its axis
+  (e.g. 2,4,6-octatriyne, atoms 1.02 A off axis) could pass the ratio test and
+  be called linear outright. `_is_collinear` now also requires no atom to sit
+  more than 0.25 A from the principal axis (`LINEARITY_MAX_PERP_ANGSTROM`); a
+  molecule is linear only when both the ratio and the off-axis distance agree.
+  The 22-degrees-off-linear boundary from the ratio test still holds for small
+  molecules where it was measured; the off-axis distance test is what now
+  additionally catches longer, substituted chains the ratio alone misses.
+  Moments of inertia now also honor isotope labels: molecules were previously
+  converted to an ASE `Atoms` object from element symbol alone, so a deuterium
+  label was silently given protium mass, giving wrong rotational constants and
+  wrong zero-point energy.
+
+- **A malformed or conformer-less record no longer aborts the whole batch** -
+  `SDMolSupplier` yields `None` for a record it cannot parse, and
+  `GetConformer()`, `GetProp('_Name')`, and `set_calculator` all previously ran
+  before the try block, so one bad record raised an uncaught `AttributeError`
+  and killed a run that may already have computed hundreds of Hessians - none
+  of which are written until the loop ends. `calc_thermo` now skips such
+  records with a logged warning, the same guard `SPE.py` already used.
+
+- **`aimnet_hessian_helper` raises for an unrecognized model name** - its
+  branch chain previously had no `else`, so any name matching none of its
+  explicit cases - every aimnet registry alias (`aimnet2-2025`, `aimnet2-nse`,
+  ...) and the lowercase `aimnet` - fell off the end returning `None`, which
+  then flowed into `torch.autograd.functional.hessian` and failed with an
+  error naming neither the model nor the dispatch. It now raises `ValueError`
+  listing the recognized values. The AIMNET/registry branch of
+  `_load_hessian_model` is also now routed through `ModelFactory`
+  (`create_model(...).calculator`) instead of hand-rolling a second
+  `AIMNet2Calculator`, and `ModelFactory.create` resolves built-in engine
+  names before checking for a same-named file on disk, so a stray file named
+  e.g. `ANI2xt` in the working directory can no longer shadow the built-in
+  engine.
 
 ## [3.5.0] - 2026-06-13
 

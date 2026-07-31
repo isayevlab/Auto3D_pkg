@@ -281,6 +281,50 @@ def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
     assert captured["path"] == str(f)
 
 
+def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
+    """Name resolution must win over Path.exists(): a file literally named
+    after a built-in engine (e.g. a stray "ANI2xt" left in the working
+    directory) must still resolve to the built-in adapter, not be silently
+    loaded as a custom NNP.
+
+    Auto3D.ASE.thermo._load_hessian_model routes ANI2xt/ANI2x through this
+    same ModelFactory.create dispatch, and Auto3D.ASE.thermo.
+    aimnet_hessian_helper (which receives the same model_name string
+    downstream) resolves by name first. If Path.exists() won here instead,
+    the colliding file would be loaded as a CustomModelAdapter and then be
+    called with ANI2xt's 2-argument calling convention -- wrong results, not
+    an error naming the mismatch.
+    """
+    import torch
+    from Auto3D import model_factory
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ANI2xt").write_text(
+        "colliding file; must not be loaded as a custom NNP"
+    )
+
+    def _boom(path, device, **kw):
+        raise AssertionError(
+            f"colliding file at {path!r} was routed to CustomModelAdapter; "
+            "a built-in engine name must resolve before Path.exists()."
+        )
+    monkeypatch.setattr(model_factory, "CustomModelAdapter", _boom)
+
+    captured = {}
+
+    class _FakeANI2xtAdapter:
+        def __init__(self, device, **kw):
+            captured["built_in"] = True
+
+    monkeypatch.setitem(model_factory.ModelFactory._adapters, "ANI2XT", _FakeANI2xtAdapter)
+    model_factory.ModelFactory.clear_cache()
+
+    result = model_factory.create_model("ANI2xt", torch.device("cpu"), use_cache=False)
+
+    assert captured.get("built_in") is True
+    assert isinstance(result, _FakeANI2xtAdapter)
+
+
 class TestRemovedParameters:
     """use_ensemble and **kwargs were dead and are gone in 4.0.
 

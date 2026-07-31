@@ -68,6 +68,101 @@ conformer whose configuration changes there is discarded before optimization
 ever sees it, with a warning logged, instead of reaching the neural-network
 check already inverted and passing through unnoticed.
 
+``calc_thermo`` relaxes more, and further
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x gated entry into the Hessian/thermochemistry step on a hardcoded
+``fmax <= 0.01`` and, on failure, relaxed only to ``3e-3`` -- the tighter
+``opt_tol`` (``DEFAULT_THERMO_CONVERGENCE_THRESHOLD``, ``2e-4`` eV/Angstrom)
+that ``constants.py`` already documented was reachable only from a
+``ValueError`` fallback branch that most runs never hit.
+
+Both the entry gate and the relaxation itself now use ``opt_tol`` throughout.
+A structure whose starting forces were between ``3e-3`` and ``0.01``
+previously skipped relaxation entirely and had its Hessian computed at a
+non-stationary geometry; one that reached ``3e-3`` previously stopped there.
+Both cases now continue relaxing to ``2e-4``.
+
+More inputs are relaxed, and relaxed further, so ``calc_thermo`` runs take
+longer. Treat thermochemistry computed with 3.x as having been produced at a
+looser convergence than was documented at the time.
+
+Thermochemistry is refused at a non-stationary point
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``BFGS.run`` returns whether it converged, and 3.x never read that return
+value -- a structure that exhausted ``opt_steps`` received a Hessian and a
+Gibbs energy computed from it exactly as if it had converged. The harmonic
+approximation used throughout this module is only defined at a stationary
+point, so those numbers were never really thermochemistry.
+
+4.0 checks the result: a structure that does not reach ``opt_tol`` within
+``opt_steps`` is not passed to the Hessian/vibrational analysis at all. It is
+written to the output SDF with ``Thermo_failed = "not_converged"`` and none
+of ``G_hartree``, ``H_hartree``, or ``S_hartree_per_K``, instead of a Gibbs
+energy indistinguishable from a converged one.
+
+``Thermo_failed``: filter on it, not on ``G_hartree``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x concatenated successful and failed records into one output file with no
+marker distinguishing them, so a downstream ``mol.GetProp("G_hartree")``
+raised on an arbitrary record whenever a run had any failures at all -- and a
+malformed or conformer-less input record could abort the whole run before any
+output was written at all.
+
+Every record in 4.0's ``calc_thermo`` output now carries a ``Thermo_failed``
+property:
+
+- ``""`` (empty) on success.
+- ``"not_converged"`` when the geometry failed the stationary-point gate
+  above.
+- The exception type name (e.g. ``"RuntimeError"``) for any other failure.
+
+.. code:: python
+
+   # 3.x -- raised if any record in the file had failed
+   g = mol.GetProp("G_hartree")
+
+   # 4.0
+   if mol.GetProp("Thermo_failed") == "":
+       g = mol.GetProp("G_hartree")
+
+A malformed or conformer-less record is now skipped with a logged warning
+instead of raising an uncaught ``AttributeError`` that killed the whole run --
+possibly after hundreds of Hessians had already been computed and were about
+to be discarded, since nothing is written until the loop over all records
+finishes.
+
+Imaginary-mode counting and ``Is_transition_state``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``VibrationsData.get_energies()`` returns all ``3N`` modes, including the six
+(or five, linear) translational and rotational ones -- eigenvalues that
+should be exactly zero but come out as small numerical noise, some of it
+imaginary. 3.x's imaginary-mode handling (``ignore_imag_modes=True``) sorted
+by absolute value and deleted every imaginary mode alike, so a genuine
+reaction coordinate (a large imaginary mode, e.g. -400 cm-1) was
+discarded on the same footing as a -15 cm-1 numerical artifact, and a
+saddle point was reported as an ordinary minimum with no marker.
+
+4.0 counts and sizes imaginary modes over the vibrational subset only -- the
+same ``3N-6`` / ``3N-5`` slice ``IdealGasThermo`` itself uses -- before
+writing three new SD properties:
+
+- ``N_imaginary_modes`` -- count of imaginary vibrational modes, translation
+  and rotation excluded.
+- ``Max_imaginary_mode_cm-1`` -- the largest imaginary mode's magnitude, in
+  cm-1.
+- ``Is_transition_state`` -- ``True`` when ``Max_imaginary_mode_cm-1`` is at
+  or above the 50 cm-1 artifact threshold.
+
+Without excluding translation and rotation first, a clean, fully converged
+structure could report several spurious imaginary modes -- measured up to
+19i cm-1 on a relaxed 5-atom cluster -- so a naive count is not the
+same measurement as ``N_imaginary_modes``; the property as shipped is safe to
+filter on directly.
+
 API changes
 ------------
 

@@ -104,13 +104,15 @@ class ModelFactory:
         if compile_model is None:
             compile_model = os.environ.get(_COMPILE_ENV_VAR, "").lower() in ("1", "true", "yes")
 
-        # 1. Existing path on disk -> custom NNP (file/custom model selection).
-        if Path(name).exists():
-            return CustomModelAdapter(name, device, compile_model=compile_model)
-
         name_upper = name.upper()
 
-        # 2. Built-in ANI engines.
+        # 1. Built-in ANI engines, checked by name FIRST. A reserved engine
+        #    name (e.g. "ANI2xt") must always resolve to its built-in adapter,
+        #    even if the working directory happens to contain a same-named
+        #    file: name resolution cannot be hijacked by cwd contents, while a
+        #    Path.exists() check can. (Name-first also keeps this in
+        #    agreement with Auto3D.ASE.thermo.aimnet_hessian_helper, which
+        #    resolves by name first.)
         if name_upper in cls._adapters:
             cache_key = (name_upper, str(device), compile_model)
             if use_cache and cache_key in cls._cache:
@@ -119,6 +121,13 @@ class ModelFactory:
             if use_cache:
                 cls._cache[cache_key] = adapter
             return adapter
+
+        # 2. Existing path on disk -> custom NNP (file/custom model
+        #    selection). Note: this branch returns before ever consulting
+        #    cls._cache, so `use_cache` has no effect for a custom model path
+        #    -- a fresh CustomModelAdapter is always created.
+        if Path(name).exists():
+            return CustomModelAdapter(name, device, compile_model=compile_model)
 
         # 3. Everything else -> aimnet registry name. "AIMNET" is the legacy
         #    alias for the registry default.
