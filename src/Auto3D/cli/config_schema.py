@@ -22,6 +22,8 @@ from Auto3D.constants import (
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
 )
+from Auto3D.exceptions import ConfigurationError
+from Auto3D.models.preflight import resolve_engine_name
 
 
 class CLIConfig(BaseModel):
@@ -83,18 +85,22 @@ class CLIConfig(BaseModel):
     @field_validator("optimizing_engine")
     @classmethod
     def _validate_engine(cls, v: str) -> str:
-        from pathlib import Path
-        if Path(v).exists():
-            return v
-        if v.upper() in {"AIMNET", "ANI2X", "ANI2XT"}:
-            return v
-        if v.lower().startswith("aimnet2"):  # any aimnet registry alias
-            return v
-        raise ValueError(
-            f"Unknown optimizing_engine '{v}'. Use AIMNET, ANI2x, ANI2xt, an "
-            f"aimnet registry name (e.g. aimnet2, aimnet2-2025, aimnet2-nse), "
-            f"or a path to a custom model file."
-        )
+        """Reject engine names the registry doesn't recognize.
+
+        Delegates to ``resolve_engine_name`` -- the same single source of
+        truth used by ``check_valid_configuration`` and (after this fix) the
+        auxiliary ``energy``/``optimize``/``thermo`` CLI commands -- instead
+        of re-implementing a prefix match here. The prefix match this
+        replaced (``v.lower().startswith("aimnet2")``) accepted any typo
+        sharing that prefix, e.g. ``aimnet2-2025x``, which then survived
+        config parsing and failed later inside a spawned worker where the
+        error is swallowed.
+        """
+        try:
+            resolve_engine_name(v)
+        except ConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
+        return v
 
     @field_validator("tauto_engine", "isomer_engine", mode="before")
     @classmethod

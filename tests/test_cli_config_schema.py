@@ -104,6 +104,21 @@ def test_config_rejects_garbage_engine():
         CLIConfig(path="x.smi", optimizing_engine="not-a-model-or-path")
 
 
+def test_config_rejects_registry_name_typo():
+    """M21: 'aimnet2-2025x' shares the 'aimnet2' prefix with a real registry
+    name, so the old prefix-match validator (`v.lower().startswith("aimnet2")`)
+    accepted it. Verified live before this fix:
+    CLIConfig(path=Path("x.smi"), optimizing_engine="aimnet2-2025x") did not
+    raise. The validator now delegates to resolve_engine_name, which performs
+    a real registry lookup instead of a prefix match."""
+    from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import CLIConfig
+
+    with pytest.raises(ValidationError, match="aimnet2-2025x"):
+        CLIConfig(path=Path("x.smi"), optimizing_engine="aimnet2-2025x")
+
+
 def test_merge_cli_overrides():
     """CLI overrides should take precedence."""
     from Auto3D.cli.config_schema import CLIConfig, merge_configs

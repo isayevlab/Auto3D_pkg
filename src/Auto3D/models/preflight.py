@@ -12,14 +12,8 @@ from pathlib import Path
 
 import requests
 
-from Auto3D.constants import MODEL_ANI2X, MODEL_ANI2XT
-from Auto3D.exceptions import ConfigurationError, DependencyError, ModelLoadError
-
-#: Auto3D's historical name for the default AIMNet2 model. The registry does
-#: not know it -- resolve_registry_model_name("AIMNET") raises -- so it is
-#: mapped here rather than leaking Auto3D's vocabulary into aimnet's.
-AIMNET_ALIAS = "AIMNET"
-AIMNET_DEFAULT = "aimnet2"
+from Auto3D.constants import DEFAULT_AIMNET_MODEL, MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
+from Auto3D.exceptions import ConfigurationError, ModelLoadError
 
 
 def resolve_engine_name(name: str) -> str:
@@ -49,7 +43,7 @@ def resolve_engine_name(name: str) -> str:
         resolve_registry_model_name,
     )
 
-    candidate = AIMNET_DEFAULT if name.upper() == AIMNET_ALIAS else name
+    candidate = DEFAULT_AIMNET_MODEL if name.upper() == MODEL_AIMNET else name
     try:
         return resolve_registry_model_name(candidate)
     except ValueError as exc:
@@ -57,21 +51,37 @@ def resolve_engine_name(name: str) -> str:
         aliases = sorted(registry.get("aliases", {}))
         raise ConfigurationError(
             f"Unknown optimizing_engine {name!r}. Use {MODEL_ANI2X!r}, "
-            f"{MODEL_ANI2XT!r}, {AIMNET_ALIAS!r}, a path to a custom NNP file, "
+            f"{MODEL_ANI2XT!r}, {MODEL_AIMNET!r}, a path to a custom NNP file, "
             f"or an aimnet registry name. Registry aliases: "
             f"{', '.join(aliases)}."
         ) from exc
 
 
 def preflight_model(engine: str, device) -> None:
-    """Resolve and construct the model in this process, before any fork.
+    """Resolve the engine name and verify the model is obtainable, before any fork.
 
-    Constructing here converts three failure modes that are otherwise invisible
-    into errors the user can act on: a cold cache with no network, a cached
-    file whose checksum no longer matches, and a cache directory that cannot
-    be written. Inside a worker each of these is caught by
-    ``optim_rank_wrapper``'s per-chunk handler and reported as "no 3D structure
-    converged", which names none of them.
+    This used to *construct* the full model here (see git history), which
+    reliably converted the same three failure modes into diagnosable errors
+    but paid for it with a real model build -- ~9s and hundreds of MB, six
+    times over in the fast test suite alone once tests started reaching this
+    path unmocked (wall time 20s -> 75s, peak RSS 1.38GB on a 2GB box). The
+    three failure modes it exists to catch -- a cold cache with no network, a
+    cached file whose checksum no longer matches, and a cache directory that
+    cannot be written -- are all raised by obtaining the model's on-disk path
+    (``aimnet.calculators.model_registry.get_registry_model_path``, which
+    downloads on a cache miss, verifies the checksum, and returns the path),
+    without ever loading the checkpoint into a model. Measured warm: ~28ms.
+    Inside a worker each of these is caught by ``optim_rank_wrapper``'s
+    per-chunk handler and reported as "no 3D structure converged", which names
+    none of them -- this function's job is to catch them here instead, in the
+    parent, before any worker is forked.
+
+    ANI2x, ANI2xt, and custom NNP paths are not aimnet registry models, so
+    there is no cache/download/checksum step to preflight for them: ANI2xt's
+    weights are bundled in the package; ANI2x's torchani dependency and a
+    custom NNP path's loadability are already checked by ``check_input``
+    (utils/validation.py), which always runs before this. This function is a
+    no-op for those engines.
 
     Only the failure modes below are translated. Anything else -- a corrupt
     checkpoint's own load error, a custom NNP raising some unrelated exception,
@@ -79,34 +89,37 @@ def preflight_model(engine: str, device) -> None:
     guessing a label for an error this function cannot positively identify
     would be worse than the plain traceback.
 
+    Not caught by this: a file that downloads and checksums correctly but that
+    torch cannot actually load (a truncated write that still happens to match
+    a stale checksum, an incompatible pickle protocol, etc.). That failure
+    mode only surfaces once a worker actually loads the checkpoint. Accepted
+    here because C8 (cold cache/network) and M22 (checksum mismatch) are both
+    about obtaining the file, not about what is inside it.
+
     Args:
         engine: The configured ``optimizing_engine`` value.
-        device: Device to construct the model on. Preflight only needs the
-            model to construct successfully, not to run on the real device
-            the pipeline will use, so callers may pass ``torch.device("cpu")``
-            to avoid contending for GPU memory during validation.
+        device: Unused. Kept so existing call sites do not need to change --
+            path-only verification has no notion of "device", but a future
+            check that does need one is a plausible extension of this
+            function's contract.
 
     Raises:
         ConfigurationError: The engine name is not recognized.
-        ModelLoadError: The model could not be obtained or loaded -- a network
-            failure while downloading it, a checksum mismatch on the cached
-            file, or a cache directory that cannot be read or written.
-        DependencyError: A required optional dependency (e.g. TorchANI for
-            ANI2x) is not installed.
+        ModelLoadError: The model could not be obtained -- a network failure
+            while downloading it, a checksum mismatch on the cached file, or
+            a cache directory that cannot be read or written.
     """
     resolved = resolve_engine_name(engine)
 
+    if resolved in (MODEL_ANI2X, MODEL_ANI2XT) or Path(resolved).exists():
+        return
+
     # Deferred: only needed on this call path, and keeps the module's other
     # (pure, offline) functions importable without pulling in the model stack.
-    from Auto3D.model_factory import create_model
+    from aimnet.calculators.model_registry import get_registry_model_path
 
     try:
-        create_model(resolved, device, use_cache=False)
-    except ImportError as exc:
-        raise DependencyError(
-            f"optimizing_engine={engine!r} requires an optional dependency "
-            f"that is not installed: {exc}"
-        ) from exc
+        get_registry_model_path(resolved)
     except ValueError as exc:
         # aimnet's own cache-validation raises a plain ValueError for a
         # checksum mismatch (model_registry._validate_sha256); anything else

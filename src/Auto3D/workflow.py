@@ -123,11 +123,12 @@ class WorkflowOrchestrator:
     def _validate_input(self) -> None:
         """Validate input configuration and prepare encoded input file.
 
-        Also resolves and constructs the optimizing model (see
-        ``preflight_model``), so a bad model name, a cold cache with no
-        network, a corrupted cached file, or an unwritable cache directory
-        all fail here -- before any worker is forked -- instead of surfacing
-        as an opaque failure deep inside a spawned worker.
+        Also resolves the optimizing engine name and verifies the model is
+        obtainable (see ``preflight_model``), so a bad model name, a cold
+        cache with no network, a corrupted cached file, or an unwritable
+        cache directory all fail here -- before any worker is forked --
+        instead of surfacing as an opaque failure deep inside a spawned
+        worker.
 
         Raises:
             ConfigurationError: If path is None, k/window not specified, or
@@ -194,16 +195,15 @@ class WorkflowOrchestrator:
 
         check_input(self.config)
 
-        # Resolve and construct the optimizing model HERE, in the parent,
-        # before any worker is forked (C8/M22). Every worker builds its own
-        # copy of the model regardless (spawned processes share no memory
-        # with the parent), so this construction is purely diagnostic: a cold
-        # cache with no network, a corrupted cached file, or an unwritable
-        # cache directory would otherwise surface only inside
+        # Resolve the engine name and verify the model is obtainable HERE, in
+        # the parent, before any worker is forked (C8/M22). Every worker
+        # builds its own copy of the model regardless (spawned processes
+        # share no memory with the parent), so this is purely diagnostic: a
+        # cold cache with no network, a corrupted cached file, or an
+        # unwritable cache directory would otherwise surface only inside
         # optim_rank_wrapper's blanket per-chunk except, as an opaque "no 3D
-        # structure converged". cpu is used regardless of the run's real
-        # device -- these failure modes are download/cache issues, not device
-        # issues, and cpu avoids contending for GPU memory just to validate.
+        # structure converged". The device argument is unused (see
+        # ``preflight_model``'s docstring) but kept for call-site stability.
         preflight_model(self.config.optimizing_engine, torch.device("cpu"))
 
     def _setup_job_directory(self) -> None:
@@ -433,11 +433,12 @@ class WorkflowOrchestrator:
             log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
                 "No chunk produced a 3D structure output file, so no 3D "
-                "structure converged. The model itself loaded successfully "
-                "(pre-flight validation passed before any chunk was "
-                "processed), so this is not a model-loading problem. Likely "
-                "causes: insufficient memory for the batch size used, input "
-                "SMILES that do not encode valid chemical structures, or "
+                "structure converged. The model was already verified "
+                "obtainable before any chunk was processed (pre-flight "
+                "passed), ruling out a cold cache, network failure, or "
+                "corrupted download as the cause. Likely causes: "
+                "insufficient memory for the batch size used, input SMILES "
+                "that do not encode valid chemical structures, or "
                 "optimization settings (opt_steps/patience) too aggressive "
                 f"for these molecules. See {log_path} for the per-chunk "
                 "errors already recorded during this run."

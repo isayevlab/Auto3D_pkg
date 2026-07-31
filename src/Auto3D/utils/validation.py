@@ -24,6 +24,7 @@ from Auto3D.exceptions import (
     ModelLoadError,
 )
 from Auto3D.models.loading import load_custom_nnp
+from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -327,8 +328,6 @@ def check_valid_configuration(
     # optim_rank_wrapper's per-chunk handler swallowed it. The registry lookup
     # is a pure offline dict read against a bundled YAML, so validating costs
     # nothing.
-    from Auto3D.models.preflight import resolve_engine_name
-
     try:
         resolve_engine_name(optimizing_engine)
     except ConfigurationError as exc:

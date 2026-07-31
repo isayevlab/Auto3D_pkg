@@ -130,15 +130,13 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         args.input_format = 'smi'
         check_input(args)
 
-        # Resolve and construct the optimizing model HERE (C8/M22), before the
-        # `optimizing` step below constructs its own copy for real work. A
-        # cold cache with no network, a corrupted cached file, or an
-        # unwritable cache directory would otherwise surface only deep inside
-        # ranking/optimization as an opaque failure. cpu is used regardless of
-        # the run's real device: these failure modes (cold cache, checksum
-        # mismatch, unwritable cache dir) are download/cache issues, not
-        # device issues, and cpu avoids contending for GPU memory just to
-        # validate.
+        # Resolve the engine name and verify the model is obtainable HERE
+        # (C8/M22), before the `optimizing` step below constructs its own copy
+        # for real work. A cold cache with no network, a corrupted cached
+        # file, or an unwritable cache directory would otherwise surface only
+        # deep inside ranking/optimization as an opaque failure. The device
+        # argument is unused (see ``preflight_model``'s docstring) but kept
+        # for call-site stability.
         preflight_model(args.optimizing_engine, torch.device("cpu"))
 
         # smi to sdf
