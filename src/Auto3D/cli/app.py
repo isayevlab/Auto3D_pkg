@@ -32,6 +32,15 @@ InputFile = Annotated[
     ),
 ]
 
+# Same `-v/--verbose` convention as `run`: repeatable count, 0 by default.
+# Threaded explicitly into handle_error (rather than a global/Typer-context)
+# so an unexpected internal error can show a traceback here too, not just in
+# `run` (M30).
+VerboseOption = Annotated[
+    int,
+    typer.Option("-v", "--verbose", count=True, help="Increase verbosity; shows a traceback on unexpected errors."),
+]
+
 # Create main app
 app = typer.Typer(
     name="auto3d",
@@ -246,10 +255,11 @@ def models_test(
     ],
     gpu: Annotated[bool, typer.Option("--gpu/--no-gpu", help="Use GPU when available.")] = True,
     gpu_idx: Annotated[int, typer.Option("--gpu-idx", help="CUDA device index.")] = 0,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Load an engine and run a tiny forward pass to verify it works."""
     from Auto3D.cli.commands.models import execute_models_test
-    execute_models_test(engine=engine, gpu=gpu, gpu_idx=gpu_idx)
+    execute_models_test(engine=engine, gpu=gpu, gpu_idx=gpu_idx, verbose=verbose)
 
 
 @app.command()
@@ -293,10 +303,11 @@ def energy(
     output: OutputOption = None,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Single-point energy for an SDF (writes an SDF with E_hartree)."""
     from Auto3D.cli.commands.properties import execute_energy
-    execute_energy(input_file, engine, gpu, gpu_idx, output, tf32, json_output)
+    execute_energy(input_file, engine, gpu, gpu_idx, output, tf32, json_output, verbose=verbose)
 
 
 @app.command()
@@ -312,12 +323,13 @@ def optimize(
     batchsize_atoms: Annotated[int, typer.Option("--batchsize-atoms", help="Atoms per optimization batch.")] = 1024,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Geometry-optimize the structures in an SDF (no enumeration)."""
     from Auto3D.cli.commands.properties import execute_optimize
     execute_optimize(
         input_file, engine, gpu, gpu_idx, output, opt_tol, opt_steps,
-        patience, batchsize_atoms, tf32, json_output,
+        patience, batchsize_atoms, tf32, json_output, verbose=verbose,
     )
 
 
@@ -333,12 +345,13 @@ def thermo(
     opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max pre-optimization steps.")] = 2000,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Thermochemistry (enthalpy/entropy/Gibbs) for an SDF. Requires the ase extra."""
     from Auto3D.cli.commands.properties import execute_thermo
     execute_thermo(
         input_file, engine, gpu, gpu_idx, output, temperature,
-        opt_tol, opt_steps, tf32, json_output,
+        opt_tol, opt_steps, tf32, json_output, verbose=verbose,
     )
 
 
@@ -352,9 +365,11 @@ def tautomers(
     tauto_window: Annotated[float | None, typer.Option("--tauto-window", help="Keep tautomers within this kcal/mol window.")] = None,
     output: OutputOption = None,
     json_output: JsonFlag = False,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Enumerate tautomers and rank/select the most stable ones."""
     from Auto3D.cli.commands.properties import execute_tautomers
     execute_tautomers(
         input_file, engine, gpu, gpu_idx, tauto_k, tauto_window, output, json_output,
+        verbose=verbose,
     )

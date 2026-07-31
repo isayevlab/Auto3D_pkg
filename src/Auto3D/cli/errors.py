@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from rich.panel import Panel
+from rich.traceback import Traceback
 
 from Auto3D.cli.console import error_console
 from Auto3D.exceptions import (
@@ -69,11 +70,17 @@ def get_error_hint(error: Auto3DError) -> str | None:
     return None
 
 
-def handle_error(error: Exception) -> None:
+def handle_error(error: Exception, verbose: int = 0) -> None:
     """Handle an error with Rich formatting.
 
     Args:
         error: The error to handle.
+        verbose: CLI verbosity level (the ``-v``/``--verbose`` count). At 0,
+            a known ``Auto3DError`` still gets only its clean message + hint
+            -- that panel *is* the intended, actionable presentation. Any
+            value above 0 additionally prints a full traceback to stderr, so
+            an internal failure (a bare ``KeyError('ID')`` from a missing SDF
+            property, say) is debuggable without editing source (M30).
     """
     if isinstance(error, Auto3DError):
         error_type = type(error).__name__.replace("Error", " Error")
@@ -89,10 +96,28 @@ def handle_error(error: Exception) -> None:
             border_style="red",
         ))
     else:
+        # Anything that isn't an Auto3DError is by definition unexpected --
+        # an internal bug, not a recognized user-facing failure mode. Before
+        # this fix the panel showed only `str(error)`, so a missing-property
+        # KeyError rendered as a bare, unactionable 'ID'. Always name the
+        # exception type and always point at --verbose, even at verbose=0:
+        # the user has nothing to act on otherwise, and nothing worth
+        # reporting in a bug (see get_error_hint's docstring for the
+        # Auto3DError case, which already has a real hint).
         error_console.print(Panel(
-            f"[red]{error}[/red]",
-            title="[red]Error[/red]",
+            f"[red]{type(error).__name__}: {error}[/red]"
+            "\n\n[dim]Run with -v/--verbose for a full traceback.[/dim]",
+            title="[red]Unexpected Error[/red]",
             border_style="red",
         ))
+
+    if verbose > 0:
+        # A fixed, generous width avoids the traceback panel wrapping at
+        # whatever narrow width the ambient terminal/pipe happens to report
+        # (source lines and file paths get split across lines otherwise).
+        error_console.print(
+            Traceback.from_exception(type(error), error, error.__traceback__),
+            width=200,
+        )
 
     raise SystemExit(exit_code_for(error))

@@ -200,6 +200,6 @@ def execute_run(
         _exit_if_incomplete(results)
 
     except Auto3DError as e:
-        handle_error(e)
+        handle_error(e, verbose=verbose)
     except Exception as e:
-        handle_error(e)
+        handle_error(e, verbose=verbose)

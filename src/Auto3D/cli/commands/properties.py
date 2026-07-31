@@ -46,6 +46,7 @@ def _report(output_path: str, command: str, json_output: bool) -> None:
 def execute_energy(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int,
     output: Path | None, allow_tf32: bool, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Single-point energy: wraps calc_spe."""
     try:
@@ -62,13 +63,14 @@ def execute_energy(
         )
         _report(out, "energy", json_output)
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
-        handle_error(e)
+        handle_error(e, verbose=verbose)
 
 
 def execute_optimize(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int, output: Path | None,
     opt_tol: float, opt_steps: int, patience: int | None, batchsize_atoms: int,
     allow_tf32: bool, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Geometry-only optimization of an existing SDF: wraps opt_geometry."""
     try:
@@ -83,13 +85,14 @@ def execute_optimize(
         )
         _report(out, "optimize", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e)
+        handle_error(e, verbose=verbose)
 
 
 def execute_thermo(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int, output: Path | None,
     temperature: float, opt_tol: float, opt_steps: int,
     allow_tf32: bool, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra."""
     try:
@@ -114,13 +117,14 @@ def execute_thermo(
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e)
+        handle_error(e, verbose=verbose)
 
 
 def execute_tautomers(
     input_file: Path, engine: str, gpu: bool, gpu_idx: str | None,
     tauto_k: int | None, tauto_window: float | None,
     output: Path | None, json_output: bool,
+    verbose: int = 0,
 ) -> None:
     """Tautomer enumeration + stable-tautomer ranking: wraps get_stable_tautomers."""
     try:
@@ -149,4 +153,4 @@ def execute_tautomers(
             out = str(output)
         _report(out, "tautomers", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e)
+        handle_error(e, verbose=verbose)

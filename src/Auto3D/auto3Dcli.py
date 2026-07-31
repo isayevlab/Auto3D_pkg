@@ -69,6 +69,17 @@ def _run_legacy_yaml(yaml_path: str) -> None:
     # Everything below funnels through handle_error so a bad path, malformed YAML,
     # or a runtime failure produces a clean error panel + exit code, never a
     # raw traceback (parity with the modern `run` command).
+    #
+    # This legacy entry point has no `-v/--verbose` flag of its own -- argv
+    # parsing here only recognizes a single positional YAML path (see cli()
+    # above), so there is nowhere to read CLI verbosity from. The YAML's own
+    # `verbose` key already doubles as the logging-verbosity switch below
+    # (configure_logging); reuse that same key as a coarse opt-in for a
+    # traceback on failure too, rather than always/never showing one.
+    # `parameters` stays None until (and unless) the YAML actually loads, so
+    # a failure before that point (bad path, unparsable YAML) falls back to
+    # no traceback instead of raising a secondary NameError here.
+    parameters: dict | None = None
     try:
         import yaml
 
@@ -108,7 +119,8 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         result = main(options)
         console.print(f"\n[green]✓[/green] Output: [cyan]{result}[/cyan]")
     except Exception as e:  # noqa: BLE001 - present every failure as a clean panel
-        handle_error(e)
+        verbose = 1 if isinstance(parameters, dict) and parameters.get("verbose") else 0
+        handle_error(e, verbose=verbose)
 
 
 if __name__ == "__main__":
