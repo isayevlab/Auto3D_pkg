@@ -22,7 +22,11 @@ from tqdm import tqdm
 from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
 from Auto3D.batch_opt.batchopt import EnForce_ANI
 from Auto3D.batch_opt.species import to_model_species
-from Auto3D.constants import DEFAULT_OPT_STEPS, DEFAULT_THERMO_CONVERGENCE_THRESHOLD
+from Auto3D.constants import (
+    DEFAULT_OPT_STEPS,
+    DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
+    LINEARITY_MOMENT_RATIO,
+)
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
@@ -38,20 +42,27 @@ logger = get_logger(__name__)
 
 
 def _is_collinear(atoms: ase.Atoms) -> bool:
-    """True if all atoms lie on a single line (within tolerance).
+    """True if all atoms lie on a single line.
 
-    The rank tolerance (1e-3, in Angstrom) is an absolute geometric threshold,
-    so a slightly bent but floppy molecule whose deviation from a line is below
-    ~1e-3 A is classified linear. That changes the vibrational DOF count
-    (3N-5 vs 3N-6) and the rotational partition function (1 vs 3 rotational
-    constants). A moment-of-inertia cross-check (one near-zero principal moment
-    => linear) would be more robust for borderline geometries; not done here.
+    Decided by the principal moments of inertia rather than by a rank test on
+    raw coordinates. A rank tolerance is an absolute length in Angstrom, so it
+    calls a CO2 bent by more than ~1e-3 A nonlinear -- inventing a third
+    rotational degree of freedom and discarding a real 667 cm-1 bend, worth
+    ~0.95 kcal/mol of zero-point energy before its thermal contribution. The
+    moment ratio is dimensionless and scales with the molecule, so it behaves
+    the same for a diatomic and for a long polyyne.
+
+    A linear molecule has one vanishing principal moment; the test is that the
+    smallest moment is negligible against the largest.
     """
-    pos = atoms.get_positions()
-    if len(pos) <= 2:
+    if len(atoms) <= 2:
         return True
-    v = pos - pos[0]
-    return bool(np.linalg.matrix_rank(v[1:], tol=1e-3) <= 1)
+    moments = atoms.get_moments_of_inertia()
+    largest = float(np.max(moments))
+    if largest <= 0.0:
+        # All atoms coincident; degenerate but not meaningfully nonlinear.
+        return True
+    return bool(float(np.min(moments)) / largest < LINEARITY_MOMENT_RATIO)
 
 
 def _detect_geometry(atoms: ase.Atoms) -> str:

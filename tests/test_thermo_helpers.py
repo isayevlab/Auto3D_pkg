@@ -12,7 +12,48 @@ model still loads only once instead of twice.
 """
 from __future__ import annotations
 
+import numpy as np
 import pytest
+
+pytest.importorskip("ase")
+
+from ase import Atoms  # noqa: E402
+
+from Auto3D.ASE.thermo import _detect_geometry, _is_collinear  # noqa: E402
+
+
+class TestLinearity:
+    """Linearity decides 3N-5 vs 3N-6 modes and 1 vs 3 rotational constants."""
+
+    def test_exactly_linear_co2_is_linear(self):
+        atoms = Atoms("OCO", [(-1.16, 0, 0), (0, 0, 0), (1.16, 0, 0)])
+        assert _is_collinear(atoms) is True
+        assert _detect_geometry(atoms) == "linear"
+
+    def test_slightly_bent_co2_is_still_linear(self):
+        """A 0.01 A transverse displacement is numerical, not a real bend.
+
+        The absolute rank tolerance called this nonlinear, which invents a
+        rotational degree of freedom and drops the real 667 cm-1 bend.
+        """
+        atoms = Atoms("OCO", [(-1.16, 0, 0), (0, 0.01, 0), (1.16, 0, 0)])
+        assert _is_collinear(atoms) is True
+
+    def test_genuinely_bent_water_is_nonlinear(self):
+        atoms = Atoms("OHH", [(0, 0, 0), (0.96, 0, 0), (-0.24, 0.93, 0)])
+        assert _is_collinear(atoms) is False
+        assert _detect_geometry(atoms) == "nonlinear"
+
+    def test_diatomic_is_linear(self):
+        assert _is_collinear(Atoms("HH", [(0, 0, 0), (0.74, 0, 0)])) is True
+
+    def test_single_atom_is_monatomic(self):
+        assert _detect_geometry(Atoms("He", [(0, 0, 0)])) == "monatomic"
+
+    def test_a_large_bend_is_not_swallowed(self):
+        """Guard the other direction: the test must not accept everything."""
+        atoms = Atoms("OCO", [(-1.16, 0, 0), (0, 0.30, 0), (1.16, 0, 0)])
+        assert _is_collinear(atoms) is False
 
 
 @pytest.fixture(scope="module")

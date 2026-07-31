@@ -77,3 +77,10 @@ DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
 DEFAULT_ENERGY_TOL = 1e-3
 DEFAULT_ENERGY_PATIENCE = 3  # Steps energy must be stable before converging
 DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
+
+# A linear molecule has one vanishing principal moment of inertia. This is the
+# largest smallest-to-largest moment ratio still treated as linear; it is
+# dimensionless, so unlike an absolute coordinate tolerance it behaves the same
+# for a diatomic and for a long chain. 1e-3 keeps a CO2 bent by 0.01 A linear
+# while classifying a 0.3 A bend as nonlinear.
+LINEARITY_MOMENT_RATIO = 1e-3
