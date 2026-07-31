@@ -28,6 +28,7 @@ from Auto3D.constants import (
     DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
     EV_PER_WAVENUMBER,
     IMAGINARY_MODE_CUTOFF_CM,
+    LINEARITY_MAX_PERP_ANGSTROM,
     LINEARITY_MOMENT_RATIO,
 )
 from Auto3D.model_factory import create_model, get_device
@@ -55,17 +56,43 @@ def _is_collinear(atoms: ase.Atoms) -> bool:
     moment ratio is dimensionless and scales with the molecule, so it behaves
     the same for a diatomic and for a long polyyne.
 
-    A linear molecule has one vanishing principal moment; the test is that the
-    smallest moment is negligible against the largest.
+    A linear molecule has one vanishing principal moment, so the first test is
+    that the smallest moment is negligible against the largest. That test
+    alone is not sufficient: the largest moment grows as N^2 (mass x
+    length^2, summed over atoms further and further from the center), so for
+    a long chain the same absolute bend shrinks the ratio as the molecule gets
+    longer -- the ratio becomes a size cutoff, not a shape test. 2,4,6-
+    octatriyne (CC#CC#CC#CC) is the case this misses: ratio 5.7e-3, below the
+    1e-2 threshold, with every atom sitting 1.02 A off the molecular axis --
+    visibly bent, not linear. The second, load-bearing test is therefore an
+    absolute one: no atom may sit more than LINEARITY_MAX_PERP_ANGSTROM from
+    the principal axis (the eigenvector of the smallest moment), measured
+    from the center of mass. A molecule is linear only when both tests agree;
+    see LINEARITY_MOMENT_RATIO and LINEARITY_MAX_PERP_ANGSTROM in constants.py
+    for the measurements that placed each threshold.
     """
     if len(atoms) <= 2:
         return True
-    moments = atoms.get_moments_of_inertia()
+    moments, axes = atoms.get_moments_of_inertia(vectors=True)
     largest = float(np.max(moments))
     if largest <= 0.0:
         # All atoms coincident; degenerate but not meaningfully nonlinear.
         return True
-    return bool(float(np.min(moments)) / largest < LINEARITY_MOMENT_RATIO)
+    smallest_idx = int(np.argmin(moments))
+    ratio_ok = float(moments[smallest_idx]) / largest < LINEARITY_MOMENT_RATIO
+
+    # axes[i] is the eigenvector belonging to moments[i] (ASE returns the
+    # eigenvectors transposed, one full axis per row -- see
+    # Atoms.get_moments_of_inertia). The smallest-moment axis is the
+    # molecule's long axis for a rod-like structure.
+    axis = axes[smallest_idx]
+    axis = axis / np.linalg.norm(axis)
+    offsets = atoms.get_positions() - atoms.get_center_of_mass()
+    perpendicular = offsets - np.outer(offsets @ axis, axis)
+    max_perp = float(np.max(np.linalg.norm(perpendicular, axis=1)))
+    perp_ok = max_perp < LINEARITY_MAX_PERP_ANGSTROM
+
+    return bool(ratio_ok and perp_ok)
 
 
 def _detect_geometry(atoms: ase.Atoms) -> str:
@@ -643,7 +670,7 @@ def do_mol_thermo(mol: Chem.Mol,
     # Standard state is 1 atm (101325 Pa). ASE's internal reference is 1 bar
     # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
     # 1 atm -- matching ORCA/Gaussian. The translational-entropy difference vs
-    # 1 bar is ~0.016 kcal/mol.
+    # 1 bar is R*T*ln(1.01325) = ~0.0078 kcal/mol at 298.15 K.
     S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
     G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
 
@@ -822,6 +849,33 @@ def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
         yield mol
 
 
+def _write_thermo_output(
+    outpath: str | Path, out_mols: list[Chem.Mol], mols_failed: list[Chem.Mol],
+) -> None:
+    """Write successes and failures to one SDF, both carrying `Thermo_failed`.
+
+    This is the filtering contract CHANGELOG.md and the migration guide
+    document: ``if mol.GetProp("Thermo_failed") == "":`` selects a success.
+    Every ``out_mols`` record is marked with the empty-string positive marker
+    here (mirroring the negative one already set on every ``mols_failed``
+    record by its failure path in ``calc_thermo``), so a consumer can filter
+    on this single property either way without needing to know which failure
+    modes exist.
+
+    Every record reaching ``mols_failed`` already has ``Thermo_failed`` set by
+    the failure path that put it there (the stationary-point gate sets
+    ``"not_converged"``; both exception handlers set the exception type
+    name) -- there is no path that appends to ``mols_failed`` without setting
+    it first, so this does not need, and does not apply, a fallback value.
+    """
+    with Chem.SDWriter(str(outpath)) as w:
+        for mol in out_mols:
+            mol.SetProp("Thermo_failed", "")
+            w.write(mol)
+        for mol in mols_failed:
+            w.write(mol)
+
+
 def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
                 opt_steps=DEFAULT_OPT_STEPS,
@@ -946,16 +1000,6 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
     logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
-    with Chem.SDWriter(str(outpath)) as w:
-        for mol in out_mols:
-            # Positive marker as well as the negative one, so a consumer can
-            # filter on a single property either way without needing to know
-            # which failure modes exist.
-            mol.SetProp("Thermo_failed", "")
-            w.write(mol)
-        for mol in mols_failed:
-            if not mol.HasProp("Thermo_failed"):
-                mol.SetProp("Thermo_failed", "unknown")
-            w.write(mol)
+    _write_thermo_output(outpath, out_mols, mols_failed)
     return str(outpath)
 

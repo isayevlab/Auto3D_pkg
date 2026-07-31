@@ -82,6 +82,60 @@ class TestLinearity:
         """NO2 at 134 degrees is the most nearly-linear genuinely bent case."""
         assert _is_collinear(_bent_triatomic("NOO", 1.19, 134.1)) is False
 
+    def test_octatriyne_off_axis_methyls_is_nonlinear(self):
+        """The moment ratio alone passes 2,4,6-octatriyne as linear -- it is a
+        regression this test pins down.
+
+        The carbon backbone is straight, but the terminal methyl groups'
+        hydrogens sit about 1 A off the backbone axis: a real bend. The
+        ratio test misses it purely because the molecule is long enough that
+        max(I) has grown large (it scales as N^2), which shrinks the ratio
+        for the same absolute offset that made NO2 unambiguously nonlinear at
+        a much smaller size -- the ratio is a size cutoff, not a shape test.
+        The perpendicular-distance test (LINEARITY_MAX_PERP_ANGSTROM) is what
+        actually catches this case; removing it regresses this assertion to
+        True (verified by hand: reproduced and reverted, not left in the
+        test).
+        """
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.ASE.thermo import mol2atoms
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC#CC#CC#CC"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        atoms = mol2atoms(mol)
+
+        moments = atoms.get_moments_of_inertia()
+        ratio = float(np.min(moments)) / float(np.max(moments))
+        assert ratio < 1e-2, (
+            "this test's premise is that the ratio alone calls octatriyne "
+            "linear; if it no longer does, this case stopped reproducing "
+            "the regression it is meant to guard"
+        )
+        assert _is_collinear(atoms) is False
+        assert _detect_geometry(atoms) == "nonlinear"
+
+    def test_long_polyyne_with_no_off_axis_atoms_stays_linear(self):
+        """A genuinely linear long chain must not be penalized by the new
+        absolute-distance test -- only atoms actually off axis should trip it.
+
+        Butadiyne (HC#C-C#CH) has no substituents off the backbone, unlike
+        octatriyne's terminal methyls, so every atom sits on (or extremely
+        near) the principal axis.
+        """
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.ASE.thermo import mol2atoms
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("C#CC#C"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        atoms = mol2atoms(mol)
+
+        assert _is_collinear(atoms) is True
+        assert _detect_geometry(atoms) == "linear"
+
 
 class TestIsotopeMasses:
     """mol2atoms must carry isotope labels into ASE's per-atom masses.
@@ -760,6 +814,74 @@ class TestRecordFiltering:
 
         mols = [self._mol_with_conformer(f"m{i}") for i in range(3)]
         assert len(list(iter_thermo_records(mols))) == 3
+
+
+class TestThermoFailedMarker:
+    """Pins the success/failure marker CHANGELOG.md and the migration guide
+    document as the filtering contract::
+
+        if mol.GetProp("Thermo_failed") == "":
+            g = mol.GetProp("G_hartree")
+
+    None of this needs a real NNP or thermo calculation: `_write_thermo_output`
+    is the exact code `calc_thermo` calls to write its output, so exercising it
+    directly with plain RDKit mols pins the marking logic itself, not just the
+    generic (and already-reliable) SDWriter/SDMolSupplier round-trip of an
+    empty string property.
+    """
+
+    def _mol(self, name):
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", name)
+        return mol
+
+    def test_a_success_record_gets_the_empty_string_marker(self, tmp_path):
+        from rdkit import Chem
+
+        from Auto3D.ASE.thermo import _write_thermo_output
+
+        mol = self._mol("success")
+        outpath = tmp_path / "out.sdf"
+        _write_thermo_output(outpath, out_mols=[mol], mols_failed=[])
+
+        results = list(Chem.SDMolSupplier(str(outpath)))
+        assert len(results) == 1
+        assert results[0].HasProp("Thermo_failed")
+        assert results[0].GetProp("Thermo_failed") == ""
+
+    def test_a_failed_record_keeps_its_own_marker_unmodified(self, tmp_path):
+        from rdkit import Chem
+
+        from Auto3D.ASE.thermo import _write_thermo_output
+
+        mol = self._mol("failed")
+        mol.SetProp("Thermo_failed", "not_converged")
+        outpath = tmp_path / "out.sdf"
+        _write_thermo_output(outpath, out_mols=[], mols_failed=[mol])
+
+        results = list(Chem.SDMolSupplier(str(outpath)))
+        assert len(results) == 1
+        assert results[0].GetProp("Thermo_failed") == "not_converged"
+
+    def test_the_documented_filter_selects_only_the_success(self, tmp_path):
+        """Exercises the exact filter CHANGELOG.md/migration.rst document."""
+        from rdkit import Chem
+
+        from Auto3D.ASE.thermo import _write_thermo_output
+
+        success = self._mol("success")
+        failed = self._mol("failed")
+        failed.SetProp("Thermo_failed", "RuntimeError")
+        outpath = tmp_path / "out.sdf"
+        _write_thermo_output(outpath, out_mols=[success], mols_failed=[failed])
+
+        results = list(Chem.SDMolSupplier(str(outpath)))
+        kept = [m for m in results if m.GetProp("Thermo_failed") == ""]
+        assert [m.GetProp("_Name") for m in kept] == ["success"]
 
 
 class TestFailedRecordKeepsInputGeometry:

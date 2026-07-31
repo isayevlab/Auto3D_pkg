@@ -96,6 +96,29 @@ DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
 # above the thermal case and ~5x below the genuinely bent one.
 LINEARITY_MOMENT_RATIO = 1e-2
 
+# The ratio above is a size-relative test, not a shape test: for a rigid rod,
+# the largest moment grows as N^2 (mass x length^2, summed over atoms further
+# and further from the center), so the same absolute bend shrinks the ratio as
+# the molecule gets longer. A long chain can therefore have every atom sitting
+# a full Angstrom off the molecular axis -- genuinely bent -- while still
+# passing the ratio test outright. 2,4,6-octatriyne (CC#CC#CC#CC) measures
+# ratio 5.7e-3 (below the 1e-2 threshold, i.e. "linear") with atoms 1.02 A off
+# axis; all-anti n-C18H38 measures 9.9e-3 with atoms 1.7 A off axis. Both are
+# visibly bent, not linear.
+#
+# This is an absolute-length companion test, so it is placed by measured
+# separation between the two populations rather than by fitting: the largest
+# perpendicular offset seen among genuinely linear cases (CO2 thermally bent
+# 10 degrees, still populated at room temperature) is 0.074 A; the smallest
+# offset seen among genuinely bent cases this test must catch (octatriyne) is
+# 1.023 A. 0.25 A sits 3.4x above the former and 4.1x below the latter.
+# _is_collinear requires both this test AND the ratio test to call a molecule
+# linear -- neither alone is safe: dropping the ratio test risks calling a
+# truly linear molecule nonlinear from residual optimizer noise, and ASE's
+# nonlinear rotational entropy divides by sqrt(I1*I2*I3), which blows up as
+# I_min -> 0.
+LINEARITY_MAX_PERP_ANGSTROM = 0.25  # Å, max allowed atom distance from the principal axis
+
 # Imaginary modes below this magnitude (cm^-1) are numerical artifacts of an
 # NNP Hessian at conformer-generation convergence; above it, the structure is a
 # saddle point and its "free energy" is not a minimum's.

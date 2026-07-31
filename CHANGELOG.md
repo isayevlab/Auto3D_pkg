@@ -237,20 +237,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   became 4294967295 through RDKit's unsigned property accessor, giving a spin
   of over two billion and shifting Gibbs energy by 13.1 kcal/mol at 298.15 K.
 
-- **Linearity is decided by moments of inertia, and isotope masses are
-  honored** - `_is_collinear` used to apply an absolute 1e-3 Angstrom rank
-  tolerance to raw coordinates, putting the linear/nonlinear boundary only
-  ~7 degrees off linear - inside CO2's own thermal bending amplitude, so a
-  linear molecule merely left imperfectly optimized could flip to nonlinear
-  and lose a real vibrational mode's zero-point energy. The boundary is now
-  decided by the dimensionless ratio of the smallest to largest principal
-  moment of inertia, placed by measurement at roughly 22 degrees off linear -
-  an order of magnitude above CO2's thermal excursion and well below NO2, the
-  most nearly-linear common genuinely bent species. Moments of inertia now
-  also honor isotope labels: molecules were previously converted to an ASE
-  `Atoms` object from element symbol alone, so a deuterium label was silently
-  given protium mass, giving wrong rotational constants and wrong zero-point
-  energy.
+- **Linearity is decided by moments of inertia and by off-axis atom distance,
+  and isotope masses are honored** - `_is_collinear` used to apply an absolute
+  1e-3 Angstrom rank tolerance to raw coordinates, putting the linear/nonlinear
+  boundary only ~7 degrees off linear - inside CO2's own thermal bending
+  amplitude, so a linear molecule merely left imperfectly optimized could flip
+  to nonlinear and lose a real vibrational mode's zero-point energy. The
+  boundary was then decided solely by the dimensionless ratio of the smallest
+  to largest principal moment of inertia, placed by measurement at roughly 22
+  degrees off linear for a small triatomic - an order of magnitude above CO2's
+  thermal excursion and well below NO2, the most nearly-linear common
+  genuinely bent species. That ratio alone is a size cutoff, not a shape test:
+  the largest moment grows as N^2, so the same absolute bend shrinks the ratio
+  as a molecule gets longer, and a long chain with substituents off its axis
+  (e.g. 2,4,6-octatriyne, atoms 1.02 A off axis) could pass the ratio test and
+  be called linear outright. `_is_collinear` now also requires no atom to sit
+  more than 0.25 A from the principal axis (`LINEARITY_MAX_PERP_ANGSTROM`); a
+  molecule is linear only when both the ratio and the off-axis distance agree.
+  The 22-degrees-off-linear boundary from the ratio test still holds for small
+  molecules where it was measured; the off-axis distance test is what now
+  additionally catches longer, substituted chains the ratio alone misses.
+  Moments of inertia now also honor isotope labels: molecules were previously
+  converted to an ASE `Atoms` object from element symbol alone, so a deuterium
+  label was silently given protium mass, giving wrong rotational constants and
+  wrong zero-point energy.
 
 - **A malformed or conformer-less record no longer aborts the whole batch** -
   `SDMolSupplier` yields `None` for a record it cannot parse, and
