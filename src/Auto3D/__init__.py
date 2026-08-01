@@ -41,7 +41,6 @@ __all__ = [
     # Configuration
     "Auto3DOptions",
     "OptimizationConfig",
-    "NNPModel",
     # Model creation
     "create_model",
     "ModelFactory",
@@ -62,7 +61,6 @@ _LAZY_API: dict[str, tuple[str, str]] = {
     "smiles2mols": ("Auto3D.auto3D", "smiles2mols"),
     "Auto3DOptions": ("Auto3D.config", "Auto3DOptions"),
     "OptimizationConfig": ("Auto3D.config", "OptimizationConfig"),
-    "NNPModel": ("Auto3D.config", "NNPModel"),
     "create_model": ("Auto3D.model_factory", "create_model"),
     "ModelFactory": ("Auto3D.model_factory", "ModelFactory"),
     "calc_spe": ("Auto3D.SPE", "calc_spe"),

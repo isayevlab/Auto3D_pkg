@@ -26,8 +26,6 @@
    
       ~OptimizationConfig.batchsize_atoms
       ~OptimizationConfig.convergence_threshold
-      ~OptimizationConfig.energy_patience
-      ~OptimizationConfig.energy_tol
       ~OptimizationConfig.opt_steps
       ~OptimizationConfig.patience
    

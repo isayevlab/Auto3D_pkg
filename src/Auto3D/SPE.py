@@ -13,7 +13,11 @@ from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
-from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
+from Auto3D.utils.validation import (
+    check_engine_supports_molecules,
+    check_gpu_requested,
+    check_output_not_input,
+)
 
 logger = get_logger(__name__)
 
@@ -59,6 +63,12 @@ def calc_spe(
     # truth for this policy; called here, before get_device/create_model
     # below, so no compute (and no model construction) happens first.
     check_gpu_requested(use_gpu)
+
+    # Refuse `-o` pointing at the input: calc_spe would otherwise open the
+    # user's input file for writing and destroy it (C14). Shared guard, so
+    # calc_spe/opt_geometry/calc_thermo cannot drift apart on this policy.
+    # Needs only the two paths, so it runs before get_device/create_model.
+    check_output_not_input(path, out_path)
 
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).

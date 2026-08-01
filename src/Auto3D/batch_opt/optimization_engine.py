@@ -14,7 +14,6 @@ import torch
 from tqdm import tqdm
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
-from Auto3D.constants import DEFAULT_ENERGY_TOL
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -90,8 +89,6 @@ def n_steps(
     n: int,
     opttol: float,
     patience: int,
-    energy_tol: float = DEFAULT_ENERGY_TOL,
-    energy_patience: int = 3,
     atom_mask: torch.Tensor | None = None,
     progress_cb: Callable[[dict], None] | None = None,
 ) -> None:
@@ -100,10 +97,15 @@ def n_steps(
     Only non-converged structures are modified at each step. n_steps does not
     change input conformer order.
 
-    Uses multiple convergence criteria:
-    1. Force convergence: maximum force below opttol
+    A structure leaves the active set for one of two reasons:
+    1. Force convergence: maximum force at or below opttol
     2. Oscillation detection: drops structures that don't improve for patience steps
-    3. Energy stability: converges if energy stable for energy_patience steps
+
+    There is deliberately no energy-stability criterion. One existed until
+    4.0.0 but could never fire: it required ``fmax < opttol``, which is
+    exactly the condition under which the force criterion has already stopped
+    the structure, so the term was the identity of ``&`` at every element (see
+    ``test_convergence_outcome_never_depends_on_energy_stability``).
 
     Args:
         state: Optimization state dictionary containing:
@@ -118,10 +120,6 @@ def n_steps(
         opttol: Force convergence tolerance in eV/Angstrom.
         patience: Number of steps without force decrease before dropping a structure
             as oscillating.
-        energy_tol: Energy convergence threshold in eV (default 1e-3 eV = ~0.02 kcal/mol,
-            kept above float32 ULP at typical total energies so the criterion is live).
-        energy_patience: Number of steps energy must be stable before considering
-            converged (default 3).
         atom_mask: Boolean mask, shape (batch, n_atoms), True for real atoms and
             False for padded (ghost) atom slots. Forces on padded slots are
             zeroed before the force-convergence reduction so convergence does
@@ -150,15 +148,11 @@ def n_steps(
     # The following two terms are used to detect oscillating conformers
     smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999,
                                   dtype=torch.float).to(coord.device)
-    # Integer step counter (matches energy_stable_count below); only ever
-    # incremented by a bool mask and compared to `patience`, so use torch.long
-    # rather than float for a quantity that is conceptually an integer count.
+    # Integer step counter: only ever incremented by a bool mask and compared
+    # to `patience`, so use torch.long rather than float for a quantity that is
+    # conceptually an integer count.
     oscillating_count0 = torch.zeros(len(coord), dtype=torch.long,
                                      device=coord.device)
-
-    # Energy-based convergence tracking
-    prev_energy = torch.full((len(coord),), float('inf'), dtype=torch.double, device=coord.device)
-    energy_stable_count = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
 
     state["oscillating_count"] = oscillating_count0
 
@@ -185,8 +179,6 @@ def n_steps(
         atom_mask_subset = state['atom_mask'][not_converged]
         smallest_fmax = smallest_fmax0[not_converged]
         oscillating_count = state["oscillating_count"][not_converged]
-        prev_e_subset = prev_energy[not_converged]
-        energy_stable_subset = energy_stable_count[not_converged]
 
         coord.requires_grad_(True)
         e, f = state['nn'].forward_batched(coord, numbers,
@@ -221,20 +213,13 @@ def n_steps(
         oscillating_count += fmax_not_reduced
         not_oscillating = oscillating_count < patience
 
-        # Energy-based convergence: check if energy change is below threshold
-        e_double = e.detach().to(torch.double)
-        energy_change = torch.abs(e_double - prev_e_subset)
-        energy_stable = energy_change < energy_tol
-        # Increment count where energy is stable, reset where not
-        energy_stable_subset = torch.where(energy_stable, energy_stable_subset + 1, torch.zeros_like(energy_stable_subset))
-        # Consider converged if energy stable for energy_patience steps AND force is
-        # below opttol. Requiring fmax < opttol (not 10x) keeps the reported geometry
-        # self-consistent: every conformer stops at the same force level, so ranking
-        # does not reorder conformers that merely stopped at looser force thresholds.
-        energy_converged = (energy_stable_subset >= energy_patience) & (fmax < opttol)
-
-        # Combine all convergence criteria
-        not_converged_post = not_converged_post1 & not_oscillating & ~energy_converged
+        # Combine the convergence criteria. An `& ~energy_converged` term stood
+        # here until 4.0.0; `energy_converged` required `fmax < opttol` while
+        # `not_converged_post1` is `fmax > opttol`, so the term was the identity
+        # of `&` wherever it was consulted and false-dominated elsewhere -- it
+        # could never change an outcome, including at the `fmax == opttol`
+        # boundary where both comparisons are false (audit M1).
+        not_converged_post = not_converged_post1 & not_oscillating
 
         optimizer.clean(not_converged_post)  # Subset v, a in FIRE for next optimization
 
@@ -249,8 +234,6 @@ def n_steps(
         smallest_fmax0[not_converged] = smallest_fmax  # Update smallest_fmax for each conformer
         state["oscillating_count"][
             not_converged] = oscillating_count  # Update counts for continuous no reduction in fmax
-        prev_energy[not_converged] = e_double  # Update previous energy for next iteration
-        energy_stable_count[not_converged] = energy_stable_subset  # Update energy stability count
 
         # Print stats every 10% of steps (avoid division by zero for small n)
         if n >= 10 and (istep % (n // 10)) == 0:

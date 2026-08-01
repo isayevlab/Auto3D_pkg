@@ -10,7 +10,10 @@ in molecular structures, including:
 from __future__ import annotations
 
 import math
+import os
 import re
+import stat
+import tempfile
 from collections import OrderedDict, defaultdict
 
 from rdkit import Chem
@@ -514,12 +517,45 @@ def amend_configuration_w(smi: str) -> None:
 
     Args:
         smi: Path to a .smi file to amend in place.
+
+    Note:
+        The rewrite is staged through a sibling temp file and moved into place
+        with ``os.replace`` (atomic on POSIX and Windows). Opening ``smi`` for
+        writing directly would truncate it, so a failure partway through the
+        loop below would destroy the input this function just read and leave
+        nothing to recover from (C14).
     """
     dct = amend_configuration(smi)
-    with open(smi, "w+") as f:
-        for key in dct.keys():
-            val = dct[key]
-            for i, smi_str in enumerate(val):
-                idx = str(key).strip() + "_" + str(i + 1)
-                line = smi_str + " " + idx + "\n"
-                f.write(line)
+
+    # Same directory as the target: os.replace raises OSError across
+    # filesystems. mkstemp creates the file 0600, so copy the original's
+    # permission bits over rather than silently tightening the user's file.
+    # realpath, not abspath: abspath collapses ".." lexically, so a path like
+    # /scratch/link/../in.smi (link -> another mount) would stage the temp file
+    # on the wrong filesystem and os.replace would fail with EXDEV. Only the
+    # PARENT is resolved -- os.replace acts on the final component itself.
+    directory = os.path.realpath(os.path.dirname(os.path.abspath(smi)))
+    fd, tmp_path = tempfile.mkstemp(suffix=".smi", dir=directory)
+    os.close(fd)
+    try:
+        os.chmod(tmp_path, stat.S_IMODE(os.stat(smi).st_mode))
+    except OSError:  # pragma: no cover - best effort; never block the rewrite
+        pass
+
+    try:
+        with open(tmp_path, "w") as f:
+            for key in dct.keys():
+                val = dct[key]
+                for i, smi_str in enumerate(val):
+                    idx = str(key).strip() + "_" + str(i + 1)
+                    line = smi_str + " " + idx + "\n"
+                    f.write(line)
+        os.replace(tmp_path, smi)
+    except BaseException:
+        # BaseException, not Exception: a KeyboardInterrupt mid-write must not
+        # leave a stray .smi beside the file being amended.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise

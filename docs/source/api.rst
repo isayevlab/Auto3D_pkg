@@ -24,7 +24,6 @@ Classes for configuring Auto3D:
 
    Auto3D.config.Auto3DOptions
    Auto3D.config.OptimizationConfig
-   Auto3D.config.NNPModel
 
 Model Creation
 --------------
@@ -37,6 +36,18 @@ Factory functions and classes for creating neural network potential models:
    Auto3D.model_factory.ModelFactory
    Auto3D.model_factory.create_model
    Auto3D.model_factory.get_device
+
+Custom NNP Contract
+-------------------
+
+The interface a user-supplied neural network potential must implement. It is
+enforced when the model file is loaded, so a model that does not match is
+rejected before any conformer work starts:
+
+.. autosummary::
+   :toctree: generated
+
+   Auto3D.models.contract.CustomNNP
 
 Isomer Generation
 -----------------

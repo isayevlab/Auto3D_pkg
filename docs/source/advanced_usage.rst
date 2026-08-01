@@ -364,19 +364,25 @@ Python API
        )
        output = main(config)
 
-NNPModel Protocol
-~~~~~~~~~~~~~~~~~
+CustomNNP Protocol
+~~~~~~~~~~~~~~~~~~
 
-Your custom model must implement this interface:
+Your custom model must implement this interface. It is checked when the model
+file is loaded, so a mismatch is reported immediately rather than surfacing as
+an autograd failure mid-optimization. Note that ``species`` comes **first** and
+that the model returns energies only -- Auto3D derives forces from them:
 
 .. code:: python
 
    import torch
 
    class MyNNP(torch.nn.Module):
-       # Required attributes
-       coord_pad = 0       # Padding value for coordinates
-       species_pad = -1    # Padding value for species
+       def __init__(self):
+           super().__init__()
+           # Required attributes; set on the instance so they survive
+           # torch.jit.save, which drops plain class attributes.
+           self.coord_pad = 0.0     # Fill value for unused coordinate slots
+           self.species_pad = -1    # Fill value for unused species slots
 
        def forward(
            self,
@@ -409,12 +415,11 @@ Example Custom Model Wrapper
    class CustomNNPWrapper(nn.Module):
        """Wrapper to make an external NNP compatible with Auto3D."""
 
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, underlying_model):
            super().__init__()
            self.model = underlying_model
+           self.coord_pad = 0.0
+           self.species_pad = -1
 
        def forward(self, species, coords, charges):
            batch_size = species.shape[0]

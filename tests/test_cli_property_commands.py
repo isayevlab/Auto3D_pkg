@@ -425,3 +425,29 @@ def test_api_functions_expose_new_params():
     for fn in (calc_spe, opt_geometry, calc_thermo):
         params = inspect.signature(fn).parameters
         assert {"out_path", "use_gpu", "allow_tf32"} <= set(params), fn.__name__
+
+
+def test_tautomers_refuses_output_equal_to_input(smi):
+    """`auto3d tautomers mols.smi -o mols.smi` must not destroy the input.
+
+    This command does not get the same-file guard for free the way `energy`,
+    `optimize` and `thermo` do: those forward --output to calc_spe /
+    opt_geometry / calc_thermo, which call `check_output_not_input`
+    themselves. The tautomer pipeline instead derives its own output name and
+    honors -o with a `shutil.move`, so before this guard the move renamed the
+    result over the user's input file.
+
+    `get_stable_tautomers` is patched to prove the guard fires FIRST -- if it
+    is ever reordered below the pipeline, the mock records a call and this
+    test fails rather than silently permitting the destructive move.
+    """
+    original = smi.read_bytes()
+    with patch("Auto3D.tautomer.get_stable_tautomers") as m:
+        res = runner.invoke(
+            app, ["tautomers", str(smi), "--no-gpu", "-o", str(smi)]
+        )
+    assert res.exit_code == 2, res.output
+    assert "same file" in res.output
+    assert "Traceback" not in res.output
+    assert not m.called, "the guard ran after the pipeline, not before it"
+    assert smi.read_bytes() == original, "the input file was modified"

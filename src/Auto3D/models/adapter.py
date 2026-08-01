@@ -143,7 +143,7 @@ class BaseModelAdapter(ABC, nn.Module):
         model: nn.Module,
         device: torch.device,
         coord_pad: float = 0.0,
-        species_pad: int = 0,
+        species_pad: int = -1,
         compile_model: bool = False,
     ) -> None:
         """Initialize the adapter.
@@ -151,8 +151,16 @@ class BaseModelAdapter(ABC, nn.Module):
         Args:
             model: The underlying neural network model.
             device: Target device for computations.
-            coord_pad: Padding value for coordinates.
-            species_pad: Padding value for atomic species.
+            coord_pad: Fill value for unused coordinate slots.
+            species_pad: Fill value for unused species slots. Defaults to -1 to
+                agree with ``Auto3D.batch_opt.padding.pad_from_mols`` and with
+                the documented custom-NNP convention; the previous default of 0
+                collided with ANI2xt's hydrogen index, so the two layers
+                disagreed about which slots were padding. Every adapter below
+                passes this explicitly, so the default only applies to
+                third-party subclasses -- for which -1 is the safe value,
+                because it can never be a real atomic number or a 0-based
+                species index.
             compile_model: Whether to apply torch.compile() for optimization.
         """
         super().__init__()
@@ -382,9 +390,18 @@ class ANI2xAdapter(BaseModelAdapter):
 class CustomModelAdapter(BaseModelAdapter):
     """Adapter for user-provided custom NNP models.
 
-    Custom models implement:
-    - forward(species, coords, charges) -> energies
-    - Optional: coord_pad and species_pad attributes (defaults used if absent)
+    Custom models implement the contract defined in
+    ``Auto3D.models.contract`` (:class:`~Auto3D.models.contract.CustomNNP`):
+    - ``forward(species, coords, charges) -> energies`` -- species FIRST, and
+      energies only. This adapter derives forces from the returned energy by
+      autograd, so the model must not return them.
+    - ``coord_pad`` and ``species_pad`` attributes. Both are REQUIRED; a missing
+      one is rejected at load rather than silently defaulted.
+
+    Note the argument order is the reverse of this adapter's own
+    ``forward(coords, species, charges)``, which is Auto3D's internal
+    :class:`ModelAdapter` interface and returns ``(energies, forces)``.
+    ``load_custom_nnp`` rejects a model that confuses the two.
 
     The model file may be EITHER a TorchScript archive
     (``torch.jit.script(m).save(path)``) OR an eager nn.Module saved with
@@ -416,11 +433,15 @@ class CustomModelAdapter(BaseModelAdapter):
         """
         # Accept either a TorchScript archive or an eager nn.Module checkpoint
         # (shared load contract -- see Auto3D.models.loading.load_custom_nnp).
+        # load_custom_nnp validates the contract, so coord_pad/species_pad are
+        # guaranteed present here. Reading them directly (rather than through
+        # getattr defaults that disagreed with BaseModelAdapter's) is what keeps
+        # one padding value in play instead of two.
         model = load_custom_nnp(model_path, device)
-        coord_pad = getattr(model, 'coord_pad', 0.0)
-        species_pad = getattr(model, 'species_pad', -1)
         # TorchScript models don't benefit from torch.compile
-        super().__init__(model, device, coord_pad, species_pad, compile_model=False)
+        super().__init__(
+            model, device, model.coord_pad, model.species_pad, compile_model=False
+        )
 
     def forward(
         self,

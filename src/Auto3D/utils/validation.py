@@ -146,6 +146,74 @@ def check_engine_supports_molecules(
         )
 
 
+def check_output_not_input(path: str, out_path: str | None) -> None:
+    """Refuse to write the output over the input file.
+
+    ``auto3d energy mols.sdf -o mols.sdf`` used to open ``mols.sdf`` for
+    writing while the run was still reading from it, so the user's input was
+    destroyed -- and, if the run then failed part-way, replaced by a truncated
+    file with no surviving copy of either the input or the result (C14). The
+    Phase 6 tmp+``os.replace`` staging fixes the *crash* half of C14 (a failed
+    rewrite no longer leaves a partial file), but it cannot fix this half: a
+    successful same-file run still deliberately overwrites the input, and no
+    amount of atomicity brings the original back.
+
+    Single source of truth for that policy, in the same spirit as
+    ``check_gpu_requested`` and ``check_engine_supports_molecules``:
+    ``calc_spe``, ``opt_geometry`` and ``calc_thermo`` each take an output path
+    directly and never go through ``check_input``/``check_valid_configuration``,
+    so all three call this function rather than carrying three copies of the
+    test that would drift apart. The ``auto3d energy``/``optimize``/``thermo``
+    CLI commands pass ``--output`` straight through to those functions, so they
+    are covered by the same call.
+
+    Two comparisons, because neither alone is sufficient:
+
+    ``os.path.samefile`` is the authoritative test -- it compares ``st_dev`` and
+    ``st_ino``, so it catches the two cases string/``realpath`` comparison
+    misses entirely. A **hardlink** (``cp -l mols.sdf results.sdf``) is one file
+    under two names with two distinct real paths, so ``realpath`` compares them
+    unequal and writing to either destroys the other. A **case-insensitive
+    filesystem** (macOS APFS/HFS+, Windows NTFS -- both supported platforms)
+    resolves ``Mols.sdf`` and ``mols.sdf`` to one file whose real paths differ
+    only in case. Both defeat ``realpath`` equality; ``samefile`` sees through
+    both because the kernel already told it they are the same inode.
+
+    ``samefile`` requires both paths to exist, and in the normal case the output
+    does not yet -- so it is guarded by ``os.path.exists`` and the ``realpath``
+    comparison is kept as the fallback. That fallback is what catches the common
+    spellings (``mols.sdf`` vs ``./mols.sdf`` vs an absolute path vs a symlink)
+    when the output file has not been created yet, which ``samefile`` cannot
+    answer at all.
+
+    Args:
+        path: The input file the caller will read.
+        out_path: The requested output path, or None to use the default
+            (which is derived from `path` and never equals it).
+
+    Raises:
+        ConfigurationError: `out_path` names the same file as `path`.
+    """
+    if out_path is None:
+        return
+
+    same = os.path.realpath(path) == os.path.realpath(out_path)
+    if not same and os.path.exists(path) and os.path.exists(out_path):
+        try:
+            same = os.path.samefile(path, out_path)
+        except OSError:
+            # A path that vanished between exists() and samefile(), or that
+            # cannot be stat'd. Fall back to the realpath verdict rather than
+            # failing the run on a check that is itself best-effort.
+            pass
+
+    if same:
+        raise ConfigurationError(
+            f"Output path {out_path!r} is the same file as the input {path!r}. "
+            "Auto3D would overwrite your input; pass a different output path."
+        )
+
+
 def check_input(args: Any) -> None:
     """Check the input file and give recommendations.
 

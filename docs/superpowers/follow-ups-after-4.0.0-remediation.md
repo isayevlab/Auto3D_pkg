@@ -1,0 +1,121 @@
+# Follow-ups after the 4.0.0 audit remediation
+
+Everything the six-phase remediation deliberately did not do, in one place.
+Two categories: findings the design spec deferred up front, and things
+discovered *during* implementation that were logged rather than absorbed.
+
+The per-phase ledgers under `.superpowers/sdd/*/progress.md` are git-ignored
+scratch and will not survive a `git clean`. This file is the durable record.
+
+Source of the finding IDs: `.claude/review-manifests/review-2026-07-30-package-audit.md`.
+Design and rationale: `docs/superpowers/specs/2026-07-30-audit-remediation-design.md` §1.
+
+## What the remediation closed
+
+All 14 Criticals (C1–C14), plus M1, M2 (moot), M8–M17, M19, M21–M23,
+M25–M30, M33, M40, M46, M47. Every fix landed with a test that failed before
+it, and the audit's 28 tripwires are all closed — the suite carries zero
+`xfail` markers.
+
+## Deferred by the spec's non-goals
+
+Recorded at design time, with rationale. Not oversights.
+
+| Cluster | Findings | Why deferred |
+|---|---|---|
+| Performance / GPU efficiency | M6, M7, M36–M39 | Real wins (~18 syncs/step, ANI2xt graph breaks, uncapped memory sizing, OOM retry) but no correctness impact. **Needs a free GPU to measure**, which the remediation could not assume. |
+| Structural consolidation | M41–M45, M48–M56 | `isomers/` collapse, `utils/` layering, `file_ops`/`chemistry` splits, import-probe removal. Improves maintainability; changes no output. |
+| Cleanup | M57–M67, all 46 Minors | Dead code, naming, docstrings, complexity extraction. |
+
+## Discovered during implementation
+
+These are not in the original manifest — they surfaced from the work itself
+and were judged out of scope for the phase that found them.
+
+### Durability / file handling
+
+- **`reorder_sdf` diverges from the other two staging sites.** It uses a
+  predictable `.reorder.tmp` name rather than `mkstemp`, and does **not**
+  preserve its target's file mode — so a 0600 input can come back
+  umask-default (typically 0644), a permission *loosening*.
+  `ASE/geometry.py` and `utils/stereochemistry.py` both preserve mode.
+  *Confirmed safe to defer:* both in-tree callers hand `reorder_sdf` a file
+  the same process just created under the same umask, so neither can hit it
+  today. A third-party caller could.
+- **The tmp+`os.replace` pattern now exists in three places** and they differ
+  on temp naming, mode preservation, and supplier-handle release. Worth one
+  shared helper. **There is no circular-import blocker** — that was assumed
+  during Phase 6 and then disproved: `utils/file_ops.py` imports only
+  `Auto3D.exceptions` and `logging_config`, never `stereochemistry`.
+
+### Interfaces
+
+- **`ConformerRanker.run` dispatches on `k`/`window` by name.** Phase 5 made
+  a third selector impossible to *accept* wrongly, but `run` would silently
+  ignore one. Generalizing the dispatch is a real refactor.
+- **`Auto3D.models.contract`: `@runtime_checkable` on `CustomNNP` is never
+  used**, and would not help if it were — `isinstance()` against a Protocol
+  checks attribute presence, so a module with the padding attributes and no
+  `forward` passes. `REQUIRED_ATTRIBUTES` is a hand-maintained duplicate of
+  the Protocol's own fields and can drift from it. This reproduces in
+  miniature the "authoritative-looking but never consulted" property that
+  made `config.NNPModel` a finding in the first place.
+- **`contract.py`'s arity-rejection message can be identical to what it
+  demands.** It comma-joins parameter names and drops `*`, `/`, and defaults,
+  so a keyword-only `forward` produces "has forward(species, coords,
+  charges), which cannot be called with three positional arguments. Expected
+  forward(self, species, coords, charges)".
+
+### Test coverage
+
+- `test_calc_spe_uses_model_factory` and its twin in `tests/test_thermo.py`
+  are now fully hermetic (no model load, no download) but are still
+  `slow`-marked. They could move to the fast tier, where they would actually
+  run in every CI job.
+- `test_transposed_forward_is_rejected_by_input_validation`
+  (`tests/test_custom_nnp_contract.py`) has no `match=`, so it cannot
+  distinguish the argument-order check firing from any other `ModelLoadError`
+  that `check_input` wraps.
+- `test_center_remote_from_the_tautomeric_site_is_kept` (Phase 2) is a
+  regression guard, not a discriminator: the pre-fix default also keeps a
+  center outside the tautomer core.
+- The "produced no conformers after clash relief" warning in
+  `_run_serial_embedding` has no test. It changes no behavior and the clash
+  branch measured 0/650 on realistic input, but it is user-facing code with
+  zero coverage.
+
+### Diagnostics
+
+- `ranking.py` logs "No structure converged" when conformers were actually
+  dropped for **stereochemistry**, which is misleading. The filters do not
+  thread the reason through, so fixing it means widening their return
+  contract.
+
+### Accepted risk
+
+- **Phase 2's constitution rule deliberately admits one case:** a tautomer of
+  a *different* constitution carrying a definite-but-fabricated configuration
+  at a center the tautomerization destroyed. A reviewer attempted
+  aldose→ketose and amide/ester hybrids and found every candidate flip was a
+  CIP relabeling artifact rather than a physical inversion. No live
+  reproducer exists; documented rather than guarded.
+
+## Two corrections to the audit itself
+
+Both were wrong in the source manifest and are corrected inline there, so
+neither can be re-derived from its finding ID:
+
+1. **C12 was recorded backwards.** It cited `models/adapter.py`'s *internal*
+   `ModelAdapter` interface as "what the code actually calls" on a
+   user-supplied model. `CustomModelAdapter` in fact calls the user's model
+   as `self.model(species, coords, charges)` and derives forces by autograd;
+   `ASE/thermo.py` agrees. `config.NNPModel` described the contract
+   correctly. Implementing the finding as written would have rejected every
+   working custom NNP at load.
+2. **The same-file search method could not have been complete.** The audit
+   found the hazard by grepping `check_gpu_requested` call sites, which by
+   construction only returns functions that are *already* guarded. Two
+   further writers were invisible to it — `ConformerRanker` and
+   `auto3d tautomers` — and both destroyed their input. Any future
+   "find all callers of X" audit should start from the *operation*
+   (who writes files?) rather than from an existing guard.

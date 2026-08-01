@@ -173,12 +173,19 @@ class TestCustomModelAdapter:
         assert adapter.species_pad == -2
 
     @patch("Auto3D.models.adapter.torch.jit.load")
-    def test_custom_adapter_uses_defaults_when_no_attributes(self, mock_load):
-        """CustomModelAdapter should use default padding when model has no attributes."""
+    def test_custom_adapter_rejects_a_model_without_padding_attributes(self, mock_load):
+        """No silent default: the padding values must come from the model.
+
+        Until audit C12 this fell back to getattr defaults that DISAGREED
+        between layers -- CustomModelAdapter substituted species_pad=-1 while
+        BaseModelAdapter's own default was 0 -- so which atoms counted as
+        padding depended on which layer supplied the value. Refusing is the
+        only answer that cannot be silently wrong.
+        """
+        from Auto3D.exceptions import ModelLoadError
         from Auto3D.models.adapter import CustomModelAdapter
 
-        # Create a mock that simulates a model without coord_pad/species_pad
-        # Using a class without those attributes
+        # A model without coord_pad/species_pad.
         class MockModel:
             def parameters(self):
                 return iter([])
@@ -186,11 +193,8 @@ class TestCustomModelAdapter:
         mock_load.return_value = MockModel()
 
         device = torch.device("cpu")
-        adapter = CustomModelAdapter("/path/to/model.pt", device)
-
-        # Default values when model doesn't have the attributes
-        assert adapter.coord_pad == 0.0
-        assert adapter.species_pad == -1
+        with pytest.raises(ModelLoadError, match="coord_pad"):
+            CustomModelAdapter("/path/to/model.pt", device)
 
 
 def test_try_compile_uses_dynamic_default_mode(monkeypatch):
@@ -259,8 +263,14 @@ def test_custom_model_adapter_runs(tmp_path):
     from Auto3D.models.adapter import CustomModelAdapter
 
     class _Toy(torch.nn.Module):
-        coord_pad: float = 0.0
-        species_pad: int = -1
+        def __init__(self):
+            super().__init__()
+            # INSTANCE, not class, attributes: torch.jit.save drops plain class
+            # attributes, so a scripted model declaring them at class level
+            # arrives with neither and is rejected by the contract check.
+            self.coord_pad: float = 0.0
+            self.species_pad: int = -1
+
         def forward(self, species, coords, charges):
             # simple harmonic-ish energy = sum of squared coords per molecule
             return (coords ** 2).sum(dim=(1, 2))

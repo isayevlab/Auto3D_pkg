@@ -103,6 +103,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently returns a CPU device -- the fatal check is enforced by its
   callers, not by the device picker.
 
+- **An output path equal to the input file is now rejected.** `auto3d energy
+  mols.sdf -o mols.sdf` -- and the same request through `auto3d
+  optimize`/`thermo`, or through `calc_spe`/`opt_geometry`/`calc_thermo` with
+  `out_path` set to the input -- used to open the user's input file for
+  writing and destroy it. The input was not recoverable: for `calc_spe` and
+  `calc_thermo` the overwrite simply succeeded, so the only copy of the input
+  was replaced by output; for `opt_geometry` the rewrite pass also clobbered
+  the file it had just read. The Phase 6 tmp+`os.replace` staging (see
+  *Fixed*, below) makes a *failed* rewrite non-destructive, but it cannot
+  help here -- a successful same-file run overwrites the input by design.
+  A single `Auto3D.utils.validation.check_output_not_input` guard, called by
+  all three API functions before any device or model is constructed -- and by
+  `ConformerRanker`, a fourth public writer with the same exposure -- now
+  raises `ConfigurationError` instead. Two comparisons back it: `os.path.
+  realpath`, so `mols.sdf`, `./mols.sdf`, an absolute path, and a symlink to
+  the input are refused even when the output does not exist yet; and
+  `os.path.samefile` when both exist, which compares `st_dev`/`st_ino` and so
+  additionally catches a **hardlink** (`cp -l mols.sdf results.sdf` is one file
+  under two real paths) and a **case-insensitive filesystem** (`Mols.sdf` and
+  `mols.sdf` are one file on macOS APFS and Windows NTFS). Either of those
+  would slip past a realpath-only comparison and destroy the input.
+  **This is breaking for
+  anyone who relied on in-place overwrite**: pass a distinct output path (or
+  omit `-o`/`out_path` to get the default `<stem>_<model>_<E|opt|G>.sdf`
+  beside the input) and move the result over the input yourself afterwards if
+  that is what you want.
+
 - **`auto3d validate` now rejects exactly what the runner rejects.**
   `validate_smiles_file` never required an ID column, so an ID-less line
   passed validation and then failed the actual run with a hint telling the
@@ -279,7 +306,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented as passed to the adapter constructor and never referenced, so
   misspelled arguments were silently ignored.
 
+- **The energy-stability convergence criterion is removed, along with its
+  `energy_tol`/`energy_patience` knobs.** `n_steps` no longer accepts
+  `energy_tol` or `energy_patience`, `OptimizationConfig` no longer carries
+  those fields (and `to_dict()` no longer emits those keys), and
+  `Auto3D.constants.DEFAULT_ENERGY_TOL`/`DEFAULT_ENERGY_PATIENCE` are gone.
+  **No geometry, energy or convergence flag changes** -- the criterion could
+  never fire. It was `energy_converged = (energy_stable_subset >=
+  energy_patience) & (fmax < opttol)`, combined as `not_converged_post =
+  (fmax > opttol) & not_oscillating & ~energy_converged`. Wherever
+  `~energy_converged` was consulted, `fmax > opttol` already held, so
+  `fmax < opttol` was false and the term was the identity of `&`; everywhere
+  else the first factor already forced the conjunction false. At the
+  `fmax == opttol` boundary both comparisons are false, so the same holds
+  there. Documentation claiming "energy-based early termination" described
+  behavior that never occurred; the loop converges on force or drops for
+  oscillation, and nothing else. Tuning `energy_tol` in 3.x had no effect on
+  any result, so no 3.x output needs recomputing -- delete the argument at
+  your call sites. Legacy dict configs are unaffected: `ensemble_opt` reads
+  only `opt_steps`/`opttol`/`patience`/`batchsize_atoms` from the dict and
+  ignores a stray `energy_tol` key. `Auto3D.filtering`'s unrelated
+  `energy_tol` (duplicate-conformer energy tolerance) is untouched.
+
+- **`Auto3D.NNPModel` is removed; the custom-NNP contract is now enforced when
+  the model file is loaded.** The protocol a custom NNP must satisfy now lives
+  in one place, `Auto3D.models.contract.CustomNNP`, next to the adapter that
+  calls it. The old `Auto3D.NNPModel` was a second, never-consulted copy in
+  `config.py`; it was `@runtime_checkable` and exported in `__all__`, so it
+  looked authoritative while nothing in Auto3D ever checked a model against it.
+  Replace `from Auto3D import NNPModel` with `from Auto3D.models import
+  CustomNNP`.
+
+  **The signature is unchanged**: a custom NNP still implements
+  `forward(species, coords, charges) -> energies`, species first, returning an
+  energy tensor of shape `(batch,)` in eV. Auto3D derives forces by
+  differentiating that energy with respect to `coords`, so a model must not
+  return forces. **One real break:** `coord_pad` and `species_pad` were
+  documented as optional in 3.x ("defaults used if absent") and supplied by
+  `getattr` fallbacks, so a model that omitted them loaded and ran. They are
+  now required, and such a model is refused at load. Add both attributes in
+  `__init__` (see the migration guide) -- this is a two-line change, and the
+  old fallbacks are gone precisely because the two layers disagreed about what
+  they defaulted to.
+
+  What changed is that `load_custom_nnp` now checks the contract and refuses a
+  model that violates it, instead of accepting it and failing later inside
+  `torch.autograd.grad` with an error that pointed nowhere near the cause:
+
+  - `coord_pad` and `species_pad` are now **required**. 3.x substituted
+    defaults through `getattr`, and the two layers disagreed about what the
+    default was -- `CustomModelAdapter` supplied `-1` while `BaseModelAdapter`'s
+    own default was `0` -- so a model without the attributes got a different
+    notion of padding depending on which layer answered. `0` also collides with
+    ANI2xt's hydrogen index. Neither default survives: `CustomModelAdapter`'s
+    `getattr` fallback was **removed**, not retargeted, so a model missing
+    EITHER attribute is now rejected rather than guessed at. Where Auto3D still
+    documents a recommended value for your own model to set, it is `-1`, which
+    can be neither an atomic number nor a 0-based species index.
+  - A `forward` whose first three parameters are recognizable but ordered
+    `(coords, species, charges)` is rejected. **This is the trap worth
+    naming**: Auto3D's *internal* `Auto3D.models.adapter.ModelAdapter` interface
+    does take `(coords, species, charges)` and does return `(energies, forces)`
+    -- the opposite argument order and a different return type. Only Auto3D's
+    own adapters implement it. A user model written against it computed an
+    energy from transposed tensors and blew up much later; it now fails at load
+    with a message naming the expected signature.
+  - A `forward` that cannot accept three positional arguments is rejected.
+  - Models whose `forward` parameter names carry no ordering information (for
+    example `forward(a, b, c)` or `forward(*args)`) are still accepted: the
+    order cannot be determined from such names, and a false rejection would
+    break a working model.
+
+  **TorchScript archives need one change.** `torch.jit.save` does not carry
+  plain *class* attributes into the archive, so a model declaring
+  `coord_pad`/`species_pad` at class level arrives with neither and is now
+  rejected. Set them in `__init__` (`self.coord_pad = 0.0`) or list them in
+  `__constants__`. Models saved with `torch.save` keep class attributes and are
+  unaffected. TorchScript models are exempt from the signature check --- a
+  loaded `RecursiveScriptModule`'s `forward` exposes no Python signature to
+  `inspect.signature` --- but not from the attribute check.
+
+  No 3.x *results* change --- the calling convention is identical --- but two
+  kinds of model that loaded in 3.x are now refused at load, both because the
+  padding attributes became required:
+
+  - Any model, eager or scripted, that simply omitted `coord_pad`/`species_pad`
+    and relied on the `getattr` defaults. This is the common case, and the 3.x
+    adapter docstring called the attributes "Optional".
+  - A TorchScript archive that declared them as bare class attributes, which
+    TorchScript does not carry into the archive; in 3.x it was silently given
+    `species_pad = -1` by the fallback rather than its own value.
+
+  Both are fixed by setting the two attributes in `__init__` (or listing them
+  in `__constants__` for TorchScript). The failure is now a clear
+  `ModelLoadError` at load rather than a wrong padding value applied silently.
+
 ### Fixed
+
+- **A failed rewrite can no longer destroy a completed optimization.**
+  `opt_geometry` converts `E_tot` from eV to hartree by reading the SDF that
+  `optimizing.run()` just wrote and reopening that same path with
+  `Chem.SDWriter`, which truncates on open. Any failure partway through that
+  pass -- a full disk, a `KeyboardInterrupt` -- left a partial file, and since
+  `optimizing.run()` wrote its only copy there, the finished optimization was
+  unrecoverable. `amend_configuration_w` had the identical shape with
+  `open(smi, "w+")` on the `.smi` file it had just read. Both now stage the
+  rewrite into a sibling temp file and move it into place with `os.replace`
+  (atomic on POSIX and Windows), so the target is only ever the old complete
+  file or the new complete file, and the temp file is removed on any failure.
+  Staging alone does not address the Windows hazard that `reorder_sdf` hit in
+  `74474ed`: that function was already staging, and failed because an open
+  `SDMolSupplier` held the `os.replace` *destination*, which Windows refuses
+  to overwrite. `_annotate_and_rewrite` reads its destination too, so it
+  releases the supplier explicitly before replacing, the same way
+  `reorder_sdf` does. The staged file inherits the target's permission bits,
+  so an output file's mode is unchanged by the rewrite -- including a
+  read-only target, whose protection a plain `rename(2)` would have bypassed.
+  One behavior change to note: because `os.replace` acts on the final path
+  component, an output path that is a **symlink** is now replaced by a regular
+  file rather than written through to the link's target. This matches
+  `reorder_sdf`'s long-standing behavior.
 
 - **`calc_spe`, `opt_geometry`, and `calc_thermo` now reject molecules ANI2x/
   ANI2xt cannot represent.** The element-set/charge guard (elements outside

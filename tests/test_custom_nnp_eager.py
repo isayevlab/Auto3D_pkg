@@ -23,11 +23,20 @@ class _TinyNNP(torch.nn.Module):
 
 
 class _LinNNP(torch.nn.Module):
-    """Module-level (picklable) model with a real parameter, for dtype checks."""
+    """Module-level (picklable) model with a real parameter, for dtype checks.
+
+    Carries the padding attributes because load_custom_nnp validates the
+    custom-NNP contract on everything it returns.
+    """
 
     def __init__(self):
         super().__init__()
         self.lin = torch.nn.Linear(3, 1)
+        self.coord_pad = 0.0
+        self.species_pad = -1
+
+    def forward(self, species, coords, charges):
+        return self.lin(coords).squeeze(-1).sum(dim=1)
 
 
 def test_custom_eager_module_loads_and_runs(tmp_path):

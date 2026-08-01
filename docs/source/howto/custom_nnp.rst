@@ -82,12 +82,17 @@ Python API
 Overview
 --------
 
-Auto3D supports custom PyTorch-based NNP models through the ``NNPModel``
-protocol. Your model must implement a specific interface to be compatible
-with Auto3D's optimization engine.
+Auto3D supports custom PyTorch-based NNP models through the
+:class:`Auto3D.models.contract.CustomNNP` protocol. Your model must implement
+this interface to be compatible with Auto3D's optimization engine.
 
-The NNPModel Protocol
----------------------
+The contract is **checked when the model file is loaded**. A model that does not
+match is rejected immediately, with a message naming the expected signature,
+rather than producing a nonsense energy and failing many optimization steps
+later inside ``torch.autograd.grad``.
+
+The CustomNNP Protocol
+----------------------
 
 Required Interface
 ~~~~~~~~~~~~~~~~~~
@@ -95,8 +100,30 @@ Required Interface
 Your custom model must:
 
 1. Be a PyTorch ``nn.Module``
-2. Have ``coord_pad`` and ``species_pad`` class attributes
-3. Implement a ``forward`` method with the correct signature
+2. Define ``coord_pad`` and ``species_pad`` attributes (**required** -- Auto3D
+   will not substitute a default, because a wrong ``species_pad`` silently
+   changes which atoms your model treats as padding)
+3. Implement ``forward(species, coords, charges)``, returning **energies only**
+
+.. important::
+
+   ``species`` comes **first**, and the model returns a single energy tensor.
+   Auto3D obtains forces by differentiating that energy with respect to
+   ``coords``, so your model must not return forces.
+
+   Do not confuse this with ``Auto3D.models.adapter.ModelAdapter``, Auto3D's
+   *internal* interface, which is ``forward(coords, species, charges) ->
+   (energies, forces)`` -- the reverse argument order. Only Auto3D's own
+   adapters implement that one. A model written against it is rejected at load.
+
+.. note::
+
+   If you save your model with ``torch.jit.save``, set ``coord_pad`` and
+   ``species_pad`` in ``__init__`` (``self.coord_pad = 0.0``) or list them in
+   ``__constants__``. TorchScript does **not** carry plain class attributes into
+   the archive, so a model that declares them only at class level arrives
+   without them and is rejected. Models saved with ``torch.save`` keep class
+   attributes and are unaffected.
 
 .. code:: python
 
@@ -106,14 +133,15 @@ Your custom model must:
    class MyCustomNNP(nn.Module):
        """Custom NNP compatible with Auto3D."""
 
-       # Required: padding values for batched tensors
-       coord_pad = 0      # Padding value for coordinates
-       species_pad = -1   # Padding value for atomic species (masked atoms)
-
        def __init__(self, model_path: str):
            super().__init__()
            # Load your underlying model
            self.model = torch.load(model_path)
+
+           # Required: padding values for batched tensors. Set on the instance
+           # (not as class attributes) so they survive torch.jit.save too.
+           self.coord_pad = 0.0    # Fill value for unused coordinate slots
+           self.species_pad = -1   # Fill value for unused species slots
 
        def forward(
            self,
@@ -171,11 +199,13 @@ Wrapping an Existing Model
    class ExternalModelWrapper(nn.Module):
        """Wrapper for an external NNP to make it Auto3D-compatible."""
 
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, external_model):
            super().__init__()
+           # Instance attributes, not class attributes: TorchScript does not
+           # carry plain class attributes into a saved archive, so a scripted
+           # copy of this wrapper would load without them and be refused.
+           self.coord_pad = 0
+           self.species_pad = -1
            self.model = external_model
 
            # Map atomic numbers to model's internal representation
@@ -230,8 +260,13 @@ For testing, here's a minimal example using Lennard-Jones potential:
    class SimpleLJModel(nn.Module):
        """Simple Lennard-Jones model for demonstration."""
 
-       coord_pad = 0
-       species_pad = -1
+       def __init__(self):
+           super().__init__()
+           # Instance attributes, not class attributes: TorchScript does not
+           # carry plain class attributes into a saved archive, so a scripted
+           # copy would load without them and be refused.
+           self.coord_pad = 0
+           self.species_pad = -1
 
        # LJ parameters (epsilon, sigma) for each element
        lj_params = {
@@ -329,25 +364,34 @@ Before using your model, validate the input file and run a test:
 Validation Script
 ~~~~~~~~~~~~~~~~~
 
-Before using your model with Auto3D, validate it:
+Auto3D's own loader is the authority on the contract, so call it rather than
+re-implementing the checks. It raises
+:class:`~Auto3D.exceptions.ModelLoadError` naming exactly what is wrong:
 
 .. code:: python
 
    import torch
 
-   def validate_nnp_model(model_path: str):
-       """Validate that a model is Auto3D-compatible."""
+   from Auto3D.exceptions import ModelLoadError
+   from Auto3D.models.loading import load_custom_nnp
 
-       # Load model
-       model = torch.load(model_path)
+   try:
+       model = load_custom_nnp("/path/to/my_model.pt", torch.device("cpu"))
+   except ModelLoadError as e:
+       raise SystemExit(f"Not Auto3D-compatible: {e}")
 
-       # Check required attributes
-       assert hasattr(model, 'coord_pad'), "Missing coord_pad attribute"
-       assert hasattr(model, 'species_pad'), "Missing species_pad attribute"
-       assert hasattr(model, 'forward'), "Missing forward method"
+   print(f"coord_pad: {model.coord_pad}")
+   print(f"species_pad: {model.species_pad}")
 
-       print(f"coord_pad: {model.coord_pad}")
-       print(f"species_pad: {model.species_pad}")
+Then check that it produces a sensible number on a real molecule -- the loader
+checks the *shape* of the contract, not the physics:
+
+.. code:: python
+
+   import torch
+
+   def check_energy(model):
+       """Run the model on a padded methane batch."""
 
        # Test with sample input
        device = next(model.parameters()).device if list(model.parameters()) else torch.device('cpu')
@@ -371,9 +415,8 @@ Before using your model with Auto3D, validate it:
        assert torch.isfinite(energy).all(), "Energy contains NaN or Inf"
 
        print(f"Test energy: {energy.item():.6f} eV")
-       print("Model validation passed!")
 
-   validate_nnp_model("/path/to/my_model.pt")
+   check_energy(model)
 
 Gradient Check
 ~~~~~~~~~~~~~~
@@ -519,11 +562,11 @@ Example wrapping a SchNetPack model:
    import schnetpack as spk
 
    class SchNetPackWrapper(nn.Module):
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, model_path):
            super().__init__()
+           # Instance attributes -- see the note above on TorchScript.
+           self.coord_pad = 0
+           self.species_pad = -1
            self.model = torch.load(model_path)
 
        def forward(self, species, coords, charges):
@@ -563,11 +606,11 @@ Example wrapping NequIP:
    import torch.nn as nn
 
    class NequIPWrapper(nn.Module):
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, model_path):
            super().__init__()
+           # Instance attributes -- see the note above on TorchScript.
+           self.coord_pad = 0
+           self.species_pad = -1
            from nequip.ase import NequIPCalculator
            self.calc = NequIPCalculator.from_deployed_model(model_path)
 

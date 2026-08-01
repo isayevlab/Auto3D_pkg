@@ -19,7 +19,7 @@ from Auto3D.cli.console import console, print_success
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError, DependencyError
 from Auto3D.models.preflight import resolve_engine_name
-from Auto3D.utils.validation import check_gpu_requested
+from Auto3D.utils.validation import check_gpu_requested, check_output_not_input
 
 # Engine names offered for shell completion. Free-form registry names and custom
 # model paths are also accepted -- each command below validates them with
@@ -137,6 +137,14 @@ def execute_tautomers(
 ) -> None:
     """Tautomer enumeration + stable-tautomer ranking: wraps get_stable_tautomers."""
     try:
+        # `energy`/`optimize`/`thermo` get this guard for free by forwarding
+        # --output to calc_spe/opt_geometry/calc_thermo, which call it
+        # themselves. This command does not: the tautomer pipeline derives its
+        # own output name and honors -o with a shutil.move below, so
+        # `auto3d tautomers mols.smi -o mols.smi` moved the result over the
+        # input and destroyed it. Checked here, before the pipeline runs.
+        check_output_not_input(str(input_file), str(output) if output else None)
+
         if tauto_k is not None and tauto_window is not None:
             raise ConfigurationError(
                 "Specify only one of --tauto-k or --tauto-window, not both."

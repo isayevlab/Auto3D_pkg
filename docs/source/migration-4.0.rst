@@ -185,6 +185,84 @@ instead of comparing species against a padding sentinel.
 
 Use ``pad_from_mols``.
 
+``Auto3D.NNPModel`` removed; the custom-NNP contract is checked at load
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: python
+
+   # 3.x
+   from Auto3D import NNPModel
+
+   # 4.0
+   from Auto3D.models import CustomNNP
+
+There were two descriptions of the custom-NNP interface in 3.x. ``NNPModel``
+lived in ``config.py``, was ``@runtime_checkable``, and was exported in
+``Auto3D.__all__`` -- but nothing in Auto3D ever checked a model against it.
+The surviving one, ``Auto3D.models.contract.CustomNNP``, sits next to the
+adapter that calls it and is enforced by ``load_custom_nnp``.
+
+**The signature has not changed.** A custom NNP still implements
+
+.. code:: python
+
+   def forward(self, species, coords, charges) -> torch.Tensor:
+       ...   # energies, shape (batch,), in eV
+
+with ``species`` first, returning energies only; Auto3D differentiates that
+energy with respect to ``coords`` to obtain forces. A model that worked in 3.x
+still works.
+
+What is new is that a model violating the contract is now rejected when the
+file is loaded, with a message naming the expected signature, instead of being
+accepted and failing many optimization steps later inside
+``torch.autograd.grad``.
+
+**The argument order is the trap.** Auto3D's *internal*
+``Auto3D.models.adapter.ModelAdapter`` interface takes
+``forward(coords, species, charges)`` -- the **opposite** order -- and returns
+``(energies, forces)`` rather than energies alone. It is implemented only by
+Auto3D's own adapters. If you wrote a model against that interface it silently
+computed an energy from transposed tensors in 3.x; in 4.0 it is refused at
+load. Swap the first two parameters and return energies only.
+
+**You must now define both padding attributes.** 3.x filled in missing
+``coord_pad``/``species_pad`` through ``getattr``, and the two layers
+disagreed: ``CustomModelAdapter`` substituted ``species_pad = -1`` while
+``BaseModelAdapter``'s own default was ``0``, so which slots counted as padding
+depended on which layer answered, and ``0`` collides with ANI2xt's hydrogen
+index. Neither default survives --- the ``getattr`` fallback was **removed**, not
+retargeted --- so a model missing **either** attribute is refused rather than
+guessed at. ``-1`` is the value to set in your own model: it can be neither an
+atomic number nor a 0-based species index. Note this is a real break: 3.x
+documented the two as optional and supplied them by ``getattr`` fallback, so a
+model that omitted them ran fine and now fails at load:
+
+.. code:: python
+
+   class MyNNP(torch.nn.Module):
+       def __init__(self):
+           super().__init__()
+           self.coord_pad = 0.0
+           self.species_pad = -1
+
+**TorchScript archives need the attributes on the instance.**
+``torch.jit.save`` does not carry plain *class* attributes into the archive, so
+a scripted model declaring ``coord_pad``/``species_pad`` at class level arrives
+with neither and is now rejected. Set them in ``__init__`` as above, or list
+them in ``__constants__``. In 3.x such a model loaded and silently ran with
+``CustomModelAdapter``'s ``species_pad = -1`` fallback rather than the value it
+declared -- so if you declared something other than ``-1``, 3.x was not
+honoring it. Models saved with ``torch.save`` keep class attributes and are
+unaffected.
+
+TorchScript models are exempt from the *signature* check, because a loaded
+``RecursiveScriptModule``'s ``forward`` exposes no Python signature to
+``inspect.signature``; the attribute check still applies to them. Eager models
+whose parameter names carry no ordering information, such as
+``forward(a, b, c)`` or ``forward(*args)``, are also accepted -- the order
+cannot be read off such names, and refusing them would break working models.
+
 Species conversion moved
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -197,6 +275,41 @@ Species conversion moved
    # 4.0
    from Auto3D.batch_opt.species import to_model_species, ANI2XT_INDEX
    indices = to_model_species(atomic_numbers, "ANI2xt")   # whole molecule at once
+
+``energy_tol`` and ``energy_patience`` removed
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: python
+
+   # 3.x
+   n_steps(state, n, opttol, patience, energy_tol=1e-3, energy_patience=3)
+   config = OptimizationConfig(opt_steps=1000, energy_tol=1e-3)
+
+   # 4.0
+   n_steps(state, n, opttol, patience)
+   config = OptimizationConfig(opt_steps=1000)
+
+``Auto3D.constants.DEFAULT_ENERGY_TOL`` and ``DEFAULT_ENERGY_PATIENCE`` are
+removed too, and ``OptimizationConfig.to_dict()`` no longer emits the two keys.
+
+**Nothing you computed with 3.x changes.** These parameters fed a convergence
+criterion that could never fire: it required ``fmax < opttol``, which is
+exactly the condition under which the force criterion had already converged the
+structure, so the term was the identity of ``&`` wherever it was consulted and
+false-dominated everywhere else -- including at the ``fmax == opttol`` boundary,
+where both comparisons are false. Any 3.x documentation describing "energy-based
+early termination" described behavior that never occurred. A structure leaves
+the optimizer's active set on force convergence or on the oscillation drop, and
+on nothing else.
+
+So this is a signature change only: delete the arguments at your call sites.
+No geometry, energy, or ``Converged``/``Dropped_Oscillating`` flag differs.
+
+A legacy dict config is unaffected -- ``ensemble_opt`` reads only
+``opt_steps``, ``opttol``, ``patience`` and ``batchsize_atoms`` from it, so a
+leftover ``"energy_tol"`` key is ignored rather than rejected. The unrelated
+``energy_tol`` argument of ``Auto3D.filtering`` (the duplicate-conformer energy
+tolerance) is a different parameter and is unchanged.
 
 ``use_ensemble`` and ``**kwargs`` removed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -404,6 +517,46 @@ work, and it always raises ``GPUError`` (exit code ``4``), naming
 itself still silently returns a CPU device when asked -- the fatal check is
 enforced by its callers, not by the device picker, so a direct call to
 ``get_device`` is unaffected.
+
+An output path equal to the input file is now refused
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``auto3d energy mols.sdf -o mols.sdf`` -- and the same request through
+``auto3d optimize``/``thermo``, or through ``calc_spe``/``opt_geometry``/
+``calc_thermo`` called directly with ``out_path`` set to the input path --
+used to open the user's input file for writing and destroy it. Nothing about
+that was recoverable: ``calc_spe`` and ``calc_thermo`` read the input into
+memory first, so the overwrite simply succeeded and the only copy of the
+input became output; ``opt_geometry`` clobbered the file it had just read.
+The 4.0 tmp+``os.replace`` staging makes a *failed* rewrite non-destructive,
+but it cannot help here -- a successful same-file run overwrites the input by
+design.
+
+``Auto3D.utils.validation.check_output_not_input`` is now the one place this
+is decided, and ``calc_spe``, ``opt_geometry`` and ``calc_thermo`` all call it
+before any device or model is constructed. It raises ``ConfigurationError``
+(exit code ``2``) naming both paths.
+
+Two comparisons back it. ``os.path.realpath`` catches the ordinary spellings ---
+``mols.sdf``, ``./mols.sdf``, an absolute path, a symlink --- and works even
+when the output file does not exist yet. When both paths DO exist,
+``os.path.samefile`` also applies: it compares ``st_dev``/``st_ino``, so it
+additionally catches a **hardlink** (one file under two names with two distinct
+real paths) and a **case-insensitive filesystem**, where ``Mols.sdf`` and
+``mols.sdf`` are one file --- the macOS APFS and Windows NTFS default. Either
+would slip past a realpath-only comparison.
+
+Because the CLI's ``--output`` is passed straight through to these functions,
+``auto3d energy``/``optimize``/``thermo`` are covered by the same guard.
+``auto3d tautomers`` and ``ConformerRanker`` call it directly, since neither
+routes through those three.
+
+**If you relied on in-place overwrite**, pass a distinct output path, or omit
+``-o``/``out_path`` entirely to get the default ``<stem>_<model>_E.sdf`` /
+``_opt.sdf`` / ``_G.sdf`` beside the input, and move that file over the input
+yourself once the run has finished successfully. Doing it in that order is
+also strictly safer than what 3.x did: a run that fails partway no longer
+leaves you with neither the input nor a result.
 
 ``smiles2mols`` raises on options it cannot honor
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
