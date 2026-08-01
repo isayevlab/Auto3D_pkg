@@ -133,3 +133,8 @@ dmypy.json
 
 # Local coding-assistant instructions (developer-specific, not part of the package)
 /CLAUDE.md
+
+# Local scratch workspace for staged refactoring work: progress ledgers,
+# task briefs, generated diffs and review reports. Not part of the package.
+# The plans themselves are tracked, under docs/superpowers/plans/.
+/.superpowers/
