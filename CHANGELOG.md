@@ -103,6 +103,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silently returns a CPU device -- the fatal check is enforced by its
   callers, not by the device picker.
 
+- **An output path equal to the input file is now rejected.** `auto3d energy
+  mols.sdf -o mols.sdf` -- and the same request through `auto3d
+  optimize`/`thermo`, or through `calc_spe`/`opt_geometry`/`calc_thermo` with
+  `out_path` set to the input -- used to open the user's input file for
+  writing and destroy it. The input was not recoverable: for `calc_spe` and
+  `calc_thermo` the overwrite simply succeeded, so the only copy of the input
+  was replaced by output; for `opt_geometry` the rewrite pass also clobbered
+  the file it had just read. The Phase 6 tmp+`os.replace` staging (see
+  *Fixed*, below) makes a *failed* rewrite non-destructive, but it cannot
+  help here -- a successful same-file run overwrites the input by design.
+  A single `Auto3D.utils.validation.check_output_not_input` guard, called by
+  all three API functions before any device or model is constructed, now
+  raises `ConfigurationError` instead. Paths are compared by
+  `os.path.realpath`, so `mols.sdf`, `./mols.sdf`, an absolute path, and a
+  symlink pointing at the input are all refused. **This is breaking for
+  anyone who relied on in-place overwrite**: pass a distinct output path (or
+  omit `-o`/`out_path` to get the default `<stem>_<model>_<E|opt|G>.sdf`
+  beside the input) and move the result over the input yourself afterwards if
+  that is what you want.
+
 - **`auto3d validate` now rejects exactly what the runner rejects.**
   `validate_smiles_file` never required an ID column, so an ID-less line
   passed validation and then failed the actual run with a hint telling the

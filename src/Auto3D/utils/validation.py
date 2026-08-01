@@ -146,6 +146,50 @@ def check_engine_supports_molecules(
         )
 
 
+def check_output_not_input(path: str, out_path: str | None) -> None:
+    """Refuse to write the output over the input file.
+
+    ``auto3d energy mols.sdf -o mols.sdf`` used to open ``mols.sdf`` for
+    writing while the run was still reading from it, so the user's input was
+    destroyed -- and, if the run then failed part-way, replaced by a truncated
+    file with no surviving copy of either the input or the result (C14). The
+    Phase 6 tmp+``os.replace`` staging fixes the *crash* half of C14 (a failed
+    rewrite no longer leaves a partial file), but it cannot fix this half: a
+    successful same-file run still deliberately overwrites the input, and no
+    amount of atomicity brings the original back.
+
+    Single source of truth for that policy, in the same spirit as
+    ``check_gpu_requested`` and ``check_engine_supports_molecules``:
+    ``calc_spe``, ``opt_geometry`` and ``calc_thermo`` each take an output path
+    directly and never go through ``check_input``/``check_valid_configuration``,
+    so all three call this function rather than carrying three copies of the
+    test that would drift apart. The ``auto3d energy``/``optimize``/``thermo``
+    CLI commands pass ``--output`` straight through to those functions, so they
+    are covered by the same call.
+
+    Compares resolved real paths, not the strings: ``mols.sdf``,
+    ``./mols.sdf``, an absolute path to the same file, and a symlink pointing
+    at it all name one file, and ``os.path.realpath`` collapses all four.
+    ``realpath`` does not require either path to exist, so an output path that
+    has not been created yet compares correctly.
+
+    Args:
+        path: The input file the caller will read.
+        out_path: The requested output path, or None to use the default
+            (which is derived from `path` and never equals it).
+
+    Raises:
+        ConfigurationError: `out_path` resolves to the same file as `path`.
+    """
+    if out_path is None:
+        return
+    if os.path.realpath(path) == os.path.realpath(out_path):
+        raise ConfigurationError(
+            f"Output path {out_path!r} is the same file as the input {path!r}. "
+            "Auto3D would overwrite your input; pass a different output path."
+        )
+
+
 def check_input(args: Any) -> None:
     """Check the input file and give recommendations.
 

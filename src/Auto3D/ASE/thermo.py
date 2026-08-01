@@ -36,7 +36,11 @@ from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
-from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
+from Auto3D.utils.validation import (
+    check_engine_supports_molecules,
+    check_gpu_requested,
+    check_output_not_input,
+)
 
 __all__ = ["calc_thermo"]
 
@@ -922,6 +926,13 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     # model_name2model_calculator below, so no compute (and no model
     # construction) happens first.
     check_gpu_requested(use_gpu)
+
+    # Refuse `-o` pointing at the input: calc_thermo would otherwise open the
+    # user's input file for writing and destroy it (C14). Shared guard, so
+    # calc_spe/opt_geometry/calc_thermo cannot drift apart on this policy.
+    # Needs only the two paths, so it runs before get_device/
+    # _load_hessian_model/model_name2model_calculator.
+    check_output_not_input(path, out_path)
 
     # Surface the symmetry-number caveat once per run (not per molecule) so it is
     # visible without spamming the log.

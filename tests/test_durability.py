@@ -8,10 +8,12 @@ destroyed a completed optimization whose only copy lived there (C14).
 TestReorderSdfDurability closes the M33 coverage gap and must PASS: the
 tmp+os.replace pattern in reorder_sdf already works. TestOptGeometryDurability
 and TestAmendConfigurationDurability must now also PASS -- Phase 6 gave both
-call sites the same tmp+os.replace staging. TestSameFileGuard remains a
-tripwire for the still-open half of C14 (no out_path == path guard) and must
-XFAIL(strict=True) -- if a future fix makes it XPASS, strict mode turns that
-into a hard failure so the xfail marker has to be removed deliberately.
+call sites the same tmp+os.replace staging. TestSameFileGuard was the tripwire
+for the other half of C14 (no out_path == path guard) and must now also PASS:
+`Auto3D.utils.validation.check_output_not_input` refuses that case in all three
+entry points, so the xfail(strict=True) marker it carried was removed with the
+fix. Every class in this file is now a plain regression test -- this file
+carries no xfail.
 """
 from __future__ import annotations
 
@@ -344,33 +346,43 @@ class TestAmendConfigurationDurability:
 
 
 class TestSameFileGuard:
-    """Writing output over the input must be refused or staged atomically."""
+    """Writing output over the input must be refused, in every entry point.
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C14: calc_spe / opt_geometry / calc_thermo do not guard "
-        "out_path == input path, so `auto3d energy mols.sdf -o mols.sdf` "
-        "overwrites the user's input with no atomic staging",
-    )
+    `check_output_not_input` is one shared function called from calc_spe,
+    opt_geometry and calc_thermo, so each of the three gets its own test here:
+    a guard wired into only two of the three would otherwise sail through with
+    the third silently still destroying its caller's input.
+
+    Every test asserts `ConfigurationError`, never the base `Auto3DError`.
+    `check_gpu_requested` runs *before* this guard in all three functions and
+    raises `GPUError` -- also an `Auto3DError` -- so a base-class assertion is
+    satisfied on any CPU-only runner without ever reaching the subject. That
+    exact defect shipped once already (see the Phase 5 note that used to live
+    in this class), and `use_gpu=False` below plus the narrow exception type
+    are what keep it from recurring.
+    """
+
     def test_output_equal_to_input_is_rejected(self, job_dir, monkeypatch):
         """Passing out_path == path must raise rather than silently clobber input.
 
         calc_spe reads every input molecule into a Python list before it ever
         opens a writer, so exercising it with a real "AIMNET" run would not
         even reproduce a truncation -- it would just quietly succeed and
-        overwrite the input, which is the very absence of a guard this test is
-        checking for. To stay within the box's "never load an NNP" constraint,
-        the model machinery (get_device/create_model/EnForce_ANI/pad_from_mols)
-        is stubbed out the same way tests/test_isomer_engine_hardening.py
-        already does for calc_spe; the guard being tested for (or its absence)
-        sits earlier in the real function, so calc_spe itself still runs for
-        real here.
+        overwrite the input, which is exactly the damage the guard prevents.
+        To stay within the box's "never load an NNP" constraint, the model
+        machinery (get_device/create_model/EnForce_ANI/pad_from_mols) is
+        stubbed out the same way tests/test_isomer_engine_hardening.py already
+        does for calc_spe; the guard sits earlier in the real function, so
+        calc_spe itself still runs for real here -- and if the guard were
+        removed, those stubs would let the run complete and overwrite `sdf`
+        without raising, failing this test.
         """
         import Auto3D.SPE as spe_mod
-        from Auto3D.exceptions import Auto3DError
+        from Auto3D.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
+        original = sdf.read_bytes()
 
         monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
 
@@ -400,16 +412,110 @@ class TestSameFileGuard:
 
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
-        # use_gpu=False: this test is about the missing same-file guard (C14),
-        # not GPU availability. The default use_gpu=True made check_gpu_requested
-        # (which now runs before any of the same-file logic below it) raise
-        # GPUError -- itself an Auto3DError -- on a CPU-only runner, which
-        # satisfied this test's `pytest.raises((Auto3DError, ValueError))` for
-        # the wrong reason and turned the intended XFAIL into an XPASS (a hard
-        # failure under strict=True). use_gpu=False does not weaken what this
-        # test proves: it lets calc_spe run past the GPU check (as it always
-        # does on a GPU-equipped box) so the test again exercises -- and still
-        # finds absent -- the same-file guard itself, consistently regardless
-        # of whether CUDA is present.
-        with pytest.raises((Auto3DError, ValueError)):
+        # use_gpu=False so check_gpu_requested (which runs first) cannot raise
+        # GPUError and satisfy the assertion below for the wrong reason -- see
+        # the class docstring.
+        with pytest.raises(ConfigurationError):
             spe_mod.calc_spe(str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False)
+
+        assert sdf.read_bytes() == original, "calc_spe modified the input file"
+
+    def test_opt_geometry_rejects_output_equal_to_input(self, job_dir, monkeypatch):
+        """Same guard, second entry point.
+
+        `optimizing` is replaced with a stand-in that writes real records to
+        whatever outpath it is handed (so no NNP loads, per the box limits).
+        Without the guard, opt_geometry would run that stand-in to completion
+        against the input file and return normally -- no exception, input
+        destroyed -- which is what makes this test go red if the
+        check_output_not_input call in opt_geometry is removed.
+        """
+        import Auto3D.ASE.geometry as geometry
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1", "m2"])
+        original = sdf.read_bytes()
+
+        class FakeOptimizing:
+            def __init__(self, path, outpath, model_name, device, opt_config):
+                self._path = path
+                self._outpath = outpath
+
+            def run(self):
+                mols = list(Chem.SDMolSupplier(str(self._path), removeHs=False))
+                with _real_sdwriter(str(self._outpath)) as w:
+                    for i, mol in enumerate(mols):
+                        mol.SetProp("E_tot", str(1.0 + i))
+                        w.write(mol)
+
+        monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
+
+        with pytest.raises(ConfigurationError):
+            geometry.opt_geometry(
+                str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False
+            )
+
+        assert sdf.read_bytes() == original, "opt_geometry modified the input file"
+
+    def test_calc_thermo_rejects_output_equal_to_input(self, job_dir, monkeypatch):
+        """Same guard, third entry point.
+
+        calc_thermo's first irreversible step after the guard is model
+        construction (`_load_hessian_model` / `model_name2model_calculator`),
+        which would download and load an NNP. Both are replaced with stubs that
+        fail loudly instead: the guard is specified to run *before* any model
+        construction, so reaching either one is itself the bug. If the
+        check_output_not_input call in calc_thermo is removed, the stub fires
+        and this test goes red (and still no NNP is loaded).
+        """
+        import Auto3D.ASE.thermo as thermo_mod
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        original = sdf.read_bytes()
+
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "calc_thermo reached model construction; the same-file guard "
+                "must refuse out_path == path before any model is built"
+            )
+
+        monkeypatch.setattr(thermo_mod, "_load_hessian_model", _never)
+        monkeypatch.setattr(thermo_mod, "model_name2model_calculator", _never)
+
+        with pytest.raises(ConfigurationError):
+            thermo_mod.calc_thermo(
+                str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False
+            )
+
+        assert sdf.read_bytes() == original, "calc_thermo modified the input file"
+
+    def test_guard_compares_real_paths_not_strings(self, job_dir):
+        """`mols.sdf`, `./mols.sdf`, the absolute path and a symlink to it are
+        all one file, so a string comparison would let three of the four
+        through. The guard must also stay quiet for a genuinely different
+        output path -- a guard that always raised would satisfy every test
+        above."""
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.utils.validation import check_output_not_input
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        link = job_dir / "alias.sdf"
+        link.symlink_to(sdf)
+
+        # None (use the default output name) and a different file: allowed.
+        check_output_not_input(str(sdf), None)
+        check_output_not_input(str(sdf), str(job_dir / "other.sdf"))
+
+        # Same file spelled four ways: all refused.
+        for spelling in (
+            str(sdf),
+            os.path.join(str(job_dir), ".", "mols.sdf"),
+            os.path.abspath(str(sdf)),
+            str(link),
+        ):
+            with pytest.raises(ConfigurationError):
+                check_output_not_input(str(sdf), spelling)

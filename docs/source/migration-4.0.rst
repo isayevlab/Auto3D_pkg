@@ -440,6 +440,36 @@ itself still silently returns a CPU device when asked -- the fatal check is
 enforced by its callers, not by the device picker, so a direct call to
 ``get_device`` is unaffected.
 
+An output path equal to the input file is now refused
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``auto3d energy mols.sdf -o mols.sdf`` -- and the same request through
+``auto3d optimize``/``thermo``, or through ``calc_spe``/``opt_geometry``/
+``calc_thermo`` called directly with ``out_path`` set to the input path --
+used to open the user's input file for writing and destroy it. Nothing about
+that was recoverable: ``calc_spe`` and ``calc_thermo`` read the input into
+memory first, so the overwrite simply succeeded and the only copy of the
+input became output; ``opt_geometry`` clobbered the file it had just read.
+The 4.0 tmp+``os.replace`` staging makes a *failed* rewrite non-destructive,
+but it cannot help here -- a successful same-file run overwrites the input by
+design.
+
+``Auto3D.utils.validation.check_output_not_input`` is now the one place this
+is decided, and ``calc_spe``, ``opt_geometry`` and ``calc_thermo`` all call it
+before any device or model is constructed. It raises ``ConfigurationError``
+(exit code ``2``) naming both paths. The comparison is on
+``os.path.realpath``, not on the strings, so ``mols.sdf``, ``./mols.sdf``, an
+absolute path to the same file, and a symlink pointing at it are all refused.
+Because the CLI's ``--output`` is passed straight through to these functions,
+the CLI is covered by the same guard.
+
+**If you relied on in-place overwrite**, pass a distinct output path, or omit
+``-o``/``out_path`` entirely to get the default ``<stem>_<model>_E.sdf`` /
+``_opt.sdf`` / ``_G.sdf`` beside the input, and move that file over the input
+yourself once the run has finished successfully. Doing it in that order is
+also strictly safer than what 3.x did: a run that fails partway no longer
+leaves you with neither the input nor a result.
+
 ``smiles2mols`` raises on options it cannot honor
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

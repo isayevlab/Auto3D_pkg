@@ -21,7 +21,11 @@ from Auto3D.model_factory import get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
-from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
+from Auto3D.utils.validation import (
+    check_engine_supports_molecules,
+    check_gpu_requested,
+    check_output_not_input,
+)
 
 __all__ = ["opt_geometry"]
 
@@ -178,6 +182,13 @@ def opt_geometry(
     # truth for this policy; called here, before get_device/optimizing below,
     # so no compute (and no model construction) happens first.
     check_gpu_requested(use_gpu)
+
+    # Refuse `-o` pointing at the input: opt_geometry would otherwise stage a
+    # rewrite of the very file it is reading and destroy the user's input
+    # (C14). Shared guard, so calc_spe/opt_geometry/calc_thermo cannot drift
+    # apart on this policy. Needs only the two paths, so it runs before
+    # get_device/optimizing.
+    check_output_not_input(path, out_path)
 
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).
