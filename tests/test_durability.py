@@ -417,7 +417,7 @@ class TestSameFileGuard:
         # use_gpu=False so check_gpu_requested (which runs first) cannot raise
         # GPUError and satisfy the assertion below for the wrong reason -- see
         # the class docstring.
-        with pytest.raises(ConfigurationError):
+        with pytest.raises(ConfigurationError, match="same file"):
             spe_mod.calc_spe(str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False)
 
         assert sdf.read_bytes() == original, "calc_spe modified the input file"
@@ -453,7 +453,7 @@ class TestSameFileGuard:
 
         monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
 
-        with pytest.raises(ConfigurationError):
+        with pytest.raises(ConfigurationError, match="same file"):
             geometry.opt_geometry(
                 str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False
             )
@@ -487,19 +487,30 @@ class TestSameFileGuard:
         monkeypatch.setattr(thermo_mod, "_load_hessian_model", _never)
         monkeypatch.setattr(thermo_mod, "model_name2model_calculator", _never)
 
-        with pytest.raises(ConfigurationError):
+        with pytest.raises(ConfigurationError, match="same file"):
             thermo_mod.calc_thermo(
                 str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False
             )
 
         assert sdf.read_bytes() == original, "calc_thermo modified the input file"
 
-    def test_guard_compares_real_paths_not_strings(self, job_dir):
-        """`mols.sdf`, `./mols.sdf`, the absolute path and a symlink to it are
-        all one file, so a string comparison would let three of the four
-        through. The guard must also stay quiet for a genuinely different
-        output path -- a guard that always raised would satisfy every test
-        above."""
+    def test_guard_compares_real_paths_not_strings(self, job_dir, monkeypatch):
+        """A bare relative name, `./mols.sdf`, and a symlink all name the same
+        file as the absolute input path, and a string comparison would let
+        every one of them through.
+
+        Note which spellings actually discriminate. `job_dir` is already
+        absolute, so `str(sdf)` and `os.path.abspath(str(sdf))` are the
+        IDENTICAL string -- both are caught by a naive string comparison too,
+        and neither tests anything about path resolution. Only the three
+        non-identical spellings below carry weight, which is why the bare
+        relative name (`mols.sdf`, via monkeypatch.chdir) is included: it is
+        the case this test is named for, and it was previously described in
+        this docstring without ever being passed.
+
+        The guard must also stay quiet for a genuinely different output path --
+        a guard that always raised would satisfy every test above.
+        """
         from Auto3D.exceptions import ConfigurationError
         from Auto3D.utils.validation import check_output_not_input
 
@@ -512,14 +523,21 @@ class TestSameFileGuard:
         check_output_not_input(str(sdf), None)
         check_output_not_input(str(sdf), str(job_dir / "other.sdf"))
 
-        # Same file spelled four ways: all refused.
+        # Same file, spelled every way that differs from the input string:
+        # all refused. `str(sdf)` itself is omitted -- it is the trivial case
+        # already covered by the three entry-point tests above.
+        monkeypatch.chdir(job_dir)
         for spelling in (
-            str(sdf),
+            "mols.sdf",  # bare relative, resolved against the cwd
+            os.path.join(".", "mols.sdf"),
             os.path.join(str(job_dir), ".", "mols.sdf"),
-            os.path.abspath(str(sdf)),
-            str(link),
+            str(link),  # symlink to the input
         ):
-            with pytest.raises(ConfigurationError):
+            assert spelling != str(sdf), (
+                f"{spelling!r} is string-identical to the input, so it cannot "
+                "show that the guard resolves paths"
+            )
+            with pytest.raises(ConfigurationError, match="same file"):
                 check_output_not_input(str(sdf), spelling)
 
     def test_a_hardlink_to_the_input_is_refused(self, job_dir):
