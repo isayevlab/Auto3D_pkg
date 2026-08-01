@@ -84,7 +84,7 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         import yaml
 
         from Auto3D.auto3D import main
-        from Auto3D.cli.config_schema import CLIConfig
+        from Auto3D.cli.config_schema import build_cli_config
         from Auto3D.exceptions import InputValidationError
         from Auto3D.utils.logging_config import configure_logging
 
@@ -120,10 +120,12 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         # check_field_bounds/FIELD_BOUNDS), the engine registry check,
         # parse_gpu_idx, and Literal validation on tauto_engine/isomer_engine.
         # It also means extra="forbid": a YAML key CLIConfig doesn't
-        # recognize now raises a pydantic ValidationError (caught below by
-        # the blanket `except Exception`) instead of silently passing
-        # through to Auto3DOptions as it used to.
-        config = CLIConfig(**parameters)
+        # recognize now raises -- via build_cli_config, which translates
+        # pydantic's ValidationError into Auto3D's own ConfigurationError, so
+        # the blanket `except Exception` below shows exit code 2 with a hint
+        # instead of the generic "Unexpected Error" panel at exit 1 -- instead
+        # of silently passing through to Auto3DOptions as it used to.
+        config = build_cli_config(**parameters)
         options = config.to_auto3d_options()
         result = main(options)
         console.print(f"\n[green]✓[/green] Output: [cyan]{result}[/cyan]")

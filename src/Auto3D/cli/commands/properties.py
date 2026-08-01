@@ -144,10 +144,10 @@ def execute_tautomers(
         if tauto_k is None and tauto_window is None:
             tauto_k = 1  # sensible default: keep the single most stable tautomer
 
-        from Auto3D.cli.config_schema import CLIConfig
+        from Auto3D.cli.config_schema import build_cli_config
         from Auto3D.tautomer import get_stable_tautomers
 
-        cfg = CLIConfig(
+        cfg = build_cli_config(
             path=input_file, k=1, optimizing_engine=engine, use_gpu=gpu,
             gpu_idx=gpu_idx if gpu_idx is not None else 0,
             enumerate_tautomer=True,

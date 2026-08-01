@@ -426,6 +426,38 @@ def test_run_cli_explicit_k_and_window_conflict_is_configuration_error(
     assert "Unexpected Error" not in result.output
 
 
+def test_run_cli_yaml_config_bounds_violation_is_configuration_error(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """`auto3d run in.smi -c cfg.yaml` with `cfg.yaml` setting `k: 0` must
+    exit 2 as a ConfigurationError with a hint -- not exit 1 under
+    "Unexpected Error" as a raw pydantic ValidationError.
+
+    This is the load_yaml_config construction site specifically (as opposed
+    to test_run_cli_explicit_k_and_window_conflict_is_configuration_error,
+    which exercises merge_configs): the bad value comes from the config file
+    itself, before any CLI override is merged in. Before this fix,
+    `load_yaml_config` raised the pydantic error unwrapped, which
+    `execute_run`'s `except Auto3DError` clause does not catch.
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+    cfg = tmp_path_cwd / "cfg.yaml"
+    cfg.write_text("path: placeholder.smi\nk: 0\noptimizing_engine: ANI2xt\nuse_gpu: false\n")
+
+    import Auto3D.auto3D as a3d
+    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("main() must not run when config validation fails")
+    ))
+
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg)])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in result.output
+
+
 # Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
 # pinned without going through the CLI or a pipeline run at all.
 

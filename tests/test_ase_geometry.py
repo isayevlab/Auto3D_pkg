@@ -14,7 +14,11 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
 
-    out = geo.opt_geometry(str(sdf), "AIMNET")
+    # use_gpu=False: this test is about the output filename, not GPU
+    # availability. The default use_gpu=True would make check_gpu_requested
+    # (called before get_device, which is stubbed here anyway) fail fast with
+    # GPUError on a CPU-only runner -- unrelated to what this test checks.
+    out = geo.opt_geometry(str(sdf), "AIMNET", use_gpu=False)
     assert out.endswith("mols_AIMNET_opt.sdf")
 
 
@@ -54,7 +58,10 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
 
-    out = geo.opt_geometry(str(sdf), "AIMNET")  # must not raise
+    # use_gpu=False: this test is about the None/missing-E_tot skip logic, not
+    # GPU availability -- see the sibling test above for why the default
+    # use_gpu=True would fail this on a CPU-only runner for an unrelated reason.
+    out = geo.opt_geometry(str(sdf), "AIMNET", use_gpu=False)  # must not raise
 
     # Read the written file as text (the rdkit.Chem.SDMolSupplier monkeypatch
     # is module-global, so re-reading via it would return the stub list, not

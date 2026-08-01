@@ -25,11 +25,13 @@ wrappers in cli/commands/properties.py.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from Auto3D.cli.config_schema import CLIConfig
-from Auto3D.config import Auto3DOptions
+from Auto3D.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
 from Auto3D.exceptions import Auto3DError, ConfigurationError
 
 
@@ -61,6 +63,59 @@ class TestMutuallyExclusiveSelectors:
         """select_tautomers raises for this; the conformer ranker must too."""
         with pytest.raises(Auto3DError):
             Auto3DOptions(path=isolated_input("smiles2.smi"), k=10, window=5.0)
+
+
+class TestSentinelScopeParityAllElevenFields:
+    """``check_field_bounds``'s None/False "not specified" skip must be scoped
+    to exactly ``SENTINEL_FIELDS`` (k, window, memory, max_confs) -- the four
+    optional fields -- on BOTH Auto3DOptions and CLIConfig, for every one of
+    the eleven ``FIELD_BOUNDS`` entries, not just those four.
+
+    Before this fix, the skip in ``check_field_bounds`` applied to all eleven
+    ``FIELD_BOUNDS`` keys unconditionally. That accidentally let
+    ``Auto3DOptions(path="x.smi", threshold=None)`` (and the same for
+    mpi_np/opt_steps/convergence_threshold/patience/batchsize_atoms/capacity)
+    through silently, while ``CLIConfig(path=Path("x.smi"), threshold=None)``
+    always raised -- those seven fields are typed as plain ``int``/``float``
+    (not ``| None``) on CLIConfig, so pydantic's own type validation rejects
+    ``None`` there regardless of what ``check_field_bounds`` does, and
+    ``False`` reaches ``check_field_bounds`` already coerced to ``0``/``0.0``
+    by pydantic (bool is an int subclass) and fails the bound. Reproduced live
+    before this fix: ``Auto3DOptions(path="x.smi", threshold=None)`` did not
+    raise while ``CLIConfig(path=Path("x.smi"), threshold=None)`` did.
+
+    This iterates ``Auto3D.config.FIELD_BOUNDS``/``SENTINEL_FIELDS`` directly
+    (rather than hand-listing the eleven field names a second time here) so a
+    field added to one set without the other trips this test immediately,
+    instead of silently reintroducing the entry-point divergence this test
+    exists to close.
+    """
+
+    @staticmethod
+    def _kwargs(field: str, value) -> dict:
+        # A minimal, valid override set with only `field` set to `value` --
+        # every other field stays at its (valid) default, so a rejection can
+        # only be attributed to `field`.
+        return {field: value}
+
+    @pytest.mark.parametrize("value", [None, False], ids=["None", "False"])
+    @pytest.mark.parametrize("field", sorted(FIELD_BOUNDS))
+    def test_sentinel_scope_agrees_across_entry_points(self, field, value, isolated_input):
+        path = isolated_input("smiles2.smi")
+        auto3d_kwargs = {"path": path, **self._kwargs(field, value)}
+        cli_kwargs = {"path": Path(path), **self._kwargs(field, value)}
+
+        if field in SENTINEL_FIELDS:
+            # Optional field: None/False means "not specified" on both paths.
+            Auto3DOptions(**auto3d_kwargs)  # must not raise
+            CLIConfig(**cli_kwargs)  # must not raise
+        else:
+            # Non-optional field: None/False has no "unset" meaning and must
+            # be rejected on both paths -- not just one.
+            with pytest.raises(ConfigurationError):
+                Auto3DOptions(**auto3d_kwargs)
+            with pytest.raises(ValidationError):
+                CLIConfig(**cli_kwargs)
 
 
 class TestAuxiliaryEntryPointGuards:
@@ -562,4 +617,9 @@ class TestValidationParityAcrossEntryPoints:
 
         options, error = self._run_legacy_and_capture(tmp_path, params, monkeypatch)
         assert options is None, "legacy YAML path accepted threshold=-1"
-        assert isinstance(error, ValidationError)
+        # ConfigurationError, not a raw pydantic ValidationError: the legacy
+        # path now builds its CLIConfig via build_cli_config (Task 3), which
+        # translates ValidationError into ConfigurationError so `handle_error`
+        # shows exit code 2 with a hint instead of the generic "Unexpected
+        # Error" panel at exit 1 -- the same fix `auto3d run -c` already got.
+        assert isinstance(error, ConfigurationError)

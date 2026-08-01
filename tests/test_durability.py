@@ -274,5 +274,16 @@ class TestSameFileGuard:
 
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
+        # use_gpu=False: this test is about the missing same-file guard (C14),
+        # not GPU availability. The default use_gpu=True made check_gpu_requested
+        # (which now runs before any of the same-file logic below it) raise
+        # GPUError -- itself an Auto3DError -- on a CPU-only runner, which
+        # satisfied this test's `pytest.raises((Auto3DError, ValueError))` for
+        # the wrong reason and turned the intended XFAIL into an XPASS (a hard
+        # failure under strict=True). use_gpu=False does not weaken what this
+        # test proves: it lets calc_spe run past the GPU check (as it always
+        # does on a GPU-equipped box) so the test again exercises -- and still
+        # finds absent -- the same-file guard itself, consistently regardless
+        # of whether CUDA is present.
         with pytest.raises((Auto3DError, ValueError)):
-            spe_mod.calc_spe(str(sdf), "AIMNET", out_path=str(sdf))
+            spe_mod.calc_spe(str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False)

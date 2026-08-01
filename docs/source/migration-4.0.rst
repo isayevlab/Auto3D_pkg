@@ -296,7 +296,14 @@ enforced: ``k >= 1``, ``window > 0``, ``mpi_np >= 1``, ``opt_steps >= 1``,
 ``convergence_threshold > 0``, ``patience >= 1``, ``threshold > 0``,
 ``batchsize_atoms >= 1``, ``memory >= 1``, ``capacity >= 1``, and
 ``max_confs >= 1``. ``None``/``False`` still mean "not specified" and are not
-rejected.
+rejected, but only for the four optional fields with a genuine "unset"
+meaning: ``k``, ``window``, ``memory``, and ``max_confs``
+(``Auto3D.config.SENTINEL_FIELDS``). The other seven bounds above always have
+a concrete default and have no "unset" state to opt into, so ``None``/
+``False`` are rejected there too, identically on both entry points --
+``Auto3DOptions(path="in.smi", threshold=None)`` used to be silently accepted
+while ``CLIConfig(path=Path("in.smi"), threshold=None)`` always rejected it;
+both now raise.
 
 A related, narrower change: ``k=0`` used to be accepted by ``Auto3DOptions``
 as a silent "unset" sentinel (``CLIConfig`` already rejected it via

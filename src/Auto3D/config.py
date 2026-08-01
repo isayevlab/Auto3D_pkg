@@ -45,6 +45,44 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
     "max_confs": ("ge", 1),
 }
 
+# The subset of FIELD_BOUNDS where None/False mean "not specified" (dynamic/
+# default behavior) rather than an actual value to bounds-check -- k/window
+# are alternative selection strategies that default to "unset", memory/
+# max_confs both have a documented "None means auto-detect/dynamic" meaning
+# (see their Auto3DOptions docstrings and CLIConfig's ``int | None`` typing).
+#
+# The other seven FIELD_BOUNDS entries (mpi_np, opt_steps,
+# convergence_threshold, patience, threshold, batchsize_atoms, capacity) have
+# no such "unset" meaning -- they always have a concrete default already, so
+# there is nothing for None/False to opt out of -- and CLIConfig types them as
+# plain `int`/`float` (not `| None`), so pydantic already rejects None there on
+# construction. Before this constant existed, the loop below skipped None/
+# False for *all eleven* fields, so passing e.g. ``threshold=None`` straight to
+# Auto3DOptions (a dataclass with no type-coercion step) was silently accepted
+# while ``CLIConfig(threshold=None)`` rejected it -- the same
+# entry-point-dependent divergence this phase closed for k/window/memory/
+# max_confs, just left open for the other seven. Scoping the skip to exactly
+# this set, rather than every key in FIELD_BOUNDS, is what closes it: an
+# explicit None/False on any of the seven now falls through to the same
+# comparison (and the same ConfigurationError) on both entry points instead of
+# being silently waved through on the Auto3DOptions side only.
+SENTINEL_FIELDS: frozenset[str] = frozenset({"k", "window", "memory", "max_confs"})
+
+# Mutually-exclusive conformer-selection strategies (see
+# _check_selectors_mutually_exclusive below). Exposed as a shared tuple --
+# rather than left implicit in that function's body -- so other call sites
+# that need to know which fields are alternative selectors, not just whether
+# a given combination is invalid, use the same list instead of hardcoding
+# "k"/"window" a second time. cli/config_schema.py's merge_configs is exactly
+# such a site: an explicit CLI override of one selector must clear every
+# *other* selector from the base config (so an override substitutes for the
+# file's selector instead of accumulating alongside it), which requires
+# knowing the full set of selector field names, not just how to reject an
+# invalid combination of them. Adding a third selector needs only one edit,
+# here, to take effect on both the rejection (below) and the substitution
+# (merge_configs).
+SELECTOR_FIELDS: tuple[str, ...] = ("k", "window")
+
 _BOUND_OPS: dict[str, tuple[object, str]] = {
     "ge": (operator.ge, ">="),
     "gt": (operator.gt, ">"),
@@ -59,10 +97,12 @@ def check_field_bounds(values: dict) -> None:
     message -- this is what closes C10/M27 on every path instead of just one.
 
     A value of ``None`` or ``False`` means "not specified" (dynamic/default
-    behavior) on the optional numeric fields (k, window, max_confs, memory)
-    and is skipped, matching both classes' existing sentinel conventions.
-    Fields missing from ``values`` are skipped too, so callers may pass a
-    partial mapping.
+    behavior) only for the fields in ``SENTINEL_FIELDS`` (k, window,
+    max_confs, memory) and is skipped there, matching both classes' existing
+    sentinel conventions. Every other bounded field has no "unset" meaning and
+    must reject ``None``/``False`` just like any other out-of-range value (see
+    ``SENTINEL_FIELDS``'s docstring). Fields missing from ``values`` are
+    skipped too, so callers may pass a partial mapping.
 
     Raises:
         ConfigurationError: naming the field and the received value.
@@ -71,7 +111,7 @@ def check_field_bounds(values: dict) -> None:
         if name not in values:
             continue
         value = values[name]
-        if value is None or value is False:
+        if name in SENTINEL_FIELDS and (value is None or value is False):
             continue
         cmp, symbol = _BOUND_OPS[kind]
         try:
@@ -96,7 +136,8 @@ def check_field_bounds(values: dict) -> None:
 
 
 def _check_selectors_mutually_exclusive(values: dict) -> None:
-    """Reject ``k`` and ``window`` when both are specified (M28).
+    """Reject more than one of ``SELECTOR_FIELDS`` (currently ``k``/
+    ``window``) being specified at once (M28).
 
     They are alternative conformer-selection strategies -- top-k vs. an
     energy window -- and ``ConformerRanker.run`` (ranking.py) only consults
@@ -125,12 +166,11 @@ def _check_selectors_mutually_exclusive(values: dict) -> None:
     already raised in the loop above, so a value reaching here is either
     unset or a valid, deliberately-specified one.
     """
-    k = values.get("k")
-    window = values.get("window")
-    if k and window:
+    provided = {f: values.get(f) for f in SELECTOR_FIELDS if values.get(f)}
+    if len(provided) > 1:
+        got = ", ".join(f"{name}={value!r}" for name, value in provided.items())
         raise ConfigurationError(
-            "Only one of k or window may be specified, got "
-            f"k={k!r} and window={window!r}"
+            f"Only one of {' or '.join(SELECTOR_FIELDS)} may be specified, got {got}"
         )
 
 

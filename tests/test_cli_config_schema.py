@@ -89,6 +89,35 @@ use_gpu: false
     assert config.use_gpu is False
 
 
+def test_load_yaml_config_validation_failure_is_configuration_error(tmp_path):
+    """A bad value in the YAML file itself (not a CLI override) must raise
+    ConfigurationError from load_yaml_config, not a raw pydantic
+    ValidationError.
+
+    Before this fix, `merge_configs` (the sibling construction site) already
+    translated ValidationError -> ConfigurationError, but `load_yaml_config`
+    did not: `auto3d run in.smi -c cfg.yaml` with `cfg.yaml` setting `k: 0`
+    exited 1 under the generic "Unexpected Error" panel instead of exit 2
+    with the "run auto3d config init" hint, because `execute_run`
+    (cli/commands/run.py) only special-cases `Auto3DError` and an
+    untranslated `ValidationError` fell through to its `except Exception`
+    clause. Both `load_yaml_config` and `merge_configs` now go through the
+    shared `build_cli_config` helper.
+    """
+    from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.exceptions import ConfigurationError
+
+    yaml_file = tmp_path / "bad_config.yaml"
+    yaml_file.write_text("path: input.smi\nk: 0\n")
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        load_yaml_config(yaml_file)
+    # Must be the translated ConfigurationError, not the raw pydantic error.
+    assert not isinstance(exc_info.value, ValidationError)
+
+
 def test_config_accepts_registry_and_path_engines(tmp_path):
     from Auto3D.cli.config_schema import CLIConfig
     for eng in ("AIMNET", "aimnet2-2025", "ANI2x"):

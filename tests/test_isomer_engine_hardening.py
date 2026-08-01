@@ -301,7 +301,11 @@ class TestSpeFiltersAndAligns:
         inpath = tmp_path / "in.sdf"
         inpath.write_text("")  # contents irrelevant; supplier is faked
 
-        out = spe_mod.calc_spe(str(inpath), "AIMNET")
+        # use_gpu=False: this test is about the None-filtering/index-alignment
+        # logic, not GPU availability -- the default use_gpu=True would make
+        # check_gpu_requested (called before get_device, which is stubbed
+        # here anyway) fail fast with GPUError on a CPU-only runner.
+        out = spe_mod.calc_spe(str(inpath), "AIMNET", use_gpu=False)
 
         assert captured["n"] == 2  # only the two valid mols reached the model
 
@@ -346,7 +350,9 @@ class TestSpeFiltersAndAligns:
         inpath.write_text("")  # contents irrelevant; supplier is faked
 
         # Must not raise (no cryptic max() error); returns the output path.
-        out = spe_mod.calc_spe(str(inpath), "AIMNET")
+        # use_gpu=False for the same reason as the sibling test above: this is
+        # about the all-filtered empty-input path, not GPU availability.
+        out = spe_mod.calc_spe(str(inpath), "AIMNET", use_gpu=False)
         assert out is not None
         # An output file is produced (empty SDF -> no molecule records).
         assert os.path.exists(out)

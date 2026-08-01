@@ -135,13 +135,23 @@ def test_thermo_rejects_unknown_engine_before_doing_any_work(sdf):
 
 def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
     """tautomers already routes optimizing_engine through CLIConfig, so this
-    was not part of the M21 gap -- confirming it stays closed."""
+    was not part of the M21 gap -- confirming it stays closed.
+
+    This is also a CLIConfig construction site (execute_tautomers builds one
+    directly from CLI args): before build_cli_config existed, the
+    ValueError->pydantic ValidationError this raises fell through
+    execute_tautomers's blanket `except Exception` as an unmapped exit code 1
+    "Unexpected Error" instead of exit 2 with a hint -- the same divergence
+    fixed for load_yaml_config/merge_configs, just not previously pinned here
+    (this test only asserted `exit_code != 0` before this fix).
+    """
     with patch("Auto3D.tautomer.get_stable_tautomers") as m:
         res = runner.invoke(
             app, ["tautomers", str(smi), "--no-gpu", "--engine", "aimnet2-2025x"]
         )
-    assert res.exit_code != 0
+    assert res.exit_code == 2  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
+    assert "Unexpected Error" not in res.output
     m.assert_not_called()
 
 

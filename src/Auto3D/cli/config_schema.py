@@ -13,7 +13,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from Auto3D.config import Auto3DOptions, check_field_bounds
+from Auto3D.config import SELECTOR_FIELDS, Auto3DOptions, check_field_bounds
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CAPACITY,
@@ -186,6 +186,31 @@ class CLIConfig(BaseModel):
         )
 
 
+def build_cli_config(**kwargs: Any) -> CLIConfig:
+    """Construct a ``CLIConfig``, translating a pydantic ``ValidationError``
+    into Auto3D's own ``ConfigurationError``.
+
+    This is the one construction path every site that builds a ``CLIConfig``
+    from external data (a YAML file, merged CLI overrides, a bare CLI
+    invocation) should call instead of ``CLIConfig(...)`` directly. Before
+    this helper existed, that translation lived only inside `merge_configs`
+    -- so a bad value reaching CLIConfig through `load_yaml_config` (a
+    config-file value, never merged with any CLI override) raised a raw
+    pydantic `ValidationError` that `cli/commands/run.py`'s `except
+    Auto3DError` clause does not catch. It fell through to the generic
+    "Unexpected Error" panel at exit code 1 instead of the ConfigurationError
+    panel (exit 2, "run auto3d config init" hint) every other invalid-
+    configuration path produces -- e.g. `auto3d run in.smi -c cfg.yaml` with
+    `cfg.yaml` setting `k: 0`. Concentrating the translation here, rather than
+    duplicating the try/except at each construction site, is what keeps every
+    site in sync with no second edit.
+    """
+    try:
+        return CLIConfig(**kwargs)
+    except ValidationError as exc:
+        raise ConfigurationError(str(exc)) from exc
+
+
 def load_yaml_config(yaml_path: Path) -> CLIConfig:
     """Load and validate configuration from YAML file."""
     with open(yaml_path) as f:
@@ -196,48 +221,42 @@ def load_yaml_config(yaml_path: Path) -> CLIConfig:
         if val == "None":
             data[key] = None
 
-    return CLIConfig(**data)
+    return build_cli_config(**data)
 
 
 def merge_configs(base: CLIConfig, overrides: dict[str, Any]) -> CLIConfig:
     """Merge CLI overrides into base configuration.
 
     An override replaces the base's value for that field -- it does not
-    accumulate alongside it. This matters most for `k`/`window`: they are
-    mutually-exclusive conformer-selection strategies
-    (`Auto3D.config._check_selectors_mutually_exclusive`), so an explicit
-    `--k`/`--window` on the CLI is the user choosing *which* strategy to use,
-    substituting for whatever the config file set -- not requesting both at
-    once. Before this fix, `auto3d run in.smi -c cfg.yaml --k 1` with
-    `cfg.yaml`'s `window: 5.0` left both `k=1` (the override) and `window=5.0`
-    (the file's, still sitting in `base_dict`) in the merged result, which
-    the mutual-exclusion guard then rejected -- even though substituting one
-    selector for the other is exactly what a CLI override is for. When the
-    CLI explicitly sets one selector and leaves the other alone, the file's
-    other selector is cleared here so only the explicit one survives; if the
-    CLI explicitly sets *both* (a genuine conflict, not a merge artifact),
-    neither is cleared and the mutual-exclusion guard below still fires.
+    accumulate alongside it. This matters most for the mutually-exclusive
+    conformer-selection strategies in `Auto3D.config.SELECTOR_FIELDS` (`k`/
+    `window`; see `Auto3D.config._check_selectors_mutually_exclusive`): an
+    explicit `--k`/`--window` on the CLI is the user choosing *which*
+    strategy to use, substituting for whatever the config file set -- not
+    requesting both at once. Before this fix, `auto3d run in.smi -c cfg.yaml
+    --k 1` with `cfg.yaml`'s `window: 5.0` left both `k=1` (the override) and
+    `window=5.0` (the file's, still sitting in `base_dict`) in the merged
+    result, which the mutual-exclusion guard then rejected -- even though
+    substituting one selector for the other is exactly what a CLI override is
+    for. When the CLI explicitly sets one selector and leaves the rest alone,
+    every other selector is cleared here so only the explicit one survives;
+    if the CLI explicitly sets more than one selector at once (a genuine
+    conflict, not a merge artifact), none are cleared and the mutual-exclusion
+    guard below still fires. Iterating `SELECTOR_FIELDS` -- rather than
+    hardcoding `k`/`window` a second time here -- means a third selector added
+    to that one tuple picks up this substitution behavior automatically.
     """
     base_dict = base.model_dump()
 
-    if overrides.get("k") is not None and overrides.get("window") is None:
-        base_dict["window"] = None
-    elif overrides.get("window") is not None and overrides.get("k") is None:
-        base_dict["k"] = None
+    explicit = [f for f in SELECTOR_FIELDS if overrides.get(f) is not None]
+    if len(explicit) == 1:
+        for f in SELECTOR_FIELDS:
+            if f != explicit[0]:
+                base_dict[f] = None
 
     # Only apply non-None overrides
     for key, value in overrides.items():
         if value is not None:
             base_dict[key] = value
 
-    try:
-        return CLIConfig(**base_dict)
-    except ValidationError as exc:
-        # execute_run (cli/commands/run.py) only special-cases Auto3DError;
-        # an untranslated pydantic ValidationError here fell through to the
-        # generic "Unexpected Error" panel at exit code 1 instead of the
-        # ConfigurationError panel (exit 2, "run auto3d config init" hint)
-        # every other invalid-configuration path in this phase produces --
-        # e.g. an explicit `--k`/`--window` conflict, or an override that
-        # violates a FIELD_BOUNDS bound.
-        raise ConfigurationError(str(exc)) from exc
+    return build_cli_config(**base_dict)

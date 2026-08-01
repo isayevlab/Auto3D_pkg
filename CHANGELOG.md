@@ -25,8 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are `k>=1`, `window>0`, `mpi_np>=1`, `opt_steps>=1`,
   `convergence_threshold>0`, `patience>=1`, `threshold>0`,
   `batchsize_atoms>=1`, `memory>=1`, `capacity>=1`, and `max_confs>=1`.
-  `None`/`False` still mean "not specified" and are not rejected. One
-  additional change beyond these bounds: `k=0` was a silent "unset" sentinel
+  `None`/`False` still mean "not specified" and are not rejected, but **only**
+  for the four optional fields with a genuine "unset" meaning -- `k`,
+  `window`, `memory`, and `max_confs` (`Auto3D.config.SENTINEL_FIELDS`). The
+  other seven bounds above (`mpi_np`, `opt_steps`, `convergence_threshold`,
+  `patience`, `threshold`, `batchsize_atoms`, `capacity`) always have a
+  concrete default and have no "unset" state to opt into, so `None`/`False`
+  now raise there too, on both entry points -- closing the same
+  entry-point-dependent gap this release closes everywhere else
+  (`Auto3DOptions(path="x.smi", threshold=None)` used to be silently accepted
+  while `CLIConfig(path=Path("x.smi"), threshold=None)` always rejected it).
+  One additional change beyond these bounds: `k=0` was a silent "unset" sentinel
   accepted only by `Auto3DOptions` (`CLIConfig` already rejected it via
   `Field(ge=1)`); it is now rejected on both, for parity, not because it is
   one of the newly-added bounds. Separately, the legacy `auto3d
