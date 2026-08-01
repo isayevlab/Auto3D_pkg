@@ -231,8 +231,10 @@ load. Swap the first two parameters and return energies only.
 disagreed: ``CustomModelAdapter`` substituted ``species_pad = -1`` while
 ``BaseModelAdapter``'s own default was ``0``, so which slots counted as padding
 depended on which layer answered, and ``0`` collides with ANI2xt's hydrogen
-index. Both defaults are now ``-1``, and a model that defines neither attribute
-is refused rather than guessed at:
+index. Both defaults are now ``-1``, and a model missing **either** attribute is
+refused rather than guessed at. Note this is a real break: 3.x documented the
+two as optional and supplied them by ``getattr`` fallback, so a model that
+omitted them ran fine and now fails at load:
 
 .. code:: python
 

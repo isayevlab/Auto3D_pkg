@@ -341,7 +341,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `forward(species, coords, charges) -> energies`, species first, returning an
   energy tensor of shape `(batch,)` in eV. Auto3D derives forces by
   differentiating that energy with respect to `coords`, so a model must not
-  return forces. If your model already worked in 3.x, it still works.
+  return forces. **One real break:** `coord_pad` and `species_pad` were
+  documented as optional in 3.x ("defaults used if absent") and supplied by
+  `getattr` fallbacks, so a model that omitted them loaded and ran. They are
+  now required, and such a model is refused at load. Add both attributes in
+  `__init__` (see the migration guide) -- this is a two-line change, and the
+  old fallbacks are gone precisely because the two layers disagreed about what
+  they defaulted to.
 
   What changed is that `load_custom_nnp` now checks the contract and refuses a
   model that violates it, instead of accepting it and failing later inside
@@ -353,7 +359,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     own default was `0` -- so a model without the attributes got a different
     notion of padding depending on which layer answered. `0` also collides with
     ANI2xt's hydrogen index. Both defaults are now `-1`, which can be neither an
-    atomic number nor a 0-based species index, and a model that defines neither
+    atomic number nor a 0-based species index, and a model missing EITHER
     attribute is rejected rather than guessed at.
   - A `forward` whose first three parameters are recognizable but ordered
     `(coords, species, charges)` is rejected. **This is the trap worth
@@ -378,11 +384,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loaded `RecursiveScriptModule`'s `forward` exposes no Python signature to
   `inspect.signature` --- but not from the attribute check.
 
-  No 3.x results change: the calling convention is identical, and every model
-  3.x ran successfully still loads, except a TorchScript archive relying on
-  class-level padding attributes, which in 3.x was silently given
-  `species_pad = -1` by `CustomModelAdapter`'s fallback rather than its own
-  value.
+  No 3.x *results* change --- the calling convention is identical --- but two
+  kinds of model that loaded in 3.x are now refused at load, both because the
+  padding attributes became required:
+
+  - Any model, eager or scripted, that simply omitted `coord_pad`/`species_pad`
+    and relied on the `getattr` defaults. This is the common case, and the 3.x
+    adapter docstring called the attributes "Optional".
+  - A TorchScript archive that declared them as bare class attributes, which
+    TorchScript does not carry into the archive; in 3.x it was silently given
+    `species_pad = -1` by the fallback rather than its own value.
+
+  Both are fixed by setting the two attributes in `__init__` (or listing them
+  in `__constants__` for TorchScript). The failure is now a clear
+  `ModelLoadError` at load rather than a wrong padding value applied silently.
 
 ### Fixed
 

@@ -13,6 +13,7 @@ Hermetic: every model here is a few-line ``torch.nn.Module`` written to
 """
 from __future__ import annotations
 
+import inspect
 import pytest
 import torch
 
@@ -36,6 +37,19 @@ class GoodNNP(torch.nn.Module):
     def forward(self, species, coords, charges):
         mask = (species != self.species_pad).unsqueeze(-1)
         return (coords * mask).pow(2).sum(dim=(1, 2))
+
+
+class NoForwardOfItsOwn(torch.nn.Module):
+    """Valid padding attributes, but no forward of its own.
+
+    Defined at module level so torch.save can pickle it -- a function-local
+    class cannot be saved.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.coord_pad = 0.0
+        self.species_pad = -1
 
 
 class TransposedNNP(torch.nn.Module):
@@ -415,3 +429,36 @@ def test_validate_custom_nnp_is_callable_directly():
 
     with pytest.raises(ModelLoadError, match="species_pad"):
         validate_custom_nnp(Bad(), "<memory>")
+
+
+def test_a_module_inheriting_torchs_forward_stub_is_rejected(tmp_path):
+    """A model with valid pads but no forward of its own must fail at LOAD.
+
+    `getattr(model, "forward", None) is None` cannot catch this: torch gives
+    every Module a real `forward` attribute -- `_forward_unimplemented(*input)`
+    -- so the attribute always exists. And because that stub is VAR_POSITIONAL,
+    the "forward(*args) accepts any arity" early-return would then ACCEPT it.
+
+    Without an explicit check, such a model loads clean and raises
+    NotImplementedError deep inside the batch optimization loop, after a job
+    has already started -- precisely the deferred failure this validator was
+    added to eliminate. Verified against the pre-fix code: it loaded silently.
+    """
+    import torch
+
+    from Auto3D.exceptions import ModelLoadError
+    from Auto3D.models.loading import load_custom_nnp
+
+    # Preconditions: this is exactly the shape the two earlier checks miss.
+    m = NoForwardOfItsOwn()
+    assert getattr(m, "forward", None) is not None
+    assert any(
+        p.kind is inspect.Parameter.VAR_POSITIONAL
+        for p in inspect.signature(m.forward).parameters.values()
+    )
+
+    path = tmp_path / "no_forward.pt"
+    torch.save(m, str(path))
+
+    with pytest.raises(ModelLoadError, match="no forward method of its own"):
+        load_custom_nnp(str(path), torch.device("cpu"))

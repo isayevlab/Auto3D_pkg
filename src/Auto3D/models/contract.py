@@ -126,6 +126,34 @@ def _check_forward_signature(model: Any, source: str) -> None:
     names carry no ordering information -- a false rejection would break a
     working model, which is worse than a missed diagnosis.
     """
+    # `getattr(model, "forward", None) is None` never fires for an nn.Module:
+    # torch supplies `Module.forward = _forward_unimplemented(*input)`, which is
+    # a real callable, so the attribute always exists. Worse, its signature is
+    # VAR_POSITIONAL, so the `*args` early-return below would then ACCEPT it --
+    # a saved module with valid padding attributes and no forward of its own
+    # would load clean here and raise NotImplementedError deep inside the
+    # optimization loop, which is exactly the failure this validator exists to
+    # move to load time. Compare the class attribute against Module's own to
+    # tell "inherited the stub" from "defined a real forward".
+    # ScriptModule is excluded and the access is guarded: a
+    # RecursiveScriptModule's class attribute is a `_CachedForward` descriptor
+    # that raises AttributeError on this lookup, and a scripted module always
+    # has a real forward anyway (it could not have been scripted otherwise).
+    # Rejecting one here would break every valid TorchScript archive.
+    if isinstance(model, torch.nn.Module) and not isinstance(
+        model, torch.jit.ScriptModule
+    ):
+        try:
+            inherits_stub = type(model).forward is torch.nn.Module.forward
+        except AttributeError:
+            inherits_stub = False
+        if inherits_stub:
+            raise ModelLoadError(
+                f"Custom NNP at {source} defines no forward method of its own "
+                f"(it inherits torch.nn.Module's placeholder, which raises "
+                f"NotImplementedError when called). Expected {EXPECTED_SIGNATURE}."
+            )
+
     forward = getattr(model, "forward", None)
     if forward is None:
         raise ModelLoadError(
