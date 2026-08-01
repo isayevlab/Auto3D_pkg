@@ -278,7 +278,7 @@ def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
     from Auto3D.results import WorkflowResult
     monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
 
-    result = runner.invoke(app, ["run", str(smi), "--json"])
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
     assert result.exit_code == 0
     json.loads(result.stdout)  # must not raise
 
@@ -317,7 +317,7 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
         a3d, "main", lambda options: WorkflowResult(str(out), failures=["mol2"])
     )
 
-    result = runner.invoke(app, ["run", str(smi), "--json"])
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
 
     assert result.exit_code != 0, (
         f"exited 0 despite a reported failure; output:\n{result.output}"
@@ -356,7 +356,7 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
     from Auto3D.results import WorkflowResult
     monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
 
-    result = runner.invoke(app, ["run", str(smi), "--json"])
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
     assert result.exit_code == 0
 
 

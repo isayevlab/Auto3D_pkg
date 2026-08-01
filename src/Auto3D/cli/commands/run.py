@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from Auto3D.cli.config_schema import build_cli_config, load_yaml_config, merge_configs
-from Auto3D.cli.console import console, print_banner, print_warning
+from Auto3D.cli.console import console, print_banner
 from Auto3D.cli.errors import handle_error
 from Auto3D.cli.results import (
     FailedMolecule,
@@ -15,7 +15,7 @@ from Auto3D.cli.results import (
     output_json,
     print_results_summary,
 )
-from Auto3D.exceptions import Auto3DError
+from Auto3D.exceptions import Auto3DError, ConfigurationError
 from Auto3D.utils.logging_config import configure_logging
 
 # A partial run (the process completed, but some input molecules produced no
@@ -109,11 +109,20 @@ def execute_run(
         }
         config = merge_configs(config, {key: val for key, val in overrides.items() if val is not None})
 
-        # Validate output settings
+        # Conformer selection is required, exactly as it is for main(),
+        # smiles2mols and the legacy `auto3d config.yaml` form. This used to
+        # inject k=1 with a warning, which made `auto3d run` the only entry
+        # point that would pick a scientific parameter on the user's behalf --
+        # a user who forgot --k silently got one conformer per molecule while
+        # every other surface refused. Raised here rather than left to
+        # check_valid_configuration inside main() so it fails before the banner
+        # prints (which would otherwise render "window=None") and before any
+        # work starts. Same wording as auto3D.py:167 / workflow.py:198.
         if config.k is None and config.window is None:
-            config = merge_configs(config, {"k": 1})
-            if not quiet:
-                print_warning("Neither k nor window specified, using k=1")
+            raise ConfigurationError(
+                "Either k or window needs to be specified. "
+                "Usually, setting '--k=1' satisfies most needs."
+            )
 
         # Print banner unless quiet/json
         if not quiet and not json_output:

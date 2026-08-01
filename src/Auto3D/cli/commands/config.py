@@ -18,6 +18,7 @@ from Auto3D.constants import (
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
 )
+from Auto3D.exceptions import ConfigurationError
 
 # Default configuration template
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -157,10 +158,19 @@ def execute_config_validate(config_file: Path) -> None:
     try:
         config = load_yaml_config(config_file)
 
-        # Check required fields
-        warnings = []
+        # Conformer selection is required by every entry point, so a config
+        # missing both is invalid, not merely incomplete. This used to be a
+        # warning saying "using k=1", which was true only of `auto3d run` --
+        # and is now true of nothing, since run refuses too. A pre-flight
+        # checker that predicts success for a config the runner rejects is
+        # worse than no checker.
         if config.k is None and config.window is None:
-            warnings.append("Neither 'k' nor 'window' specified - using k=1")
+            raise ConfigurationError(
+                "Either k or window needs to be specified. "
+                "Usually, setting 'k: 1' satisfies most needs."
+            )
+
+        warnings: list[str] = []
 
         console.print(Panel(
             f"[green]Valid configuration[/green]\n\n"
