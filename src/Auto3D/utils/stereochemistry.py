@@ -530,7 +530,11 @@ def amend_configuration_w(smi: str) -> None:
     # Same directory as the target: os.replace raises OSError across
     # filesystems. mkstemp creates the file 0600, so copy the original's
     # permission bits over rather than silently tightening the user's file.
-    directory = os.path.dirname(os.path.abspath(smi))
+    # realpath, not abspath: abspath collapses ".." lexically, so a path like
+    # /scratch/link/../in.smi (link -> another mount) would stage the temp file
+    # on the wrong filesystem and os.replace would fail with EXDEV. Only the
+    # PARENT is resolved -- os.replace acts on the final component itself.
+    directory = os.path.realpath(os.path.dirname(os.path.abspath(smi)))
     fd, tmp_path = tempfile.mkstemp(suffix=".smi", dir=directory)
     os.close(fd)
     try:

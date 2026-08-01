@@ -22,7 +22,55 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+import os
+import stat
+
 from Auto3D.utils.file_ops import reorder_sdf
+
+
+class TestStagingLocation:
+    """The staged temp file must be a SIBLING of its target.
+
+    `os.replace` is only atomic within one filesystem and raises
+    `OSError: [Errno 18] EXDEV` across them, so staging beside the target is
+    the property that makes the whole durability fix work. The end-to-end
+    durability tests below do NOT pin it: they patch `Chem.SDWriter` module-
+    globally, so the injected failure fires wherever the temp file happens to
+    live, and their leftover scans only read `job_dir`. Dropping `dir=` from
+    `_stage_beside` would leave every one of them green while breaking
+    `opt_geometry` on any box where the temp dir is a different mount from the
+    output directory -- a separate `/tmp` tmpfs being the common case.
+    """
+
+    def test_temp_file_is_created_beside_its_target(self, job_dir):
+        from Auto3D.ASE.geometry import _stage_beside
+
+        target = job_dir / "out.sdf"
+        target.write_text("placeholder\n")
+
+        tmp_path = _stage_beside(str(target))
+        try:
+            assert Path(tmp_path).parent == Path(os.path.realpath(str(job_dir))), (
+                f"temp file {tmp_path} is not beside its target {target}; "
+                "os.replace would raise EXDEV whenever the two differ"
+            )
+        finally:
+            os.unlink(tmp_path)
+
+    def test_temp_file_inherits_the_target_mode(self, job_dir):
+        """mkstemp creates 0600 and os.replace carries the SOURCE mode, so
+        without this the rewrite would silently tighten every output file."""
+        from Auto3D.ASE.geometry import _stage_beside
+
+        target = job_dir / "out.sdf"
+        target.write_text("placeholder\n")
+        os.chmod(target, 0o644)
+
+        tmp_path = _stage_beside(str(target))
+        try:
+            assert stat.S_IMODE(os.stat(tmp_path).st_mode) == 0o644
+        finally:
+            os.unlink(tmp_path)
 
 # Captured once, at import time, before any test monkeypatches Chem.SDWriter.
 # Constructing a real Chem.SDWriter on an existing path truncates it

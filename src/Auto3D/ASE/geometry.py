@@ -32,14 +32,28 @@ def _stage_beside(target: str) -> str:
     Same directory, because ``os.replace`` raises ``OSError`` across
     filesystems. The temp file inherits ``target``'s permission bits so the
     replaced file keeps the mode it had -- ``tempfile.mkstemp`` creates 0600,
-    which would otherwise silently tighten the user's output file.
+    which would otherwise silently tighten the user's output file. Setting the
+    mode before anything is written also preserves a read-only (0444) target's
+    protection, which ``rename(2)`` would otherwise bypass.
+
+    The parent directory is resolved with ``realpath``, not ``abspath``:
+    ``abspath`` collapses ``..`` lexically, so a target like
+    ``/scratch/link/../out.sdf`` (where ``link`` points at another mount)
+    would stage the temp file in ``/scratch`` while the replace destination
+    really lives elsewhere -- and ``os.replace`` would fail with
+    ``EXDEV: Invalid cross-device link`` after a completed run. Only the
+    PARENT is resolved: ``os.replace`` acts on the final path component
+    itself, so following a symlinked ``target`` would pick the wrong
+    directory.
     """
-    directory = os.path.dirname(os.path.abspath(target))
+    directory = os.path.realpath(os.path.dirname(os.path.abspath(target)))
     fd, tmp_path = tempfile.mkstemp(suffix=".sdf", dir=directory)
     os.close(fd)
     try:
         os.chmod(tmp_path, stat.S_IMODE(os.stat(target).st_mode))
-    except OSError:  # pragma: no cover - best effort; never block the rewrite
+    except OSError:
+        # Best effort; never block the rewrite. Reached in normal runs whenever
+        # `target` does not exist yet, so this is not an uncovered branch.
         pass
     return tmp_path
 
@@ -55,15 +69,27 @@ def _annotate_and_rewrite(outpath: str) -> None:
     POSIX and on Windows, so ``outpath`` is only ever the old complete file or
     the new complete file, never a partial one.
 
-    Staging also removes the read-then-write-same-path hazard that broke on
-    Windows in 74474ed (fixed there with an explicit ``del supp``): the
-    supplier's handle no longer points at the file being written.
+    Staging does NOT by itself remove the Windows hazard from 74474ed, and an
+    earlier version of this docstring wrongly claimed it did. ``reorder_sdf``
+    was *already* staging through a temp file when it hit that bug: the failure
+    was an open ``SDMolSupplier`` on the ``os.replace`` DESTINATION, which
+    Windows refuses to overwrite (``PermissionError``/``WinError 5``) while a
+    handle is held. This function reads ``outpath`` and then replaces it, so it
+    has the same exposure -- see the explicit release below.
     """
     # `ev2hatree` is a LOCAL in opt_geometry, so a module-level helper cannot
     # see it -- recompute from the module-level `hartree2ev` import rather than
     # adding a parameter for a constant.
     ev2hatree = 1 / hartree2ev
-    mols = list(Chem.SDMolSupplier(outpath, removeHs=False))
+    supp = Chem.SDMolSupplier(outpath, removeHs=False)
+    mols = list(supp)
+    # Release the handle on `outpath` BEFORE os.replace targets it, exactly as
+    # utils/file_ops.py:743 does for reorder_sdf. Writing this as the anonymous
+    # `list(Chem.SDMolSupplier(...))` would also work today -- the temporary's
+    # refcount drops at the end of the statement -- but only under CPython's
+    # refcounting, and it leaves the requirement invisible to the next person
+    # who refactors this into a named variable.
+    del supp
     tmp_path = _stage_beside(outpath)
     try:
         with Chem.SDWriter(tmp_path) as f:

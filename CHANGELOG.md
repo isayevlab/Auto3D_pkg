@@ -314,10 +314,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rewrite into a sibling temp file and move it into place with `os.replace`
   (atomic on POSIX and Windows), so the target is only ever the old complete
   file or the new complete file, and the temp file is removed on any failure.
-  This also removes the read-then-write-same-path dependency on CPython
-  refcounting that needed an explicit `del supp` on Windows in `reorder_sdf`.
-  The staged file inherits the target's permission bits, so an output file's
-  mode is unchanged by the rewrite.
+  Staging alone does not address the Windows hazard that `reorder_sdf` hit in
+  `74474ed`: that function was already staging, and failed because an open
+  `SDMolSupplier` held the `os.replace` *destination*, which Windows refuses
+  to overwrite. `_annotate_and_rewrite` reads its destination too, so it
+  releases the supplier explicitly before replacing, the same way
+  `reorder_sdf` does. The staged file inherits the target's permission bits,
+  so an output file's mode is unchanged by the rewrite -- including a
+  read-only target, whose protection a plain `rename(2)` would have bypassed.
+  One behavior change to note: because `os.replace` acts on the final path
+  component, an output path that is a **symlink** is now replaced by a regular
+  file rather than written through to the link's target. This matches
+  `reorder_sdf`'s long-standing behavior.
 
 - **`calc_spe`, `opt_geometry`, and `calc_thermo` now reject molecules ANI2x/
   ANI2xt cannot represent.** The element-set/charge guard (elements outside
