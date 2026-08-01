@@ -231,10 +231,12 @@ load. Swap the first two parameters and return energies only.
 disagreed: ``CustomModelAdapter`` substituted ``species_pad = -1`` while
 ``BaseModelAdapter``'s own default was ``0``, so which slots counted as padding
 depended on which layer answered, and ``0`` collides with ANI2xt's hydrogen
-index. Both defaults are now ``-1``, and a model missing **either** attribute is
-refused rather than guessed at. Note this is a real break: 3.x documented the
-two as optional and supplied them by ``getattr`` fallback, so a model that
-omitted them ran fine and now fails at load:
+index. Neither default survives --- the ``getattr`` fallback was **removed**, not
+retargeted --- so a model missing **either** attribute is refused rather than
+guessed at. ``-1`` is the value to set in your own model: it can be neither an
+atomic number nor a 0-based species index. Note this is a real break: 3.x
+documented the two as optional and supplied them by ``getattr`` fallback, so a
+model that omitted them ran fine and now fails at load:
 
 .. code:: python
 
@@ -533,11 +535,21 @@ design.
 ``Auto3D.utils.validation.check_output_not_input`` is now the one place this
 is decided, and ``calc_spe``, ``opt_geometry`` and ``calc_thermo`` all call it
 before any device or model is constructed. It raises ``ConfigurationError``
-(exit code ``2``) naming both paths. The comparison is on
-``os.path.realpath``, not on the strings, so ``mols.sdf``, ``./mols.sdf``, an
-absolute path to the same file, and a symlink pointing at it are all refused.
+(exit code ``2``) naming both paths.
+
+Two comparisons back it. ``os.path.realpath`` catches the ordinary spellings ---
+``mols.sdf``, ``./mols.sdf``, an absolute path, a symlink --- and works even
+when the output file does not exist yet. When both paths DO exist,
+``os.path.samefile`` also applies: it compares ``st_dev``/``st_ino``, so it
+additionally catches a **hardlink** (one file under two names with two distinct
+real paths) and a **case-insensitive filesystem**, where ``Mols.sdf`` and
+``mols.sdf`` are one file --- the macOS APFS and Windows NTFS default. Either
+would slip past a realpath-only comparison.
+
 Because the CLI's ``--output`` is passed straight through to these functions,
-the CLI is covered by the same guard.
+``auto3d energy``/``optimize``/``thermo`` are covered by the same guard.
+``auto3d tautomers`` and ``ConformerRanker`` call it directly, since neither
+routes through those three.
 
 **If you relied on in-place overwrite**, pass a distinct output path, or omit
 ``-o``/``out_path`` entirely to get the default ``<stem>_<model>_E.sdf`` /

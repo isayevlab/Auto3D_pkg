@@ -56,8 +56,14 @@ def _stage_beside(target: str) -> str:
     try:
         os.chmod(tmp_path, stat.S_IMODE(os.stat(target).st_mode))
     except OSError:
-        # Best effort; never block the rewrite. Reached in normal runs whenever
-        # `target` does not exist yet, so this is not an uncovered branch.
+        # Best effort: a mode we cannot read is not a reason to abandon a
+        # completed optimization. Defensive rather than exercised -- the sole
+        # caller, `_annotate_and_rewrite`, only reaches here after
+        # `Chem.SDMolSupplier(target)` has already read the file, so `target`
+        # exists and is stat-able on every path that gets here today. An
+        # earlier version of this comment claimed the branch fires "in normal
+        # runs whenever `target` does not exist yet", which is not true of any
+        # current caller.
         pass
     return tmp_path
 

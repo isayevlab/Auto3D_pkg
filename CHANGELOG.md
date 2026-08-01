@@ -358,9 +358,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     default was -- `CustomModelAdapter` supplied `-1` while `BaseModelAdapter`'s
     own default was `0` -- so a model without the attributes got a different
     notion of padding depending on which layer answered. `0` also collides with
-    ANI2xt's hydrogen index. Both defaults are now `-1`, which can be neither an
-    atomic number nor a 0-based species index, and a model missing EITHER
-    attribute is rejected rather than guessed at.
+    ANI2xt's hydrogen index. Neither default survives: `CustomModelAdapter`'s
+    `getattr` fallback was **removed**, not retargeted, so a model missing
+    EITHER attribute is now rejected rather than guessed at. Where Auto3D still
+    documents a recommended value for your own model to set, it is `-1`, which
+    can be neither an atomic number nor a 0-based species index.
   - A `forward` whose first three parameters are recognizable but ordered
     `(coords, species, charges)` is rejected. **This is the trap worth
     naming**: Auto3D's *internal* `Auto3D.models.adapter.ModelAdapter` interface

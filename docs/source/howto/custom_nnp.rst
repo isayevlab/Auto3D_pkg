@@ -199,11 +199,13 @@ Wrapping an Existing Model
    class ExternalModelWrapper(nn.Module):
        """Wrapper for an external NNP to make it Auto3D-compatible."""
 
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, external_model):
            super().__init__()
+           # Instance attributes, not class attributes: TorchScript does not
+           # carry plain class attributes into a saved archive, so a scripted
+           # copy of this wrapper would load without them and be refused.
+           self.coord_pad = 0
+           self.species_pad = -1
            self.model = external_model
 
            # Map atomic numbers to model's internal representation
@@ -258,8 +260,13 @@ For testing, here's a minimal example using Lennard-Jones potential:
    class SimpleLJModel(nn.Module):
        """Simple Lennard-Jones model for demonstration."""
 
-       coord_pad = 0
-       species_pad = -1
+       def __init__(self):
+           super().__init__()
+           # Instance attributes, not class attributes: TorchScript does not
+           # carry plain class attributes into a saved archive, so a scripted
+           # copy would load without them and be refused.
+           self.coord_pad = 0
+           self.species_pad = -1
 
        # LJ parameters (epsilon, sigma) for each element
        lj_params = {
@@ -555,11 +562,11 @@ Example wrapping a SchNetPack model:
    import schnetpack as spk
 
    class SchNetPackWrapper(nn.Module):
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, model_path):
            super().__init__()
+           # Instance attributes -- see the note above on TorchScript.
+           self.coord_pad = 0
+           self.species_pad = -1
            self.model = torch.load(model_path)
 
        def forward(self, species, coords, charges):
@@ -599,11 +606,11 @@ Example wrapping NequIP:
    import torch.nn as nn
 
    class NequIPWrapper(nn.Module):
-       coord_pad = 0
-       species_pad = -1
-
        def __init__(self, model_path):
            super().__init__()
+           # Instance attributes -- see the note above on TorchScript.
+           self.coord_pad = 0
+           self.species_pad = -1
            from nequip.ase import NequIPCalculator
            self.calc = NequIPCalculator.from_deployed_model(model_path)
 

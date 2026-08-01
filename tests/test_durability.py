@@ -414,6 +414,19 @@ class TestSameFileGuard:
 
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
+        # The stubs above are benign, so on their own they would let the guard
+        # move BELOW model construction and this test would stay green while
+        # `auto3d energy huge.sdf -o huge.sdf` loaded a full AIMNet2 before
+        # refusing. Make reaching model construction itself the failure, the
+        # way the calc_thermo test below already does. Still loads no NNP.
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "calc_spe reached model construction; the same-file guard must "
+                "refuse out_path == path before any model is built"
+            )
+
+        monkeypatch.setattr(spe_mod, "create_model", _never)
+
         # use_gpu=False so check_gpu_requested (which runs first) cannot raise
         # GPUError and satisfy the assertion below for the wrong reason -- see
         # the class docstring.
@@ -452,6 +465,17 @@ class TestSameFileGuard:
                         w.write(mol)
 
         monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
+
+        # FakeOptimizing is benign, so it alone would let the guard move below
+        # model construction with this test still green -- see the calc_spe
+        # test above. Make reaching the device/model step the failure itself.
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "opt_geometry reached model construction; the same-file guard "
+                "must refuse out_path == path before any model is built"
+            )
+
+        monkeypatch.setattr(geometry, "get_device", _never)
 
         with pytest.raises(ConfigurationError, match="same file"):
             geometry.opt_geometry(
