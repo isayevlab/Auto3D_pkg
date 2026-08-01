@@ -175,8 +175,20 @@ class TestAuxiliaryEntryPointGuards:
 
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
-        with pytest.raises(Auto3DError):
-            calc_spe(str(sdf), "ANI2x", out_path=str(job_dir / "out.sdf"))
+        # `use_gpu=False` and `ConfigurationError` (not the base `Auto3DError`)
+        # are both load-bearing. check_gpu_requested runs at SPE.py:61, well
+        # before the C11 guard at SPE.py:115, and raises GPUError -- also an
+        # Auto3DError. So with the default `use_gpu=True` on a CPU-only box
+        # (every CI runner; this dev box has 8 CUDA devices and hides it) this
+        # call raised GPUError at validation.py:80, `pytest.raises(Auto3DError)`
+        # swallowed it, and the test passed green having never reached the
+        # charged-input guard it exists to pin. GPUError and ConfigurationError
+        # are siblings, so narrowing the expected type makes the wrong reason
+        # structurally unable to satisfy this test.
+        with pytest.raises(ConfigurationError):
+            calc_spe(
+                str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
+            )
 
     def test_opt_geometry_rejects_charged_input_for_ani(self, job_dir, monkeypatch):
         """opt_geometry must run the same check_engine_supports_molecules
@@ -222,7 +234,11 @@ class TestAuxiliaryEntryPointGuards:
 
         monkeypatch.setattr(geometry_mod, "optimizing", _FakeOptEngine)
 
-        with pytest.raises(Auto3DError):
+        # ConfigurationError, not the base Auto3DError: see the note in
+        # test_calc_spe_rejects_charged_input_for_ani. This test already passes
+        # use_gpu=False, but the narrow type is what keeps a GPUError (or any
+        # other unrelated Auto3DError) from satisfying it if that ever changes.
+        with pytest.raises(ConfigurationError):
             opt_geometry(
                 str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
             )
@@ -268,7 +284,11 @@ class TestAuxiliaryEntryPointGuards:
             lambda *a, **k: (_FakeModel(), _FakeCalculator()),
         )
 
-        with pytest.raises(Auto3DError):
+        # ConfigurationError, not the base Auto3DError: see the note in
+        # test_calc_spe_rejects_charged_input_for_ani. This test already passes
+        # use_gpu=False, but the narrow type is what keeps a GPUError (or any
+        # other unrelated Auto3DError) from satisfying it if that ever changes.
+        with pytest.raises(ConfigurationError):
             calc_thermo(
                 str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
             )
