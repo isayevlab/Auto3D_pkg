@@ -1,15 +1,17 @@
 """Rewriting a file in place must never be able to destroy it.
 
 reorder_sdf writes to a temp file and os.replace()s it, and cleans the temp up
-on failure -- but nothing tested that path (M33). opt_geometry does the
-opposite: it truncates the file it just read, so a failure mid-write destroys
-a completed optimization whose only copy lives there (C14).
+on failure -- but nothing tested that path (M33). opt_geometry used to do the
+opposite: it truncated the file it had just read, so a failure mid-write
+destroyed a completed optimization whose only copy lived there (C14).
 
 TestReorderSdfDurability closes the M33 coverage gap and must PASS: the
 tmp+os.replace pattern in reorder_sdf already works. TestOptGeometryDurability
-and TestSameFileGuard are tripwires for the still-open C14 defect and must
-XFAIL(strict=True) -- if a future fix makes either XPASS, strict mode turns
-that into a hard failure so the xfail marker has to be removed deliberately.
+and TestAmendConfigurationDurability must now also PASS -- Phase 6 gave both
+call sites the same tmp+os.replace staging. TestSameFileGuard remains a
+tripwire for the still-open half of C14 (no out_path == path guard) and must
+XFAIL(strict=True) -- if a future fix makes it XPASS, strict mode turns that
+into a hard failure so the xfail marker has to be removed deliberately.
 """
 from __future__ import annotations
 
@@ -118,23 +120,18 @@ class TestReorderSdfDurability:
 class TestOptGeometryDurability:
     """opt_geometry must not truncate the file it is rewriting."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="C14: ASE/geometry.py:106-116 opens SDWriter on the same path it "
-        "just read with SDMolSupplier, so a failure between those lines destroys "
-        "the completed optimization -- optimizing.run() wrote its only copy there",
-    )
     def test_input_survives_a_failed_rewrite(self, job_dir, monkeypatch):
         """A write failure partway through the unit-conversion rewrite pass must
         not lose the completed optimization.
 
-        Fork resolution (see task-5 brief, Step 2): `geometry._annotate_and_rewrite`
-        does not exist -- ASE/geometry.py:106-116 inlines the read-then-rewrite
-        with no importable helper, and Phase 6 (not this task) owns extracting
-        one. Chosen option: "Preferred" -- drive the real `opt_geometry` with
-        the batch optimizer (Auto3D.batch_opt.batchopt.optimizing) monkeypatched
-        so no NNP loads. This keeps the test hermetic and in the fast tier while
-        leaving the vulnerable geometry.py:106-116 pass running unmodified.
+        Phase 6 fixed C14 by extracting `geometry._annotate_and_rewrite`, which
+        stages the eV->hartree pass into a sibling temp file and `os.replace`s
+        it into position, so this test now passes (the xfail(strict=True)
+        tripwire it carried was removed with that fix). It drives the real
+        `opt_geometry` with the batch optimizer
+        (Auto3D.batch_opt.batchopt.optimizing) monkeypatched so no NNP loads,
+        keeping the test hermetic and in the fast tier while the real rewrite
+        pass runs unmodified.
 
         Opening Chem.SDWriter on an existing path truncates it immediately (see
         `_real_sdwriter` note above), so FlakyWriter below wraps the *real*
@@ -215,6 +212,87 @@ class TestOptGeometryDurability:
         assert outpath.read_bytes() == completed["bytes"], (
             "opt_geometry truncated its own output; a completed optimization was lost"
         )
+
+        # The staging temp file must be cleaned up on failure, otherwise every
+        # crashed run leaves an orphan .sdf next to the user's output.
+        leftovers = sorted(
+            p.name for p in job_dir.iterdir() if p.name not in {"in.sdf", "opt_out.sdf"}
+        )
+        assert not leftovers, f"temp files left behind: {leftovers}"
+
+
+class TestAmendConfigurationDurability:
+    """amend_configuration_w must not truncate the file it is rewriting."""
+
+    def test_input_survives_a_failed_rewrite(self, job_dir, monkeypatch):
+        """A write failure partway through the amend pass must not lose the input.
+
+        ``amend_configuration_w`` read the .smi file and then reopened the same
+        path with ``open(smi, "w+")``, which truncates on open -- so a crash
+        partway through the write loop left a partial file and the original
+        stereoisomer enumeration was gone (C14, same shape as opt_geometry).
+
+        The stand-in below wraps the *real* ``open`` so the truncate-on-open
+        happens exactly as in production against whatever path the function
+        actually opens for writing; a stub that never touched disk would pass
+        identically whether the function writes to a temp file (correct) or
+        straight to ``smi`` (the regression). Only write-mode opens inside
+        ``job_dir`` are wrapped, so ``amend_configuration``'s own read of the
+        input -- and anything pytest opens -- goes through untouched.
+        """
+        import builtins
+
+        from Auto3D.utils.stereochemistry import amend_configuration_w
+
+        smi = job_dir / "in.smi"
+        # Two records under one id => two output lines, so the injected failure
+        # lands *partway* through the write rather than before it starts.
+        smi.write_text("C[C@H](O)F mol_1\nC[C@@H](O)F mol_2\n")
+        original = smi.read_bytes()
+
+        real_open = builtins.open
+
+        class FlakyFile:
+            """Writes the first line for real, then fails like a full disk."""
+
+            def __init__(self, real):
+                self._real = real
+                self._n = 0
+
+            def write(self, s):
+                self._n += 1
+                if self._n >= 2:
+                    raise RuntimeError("disk full")
+                return self._real.write(s)
+
+            def close(self):
+                self._real.close()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self._real.close()
+                return False
+
+        def flaky_open(file, mode="r", *a, **k):
+            handle = real_open(file, mode, *a, **k)
+            if "w" in mode and str(file).startswith(str(job_dir)):
+                return FlakyFile(handle)
+            return handle
+
+        monkeypatch.setattr(builtins, "open", flaky_open)
+
+        with pytest.raises(RuntimeError):
+            amend_configuration_w(str(smi))
+
+        monkeypatch.undo()
+
+        assert smi.read_bytes() == original, (
+            "amend_configuration_w truncated its own input; the file is unrecoverable"
+        )
+        leftovers = sorted(p.name for p in job_dir.iterdir() if p.name != "in.smi")
+        assert not leftovers, f"temp files left behind: {leftovers}"
 
 
 class TestSameFileGuard:

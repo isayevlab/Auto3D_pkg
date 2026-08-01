@@ -5,6 +5,8 @@ Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 from __future__ import annotations
 
 import os
+import stat
+import tempfile
 
 from rdkit import Chem
 
@@ -22,6 +24,67 @@ from Auto3D.utils import hartree2ev
 from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
 
 __all__ = ["opt_geometry"]
+
+
+def _stage_beside(target: str) -> str:
+    """Create an empty temp file in the same directory as ``target``.
+
+    Same directory, because ``os.replace`` raises ``OSError`` across
+    filesystems. The temp file inherits ``target``'s permission bits so the
+    replaced file keeps the mode it had -- ``tempfile.mkstemp`` creates 0600,
+    which would otherwise silently tighten the user's output file.
+    """
+    directory = os.path.dirname(os.path.abspath(target))
+    fd, tmp_path = tempfile.mkstemp(suffix=".sdf", dir=directory)
+    os.close(fd)
+    try:
+        os.chmod(tmp_path, stat.S_IMODE(os.stat(target).st_mode))
+    except OSError:  # pragma: no cover - best effort; never block the rewrite
+        pass
+    return tmp_path
+
+
+def _annotate_and_rewrite(outpath: str) -> None:
+    """Convert E_tot from eV to hartree in-place, atomically.
+
+    ``optimizing.run()`` has already written its only copy of the optimized
+    geometries to ``outpath``. Opening ``Chem.SDWriter(outpath)`` directly
+    would truncate that file, so a failure partway through the rewrite would
+    destroy a completed optimization run (C14). Stage into a sibling temp file
+    and ``os.replace`` it into position instead: ``os.replace`` is atomic on
+    POSIX and on Windows, so ``outpath`` is only ever the old complete file or
+    the new complete file, never a partial one.
+
+    Staging also removes the read-then-write-same-path hazard that broke on
+    Windows in 74474ed (fixed there with an explicit ``del supp``): the
+    supplier's handle no longer points at the file being written.
+    """
+    # `ev2hatree` is a LOCAL in opt_geometry, so a module-level helper cannot
+    # see it -- recompute from the module-level `hartree2ev` import rather than
+    # adding a parameter for a constant.
+    ev2hatree = 1 / hartree2ev
+    mols = list(Chem.SDMolSupplier(outpath, removeHs=False))
+    tmp_path = _stage_beside(outpath)
+    try:
+        with Chem.SDWriter(tmp_path) as f:
+            for mol in mols:
+                # Skip records that failed to re-parse or lack E_tot rather
+                # than crashing, which would discard the entire (already
+                # completed) optimization run on a single bad record.
+                if mol is None or not mol.HasProp("E_tot"):
+                    continue
+                e = float(mol.GetProp("E_tot")) * ev2hatree
+                mol.SetProp("E_tot", str(e))
+                f.write(mol)
+        os.replace(tmp_path, outpath)
+    except BaseException:
+        # BaseException, not Exception: a KeyboardInterrupt mid-write must not
+        # leave a stray .sdf beside the user's output.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def opt_geometry(
@@ -90,7 +153,6 @@ def opt_geometry(
     # so no compute (and no model construction) happens first.
     check_gpu_requested(use_gpu)
 
-    ev2hatree = 1 / hartree2ev
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
@@ -127,18 +189,9 @@ def opt_geometry(
     opt_engine = optimizing(path, outpath, model_name, device, opt_config)
     opt_engine.run()
 
-    #change the energy unit from ev to hartree
-    mols = list(Chem.SDMolSupplier(outpath, removeHs=False))
-    with Chem.SDWriter(outpath) as f:
-        for mol in mols:
-            # Skip records that failed to re-parse or lack E_tot rather than
-            # crashing here, which would discard the entire (already completed)
-            # optimization run on a single bad record.
-            if mol is None or not mol.HasProp('E_tot'):
-                continue
-            e = float(mol.GetProp('E_tot')) * ev2hatree
-            mol.SetProp('E_tot', str(e))
-            f.write(mol)
+    # change the energy unit from eV to hartree, staged through a temp file so
+    # a failed rewrite cannot destroy the completed optimization (C14)
+    _annotate_and_rewrite(outpath)
     return outpath
 
 

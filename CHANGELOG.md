@@ -303,6 +303,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A failed rewrite can no longer destroy a completed optimization.**
+  `opt_geometry` converts `E_tot` from eV to hartree by reading the SDF that
+  `optimizing.run()` just wrote and reopening that same path with
+  `Chem.SDWriter`, which truncates on open. Any failure partway through that
+  pass -- a full disk, a `KeyboardInterrupt` -- left a partial file, and since
+  `optimizing.run()` wrote its only copy there, the finished optimization was
+  unrecoverable. `amend_configuration_w` had the identical shape with
+  `open(smi, "w+")` on the `.smi` file it had just read. Both now stage the
+  rewrite into a sibling temp file and move it into place with `os.replace`
+  (atomic on POSIX and Windows), so the target is only ever the old complete
+  file or the new complete file, and the temp file is removed on any failure.
+  This also removes the read-then-write-same-path dependency on CPython
+  refcounting that needed an explicit `del supp` on Windows in `reorder_sdf`.
+  The staged file inherits the target's permission bits, so an output file's
+  mode is unchanged by the rewrite.
+
 - **`calc_spe`, `opt_geometry`, and `calc_thermo` now reject molecules ANI2x/
   ANI2xt cannot represent.** The element-set/charge guard (elements outside
   {H, C, N, O, F, S, Cl}, or nonzero formal charge) was only ever inlined
