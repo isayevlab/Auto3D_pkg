@@ -285,7 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   those fields (and `to_dict()` no longer emits those keys), and
   `Auto3D.constants.DEFAULT_ENERGY_TOL`/`DEFAULT_ENERGY_PATIENCE` are gone.
   **No geometry, energy or convergence flag changes** -- the criterion could
-  never fire. It was `energy_converged = (energy_stable_count >=
+  never fire. It was `energy_converged = (energy_stable_subset >=
   energy_patience) & (fmax < opttol)`, combined as `not_converged_post =
   (fmax > opttol) & not_oscillating & ~energy_converged`. Wherever
   `~energy_converged` was consulted, `fmax > opttol` already held, so

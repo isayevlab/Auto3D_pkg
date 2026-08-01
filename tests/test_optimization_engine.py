@@ -270,9 +270,17 @@ class _ConstantForceNN:
     stable energy -- the most favourable possible input for an energy-based
     convergence criterion); ``False`` shifts it by 1 eV per call, far above
     any plausible energy tolerance.
+
+    ``force_per_atom`` may be a scalar (every molecule feels the same force) or
+    a ``{species: force}`` map for a heterogeneous batch. The map is keyed on
+    species rather than on row index because ``n_steps`` gathers a SUBSET of
+    the batch once some molecules converge (``optimization_engine.py:168-177``
+    gathers ``coord`` and ``numbers`` with the same ``not_converged`` mask), so
+    row 1 of a later step is not molecule 1. Keying on ``numbers`` -- gathered
+    alongside ``coord`` -- makes each force follow its own molecule.
     """
 
-    def __init__(self, force_per_atom: float, energy_stable: bool):
+    def __init__(self, force_per_atom: float | dict[int, float], energy_stable: bool):
         self.force_per_atom = force_per_atom
         self.energy_stable = energy_stable
         self.calls = 0
@@ -283,15 +291,33 @@ class _ConstantForceNN:
         value = -10.0 if self.energy_stable else -10.0 - self.calls
         e = torch.full((batch,), value)
         f = torch.zeros_like(coord)
-        f[..., 0] = self.force_per_atom
+        if isinstance(self.force_per_atom, dict):
+            for row in range(batch):
+                f[row, :, 0] = self.force_per_atom[int(numbers[row, 0])]
+        else:
+            f[..., 0] = self.force_per_atom
         return e, f
 
 
-def _run_constant_force(force_per_atom: float, energy_stable: bool, opttol: float):
-    """Run n_steps against _ConstantForceNN and return the convergence mask."""
+def _run_constant_force(
+    force_per_atom: float | dict[int, float],
+    energy_stable: bool,
+    opttol: float,
+    species: tuple[int, int] = (1, 1),
+):
+    """Run n_steps against _ConstantForceNN and return the convergence mask.
+
+    ``species`` labels the two molecules so a ``{species: force}`` map can give
+    them different forces; the default keeps both at species 1 (a homogeneous
+    batch, where the mask is always all-True or all-False).
+    """
     nn = _ConstantForceNN(force_per_atom, energy_stable)
+    numbers = torch.stack([
+        torch.full((4,), species[0], dtype=torch.long),
+        torch.full((4,), species[1], dtype=torch.long),
+    ])
     state = {
-        'numbers': torch.ones(2, 4, dtype=torch.long),
+        'numbers': numbers,
         'charges': torch.zeros(2, dtype=torch.long),
         'coord': torch.zeros(2, 4, 3),
         'nn': nn,
@@ -312,7 +338,7 @@ def test_convergence_outcome_never_depends_on_energy_stability():
     Algebraic proof, for the code as it stood before M1:
 
         not_converged_post1 = fmax > opttol
-        energy_converged    = (energy_stable_count >= energy_patience) & (fmax < opttol)
+        energy_converged    = (energy_stable_subset >= energy_patience) & (fmax < opttol)
         not_converged_post  = not_converged_post1 & not_oscillating & ~energy_converged
 
     Where ``not_converged_post1`` is true, ``fmax > opttol``, so ``fmax <
@@ -361,6 +387,25 @@ def test_convergence_outcome_never_depends_on_energy_stability():
         assert all(outcomes[('at', stable)]), "fmax == opttol must converge"
         assert not any(outcomes[('above', stable)]), (
             "fmax > opttol must not converge, however stable the energy"
+        )
+
+    # A heterogeneous batch, so the step loop actually performs a PARTIAL
+    # subset gather. Every cell above uses one force for both molecules, so
+    # `not_converged` is always all-True or all-False and the gathers at
+    # optimization_engine.py:168-177 are no-ops. That leaves a reintroduction
+    # bug invisible: a criterion whose per-molecule buffer is gathered with a
+    # stale mask would let molecule 1, after molecule 0 converges and drops
+    # out, read molecule 0's row and early-terminate at the wrong geometry.
+    # Here molecule 0 (species 1) is below the tolerance and molecule 1
+    # (species 6) is above it, so molecule 0 converges first and every
+    # subsequent step runs on a one-row subset.
+    for stable in (True, False):
+        mixed = _run_constant_force(
+            {1: opttol / 2, 6: opttol * 2}, stable, opttol, species=(1, 6)
+        )
+        assert mixed == [True, False], (
+            "in a mixed batch each molecule must be judged on its own force "
+            f"after the subset gather, got {mixed} (energy_stable={stable})"
         )
 
 
