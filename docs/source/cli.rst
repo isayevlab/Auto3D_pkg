@@ -172,8 +172,14 @@ Property commands
 These wrap the corresponding Python API functions so single-point energy,
 geometry optimization, thermochemistry, and tautomer ranking are first-class CLI
 operations (not Python-only). Each takes an input file (validated for existence),
-shares ``--engine``, ``--gpu/--no-gpu``, ``--gpu-idx``, ``-o/--output``, and
-``--json``, writes an SDF, and prints its path.
+shares ``--engine``, ``--gpu/--no-gpu``, ``--gpu-idx``, ``-o/--output``,
+``-f/--force``, and ``--json``, writes an SDF, and prints its path.
+
+All four refuse to write over a file that already exists -- the resolved
+output path, so the derived default name counts, not only an explicit
+``-o`` -- and exit 2 telling you to pass ``-f/--force``, the same way
+``auto3d config init`` does. ``--force`` does not lift the separate refusal
+to write the output over the input file.
 
 .. code:: console
 

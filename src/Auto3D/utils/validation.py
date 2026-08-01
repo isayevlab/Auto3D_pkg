@@ -214,6 +214,60 @@ def check_output_not_input(path: str, out_path: str | None) -> None:
         )
 
 
+def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: bool) -> None:
+    """Refuse to write over a file that already exists.
+
+    ``auto3d energy junk.sdf --no-gpu -o precious.sdf`` used to exit 0, print
+    "Wrote precious.sdf", and leave ``precious.sdf`` at 0 bytes: every writer
+    below opens ``Chem.SDWriter(outpath)``, which truncates on open, so the
+    user's file was destroyed before a single record was written -- and, when
+    the run produced nothing (an SDF whose records all fail to parse), nothing
+    was written afterwards either. ``auto3d config init`` has refused to
+    clobber an existing file since it shipped; the calculators did not.
+
+    Single source of truth for that policy, in the same spirit as
+    ``check_output_not_input`` directly above: ``calc_spe``, ``opt_geometry``,
+    ``calc_thermo`` and ``ConformerRanker`` each resolve their own output path
+    and would otherwise each carry their own copy of this test, which is how
+    four copies drift apart. ``auto3d tautomers`` derives its output name
+    inside the pipeline and honors ``-o`` with a ``shutil.move``, so its CLI
+    wrapper calls this function itself before the pipeline runs.
+
+    This is a *distinct* guard from ``check_output_not_input``, not a
+    generalization of it: that one refuses ``out_path`` naming the input even
+    when ``--force`` is passed (there is no recovering an input you overwrote
+    with a filtered subset of itself), while this one is a consent gate the
+    user can lift. Both run; neither subsumes the other.
+
+    The check is on the *resolved* output path, so it covers the default
+    derived name (``mols_AIMNET_E.sdf``) exactly as it covers an explicit
+    ``-o``. A second ``auto3d energy mols.sdf`` therefore stops rather than
+    silently replacing the first run's results.
+
+    ``os.path.exists`` follows symlinks, which is the behavior wanted here: a
+    symlink pointing at a real file is a file the write would destroy. A
+    dangling symlink reports False and is overwritten, matching what the
+    writer would do anyway.
+
+    Args:
+        out_path: The resolved path the caller is about to write, or None
+            when the caller has nothing to write.
+        overwrite: True to allow clobbering an existing file (``--force`` on
+            the CLI, ``overwrite=True`` in the Python API).
+
+    Raises:
+        ConfigurationError: `out_path` exists and `overwrite` is False.
+    """
+    if out_path is None or overwrite:
+        return
+
+    if os.path.exists(out_path):
+        raise ConfigurationError(
+            f"{out_path} already exists. Pass --force/-f to overwrite, or "
+            "choose a different -o path. (Python API: pass overwrite=True.)"
+        )
+
+
 def check_input(args: Any) -> None:
     """Check the input file and give recommendations.
 

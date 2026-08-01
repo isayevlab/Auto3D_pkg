@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **The CLI refuses to overwrite an existing output file; pass `-f`/`--force`
+  to allow it.** `auto3d energy mols.sdf -o precious.sdf` used to exit 0,
+  print "Wrote precious.sdf", and leave `precious.sdf` **empty** -- RDKit's
+  `SDWriter` truncates on open, so the file was destroyed before the first
+  record was written, and a run that computed nothing (every record failing
+  to parse, for instance) wrote nothing back. `energy`, `optimize`, `thermo`
+  and `tautomers` now stop with a `ConfigurationError` (exit code **2**) and
+  the message `<path> already exists. Pass --force/-f to overwrite, or choose
+  a different -o path.`, matching what `auto3d config init` has always done.
+  **What stops working:** any script that re-runs one of these four commands
+  into a path that already exists -- including the *default* derived name
+  (`mols_AIMNET_E.sdf`, `mols_AIMNET_opt.sdf`, `mols_AIMNET_G.sdf`,
+  `mols_top_tautomers.sdf`), not only an explicit `-o`, because the check is
+  on the resolved output path. **What to do instead:** add `--force` if
+  replacing the previous result is what you meant, or write to a fresh path
+  and delete the old one yourself. **The Python API is unchanged by default:**
+  `calc_spe`, `opt_geometry`, `calc_thermo` and `ConformerRanker` take a new
+  `overwrite` parameter that defaults to `True`, so existing Python callers
+  keep their current behavior; pass `overwrite=False` to opt into the CLI's
+  refusal. The check lives in one place,
+  `Auto3D.utils.validation.check_output_overwrite`. It does **not** replace
+  the same-file guard: `-o` naming the input is still refused even with
+  `--force`, because there is no recovering an input overwritten by a
+  filtered subset of itself.
+
+- **`auto3d run` no longer writes its encoded input beside your input file.**
+  The pipeline rewrites molecule IDs into a temporary `<stem>_encoded.<ext>`
+  copy. That copy used to be written next to the input with no existence
+  check and `unlink`ed when the run finished, so a user who happened to own
+  `mols_encoded.smi` next to `mols.smi` lost it: silently overwritten, then
+  deleted. The encoded copy is now written **inside the run's own job
+  directory** (created fresh by a bare `mkdir()`, so it can never contain a
+  pre-existing file), and `Auto3D.utils.file_ops.encode_ids` additionally
+  refuses to write over an existing file and raises `ConfigurationError`.
+  **What stops working:** code that assumed the encoded file appears next to
+  the input during a run, or that called `encode_ids(path)` twice for the
+  same `path` without deleting the first result in between. **What to do
+  instead:** pass the new `encode_ids(path, out_dir=...)` argument to choose
+  where the encoded copy goes, or remove the stale `<stem>_encoded.<ext>`
+  file. The final output path and its name are unchanged.
+
 - **Configuration bounds are now enforced on every entry point.** A single
   `FIELD_BOUNDS` table in `config.py` is now consulted by both
   `Auto3DOptions.__post_init__` and `CLIConfig`'s model validator, so a config

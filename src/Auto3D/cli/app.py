@@ -292,6 +292,12 @@ OutputOption = Annotated[
 ]
 Tf32Flag = Annotated[bool, typer.Option("--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs.")]
 JsonFlag = Annotated[bool, typer.Option("--json", help="Emit the result as JSON.")]
+# Same spelling and same help wording as `config init`'s flag, so the CLI reads
+# consistently: -f/--force is "yes, clobber the existing file" everywhere.
+ForceFlag = Annotated[
+    bool,
+    typer.Option("-f", "--force", help="Overwrite an existing output file."),
+]
 
 
 @app.command()
@@ -304,10 +310,14 @@ def energy(
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
+    force: ForceFlag = False,
 ) -> None:
     """Single-point energy for an SDF (writes an SDF with E_hartree)."""
     from Auto3D.cli.commands.properties import execute_energy
-    execute_energy(input_file, engine, gpu, gpu_idx, output, tf32, json_output, verbose=verbose)
+    execute_energy(
+        input_file, engine, gpu, gpu_idx, output, tf32, json_output,
+        verbose=verbose, force=force,
+    )
 
 
 @app.command()
@@ -324,12 +334,14 @@ def optimize(
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
+    force: ForceFlag = False,
 ) -> None:
     """Geometry-optimize the structures in an SDF (no enumeration)."""
     from Auto3D.cli.commands.properties import execute_optimize
     execute_optimize(
         input_file, engine, gpu, gpu_idx, output, opt_tol, opt_steps,
         patience, batchsize_atoms, tf32, json_output, verbose=verbose,
+        force=force,
     )
 
 
@@ -346,12 +358,13 @@ def thermo(
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
+    force: ForceFlag = False,
 ) -> None:
     """Thermochemistry (enthalpy/entropy/Gibbs) for an SDF. Requires the ase extra."""
     from Auto3D.cli.commands.properties import execute_thermo
     execute_thermo(
         input_file, engine, gpu, gpu_idx, output, temperature,
-        opt_tol, opt_steps, tf32, json_output, verbose=verbose,
+        opt_tol, opt_steps, tf32, json_output, verbose=verbose, force=force,
     )
 
 
@@ -366,10 +379,11 @@ def tautomers(
     output: OutputOption = None,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
+    force: ForceFlag = False,
 ) -> None:
     """Enumerate tautomers and rank/select the most stable ones."""
     from Auto3D.cli.commands.properties import execute_tautomers
     execute_tautomers(
         input_file, engine, gpu, gpu_idx, tauto_k, tauto_window, output, json_output,
-        verbose=verbose,
+        verbose=verbose, force=force,
     )

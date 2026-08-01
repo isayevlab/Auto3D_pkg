@@ -12,7 +12,7 @@ from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
 from Auto3D.utils.chemistry import check_connectivity
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.stereo_check import stereo_preserved
-from Auto3D.utils.validation import check_output_not_input
+from Auto3D.utils.validation import check_output_not_input, check_output_overwrite
 
 logger = get_logger(__name__)
 
@@ -69,6 +69,11 @@ class ConformerRanker:
         energy_cluster_window: Energy window in eV for clustering molecules
             before RMSD comparison. Only used when use_optimized_filtering
             is True. Default is 0.1 eV.
+        overwrite: Allow writing over an existing `out_path`. Defaults to
+            True, which is the historical behavior every caller was written
+            against -- including Auto3D's own pipeline, which always writes
+            into a job directory it just created. A direct caller pointing
+            `out_path` at a file worth keeping can pass False.
     """
 
     def __init__(
@@ -80,6 +85,7 @@ class ConformerRanker:
         window: float | bool = False,
         use_optimized_filtering: bool = True,
         energy_cluster_window: float = 0.1,
+        overwrite: bool = True,
     ) -> None:
         # Same C14 guard the three API entry points run. ConformerRanker is a
         # documented public writer that reads `input_path` and opens
@@ -87,6 +93,12 @@ class ConformerRanker:
         # replaces the user's input with the selected subset -- top-1 of it,
         # under `k=1`. Checked at construction so it fails before any work.
         check_output_not_input(input_path, out_path)
+        # ... and the same overwrite gate the three API entry points run, for
+        # the same reason: `Chem.SDWriter(self.out_path)` truncates on open,
+        # so a run() that fails partway leaves an unrelated existing file
+        # empty. Both guards run; neither subsumes the other (a same-file
+        # out_path is refused even with overwrite=True).
+        check_output_overwrite(out_path, overwrite)
         self.input_path = input_path
         self.out_path = out_path
         self.threshold = threshold

@@ -112,10 +112,13 @@ class WorkflowOrchestrator:
 
         try:
             # Phase 1: Validation and setup. Kept inside the try so the encoded
-            # temp file written by _validate_input is cleaned up even when a
-            # later setup step (job dir creation, logging) raises.
+            # temp file written by _encode_input is cleaned up even when a
+            # later setup step (logging) raises. The job directory is created
+            # BEFORE the encoding, because that is where the encoded file goes
+            # -- see _encode_input.
             self._validate_input()
             self._setup_job_directory()
+            self._encode_input()
             self._setup_logging()
 
             # Phase 2: Prepare chunks
@@ -131,15 +134,28 @@ class WorkflowOrchestrator:
         finally:
             # Always flush the daemon logger and remove the temporary encoded
             # input file, even when a phase raises partway through.
-            # input_path stays at its Path() default (the cwd, a directory)
-            # until _validate_input assigns the encoded file, so is_file()
-            # guards against ever unlinking anything but a real encoded input.
+            #
+            # What makes this unlink safe is NOT the is_file() test -- that
+            # only distinguishes a file from input_path's Path() default (the
+            # cwd, a directory), and an earlier version of this comment
+            # wrongly claimed it "guards against ever unlinking anything but a
+            # real encoded input". It cannot: a file is a file, and when the
+            # encoded copy was written beside the user's input this line
+            # deleted whatever happened to be named `<stem>_encoded.<ext>`
+            # there, including a file the user owned. Safety comes from
+            # _encode_input writing into self.job_dir, which _setup_job_directory
+            # created with a bare mkdir() (no exist_ok) moments earlier: the
+            # directory is provably new, so nothing inside it predates this run.
             self._shutdown_logging()
             if self.input_path.is_file():
                 self.input_path.unlink()
 
     def _validate_input(self) -> None:
-        """Validate input configuration and prepare encoded input file.
+        """Validate the input configuration. Writes nothing.
+
+        Every check that can reject the run happens here, before
+        ``_setup_job_directory`` creates a directory and ``_encode_input``
+        writes a file, so a rejected run leaves no trace on disk at all.
 
         Also resolves the optimizing engine name and verifies the model is
         obtainable (see ``preflight_model``), so a bad model name, a cold
@@ -170,10 +186,6 @@ class WorkflowOrchestrator:
                 f"Input file type is not supported. Only .smi and .sdf are supported. "
                 f"But the input file is {input_format}."
             )
-
-        # Encode IDs for internal processing
-        encoded_path, self.id_mapping = encode_ids(self.config.path)
-        self.input_path = Path(encoded_path)
 
         # Store format on the config -- the single source of truth for downstream
         # consumers (chunk manager, isomer workers), surviving replace()/pickling.
@@ -224,13 +236,45 @@ class WorkflowOrchestrator:
         preflight_model(self.config.optimizing_engine)
 
     def _setup_job_directory(self) -> None:
-        """Create the job directory for output files."""
-        # Remove '_encoded' suffix from stem
-        job_basename = self.input_path.stem[:-8]  # Remove '_encoded'
-        self.job_name = f"{job_basename}_{self.config.job_name}"
-        self.job_dir = self.input_path.resolve().parent / self.job_name
+        """Create the job directory for output files.
+
+        Derived from ``self.config.path`` (the user's input) rather than from
+        ``self.input_path`` (the encoded copy, which no longer exists at this
+        point and now lives *inside* this directory anyway).
+
+        ``mkdir()`` is deliberately bare -- no ``exist_ok``, no ``parents`` --
+        so a name collision fails the run instead of merging this run's files
+        into an existing directory. Every later phase depends on that: it is
+        what lets ``_encode_input`` write into this directory without an
+        existence check, and what lets ``run()``'s ``finally`` unlink from it.
+        """
+        input_file = Path(self.config.path).resolve()
+        self.job_name = f"{input_file.stem}_{self.config.job_name}"
+        self.job_dir = input_file.parent / self.job_name
 
         self.job_dir.mkdir()
+
+    def _encode_input(self) -> None:
+        """Write the encoded copy of the input into this run's job directory.
+
+        The pipeline replaces every molecule ID with a dense integer index and
+        works on that copy (``decode_ids`` restores the originals at the end).
+        That copy used to be written beside the user's input as
+        ``<stem>_encoded.<ext>`` -- a name the user may already be using --
+        with no existence check, and ``run()``'s ``finally`` then unlinked it.
+        A user with ``mols_encoded.smi`` next to ``mols.smi`` lost it: silently
+        overwritten, then deleted.
+
+        Writing into ``self.job_dir`` fixes both halves at once, and does it
+        without refusing any run the user could previously make: the directory
+        was created by ``_setup_job_directory``'s bare ``mkdir()`` immediately
+        before this call, so it is provably new and nothing in it can belong
+        to the user.
+        """
+        encoded_path, self.id_mapping = encode_ids(
+            self.config.path, out_dir=self.job_dir
+        )
+        self.input_path = Path(encoded_path)
 
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""

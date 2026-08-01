@@ -23,7 +23,7 @@ from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import inchi
 
-from Auto3D.exceptions import InputValidationError
+from Auto3D.exceptions import ConfigurationError, InputValidationError
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -544,14 +544,29 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     return chunks
 
 
-def encode_ids(path: str) -> tuple[str, dict[str, int]]:
+def encode_ids(
+    path: str, out_dir: str | os.PathLike[str] | None = None
+) -> tuple[str, dict[str, int]]:
     """Encode molecule IDs to numeric indices.
 
     For a .smi or .sdf file, replaces all molecule IDs with sequential
     integer indices and returns a mapping from original IDs to indices.
 
+    The encoded file is named ``<stem>_encoded.<ext>``. That name is derived
+    from the input, so it can collide with a file the user already owns:
+    ``mols_encoded.smi`` sitting beside ``mols.smi`` is a perfectly ordinary
+    thing for a user to have, and this function used to overwrite it without
+    a word (``WorkflowOrchestrator`` then ``unlink()``ed it at the end of the
+    run, so the file was destroyed twice over). Two things prevent that now:
+    ``out_dir`` lets the caller redirect the encoded file somewhere it owns
+    -- ``WorkflowOrchestrator`` passes its freshly created job directory --
+    and the collision check below refuses to write over an existing file for
+    every caller, including ones that take the default location.
+
     Args:
         path: Path to the input .smi or .sdf file.
+        out_dir: Directory to write the encoded file into. Defaults to the
+            input file's own directory.
 
     Returns:
         Tuple containing:
@@ -560,6 +575,7 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
 
     Raises:
         ValueError: If the input file is neither .smi nor .sdf format.
+        ConfigurationError: If a file already exists at the encoded path.
         InputValidationError: If a molecule has a missing/blank ID or a
             duplicate ID is encountered.
 
@@ -570,7 +586,20 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
     """
     path_obj = Path(path).resolve()
     extension = path_obj.suffix[1:]
-    new_path = path_obj.parent / f"{path_obj.stem}_encoded.{extension}"
+    # Checked up front rather than in a trailing `else`: the collision check
+    # below must not be the thing that reports an unsupported extension.
+    if extension not in ("smi", "sdf"):
+        raise ValueError("The input file should be either smi or sdf")
+
+    directory = Path(out_dir) if out_dir is not None else path_obj.parent
+    new_path = directory / f"{path_obj.stem}_encoded.{extension}"
+    if new_path.exists():
+        raise ConfigurationError(
+            f"encode_ids would overwrite the existing file {new_path}. "
+            "Auto3D writes its encoded copy of the input there; move or "
+            "rename that file, or pass out_dir to write the encoded copy "
+            "somewhere else."
+        )
 
     if extension == "smi":
         new_data: list[str] = []
@@ -597,7 +626,7 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
                 f.write(line)
         return str(new_path), mapping
 
-    elif extension == "sdf":
+    else:  # "sdf" -- the only remaining possibility, checked above
         suppl = Chem.SDMolSupplier(path, removeHs=False)
         mapping = {}
         with Chem.SDWriter(str(new_path)) as w:
@@ -619,9 +648,6 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
                 mol.SetProp("_Name", str(i))
                 w.write(mol)
         return str(new_path), mapping
-
-    else:
-        raise ValueError("The input file should be either smi or sdf")
 
 
 def decode_ids(path: str, mapping: dict[str, int]) -> str:

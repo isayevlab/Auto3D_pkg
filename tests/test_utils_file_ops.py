@@ -668,6 +668,50 @@ class TestEncodeDecodeIds:
         with pytest.raises(InputValidationError):
             encode_ids(str(sdf))
 
+    def test_encode_ids_refuses_to_overwrite_an_existing_file(self, tmp_path):
+        """The `<stem>_encoded.<ext>` name belongs to the user until proven
+        otherwise.
+
+        The name is derived from the input, so `mols_encoded.smi` beside
+        `mols.smi` is an ordinary thing for a user to own -- and this function
+        used to open it for writing without a word. `WorkflowOrchestrator`
+        now redirects the encoded copy into its own job directory (see
+        `out_dir` below), but this check keeps the guarantee attached to the
+        function itself, so a caller taking the default location cannot
+        reintroduce the defect.
+        """
+        from Auto3D.exceptions import ConfigurationError
+
+        p = tmp_path / "mols.smi"
+        p.write_text("CCO a\n")
+        users_file = tmp_path / "mols_encoded.smi"
+        users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
+
+        with pytest.raises(ConfigurationError, match="would overwrite"):
+            encode_ids(str(p))
+
+        assert users_file.read_bytes() == b"IRREPLACEABLE USER DATA\n"
+
+    def test_encode_ids_writes_into_out_dir_when_given_one(self, tmp_path):
+        """`out_dir` moves the encoded copy somewhere the caller owns.
+
+        This is how the run pipeline avoids the collision above entirely: it
+        passes the job directory it just created. The file name is unchanged,
+        only its directory -- downstream code (`_setup_job_directory`,
+        `decode_ids`) parses that name.
+        """
+        p = tmp_path / "mols.smi"
+        p.write_text("CCO a\nCCC b\n")
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        new_path, mapping = encode_ids(str(p), out_dir=staging)
+
+        assert Path(new_path).parent == staging
+        assert Path(new_path).name == "mols_encoded.smi"
+        assert mapping == {"a": 0, "b": 1}
+        assert not (tmp_path / "mols_encoded.smi").exists()
+
 
 class TestReorderSdf:
     """Tests for reorder_sdf function."""
