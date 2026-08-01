@@ -198,6 +198,41 @@ Species conversion moved
    from Auto3D.batch_opt.species import to_model_species, ANI2XT_INDEX
    indices = to_model_species(atomic_numbers, "ANI2xt")   # whole molecule at once
 
+``energy_tol`` and ``energy_patience`` removed
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: python
+
+   # 3.x
+   n_steps(state, n, opttol, patience, energy_tol=1e-3, energy_patience=3)
+   config = OptimizationConfig(opt_steps=1000, energy_tol=1e-3)
+
+   # 4.0
+   n_steps(state, n, opttol, patience)
+   config = OptimizationConfig(opt_steps=1000)
+
+``Auto3D.constants.DEFAULT_ENERGY_TOL`` and ``DEFAULT_ENERGY_PATIENCE`` are
+removed too, and ``OptimizationConfig.to_dict()`` no longer emits the two keys.
+
+**Nothing you computed with 3.x changes.** These parameters fed a convergence
+criterion that could never fire: it required ``fmax < opttol``, which is
+exactly the condition under which the force criterion had already converged the
+structure, so the term was the identity of ``&`` wherever it was consulted and
+false-dominated everywhere else -- including at the ``fmax == opttol`` boundary,
+where both comparisons are false. Any 3.x documentation describing "energy-based
+early termination" described behavior that never occurred. A structure leaves
+the optimizer's active set on force convergence or on the oscillation drop, and
+on nothing else.
+
+So this is a signature change only: delete the arguments at your call sites.
+No geometry, energy, or ``Converged``/``Dropped_Oscillating`` flag differs.
+
+A legacy dict config is unaffected -- ``ensemble_opt`` reads only
+``opt_steps``, ``opttol``, ``patience`` and ``batchsize_atoms`` from it, so a
+leftover ``"energy_tol"`` key is ignored rather than rejected. The unrelated
+``energy_tol`` argument of ``Auto3D.filtering`` (the duplicate-conformer energy
+tolerance) is a different parameter and is unchanged.
+
 ``use_ensemble`` and ``**kwargs`` removed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

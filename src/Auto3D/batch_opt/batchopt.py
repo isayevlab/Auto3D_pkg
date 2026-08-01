@@ -38,7 +38,7 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 # Optimization loop functions extracted to separate module for better modularity
 # Re-export for backward compatibility (print_stats kept as public re-export)
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
-from Auto3D.constants import DEFAULT_ENERGY_TOL, INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
+from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.model_factory import create_model
 from Auto3D.utils.stereo_check import apply_optimized_coords
 
@@ -67,8 +67,6 @@ def ensemble_opt(
             - opt_steps: Maximum optimization steps
             - opttol: Force convergence tolerance
             - patience: Oscillation patience
-            - energy_tol: (optional) Energy convergence tolerance in eV
-            - energy_patience: (optional) Steps energy must be stable
         device: Torch device for computation.
         atom_mask: Boolean mask, shape (N, m), True for real atoms and False
             for padded slots. Forwarded to n_steps so forces on padded atom
@@ -126,11 +124,7 @@ def ensemble_opt(
         he=list(), close=list()  # !!! he and close?
     )
 
-    # Get optional early termination parameters with defaults
-    energy_tol = param.get('energy_tol', DEFAULT_ENERGY_TOL)
-    energy_patience = param.get('energy_patience', 3)
     n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
-            energy_tol=energy_tol, energy_patience=energy_patience,
             atom_mask=atom_mask, progress_cb=progress_cb)
 
     return dict(

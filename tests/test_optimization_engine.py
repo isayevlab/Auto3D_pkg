@@ -256,39 +256,112 @@ class TestNSteps:
         # oscillating_count should be >= patience for dropped structures
         assert (state['oscillating_count'] >= 5).all()
 
-    def test_n_steps_energy_convergence(self):
-        """n_steps should converge based on energy stability."""
-        call_count = [0]
 
-        def mock_forward(coord, numbers, charges):
-            call_count[0] += 1
-            batch_size = coord.shape[0]
-            # Return constant energy (stable) and forces just below opttol.
-            # After fixing #19a the energy-stability path also requires
-            # fmax < opttol (not 10x opttol), so the residual force must be
-            # below tolerance for energy convergence to be accepted.
-            return torch.ones(batch_size) * -10.0, torch.ones(batch_size, coord.shape[1], 3) * 0.005
+class _ConstantForceNN:
+    """Stub NNP: a constant force field plus a caller-chosen energy sequence.
 
-        mock_nn = MagicMock()
-        mock_nn.forward_batched.side_effect = mock_forward
+    Every atom's force vector points along x, so ``f.norm(dim=-1)`` is the
+    x-component exactly (``sqrt(v**2) == v`` with no rounding for the
+    power-of-two magnitudes used below). The magnitude never changes, so
+    ``fmax`` sits at a chosen, exact position relative to ``opttol`` for the
+    whole run regardless of how far FIRE moves the atoms.
 
-        state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': torch.randn(2, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': torch.full((2,), 999.0, dtype=torch.double),
-        }
+    ``energy_stable=True`` reports the same energy at every call (a perfectly
+    stable energy -- the most favourable possible input for an energy-based
+    convergence criterion); ``False`` shifts it by 1 eV per call, far above
+    any plausible energy tolerance.
+    """
 
-        # opttol=0.01, per-atom force=0.005 so fmax (vector norm) is ~0.0087 < opttol.
-        # Energy is constant, so convergence is reached while the residual force is
-        # within tolerance, keeping the reported geometry self-consistent (#19a).
-        n_steps(state, n=100, opttol=0.01, patience=1000, energy_tol=1e-4, energy_patience=3)
+    def __init__(self, force_per_atom: float, energy_stable: bool):
+        self.force_per_atom = force_per_atom
+        self.energy_stable = energy_stable
+        self.calls = 0
 
-        # Should converge while forces are within opttol
-        assert state['converged_mask'].all()
+    def forward_batched(self, coord, numbers, charges):
+        self.calls += 1
+        batch = coord.shape[0]
+        value = -10.0 if self.energy_stable else -10.0 - self.calls
+        e = torch.full((batch,), value)
+        f = torch.zeros_like(coord)
+        f[..., 0] = self.force_per_atom
+        return e, f
+
+
+def _run_constant_force(force_per_atom: float, energy_stable: bool, opttol: float):
+    """Run n_steps against _ConstantForceNN and return the convergence mask."""
+    nn = _ConstantForceNN(force_per_atom, energy_stable)
+    state = {
+        'numbers': torch.ones(2, 4, dtype=torch.long),
+        'charges': torch.zeros(2, dtype=torch.long),
+        'coord': torch.zeros(2, 4, 3),
+        'nn': nn,
+        'converged_mask': torch.zeros(2, dtype=torch.bool),
+        'fmax': torch.full((2,), 999.0),
+        'energy': torch.full((2,), 999.0, dtype=torch.double),
+    }
+    # patience far above n so nothing is dropped as oscillating: the constant
+    # force never decreases, so the oscillation counter climbs every step and
+    # would otherwise mask the effect under test.
+    n_steps(state, n=20, opttol=opttol, patience=1000)
+    return state['converged_mask'].tolist()
+
+
+def test_convergence_outcome_never_depends_on_energy_stability():
+    """Energy stability alone can never converge a structure (audit M1).
+
+    Algebraic proof, for the code as it stood before M1:
+
+        not_converged_post1 = fmax > opttol
+        energy_converged    = (energy_stable_count >= energy_patience) & (fmax < opttol)
+        not_converged_post  = not_converged_post1 & not_oscillating & ~energy_converged
+
+    Where ``not_converged_post1`` is true, ``fmax > opttol``, so ``fmax <
+    opttol`` is false, so ``energy_converged`` is false and
+    ``~energy_converged`` is true -- the identity of ``&``. Where
+    ``not_converged_post1`` is false the conjunction is false regardless. At
+    the ``fmax == opttol`` boundary both comparisons are false, so the same
+    holds. The term could therefore never change an outcome, and deleting it
+    changes no geometry this package produces.
+
+    This test is that proof rather than a spot check, but expressed through
+    the production loop instead of restated in Python booleans: a lattice test
+    over three locally-defined ``bool``s would pass no matter what
+    ``optimization_engine`` does. Here the lattice is exhaustive over the two
+    axes that reach the deleted term -- ``fmax`` below / exactly at / above
+    ``opttol`` (its only three orderings), crossed with energy perfectly
+    stable / never stable -- and each cell is decided by running ``n_steps``.
+
+    It is also a live tripwire, not just documentation. The ``above`` cells
+    assert that a structure whose energy has been constant for twenty
+    consecutive steps is still *not* reported converged while its force is
+    twice the tolerance. Reintroducing early termination on a relaxed force
+    gate -- e.g. the ``fmax < opttol * 10`` this loop once used -- turns those
+    cells green-to-red immediately.
+    """
+    opttol = 0.0625  # exact in binary, so the "at" cell is a true tie
+    regimes = {'below': opttol / 2, 'at': opttol, 'above': opttol * 2}
+
+    outcomes = {
+        (label, stable): _run_constant_force(force, stable, opttol)
+        for label, force in regimes.items()
+        for stable in (True, False)
+    }
+
+    # The claim: at every force regime, a perfectly stable energy and a wildly
+    # unstable one produce the identical convergence outcome.
+    for label in regimes:
+        assert outcomes[(label, True)] == outcomes[(label, False)], (
+            f"energy stability changed the outcome at fmax {label} opttol: "
+            f"stable={outcomes[(label, True)]} unstable={outcomes[(label, False)]}"
+        )
+
+    # And the outcome is exactly the force criterion, in both energy regimes.
+    for stable in (True, False):
+        assert all(outcomes[('below', stable)]), "fmax < opttol must converge"
+        assert all(outcomes[('at', stable)]), "fmax == opttol must converge"
+        assert not any(outcomes[('above', stable)]), (
+            "fmax > opttol must not converge, however stable the energy"
+        )
 
 
 def test_fmax_ignores_padded_atoms():

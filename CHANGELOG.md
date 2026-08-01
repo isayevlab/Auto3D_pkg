@@ -279,6 +279,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented as passed to the adapter constructor and never referenced, so
   misspelled arguments were silently ignored.
 
+- **The energy-stability convergence criterion is removed, along with its
+  `energy_tol`/`energy_patience` knobs.** `n_steps` no longer accepts
+  `energy_tol` or `energy_patience`, `OptimizationConfig` no longer carries
+  those fields (and `to_dict()` no longer emits those keys), and
+  `Auto3D.constants.DEFAULT_ENERGY_TOL`/`DEFAULT_ENERGY_PATIENCE` are gone.
+  **No geometry, energy or convergence flag changes** -- the criterion could
+  never fire. It was `energy_converged = (energy_stable_count >=
+  energy_patience) & (fmax < opttol)`, combined as `not_converged_post =
+  (fmax > opttol) & not_oscillating & ~energy_converged`. Wherever
+  `~energy_converged` was consulted, `fmax > opttol` already held, so
+  `fmax < opttol` was false and the term was the identity of `&`; everywhere
+  else the first factor already forced the conjunction false. At the
+  `fmax == opttol` boundary both comparisons are false, so the same holds
+  there. Documentation claiming "energy-based early termination" described
+  behavior that never occurred; the loop converges on force or drops for
+  oscillation, and nothing else. Tuning `energy_tol` in 3.x had no effect on
+  any result, so no 3.x output needs recomputing -- delete the argument at
+  your call sites. Legacy dict configs are unaffected: `ensemble_opt` reads
+  only `opt_steps`/`opttol`/`patience`/`batchsize_atoms` from the dict and
+  ignores a stray `energy_tol` key. `Auto3D.filtering`'s unrelated
+  `energy_tol` (duplicate-conformer energy tolerance) is untouched.
+
 ### Fixed
 
 - **`calc_spe`, `opt_geometry`, and `calc_thermo` now reject molecules ANI2x/

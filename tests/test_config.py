@@ -155,11 +155,28 @@ class TestChunkMeta:
         assert meta["housekeeping_folder"] == "/path/to/housekeeping"
 
 
-def test_energy_tol_above_fp32_noise():
-    from Auto3D.constants import DEFAULT_ENERGY_TOL
-    # fp32 ULP at typical molecular total energies (~thousands of eV) is ~1e-3 eV;
-    # the tolerance must be at or above that to be a live criterion.
-    assert DEFAULT_ENERGY_TOL >= 1e-3
+def test_optimization_config_exposes_no_energy_criterion_knobs():
+    """The energy-stability knobs are gone, not merely defaulted (audit M1).
+
+    ``test_energy_tol_above_fp32_noise`` stood here until 4.0.0 and asserted
+    that ``DEFAULT_ENERGY_TOL >= 1e-3`` so the criterion would be "live". It
+    never was: the criterion also required ``fmax < opttol``, which is exactly
+    where the force criterion had already converged the structure, so no value
+    of the tolerance could have changed an outcome. The knob and the constant
+    are removed rather than left inert, and this asserts they stay removed --
+    a config field that reaches nothing is worse than no field.
+    """
+    import Auto3D.constants as constants
+    from Auto3D.config import OptimizationConfig
+
+    for name in ("energy_tol", "energy_patience"):
+        assert not hasattr(OptimizationConfig(), name)
+        assert name not in OptimizationConfig().to_dict()
+    for name in ("DEFAULT_ENERGY_TOL", "DEFAULT_ENERGY_PATIENCE"):
+        assert not hasattr(constants, name)
+
+    with pytest.raises(TypeError):
+        OptimizationConfig(energy_tol=1e-3)
 
 
 def test_capacity_default_matches_across_layers():

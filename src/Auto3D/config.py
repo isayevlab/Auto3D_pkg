@@ -15,8 +15,6 @@ from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CAPACITY,
     DEFAULT_CONVERGENCE_THRESHOLD,
-    DEFAULT_ENERGY_PATIENCE,
-    DEFAULT_ENERGY_TOL,
     DEFAULT_OPT_STEPS,
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
@@ -360,12 +358,10 @@ class OptimizationConfig:
     """Number of atoms per optimization batch. Larger values use more GPU
     memory but may be faster."""
 
-    energy_tol: float = DEFAULT_ENERGY_TOL
-    """Energy convergence threshold in eV. Used for early termination when
-    energy stabilizes."""
-
-    energy_patience: int = DEFAULT_ENERGY_PATIENCE
-    """Number of steps energy must be stable before considering converged."""
+    # There is deliberately no energy_tol/energy_patience here. Both existed
+    # until 4.0.0 and reached an optimizer criterion that could never fire
+    # (audit M1), so they were knobs that changed nothing. Removed rather than
+    # kept as inert configuration.
 
     def to_dict(self) -> dict:
         """Convert to dict for backward compatibility with existing code.
@@ -378,8 +374,6 @@ class OptimizationConfig:
             "opttol": self.convergence_threshold,  # Legacy key name
             "patience": self.patience,
             "batchsize_atoms": self.batchsize_atoms,
-            "energy_tol": self.energy_tol,
-            "energy_patience": self.energy_patience,
         }
 
 
