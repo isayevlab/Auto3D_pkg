@@ -185,6 +185,80 @@ instead of comparing species against a padding sentinel.
 
 Use ``pad_from_mols``.
 
+``Auto3D.NNPModel`` removed; the custom-NNP contract is checked at load
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code:: python
+
+   # 3.x
+   from Auto3D import NNPModel
+
+   # 4.0
+   from Auto3D.models import CustomNNP
+
+There were two descriptions of the custom-NNP interface in 3.x. ``NNPModel``
+lived in ``config.py``, was ``@runtime_checkable``, and was exported in
+``Auto3D.__all__`` -- but nothing in Auto3D ever checked a model against it.
+The surviving one, ``Auto3D.models.contract.CustomNNP``, sits next to the
+adapter that calls it and is enforced by ``load_custom_nnp``.
+
+**The signature has not changed.** A custom NNP still implements
+
+.. code:: python
+
+   def forward(self, species, coords, charges) -> torch.Tensor:
+       ...   # energies, shape (batch,), in eV
+
+with ``species`` first, returning energies only; Auto3D differentiates that
+energy with respect to ``coords`` to obtain forces. A model that worked in 3.x
+still works.
+
+What is new is that a model violating the contract is now rejected when the
+file is loaded, with a message naming the expected signature, instead of being
+accepted and failing many optimization steps later inside
+``torch.autograd.grad``.
+
+**The argument order is the trap.** Auto3D's *internal*
+``Auto3D.models.adapter.ModelAdapter`` interface takes
+``forward(coords, species, charges)`` -- the **opposite** order -- and returns
+``(energies, forces)`` rather than energies alone. It is implemented only by
+Auto3D's own adapters. If you wrote a model against that interface it silently
+computed an energy from transposed tensors in 3.x; in 4.0 it is refused at
+load. Swap the first two parameters and return energies only.
+
+**You must now define both padding attributes.** 3.x filled in missing
+``coord_pad``/``species_pad`` through ``getattr``, and the two layers
+disagreed: ``CustomModelAdapter`` substituted ``species_pad = -1`` while
+``BaseModelAdapter``'s own default was ``0``, so which slots counted as padding
+depended on which layer answered, and ``0`` collides with ANI2xt's hydrogen
+index. Both defaults are now ``-1``, and a model that defines neither attribute
+is refused rather than guessed at:
+
+.. code:: python
+
+   class MyNNP(torch.nn.Module):
+       def __init__(self):
+           super().__init__()
+           self.coord_pad = 0.0
+           self.species_pad = -1
+
+**TorchScript archives need the attributes on the instance.**
+``torch.jit.save`` does not carry plain *class* attributes into the archive, so
+a scripted model declaring ``coord_pad``/``species_pad`` at class level arrives
+with neither and is now rejected. Set them in ``__init__`` as above, or list
+them in ``__constants__``. In 3.x such a model loaded and silently ran with
+``CustomModelAdapter``'s ``species_pad = -1`` fallback rather than the value it
+declared -- so if you declared something other than ``-1``, 3.x was not
+honoring it. Models saved with ``torch.save`` keep class attributes and are
+unaffected.
+
+TorchScript models are exempt from the *signature* check, because a loaded
+``RecursiveScriptModule``'s ``forward`` exposes no Python signature to
+``inspect.signature``; the attribute check still applies to them. Eager models
+whose parameter names carry no ordering information, such as
+``forward(a, b, c)`` or ``forward(*args)``, are also accepted -- the order
+cannot be read off such names, and refusing them would break working models.
+
 Species conversion moved
 ~~~~~~~~~~~~~~~~~~~~~~~~
 

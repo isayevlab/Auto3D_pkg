@@ -7,8 +7,10 @@ from Auto3D.models.adapter import (
     CustomModelAdapter,
     ModelAdapter,
 )
+from Auto3D.models.contract import CustomNNP
 
 __all__ = [
+    "CustomNNP",
     "ModelAdapter",
     "BaseModelAdapter",
     "AIMNet2Adapter",

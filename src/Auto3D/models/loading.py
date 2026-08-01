@@ -10,6 +10,7 @@ from __future__ import annotations
 import torch
 
 from Auto3D.exceptions import ModelLoadError
+from Auto3D.models.contract import validate_custom_nnp
 
 
 def load_custom_nnp(
@@ -31,6 +32,13 @@ def load_custom_nnp(
     executes code from the file; these are trusted, user-supplied local paths
     the caller explicitly selected as the optimizing engine.
 
+    Whatever the format, the loaded module is checked against the custom-NNP
+    contract (:func:`Auto3D.models.contract.validate_custom_nnp`) before it is
+    returned, so a model with the wrong ``forward`` argument order or missing
+    ``coord_pad``/``species_pad`` is refused here with a message naming the
+    expected signature -- rather than producing a nonsense energy and failing
+    deep inside ``torch.autograd.grad`` many steps later.
+
     Args:
         model_path: Path to the model file.
         device: Target device for the loaded model.
@@ -40,7 +48,8 @@ def load_custom_nnp(
         The loaded model as an ``nn.Module`` on ``device``.
 
     Raises:
-        ModelLoadError: If the file cannot be loaded as either supported form.
+        ModelLoadError: If the file cannot be loaded as either supported form,
+            or if the loaded module violates the custom-NNP contract.
     """
     try:
         model: torch.nn.Module = torch.jit.load(model_path, map_location=device)
@@ -59,4 +68,5 @@ def load_custom_nnp(
                 f"(got {type(model).__name__})."
             )
         model = model.to(device).eval()
+    validate_custom_nnp(model, model_path)
     return model.double() if double else model

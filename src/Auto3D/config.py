@@ -1,15 +1,13 @@
 """
 Configuration classes for Auto3D.
 
-This module provides typed configuration using dataclasses and Protocols
+This module provides typed configuration using dataclasses and TypedDicts
 for better type safety and IDE support.
 """
 
 import operator
 from dataclasses import dataclass
-from typing import Protocol, TypedDict, runtime_checkable
-
-import torch
+from typing import TypedDict
 
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
@@ -412,52 +410,6 @@ class ChunkMeta(TypedDict):
 
     dir: str
     """Working directory for this chunk."""
-
-
-@runtime_checkable
-class NNPModel(Protocol):
-    """Protocol for Neural Network Potential models.
-
-    Custom NNP models must implement this interface to be compatible
-    with Auto3D's optimization engine.
-
-    Attributes:
-        coord_pad: Padding value for coordinates (typically 0).
-        species_pad: Padding value for species (typically -1).
-
-    Example:
-        >>> class MyNNP(torch.nn.Module):
-        ...     coord_pad = 0
-        ...     species_pad = -1
-        ...
-        ...     def forward(self, species, coords, charges):
-        ...         # Return energies tensor of shape (batch_size,)
-        ...         return energies
-    """
-
-    coord_pad: int
-    """Padding value for coordinates in batched tensors."""
-
-    species_pad: int
-    """Padding value for atomic species in batched tensors."""
-
-    def forward(
-        self,
-        species: torch.Tensor,
-        coords: torch.Tensor,
-        charges: torch.Tensor,
-    ) -> torch.Tensor:
-        """Calculate energies for a batch of molecules.
-
-        Args:
-            species: Atomic numbers, shape (batch_size, max_atoms).
-            coords: Atomic coordinates, shape (batch_size, max_atoms, 3).
-            charges: Molecular charges, shape (batch_size,).
-
-        Returns:
-            Energies tensor of shape (batch_size,) in eV.
-        """
-        ...
 
 
 # Type alias for backward compatibility

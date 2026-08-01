@@ -328,6 +328,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignores a stray `energy_tol` key. `Auto3D.filtering`'s unrelated
   `energy_tol` (duplicate-conformer energy tolerance) is untouched.
 
+- **`Auto3D.NNPModel` is removed; the custom-NNP contract is now enforced when
+  the model file is loaded.** The protocol a custom NNP must satisfy now lives
+  in one place, `Auto3D.models.contract.CustomNNP`, next to the adapter that
+  calls it. The old `Auto3D.NNPModel` was a second, never-consulted copy in
+  `config.py`; it was `@runtime_checkable` and exported in `__all__`, so it
+  looked authoritative while nothing in Auto3D ever checked a model against it.
+  Replace `from Auto3D import NNPModel` with `from Auto3D.models import
+  CustomNNP`.
+
+  **The signature is unchanged**: a custom NNP still implements
+  `forward(species, coords, charges) -> energies`, species first, returning an
+  energy tensor of shape `(batch,)` in eV. Auto3D derives forces by
+  differentiating that energy with respect to `coords`, so a model must not
+  return forces. If your model already worked in 3.x, it still works.
+
+  What changed is that `load_custom_nnp` now checks the contract and refuses a
+  model that violates it, instead of accepting it and failing later inside
+  `torch.autograd.grad` with an error that pointed nowhere near the cause:
+
+  - `coord_pad` and `species_pad` are now **required**. 3.x substituted
+    defaults through `getattr`, and the two layers disagreed about what the
+    default was -- `CustomModelAdapter` supplied `-1` while `BaseModelAdapter`'s
+    own default was `0` -- so a model without the attributes got a different
+    notion of padding depending on which layer answered. `0` also collides with
+    ANI2xt's hydrogen index. Both defaults are now `-1`, which can be neither an
+    atomic number nor a 0-based species index, and a model that defines neither
+    attribute is rejected rather than guessed at.
+  - A `forward` whose first three parameters are recognizable but ordered
+    `(coords, species, charges)` is rejected. **This is the trap worth
+    naming**: Auto3D's *internal* `Auto3D.models.adapter.ModelAdapter` interface
+    does take `(coords, species, charges)` and does return `(energies, forces)`
+    -- the opposite argument order and a different return type. Only Auto3D's
+    own adapters implement it. A user model written against it computed an
+    energy from transposed tensors and blew up much later; it now fails at load
+    with a message naming the expected signature.
+  - A `forward` that cannot accept three positional arguments is rejected.
+  - Models whose `forward` parameter names carry no ordering information (for
+    example `forward(a, b, c)` or `forward(*args)`) are still accepted: the
+    order cannot be determined from such names, and a false rejection would
+    break a working model.
+
+  **TorchScript archives need one change.** `torch.jit.save` does not carry
+  plain *class* attributes into the archive, so a model declaring
+  `coord_pad`/`species_pad` at class level arrives with neither and is now
+  rejected. Set them in `__init__` (`self.coord_pad = 0.0`) or list them in
+  `__constants__`. Models saved with `torch.save` keep class attributes and are
+  unaffected. TorchScript models are exempt from the signature check --- a
+  loaded `RecursiveScriptModule`'s `forward` exposes no Python signature to
+  `inspect.signature` --- but not from the attribute check.
+
+  No 3.x results change: the calling convention is identical, and every model
+  3.x ran successfully still loads, except a TorchScript archive relying on
+  class-level padding attributes, which in 3.x was silently given
+  `species_pad = -1` by `CustomModelAdapter`'s fallback rather than its own
+  value.
+
 ### Fixed
 
 - **A failed rewrite can no longer destroy a completed optimization.**
