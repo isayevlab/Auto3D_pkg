@@ -346,7 +346,9 @@ git commit -m "fix: refuse to overwrite the input file with output"
 - Modify: `docs/source/howto/custom_nnp.rst`, `CLAUDE.md`, `CHANGELOG.md`, `docs/source/migration-4.0.rst`
 - Test: new `tests/test_custom_nnp_contract.py`
 
-**The defect.** `config.NNPModel` is `@runtime_checkable`, exported in `__all__`, and is what the docs tell users to implement — and it is wrong in both dimensions:
+**CORRECTION — this task's premise was inverted, and the code disagrees with the text below.** Verified during implementation: `(coords, species, charges) -> (energies, forces)` at `adapter.py:426-431` is `CustomModelAdapter`'s OWN signature, the internal interface Auto3D's optimizer calls. Inside it, the adapter calls the *user's* model as `self.model(species, coords_f32, charges_f32)` and derives forces itself with `torch.autograd.grad([energy.sum()], [coords_f32])`. `config.NNPModel` therefore described the user contract **correctly**. Implementing the table below literally would have rejected every working custom NNP at load and shipped a migration guide telling users to break their models. The task was delivered against the REAL contract — `forward(species, coords, charges) -> energies` — as `Auto3D.models.contract.CustomNNP`. The table is kept for the record; do not act on it.
+
+**The real defect.** `config.NNPModel` is `@runtime_checkable`, exported in `__all__`, and is what the docs tell users to implement — but it lived in a config module far from the adapter that consumes it, and nothing enforced it, so a non-conforming model failed deep inside `torch.autograd.grad` instead of at load. The table below states the signature mismatch BACKWARDS:
 
 | | Published `config.NNPModel` | What production actually calls |
 |---|---|---|
@@ -426,13 +428,13 @@ Remove the Protocol from `src/Auto3D/config.py:424` and its entries in `src/Auto
 
 - [ ] **Step 7: Fix the docs**
 
-`docs/source/howto/custom_nnp.rst` and `CLAUDE.md` both document the wrong signature — CLAUDE.md's "Custom NNP Support" section says `forward(species, coords, charges) -> energies`. Correct both to `forward(coords, species, charges) -> tuple[energies, forces]`.
+**Corrected:** `docs/source/howto/custom_nnp.rst` and `CLAUDE.md` were already RIGHT — `forward(species, coords, charges) -> energies` is the real user contract. Leave the signature alone; point them at `Auto3D.models.contract.CustomNNP` and state that Auto3D derives forces by autograd, so a user model must not return them.
 
 Also update `docs/plans/2026-01-01-documentation-modernization.md:103,307` and `docs/plans/2026-01-02-documentation-expansion-plan.md:30,123,180`, which reference `NNPModel` — or confirm they are historical records that should keep their original text. Decide deliberately and say which in the report.
 
 - [ ] **Step 8: Document the breaking change**
 
-`CHANGELOG.md` and `docs/source/migration-4.0.rst`: `Auto3D.NNPModel` is removed; custom NNPs must implement `forward(coords, species, charges) -> (energies, forces)` and define `coord_pad`/`species_pad`; wrong implementations now fail at load. Note explicitly that the argument order differs from the old Protocol, since that is the trap.
+`CHANGELOG.md` and `docs/source/migration-4.0.rst`: `Auto3D.NNPModel` is removed in favor of `Auto3D.models.contract.CustomNNP`. The signature is UNCHANGED — `forward(species, coords, charges) -> energies`, forces by autograd — so a working custom NNP needs no edit; only the import moves. What is newly enforced is that `coord_pad`/`species_pad` must be present, which previously fell back to defaults that disagreed between layers.
 
 - [ ] **Step 9: Both suites, then commit**
 
