@@ -11,9 +11,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from Auto3D.config import Auto3DOptions
+from Auto3D.config import (
+    SELECTOR_FIELDS,
+    SENTINEL_FIELDS,
+    Auto3DOptions,
+    check_field_bounds,
+)
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CAPACITY,
@@ -34,8 +39,8 @@ class CLIConfig(BaseModel):
     """Path to input .smi or .sdf file."""
 
     # Output control
-    k: int | None = Field(None, ge=1, description="Top-k conformers per molecule")
-    window: float | None = Field(None, gt=0, description="Energy window in kcal/mol")
+    k: int | None = Field(None, description="Top-k conformers per molecule")
+    window: float | None = Field(None, description="Energy window in kcal/mol")
 
     # Engine settings
     optimizing_engine: str = "AIMNET"
@@ -50,18 +55,18 @@ class CLIConfig(BaseModel):
     isomer_engine: Literal["rdkit", "omega"] = "rdkit"
     mode_oe: str = "classic"
     max_confs: int | None = None
-    mpi_np: int = Field(4, ge=1)
+    mpi_np: int = 4
 
     # Optimization settings
-    opt_steps: int = Field(DEFAULT_OPT_STEPS, ge=1)
-    convergence_threshold: float = Field(DEFAULT_CONVERGENCE_THRESHOLD, gt=0)
-    patience: int = Field(DEFAULT_PATIENCE, ge=1)
-    threshold: float = Field(DEFAULT_RMSD_THRESHOLD, gt=0)
-    batchsize_atoms: int = Field(DEFAULT_BATCHSIZE_ATOMS, ge=1)
+    opt_steps: int = DEFAULT_OPT_STEPS
+    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD
+    patience: int = DEFAULT_PATIENCE
+    threshold: float = DEFAULT_RMSD_THRESHOLD
+    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
 
     # Resource settings
-    memory: int | None = Field(None, ge=1)
-    capacity: int = Field(DEFAULT_CAPACITY, ge=1)
+    memory: int | None = None
+    capacity: int = DEFAULT_CAPACITY
     allow_tf32: bool = False
 
     # Output settings
@@ -69,6 +74,34 @@ class CLIConfig(BaseModel):
     job_name: str = ""
 
     model_config = {"extra": "forbid"}
+
+    # The field list is `Auto3D.config.SENTINEL_FIELDS` itself, not a second
+    # hand-maintained copy of the same four names: a fifth sentinel field
+    # added to that constant would otherwise keep `check_field_bounds`'s
+    # None/False skip but miss this False->None interception, silently
+    # reopening the exact entry-point divergence this phase closed (accepted
+    # by Auto3DOptions, rejected by CLIConfig). `sorted` only pins a
+    # deterministic argument order -- SENTINEL_FIELDS is a frozenset.
+    @field_validator(*sorted(SENTINEL_FIELDS), mode="before")
+    @classmethod
+    def _false_means_unset(cls, v: Any) -> Any:
+        """Map the legacy ``False`` "not specified" sentinel to ``None``.
+
+        Pydantic coerces ``bool`` to ``int``/``float`` (``bool`` is an
+        ``int`` subclass) as part of its own type validation, which runs
+        *before* the ``mode="after"`` model validator below
+        (``_check_bounds``) ever sees the value. So by the time
+        ``check_field_bounds``'s ``value is False`` skip runs, ``False`` has
+        already become ``0``/``0.0`` and fails the ``k``/``memory``/
+        ``max_confs`` >=1 or ``window`` >0 bound -- even though
+        ``Auto3DOptions`` (which has no such coercion step) accepts the same
+        input. This ``mode="before"`` validator runs first and intercepts
+        ``False`` ahead of that coercion, so both classes agree that
+        ``k=False``/``window=False``/``memory=False``/``max_confs=False``
+        mean "not specified", exactly like the shipped
+        ``docs/legacy-v2/parameters.yaml`` example (``window: False``).
+        """
+        return None if v is False else v
 
     @field_validator("gpu_idx", mode="before")
     @classmethod
@@ -108,10 +141,32 @@ class CLIConfig(BaseModel):
         """Normalize to lowercase."""
         return v.lower() if isinstance(v, str) else v
 
+    @model_validator(mode="after")
+    def _check_bounds(self) -> CLIConfig:
+        """Enforce Auto3D.config.FIELD_BOUNDS -- the same table Auto3DOptions
+        uses -- instead of a second, hand-maintained set of Field(ge=/gt=)
+        constraints that could silently drift from it.
+        """
+        try:
+            check_field_bounds(self.__dict__)
+        except ConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
     def to_auto3d_options(self) -> Auto3DOptions:
         """Convert to Auto3DOptions for core workflow."""
         # Map built-in engine names back to the canonical form expected by
         # Auto3DOptions; registry names and custom paths pass through verbatim.
+        #
+        # This table is live, not dead: `_validate_engine` (above) now accepts
+        # any case of these three names -- `resolve_engine_name` case-folds
+        # them -- but it validates and returns `v` unchanged, so
+        # `self.optimizing_engine` still carries whatever case the caller
+        # typed (e.g. "ani2x"). This map is what normalizes that back to the
+        # exact mixed-case spelling (`ANI2x`/`ANI2xt`) that `MODEL_ANI2X`/
+        # `MODEL_ANI2XT` and their downstream exact-match comparisons expect.
+        # Registry names/aliases are deliberately left out of this map and
+        # pass through as typed -- see test_config_accepts_registry_and_path_engines.
         engine_map = {"ANI2X": "ANI2x", "ANI2XT": "ANI2xt", "AIMNET": "AIMNET"}
         engine = engine_map.get(self.optimizing_engine.upper(), self.optimizing_engine)
 
@@ -143,6 +198,51 @@ class CLIConfig(BaseModel):
         )
 
 
+def build_cli_config(**kwargs: Any) -> CLIConfig:
+    """Construct a ``CLIConfig``, translating any construction failure into
+    Auto3D's own ``ConfigurationError``.
+
+    This is the one construction path every site that builds a ``CLIConfig``
+    from external data (a YAML file, merged CLI overrides, a bare CLI
+    invocation) should call instead of ``CLIConfig(...)`` directly. Before
+    this helper existed, that translation lived only inside `merge_configs`
+    -- so a bad value reaching CLIConfig through `load_yaml_config` (a
+    config-file value, never merged with any CLI override) raised a raw
+    pydantic `ValidationError` that `cli/commands/run.py`'s `except
+    Auto3DError` clause does not catch. It fell through to the generic
+    "Unexpected Error" panel at exit code 1 instead of the ConfigurationError
+    panel (exit 2, "run auto3d config init" hint) every other invalid-
+    configuration path produces -- e.g. `auto3d run in.smi -c cfg.yaml` with
+    `cfg.yaml` setting `k: 0`. Concentrating the translation here, rather than
+    duplicating the try/except at each construction site, is what keeps every
+    site in sync with no second edit.
+
+    ``ValidationError`` is not the only way ``CLIConfig(...)`` can fail.
+    Pydantic converts a ``ValueError``/``AssertionError`` raised inside a
+    validator into a field-named ``ValidationError``, but it re-raises any
+    other exception unchanged -- and ``parse_gpu_idx`` above calls ``int(x)``,
+    which raises ``TypeError`` on a value that is neither a string, a number,
+    nor a list (``auto3d run in.smi -c cfg.yaml`` with ``gpu_idx: {a: 1}``).
+    Translating only ``ValidationError`` let that ``TypeError`` escape to
+    ``cli/commands/run.py``'s ``except Exception`` clause, producing the
+    generic "Unexpected Error" panel at exit code 1 -- precisely the outcome
+    this helper exists to eliminate, and for the same class of input (a bad
+    value in a config file) it already handles correctly everywhere else. A
+    malformed configuration value is a configuration error whichever layer
+    notices it, so it exits 2 with the "run auto3d config init" hint like
+    every other one.
+    """
+    try:
+        return CLIConfig(**kwargs)
+    except ValidationError as exc:
+        raise ConfigurationError(str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        # Raised out of a field validator's own coercion (see above) rather
+        # than by pydantic, so it carries no field name -- say which layer
+        # rejected it instead of surfacing a bare "int() argument must be...".
+        raise ConfigurationError(f"Invalid configuration value: {exc}") from exc
+
+
 def load_yaml_config(yaml_path: Path) -> CLIConfig:
     """Load and validate configuration from YAML file."""
     with open(yaml_path) as f:
@@ -153,16 +253,42 @@ def load_yaml_config(yaml_path: Path) -> CLIConfig:
         if val == "None":
             data[key] = None
 
-    return CLIConfig(**data)
+    return build_cli_config(**data)
 
 
 def merge_configs(base: CLIConfig, overrides: dict[str, Any]) -> CLIConfig:
-    """Merge CLI overrides into base configuration."""
+    """Merge CLI overrides into base configuration.
+
+    An override replaces the base's value for that field -- it does not
+    accumulate alongside it. This matters most for the mutually-exclusive
+    conformer-selection strategies in `Auto3D.config.SELECTOR_FIELDS` (`k`/
+    `window`; see `Auto3D.config.check_selectors_mutually_exclusive`): an
+    explicit `--k`/`--window` on the CLI is the user choosing *which*
+    strategy to use, substituting for whatever the config file set -- not
+    requesting both at once. Before this fix, `auto3d run in.smi -c cfg.yaml
+    --k 1` with `cfg.yaml`'s `window: 5.0` left both `k=1` (the override) and
+    `window=5.0` (the file's, still sitting in `base_dict`) in the merged
+    result, which the mutual-exclusion guard then rejected -- even though
+    substituting one selector for the other is exactly what a CLI override is
+    for. When the CLI explicitly sets one selector and leaves the rest alone,
+    every other selector is cleared here so only the explicit one survives;
+    if the CLI explicitly sets more than one selector at once (a genuine
+    conflict, not a merge artifact), none are cleared and the mutual-exclusion
+    guard below still fires. Iterating `SELECTOR_FIELDS` -- rather than
+    hardcoding `k`/`window` a second time here -- means a third selector added
+    to that one tuple picks up this substitution behavior automatically.
+    """
     base_dict = base.model_dump()
+
+    explicit = [f for f in SELECTOR_FIELDS if overrides.get(f) is not None]
+    if len(explicit) == 1:
+        for f in SELECTOR_FIELDS:
+            if f != explicit[0]:
+                base_dict[f] = None
 
     # Only apply non-None overrides
     for key, value in overrides.items():
         if value is not None:
             base_dict[key] = value
 
-    return CLIConfig(**base_dict)
+    return build_cli_config(**base_dict)

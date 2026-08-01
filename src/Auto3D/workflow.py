@@ -93,6 +93,17 @@ class WorkflowOrchestrator:
             FileFormatError: If input file format is not supported.
             OptimizationError: If no structures converge.
         """
+        # Copy the caller's config once, up front (M16). _validate_input
+        # below mutates self.config (job_name, input_format); without this
+        # copy those mutations land on the exact object the caller still
+        # holds, so a second main(args) call with the same config in one
+        # process would see self.config.job_name already non-empty and
+        # reuse the first run's job_name instead of generating its own.
+        # This is what makes _run_pipeline's own `replace()` comment further
+        # down ("the caller's shared config is never mutated") true for the
+        # whole run, not just that one local copy.
+        self.config = replace(self.config)
+
         start_time = time.time()
 
         # Configure PyTorch settings (TF32, cuDNN benchmark)
@@ -327,8 +338,9 @@ class WorkflowOrchestrator:
         )
 
         # Per-run config carrying the memory-scaled batch size for optimization.
-        # Built with dataclasses.replace so the caller's shared config is never
-        # mutated (review findings #35/#36).
+        # Built with dataclasses.replace so self.config (itself already a
+        # private copy made at the top of run(), see M16) is left holding the
+        # unscaled value -- only the optimizer workers get the scaled one.
         opt_config = replace(
             self.config, batchsize_atoms=self.scaled_batchsize_atoms
         )

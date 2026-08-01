@@ -49,6 +49,7 @@ dependencies = [
     "rdkit>=2022.9.5",
     "torch>=2.8",
     "aimnet>=0.2",
+    "requests>=2.32.3",
     "typer>=0.12.0",
     "rich>=13.0.0",
     "pydantic>=2.0",

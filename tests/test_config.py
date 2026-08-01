@@ -60,7 +60,6 @@ class TestAuto3DOptions:
         config = Auto3DOptions(
             path="/path/to/input.smi",
             k=5,
-            window=2.0,
             verbose=True,
             job_name="test_job",
             use_gpu=False,
@@ -69,11 +68,17 @@ class TestAuto3DOptions:
 
         assert config.path == "/path/to/input.smi"
         assert config.k == 5
-        assert config.window == 2.0
         assert config.verbose is True
         assert config.job_name == "test_job"
         assert config.use_gpu is False
         assert config.optimizing_engine == "ANI2x"
+
+    def test_custom_window_value(self):
+        """window (used alone, not alongside k -- see TestMutuallyExclusiveSelectors
+        in test_config_parity.py) can be set to a custom value."""
+        config = Auto3DOptions(path="/path/to/input.smi", window=2.0)
+
+        assert config.window == 2.0
 
     def test_dict_access(self):
         """Test that config can be accessed like a dict."""
@@ -166,14 +171,30 @@ def test_capacity_default_matches_across_layers():
 
 def test_negative_k_rejected():
     from Auto3D.config import Auto3DOptions
-    with pytest.raises(ValueError):
+    from Auto3D.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=-1)
 
 
 def test_negative_window_rejected():
     from Auto3D.config import Auto3DOptions
-    with pytest.raises(ValueError):
+    from Auto3D.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", window=-0.5)
+
+
+def test_zero_k_rejected():
+    """k=0 used to be treated as "not specified" (falsy) and silently
+    accepted, but CLIConfig has always rejected it (its k >= 1 bound applies
+    to any non-None value, and 0 is not None) -- Auto3DOptions must match,
+    per Task 1's "one set of bounds, on every path". Only None/False mean
+    "not specified" now; see test_default_and_valid_k_window_accepted for
+    those sentinels.
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError):
+        Auto3DOptions(path="x.smi", k=0)
 
 
 def test_default_and_valid_k_window_accepted():
@@ -182,7 +203,73 @@ def test_default_and_valid_k_window_accepted():
     Auto3DOptions(path="x.smi")
     Auto3DOptions(path="x.smi", k=5)
     Auto3DOptions(path="x.smi", window=2.0)
-    Auto3DOptions(path="x.smi", k=0)  # 0 is "not specified", allowed
+    Auto3DOptions(path="x.smi", k=False)  # False is "not specified", allowed
+
+
+def test_false_sentinel_accepted_on_every_bound_field_both_entry_points():
+    """False must mean "not specified" for k/window/memory/max_confs on BOTH
+    Auto3DOptions and CLIConfig, not just one.
+
+    Before this fix, Pydantic coerced `False` -> `0`/`0.0` (bool is an int
+    subclass) *before* CLIConfig's `_check_bounds` model validator ever saw
+    the value, so `check_field_bounds`'s `value is False` skip (config.py)
+    never fired on the CLIConfig path -- CLIConfig rejected all four fields
+    set to `False` (as an out-of-range 0/0.0) while Auto3DOptions (a plain
+    dataclass with no such coercion step) silently accepted them. Reproduced
+    live before this fix:
+    ``CLIConfig(path=Path("x.smi"), k=1, window=False)`` raised
+    ValidationError while
+    ``Auto3DOptions(path="x.smi", k=1, window=False)`` did not raise. The
+    shipped ``docs/legacy-v2/parameters.yaml`` sets exactly this
+    (``k: 1`` / ``window: False``), so this divergence broke a real,
+    in-repo example, not just a hypothetical one.
+    """
+    from pathlib import Path
+
+    from Auto3D.cli.config_schema import CLIConfig
+    from Auto3D.config import Auto3DOptions
+
+    # Auto3DOptions: all four False, together and individually.
+    opts = Auto3DOptions(
+        path="x.smi", k=False, window=False, memory=False, max_confs=False
+    )
+    assert opts.k is False
+    assert opts.window is False
+    assert opts.memory is False
+    assert opts.max_confs is False
+
+    # CLIConfig: same four fields, same False values -- must validate too,
+    # and must normalize False to CLIConfig's own "unset" sentinel (None).
+    cfg = CLIConfig(
+        path=Path("x.smi"), k=False, window=False, memory=False, max_confs=False
+    )
+    assert cfg.k is None
+    assert cfg.window is None
+    assert cfg.memory is None
+    assert cfg.max_confs is None
+
+    # And individually, mixed with a real value for the other selector, the
+    # way the shipped legacy example does (k=1, window=False).
+    Auto3DOptions(path="x.smi", k=1, window=False)
+    CLIConfig(path=Path("x.smi"), k=1, window=False)
+
+
+def test_non_numeric_threshold_raises_configuration_error():
+    """A non-numeric bound value (e.g. threshold="0.3", a str) must raise
+    ConfigurationError, not a bare TypeError.
+
+    `operator.gt`/`operator.ge` (config.py's `_BOUND_OPS`) raise TypeError
+    when compared against a str, which used to propagate unhandled from
+    `check_field_bounds` -- an untyped exception unlike every range check
+    beside it, and one the CLI's `handle_error` shows as an opaque
+    "Unexpected Error" (exit 1) instead of a configuration problem with a
+    hint (exit 2).
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.exceptions import ConfigurationError
+
+    with pytest.raises(ConfigurationError):
+        Auto3DOptions(path="x.smi", k=1, threshold="0.3")
 
 
 class TestOptimizerWorkerIndices:

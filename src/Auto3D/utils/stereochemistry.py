@@ -194,9 +194,11 @@ def enantiomer_helper(smiles: list[str]) -> list[str]:
 def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
     """Remove enantiomers from an input SMILES file.
 
-    Reads a SMILES file, groups SMILES by molecule ID (base name before
-    underscore), removes enantiomeric duplicates from each group, and
-    writes the filtered results to an output file.
+    Reads a SMILES file, groups SMILES by molecule ID (the id with its
+    trailing ``_<isomer_index>`` component -- appended by
+    ``RDKitIsomer.write_enumerated_smi`` -- removed), removes enantiomeric
+    duplicates from each group, and writes the filtered results to an output
+    file.
 
     Args:
         inpath: Path to input .smi file with format "SMILES ID" per line.
@@ -215,7 +217,14 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
     smiles: dict[str, list[str]] = defaultdict(lambda: [])
     for line in data:
         vals = line.split()
-        smi, name = vals[0].strip(), vals[1].strip().split("_")[0].strip()
+        # Strip only the trailing isomer-index component write_enumerated_smi
+        # appends (rsplit, maxsplit=1), not everything after the first
+        # underscore: an id like "KEY_2" -- smiles2smi's disambiguation of a
+        # duplicate InChIKey (utils/file_ops.py), kept distinct from "KEY"
+        # specifically so it is not dropped -- must survive this grouping
+        # intact, or it silently merges back onto "KEY" here before ranking
+        # ever sees it (M17).
+        smi, name = vals[0].strip(), vals[1].strip().rsplit("_", 1)[0].strip()
         smiles[name].append(smi)
 
     for key, values in smiles.items():
@@ -454,7 +463,11 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
     dct: dict[str, list[str]] = defaultdict(lambda: [])
     for line in data:
         smi, idx = tuple(line.strip().split())
-        idx = idx.split("_")[0].strip()
+        # See the matching note in remove_enantiomers: strip only the
+        # trailing isomer-index component, not everything after the first
+        # underscore, so a disambiguated id like "KEY_2" is not merged back
+        # onto "KEY" here (M17).
+        idx = idx.rsplit("_", 1)[0].strip()
         dct[idx].append(smi)
 
     for key in dct.keys():

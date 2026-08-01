@@ -83,13 +83,9 @@ Custom exception classes for error handling:
    Auto3D.exceptions.ConfigurationError
    Auto3D.exceptions.InputValidationError
    Auto3D.exceptions.ModelError
-   Auto3D.exceptions.ModelNotFoundError
    Auto3D.exceptions.ModelLoadError
    Auto3D.exceptions.NumericalError
    Auto3D.exceptions.OptimizationError
-   Auto3D.exceptions.ConvergenceError
-   Auto3D.exceptions.IsomerEnumerationError
-   Auto3D.exceptions.TautomerEnumerationError
    Auto3D.exceptions.FileFormatError
    Auto3D.exceptions.DependencyError
    Auto3D.exceptions.GPUError

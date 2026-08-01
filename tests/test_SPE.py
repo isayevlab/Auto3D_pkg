@@ -1,7 +1,6 @@
 import os
 import tempfile
 import pytest
-from unittest.mock import patch, MagicMock
 from rdkit import Chem
 import torch
 from Auto3D.SPE import calc_spe
@@ -10,6 +9,15 @@ skip_ani2xt_test = False
 
 # Mark all tests in this module as slow (single-point energy calculations)
 pytestmark = pytest.mark.slow
+
+# Every calc_spe call below passes use_gpu=False on purpose. calc_spe's
+# `use_gpu` default is True, and Auto3D 4.0 made "GPU requested but no CUDA
+# device visible" FATAL rather than a silent CPU fallback
+# (Auto3D.utils.validation.check_gpu_requested, called first thing inside
+# calc_spe). The slow CI job runs on ubuntu-latest -- CPU-only, like every
+# runner in this repo -- so leaving the default in place would make each of
+# these raise GPUError instead of computing anything. Same reason
+# tests/test_thermo_reference.py passes use_gpu=False.
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -128,7 +136,7 @@ class userNNP2(torch.nn.Module):
 def test_calc_spe_ani2xt():
     #load B97-3c results file
     path = os.path.join(folder, "tests/files/b973c.sdf")
-    out = calc_spe(path, "ANI2xt")
+    out = calc_spe(path, "ANI2xt", use_gpu=False)
     spe = {"817-2-473": -386.111, "510-2-443":-1253.812}
 
     mols = Chem.SDMolSupplier(out, removeHs=False)
@@ -144,7 +152,7 @@ def test_calc_spe_ani2x():
     #load wB97X/6-31G* output file
     path = os.path.join(folder, "tests/files/wb97x_dz.sdf")
     spe = {"817-2-473": -386.178, "510-2-443":-1254.007}
-    out = calc_spe(path, "ANI2x")
+    out = calc_spe(path, "ANI2x", use_gpu=False)
 
     #compare Auto3D output with the above
     mols = Chem.SDMolSupplier(out, removeHs=False)
@@ -160,7 +168,7 @@ def test_calc_spe_aimnet():
     path = os.path.join(folder, 'tests/files/cyclooctane.sdf')
     e_ref = -314.689736079491
 
-    out = calc_spe(path, 'AIMNET')
+    out = calc_spe(path, 'AIMNET', use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
     e_out = float(mol.GetProp('E_hartree'))
     assert(abs(e_out - e_ref) <= 0.01)    
@@ -177,7 +185,7 @@ def test_calc_spe_userNNP1():
         myNNP_jit = torch.jit.script(myNNP)
         myNNP_jit.save(model_path)
 
-        out = calc_spe(path, model_path)
+        out = calc_spe(path, model_path, use_gpu=False)
 
     #compare Auto3D output with the above
     mols = Chem.SDMolSupplier(out, removeHs=False)
@@ -198,7 +206,7 @@ def test_calc_spe_userNNP2():
         myNNP = userNNP2()
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
-        out = calc_spe(path, model_path)
+        out = calc_spe(path, model_path, use_gpu=False)
 
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
     e_out = float(mol.GetProp('E_hartree'))
@@ -207,25 +215,100 @@ def test_calc_spe_userNNP2():
     assert(abs(e_out - e_ref) <= 0.01)
 
 
-def test_calc_spe_uses_model_factory():
-    """calc_spe should use ModelFactory for model creation."""
-    with patch('Auto3D.SPE.create_model') as mock_factory:
-        mock_adapter = MagicMock()
-        mock_adapter.coord_pad = 0.0
-        mock_adapter.species_pad = 0
-        # Mock the forward method to return energies and forces
-        mock_adapter.forward.return_value = (
-            torch.tensor([0.0, 0.0]),  # energies
-            torch.zeros(2, 5, 3)  # forces
+def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
+    """calc_spe must build its model through Auto3D.model_factory.create_model,
+    and must use the adapter that factory returns.
+
+    The previous version of this test asserted nothing. It called
+    ``calc_spe("nonexistent.sdf", "AIMNET", gpu_idx=0)`` inside a bare
+    ``pytest.raises(Exception)`` and then checked ``mock_factory.called``.
+    Both halves were empty:
+
+    * ``pytest.raises(Exception)`` is satisfied by any of the several ways
+      that call fails *before* ``create_model`` is ever reached -- an
+      unresolvable engine name (SPE.py's ``resolve_engine_name``), the
+      ``GPUError`` ``check_gpu_requested`` raises for the ``use_gpu=True``
+      default on a CPU-only runner, or the ``OSError`` RDKit raises for the
+      missing input file. It could not tell "calc_spe used the factory" from
+      "calc_spe blew up for an unrelated reason".
+    * ``calc_spe`` reads the input SDF (SPE.py, the ``SDMolSupplier`` loop)
+      *before* it calls ``create_model``, so a nonexistent input guarantees
+      the factory is never called at all -- the assert is unsatisfiable on
+      every runner, GPU or not.
+
+    This version hands calc_spe a real (tiny) SDF and lets it run to
+    completion with the model machinery stubbed -- no NNP is loaded and
+    nothing is downloaded -- then asserts on the factory interaction itself:
+    the name and device it was handed, and the identity of the adapter the
+    rest of calc_spe consumed. Constructing the model any other way (or
+    calling the factory and then ignoring its return value) fails this test.
+    """
+    from rdkit.Chem import AllChem
+
+    import Auto3D.SPE as spe_mod
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+    mol.SetProp("_Name", "ethanol")
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        w.write(mol)
+
+    class FakeAdapter:
+        coord_pad = 0.0
+        species_pad = 0
+
+    adapter = FakeAdapter()
+    factory_calls = []
+
+    def fake_create_model(model_name, device):
+        factory_calls.append((model_name, device))
+        return adapter
+
+    monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(spe_mod, "create_model", fake_create_model)
+
+    enforce_args = []
+
+    class FakeEnForce:
+        def __init__(self, model_adapter):
+            enforce_args.append(model_adapter)
+
+        def forward_batched(self, coords, numbers, charges):
+            n = coords.shape[0]
+            return torch.zeros(n, dtype=torch.float64), torch.zeros_like(coords)
+
+    monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+
+    pad_calls = []
+
+    def fake_pad(mols, model_name, device, coord_pad, species_pad):
+        pad_calls.append((coord_pad, species_pad))
+        n = len(mols)
+        return (
+            torch.zeros(n, 1, 3),
+            torch.zeros(n, 1, dtype=torch.long),
+            torch.zeros(n, dtype=torch.long),
+            torch.ones(n, 1, dtype=torch.bool),
         )
-        mock_factory.return_value = mock_adapter
 
-        # This will fail early but we just want to verify factory is called
-        with pytest.raises(Exception):  # Will fail on file not found
-            calc_spe("nonexistent.sdf", "AIMNET", gpu_idx=0)
+    monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
-        # Verify factory was called
-        assert mock_factory.called
+    out = calc_spe(
+        str(sdf), "AIMNET", use_gpu=False, out_path=str(tmp_path / "out.sdf")
+    )
+
+    # The factory is the only model-construction path, called exactly once,
+    # with the engine name the caller asked for and the device get_device
+    # resolved.
+    assert factory_calls == [("AIMNET", torch.device("cpu"))]
+    # ...and its return value is what calc_spe actually optimizes with:
+    # identity, not just "something adapter-shaped".
+    assert enforce_args == [adapter]
+    assert pad_calls == [(adapter.coord_pad, adapter.species_pad)]
+    # The run completed through the factory-produced model.
+    assert os.path.exists(out)
+    assert len(list(Chem.SDMolSupplier(out, removeHs=False))) == 1
 
 
 if __name__ == "__main__":

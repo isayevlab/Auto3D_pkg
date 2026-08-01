@@ -16,8 +16,10 @@ from Auto3D.constants import (
     DEFAULT_OPT_STEPS,
 )
 from Auto3D.model_factory import get_device
+from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
+from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
 
 __all__ = ["opt_geometry"]
 
@@ -72,6 +74,22 @@ def opt_geometry(
         ...     batchsize_atoms=2048,
         ... )
     """
+    # Fail fast on an unrecognized engine name -- the same guard the CLI's
+    # `optimize` command already runs before calling this function
+    # (cli/commands/properties.py), now also enforced for direct Python-API
+    # callers. Pure offline registry lookup: no network, no model load.
+    resolve_engine_name(model_name)
+
+    # opt_geometry never goes through check_input/check_valid_configuration,
+    # so without this it would reach model_factory.get_device below and
+    # silently fall back to CPU instead of failing the same way `auto3d
+    # optimize` already does at its CLI wrapper (cli/commands/properties.py)
+    # -- and the same way `auto3d run`/smiles2mols do via check_input /
+    # check_valid_configuration. check_gpu_requested is the single source of
+    # truth for this policy; called here, before get_device/optimizing below,
+    # so no compute (and no model construction) happens first.
+    check_gpu_requested(use_gpu)
+
     ev2hatree = 1 / hartree2ev
     # Apply the shared torch configuration so allow_tf32 is honored here too
     # (this path previously ignored it).
@@ -92,6 +110,13 @@ def opt_geometry(
         outpath = os.path.join(dir, basename)
 
     device = get_device(gpu_idx, use_gpu=use_gpu)
+
+    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
+    # charged or out-of-set species handed to either would otherwise be
+    # silently optimized as a different, neutral species -- wrong energy,
+    # wrong forces, wrong geometry.
+    input_mols = [mol for mol in Chem.SDMolSupplier(path, removeHs=False) if mol is not None]
+    check_engine_supports_molecules(input_mols, model_name)
 
     opt_config = OptimizationConfig(
         opt_steps=opt_steps,

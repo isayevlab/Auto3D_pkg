@@ -360,6 +360,141 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
     assert result.exit_code == 0
 
 
+def test_run_cli_k_override_substitutes_file_window(runner, tmp_path_cwd, monkeypatch):
+    """`auto3d run in.smi -c cfg.yaml --k 1`, where cfg.yaml sets
+    `window: 5.0`, must succeed with k=1 winning -- not hard-fail the
+    mutual-exclusion rule because the CLI override was merged alongside the
+    file's selector instead of substituting for it.
+
+    `Auto3D.auto3D.main` is stubbed (captures the `Auto3DOptions` it would
+    have received) so this exercises the full `execute_run` ->
+    `load_yaml_config`/`merge_configs` -> `to_auto3d_options()` path without
+    a pipeline run or a loaded potential. `optimizing_engine: ANI2xt` avoids
+    importing the optional `aimnet` package (same reasoning as
+    `test_cli.py`'s `_LEGACY_YAML`).
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+    cfg = tmp_path_cwd / "cfg.yaml"
+    cfg.write_text(
+        "path: placeholder.smi\nwindow: 5.0\noptimizing_engine: ANI2xt\nuse_gpu: false\n"
+    )
+
+    import Auto3D.auto3D as a3d
+    from Auto3D.results import WorkflowResult
+
+    captured: dict = {}
+
+    def fake_main(options, **kwargs):
+        captured["options"] = options
+        return WorkflowResult("fake_out.sdf")
+
+    monkeypatch.setattr(a3d, "main", fake_main)
+
+    result = runner.invoke(
+        app, ["run", str(smi), "-c", str(cfg), "--k", "1", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["options"].k == 1
+    assert not captured["options"].window  # file's window=5.0 must be cleared
+
+
+def test_run_cli_explicit_k_and_window_conflict_is_configuration_error(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """`--k` and `--window` both passed explicitly on the CLI is a genuine
+    user conflict (not a file-vs-CLI merge artifact) and must still exit 2
+    as a ConfigurationError with a hint -- not exit 1 as a raw pydantic
+    ValidationError under "Unexpected Error".
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    import Auto3D.auto3D as a3d
+    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("main() must not run when config validation fails")
+    ))
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--window", "2.0"])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in result.output
+
+
+def test_run_cli_yaml_config_bounds_violation_is_configuration_error(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """`auto3d run in.smi -c cfg.yaml` with `cfg.yaml` setting `k: 0` must
+    exit 2 as a ConfigurationError with a hint -- not exit 1 under
+    "Unexpected Error" as a raw pydantic ValidationError.
+
+    This is the load_yaml_config construction site specifically (as opposed
+    to test_run_cli_explicit_k_and_window_conflict_is_configuration_error,
+    which exercises merge_configs): the bad value comes from the config file
+    itself, before any CLI override is merged in. Before this fix,
+    `load_yaml_config` raised the pydantic error unwrapped, which
+    `execute_run`'s `except Auto3DError` clause does not catch.
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+    cfg = tmp_path_cwd / "cfg.yaml"
+    cfg.write_text("path: placeholder.smi\nk: 0\noptimizing_engine: ANI2xt\nuse_gpu: false\n")
+
+    import Auto3D.auto3D as a3d
+    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("main() must not run when config validation fails")
+    ))
+
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg)])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in result.output
+
+
+def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """`auto3d run in.smi -c cfg.yaml` with `gpu_idx: {a: 1}` must exit 2 as
+    a ConfigurationError -- not exit 1 under "Unexpected Error".
+
+    Sibling of the `k: 0` case above, for the failure mode that case does not
+    reach: `k: 0` violates a bound and so becomes a pydantic
+    `ValidationError`, which `build_cli_config` already translated. A mapping
+    in `gpu_idx` instead makes `CLIConfig.parse_gpu_idx`'s own `int(v)` raise
+    `TypeError`, which pydantic re-raises untouched -- so it escaped
+    `build_cli_config`'s `except ValidationError`, escaped `execute_run`'s
+    `except Auto3DError`, and landed in the generic "Unexpected Error" panel
+    at exit 1. Same user mistake (a bad value in a config file), same
+    treatment required.
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+    cfg = tmp_path_cwd / "cfg.yaml"
+    cfg.write_text(
+        "path: placeholder.smi\nk: 1\ngpu_idx:\n  a: 1\n"
+        "optimizing_engine: ANI2xt\nuse_gpu: false\n"
+    )
+
+    import Auto3D.auto3D as a3d
+    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("main() must not run when config validation fails")
+    ))
+
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg)])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in result.output
+
+
 # Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
 # pinned without going through the CLI or a pipeline run at all.
 
@@ -418,16 +553,6 @@ def test_error_hint_input_validation_error():
     hint = get_error_hint(InputValidationError("test"))
     assert hint is not None
     assert "validate" in hint
-
-
-def test_error_hint_model_not_found_error():
-    """get_error_hint should return hint for ModelNotFoundError."""
-    from Auto3D.cli.errors import get_error_hint
-    from Auto3D.exceptions import ModelNotFoundError
-
-    hint = get_error_hint(ModelNotFoundError("test"))
-    assert hint is not None
-    assert "AIMNET" in hint
 
 
 def test_error_hint_gpu_error():

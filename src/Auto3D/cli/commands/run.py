@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from Auto3D.cli.config_schema import CLIConfig, load_yaml_config, merge_configs
+from Auto3D.cli.config_schema import build_cli_config, load_yaml_config, merge_configs
 from Auto3D.cli.console import console, print_banner, print_warning
 from Auto3D.cli.errors import handle_error
 from Auto3D.cli.results import (
@@ -90,10 +90,10 @@ def execute_run(
         # Build configuration
         if config_file:
             config = load_yaml_config(config_file)
-            config = CLIConfig(path=input_file, **config.model_dump(exclude={"path"}))
+            config = build_cli_config(path=input_file, **config.model_dump(exclude={"path"}))
         else:
             # Pydantic provides defaults for all fields except path
-            config = CLIConfig(path=input_file)  # type: ignore[call-arg]
+            config = build_cli_config(path=input_file)  # type: ignore[call-arg]
 
         # Apply CLI overrides
         overrides = {

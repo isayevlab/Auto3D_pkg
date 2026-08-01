@@ -268,6 +268,208 @@ threonine) keeps two surviving diastereomers, so the same ``max_confs=12``
 does produce up to 24 there. A stereoisomer ETKDG cannot embed is now named in
 a logged warning instead of disappearing from the output with no trace.
 
+Configuration and validation changes
+-------------------------------------
+
+Numeric bounds are now enforced on every entry point
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A single ``FIELD_BOUNDS`` table now backs both ``Auto3DOptions.__post_init__``
+and ``CLIConfig``'s model validator, so the Python API, ``auto3d run -c``, and
+the legacy ``auto3d parameters.yaml`` all reject the same out-of-range values
+the same way. Before this release, several of these values were accepted
+everywhere and silently produced results that did not match what they
+appeared to be:
+
+- ``threshold=-1`` (or any negative value) disabled duplicate-conformer
+  removal entirely, while the output SDF looked exactly like a deduplicated
+  one.
+- ``convergence_threshold=0`` made the optimizer treat every step as
+  unstable, so it burned the full ``opt_steps`` budget on every conformer
+  instead of stopping early once actually converged.
+- ``max_confs=0`` produced zero conformers for every molecule (``max_confs``
+  had no lower bound on any path before this release).
+
+If a run used any of these values, treat its output as suspect and recompute
+rather than assume it means what it appears to. The full set of bounds now
+enforced: ``k >= 1``, ``window > 0``, ``mpi_np >= 1``, ``opt_steps >= 1``,
+``convergence_threshold > 0``, ``patience >= 1``, ``threshold > 0``,
+``batchsize_atoms >= 1``, ``memory >= 1``, ``capacity >= 1``, and
+``max_confs >= 1``. ``None``/``False`` still mean "not specified" and are not
+rejected, but only for the four optional fields with a genuine "unset"
+meaning: ``k``, ``window``, ``memory``, and ``max_confs``
+(``Auto3D.config.SENTINEL_FIELDS``). The other seven bounds above always have
+a concrete default and have no "unset" state to opt into, so ``None``/
+``False`` are rejected there too, identically on both entry points --
+``Auto3DOptions(path="in.smi", threshold=None)`` used to be silently accepted
+while ``CLIConfig(path=Path("in.smi"), threshold=None)`` always rejected it;
+both now raise.
+
+A related, narrower change: ``k=0`` used to be accepted by ``Auto3DOptions``
+as a silent "unset" sentinel (``CLIConfig`` already rejected it via
+``Field(ge=1)``). It is now rejected on both, for parity between the two --
+this is a real behavior change beyond the bounds above, not a consequence of
+them.
+
+``Auto3DOptions(path="in.smi", k=1, threshold=-1)`` and
+``Auto3DOptions(path="in.smi", k=1, convergence_threshold=0)`` were both
+accepted in 3.x, silently producing the results described above; both now
+raise ``ConfigurationError`` immediately, before a run starts.
+
+``k`` and ``window`` together now raise; the ``thorough`` preset changed
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``k`` (top-k selection) and ``window`` (energy-window selection) are
+alternative conformer-selection strategies, and ``ConformerRanker.run`` only
+ever consulted one of them (``if self.k: ... elif self.window: ...``), so
+setting both meant ``k`` silently won and ``window`` had no effect.
+``Auto3DOptions``/``CLIConfig`` and ``ConformerRanker.run`` itself now raise
+if both are set.
+
+**The shipped ``thorough`` preset set both** (``k: 10, window: 5.0``).
+Because ``k`` always won, every user who selected ``-p thorough`` has only
+ever gotten top-10 selection -- ``window: 5.0`` never took effect. The preset
+now sets only ``k: 10``, which preserves exactly what those users were
+already getting, rather than silently switching them to window-based
+selection under the same preset name. If you generated a ``thorough.yaml``
+config file before this release, it still has both keys and will now raise;
+delete one of the two.
+
+Legacy YAML now rejects unknown keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The legacy ``auto3d parameters.yaml`` entry point now builds a ``CLIConfig``
+(the same schema ``auto3d run -c`` uses) instead of constructing
+``Auto3DOptions`` directly, so ``extra="forbid"`` now applies to it. A key
+your YAML file carries that ``CLIConfig`` does not recognize now raises
+``Auto3D.exceptions.ConfigurationError``, naming the offending key, instead
+of being silently ignored. This was never truly silent -- an unrecognized key
+already raised a bare ``TypeError`` from ``Auto3DOptions``'s constructor
+before this release -- but the message is now specific rather than generic,
+and it now matches what ``auto3d run -c`` has always done for the same
+mistake. (One stale example in the repository, ``docs/legacy-v2/tauto.yaml``,
+carries keys from a removed feature and fails both before and after this
+change.)
+
+Catch ``ConfigurationError``, not ``pydantic.ValidationError``. Pydantic is
+what detects the unknown key, but every ``CLIConfig`` the CLI builds is
+constructed through ``Auto3D.cli.config_schema.build_cli_config``, which
+translates ``ValidationError`` into ``ConfigurationError`` -- keeping the
+field-named message while putting the exception inside Auto3D's own
+hierarchy, so ``except Auto3DError`` catches it and the CLI reports a
+configuration problem (exit code 2, with a hint) rather than an "Unexpected
+Error" (exit code 1):
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   from Auto3D.cli.config_schema import load_yaml_config
+   from Auto3D.exceptions import ConfigurationError
+
+   try:
+       config = load_yaml_config(Path("my_params.yaml"))
+   except ConfigurationError as exc:
+       print(f"bad config: {exc}")
+
+Constructing ``CLIConfig(...)`` directly, bypassing that helper, still raises
+the raw pydantic ``ValidationError``.
+
+GPU requested but unavailable is now fatal everywhere
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``use_gpu=True`` on a machine with no visible CUDA device used to behave
+three different ways depending on the entry point:
+
+- ``main()`` and ``smiles2mols`` raised ``ConfigurationError``, but showed the
+  CLI's unrelated "config init" hint.
+- ``auto3d energy``/``optimize``/``thermo`` silently fell back to CPU through
+  ``model_factory.get_device``, with no error and no warning at all.
+- ``auto3d models test --gpu`` had the identical silent fallback through its
+  own, separate call site, and the three single-purpose API functions
+  ``calc_spe``, ``opt_geometry``, and ``calc_thermo`` were guarded only at
+  their CLI wrappers in ``cli/commands/properties.py`` -- calling any of them
+  directly from a script, with no CLI involved at all, bypassed the guard
+  entirely and hit the same silent fallback.
+
+A user -- or a scripted caller who never goes through the CLI -- who asked
+for GPU and got CPU results from the second or third group had no way to
+know their "GPU" run was actually computed on CPU. A single
+``check_gpu_requested`` helper is now the one place this is decided:
+``check_input``, ``check_valid_configuration``, the ``energy``/``optimize``/
+``thermo`` and ``models test`` CLI commands, and ``calc_spe``/
+``opt_geometry``/``calc_thermo`` themselves all call it before doing any
+work, and it always raises ``GPUError`` (exit code ``4``), naming
+``--no-gpu``/``use_gpu=False`` as the fix. ``model_factory.get_device``
+itself still silently returns a CPU device when asked -- the fatal check is
+enforced by its callers, not by the device picker, so a direct call to
+``get_device`` is unaffected.
+
+``smiles2mols`` raises on options it cannot honor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``smiles2mols`` has no tautomer-enumeration step and hardcodes the RDKit
+isomer engine, but previously accepted ``enumerate_tautomer=True``,
+a non-``"rdkit"`` ``isomer_engine``, and ``mode_oe`` without effect or
+warning. It now raises ``ConfigurationError`` naming the option and pointing
+at ``main()`` for tautomer enumeration or a non-RDKit isomer engine.
+``smiles2mols`` also now calls ``check_valid_configuration`` -- the same
+GPU/engine/path checks ``main()`` has always run -- so a bad configuration is
+caught up front instead of failing deep inside a worker process.
+
+``smiles2mols(["CCO"], Auto3DOptions(k=1, enumerate_tautomer=True))`` used to
+run and silently skip tautomer enumeration; it now raises
+``ConfigurationError`` instead. ``mode_oe`` gets no separate check: it is
+only ever read when ``isomer_engine == "omega"``, so rejecting a non-RDKit
+``isomer_engine`` already covers the only case where it could matter.
+
+Separately, ``smiles2mols`` no longer mutates the ``Auto3DOptions`` object
+you pass it -- it copies it (``dataclasses.replace``) on entry before setting
+its own internal ``path``/``input_format``. Previously it overwrote your
+object's ``path`` and ``input_format`` fields in place, which could leave you
+holding a config whose ``path`` pointed at a temporary directory
+``smiles2mols`` had already deleted. ``WorkflowOrchestrator.run()`` (used by
+``main()``) makes the same defensive copy for the same reason, so a shared
+``Auto3DOptions`` object can now safely be reused across two separate runs.
+
+``auto3d validate`` now agrees with the runner
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``auto3d validate`` previously approved SMILES files the runner then rejected:
+``validate_smiles_file`` never required an ID column, while
+``encode_ids``/``iter_smi_records`` always have, so an ID-less line passed
+validation and then failed the actual run -- whose error hint told you to run
+the validator that had just approved it. ``validate`` now requires the same
+SMILES+ID pair the runner does.
+
+The two also disagreed on ``#``-prefixed comment lines: ``validate`` skipped
+them, the runner did not. Both now skip them consistently (``validate``,
+``iter_smi_records``, and ``check_smi_format``) -- a SMILES token can never
+begin with ``#``, so this cannot misclassify real data either way.
+
+Exception hierarchy changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Four exception classes with no raise sites anywhere in the codebase are
+removed: ``ModelNotFoundError``, ``ConvergenceError``,
+``IsomerEnumerationError``, ``TautomerEnumerationError``. Each failure they
+were meant to describe already happens today through a different type that is
+actually raised and actually relied on (``ConfigurationError``/
+``ModelLoadError`` for a bad or unobtainable model, ``OptimizationError``
+directly for "no 3D structure converged") or through a soft per-molecule
+warn-and-skip path (isomer/tautomer enumeration). If you catch any of these
+four by name, update the ``except`` clause to the type that is actually
+raised -- there is no replacement class.
+
+``DependencyError`` gained a ``dependency_name`` attribute. None of its four
+raise sites set one before this release, so the CLI's install-hint lookup
+(keyed on ``openeye``/``torchani``/``ase``) was unreachable and every
+dependency failure showed "Install the missing dependency: unknown"
+regardless of which package was actually missing. All four raise sites now
+name their dependency, so the real hint (e.g. ``pip install torchani``)
+reaches the user. Code that constructs ``DependencyError`` directly can pass
+``dependency_name=...``; omitting it still falls back to ``"unknown"``.
+
 CLI behavior changes
 --------------------
 
@@ -282,13 +484,17 @@ shell script (``auto3d run --json && next_step``).
 
 4.0 exits ``6`` whenever any input molecule produced no output. The results
 summary and, with ``--json``, the JSON document are still printed *before*
-that exit -- a scripted consumer always receives a parseable description of
-what happened, even on the run that is about to signal failure. ``6``
-(``EXIT_PARTIAL_SUCCESS``) extends the exit codes ``cli/errors.py`` already
-used for exceptions raised before or during the run (``0`` success, ``1``
-generic, ``2`` configuration/input, ``3`` dependency, ``4`` GPU, ``5``
-model) with the next unused code, rather than reusing ``1`` and making a
-partial run indistinguishable from a crash.
+that exit -- a scripted consumer checking for exit ``6`` always receives a
+parseable description of what was missing. This guarantee is specific to
+that partial-success path: it holds because the run *completed* and
+``main()`` returned a result to report. If ``main()`` raises instead of
+returning -- a crash, not a partial run -- no JSON is emitted at all; the
+process exits ``1``-``5`` via the same ``handle_error`` panel on stderr as
+any other failure. ``6`` (``EXIT_PARTIAL_SUCCESS``) extends the exit codes
+``cli/errors.py`` already used for exceptions raised before or during the
+run (``0`` success, ``1`` generic, ``2`` configuration/input, ``3``
+dependency, ``4`` GPU, ``5`` model) with the next unused code, rather than
+reusing ``1`` and making a partial run indistinguishable from a crash.
 
 If your pipeline currently checks only ``$? -eq 0`` -- or chains
 ``auto3d run --json && next_step`` -- a run with partial output now stops

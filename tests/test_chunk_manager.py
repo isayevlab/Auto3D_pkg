@@ -367,13 +367,18 @@ class TestRaggedSmiAndChunkSizeClamp:
         input_file = tmp_path / "test_encoded.smi"
         input_file.write_text("CCO ethanol\nCCCO propanol\nCCCCO butanol\n")
 
-        # memory=1 GB * capacity=0.0 -> raw chunk_size 0.0 (degenerate).
+        # memory=1 GB * capacity=0.0 -> raw chunk_size 0.0 (degenerate). capacity
+        # is now bounds-checked (>= 1) at construction (Task 1, C10/M27 parity),
+        # so the degenerate value is set directly on the field afterward --
+        # Auto3DOptions is a plain mutable dataclass and only validates at
+        # __init__ -- to still exercise ChunkManager's own defensive clamp
+        # below for a value that reaches it by some other means.
         config = Auto3DOptions(
             path=str(tmp_path / "test.smi"),
             k=1,
             memory=1,
-            capacity=0.0,
         )
+        config.capacity = 0.0
         manager = ChunkManager(
             config=config,
             input_path=input_file,

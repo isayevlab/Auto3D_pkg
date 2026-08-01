@@ -9,16 +9,144 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **Configuration bounds are now enforced on every entry point.** A single
+  `FIELD_BOUNDS` table in `config.py` is now consulted by both
+  `Auto3DOptions.__post_init__` and `CLIConfig`'s model validator, so a config
+  that used to be silently accepted on one path now raises a
+  `ConfigurationError`/`ValidationError` on all of them (Python API, `auto3d
+  run -c`, and the legacy `auto3d parameters.yaml`). This closes real gaps,
+  not just theoretical ones: `threshold=-1` silently disabled duplicate-
+  conformer removal in 3.x while the output was presented as deduplicated,
+  `convergence_threshold=0` made the optimizer treat every step as unstable
+  and burn the full step budget, and `max_confs=0` produced zero conformers
+  for every molecule (`max_confs` had no lower bound on any path before this
+  release). If a 3.x run used any of these values, its output was not what it
+  appeared to be -- recompute rather than trust it. The newly-enforced bounds
+  are `k>=1`, `window>0`, `mpi_np>=1`, `opt_steps>=1`,
+  `convergence_threshold>0`, `patience>=1`, `threshold>0`,
+  `batchsize_atoms>=1`, `memory>=1`, `capacity>=1`, and `max_confs>=1`.
+  `None`/`False` still mean "not specified" and are not rejected, but **only**
+  for the four optional fields with a genuine "unset" meaning -- `k`,
+  `window`, `memory`, and `max_confs` (`Auto3D.config.SENTINEL_FIELDS`). The
+  other seven bounds above (`mpi_np`, `opt_steps`, `convergence_threshold`,
+  `patience`, `threshold`, `batchsize_atoms`, `capacity`) always have a
+  concrete default and have no "unset" state to opt into, so `None`/`False`
+  now raise there too, on both entry points -- closing the same
+  entry-point-dependent gap this release closes everywhere else
+  (`Auto3DOptions(path="x.smi", threshold=None)` used to be silently accepted
+  while `CLIConfig(path=Path("x.smi"), threshold=None)` always rejected it).
+  One additional change beyond these bounds: `k=0` was a silent "unset" sentinel
+  accepted only by `Auto3DOptions` (`CLIConfig` already rejected it via
+  `Field(ge=1)`); it is now rejected on both, for parity, not because it is
+  one of the newly-added bounds. Separately, the legacy `auto3d
+  parameters.yaml` entry point now constructs a `CLIConfig` instead of
+  building `Auto3DOptions` directly, so `extra="forbid"` reaches it for the
+  first time: a stray key that used to be ignored now raises (an existing
+  `docs/legacy-v2/tauto.yaml` example with a stale `tauto_k`/`tauto_window`
+  key already failed before this change with a bare `TypeError`; it still
+  fails, now with an `Auto3D.exceptions.ConfigurationError` whose message
+  names the offending keys). Note the exception type: every `CLIConfig` the
+  CLI builds goes through `build_cli_config`, which translates pydantic's
+  `ValidationError` into `ConfigurationError` so the message keeps the field
+  names while the type stays inside Auto3D's own hierarchy -- an
+  `except Auto3DError` clause catches it, and the CLI reports it as a
+  configuration problem (exit code 2, with a hint) rather than an
+  "Unexpected Error" (exit code 1). Constructing `CLIConfig(...)` directly,
+  bypassing that helper, still raises the raw pydantic `ValidationError`.
+
+- **`k` and `window` can no longer be set together.** They are alternative
+  conformer-selection strategies and `ConformerRanker.run` only ever consulted
+  one of them (`if self.k: ... elif self.window: ...`), so setting both meant
+  `k` silently won and `window` was inert. Both `Auto3DOptions`/`CLIConfig`
+  (via the shared bounds check) and `ConformerRanker.run` itself now raise if
+  both are specified. **The shipped `thorough` preset set both** (`k: 10,
+  window: 5.0`) -- since `k` always won, every user of `-p thorough` has only
+  ever gotten top-10 selection, and `window: 5.0` never took effect. The
+  preset now sets only `k: 10`, preserving exactly what users of that preset
+  actually got, rather than silently switching them to window-based selection
+  as part of an unrelated bug fix. A previously-generated `thorough.yaml` on
+  disk still has both keys and will now raise until one is removed.
+
+- **`smiles2mols` raises on options it cannot honor, instead of silently
+  ignoring them.** `enumerate_tautomer`, `isomer_engine`, and `mode_oe` were
+  all accepted and silently had no effect (`smiles2mols` has no tautomer step
+  and hardcodes the RDKit isomer engine); it now raises `ConfigurationError`
+  naming the option and pointing at `main()` for tautomer enumeration or a
+  non-RDKit isomer engine. `smiles2mols` now also calls
+  `check_valid_configuration` (the GPU/engine/path checks it previously
+  skipped entirely), catching a bad configuration up front instead of failing
+  deep inside a worker. Separately, `smiles2mols` no longer mutates the
+  caller's `Auto3DOptions` object in place (it copies it
+  via `dataclasses.replace` on entry) -- previously it overwrote the caller's
+  own `path` and `input_format` fields, which could leave the caller holding a
+  config whose `path` pointed into a temporary directory `smiles2mols` had
+  already deleted. `WorkflowOrchestrator.run()` makes the same copy for the
+  same reason.
+
+- **GPU requested but unavailable is now fatal at every entry point.**
+  `use_gpu=True` on a CPU-only box used to behave three different ways
+  depending on how you called Auto3D: `main()` and `smiles2mols` raised
+  `ConfigurationError` (with an unrelated "config init" hint); `auto3d
+  energy`/`optimize`/`thermo` silently fell back to CPU through
+  `model_factory.get_device` with no error and no warning at all; and
+  `auto3d models test --gpu` had the identical silent fallback through its
+  own call site, while the three single-purpose API functions `calc_spe`,
+  `opt_geometry`, and `calc_thermo` were guarded only at their CLI wrappers --
+  calling any of them directly from a script, with no CLI involved, bypassed
+  the guard entirely. A user -- or a scripted caller who never goes through
+  the CLI -- who asked for GPU and got CPU results had no way to know. A
+  single `check_gpu_requested` helper is now the one place this is decided:
+  it raises `GPUError` (naming `--no-gpu`), and every entry point --
+  `check_input`, `check_valid_configuration`, the CLI commands, and
+  `calc_spe`/`opt_geometry`/`calc_thermo` themselves -- calls it before any
+  work starts. `model_factory.get_device` itself is unchanged and still
+  silently returns a CPU device -- the fatal check is enforced by its
+  callers, not by the device picker.
+
+- **`auto3d validate` now rejects exactly what the runner rejects.**
+  `validate_smiles_file` never required an ID column, so an ID-less line
+  passed validation and then failed the actual run with a hint telling the
+  user to run the validator that had just approved it. `validate` now
+  requires the same SMILES+ID pair `encode_ids`/`iter_smi_records` do.
+  Comment-line handling was also inconsistent (`validate` skipped `#`-prefixed
+  lines; the runner did not) and is now consistent both ways: `#`-prefixed
+  lines are skipped by both `validate` and the runner (`iter_smi_records`,
+  `check_smi_format`) -- a SMILES token can never start with `#`, so this
+  cannot misclassify real data.
+
+- **Four exception classes with no raise sites were deleted**:
+  `ModelNotFoundError`, `ConvergenceError`, `IsomerEnumerationError`,
+  `TautomerEnumerationError`. Each failure they were meant to describe already
+  happens today through a different, already-relied-upon type
+  (`ConfigurationError`/`ModelLoadError` for a bad or unobtainable model,
+  `OptimizationError` directly for "no 3D structure converged") or through a
+  soft per-molecule warn-and-skip path (isomer/tautomer enumeration), never
+  through these classes. Anyone catching them by name must stop; catch the
+  type that is actually raised instead.
+
+- **`DependencyError` now carries `dependency_name`.** None of its four raise
+  sites set one, so `cli/errors.py`'s install-hint lookup (keyed on
+  `openeye`/`torchani`/`ase`) was unreachable and every dependency failure
+  showed "Install the missing dependency: unknown" regardless of which
+  package was actually missing. All four raise sites now name their
+  dependency, so the real install hint (e.g. `pip install torchani`) finally
+  reaches the user. `DependencyError(message)` without a name still falls
+  back to `"unknown"` rather than crashing the hint lookup.
+
 - **`auto3d run` exits non-zero (code `6`) when input molecules are missing
   from the output.** `_finalize_output` previously raised only when *zero*
   outputs existed at all, so a run that silently lost 9 of 10 chunks -- to
   memory pressure, a crashed worker, or any other per-chunk failure -- still
   printed a results summary and exited `0`, indistinguishable from complete
-  success to a calling shell script (`auto3d run --json && next_step`). The
-  results summary and, with `--json`, the JSON document are still printed
-  *before* the process exits -- a scripted consumer always receives a
-  parseable description of what happened, even on the run that is about to
-  signal failure. `6` (`EXIT_PARTIAL_SUCCESS`) extends `cli/errors.py`'s
+  success to a calling shell script (`auto3d run --json && next_step`). When
+  the run *completes* but is missing molecules, the results summary and, with
+  `--json`, the JSON document are still printed *before* the process exits
+  `6` -- a scripted consumer checking for that exit code always receives a
+  parseable description of what was missing. This guarantee is specific to
+  that partial-success path: if `main()` raises instead of returning (a
+  crash, not a partial run), no JSON is emitted at all -- the process exits
+  `1`-`5` via `handle_error`'s panel on stderr, same as before. `6`
+  (`EXIT_PARTIAL_SUCCESS`) extends `cli/errors.py`'s
   existing `0`-`5` exit-code convention (`2` configuration/input, `3`
   dependency, `4` GPU, `5` model) with the next unused code, rather than
   reusing `1` and making a partial run indistinguishable from a crash.
@@ -152,6 +280,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   misspelled arguments were silently ignored.
 
 ### Fixed
+
+- **`calc_spe`, `opt_geometry`, and `calc_thermo` now reject molecules ANI2x/
+  ANI2xt cannot represent.** The element-set/charge guard (elements outside
+  {H, C, N, O, F, S, Cl}, or nonzero formal charge) was only ever inlined
+  inside `check_smi_format`/`check_sdf_format`, reachable solely through
+  `check_input` -- i.e. only from `main()` and `smiles2mols`. The three
+  single-purpose API functions never called it: a carboxylate (or any other
+  charged or out-of-set species) handed to `calc_spe`/`opt_geometry`/
+  `calc_thermo` with `optimizing_engine="ANI2x"`/`"ANI2xt"` was silently
+  evaluated as its neutral form, giving energies and forces wrong by tens of
+  kcal/mol -- and, for `opt_geometry`, an optimized output geometry that is
+  therefore also wrong, not just its reported energy. The guard is now
+  extracted into `utils/validation.py`'s `check_engine_supports_molecules`
+  and called from all three functions before any model inference.
+
+- **A duplicate InChIKey no longer loses one of the two inputs it was meant to
+  preserve.** `smiles2smi` disambiguates two inputs that collapse to the same
+  standard InChIKey by renaming the second to `f"{inchikey}_2"` specifically
+  so it survives instead of being silently deduplicated away. Three separate
+  places downstream then grouped names on the text before the *first*
+  underscore and mapped `KEY_2` straight back to `KEY`: `ranking.py`'s
+  conformer grouping, and `utils/stereochemistry.py`'s `remove_enantiomers`
+  and `amend_configuration` -- the latter two run before conformer embedding
+  even happens, so with `k=1` the second molecule vanished well before
+  ranking ever saw it, and fixing `ranking.py` alone would not have been
+  sufficient. All three now recover the full assigned id (`ranking.py` via a
+  new `species_id()` helper that strips exactly the two trailing
+  `<isomer>_<conformer>` components; the two `stereochemistry.py` sites via
+  the analogous one-component strip, since only the isomer index has been
+  appended at that earlier stage). **Residual, disclosed rather than fixed:**
+  with `enumerate_isomer=False` *and* an InChIKey collision, the SMILES path
+  appends only one trailing component (no isomer index), so a name like
+  `KEY_2_0` is genuinely ambiguous between "species `KEY_2` conformer 0" and
+  "species `KEY` isomer 2 conformer 0" -- this narrow combination still
+  mis-groups, exactly as before this fix, and is not pinned by any test.
+
+- **Three `select_tautomers` configuration errors, and one `check_sdf_format`
+  input error, are now typed exceptions instead of bare `ValueError`.**
+  `select_tautomers`'s "both k and window given", "k<1", and "neither k nor
+  window given" checks now raise `ConfigurationError`, closing a gap the
+  CLI-level guard in `execute_tautomers` did not cover for direct Python API
+  callers. `check_sdf_format`'s empty-molecule-ID check now raises
+  `InputValidationError`, matching `check_smi_format`'s handling of the
+  identical defect (an asymmetry between the two that had gone unfixed).
 
 - **ANI2xt species conversion in the thermochemistry and health-check paths** -
   ANI2xt is constructed with `periodic_table_index=False` everywhere, so it

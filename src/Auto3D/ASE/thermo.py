@@ -32,9 +32,11 @@ from Auto3D.constants import (
     LINEARITY_MOMENT_RATIO,
 )
 from Auto3D.model_factory import create_model, get_device
+from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
 
 __all__ = ["calc_thermo"]
 
@@ -904,6 +906,23 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         molecules (e.g. benzene, sigma=12) the default over-counts rotational
         entropy by up to a few kcal/mol in T*S, so set that property when known.
     """
+    # Fail fast on an unrecognized engine name -- the same guard the CLI's
+    # `thermo` command already runs before calling this function
+    # (cli/commands/properties.py), now also enforced for direct Python-API
+    # callers. Pure offline registry lookup: no network, no model load.
+    resolve_engine_name(model_name)
+
+    # calc_thermo never goes through check_input/check_valid_configuration, so
+    # without this it would reach model_factory.get_device below and silently
+    # fall back to CPU instead of failing the same way `auto3d thermo`
+    # already does at its CLI wrapper (cli/commands/properties.py) -- and the
+    # same way `auto3d run`/smiles2mols do via check_input /
+    # check_valid_configuration. check_gpu_requested is the single source of
+    # truth for this policy; called here, before get_device/_load_hessian_model/
+    # model_name2model_calculator below, so no compute (and no model
+    # construction) happens first.
+    check_gpu_requested(use_gpu)
+
     # Surface the symmetry-number caveat once per run (not per molecule) so it is
     # visible without spamming the log.
     logger.info(
@@ -930,12 +949,26 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     else:
         outpath = path_obj.parent / f"{path_obj.stem}_{model_name}_G.sdf"
 
+    mols = list(Chem.SDMolSupplier(path, removeHs=False))
+
+    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
+    # charged or out-of-set species handed to either would otherwise be
+    # silently relaxed and differentiated as a different, neutral species --
+    # wrong energy, wrong Hessian, wrong thermochemistry. Parsing `mols`
+    # needs only `path`, not a device or model, so it -- and this guard,
+    # which needs only `mols`/`model_name` -- both happen before
+    # get_device/_load_hessian_model/model_name2model_calculator below,
+    # matching check_gpu_requested's already-first placement: every guard
+    # that can fail fast, does, before any device/model construction.
+    check_engine_supports_molecules(
+        [mol for mol in mols if mol is not None], model_name
+    )
+
     device = get_device(gpu_idx, use_gpu=use_gpu)
 
     hessian_model = _load_hessian_model(model_name, device)
     model, calculator = model_name2model_calculator(model_name, device)
 
-    mols = list(Chem.SDMolSupplier(path, removeHs=False))
     for mol in tqdm(list(iter_thermo_records(mols))):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))
         # so isotope masses are applied consistently with vib_hessian's Atoms

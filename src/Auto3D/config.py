@@ -5,6 +5,7 @@ This module provides typed configuration using dataclasses and Protocols
 for better type safety and IDE support.
 """
 
+import operator
 from dataclasses import dataclass
 from typing import Protocol, TypedDict, runtime_checkable
 
@@ -20,6 +21,157 @@ from Auto3D.constants import (
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
 )
+from Auto3D.exceptions import ConfigurationError
+
+# Single source of truth for the numeric bounds every entry point must
+# enforce (Auto3DOptions.__post_init__ below and CLIConfig's model
+# validator in cli/config_schema.py). Keeping one table -- rather than a
+# hand-maintained bound list in each place -- is the point of this phase:
+# a bound added/changed here takes effect on every path with no second edit.
+#
+# name -> (comparison, limit). A field's value must satisfy
+# ``value <comparison> limit``; see _BOUND_OPS for the supported set.
+FIELD_BOUNDS: dict[str, tuple[str, float]] = {
+    "k": ("ge", 1),
+    "window": ("gt", 0),
+    "mpi_np": ("ge", 1),
+    "opt_steps": ("ge", 1),
+    "convergence_threshold": ("gt", 0),
+    "patience": ("ge", 1),
+    "threshold": ("gt", 0),
+    "batchsize_atoms": ("ge", 1),
+    "memory": ("ge", 1),
+    "capacity": ("ge", 1),
+    "max_confs": ("ge", 1),
+}
+
+# The subset of FIELD_BOUNDS where None/False mean "not specified" (dynamic/
+# default behavior) rather than an actual value to bounds-check -- k/window
+# are alternative selection strategies that default to "unset", memory/
+# max_confs both have a documented "None means auto-detect/dynamic" meaning
+# (see their Auto3DOptions docstrings and CLIConfig's ``int | None`` typing).
+#
+# The other seven FIELD_BOUNDS entries (mpi_np, opt_steps,
+# convergence_threshold, patience, threshold, batchsize_atoms, capacity) have
+# no such "unset" meaning -- they always have a concrete default already, so
+# there is nothing for None/False to opt out of -- and CLIConfig types them as
+# plain `int`/`float` (not `| None`), so pydantic already rejects None there on
+# construction. Before this constant existed, the loop below skipped None/
+# False for *all eleven* fields, so passing e.g. ``threshold=None`` straight to
+# Auto3DOptions (a dataclass with no type-coercion step) was silently accepted
+# while ``CLIConfig(threshold=None)`` rejected it -- the same
+# entry-point-dependent divergence this phase closed for k/window/memory/
+# max_confs, just left open for the other seven. Scoping the skip to exactly
+# this set, rather than every key in FIELD_BOUNDS, is what closes it: an
+# explicit None/False on any of the seven now falls through to the same
+# comparison (and the same ConfigurationError) on both entry points instead of
+# being silently waved through on the Auto3DOptions side only.
+SENTINEL_FIELDS: frozenset[str] = frozenset({"k", "window", "memory", "max_confs"})
+
+# Mutually-exclusive conformer-selection strategies (see
+# check_selectors_mutually_exclusive below). Exposed as a shared tuple --
+# rather than left implicit in that function's body -- so other call sites
+# that need to know which fields are alternative selectors, not just whether
+# a given combination is invalid, use the same list instead of hardcoding
+# "k"/"window" a second time. cli/config_schema.py's merge_configs is exactly
+# such a site: an explicit CLI override of one selector must clear every
+# *other* selector from the base config (so an override substitutes for the
+# file's selector instead of accumulating alongside it), which requires
+# knowing the full set of selector field names, not just how to reject an
+# invalid combination of them. Adding a third selector needs only one edit,
+# here, to take effect on both the rejection (below) and the substitution
+# (merge_configs).
+SELECTOR_FIELDS: tuple[str, ...] = ("k", "window")
+
+_BOUND_OPS: dict[str, tuple[object, str]] = {
+    "ge": (operator.ge, ">="),
+    "gt": (operator.gt, ">"),
+}
+
+
+def check_field_bounds(values: dict) -> None:
+    """Validate ``values`` (field name -> value) against ``FIELD_BOUNDS``.
+
+    Shared by Auto3DOptions.__post_init__ and CLIConfig's model validator so
+    both entry points reject the same out-of-range values with the same
+    message -- this is what closes C10/M27 on every path instead of just one.
+
+    A value of ``None`` or ``False`` means "not specified" (dynamic/default
+    behavior) only for the fields in ``SENTINEL_FIELDS`` (k, window,
+    max_confs, memory) and is skipped there, matching both classes' existing
+    sentinel conventions. Every other bounded field has no "unset" meaning and
+    must reject ``None``/``False`` just like any other out-of-range value (see
+    ``SENTINEL_FIELDS``'s docstring). Fields missing from ``values`` are
+    skipped too, so callers may pass a partial mapping.
+
+    Raises:
+        ConfigurationError: naming the field and the received value.
+    """
+    for name, (kind, limit) in FIELD_BOUNDS.items():
+        if name not in values:
+            continue
+        value = values[name]
+        if name in SENTINEL_FIELDS and (value is None or value is False):
+            continue
+        cmp, symbol = _BOUND_OPS[kind]
+        try:
+            in_bounds = cmp(value, limit)
+        except TypeError as exc:
+            # A non-numeric value (e.g. threshold="0.3", a str) makes the
+            # comparison itself raise -- a bare TypeError here is exactly
+            # the kind of untyped raise this phase is closing everywhere
+            # else (see the mutual-exclusion and range checks below/above),
+            # so it must be a ConfigurationError too, not a fall-through
+            # exception the CLI's `handle_error` treats as an "Unexpected
+            # Error" (exit code 1, no hint) instead of a configuration
+            # problem (exit code 2, "run auto3d config init").
+            raise ConfigurationError(
+                f"{name} must be a number, got {value!r}"
+            ) from exc
+        if not in_bounds:
+            raise ConfigurationError(
+                f"{name} must be {symbol} {limit}, got {value!r}"
+            )
+    check_selectors_mutually_exclusive(values)
+
+
+def check_selectors_mutually_exclusive(values: dict) -> None:
+    """Reject more than one of ``SELECTOR_FIELDS`` (currently ``k``/
+    ``window``) being specified at once (M28).
+
+    They are alternative conformer-selection strategies -- top-k vs. an
+    energy window -- and ``ConformerRanker.run`` (ranking.py) only consults
+    one of them, so specifying both means one is silently inert. This is
+    what the shipped ``thorough`` preset (cli/commands/config.py) did before
+    this fix: ``k=10`` and ``window=5.0`` together, with ``k`` always
+    winning.
+
+    Called from inside ``check_field_bounds`` (rather than as a second call
+    each caller must remember to make) so both ``Auto3DOptions.__post_init__``
+    and ``CLIConfig``'s model validator inherit it automatically -- neither
+    needed a code change to pick this up.
+
+    ``select_tautomers`` (Auto3D/tautomer.py) already rejects the equivalent
+    combination for tautomer selection, but with a bare ``ValueError`` (one
+    of the un-typed raises M29 tracks) -- not an ``Auto3DError`` subclass.
+    This raises ``ConfigurationError`` instead, matching this module's own
+    convention (every other bound above does the same) and its docstring's
+    "incompatible parameter combinations" case, so it can be caught the same
+    way as any other configuration-shape violation. The message deliberately
+    echoes select_tautomers's wording ("Only k OR window needs to be
+    specified") rather than inventing new phrasing.
+
+    ``None``/``False`` mean "not specified", the same convention used above:
+    by the time this runs, an out-of-range k/window (e.g. ``k=0``) has
+    already raised in the loop above, so a value reaching here is either
+    unset or a valid, deliberately-specified one.
+    """
+    provided = {f: values.get(f) for f in SELECTOR_FIELDS if values.get(f)}
+    if len(provided) > 1:
+        got = ", ".join(f"{name}={value!r}" for name, value in provided.items())
+        raise ConfigurationError(
+            f"Only one of {' or '.join(SELECTOR_FIELDS)} may be specified, got {got}"
+        )
 
 
 def optimizer_worker_indices(
@@ -145,12 +297,7 @@ class Auto3DOptions:
         self.tauto_engine = self.tauto_engine.lower()
         self.isomer_engine = self.isomer_engine.lower()
         self.mode_oe = self.mode_oe.lower()
-        # Reject genuinely negative k/window. The default `False` (a bool, which
-        # is an int subclass) and 0 both mean "not specified" and are allowed.
-        if self.k is not None and self.k is not False and self.k < 0:
-            raise ValueError(f"k must be non-negative, got {self.k}")
-        if self.window is not None and self.window is not False and self.window < 0:
-            raise ValueError(f"window must be non-negative, got {self.window}")
+        check_field_bounds({name: getattr(self, name) for name in FIELD_BOUNDS})
 
     def __getitem__(self, key: str):
         """Allow dict-like access for backward compatibility."""

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,7 @@ from Auto3D.models.preflight import preflight_model
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
     check_input,
+    check_valid_configuration,
     create_chunk_meta_names,
     reorder_sdf,
 )
@@ -113,12 +115,41 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         List of RDKit Mol objects representing low-energy conformers.
 
     Raises:
-        ConfigurationError: If neither k nor window is specified, or the
-            optimizing engine name is not recognized.
+        ConfigurationError: If neither k nor window is specified, the
+            optimizing engine name is not recognized, the configuration is
+            otherwise invalid (e.g. an out-of-range ``gpu_idx``), or an
+            option this function cannot honor is requested --
+            ``enumerate_tautomer=True`` (no tautomer-enumeration step) or a
+            non-``'rdkit'`` ``isomer_engine`` (the RDKit engine is
+            hardcoded, so ``mode_oe`` has no effect either). Use ``main()``
+            for either of those.
         ModelLoadError: If the optimizing model could not be obtained or
             loaded.
         DependencyError: If a required optional dependency is missing.
     """
+    # Copy the caller's config up front: smiles2mols must not mutate the
+    # object it was given (M15). Every assignment below (path, input_format)
+    # lands on this private copy; `args` no longer refers to the caller's
+    # object for the rest of this function.
+    args = replace(args)
+
+    # smiles2mols has no tautomer-enumeration step and hardcodes the RDKit
+    # isomer engine below (mode_oe only ever affects the omega engine, so it
+    # has no effect here regardless) -- silently ignoring these three options
+    # was M15. Raise instead of letting the caller believe they took effect.
+    if args.enumerate_tautomer:
+        raise ConfigurationError(
+            "smiles2mols does not support enumerate_tautomer=True: it has no "
+            "tautomer-enumeration step. Use main() for tautomer enumeration."
+        )
+    if args.isomer_engine.lower() != "rdkit":
+        raise ConfigurationError(
+            f"smiles2mols only supports isomer_engine='rdkit', got "
+            f"{args.isomer_engine!r}. The RDKit engine is hardcoded here "
+            "(mode_oe has no effect either way). Use main() for a "
+            "non-RDKit isomer engine."
+        )
+
     # Configure PyTorch settings (TF32, cuDNN benchmark)
     from Auto3D.torch_config import TorchConfig, configure_torch
     torch_config = TorchConfig(allow_tf32=args.allow_tf32)
@@ -127,7 +158,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     with tempfile.TemporaryDirectory() as tmpdirname:
         path0 = str(Path(tmpdirname) / "smiles.smi")
         smiles2smi(smiles, path0)  # save all SMILES into a smi file
-        args['path'] = path0
+        args.path = path0
         k = args.k
         window = args.window
         if (not k) and (not window):
@@ -136,6 +167,28 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
                 "Usually, setting '--k=1' satisfies most needs."
             )
         args.input_format = 'smi'
+
+        # Fail fast on an invalid configuration (notably an out-of-range
+        # gpu_idx) the same way main() does via WorkflowOrchestrator --
+        # check_input alone does not catch this, so it used to only surface
+        # opaquely deep inside optimization.
+        config_errors = check_valid_configuration(
+            path=args.path,
+            k=args.k,
+            window=args.window,
+            use_gpu=args.use_gpu,
+            gpu_idx=args.gpu_idx,
+            optimizing_engine=args.optimizing_engine,
+            isomer_engine=args.isomer_engine,
+            opt_steps=args.opt_steps,
+            enumerate_tautomer=args.enumerate_tautomer,
+            tauto_engine=args.tauto_engine,
+        )
+        if config_errors:
+            raise ConfigurationError(
+                "Invalid configuration:\n  - " + "\n  - ".join(config_errors)
+            )
+
         check_input(args)
 
         # Resolve the engine name and verify the model is obtainable HERE

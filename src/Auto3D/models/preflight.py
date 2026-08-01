@@ -11,8 +11,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import requests
-
 from Auto3D.constants import DEFAULT_AIMNET_MODEL, MODEL_AIMNET, MODEL_ANI2X, MODEL_ANI2XT
 from Auto3D.exceptions import ConfigurationError, ModelLoadError
 
@@ -48,11 +46,22 @@ def resolve_engine_name(name: str) -> str:
 
     Args:
         name: An engine name: ``ANI2x``, ``ANI2xt``, ``AIMNET``, an aimnet
-            registry name or alias, or a path to a custom NNP file.
+            registry name or alias, or a path to a custom NNP file. The three
+            named engines (``ANI2x``, ``ANI2xt``, ``AIMNET``) are matched
+            case-insensitively -- ``ani2x``, ``ANI2X``, ``ani2xt``, and
+            ``aimnet`` are all accepted, matching ``ModelFactory.create``'s
+            own ``name.upper()`` comparison (``model_factory.py``). Registry
+            names/aliases are folded to lowercase before the registry lookup,
+            since ``resolve_registry_model_name`` does a plain, unfolded dict
+            lookup and the registry's own keys/aliases are lowercase-only
+            (e.g. ``aimnet2``, ``aimnet2-2025``); a custom NNP path is passed
+            through with its case untouched, since filesystem paths are
+            case-sensitive on most platforms.
 
     Returns:
-        The value unchanged for the named engines and custom paths, or the
-        resolved registry model name for an aimnet name or alias.
+        The canonical name for the named engines (``ANI2x``/``ANI2xt``), the
+        path unchanged for a custom NNP file, or the resolved registry model
+        name for an aimnet name or alias.
 
     Raises:
         ConfigurationError: If the name is none of those. The message lists
@@ -60,9 +69,24 @@ def resolve_engine_name(name: str) -> str:
             case this exists to catch and "not found in the registry" alone
             does not tell the user what they may write instead.
     """
-    if name in (MODEL_ANI2X, MODEL_ANI2XT):
-        return name
-    if Path(name).exists():
+    name_upper = name.upper()
+
+    # Named engines are resolved by identity FIRST, before any filesystem
+    # check -- mirroring ModelFactory.create's deliberate order
+    # (model_factory.py:109-116): a file that happens to share a reserved
+    # engine's name in the working directory must never hijack that name into
+    # being treated as a custom NNP path. "AIMNET" is included here for the
+    # same reason, even though it is not one of ModelFactory's two built-in
+    # ANI adapters -- it is still a reserved literal, and the aimnet registry
+    # branch below must not silently degrade into "whatever file happens to
+    # be named AIMNET".
+    if name_upper == MODEL_ANI2X.upper():
+        return MODEL_ANI2X
+    if name_upper == MODEL_ANI2XT.upper():
+        return MODEL_ANI2XT
+    is_aimnet_literal = name_upper == MODEL_AIMNET
+
+    if not is_aimnet_literal and Path(name).exists():
         return name
 
     from aimnet.calculators.model_registry import (
@@ -70,7 +94,7 @@ def resolve_engine_name(name: str) -> str:
         resolve_registry_model_name,
     )
 
-    candidate = DEFAULT_AIMNET_MODEL if name.upper() == MODEL_AIMNET else name
+    candidate = DEFAULT_AIMNET_MODEL if is_aimnet_literal else name.lower()
     try:
         return resolve_registry_model_name(candidate)
     except ValueError as exc:
@@ -139,6 +163,13 @@ def preflight_model(engine: str) -> None:
 
     # Deferred: only needed on this call path, and keeps the module's other
     # (pure, offline) functions importable without pulling in the model stack.
+    # `requests` is now also declared directly in pyproject.toml (previously
+    # it arrived only transitively, via aimnet's own `requests>=2.32.3`), but
+    # deferring the import here still matters on its own: `import Auto3D.utils`
+    # (which reaches this module through utils/validation.py) stays free of a
+    # dependency it does not otherwise need, regardless of how `requests`
+    # is declared.
+    import requests
     from aimnet.calculators.model_registry import get_registry_model_path
 
     # Resolved as a plain string before the try, and reused in every handler

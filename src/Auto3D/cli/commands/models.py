@@ -230,7 +230,13 @@ def execute_models_test(
         from Auto3D.batch_opt.species import to_model_species
         from Auto3D.exceptions import NumericalError
         from Auto3D.model_factory import create_model, get_device
+        from Auto3D.utils.validation import check_gpu_requested
 
+        # `energy`/`optimize`/`thermo` (cli/commands/properties.py) already call
+        # this before doing any work; `models test` reached
+        # model_factory.get_device directly and silently fell back to CPU on a
+        # CPU-only box instead of failing the same way -- the last M23 gap.
+        check_gpu_requested(gpu)
         device = get_device(gpu_idx, use_gpu=gpu)
         with console.status(f"[bold]Loading {engine} on {device}..."):
             t0 = time.time()

@@ -89,12 +89,73 @@ use_gpu: false
     assert config.use_gpu is False
 
 
+def test_load_yaml_config_validation_failure_is_configuration_error(tmp_path):
+    """A bad value in the YAML file itself (not a CLI override) must raise
+    ConfigurationError from load_yaml_config, not a raw pydantic
+    ValidationError.
+
+    Before this fix, `merge_configs` (the sibling construction site) already
+    translated ValidationError -> ConfigurationError, but `load_yaml_config`
+    did not: `auto3d run in.smi -c cfg.yaml` with `cfg.yaml` setting `k: 0`
+    exited 1 under the generic "Unexpected Error" panel instead of exit 2
+    with the "run auto3d config init" hint, because `execute_run`
+    (cli/commands/run.py) only special-cases `Auto3DError` and an
+    untranslated `ValidationError` fell through to its `except Exception`
+    clause. Both `load_yaml_config` and `merge_configs` now go through the
+    shared `build_cli_config` helper.
+    """
+    from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.exceptions import ConfigurationError
+
+    yaml_file = tmp_path / "bad_config.yaml"
+    yaml_file.write_text("path: input.smi\nk: 0\n")
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        load_yaml_config(yaml_file)
+    # Must be the translated ConfigurationError, not the raw pydantic error.
+    assert not isinstance(exc_info.value, ValidationError)
+
+
 def test_config_accepts_registry_and_path_engines(tmp_path):
     from Auto3D.cli.config_schema import CLIConfig
     for eng in ("AIMNET", "aimnet2-2025", "ANI2x"):
         assert CLIConfig(path="x.smi", optimizing_engine=eng).optimizing_engine == eng
     f = tmp_path / "m.pt"; f.write_text("x")
     assert CLIConfig(path="x.smi", optimizing_engine=str(f)).optimizing_engine == str(f)
+
+
+@pytest.mark.parametrize(
+    "raw,canonical",
+    [
+        ("ani2x", "ANI2x"),
+        ("ANI2X", "ANI2x"),
+        ("ani2xt", "ANI2xt"),
+        ("ANI2XT", "ANI2xt"),
+        ("Aimnet2", "Aimnet2"),  # not a named engine: passes through verbatim
+        ("AIMNET", "AIMNET"),
+        ("aimnet", "AIMNET"),
+    ],
+)
+def test_config_accepts_case_insensitive_engine_names(raw, canonical):
+    """Regression: `ani2x`/`ANI2X`/`ani2xt`/`ANI2XT`/`Aimnet2` must all be
+    accepted by CLIConfig -- they were all rejected with "Unknown
+    optimizing_engine" once `_validate_engine` started delegating to
+    `resolve_engine_name`, which (before this fix) compared engine names with
+    exact, case-sensitive equality. `auto3d run in.smi --engine ani2x` and
+    any YAML with `optimizing_engine: ani2x` died on this.
+
+    The CLIConfig field itself preserves the caller's casing verbatim (see
+    test_config_accepts_registry_and_path_engines); `to_auto3d_options()` is
+    what normalizes the three named engines to their canonical mixed-case
+    spelling via `engine_map`, checked here.
+    """
+    from Auto3D.cli.config_schema import CLIConfig
+
+    config = CLIConfig(path="x.smi", optimizing_engine=raw)
+    assert config.optimizing_engine == raw
+    assert config.to_auto3d_options().optimizing_engine == canonical
 
 
 def test_config_rejects_garbage_engine():
@@ -131,6 +192,64 @@ def test_merge_cli_overrides():
     assert merged.use_gpu is False
 
 
+def test_merge_configs_cli_k_overrides_file_window():
+    """`--k` on the CLI must substitute the config file's `window`, not
+    accumulate alongside it.
+
+    `auto3d run in.smi -c cfg.yaml --k 1` with `cfg.yaml` setting
+    `window: 5.0` used to hard-fail the mutual-exclusion rule (M28) because
+    the override was added to the base dict instead of substituting for the
+    file's other selector -- reproduced directly here via `merge_configs`.
+    """
+    from Auto3D.cli.config_schema import CLIConfig, merge_configs
+
+    base = CLIConfig(path=Path("test.smi"), window=5.0)
+    merged = merge_configs(base, {"k": 1})
+
+    assert merged.k == 1
+    assert merged.window is None
+
+
+def test_merge_configs_cli_window_overrides_file_k():
+    """Same substitution, the other direction: `--window` must clear the
+    file's `k`."""
+    from Auto3D.cli.config_schema import CLIConfig, merge_configs
+
+    base = CLIConfig(path=Path("test.smi"), k=10)
+    merged = merge_configs(base, {"window": 2.5})
+
+    assert merged.window == 2.5
+    assert merged.k is None
+
+
+def test_merge_configs_explicit_cli_conflict_still_raises():
+    """Two explicit, genuinely conflicting CLI selectors (`--k` AND
+    `--window` both passed) must still be rejected -- the substitution
+    added by this fix only clears the *other* source's selector, not a
+    selector the same override dict explicitly sets."""
+    from Auto3D.cli.config_schema import CLIConfig, merge_configs
+    from Auto3D.exceptions import ConfigurationError
+
+    base = CLIConfig(path=Path("test.smi"))
+    with pytest.raises(ConfigurationError):
+        merge_configs(base, {"k": 1, "window": 2.0})
+
+
+def test_merge_configs_validation_failure_is_configuration_error():
+    """A CLIConfig validation failure surfacing from merge_configs must be a
+    ConfigurationError (exit 2, with a hint), not a raw pydantic
+    ValidationError (which cli/commands/run.py's `except Auto3DError`
+    clause does not catch, so it fell through to the generic "Unexpected
+    Error" exit-1 path instead).
+    """
+    from Auto3D.cli.config_schema import CLIConfig, merge_configs
+    from Auto3D.exceptions import ConfigurationError
+
+    base = CLIConfig(path=Path("test.smi"), k=1)
+    with pytest.raises(ConfigurationError):
+        merge_configs(base, {"threshold": -1})
+
+
 def test_config_exposes_batchsize_and_tf32():
     """batchsize_atoms and allow_tf32 are accepted by CLIConfig and forwarded to
     Auto3DOptions (so the shipped parameters.yaml loads via `auto3d run -c`)."""
@@ -154,6 +273,106 @@ def test_shipped_parameters_yaml_loads():
     assert cfg.k == 1
     assert cfg.window is None
     cfg.to_auto3d_options()  # must not raise
+
+
+def test_shipped_legacy_v2_parameters_yaml_loads():
+    """docs/legacy-v2/parameters.yaml (``k: 1`` / ``window: False``) must
+    validate through the exact construction ``auto3Dcli._run_legacy_yaml``
+    uses -- ``yaml.safe_load`` + the "None"-string-to-None conversion +
+    ``CLIConfig(**parameters)`` (auto3Dcli.py, around the ``CLIConfig(
+    **parameters)`` call) -- not the pipeline itself. Before this fix,
+    ``window: False`` was coerced by Pydantic to ``0.0`` ahead of
+    ``CLIConfig``'s bound-check model validator, which then rejected it as
+    a non-positive window: this exact file, run through this exact CLI
+    entry point, raised ``ValidationError`` and exited 1 on this branch
+    while working unmodified on `main`.
+    """
+    import yaml as yaml_mod
+
+    from Auto3D.cli.config_schema import CLIConfig
+
+    repo_root = Path(__file__).resolve().parent.parent
+    yaml_path = repo_root / "docs" / "legacy-v2" / "parameters.yaml"
+
+    with open(yaml_path) as f:
+        parameters = yaml_mod.safe_load(f)
+    for key, val in list(parameters.items()):
+        if val == "None":
+            parameters[key] = None
+
+    config = CLIConfig(**parameters)  # must not raise
+    assert config.k == 1
+    assert config.window is None  # False normalized to CLIConfig's own sentinel
+    assert config.memory is None
+    assert config.max_confs is None
+    config.to_auto3d_options()  # must not raise either
+
+
+def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
+    """``docs/legacy-v2/tauto.yaml`` carries keys from a removed feature and
+    must be rejected as an ``Auto3D.exceptions.ConfigurationError``, naming
+    them -- exactly what CHANGELOG.md and docs/source/migration-4.0.rst now
+    tell 4.0 users to catch.
+
+    Both documents previously said this raised a field-named
+    ``pydantic.ValidationError``, which stopped being true when the legacy
+    YAML path moved onto ``build_cli_config``: a reader who wrote
+    ``except pydantic.ValidationError`` around it would catch nothing and let
+    the error escape. This pins the type the migration guide promises, at the
+    exact file the guide names.
+    """
+    from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.exceptions import Auto3DError, ConfigurationError
+
+    repo_root = Path(__file__).resolve().parent.parent
+    yaml_path = repo_root / "docs" / "legacy-v2" / "tauto.yaml"
+    assert yaml_path.exists(), "the migration guide names this file"
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        load_yaml_config(yaml_path)
+
+    # ConfigurationError is an Auto3DError, so `except Auto3DError` in
+    # cli/commands/run.py catches it -- exit 2 with a hint, not exit 1 under
+    # "Unexpected Error".
+    assert isinstance(exc_info.value, Auto3DError)
+    # ...and it is NOT the raw pydantic error the docs used to name.
+    assert not isinstance(exc_info.value, ValidationError)
+    # The field names survive the translation; that is the whole reason the
+    # message is worth showing.
+    assert "tauto_k" in str(exc_info.value)
+
+
+def test_build_cli_config_translates_non_pydantic_validator_errors():
+    """A value a field validator cannot coerce must still surface as
+    ``ConfigurationError``, not as whatever exception the coercion raised.
+
+    ``build_cli_config`` translated only ``ValidationError``. Pydantic turns a
+    ``ValueError``/``AssertionError`` raised inside a validator into a
+    field-named ``ValidationError``, but re-raises anything else untouched --
+    and ``CLIConfig.parse_gpu_idx`` calls ``int(v)``, which raises
+    ``TypeError`` for a mapping. So ``auto3d run in.smi -c cfg.yaml`` with
+    ``gpu_idx: {a: 1}`` leaked a bare ``TypeError`` past
+    ``cli/commands/run.py``'s ``except Auto3DError`` clause into its
+    ``except Exception`` fallback: "Unexpected Error" at exit code 1, for a
+    plain bad value in a config file -- the exact outcome
+    ``build_cli_config`` exists to eliminate.
+    """
+    from Auto3D.cli.config_schema import build_cli_config
+    from Auto3D.exceptions import ConfigurationError
+
+    with pytest.raises(ConfigurationError):
+        build_cli_config(path=Path("in.smi"), k=1, gpu_idx={"a": 1})
+
+    # A list element is coerced the same way, so the same leak was reachable
+    # through `gpu_idx: [0, {a: 1}]` too.
+    with pytest.raises(ConfigurationError):
+        build_cli_config(path=Path("in.smi"), k=1, gpu_idx=[0, {"a": 1}])
+
+    # Still valid input must still be accepted -- the new except clause must
+    # not swallow anything that used to work.
+    assert build_cli_config(path=Path("in.smi"), k=1, gpu_idx="0,1").gpu_idx == [0, 1]
 
 
 def test_cliconfig_covers_all_auto3doptions_fields():

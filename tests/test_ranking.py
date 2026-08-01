@@ -370,6 +370,76 @@ class TestConformerRankerTopWindow:
         assert len(results) >= 1
 
 
+class TestConformerRankerSelectorExclusivity:
+    """``ConformerRanker`` must reject a k+window combination the same way --
+    and with the same words -- as ``Auto3DOptions``/``CLIConfig``.
+
+    ``ConformerRanker.run`` consults exactly one selector
+    (``if self.k: ... elif self.window: ...``), so a caller who sets both
+    silently gets top-k and an inert window. Both config classes catch that at
+    construction time via ``Auto3D.config.check_field_bounds``; ``run`` is the
+    guard for callers who build a ``ConformerRanker`` directly. It used to
+    carry its own hand-written copy of the check, which had already drifted
+    from the shared one ("got k=1 and window=5.0" vs "got k=1, window=5.0"),
+    so the same misconfiguration was described two different ways depending on
+    which door the caller came through.
+    """
+
+    @staticmethod
+    def _ranker(tmp_path, **kwargs):
+        from Auto3D.ranking import ConformerRanker
+
+        # A real, readable input SDF -- not a missing path and not a 0-byte
+        # file, both of which make RDKit raise OSError. With the guard removed,
+        # `run` then proceeds to completion and returns [] instead of raising,
+        # so `pytest.raises` fails for the right reason rather than being
+        # satisfied by an unrelated file error. The single record is marked
+        # not-converged so `run` selects nothing and the result is [].
+        input_path = tmp_path / "input.sdf"
+        _write_mols_to_sdf(
+            [_create_mol_with_energy("C", -10.0, "mol_1", converged=False)],
+            str(input_path),
+        )
+        return ConformerRanker(
+            input_path=str(input_path),
+            out_path=str(tmp_path / "output.sdf"),
+            threshold=0.3,
+            **kwargs,
+        )
+
+    def test_k_and_window_together_raise(self, tmp_path):
+        from Auto3D.exceptions import ConfigurationError
+
+        ranker = self._ranker(tmp_path, k=1, window=5.0)
+        with pytest.raises(ConfigurationError, match="Only one of k or window"):
+            ranker.run()
+
+    def test_message_is_identical_to_the_config_classes(self, tmp_path):
+        """The wording must come from the one shared implementation.
+
+        Reverting `run` to its own inlined check reintroduces the "and"/","
+        drift and fails this comparison; a message reworded in
+        `Auto3D.config` alone can no longer leave `ranking.py` behind.
+        """
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import ConfigurationError
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+
+        with pytest.raises(ConfigurationError) as from_ranker:
+            self._ranker(tmp_path, k=1, window=5.0).run()
+        with pytest.raises(ConfigurationError) as from_config:
+            Auto3DOptions(path=str(smi), k=1, window=5.0)
+
+        assert str(from_ranker.value) == str(from_config.value)
+
+    def test_one_selector_alone_is_accepted(self, tmp_path):
+        """The guard must reject only the combination, not either selector."""
+        assert self._ranker(tmp_path, k=1).run() == []
+        assert self._ranker(tmp_path, window=5.0).run() == []
+
+
 class TestConformerRankerValidation:
     """Tests for input validation with proper ValueError exceptions."""
 

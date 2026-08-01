@@ -201,12 +201,20 @@ class TestCLIExceptionHandling:
     # Legacy YAML path now (a) checks the file exists and (b) maps exception
     # types to differentiated exit codes (see Auto3D.cli.errors.EXIT_CODES):
     # ConfigurationError -> 2, GPUError -> 4, generic Auto3DError/Optimization -> 1.
+    #
+    # optimizing_engine is 'ANI2xt' (a built-in name), not 'AIMNET', because
+    # this legacy path now runs through CLIConfig (Task 1, C10/M27 parity),
+    # whose engine validator resolves an aimnet-family name against the real
+    # `aimnet` package registry. 'ANI2xt' short-circuits that resolution
+    # (Auto3D.models.preflight.resolve_engine_name's first branch) with no
+    # import of `aimnet` at all, keeping this exception-mapping test from
+    # depending on that heavy optional dependency importing cleanly.
     _LEGACY_YAML = {
         'path': '/fake/path.smi', 'k': 1, 'window': None, 'memory': None,
         'capacity': 40, 'enumerate_tautomer': False, 'tauto_engine': 'rdkit',
         'pKaNorm': True, 'isomer_engine': 'rdkit', 'max_confs': None,
         'enumerate_isomer': True, 'mode_oe': 'classic', 'mpi_np': 4,
-        'optimizing_engine': 'AIMNET', 'use_gpu': False, 'gpu_idx': 0,
+        'optimizing_engine': 'ANI2xt', 'use_gpu': False, 'gpu_idx': 0,
         'opt_steps': 2000, 'convergence_threshold': 0.01, 'patience': 250,
         'threshold': 0.3, 'verbose': False, 'job_name': '',
     }
