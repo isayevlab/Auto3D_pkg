@@ -308,6 +308,73 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
     config.to_auto3d_options()  # must not raise either
 
 
+def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
+    """``docs/legacy-v2/tauto.yaml`` carries keys from a removed feature and
+    must be rejected as an ``Auto3D.exceptions.ConfigurationError``, naming
+    them -- exactly what CHANGELOG.md and docs/source/migration-4.0.rst now
+    tell 4.0 users to catch.
+
+    Both documents previously said this raised a field-named
+    ``pydantic.ValidationError``, which stopped being true when the legacy
+    YAML path moved onto ``build_cli_config``: a reader who wrote
+    ``except pydantic.ValidationError`` around it would catch nothing and let
+    the error escape. This pins the type the migration guide promises, at the
+    exact file the guide names.
+    """
+    from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.exceptions import Auto3DError, ConfigurationError
+
+    repo_root = Path(__file__).resolve().parent.parent
+    yaml_path = repo_root / "docs" / "legacy-v2" / "tauto.yaml"
+    assert yaml_path.exists(), "the migration guide names this file"
+
+    with pytest.raises(ConfigurationError) as exc_info:
+        load_yaml_config(yaml_path)
+
+    # ConfigurationError is an Auto3DError, so `except Auto3DError` in
+    # cli/commands/run.py catches it -- exit 2 with a hint, not exit 1 under
+    # "Unexpected Error".
+    assert isinstance(exc_info.value, Auto3DError)
+    # ...and it is NOT the raw pydantic error the docs used to name.
+    assert not isinstance(exc_info.value, ValidationError)
+    # The field names survive the translation; that is the whole reason the
+    # message is worth showing.
+    assert "tauto_k" in str(exc_info.value)
+
+
+def test_build_cli_config_translates_non_pydantic_validator_errors():
+    """A value a field validator cannot coerce must still surface as
+    ``ConfigurationError``, not as whatever exception the coercion raised.
+
+    ``build_cli_config`` translated only ``ValidationError``. Pydantic turns a
+    ``ValueError``/``AssertionError`` raised inside a validator into a
+    field-named ``ValidationError``, but re-raises anything else untouched --
+    and ``CLIConfig.parse_gpu_idx`` calls ``int(v)``, which raises
+    ``TypeError`` for a mapping. So ``auto3d run in.smi -c cfg.yaml`` with
+    ``gpu_idx: {a: 1}`` leaked a bare ``TypeError`` past
+    ``cli/commands/run.py``'s ``except Auto3DError`` clause into its
+    ``except Exception`` fallback: "Unexpected Error" at exit code 1, for a
+    plain bad value in a config file -- the exact outcome
+    ``build_cli_config`` exists to eliminate.
+    """
+    from Auto3D.cli.config_schema import build_cli_config
+    from Auto3D.exceptions import ConfigurationError
+
+    with pytest.raises(ConfigurationError):
+        build_cli_config(path=Path("in.smi"), k=1, gpu_idx={"a": 1})
+
+    # A list element is coerced the same way, so the same leak was reachable
+    # through `gpu_idx: [0, {a: 1}]` too.
+    with pytest.raises(ConfigurationError):
+        build_cli_config(path=Path("in.smi"), k=1, gpu_idx=[0, {"a": 1}])
+
+    # Still valid input must still be accepted -- the new except clause must
+    # not swallow anything that used to work.
+    assert build_cli_config(path=Path("in.smi"), k=1, gpu_idx="0,1").gpu_idx == [0, 1]
+
+
 def test_cliconfig_covers_all_auto3doptions_fields():
     """Guard against config-layer drift: every user-facing Auto3DOptions field
     must be reachable from the CLI/YAML via CLIConfig. ``input_format`` is set

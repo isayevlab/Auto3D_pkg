@@ -13,7 +13,12 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from Auto3D.config import SELECTOR_FIELDS, Auto3DOptions, check_field_bounds
+from Auto3D.config import (
+    SELECTOR_FIELDS,
+    SENTINEL_FIELDS,
+    Auto3DOptions,
+    check_field_bounds,
+)
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
     DEFAULT_CAPACITY,
@@ -70,7 +75,14 @@ class CLIConfig(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    @field_validator("k", "window", "memory", "max_confs", mode="before")
+    # The field list is `Auto3D.config.SENTINEL_FIELDS` itself, not a second
+    # hand-maintained copy of the same four names: a fifth sentinel field
+    # added to that constant would otherwise keep `check_field_bounds`'s
+    # None/False skip but miss this False->None interception, silently
+    # reopening the exact entry-point divergence this phase closed (accepted
+    # by Auto3DOptions, rejected by CLIConfig). `sorted` only pins a
+    # deterministic argument order -- SENTINEL_FIELDS is a frozenset.
+    @field_validator(*sorted(SENTINEL_FIELDS), mode="before")
     @classmethod
     def _false_means_unset(cls, v: Any) -> Any:
         """Map the legacy ``False`` "not specified" sentinel to ``None``.
@@ -187,8 +199,8 @@ class CLIConfig(BaseModel):
 
 
 def build_cli_config(**kwargs: Any) -> CLIConfig:
-    """Construct a ``CLIConfig``, translating a pydantic ``ValidationError``
-    into Auto3D's own ``ConfigurationError``.
+    """Construct a ``CLIConfig``, translating any construction failure into
+    Auto3D's own ``ConfigurationError``.
 
     This is the one construction path every site that builds a ``CLIConfig``
     from external data (a YAML file, merged CLI overrides, a bare CLI
@@ -204,11 +216,31 @@ def build_cli_config(**kwargs: Any) -> CLIConfig:
     `cfg.yaml` setting `k: 0`. Concentrating the translation here, rather than
     duplicating the try/except at each construction site, is what keeps every
     site in sync with no second edit.
+
+    ``ValidationError`` is not the only way ``CLIConfig(...)`` can fail.
+    Pydantic converts a ``ValueError``/``AssertionError`` raised inside a
+    validator into a field-named ``ValidationError``, but it re-raises any
+    other exception unchanged -- and ``parse_gpu_idx`` above calls ``int(x)``,
+    which raises ``TypeError`` on a value that is neither a string, a number,
+    nor a list (``auto3d run in.smi -c cfg.yaml`` with ``gpu_idx: {a: 1}``).
+    Translating only ``ValidationError`` let that ``TypeError`` escape to
+    ``cli/commands/run.py``'s ``except Exception`` clause, producing the
+    generic "Unexpected Error" panel at exit code 1 -- precisely the outcome
+    this helper exists to eliminate, and for the same class of input (a bad
+    value in a config file) it already handles correctly everywhere else. A
+    malformed configuration value is a configuration error whichever layer
+    notices it, so it exits 2 with the "run auto3d config init" hint like
+    every other one.
     """
     try:
         return CLIConfig(**kwargs)
     except ValidationError as exc:
         raise ConfigurationError(str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        # Raised out of a field validator's own coercion (see above) rather
+        # than by pydantic, so it carries no field name -- say which layer
+        # rejected it instead of surfacing a bare "int() argument must be...".
+        raise ConfigurationError(f"Invalid configuration value: {exc}") from exc
 
 
 def load_yaml_config(yaml_path: Path) -> CLIConfig:
@@ -230,7 +262,7 @@ def merge_configs(base: CLIConfig, overrides: dict[str, Any]) -> CLIConfig:
     An override replaces the base's value for that field -- it does not
     accumulate alongside it. This matters most for the mutually-exclusive
     conformer-selection strategies in `Auto3D.config.SELECTOR_FIELDS` (`k`/
-    `window`; see `Auto3D.config._check_selectors_mutually_exclusive`): an
+    `window`; see `Auto3D.config.check_selectors_mutually_exclusive`): an
     explicit `--k`/`--window` on the CLI is the user choosing *which*
     strategy to use, substituting for whatever the config file set -- not
     requesting both at once. Before this fix, `auto3d run in.smi -c cfg.yaml

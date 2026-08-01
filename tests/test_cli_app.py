@@ -458,6 +458,43 @@ def test_run_cli_yaml_config_bounds_violation_is_configuration_error(
     assert "Unexpected Error" not in result.output
 
 
+def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """`auto3d run in.smi -c cfg.yaml` with `gpu_idx: {a: 1}` must exit 2 as
+    a ConfigurationError -- not exit 1 under "Unexpected Error".
+
+    Sibling of the `k: 0` case above, for the failure mode that case does not
+    reach: `k: 0` violates a bound and so becomes a pydantic
+    `ValidationError`, which `build_cli_config` already translated. A mapping
+    in `gpu_idx` instead makes `CLIConfig.parse_gpu_idx`'s own `int(v)` raise
+    `TypeError`, which pydantic re-raises untouched -- so it escaped
+    `build_cli_config`'s `except ValidationError`, escaped `execute_run`'s
+    `except Auto3DError`, and landed in the generic "Unexpected Error" panel
+    at exit 1. Same user mistake (a bad value in a config file), same
+    treatment required.
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+    cfg = tmp_path_cwd / "cfg.yaml"
+    cfg.write_text(
+        "path: placeholder.smi\nk: 1\ngpu_idx:\n  a: 1\n"
+        "optimizing_engine: ANI2xt\nuse_gpu: false\n"
+    )
+
+    import Auto3D.auto3D as a3d
+    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("main() must not run when config validation fails")
+    ))
+
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg)])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in result.output
+
+
 # Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
 # pinned without going through the CLI or a pipeline run at all.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 from rdkit import Chem
 
+from Auto3D.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
@@ -214,11 +215,20 @@ class ConformerRanker:
                 ConformerRanker directly).
         """
         logger.info("Begin to select structures that satisfy the requirements...")
-        if self.k and self.window:
-            raise ConfigurationError(
-                "Only one of k or window may be specified, got "
-                f"k={self.k!r} and window={self.window!r}"
-            )
+        # Delegated to Auto3D.config rather than re-implemented here. This was
+        # the third site that knew the k/window pair by name -- after
+        # Auto3DOptions and CLIConfig, both of which reach the same check via
+        # check_field_bounds -- and the copy had already drifted: its message
+        # read "got k=1 and window=5.0" where the shared one reads
+        # "got k=1, window=5.0", so the same misconfiguration was reported two
+        # different ways depending on whether the caller came through a config
+        # class or constructed ConformerRanker directly. Reading the field
+        # names from SELECTOR_FIELDS also means a third selector added to that
+        # tuple is rejected here too, instead of being accepted by
+        # ConformerRanker(...) alone while both config classes refuse it.
+        check_selectors_mutually_exclusive(
+            {name: getattr(self, name, None) for name in SELECTOR_FIELDS}
+        )
         results = []
 
         mols, names, energies = [], [], []

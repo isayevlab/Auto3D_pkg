@@ -13,6 +13,19 @@ from Auto3D.ASE.thermo import calc_thermo
 # Mark all tests in this module as slow (thermodynamic calculations)
 pytestmark = pytest.mark.slow
 
+# Every opt_geometry/calc_thermo call below passes use_gpu=False on purpose.
+# Both default to use_gpu=True, and Auto3D 4.0 made "GPU requested but no CUDA
+# device visible" FATAL rather than a silent CPU fallback
+# (Auto3D.utils.validation.check_gpu_requested, called first thing inside each
+# function). The slow CI job runs on ubuntu-latest -- CPU-only, like every
+# runner in this repo -- so leaving the default in place would make each of
+# these raise GPUError instead of computing anything. `gpu_idx` is deliberately
+# NOT passed alongside it: get_device ignores gpu_idx entirely once
+# use_gpu=False (model_factory.get_device returns torch.device('cpu')), so
+# `gpu_idx=0, use_gpu=False` would read as a contradiction while meaning
+# nothing -- and 0 was the default anyway. Same shape as
+# tests/test_thermo_reference.py.
+
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 try:
@@ -159,7 +172,7 @@ def test_calc_thermo_aimnet():
     reference_H = -314.45168666
 
     #compare Auto3D output with the above
-    out = calc_thermo(path, "AIMNET", opt_tol=0.003)
+    out = calc_thermo(path, "AIMNET", opt_tol=0.003, use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
 
     G_out = float(mol.GetProp("G_hartree"))
@@ -245,7 +258,7 @@ def test_vib_hessian_includes_external_dispersion():
 
 def test_opt_geometry1():
     path = os.path.join(folder, "tests/files/DA.sdf")
-    out = opt_geometry(path, 'ANI2x', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+    out = opt_geometry(path, 'ANI2x', opt_tol=0.1, opt_steps=5000, use_gpu=False)
     try:
         os.remove(out)
     except OSError:
@@ -253,7 +266,7 @@ def test_opt_geometry1():
 
 def test_opt_geometry2():
     path = os.path.join(folder, "tests/files/DA.sdf")
-    out = opt_geometry(path, 'ANI2xt', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+    out = opt_geometry(path, 'ANI2xt', opt_tol=0.1, opt_steps=5000, use_gpu=False)
     try:
         os.remove(out)
     except OSError:
@@ -261,7 +274,7 @@ def test_opt_geometry2():
 
 def test_opt_geometry3():
     path = os.path.join(folder, "tests/files/DA.sdf")
-    out = opt_geometry(path, 'AIMNET', gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+    out = opt_geometry(path, 'AIMNET', opt_tol=0.1, opt_steps=5000, use_gpu=False)
     try:
         os.remove(out)
     except OSError:
@@ -274,11 +287,11 @@ def test_opt_geometry_with_patience_and_batchsize():
     out = opt_geometry(
         path,
         'AIMNET',
-        gpu_idx=0,
         opt_tol=0.1,
         opt_steps=100,
         patience=50,
         batchsize_atoms=512,
+        use_gpu=False,
     )
     assert os.path.exists(out)
     try:
@@ -295,7 +308,7 @@ def test_opt_geometry4():
         myNNP_jit = torch.jit.script(myNNP)
         myNNP_jit.save(model_path)
     
-        out = opt_geometry(path, model_path, gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+        out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
     try:
         os.remove(out)
     except OSError:
@@ -309,7 +322,7 @@ def test_opt_geometry5():
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
     
-        out = opt_geometry(path, model_path, gpu_idx=0, opt_tol=0.1, opt_steps=5000)
+        out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
     try:
         os.remove(out)
     except OSError:
@@ -329,14 +342,14 @@ def test_calc_thermo_userNNP1():
         myNNP = userNNP1()
         myNNP_jit = torch.jit.script(myNNP)
         myNNP_jit.save(model_path)
-        out = calc_thermo(path, model_path, opt_tol=0.003)
+        out = calc_thermo(path, model_path, opt_tol=0.003, use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
 
     G_out = float(mol.GetProp("G_hartree"))
     H_out = float(mol.GetProp("H_hartree"))
 
     # compute thermodynamic properties with ani2x
-    out2 = calc_thermo(path, "ANI2x", opt_tol=0.003)
+    out2 = calc_thermo(path, "ANI2x", opt_tol=0.003, use_gpu=False)
     mol2 = next(Chem.SDMolSupplier(out2, removeHs=False))
     G_out2 = float(mol2.GetProp("G_hartree"))
     H_out2 = float(mol2.GetProp("H_hartree"))
@@ -365,7 +378,7 @@ def test_calc_thermo_userNNP2():
         myNNP = userNNP2()
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
-        out = calc_thermo(path, model_path, opt_tol=0.003)
+        out = calc_thermo(path, model_path, opt_tol=0.003, use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
 
     G_out = float(mol.GetProp("G_hartree"))

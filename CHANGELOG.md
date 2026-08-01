@@ -44,7 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first time: a stray key that used to be ignored now raises (an existing
   `docs/legacy-v2/tauto.yaml` example with a stale `tauto_k`/`tauto_window`
   key already failed before this change with a bare `TypeError`; it still
-  fails, now with a field-named `pydantic.ValidationError`).
+  fails, now with an `Auto3D.exceptions.ConfigurationError` whose message
+  names the offending keys). Note the exception type: every `CLIConfig` the
+  CLI builds goes through `build_cli_config`, which translates pydantic's
+  `ValidationError` into `ConfigurationError` so the message keeps the field
+  names while the type stays inside Auto3D's own hierarchy -- an
+  `except Auto3DError` clause catches it, and the CLI reports it as a
+  configuration problem (exit code 2, with a hint) rather than an
+  "Unexpected Error" (exit code 1). Constructing `CLIConfig(...)` directly,
+  bypassing that helper, still raises the raw pydantic `ValidationError`.
 
 - **`k` and `window` can no longer be set together.** They are alternative
   conformer-selection strategies and `ConformerRanker.run` only ever consulted

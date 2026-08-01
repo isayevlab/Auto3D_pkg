@@ -69,7 +69,7 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
 SENTINEL_FIELDS: frozenset[str] = frozenset({"k", "window", "memory", "max_confs"})
 
 # Mutually-exclusive conformer-selection strategies (see
-# _check_selectors_mutually_exclusive below). Exposed as a shared tuple --
+# check_selectors_mutually_exclusive below). Exposed as a shared tuple --
 # rather than left implicit in that function's body -- so other call sites
 # that need to know which fields are alternative selectors, not just whether
 # a given combination is invalid, use the same list instead of hardcoding
@@ -132,10 +132,10 @@ def check_field_bounds(values: dict) -> None:
             raise ConfigurationError(
                 f"{name} must be {symbol} {limit}, got {value!r}"
             )
-    _check_selectors_mutually_exclusive(values)
+    check_selectors_mutually_exclusive(values)
 
 
-def _check_selectors_mutually_exclusive(values: dict) -> None:
+def check_selectors_mutually_exclusive(values: dict) -> None:
     """Reject more than one of ``SELECTOR_FIELDS`` (currently ``k``/
     ``window``) being specified at once (M28).
 

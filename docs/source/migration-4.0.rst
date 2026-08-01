@@ -341,14 +341,39 @@ Legacy YAML now rejects unknown keys
 The legacy ``auto3d parameters.yaml`` entry point now builds a ``CLIConfig``
 (the same schema ``auto3d run -c`` uses) instead of constructing
 ``Auto3DOptions`` directly, so ``extra="forbid"`` now applies to it. A key
-your YAML file carries that ``CLIConfig`` does not recognize now raises a
-field-named ``pydantic.ValidationError`` instead of being silently ignored.
-This was never truly silent -- an unrecognized key already raised a bare
-``TypeError`` from ``Auto3DOptions``'s constructor before this release -- but
-the message is now specific rather than generic, and it now matches what
-``auto3d run -c`` has always done for the same mistake. (One stale example in
-the repository, ``docs/legacy-v2/tauto.yaml``, carries keys from a removed
-feature and fails both before and after this change.)
+your YAML file carries that ``CLIConfig`` does not recognize now raises
+``Auto3D.exceptions.ConfigurationError``, naming the offending key, instead
+of being silently ignored. This was never truly silent -- an unrecognized key
+already raised a bare ``TypeError`` from ``Auto3DOptions``'s constructor
+before this release -- but the message is now specific rather than generic,
+and it now matches what ``auto3d run -c`` has always done for the same
+mistake. (One stale example in the repository, ``docs/legacy-v2/tauto.yaml``,
+carries keys from a removed feature and fails both before and after this
+change.)
+
+Catch ``ConfigurationError``, not ``pydantic.ValidationError``. Pydantic is
+what detects the unknown key, but every ``CLIConfig`` the CLI builds is
+constructed through ``Auto3D.cli.config_schema.build_cli_config``, which
+translates ``ValidationError`` into ``ConfigurationError`` -- keeping the
+field-named message while putting the exception inside Auto3D's own
+hierarchy, so ``except Auto3DError`` catches it and the CLI reports a
+configuration problem (exit code 2, with a hint) rather than an "Unexpected
+Error" (exit code 1):
+
+.. code-block:: python
+
+   from pathlib import Path
+
+   from Auto3D.cli.config_schema import load_yaml_config
+   from Auto3D.exceptions import ConfigurationError
+
+   try:
+       config = load_yaml_config(Path("my_params.yaml"))
+   except ConfigurationError as exc:
+       print(f"bad config: {exc}")
+
+Constructing ``CLIConfig(...)`` directly, bypassing that helper, still raises
+the raw pydantic ``ValidationError``.
 
 GPU requested but unavailable is now fatal everywhere
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
