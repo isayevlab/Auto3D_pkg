@@ -12,6 +12,7 @@ from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
 from Auto3D.utils.chemistry import check_connectivity
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.stereo_check import stereo_preserved
+from Auto3D.utils.validation import check_output_not_input
 
 logger = get_logger(__name__)
 
@@ -80,6 +81,12 @@ class ConformerRanker:
         use_optimized_filtering: bool = True,
         energy_cluster_window: float = 0.1,
     ) -> None:
+        # Same C14 guard the three API entry points run. ConformerRanker is a
+        # documented public writer that reads `input_path` and opens
+        # `Chem.SDWriter(self.out_path)` in run(), so the same-file case
+        # replaces the user's input with the selected subset -- top-1 of it,
+        # under `k=1`. Checked at construction so it fails before any work.
+        check_output_not_input(input_path, out_path)
         self.input_path = input_path
         self.out_path = out_path
         self.threshold = threshold

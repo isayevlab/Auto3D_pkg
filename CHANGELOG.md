@@ -114,10 +114,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *Fixed*, below) makes a *failed* rewrite non-destructive, but it cannot
   help here -- a successful same-file run overwrites the input by design.
   A single `Auto3D.utils.validation.check_output_not_input` guard, called by
-  all three API functions before any device or model is constructed, now
-  raises `ConfigurationError` instead. Paths are compared by
-  `os.path.realpath`, so `mols.sdf`, `./mols.sdf`, an absolute path, and a
-  symlink pointing at the input are all refused. **This is breaking for
+  all three API functions before any device or model is constructed -- and by
+  `ConformerRanker`, a fourth public writer with the same exposure -- now
+  raises `ConfigurationError` instead. Two comparisons back it: `os.path.
+  realpath`, so `mols.sdf`, `./mols.sdf`, an absolute path, and a symlink to
+  the input are refused even when the output does not exist yet; and
+  `os.path.samefile` when both exist, which compares `st_dev`/`st_ino` and so
+  additionally catches a **hardlink** (`cp -l mols.sdf results.sdf` is one file
+  under two real paths) and a **case-insensitive filesystem** (`Mols.sdf` and
+  `mols.sdf` are one file on macOS APFS and Windows NTFS). Either of those
+  would slip past a realpath-only comparison and destroy the input.
+  **This is breaking for
   anyone who relied on in-place overwrite**: pass a distinct output path (or
   omit `-o`/`out_path` to get the default `<stem>_<model>_<E|opt|G>.sdf`
   beside the input) and move the result over the input yourself afterwards if

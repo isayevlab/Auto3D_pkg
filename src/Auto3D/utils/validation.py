@@ -167,11 +167,24 @@ def check_output_not_input(path: str, out_path: str | None) -> None:
     CLI commands pass ``--output`` straight through to those functions, so they
     are covered by the same call.
 
-    Compares resolved real paths, not the strings: ``mols.sdf``,
-    ``./mols.sdf``, an absolute path to the same file, and a symlink pointing
-    at it all name one file, and ``os.path.realpath`` collapses all four.
-    ``realpath`` does not require either path to exist, so an output path that
-    has not been created yet compares correctly.
+    Two comparisons, because neither alone is sufficient:
+
+    ``os.path.samefile`` is the authoritative test -- it compares ``st_dev`` and
+    ``st_ino``, so it catches the two cases string/``realpath`` comparison
+    misses entirely. A **hardlink** (``cp -l mols.sdf results.sdf``) is one file
+    under two names with two distinct real paths, so ``realpath`` compares them
+    unequal and writing to either destroys the other. A **case-insensitive
+    filesystem** (macOS APFS/HFS+, Windows NTFS -- both supported platforms)
+    resolves ``Mols.sdf`` and ``mols.sdf`` to one file whose real paths differ
+    only in case. Both defeat ``realpath`` equality; ``samefile`` sees through
+    both because the kernel already told it they are the same inode.
+
+    ``samefile`` requires both paths to exist, and in the normal case the output
+    does not yet -- so it is guarded by ``os.path.exists`` and the ``realpath``
+    comparison is kept as the fallback. That fallback is what catches the common
+    spellings (``mols.sdf`` vs ``./mols.sdf`` vs an absolute path vs a symlink)
+    when the output file has not been created yet, which ``samefile`` cannot
+    answer at all.
 
     Args:
         path: The input file the caller will read.
@@ -179,11 +192,22 @@ def check_output_not_input(path: str, out_path: str | None) -> None:
             (which is derived from `path` and never equals it).
 
     Raises:
-        ConfigurationError: `out_path` resolves to the same file as `path`.
+        ConfigurationError: `out_path` names the same file as `path`.
     """
     if out_path is None:
         return
-    if os.path.realpath(path) == os.path.realpath(out_path):
+
+    same = os.path.realpath(path) == os.path.realpath(out_path)
+    if not same and os.path.exists(path) and os.path.exists(out_path):
+        try:
+            same = os.path.samefile(path, out_path)
+        except OSError:
+            # A path that vanished between exists() and samefile(), or that
+            # cannot be stat'd. Fall back to the realpath verdict rather than
+            # failing the run on a check that is itself best-effort.
+            pass
+
+    if same:
         raise ConfigurationError(
             f"Output path {out_path!r} is the same file as the input {path!r}. "
             "Auto3D would overwrite your input; pass a different output path."

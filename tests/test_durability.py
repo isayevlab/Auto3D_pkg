@@ -521,3 +521,87 @@ class TestSameFileGuard:
         ):
             with pytest.raises(ConfigurationError):
                 check_output_not_input(str(sdf), spelling)
+
+    def test_a_hardlink_to_the_input_is_refused(self, job_dir):
+        """One file under two names must be caught, not just one path spelled
+        two ways.
+
+        `cp -l mols.sdf results.sdf` makes a single inode reachable by two
+        distinct names, so `os.path.realpath` resolves them to two DIFFERENT
+        strings and a realpath-only guard lets the write through -- destroying
+        the input it was supposed to protect. `os.path.samefile` compares
+        st_dev/st_ino, so it sees one file. Verified before the fix: the guard
+        returned normally here.
+
+        This is also the case that stands in for case-insensitive filesystems
+        (macOS APFS, Windows NTFS -- both supported): `Mols.sdf` and `mols.sdf`
+        are likewise one inode whose real paths differ. That cannot be tested
+        directly on this ext4 box, but it takes the identical samefile path.
+        """
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.utils.validation import check_output_not_input
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["a"])
+        hardlink = job_dir / "results.sdf"
+        os.link(sdf, hardlink)
+
+        # Precondition: this is exactly the case realpath cannot see.
+        assert os.path.realpath(str(sdf)) != os.path.realpath(str(hardlink))
+        assert os.path.samefile(str(sdf), str(hardlink))
+
+        with pytest.raises(ConfigurationError, match="same file"):
+            check_output_not_input(str(sdf), str(hardlink))
+
+    def test_a_genuinely_different_output_is_still_allowed(self, job_dir):
+        """Negative control: without this, a guard that always raised would
+        satisfy every other test in this class."""
+        from Auto3D.utils.validation import check_output_not_input
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["a"])
+
+        # Both an existing sibling and a not-yet-created output must pass.
+        other = job_dir / "other.sdf"
+        _write_sdf(other, ["b"])
+        check_output_not_input(str(sdf), str(other))
+        check_output_not_input(str(sdf), str(job_dir / "not_created_yet.sdf"))
+
+
+class TestConformerRankerSameFileGuard:
+    """ConformerRanker is a fourth public writer with the same exposure.
+
+    The audit found the same-file hazard by grepping for `check_gpu_requested`
+    call sites, which by construction can only return functions that are
+    ALREADY guarded -- so a writer that never had a GPU check was invisible to
+    that search. `ConformerRanker` reads `input_path` and opens
+    `Chem.SDWriter(self.out_path)` in `run()`, so the same-file case replaces
+    the user's input with the selected subset.
+    """
+
+    def test_output_equal_to_input_is_rejected_at_construction(self, job_dir):
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.ranking import ConformerRanker
+
+        sdf = job_dir / "opt.sdf"
+        _write_sdf(sdf, ["a", "b"])
+        original = sdf.read_bytes()
+
+        with pytest.raises(ConfigurationError, match="same file"):
+            ConformerRanker(
+                input_path=str(sdf), out_path=str(sdf), threshold=0.3, k=1
+            )
+
+        assert sdf.read_bytes() == original, "the input was modified anyway"
+
+    def test_a_different_output_still_constructs(self, job_dir):
+        """Negative control: the guard must not reject ordinary use."""
+        from Auto3D.ranking import ConformerRanker
+
+        sdf = job_dir / "opt.sdf"
+        _write_sdf(sdf, ["a"])
+        ranker = ConformerRanker(
+            input_path=str(sdf), out_path=str(job_dir / "ranked.sdf"),
+            threshold=0.3, k=1,
+        )
+        assert ranker.out_path.endswith("ranked.sdf")
