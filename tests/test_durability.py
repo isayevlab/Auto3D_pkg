@@ -201,8 +201,10 @@ class TestOptGeometryDurability:
             """Stand-in for batch_opt.optimizing: skips NNP inference entirely.
 
             Simulates a completed optimization by writing E_tot-bearing records
-            straight to outpath with the real SDWriter -- this is "the only
-            copy" referenced in the xfail reason above.
+            straight to outpath with the real SDWriter. This is the only copy
+            of that finished optimization -- `optimizing.run()` writes nowhere
+            else -- which is exactly why truncating `outpath` to rewrite it was
+            unrecoverable before C14 was fixed.
             """
 
             def __init__(self, path, outpath, model_name, device, opt_config):
