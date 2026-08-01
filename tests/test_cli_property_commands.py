@@ -324,6 +324,52 @@ def test_models_test_non_finite_exit_code(monkeypatch):
     assert res.exit_code == 5  # NumericalError (ModelError) -> 5
 
 
+def test_models_test_rejects_when_gpu_requested_without_cuda(monkeypatch):
+    """`models test` reached model_factory.get_device directly and never went
+    through check_gpu_requested, so it silently fell back to CPU on a CPU-only
+    box instead of failing like `energy`/`optimize`/`thermo` -- the last M23
+    gap (see cli/commands/models.py). Simulate the CPU-only box by patching
+    torch.cuda.is_available where check_gpu_requested reads it, and confirm
+    create_model is never reached: the check must happen before any real work
+    (before the model would even be constructed, let alone downloaded)."""
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False), \
+         patch("Auto3D.model_factory.create_model") as m:
+        res = runner.invoke(app, ["models", "test", "AIMNET"])  # gpu defaults to True
+    assert res.exit_code == 4  # GPUError -> exit 4
+    assert "--no-gpu" in res.output
+    m.assert_not_called()
+
+
+def test_models_test_no_gpu_still_works_without_cuda(monkeypatch):
+    """--no-gpu must keep working on a CPU-only box (not a blanket failure)."""
+    import torch
+
+    class _StubAdapter:
+        def forward(self, coords, species, charges):
+            return torch.zeros(1), torch.zeros(1, 5, 3)
+
+    monkeypatch.setattr("Auto3D.utils.validation.torch.cuda.is_available", lambda: False)
+    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
+    res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
+    assert res.exit_code == 0, res.output
+
+
+def test_models_test_gpu_works_when_cuda_present(monkeypatch):
+    """--gpu (the default) must still succeed when CUDA is actually available."""
+    import torch
+
+    class _StubAdapter:
+        def forward(self, coords, species, charges):
+            return torch.zeros(1), torch.zeros(1, 5, 3)
+
+    monkeypatch.setattr("Auto3D.utils.validation.torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
+    res = runner.invoke(app, ["models", "test", "AIMNET"])  # gpu defaults to True
+    assert res.exit_code == 0, res.output
+
+
 def test_run_interactive_forwards_progress_callback(smi):
     """Interactive `auto3d run` supplies a live-progress callback to main()."""
     from Auto3D.results import WorkflowResult
