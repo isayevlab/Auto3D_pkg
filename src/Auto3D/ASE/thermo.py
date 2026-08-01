@@ -949,20 +949,25 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     else:
         outpath = path_obj.parent / f"{path_obj.stem}_{model_name}_G.sdf"
 
-    device = get_device(gpu_idx, use_gpu=use_gpu)
-
-    hessian_model = _load_hessian_model(model_name, device)
-    model, calculator = model_name2model_calculator(model_name, device)
-
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
 
     # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
     # charged or out-of-set species handed to either would otherwise be
     # silently relaxed and differentiated as a different, neutral species --
-    # wrong energy, wrong Hessian, wrong thermochemistry.
+    # wrong energy, wrong Hessian, wrong thermochemistry. Parsing `mols`
+    # needs only `path`, not a device or model, so it -- and this guard,
+    # which needs only `mols`/`model_name` -- both happen before
+    # get_device/_load_hessian_model/model_name2model_calculator below,
+    # matching check_gpu_requested's already-first placement: every guard
+    # that can fail fast, does, before any device/model construction.
     check_engine_supports_molecules(
         [mol for mol in mols if mol is not None], model_name
     )
+
+    device = get_device(gpu_idx, use_gpu=use_gpu)
+
+    hessian_model = _load_hessian_model(model_name, device)
+    model, calculator = model_name2model_calculator(model_name, device)
 
     for mol in tqdm(list(iter_thermo_records(mols))):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))

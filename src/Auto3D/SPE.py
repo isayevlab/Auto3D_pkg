@@ -76,18 +76,14 @@ def calc_spe(
             basename = f"{stem}_{model_name}_E.sdf"
         outpath = dir_path / basename
 
-    # Use get_device from model_factory (honors use_gpu)
-    device = get_device(gpu_idx, use_gpu=use_gpu)
-
-    # Use ModelFactory to create model adapter
-    model_adapter = create_model(model_name, device)
-
-    # Create EnForce_ANI wrapper for batched forward support (new API without name)
-    model = EnForce_ANI(model_adapter)
-
     # Filter once up front: drop None records (unparseable) and conformerless
     # molecules so pad_from_mols never dereferences a bad record, and so the
-    # writer loop below stays index-aligned with the energies tensor.
+    # writer loop below stays index-aligned with the energies tensor. Parsing
+    # `mols` needs only `path`, not a device or model, so it -- and the C11
+    # guard right below, which needs only `mols`/`model_name` -- both happen
+    # before get_device/create_model, matching check_gpu_requested's
+    # already-first placement: every guard that can fail fast, does, before
+    # any device/model construction.
     mols = []
     for i, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
         if mol is None:
@@ -113,8 +109,19 @@ def calc_spe(
     # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
     # charged or out-of-set species handed to either would otherwise be
     # silently evaluated as a different, neutral species by the forward pass
-    # below -- tens of kcal/mol wrong, with wrong forces.
+    # below -- tens of kcal/mol wrong, with wrong forces. Checked before
+    # get_device/create_model (below) so a bad molecule fails fast, without
+    # constructing a (possibly GPU-resident) model first.
     check_engine_supports_molecules(mols, model_name)
+
+    # Use get_device from model_factory (honors use_gpu)
+    device = get_device(gpu_idx, use_gpu=use_gpu)
+
+    # Use ModelFactory to create model adapter
+    model_adapter = create_model(model_name, device)
+
+    # Create EnForce_ANI wrapper for batched forward support (new API without name)
+    model = EnForce_ANI(model_adapter)
 
     # Use new vectorized padding that returns tensors directly. calc_spe only
     # needs energies (not forces), so the atom mask pad_from_mols also returns

@@ -74,7 +74,21 @@ def check_field_bounds(values: dict) -> None:
         if value is None or value is False:
             continue
         cmp, symbol = _BOUND_OPS[kind]
-        if not cmp(value, limit):
+        try:
+            in_bounds = cmp(value, limit)
+        except TypeError as exc:
+            # A non-numeric value (e.g. threshold="0.3", a str) makes the
+            # comparison itself raise -- a bare TypeError here is exactly
+            # the kind of untyped raise this phase is closing everywhere
+            # else (see the mutual-exclusion and range checks below/above),
+            # so it must be a ConfigurationError too, not a fall-through
+            # exception the CLI's `handle_error` treats as an "Unexpected
+            # Error" (exit code 1, no hint) instead of a configuration
+            # problem (exit code 2, "run auto3d config init").
+            raise ConfigurationError(
+                f"{name} must be a number, got {value!r}"
+            ) from exc
+        if not in_bounds:
             raise ConfigurationError(
                 f"{name} must be {symbol} {limit}, got {value!r}"
             )

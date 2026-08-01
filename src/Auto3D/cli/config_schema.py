@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from Auto3D.config import Auto3DOptions, check_field_bounds
 from Auto3D.constants import (
@@ -69,6 +69,27 @@ class CLIConfig(BaseModel):
     job_name: str = ""
 
     model_config = {"extra": "forbid"}
+
+    @field_validator("k", "window", "memory", "max_confs", mode="before")
+    @classmethod
+    def _false_means_unset(cls, v: Any) -> Any:
+        """Map the legacy ``False`` "not specified" sentinel to ``None``.
+
+        Pydantic coerces ``bool`` to ``int``/``float`` (``bool`` is an
+        ``int`` subclass) as part of its own type validation, which runs
+        *before* the ``mode="after"`` model validator below
+        (``_check_bounds``) ever sees the value. So by the time
+        ``check_field_bounds``'s ``value is False`` skip runs, ``False`` has
+        already become ``0``/``0.0`` and fails the ``k``/``memory``/
+        ``max_confs`` >=1 or ``window`` >0 bound -- even though
+        ``Auto3DOptions`` (which has no such coercion step) accepts the same
+        input. This ``mode="before"`` validator runs first and intercepts
+        ``False`` ahead of that coercion, so both classes agree that
+        ``k=False``/``window=False``/``memory=False``/``max_confs=False``
+        mean "not specified", exactly like the shipped
+        ``docs/legacy-v2/parameters.yaml`` example (``window: False``).
+        """
+        return None if v is False else v
 
     @field_validator("gpu_idx", mode="before")
     @classmethod
@@ -179,12 +200,44 @@ def load_yaml_config(yaml_path: Path) -> CLIConfig:
 
 
 def merge_configs(base: CLIConfig, overrides: dict[str, Any]) -> CLIConfig:
-    """Merge CLI overrides into base configuration."""
+    """Merge CLI overrides into base configuration.
+
+    An override replaces the base's value for that field -- it does not
+    accumulate alongside it. This matters most for `k`/`window`: they are
+    mutually-exclusive conformer-selection strategies
+    (`Auto3D.config._check_selectors_mutually_exclusive`), so an explicit
+    `--k`/`--window` on the CLI is the user choosing *which* strategy to use,
+    substituting for whatever the config file set -- not requesting both at
+    once. Before this fix, `auto3d run in.smi -c cfg.yaml --k 1` with
+    `cfg.yaml`'s `window: 5.0` left both `k=1` (the override) and `window=5.0`
+    (the file's, still sitting in `base_dict`) in the merged result, which
+    the mutual-exclusion guard then rejected -- even though substituting one
+    selector for the other is exactly what a CLI override is for. When the
+    CLI explicitly sets one selector and leaves the other alone, the file's
+    other selector is cleared here so only the explicit one survives; if the
+    CLI explicitly sets *both* (a genuine conflict, not a merge artifact),
+    neither is cleared and the mutual-exclusion guard below still fires.
+    """
     base_dict = base.model_dump()
+
+    if overrides.get("k") is not None and overrides.get("window") is None:
+        base_dict["window"] = None
+    elif overrides.get("window") is not None and overrides.get("k") is None:
+        base_dict["k"] = None
 
     # Only apply non-None overrides
     for key, value in overrides.items():
         if value is not None:
             base_dict[key] = value
 
-    return CLIConfig(**base_dict)
+    try:
+        return CLIConfig(**base_dict)
+    except ValidationError as exc:
+        # execute_run (cli/commands/run.py) only special-cases Auto3DError;
+        # an untranslated pydantic ValidationError here fell through to the
+        # generic "Unexpected Error" panel at exit code 1 instead of the
+        # ConfigurationError panel (exit 2, "run auto3d config init" hint)
+        # every other invalid-configuration path in this phase produces --
+        # e.g. an explicit `--k`/`--window` conflict, or an override that
+        # violates a FIELD_BOUNDS bound.
+        raise ConfigurationError(str(exc)) from exc

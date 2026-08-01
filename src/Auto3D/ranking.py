@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 from rdkit import Chem
 
+from Auto3D.exceptions import ConfigurationError
 from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
 from Auto3D.utils.chemistry import check_connectivity
@@ -202,18 +203,19 @@ class ConformerRanker:
             List of selected RDKit Mol objects.
 
         Raises:
-            ValueError: If neither k nor window is specified, or if both are
-                (top-k and energy-window selection are alternatives, not
-                composable -- only one is ever consulted below, so setting
-                both would silently make one of them inert; callers reaching
-                here through Auto3DOptions/CLIConfig already had this caught
-                earlier, at construction time, with ConfigurationError -- this
-                is the same guard for callers that construct ConformerRanker
-                directly).
+            ConfigurationError: If neither k nor window is specified, or if
+                both are (top-k and energy-window selection are alternatives,
+                not composable -- only one is ever consulted below, so
+                setting both would silently make one of them inert; callers
+                reaching here through Auto3DOptions/CLIConfig already had
+                this caught earlier, at construction time, with
+                ConfigurationError -- this is the same guard, raising the
+                same exception type, for callers that construct
+                ConformerRanker directly).
         """
         logger.info("Begin to select structures that satisfy the requirements...")
         if self.k and self.window:
-            raise ValueError(
+            raise ConfigurationError(
                 "Only one of k or window may be specified, got "
                 f"k={self.k!r} and window={self.window!r}"
             )
@@ -248,7 +250,7 @@ class ConformerRanker:
             elif self.window:
                 top_results = self.top_window(group, self.window)
             else:
-                raise ValueError('Parameter k or window needs to be '
+                raise ConfigurationError('Parameter k or window needs to be '
                                     'specified. Append "--k=1" if you'
                                     'only want one structure per SMILES')
             results += top_results

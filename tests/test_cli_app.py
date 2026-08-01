@@ -360,6 +360,72 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
     assert result.exit_code == 0
 
 
+def test_run_cli_k_override_substitutes_file_window(runner, tmp_path_cwd, monkeypatch):
+    """`auto3d run in.smi -c cfg.yaml --k 1`, where cfg.yaml sets
+    `window: 5.0`, must succeed with k=1 winning -- not hard-fail the
+    mutual-exclusion rule because the CLI override was merged alongside the
+    file's selector instead of substituting for it.
+
+    `Auto3D.auto3D.main` is stubbed (captures the `Auto3DOptions` it would
+    have received) so this exercises the full `execute_run` ->
+    `load_yaml_config`/`merge_configs` -> `to_auto3d_options()` path without
+    a pipeline run or a loaded potential. `optimizing_engine: ANI2xt` avoids
+    importing the optional `aimnet` package (same reasoning as
+    `test_cli.py`'s `_LEGACY_YAML`).
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+    cfg = tmp_path_cwd / "cfg.yaml"
+    cfg.write_text(
+        "path: placeholder.smi\nwindow: 5.0\noptimizing_engine: ANI2xt\nuse_gpu: false\n"
+    )
+
+    import Auto3D.auto3D as a3d
+    from Auto3D.results import WorkflowResult
+
+    captured: dict = {}
+
+    def fake_main(options, **kwargs):
+        captured["options"] = options
+        return WorkflowResult("fake_out.sdf")
+
+    monkeypatch.setattr(a3d, "main", fake_main)
+
+    result = runner.invoke(
+        app, ["run", str(smi), "-c", str(cfg), "--k", "1", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["options"].k == 1
+    assert not captured["options"].window  # file's window=5.0 must be cleared
+
+
+def test_run_cli_explicit_k_and_window_conflict_is_configuration_error(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """`--k` and `--window` both passed explicitly on the CLI is a genuine
+    user conflict (not a file-vs-CLI merge artifact) and must still exit 2
+    as a ConfigurationError with a hint -- not exit 1 as a raw pydantic
+    ValidationError under "Unexpected Error".
+    """
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    import Auto3D.auto3D as a3d
+    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("main() must not run when config validation fails")
+    ))
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--window", "2.0"])
+
+    assert result.exit_code == 2, result.output
+    assert "Unexpected Error" not in result.output
+
+
 # Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
 # pinned without going through the CLI or a pipeline run at all.
 

@@ -123,6 +123,101 @@ class TestAuxiliaryEntryPointGuards:
         with pytest.raises(Auto3DError):
             calc_spe(str(sdf), "ANI2x", out_path=str(job_dir / "out.sdf"))
 
+    def test_opt_geometry_rejects_charged_input_for_ani(self, job_dir, monkeypatch):
+        """opt_geometry must run the same check_engine_supports_molecules
+        guard as calc_spe -- only calc_spe's copy was pinned before this.
+
+        `optimizing` (batch_opt.batchopt, imported into Auto3D.ASE.geometry)
+        is stubbed with a fake that just copies the input through, the same
+        defensive reason test_calc_spe_rejects_charged_input_for_ani stubs
+        calc_spe's model machinery: if the guard is missing, execution must
+        not reach a real ANI2x model load, it must instead reach this
+        harmless fake and return normally -- which is the "guard missing"
+        signal this test watches for.
+        """
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        import Auto3D.ASE.geometry as geometry_mod
+        from Auto3D.ASE.geometry import opt_geometry
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", "acetate")
+        mol.SetProp("E_tot", "0.0")
+
+        sdf = job_dir / "charged.sdf"
+        with Chem.SDWriter(str(sdf)) as w:
+            w.write(mol)
+
+        class _FakeOptEngine:
+            def __init__(self, in_f, out_f, model_name, device, config, *a, **k):
+                self.in_f = in_f
+                self.out_f = out_f
+
+            def run(self):
+                mols = [
+                    m for m in Chem.SDMolSupplier(self.in_f, removeHs=False)
+                    if m is not None
+                ]
+                with Chem.SDWriter(self.out_f) as w:
+                    for m in mols:
+                        m.SetProp("E_tot", "0.0")
+                        w.write(m)
+
+        monkeypatch.setattr(geometry_mod, "optimizing", _FakeOptEngine)
+
+        with pytest.raises(Auto3DError):
+            opt_geometry(
+                str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
+            )
+
+    def test_calc_thermo_rejects_charged_input_for_ani(self, job_dir, monkeypatch):
+        """calc_thermo must run the same check_engine_supports_molecules
+        guard as calc_spe -- only calc_spe's copy was pinned before this.
+
+        `_load_hessian_model` and `model_name2model_calculator` are stubbed
+        with fakes that never load real weights: if the guard is missing,
+        execution reaches these fakes instead of a real ANI2x model, and the
+        fake model's deliberate failure is swallowed by calc_thermo's own
+        per-molecule `except Exception` (thermo.py), so calc_thermo returns
+        normally with the molecule recorded as failed rather than raising --
+        exactly the "guard missing" signal this test watches for.
+        """
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        import Auto3D.ASE.thermo as thermo_mod
+        from Auto3D.ASE.thermo import calc_thermo
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", "acetate")
+
+        sdf = job_dir / "charged.sdf"
+        with Chem.SDWriter(str(sdf)) as w:
+            w.write(mol)
+
+        class _FakeCalculator:
+            def set_charge(self, charge):
+                pass
+
+        class _FakeModel:
+            def __call__(self, *a, **k):
+                raise RuntimeError("stub model: guard should have fired first")
+
+        monkeypatch.setattr(thermo_mod, "_load_hessian_model", lambda *a, **k: None)
+        monkeypatch.setattr(
+            thermo_mod,
+            "model_name2model_calculator",
+            lambda *a, **k: (_FakeModel(), _FakeCalculator()),
+        )
+
+        with pytest.raises(Auto3DError):
+            calc_thermo(
+                str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
+            )
+
 
 class TestAuxiliaryEntryPointGPUGuard:
     """calc_spe / opt_geometry / calc_thermo must also run
@@ -324,6 +419,21 @@ class TestDuplicateInchikeyInputs:
         assert len(mols) == 2, (
             f"expected one output structure per input (2), got {len(mols)}: "
             f"{[m.GetProp('_Name') for m in mols]}"
+        )
+        # M17: the second "CCO" is disambiguated to "<inchikey>_2" by
+        # smiles2smi's InChIKey-collision handling (utils/file_ops.py), and
+        # ranking.species_id must recover that suffix intact (rsplit on the
+        # last two "_"-delimited components) rather than strip everything
+        # after the FIRST underscore -- which would collapse both outputs
+        # back onto the bare InChIKey. `len(mols) == 2` alone does not catch
+        # that regression: both mols still "survive", just under the same
+        # name. Reverting ranking.species_id to the old `split("_")[0]`
+        # makes this fail (both mols come back named identically) while
+        # leaving len(mols) == 2 true.
+        names = [m.GetProp("_Name") for m in mols]
+        assert len(set(names)) == 2, (
+            f"expected 2 distinct output names (InChIKey disambiguation "
+            f"must survive ranking), got {names}"
         )
 
 
