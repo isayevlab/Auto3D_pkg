@@ -36,7 +36,7 @@ from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils import hartree2ev
 from Auto3D.utils.logging_config import get_logger
-from Auto3D.utils.validation import check_engine_supports_molecules
+from Auto3D.utils.validation import check_engine_supports_molecules, check_gpu_requested
 
 __all__ = ["calc_thermo"]
 
@@ -911,6 +911,17 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     # (cli/commands/properties.py), now also enforced for direct Python-API
     # callers. Pure offline registry lookup: no network, no model load.
     resolve_engine_name(model_name)
+
+    # calc_thermo never goes through check_input/check_valid_configuration, so
+    # without this it would reach model_factory.get_device below and silently
+    # fall back to CPU instead of failing the same way `auto3d thermo`
+    # already does at its CLI wrapper (cli/commands/properties.py) -- and the
+    # same way `auto3d run`/smiles2mols do via check_input /
+    # check_valid_configuration. check_gpu_requested is the single source of
+    # truth for this policy; called here, before get_device/_load_hessian_model/
+    # model_name2model_calculator below, so no compute (and no model
+    # construction) happens first.
+    check_gpu_requested(use_gpu)
 
     # Surface the symmetry-number caveat once per run (not per molecule) so it is
     # visible without spamming the log.

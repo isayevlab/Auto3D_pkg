@@ -17,7 +17,11 @@ smiles2mols already ran via check_input. Task 4 (M15) closed
 enumerate_tautomer/a non-rdkit isomer_engine instead of silently ignoring
 them, calls check_valid_configuration the same way main() does, and takes a
 private copy of its config argument up front so it never mutates the
-caller's object.
+caller's object. `TestAuxiliaryEntryPointGPUGuard` closes the sibling gap for
+the GPU policy: calc_spe, opt_geometry and calc_thermo now also call
+`Auto3D.utils.validation.check_gpu_requested` directly, so `use_gpu=True`
+without CUDA is fatal through the Python API too, not only through the CLI
+wrappers in cli/commands/properties.py.
 """
 from __future__ import annotations
 
@@ -118,6 +122,63 @@ class TestAuxiliaryEntryPointGuards:
 
         with pytest.raises(Auto3DError):
             calc_spe(str(sdf), "ANI2x", out_path=str(job_dir / "out.sdf"))
+
+
+class TestAuxiliaryEntryPointGPUGuard:
+    """calc_spe / opt_geometry / calc_thermo must also run
+    `Auto3D.utils.validation.check_gpu_requested` directly, not only through
+    their CLI wrappers (cli/commands/properties.py).
+
+    Each function reaches `model_factory.get_device`, which never raises --
+    it silently returns `torch.device('cpu')` -- so before this guard, a
+    scripted `use_gpu=True` call to any of the three on a CPU-only box would
+    silently compute on CPU with no signal anything was wrong. Same shape as
+    `TestAuxiliaryEntryPointGuards` above (a check present at the CLI, absent
+    for direct Python-API callers), now closed for the GPU policy too.
+
+    This dev box has 8 CUDA devices, so the no-CUDA case is simulated by
+    patching `torch.cuda.is_available` where check_gpu_requested (the single
+    source of truth for this check) reads it -- the same technique
+    tests/test_validation.py::TestGpuPolicyIsUniform and
+    tests/test_cli_property_commands.py's GPU-policy tests already use.
+    check_gpu_requested is called before get_device/create_model/optimizing/
+    _load_hessian_model/model_name2model_calculator in each function, so none
+    of that model machinery needs to be stubbed here: the guard fires before
+    any of it runs, and before the input SDF path is even read.
+    """
+
+    def test_calc_spe_rejects_gpu_request_without_cuda(self, job_dir):
+        from unittest.mock import patch
+
+        from Auto3D.exceptions import GPUError
+        from Auto3D.SPE import calc_spe
+
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+            with pytest.raises(GPUError, match="No cuda device") as exc_info:
+                calc_spe(str(job_dir / "nonexistent.sdf"), "AIMNET")
+        assert "--no-gpu" in str(exc_info.value)
+
+    def test_opt_geometry_rejects_gpu_request_without_cuda(self, job_dir):
+        from unittest.mock import patch
+
+        from Auto3D.ASE.geometry import opt_geometry
+        from Auto3D.exceptions import GPUError
+
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+            with pytest.raises(GPUError, match="No cuda device") as exc_info:
+                opt_geometry(str(job_dir / "nonexistent.sdf"), "AIMNET")
+        assert "--no-gpu" in str(exc_info.value)
+
+    def test_calc_thermo_rejects_gpu_request_without_cuda(self, job_dir):
+        from unittest.mock import patch
+
+        from Auto3D.ASE.thermo import calc_thermo
+        from Auto3D.exceptions import GPUError
+
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+            with pytest.raises(GPUError, match="No cuda device") as exc_info:
+                calc_thermo(str(job_dir / "nonexistent.sdf"), "AIMNET")
+        assert "--no-gpu" in str(exc_info.value)
 
 
 class TestSmiles2MolsHonesty:
