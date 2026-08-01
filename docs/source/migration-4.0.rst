@@ -353,15 +353,25 @@ three different ways depending on the entry point:
   CLI's unrelated "config init" hint.
 - ``auto3d energy``/``optimize``/``thermo`` silently fell back to CPU through
   ``model_factory.get_device``, with no error and no warning at all.
+- ``auto3d models test --gpu`` had the identical silent fallback through its
+  own, separate call site, and the three single-purpose API functions
+  ``calc_spe``, ``opt_geometry``, and ``calc_thermo`` were guarded only at
+  their CLI wrappers in ``cli/commands/properties.py`` -- calling any of them
+  directly from a script, with no CLI involved at all, bypassed the guard
+  entirely and hit the same silent fallback.
 
-A user who asked for GPU and got CPU results from the second group had no way
-to know their "GPU" run was actually computed on CPU. A single
-``check_gpu_requested`` helper is now the one place this is decided: every
-entry point calls it before doing any work, and it always raises ``GPUError``
-(exit code ``4``), naming ``--no-gpu``/``use_gpu=False`` as the fix.
-``model_factory.get_device`` itself still silently returns a CPU device when
-asked -- the fatal check is enforced by its callers, not by the device
-picker, so a direct call to ``get_device`` is unaffected.
+A user -- or a scripted caller who never goes through the CLI -- who asked
+for GPU and got CPU results from the second or third group had no way to
+know their "GPU" run was actually computed on CPU. A single
+``check_gpu_requested`` helper is now the one place this is decided:
+``check_input``, ``check_valid_configuration``, the ``energy``/``optimize``/
+``thermo`` and ``models test`` CLI commands, and ``calc_spe``/
+``opt_geometry``/``calc_thermo`` themselves all call it before doing any
+work, and it always raises ``GPUError`` (exit code ``4``), naming
+``--no-gpu``/``use_gpu=False`` as the fix. ``model_factory.get_device``
+itself still silently returns a CPU device when asked -- the fatal check is
+enforced by its callers, not by the device picker, so a direct call to
+``get_device`` is unaffected.
 
 ``smiles2mols`` raises on options it cannot honor
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

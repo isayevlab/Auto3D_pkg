@@ -69,13 +69,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GPU requested but unavailable is now fatal at every entry point.**
   `use_gpu=True` on a CPU-only box used to behave three different ways
   depending on how you called Auto3D: `main()` and `smiles2mols` raised
-  `ConfigurationError` (with an unrelated "config init" hint), while `auto3d
+  `ConfigurationError` (with an unrelated "config init" hint); `auto3d
   energy`/`optimize`/`thermo` silently fell back to CPU through
-  `model_factory.get_device` with no error and no warning at all -- a user
-  who asked for GPU and got CPU results had no way to know. A single
-  `check_gpu_requested` helper is now the one place this is decided: it
-  raises `GPUError` (naming `--no-gpu`), and every entry point calls it before
-  any work starts. `model_factory.get_device` itself is unchanged and still
+  `model_factory.get_device` with no error and no warning at all; and
+  `auto3d models test --gpu` had the identical silent fallback through its
+  own call site, while the three single-purpose API functions `calc_spe`,
+  `opt_geometry`, and `calc_thermo` were guarded only at their CLI wrappers --
+  calling any of them directly from a script, with no CLI involved, bypassed
+  the guard entirely. A user -- or a scripted caller who never goes through
+  the CLI -- who asked for GPU and got CPU results had no way to know. A
+  single `check_gpu_requested` helper is now the one place this is decided:
+  it raises `GPUError` (naming `--no-gpu`), and every entry point --
+  `check_input`, `check_valid_configuration`, the CLI commands, and
+  `calc_spe`/`opt_geometry`/`calc_thermo` themselves -- calls it before any
+  work starts. `model_factory.get_device` itself is unchanged and still
   silently returns a CPU device -- the fatal check is enforced by its
   callers, not by the device picker.
 
