@@ -19,6 +19,7 @@ from Auto3D.cli.console import console, print_success
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError, DependencyError
 from Auto3D.models.preflight import resolve_engine_name
+from Auto3D.utils.validation import check_gpu_requested
 
 # Engine names offered for shell completion. Free-form registry names and custom
 # model paths are also accepted -- each command below validates them with
@@ -56,6 +57,11 @@ def execute_energy(
         # model construction (C11-shaped gap: a guard present in `main()` via
         # WorkflowOrchestrator._validate_input, absent here).
         resolve_engine_name(engine)
+        # calc_spe never goes through check_input/check_valid_configuration,
+        # so without this it would silently fall back to CPU through
+        # model_factory.get_device instead of failing the same way `auto3d
+        # run`/smiles2mols do (M23).
+        check_gpu_requested(gpu)
         from Auto3D.SPE import calc_spe
         out = calc_spe(
             str(input_file), engine, gpu_idx=gpu_idx, use_gpu=gpu,
@@ -76,6 +82,7 @@ def execute_optimize(
     try:
         # Validate before doing any work -- see execute_energy's comment.
         resolve_engine_name(engine)
+        check_gpu_requested(gpu)
         from Auto3D.ASE.geometry import opt_geometry
         out = opt_geometry(
             str(input_file), engine, gpu_idx=gpu_idx, opt_tol=opt_tol,
@@ -98,6 +105,7 @@ def execute_thermo(
     try:
         # Validate before doing any work -- see execute_energy's comment.
         resolve_engine_name(engine)
+        check_gpu_requested(gpu)
         try:
             from Auto3D.ASE.thermo import calc_thermo
         except ImportError as e:

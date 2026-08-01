@@ -24,7 +24,14 @@ class ValidationResult:
 
 
 def validate_smiles_file(file_path: Path) -> ValidationResult:
-    """Validate a SMILES file."""
+    """Validate a SMILES file.
+
+    Must reject exactly what the runner (encode_ids/iter_smi_records,
+    file_ops.py) rejects, or a passing `auto3d validate` is not trustworthy
+    (M25): a line needs both a SMILES and an ID (whitespace-separated), and
+    '#'-prefixed lines are treated as comments -- both checks mirrored from
+    file_ops.iter_smi_records so the two never drift apart again.
+    """
     from rdkit import Chem
 
     errors: list[tuple[int, str, str]] = []
@@ -39,7 +46,12 @@ def validate_smiles_file(file_path: Path) -> ValidationResult:
 
             total_count += 1
             parts = line.split()
-            smiles = parts[0] if parts else ""
+            if len(parts) < 2:
+                errors.append(
+                    (i, line[:50], "Missing molecule ID (expected 'SMILES ID')")
+                )
+                continue
+            smiles = parts[0]
 
             mol = Chem.MolFromSmiles(smiles)
             if mol is None:

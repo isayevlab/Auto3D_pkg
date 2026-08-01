@@ -30,10 +30,19 @@ logger = get_logger(__name__)
 
 
 def iter_smi_records(path, *, on_malformed="skip"):
-    """Yield (line_no, smiles, mol_id) for each non-blank line of a .smi file.
+    """Yield (line_no, smiles, mol_id) for each non-blank, non-comment line of
+    a .smi file.
 
     A line is 'SMILES ID [extra columns ignored]'. Blank/whitespace-only lines
-    are skipped. on_malformed controls lines with fewer than 2 whitespace tokens:
+    are skipped, as are lines whose first non-whitespace character is '#'
+    (comments) -- matching cli.commands.validate.validate_smiles_file, so
+    `auto3d validate` and every consumer of this function (encode_ids and so
+    the whole run pipeline, plus the isomer/tautomer engines and the
+    input/output reconciliation helpers) agree on what a comment line is
+    (M25). A real SMILES token can never start with '#' (it is a bond symbol
+    between two atoms, never a leading character), so this cannot misclassify
+    a legitimate SMILES as a comment. on_malformed controls lines with fewer
+    than 2 whitespace tokens:
       - "skip": log a warning and skip the line (lenient; default)
       - "raise": raise InputValidationError naming the line
 
@@ -47,8 +56,8 @@ def iter_smi_records(path, *, on_malformed="skip"):
         whitespace-separated columns beyond the ID are intentionally ignored.
 
     Raises:
-        InputValidationError: If on_malformed == "raise" and a non-blank line
-            has fewer than 2 whitespace tokens.
+        InputValidationError: If on_malformed == "raise" and a non-blank,
+            non-comment line has fewer than 2 whitespace tokens.
         ValueError: If on_malformed is not "skip" or "raise".
     """
     if on_malformed not in ("skip", "raise"):
@@ -58,9 +67,12 @@ def iter_smi_records(path, *, on_malformed="skip"):
     with open(path) as f:
         data = f.readlines()
     for line_no, line in enumerate(data, start=1):
-        if not line.strip():
+        stripped = line.strip()
+        if not stripped:
             continue
-        parts = line.split()
+        if stripped.startswith("#"):
+            continue
+        parts = stripped.split()
         if len(parts) < 2:
             if on_malformed == "raise":
                 raise InputValidationError(

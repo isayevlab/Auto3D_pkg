@@ -38,6 +38,52 @@ logger = get_logger(__name__)
 ANI_ELEMENTS = frozenset({1, 6, 7, 8, 9, 16, 17})
 
 
+def check_gpu_requested(use_gpu: bool) -> None:
+    """Raise if GPU was requested but no CUDA device is visible.
+
+    Single source of truth for Auto3D's GPU policy: **fatal, not a silent
+    fallback**. Before this function existed, ``use_gpu=True`` on a CPU-only
+    box produced three different behaviors depending on the entry point
+    (M23):
+
+    - ``main()`` (via ``WorkflowOrchestrator._validate_input`` ->
+      ``check_valid_configuration``) raised ``ConfigurationError``, which
+      shows the CLI's "run 'auto3d config init'" hint -- unrelated to a GPU
+      problem.
+    - ``smiles2mols`` reached ``check_input``'s own inline check and raised
+      ``GPUError`` (the right exception, right hint), but with different
+      wording than ``check_valid_configuration``'s message.
+    - ``auto3d energy``/``optimize``/``thermo`` (``calc_spe``/
+      ``opt_geometry``/``calc_thermo``) never checked at all: they fell back
+      to CPU through ``model_factory.get_device`` with no error and no
+      warning.
+
+    A scripted user who set ``use_gpu=True`` and silently got CPU has no way
+    to know their "GPU" results were actually computed on CPU -- possibly
+    orders of magnitude slower than they assumed, with no signal anything
+    was wrong. This function is called as the *first* check everywhere GPU
+    use is decided (``check_input``, ``check_valid_configuration``, and the
+    ``auto3d energy``/``optimize``/``thermo`` CLI commands in
+    ``cli/commands/properties.py``, which call the API functions directly
+    and never go through ``check_input``/``check_valid_configuration``), so
+    it fails fast -- before any worker is forked and before any compute is
+    spent -- with the same exception type and the same "--no-gpu" hint
+    regardless of entry point.
+
+    Args:
+        use_gpu: The ``use_gpu`` option requested by the caller.
+
+    Raises:
+        GPUError: `use_gpu` is True and `torch.cuda.is_available()` is False.
+    """
+    if use_gpu and not torch.cuda.is_available():
+        raise GPUError(
+            "No cuda device was detected, but use_gpu=True was requested. "
+            "Pass --no-gpu on the CLI (or set use_gpu=False in the Python "
+            "API) to run on CPU."
+        )
+
+
 def _requires_aimnet(mol: Chem.Mol) -> bool:
     """True if `mol` cannot be represented by ANI2x/ANI2xt.
 
@@ -128,11 +174,10 @@ def check_input(args: Any) -> None:
     """
     logger.info("Checking input file...")
 
-    # Check --use_gpu
-    gpu_flag = args.use_gpu
-    if gpu_flag:
-        if not torch.cuda.is_available():
-            raise GPUError("No cuda device was detected. Please set use_gpu=False.")
+    # Check --use_gpu. Delegates to check_gpu_requested so this and
+    # check_valid_configuration can never drift onto different wording or a
+    # different exception type again (M23).
+    check_gpu_requested(args.use_gpu)
 
     isomer_engine = args.isomer_engine
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
@@ -233,6 +278,12 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         data = f.readlines()
     for line in data:
         if line.isspace():
+            continue
+        # Skip '#'-prefixed comment lines, matching cli.commands.validate.
+        # validate_smiles_file and file_ops.iter_smi_records -- all three must
+        # agree on what counts as a comment vs. data, or `auto3d validate`
+        # would approve a file this function then rejects (M25).
+        if line.lstrip().startswith("#"):
             continue
         # Tolerate ragged rows the way the rest of the pipeline does: the chunk
         # loader reads only the first two whitespace columns (usecols=[0, 1]), so
@@ -364,6 +415,15 @@ def check_valid_configuration(
 
     Returns:
         List of error messages. Empty list if configuration is valid.
+
+    Raises:
+        GPUError: `use_gpu` is True and no CUDA device is visible. Raised
+            immediately (not folded into the returned `errors` list) so every
+            caller of this function -- main() via
+            WorkflowOrchestrator._validate_input, and smiles2mols -- gets the
+            same fatal GPUError, with the same "--no-gpu" hint, that
+            check_input already raised for this condition (M23). See
+            check_gpu_requested for the full rationale.
     """
     errors: list[str] = []
 
@@ -377,9 +437,13 @@ def check_valid_configuration(
     if not k and not window:
         errors.append("Either 'k' or 'window' must be specified for conformer selection.")
 
-    # Check GPU configuration
-    if use_gpu and not torch.cuda.is_available():
-        errors.append("GPU requested but CUDA is not available. Set use_gpu=False.")
+    # Check GPU configuration. Raises immediately rather than appending to
+    # `errors`: every caller wraps a non-empty `errors` list into a single
+    # ConfigurationError, which would show the CLI's "config init" hint --
+    # unrelated to a GPU problem. Also means the gpu_idx range check below
+    # only runs once CUDA is confirmed available, so an unavailable-CUDA box
+    # never sees a confusing second "0 available GPUs" message.
+    check_gpu_requested(use_gpu)
 
     if use_gpu:
         if isinstance(gpu_idx, int):

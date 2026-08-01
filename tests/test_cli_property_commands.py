@@ -145,6 +145,64 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
     m.assert_not_called()
 
 
+# --- GPU policy: fatal, not a silent CPU fallback (M23) ---------------------
+#
+# calc_spe/opt_geometry/calc_thermo call model_factory.get_device directly and
+# never went through check_input/check_valid_configuration, so a CPU-only box
+# used to fall back to CPU silently -- no error, no warning -- while `auto3d
+# run`/smiles2mols raised (a ConfigurationError with an unrelated "config
+# init" hint, or GPUError, depending on entry point). This dev box has 8 CUDA
+# devices (see task-7 brief), so the no-CUDA case is simulated by patching
+# torch.cuda.is_available where check_gpu_requested (the single source of
+# truth for this check, Auto3D.utils.validation) reads it. The mocked API
+# function must never be called: the check must happen before any real work.
+
+def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False), \
+         patch("Auto3D.SPE.calc_spe") as m:
+        res = runner.invoke(app, ["energy", str(sdf)])  # gpu defaults to True
+    assert res.exit_code == 4  # GPUError -> exit 4
+    assert "--no-gpu" in res.output
+    m.assert_not_called()
+
+
+def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False), \
+         patch("Auto3D.ASE.geometry.opt_geometry") as m:
+        res = runner.invoke(app, ["optimize", str(sdf)])
+    assert res.exit_code == 4
+    assert "--no-gpu" in res.output
+    m.assert_not_called()
+
+
+def test_thermo_rejects_when_gpu_requested_without_cuda(sdf):
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False), \
+         patch("Auto3D.ASE.thermo.calc_thermo") as m:
+        res = runner.invoke(app, ["thermo", str(sdf)])
+    assert res.exit_code == 4
+    assert "--no-gpu" in res.output
+    m.assert_not_called()
+
+
+def test_energy_no_gpu_still_works_without_cuda(sdf):
+    """--no-gpu must keep working on a CPU-only box (not a blanket failure)."""
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False), \
+         patch("Auto3D.SPE.calc_spe", return_value="out_E.sdf") as m:
+        res = runner.invoke(app, ["energy", str(sdf), "--no-gpu"])
+    assert res.exit_code == 0, res.output
+    m.assert_called_once()
+
+
+def test_run_rejects_when_gpu_requested_without_cuda(smi):
+    """`auto3d run` must fail the same way, before any worker is forked or any
+    model is touched: check_valid_configuration (called from
+    WorkflowOrchestrator._validate_input) raises before preflight_model."""
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        res = runner.invoke(app, ["run", str(smi), "--k", "1"])
+    assert res.exit_code == 4  # GPUError -> exit 4, not 2 (ConfigurationError)
+    assert "--no-gpu" in res.output
+
+
 def test_exit_code_mapping():
     from Auto3D.cli.errors import exit_code_for
     from Auto3D.exceptions import (
