@@ -89,6 +89,7 @@ class EnForce_ANI(nn.Module):
         coord: torch.Tensor,
         numbers: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate the energies and forces for input molecules.
 
@@ -108,6 +109,12 @@ class EnForce_ANI(nn.Module):
                   each structure, 3 represents xyz dimensions.
             numbers: The periodic numbers for all atoms. Shape (B, N).
             charges: Molecular charges. Shape (B,).
+            atom_mask: Boolean (B, N), True for real atoms and False for padded
+                slots, as returned by
+                :func:`Auto3D.batch_opt.padding.pad_from_mols`. Forwarded to
+                the adapter so it never has to re-derive padding from a
+                species sentinel (audit C13). ``None`` means the batch is
+                unpadded.
 
         Returns:
             Tuple of (energies, forces) where energies has shape (B,) and
@@ -115,7 +122,7 @@ class EnForce_ANI(nn.Module):
         """
         if self._use_legacy_forward:
             return self._legacy_forward(coord, numbers, charges)
-        return self.model.forward(coord, numbers, charges)
+        return self.model.forward(coord, numbers, charges, atom_mask=atom_mask)
 
     def _legacy_forward(
         self,
@@ -178,6 +185,7 @@ class EnForce_ANI(nn.Module):
         coord: torch.Tensor,
         numbers: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate the energies and forces for input molecules in batches.
 
@@ -190,6 +198,10 @@ class EnForce_ANI(nn.Module):
                   each structure, 3 represents xyz dimensions.
             numbers: The periodic numbers for all atoms. Shape (B, N).
             charges: Molecular charges. Shape (B,).
+            atom_mask: Boolean (B, N), True for real atoms. Sliced with the
+                same molecule indices as ``coord``/``numbers``/``charges`` so
+                each sub-batch's adapter call receives the mask for exactly
+                its own molecules. ``None`` means the batch is unpadded.
 
         Returns:
             Tuple of (energies, forces) concatenated across batches.
@@ -210,7 +222,10 @@ class EnForce_ANI(nn.Module):
             # raise a clear, actionable error instead of crashing opaquely.
             for sub in batch_idx.split(bsize):
                 try:
-                    _e, _f = self(coord[sub], numbers[sub], charges[sub])
+                    _e, _f = self(
+                        coord[sub], numbers[sub], charges[sub],
+                        atom_mask=None if atom_mask is None else atom_mask[sub],
+                    )
                 except torch.cuda.OutOfMemoryError:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()

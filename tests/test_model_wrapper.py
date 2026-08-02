@@ -70,7 +70,7 @@ class TestEnForceANIForwardBatched:
         """forward_batched should split large batches based on batchsize_atoms."""
         mock_adapter = MagicMock()
 
-        def mock_forward(coords, species, charges):
+        def mock_forward(coords, species, charges, atom_mask=None):
             batch_size = coords.shape[0]
             return torch.ones(batch_size), torch.ones(batch_size, coords.shape[1], 3)
 
@@ -116,7 +116,7 @@ class TestEnForceANIForwardBatched:
         """forward_batched should handle exact batch size boundaries."""
         mock_adapter = MagicMock()
 
-        def mock_forward(coords, species, charges):
+        def mock_forward(coords, species, charges, atom_mask=None):
             batch_size = coords.shape[0]
             return torch.ones(batch_size), torch.ones(batch_size, coords.shape[1], 3)
 
@@ -140,7 +140,7 @@ class TestEnForceANIForwardBatched:
         """forward_batched should process at least 1 molecule per batch."""
         mock_adapter = MagicMock()
 
-        def mock_forward(coords, species, charges):
+        def mock_forward(coords, species, charges, atom_mask=None):
             batch_size = coords.shape[0]
             return torch.ones(batch_size), torch.ones(batch_size, coords.shape[1], 3)
 
@@ -230,7 +230,7 @@ def test_forward_batched_retries_on_oom():
         coord_pad = 0.0
         species_pad = -1
 
-        def forward(self, coord, numbers, charges):
+        def forward(self, coord, numbers, charges, atom_mask=None):
             if coord.shape[0] > 1:
                 raise torch.cuda.OutOfMemoryError("CUDA out of memory (simulated)")
             return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)

@@ -89,7 +89,7 @@ class TestEnForceANI:
         """EnForce_ANI.forward_batched should batch calls correctly."""
         mock_adapter = MagicMock()
         # Return consistent results for batching
-        def mock_forward(coords, species, charges):
+        def mock_forward(coords, species, charges, atom_mask=None):
             batch_size = coords.shape[0]
             return torch.ones(batch_size), torch.ones(batch_size, coords.shape[1], 3)
 

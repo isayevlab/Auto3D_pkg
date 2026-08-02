@@ -1089,3 +1089,121 @@ class TestLoadHessianModelRouting:
         # ANI2xt/ANI2x branch above, which the previous test covers.)
         assert (name, device_arg, compile_model) == (str(fake_path), device, False)
         assert result.weight.dtype == torch.float64
+
+
+class TestCalculatorChargeInvalidatesCache:
+    """A charge change must discard the energy AND forces cached at the old one.
+
+    ASE decides whether a cached result is still valid with
+    ``Calculator.check_state`` -> ``compare_atoms``, which looks at positions,
+    atomic numbers, cell and pbc only. The molecular charge is invisible to it,
+    so a calculator whose charge was reassigned without ``reset()`` handed the
+    PREVIOUS molecule's energy and gradient to the next one whenever the two
+    shared a geometry. That is exactly a vertical IP/EA input -- one geometry,
+    two charges -- where the error is the whole ionization energy or electron
+    affinity (20-90 kcal/mol) and nothing in the output says so.
+
+    These tests assert the NUMBERS, not that a code path ran: the stub model's
+    energy and forces are functions of the charge, so a reused cache shows up
+    as an identical energy/force for two different charges.
+    """
+
+    @staticmethod
+    def _calculator(charge=0):
+        """A ``Calculator`` over a stub whose energy/forces depend on charge.
+
+        The stub owns one real ``nn.Parameter`` on the CPU purely so
+        ``Calculator.__init__`` reads device/dtype from it: the param-less
+        branch falls back to ``cuda`` whenever a GPU happens to be visible,
+        which would make this test machine-dependent. No NNP is loaded.
+        """
+        import torch
+        from torch import nn
+
+        from Auto3D.ASE.thermo import Calculator
+
+        class _ChargeDependentModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                # Anchors device=cpu / dtype=float32 for the ASE-facing tensors.
+                self.anchor = nn.Parameter(torch.zeros(1))
+                self.calls = 0
+
+            def forward(self, coords, species, charges):
+                self.calls += 1
+                q = float(charges.reshape(-1)[0].item())
+                # E = -1 eV per unit charge; F = +0.5 q eV/A along x on atom 0.
+                energy = torch.tensor([-1.0 * q], dtype=torch.double)
+                forces = torch.zeros_like(coords)
+                forces[0, 0, 0] = 0.5 * q
+                return energy, forces
+
+        model = _ChargeDependentModel()
+        return Calculator(model, charge, model_name="AIMNET"), model
+
+    @staticmethod
+    def _atoms():
+        from ase import Atoms
+
+        # One fixed geometry reused at both charges -- the vertical IP/EA case.
+        return Atoms("H2", [(0.0, 0.0, 0.0), (0.0, 0.0, 0.74)])
+
+    def test_energy_recomputed_after_set_charge(self):
+        calc, model = self._calculator(charge=0)
+        atoms = self._atoms()
+        atoms.calc = calc
+
+        e_neutral = atoms.get_potential_energy()
+        calc.set_charge(1)
+        e_cation = atoms.get_potential_energy()
+
+        assert e_neutral == pytest.approx(0.0)
+        # The number, not the code path: a reused cache returns 0.0 here.
+        assert e_cation == pytest.approx(-1.0)
+        assert e_cation != e_neutral
+        assert model.calls == 2
+
+    def test_forces_recomputed_after_set_charge(self):
+        calc, _ = self._calculator(charge=0)
+        atoms = self._atoms()
+        atoms.calc = calc
+
+        f_neutral = atoms.get_forces()
+        calc.set_charge(2)
+        f_cation = atoms.get_forces()
+
+        # BFGS reads forces, not energy: a stale gradient makes it "converge"
+        # in zero steps on the previous molecule's geometry.
+        assert f_neutral[0, 0] == pytest.approx(0.0)
+        assert f_cation[0, 0] == pytest.approx(1.0)
+        assert not np.allclose(f_neutral, f_cation)
+
+    def test_direct_charge_assignment_also_invalidates(self):
+        """``calc.charge = q`` is the same path as ``set_charge(q)``."""
+        calc, _ = self._calculator(charge=0)
+        atoms = self._atoms()
+        atoms.calc = calc
+
+        e_neutral = atoms.get_potential_energy()
+        calc.charge = -1
+        assert atoms.get_potential_energy() == pytest.approx(1.0)
+        assert atoms.get_potential_energy() != e_neutral
+
+    def test_charge_is_calculator_state_not_a_bare_attribute(self):
+        """The charge lives in ASE's own ``parameters`` dict."""
+        calc, _ = self._calculator(charge=0)
+        assert calc.parameters["charge"] == 0
+        calc.set_charge(-2)
+        assert calc.parameters["charge"] == -2
+        assert int(calc.charge.reshape(-1)[0].item()) == -2
+
+    def test_unchanged_charge_keeps_the_cache(self):
+        """Re-setting the same charge must not force a needless recompute."""
+        calc, model = self._calculator(charge=0)
+        atoms = self._atoms()
+        atoms.calc = calc
+
+        atoms.get_potential_energy()
+        calc.set_charge(0)
+        atoms.get_potential_energy()
+        assert model.calls == 1

@@ -245,10 +245,14 @@ def test_aimnet2_adapter_padded_batch_matches_unpadded(aimnet_model):
     e_w, _ = ad.forward(water_c.unsqueeze(0), water_n.unsqueeze(0), torch.zeros(1))
     e_m, _ = ad.forward(meth_c.unsqueeze(0), meth_n.unsqueeze(0), torch.zeros(1))
 
-    # padded batch: water padded to 5 with species_pad=0
+    # padded batch: water padded to 5 with species_pad=0. The real-atom mask
+    # is passed explicitly (as pad_from_mols returns it); the adapter must not
+    # re-derive it from `species == species_pad`, which would also delete a
+    # legitimate atomic number 0 (an R-group `*` atom) -- audit C13.
     bc = torch.zeros(2,5,3); bc[0,:3]=water_c; bc[1,:5]=meth_c
     bn = torch.zeros(2,5,dtype=torch.long); bn[0,:3]=water_n; bn[1,:5]=meth_n
-    e_b, f_b = ad.forward(bc, bn, torch.zeros(2))
+    bm = torch.zeros(2,5,dtype=torch.bool); bm[0,:3]=True; bm[1,:5]=True
+    e_b, f_b = ad.forward(bc, bn, torch.zeros(2), atom_mask=bm)
     assert f_b.shape == (2,5,3)
     assert abs(float(e_b[0]) - float(e_w[0])) < 1e-2  # padded water == solo water (NaN-free!)
     assert abs(float(e_b[1]) - float(e_m[0])) < 1e-2

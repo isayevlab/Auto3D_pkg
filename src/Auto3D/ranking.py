@@ -8,8 +8,9 @@ from rdkit import Chem
 from Auto3D.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.filtering import filter_unique_optimized
-from Auto3D.utils import ev2kcalpermol, filter_unique, hartree2ev
+from Auto3D.utils import ev2kcalpermol, filter_unique
 from Auto3D.utils.chemistry import check_connectivity
+from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.stereo_check import stereo_preserved
 from Auto3D.utils.validation import check_output_not_input, check_output_overwrite
@@ -174,9 +175,10 @@ class ConformerRanker:
             logger.info(f"No structure converged for {name}.")
         else:
             #Adding relative energies
-            ref_energy = float(out_mols[0].GetProp('E_tot'))
+            # E_tot is stored in Hartree; E_rel(eV) is, as its name says, eV.
+            ref_energy = e_tot_ev(out_mols[0])
             for mol in out_mols:
-                my_energy = float(mol.GetProp('E_tot'))
+                my_energy = e_tot_ev(mol)
                 rel_energy = my_energy - ref_energy
                 mol.SetProp('E_rel(eV)', str(rel_energy))
         return out_mols
@@ -209,9 +211,13 @@ class ConformerRanker:
             name = names[0].strip()
             logger.info(f"No structure converged for {name}.")
         else:
-            ref_energy = float(out_mols_[0].GetProp('E_tot'))
+            # `window` was converted from kcal/mol to eV above, and E_tot is
+            # stored in Hartree, so both sides of the comparison are eV here.
+            # Reading the Hartree number as if it were eV is what made the
+            # window 27.2x too wide for an opt_geometry-produced input.
+            ref_energy = e_tot_ev(out_mols_[0])
             for mol in out_mols_:
-                my_energy = float(mol.GetProp('E_tot'))
+                my_energy = e_tot_ev(mol)
                 rel_energy = my_energy - ref_energy
                 if rel_energy <= window:
                     mol.SetProp('E_rel(eV)', str(rel_energy))
@@ -271,7 +277,7 @@ class ConformerRanker:
                 if converged:
                     mols.append(mol)
                     names.append(species_id(mol.GetProp('_Name')))
-                    energies.append(float(mol.GetProp('E_tot')))
+                    energies.append(e_tot_ev(mol))
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         groups = df.groupby("names")
@@ -290,11 +296,14 @@ class ConformerRanker:
 
         with Chem.SDWriter(self.out_path) as f:
             for mol in results:
-                # Change the energy unit from eV back to Hartree
-                mol.SetProp('E_tot', str(float(mol.GetProp('E_tot'))/hartree2ev))
+                # E_tot arrives in Hartree and leaves in Hartree: every Auto3D
+                # writer stores this property in Hartree now (see
+                # Auto3D.utils.energy). This used to divide by hartree2ev here,
+                # which was correct only because batch_opt wrote eV -- so the
+                # same division was applied twice to an opt_geometry output.
                 # Unit-labeled sibling so consumers can't misread E_tot's units
                 # (E_tot is kept unlabeled for backward compatibility).
-                mol.SetProp('E_tot(Hartree)', mol.GetProp('E_tot'))
+                mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
                 mol.SetProp('E_rel(kcal/mol)', str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol))
                 mol.ClearProp('E_rel(eV)')
                 # Strip the trailing <isomer>_<conformer> suffix, keeping the

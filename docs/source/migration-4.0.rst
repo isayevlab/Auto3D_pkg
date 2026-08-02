@@ -7,6 +7,100 @@ This release corrects defects that produced silently wrong results. Read the
 Results that change
 --------------------
 
+``E_tot`` is Hartree in every file Auto3D writes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``E_tot`` SD property meant two different units depending on which piece
+of Auto3D wrote the file. ``batch_opt.optimizing.run`` wrote **eV**, while
+``opt_geometry`` and ``ConformerRanker`` wrote **Hartree** under the same
+name, and the in-package consumers (``ranking``, ``filtering``,
+``utils.chemistry.filter_unique``) all hard-coded eV -- so they misread files
+Auto3D itself produced. Feeding an ``opt_geometry`` output straight to
+``ConformerRanker(window=2.0)`` opened a window 27.211x too wide, kept 3
+conformers where 2 belong, reported ``E_rel`` 0.037 kcal/mol where the truth
+is 1.000, and wrote an ``E_tot(Hartree)`` that had been divided by 27.211
+twice.
+
+``E_tot`` is now Hartree at every writer, converted once on the way to disk.
+
+**Which unit is my file in?**
+
+.. list-table::
+   :widths: 45 20 20
+   :header-rows: 1
+
+   * - Producer
+     - 3.x / 4.0-pre
+     - 4.0
+   * - ``optimizing.run()`` -- the unranked SDF from the optimization step
+       (kept in the job directory, and in the ``--verbose`` housekeeping
+       archive)
+     - eV
+     - **Hartree**
+   * - ``opt_geometry`` / ``auto3d optimize``
+     - Hartree
+     - Hartree
+   * - ``main()`` / ``smiles2mols`` / ``auto3d run`` final output
+     - Hartree
+     - Hartree
+   * - ``calc_spe`` / ``auto3d energy`` (writes ``E_hartree``)
+     - Hartree
+     - Hartree
+
+Only the intermediate optimizer output changed unit. A file carrying both
+``E_tot`` and ``E_tot(Hartree)`` is Hartree by construction. A file carrying
+``E_tot`` alone, produced by a 3.x/4.0-pre ``optimizing.run()``, is in eV:
+divide by 27.211386245988 to migrate it, or re-run. Every finished Auto3D
+output was already Hartree and is unchanged.
+
+``opt_geometry`` output now also carries the unit-labeled ``E_tot(Hartree)``
+sibling that previously only the ranked output had. ``fmax`` is unchanged and
+remains eV/Angstrom.
+
+If you wrote code against the old intermediate file, note that no public
+parameter changed units: ``ConformerRanker``'s ``energy_cluster_window`` and
+the duplicate-energy tolerance are still eV.
+``Auto3D.utils.energy`` is now the single owner of the conversion --
+``set_e_tot_from_ev`` on write, ``e_tot_ev`` / ``try_e_tot_ev`` on read.
+
+Molecules with R-group (``*``) atoms
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``AIMNet2Adapter`` identified padded slots as ``species != species_pad`` with
+``species_pad = 0``, which is also the atomic number of a dummy atom. A
+molecule containing ``*`` therefore had that atom deleted before the energy
+call: for ``*CCO`` the padder reported 9 real atoms and the adapter scored 8.
+The energy belonged to a different species, and the dummy atom received
+exactly zero force, so it stayed frozen at its input coordinate for the whole
+optimization while everything else relaxed around it -- the geometry is wrong,
+not just the energy. Because element 0 is outside the ANI set, Auto3D routes
+exactly these molecules to this engine. Recompute any run containing dummy or
+R-group atoms.
+
+The adapter now uses the explicit ``atom_mask`` that
+``batch_opt.padding.pad_from_mols`` returns. If you maintain a **custom NNP**,
+the same collision class applies to you: your model identifies its own padding
+from the ``species_pad`` value it declares, so choose one that cannot collide
+with a real species index -- ``-1`` is always safe, ``0`` is not.
+
+``calc_thermo`` on inputs that share a geometry at different charges
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``calc_thermo`` reuses one ASE calculator across every record and called
+``set_charge`` per molecule. ASE's cache-validity test compares positions,
+atomic numbers, cell and pbc -- never the charge -- so two records with the
+same geometry and different formal charge shared one cached energy *and* one
+cached gradient. ``BFGS`` then "converged" in zero steps on the previous
+molecule's forces, the stationary-point gate passed, and the reported
+``E_hartree``/``H_hartree``/``G_hartree`` combined the first molecule's
+electronic energy with the second's Hessian.
+
+A vertical IP/EA input -- the same geometry submitted at two charges -- is the
+ordinary case that hits this, and the error is the entire ionization energy or
+electron affinity, 20-90 kcal/mol, with nothing in the output to indicate it.
+Recompute any ``calc_thermo`` batch in which two records shared a geometry and
+differed in charge.
+
 ``calc_thermo`` with ANI2xt
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -147,15 +147,19 @@ def calc_spe(
     # Create EnForce_ANI wrapper for batched forward support (new API without name)
     model = EnForce_ANI(model_adapter)
 
-    # Use new vectorized padding that returns tensors directly. calc_spe only
-    # needs energies (not forces), so the atom mask pad_from_mols also returns
-    # is unused here.
-    coord_padded, numbers_padded, charges, _atom_mask = pad_from_mols(
+    # Use new vectorized padding that returns tensors directly. The explicit
+    # atom mask is forwarded to the model: an adapter that flattens a padded
+    # batch (AIMNet2) must be told which slots are real rather than inferring
+    # it from `species == species_pad`, which deletes a legitimate atomic
+    # number 0 (an R-group `*` atom) along with the padding (audit C13).
+    coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(
         mols, model_name, device,
         coord_pad=model_adapter.coord_pad, species_pad=model_adapter.species_pad
     )
 
-    es, fs = model.forward_batched(coord_padded, numbers_padded, charges)
+    es, fs = model.forward_batched(
+        coord_padded, numbers_padded, charges, atom_mask=atom_mask
+    )
     es = es.to('cpu').detach().numpy()
 
     with Chem.SDWriter(str(outpath)) as f:

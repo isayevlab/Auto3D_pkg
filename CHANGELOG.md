@@ -546,6 +546,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `__constants__` for TorchScript). The failure is now a clear
   `ModelLoadError` at load rather than a wrong padding value applied silently.
 
+- **`E_tot` is written in Hartree by every entry point.** The SDF property
+  name meant two different units depending on which code wrote the file:
+  `batch_opt.optimizing.run` wrote **eV**, while `opt_geometry` and
+  `ConformerRanker` wrote **Hartree** under the same name -- and the five
+  in-package consumers (`ranking`, `filtering`, `utils.chemistry.filter_unique`)
+  all hard-coded eV, so they misread the very files Auto3D itself produced.
+  Feeding an `opt_geometry` output to `ConformerRanker(window=2.0)` opened a
+  window **27.211x too wide** (3 conformers kept where 2 belong), reported
+  `E_rel` 0.037 kcal/mol where the truth is 1.000, and wrote an
+  `E_tot(Hartree)` that had been divided by 27.211 **twice**.
+
+  | Producer | `E_tot` in 3.x / 4.0-pre | `E_tot` now |
+  | --- | --- | --- |
+  | `optimizing.run()` (`*_3d.sdf` in the job dir, `--verbose` output) | eV | **Hartree** |
+  | `opt_geometry` / `auto3d optimize` | Hartree | Hartree (unchanged) |
+  | `ConformerRanker` / `main()` / `smiles2mols` (final output) | Hartree | Hartree (unchanged) |
+  | `calc_spe` / `auto3d energy` (writes `E_hartree`) | Hartree | Hartree (unchanged) |
+
+  **Which unit is my file in?** Only the intermediate optimizer output
+  changed. If a file has both `E_tot` and `E_tot(Hartree)` it is Hartree by
+  construction. If it has `E_tot` alone and came from a 3.x/4.0-pre
+  `optimizing.run()` (an unranked, un-annotated SDF straight out of the
+  optimization step), it is in eV -- divide by 27.211386245988 to migrate it,
+  or simply re-run. Every finished Auto3D output (`main()`, `smiles2mols`,
+  `opt_geometry`, `auto3d run/optimize`) was already Hartree and is
+  bit-identical.
+
+  `opt_geometry` output now also carries the unit-labeled `E_tot(Hartree)`
+  sibling, which previously only the ranked output had. `fmax` is unchanged
+  and remains eV/Angstrom. `Auto3D.utils.energy` is the single owner of this
+  conversion: writers call `set_e_tot_from_ev`, readers call `e_tot_ev` /
+  `try_e_tot_ev`, so `energy_cluster_window` and the duplicate-energy
+  tolerance keep their documented eV meaning and no public parameter changed
+  units.
+
 ### Added
 
 - **`auto3d validate` accepts `--json`**, the one result-producing command
@@ -567,6 +602,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The Rich error panel is unchanged and still goes to stderr.
 
 ### Fixed
+
+- **A charge change no longer reuses the previous molecule's energy and
+  forces.** `ASE/thermo.py`'s `Calculator.set_charge` reassigned the charge
+  without discarding the cached result. ASE decides cache validity with
+  `Calculator.check_state` -> `compare_atoms`, which compares positions,
+  atomic numbers, cell and pbc -- the charge is invisible to it. In
+  `calc_thermo`'s shared-calculator loop, two records with the **same geometry
+  and different formal charge** therefore shared one energy *and* one gradient:
+  `BFGS` "converged" in zero steps on the previous molecule's forces, the
+  stationary-point gate passed, and the reported `E_hartree`/`H_hartree`/
+  `G_hartree` combined molecule 1's electronic energy with molecule 2's
+  Hessian. A vertical IP/EA input -- one geometry at two charges -- is an
+  ordinary use, and the error is the whole ionization energy or electron
+  affinity (20-90 kcal/mol) with no warning. The charge now lives in the ASE
+  calculator's own `parameters`, and both `set_charge(q)` and a direct
+  `calc.charge = q` invalidate the cache.
+
+- **An R-group (`*`) atom is no longer deleted as padding.**
+  `AIMNet2Adapter.forward` derived its real-atom mask as
+  `species != self.species_pad`, and that adapter's `species_pad` is `0` --
+  which is also the atomic number of a dummy atom. `padding.pad_from_mols`
+  documents exactly this hazard (audit C13) and returns an explicit
+  `atom_mask` so callers need not guess; this consumer was the last one still
+  guessing. For `*CCO` the padder reported 9 real atoms and the adapter scored
+  8: the energy belonged to a different species, the dummy atom received
+  exactly zero force and stayed frozen for the whole optimization, and
+  `utils.validation._requires_aimnet` routes precisely these molecules to this
+  engine. The explicit mask is now threaded from `pad_from_mols` through
+  `EnForce_ANI.forward`/`forward_batched` (new optional `atom_mask=`
+  parameter, sliced per sub-batch) to the adapters, and `calc_spe` forwards it
+  too. Recompute any run containing dummy/R-group atoms.
 
 - **`auto3d <config.yaml>` no longer reports success on a run that lost
   molecules.** The deprecated single-argument form printed a green

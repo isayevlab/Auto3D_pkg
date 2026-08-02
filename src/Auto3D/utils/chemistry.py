@@ -28,6 +28,7 @@ from Auto3D.constants import (
     MAX_CONFORMERS_CAP,
     MIN_ATOM_DISTANCE,
 )
+from Auto3D.utils.energy import try_e_tot_ev
 from Auto3D.utils.stereo_check import stereo_descriptors_from_3d, stereo_preserved
 
 logger = logging.getLogger("auto3d")
@@ -524,17 +525,16 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
     # Heavy-atom RMSD alone collapses conformers that differ only in an O-H / N-H
     # rotor orientation. Guard with an energy check: a pair counts as duplicate
     # only when the RMSD is below ``crit`` AND the energies agree within
-    # DEFAULT_DUPLICATE_ENERGY_TOL. Mols without a usable 'E_tot' fall back to
-    # RMSD-only (energy guard cannot apply).
+    # DEFAULT_DUPLICATE_ENERGY_TOL (eV; 'E_tot' is stored in Hartree and is
+    # converted on read by Auto3D.utils.energy). Mols without a usable 'E_tot'
+    # fall back to RMSD-only (energy guard cannot apply).
     unique_mols: list[Chem.Mol] = []
     unique_noH: list[Chem.Mol] = []
     unique_energies: list[float | None] = []
     for mol_i in mols:
         mol_i_noH = Chem.RemoveHs(mol_i)
-        try:
-            e_i: float | None = float(mol_i.GetProp("E_tot"))
-        except (KeyError, ValueError):
-            e_i = None
+        # E_tot is stored in Hartree; DEFAULT_DUPLICATE_ENERGY_TOL is in eV.
+        e_i: float | None = try_e_tot_ev(mol_i)
         unique = True
         for mol_j_noH, e_j in zip(unique_noH, unique_energies, strict=True):
             try:

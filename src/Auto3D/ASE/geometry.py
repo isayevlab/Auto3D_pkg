@@ -20,7 +20,7 @@ from Auto3D.constants import (
 from Auto3D.model_factory import get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils import hartree2ev
+from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
     check_gpu_requested,
@@ -70,7 +70,20 @@ def _stage_beside(target: str) -> str:
 
 
 def _annotate_and_rewrite(outpath: str) -> None:
-    """Convert E_tot from eV to hartree in-place, atomically.
+    """Add the unit-labeled ``E_tot(Hartree)`` sibling in-place, atomically.
+
+    This function used to CONVERT ``E_tot`` from eV to Hartree, because
+    ``optimizing.run()`` wrote eV. It no longer does: ``optimizing.run()``
+    writes ``E_tot`` in Hartree like every other Auto3D writer (see
+    ``Auto3D.utils.energy``), so converting again here would divide by 27.211
+    a second time. Two jobs remain, and neither is a no-op: this pass DROPS
+    records that failed to re-parse or carry no ``E_tot`` (so ``opt_geometry``
+    output contains only usable energies), and it guarantees the unit-labeled
+    ``E_tot(Hartree)`` sibling regardless of what the optimizer wrote -- the
+    same guarantee ``ConformerRanker`` makes for the ranked output. Setting
+    the label is idempotent: ``optimizing.run()`` already writes it, and
+    re-asserting the identical string here keeps the guarantee attached to
+    ``opt_geometry`` itself rather than to whichever writer ran upstream.
 
     ``optimizing.run()`` has already written its only copy of the optimized
     geometries to ``outpath``. Opening ``Chem.SDWriter(outpath)`` directly
@@ -88,10 +101,6 @@ def _annotate_and_rewrite(outpath: str) -> None:
     handle is held. This function reads ``outpath`` and then replaces it, so it
     has the same exposure -- see the explicit release below.
     """
-    # `ev2hatree` is a LOCAL in opt_geometry, so a module-level helper cannot
-    # see it -- recompute from the module-level `hartree2ev` import rather than
-    # adding a parameter for a constant.
-    ev2hatree = 1 / hartree2ev
     supp = Chem.SDMolSupplier(outpath, removeHs=False)
     mols = list(supp)
     # Release the handle on `outpath` BEFORE os.replace targets it, exactly as
@@ -108,10 +117,11 @@ def _annotate_and_rewrite(outpath: str) -> None:
                 # Skip records that failed to re-parse or lack E_tot rather
                 # than crashing, which would discard the entire (already
                 # completed) optimization run on a single bad record.
-                if mol is None or not mol.HasProp("E_tot"):
+                if mol is None or not mol.HasProp(E_TOT_PROP):
                     continue
-                e = float(mol.GetProp("E_tot")) * ev2hatree
-                mol.SetProp("E_tot", str(e))
+                # Same number, stated in a name that carries its unit. No
+                # arithmetic: E_tot is already Hartree when it gets here.
+                mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
                 f.write(mol)
         os.replace(tmp_path, outpath)
     except BaseException:
@@ -248,8 +258,9 @@ def opt_geometry(
     opt_engine = optimizing(path, outpath, model_name, device, opt_config)
     opt_engine.run()
 
-    # change the energy unit from eV to hartree, staged through a temp file so
-    # a failed rewrite cannot destroy the completed optimization (C14)
+    # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds
+    # the unit-labeled sibling, staged through a temp file so a failed rewrite
+    # cannot destroy the completed optimization (C14)
     _annotate_and_rewrite(outpath)
     return outpath
 

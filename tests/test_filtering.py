@@ -7,16 +7,24 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.filtering import filter_unique_optimized, _filter_within_cluster
+from Auto3D.utils.energy import set_e_tot_from_ev
 
 
-def _create_mol_with_energy(smiles: str, energy: float, converged: bool = True) -> Chem.Mol:
-    """Helper to create a test molecule with properties set."""
+def _create_mol_with_energy(smiles: str, energy_ev: float, converged: bool = True) -> Chem.Mol:
+    """Helper to create a test molecule with properties set.
+
+    ``energy_ev`` is in eV, which is the unit this module's thresholds
+    (``rmsd_threshold``'s companion ``energy_tol``, ``energy_cluster_window``)
+    are documented in and the unit the filters compare in. The SDF property
+    itself is written in Hartree, through the same boundary helper the
+    optimizer uses, because that is what a real input file carries.
+    """
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, randomSeed=42)
     AllChem.MMFFOptimizeMolecule(mol)
     mol.SetProp('Converged', 'true' if converged else 'false')
-    mol.SetProp('E_tot', str(energy))
+    set_e_tot_from_ev(mol, energy_ev)
     return mol
 
 
@@ -128,7 +136,9 @@ class TestFilterUniqueOptimized:
             rmsd_threshold=0.5
         )
 
-        energies = [float(mol.GetProp('E_tot')) for mol in result]
+        from Auto3D.utils.energy import e_tot_ev
+
+        energies = [e_tot_ev(mol) for mol in result]
         assert energies == sorted(energies)
 
     def test_energy_clustering_groups_similar_energies(self):
@@ -201,12 +211,12 @@ class TestFilterUniqueBehavior:
         """
         from Auto3D.utils import filter_unique
 
-        def conformer(seed: float, energy: float) -> Chem.Mol:
+        def conformer(seed: float, energy_ev: float) -> Chem.Mol:
             m = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))  # flexible chain
             AllChem.EmbedMolecule(m, randomSeed=seed)
             AllChem.MMFFOptimizeMolecule(m)
             m.SetProp("Converged", "true")
-            m.SetProp("E_tot", str(energy))
+            set_e_tot_from_ev(m, energy_ev)
             return m
 
         mols = [conformer(42, -12.0), conformer(7, -11.0), conformer(123, -10.0)]
@@ -240,9 +250,11 @@ def test_filter_within_cluster_removehs_is_linear_and_nondestructive(monkeypatch
     mols = []
     base = Chem.AddHs(Chem.MolFromSmiles("CCCCO"))
     cids = AllChem.EmbedMultipleConfs(base, numConfs=5, randomSeed=1)
+    from Auto3D.utils.energy import set_e_tot_from_ev as _set_e
+
     for cid in cids:
         m = Chem.Mol(base, confId=int(cid))
-        m.SetProp("E_tot", "0.0")
+        _set_e(m, 0.0)
         m.SetProp("Converged", "true")
         mols.append(m)
     n_atoms = base.GetNumAtoms()  # heavy + explicit H (15 for CCCCO)
@@ -277,7 +289,8 @@ def test_rmsd_failure_keeps_both(monkeypatch):
     def make(name, e):
         m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(m, randomSeed=abs(hash(name)) % 1000)
-        m.SetProp("_Name", name); m.SetProp("E_tot", str(e))
+        m.SetProp("_Name", name)
+        set_e_tot_from_ev(m, e)
         return m
 
     def boom(*a, **k):
