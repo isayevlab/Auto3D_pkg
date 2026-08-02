@@ -9,6 +9,10 @@ import Auto3D
 from Auto3D.ASE.geometry import opt_geometry
 from Auto3D.ASE.thermo import model_name2model_calculator, vib_hessian
 from Auto3D.ASE.thermo import calc_thermo
+from tests.helpers_pipeline_output import (
+    assert_opt_geometry_output,
+    write_perturbed_sdf,
+)
 
 # Mark all tests in this module as slow (thermodynamic calculations)
 pytestmark = pytest.mark.slow
@@ -164,6 +168,13 @@ def test_model_name2model_calculator_uses_factory():
             # Verify EnForce_ANI was created with the adapter
             mock_enforce.assert_called_once_with(mock_adapter)
 
+            # ...and that the factory's adapter is what actually comes back,
+            # rather than something constructed internally. Asserting only on
+            # the mock call records proves the factory ran, not that its result
+            # was used.
+            assert model_adapter is mock_adapter
+            assert calc is not None
+
 
 def test_calc_thermo_aimnet():
     #load wB97m-D4/Def2-TZVPP output file
@@ -256,29 +267,52 @@ def test_vib_hessian_includes_external_dispersion():
     # 2. Including the attractive D3 term must SOFTEN, not stiffen, the bonds.
     assert fixed_max < bare_max
 
-def test_opt_geometry1():
-    path = os.path.join(folder, "tests/files/DA.sdf")
+#: Uniform expansion applied to the DA.sdf geometries before they are handed
+#: to ``opt_geometry`` below. ``tests/files/DA.sdf`` is *already* a relaxed
+#: structure (its stored fmax is 0.0028 eV/A, far below the 0.1 eV/A tolerance
+#: these tests use), so optimizing it unchanged is entitled to move nothing and
+#: "the geometry changed" would not be assertable. A 5% expansion about each
+#: molecule's own centroid stretches every bond by ~0.07 A -- restoring forces
+#: of order 1 eV/A, an order of magnitude above the tolerance -- so the
+#: optimizer cannot converge without pulling the atoms back. Measured
+#: displacement of the perturbation itself is 0.05-0.17 A per atom; the 0.01 A
+#: floor asserted afterwards therefore has several times its own margin.
+DA_EXPANSION = 1.05
+DA_MIN_RELAXATION = 0.01
+
+
+def _perturbed_DA(tmp_path) -> tuple[str, list]:
+    """Stage a displaced copy of DA.sdf in ``tmp_path``, ready to optimize.
+
+    Keeping the filename ``DA.sdf`` preserves ``opt_geometry``'s derived output
+    name (``DA_<model>_opt.sdf``, written beside its input) while moving it out
+    of ``tests/files/``, where these tests used to leave it behind whenever
+    they failed -- and where two of them wrote to the same path.
+    """
+    source = os.path.join(folder, "tests/files/DA.sdf")
+    return write_perturbed_sdf(source, tmp_path / "DA.sdf", DA_EXPANSION)
+
+
+def test_opt_geometry1(tmp_path):
+    """ANI2x relaxes a displaced geometry and annotates it correctly."""
+    path, inputs = _perturbed_DA(tmp_path)
     out = opt_geometry(path, 'ANI2x', opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    try:
-        os.remove(out)
-    except OSError:
-        pass
+    assert_opt_geometry_output(out, input_mols=inputs,
+                               moved_at_least=DA_MIN_RELAXATION, label="ANI2x")
 
-def test_opt_geometry2():
-    path = os.path.join(folder, "tests/files/DA.sdf")
+def test_opt_geometry2(tmp_path):
+    """ANI2xt relaxes a displaced geometry and annotates it correctly."""
+    path, inputs = _perturbed_DA(tmp_path)
     out = opt_geometry(path, 'ANI2xt', opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    try:
-        os.remove(out)
-    except OSError:
-        pass
+    assert_opt_geometry_output(out, input_mols=inputs,
+                               moved_at_least=DA_MIN_RELAXATION, label="ANI2xt")
 
-def test_opt_geometry3():
-    path = os.path.join(folder, "tests/files/DA.sdf")
+def test_opt_geometry3(tmp_path):
+    """AIMNet2 relaxes a displaced geometry and annotates it correctly."""
+    path, inputs = _perturbed_DA(tmp_path)
     out = opt_geometry(path, 'AIMNET', opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    try:
-        os.remove(out)
-    except OSError:
-        pass
+    assert_opt_geometry_output(out, input_mols=inputs,
+                               moved_at_least=DA_MIN_RELAXATION, label="AIMNET")
 
 
 def test_opt_geometry_with_patience_and_batchsize():
@@ -300,33 +334,33 @@ def test_opt_geometry_with_patience_and_batchsize():
         pass
 
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
-def test_opt_geometry4():
-    path = os.path.join(folder, "tests/files/DA.sdf")
+def test_opt_geometry4(tmp_path):
+    """A scripted custom NNP relaxes a displaced geometry through opt_geometry."""
+    path, inputs = _perturbed_DA(tmp_path)
     with tempfile.TemporaryDirectory() as tmpdir:
         model_path = os.path.join(tmpdir, 'myNNP.pt')
         myNNP = userNNP1()
         myNNP_jit = torch.jit.script(myNNP)
         myNNP_jit.save(model_path)
-    
-        out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    try:
-        os.remove(out)
-    except OSError:
-        pass
 
-def test_opt_geometry5():
-    path = os.path.join(folder, "tests/files/DA.sdf")
+        out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
+    assert_opt_geometry_output(out, input_mols=inputs,
+                               moved_at_least=DA_MIN_RELAXATION,
+                               label="scripted userNNP1")
+
+def test_opt_geometry5(tmp_path):
+    """An eager AIMNet2-backed custom NNP relaxes a displaced geometry."""
+    path, inputs = _perturbed_DA(tmp_path)
     with tempfile.TemporaryDirectory() as tmpdir:
         model_path = os.path.join(tmpdir, 'myNNP.pt')
         myNNP = userNNP2()
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
-    
+
         out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    try:
-        os.remove(out)
-    except OSError:
-        pass
+    assert_opt_geometry_output(out, input_mols=inputs,
+                               moved_at_least=DA_MIN_RELAXATION,
+                               label="eager userNNP2")
 
 
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
