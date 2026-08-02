@@ -9,21 +9,30 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.utils.energy import e_tot_ev, set_e_tot_from_ev
+
 
 def _create_mol_with_energy(
     smiles: str,
-    energy: float,
+    energy_ev: float,
     name: str,
     converged: bool = True,
 ) -> Chem.Mol:
-    """Helper to create a test molecule with properties set."""
+    """Helper to create a test molecule with properties set.
+
+    ``energy_ev`` is in eV -- the unit ``energy_cluster_window`` and the
+    duplicate-energy tolerance are documented in, and the unit the ranker
+    compares in after converting on read. The ``E_tot`` property is written in
+    Hartree through the shared boundary helper, matching what
+    ``optimizing.run()`` puts in a real input file.
+    """
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, randomSeed=42)
     AllChem.MMFFOptimizeMolecule(mol)
     mol.SetProp('_Name', name)
     mol.SetProp('Converged', 'true' if converged else 'false')
-    mol.SetProp('E_tot', str(energy))
+    set_e_tot_from_ev(mol, energy_ev)
     return mol
 
 
@@ -234,7 +243,7 @@ class TestConformerRankerTopK:
         # Should return exactly 1 molecule
         assert len(results) == 1
         # Should be the lowest energy one
-        assert float(results[0].GetProp('E_tot')) == -10.0
+        assert e_tot_ev(results[0]) == pytest.approx(-10.0)
 
     def test_top_k_equals_1_full_integration(self, tmp_path):
         """Integration test: k=1 should return single lowest-energy conformer."""
@@ -303,7 +312,7 @@ class TestConformerRankerTopK:
 
         # Must return the VALID conformer, not the broken lowest-energy one.
         assert len(results) == 1
-        assert float(results[0].GetProp('E_tot')) == -9.0
+        assert e_tot_ev(results[0]) == pytest.approx(-9.0)
 
     def test_top_k_equals_1_returns_empty_when_all_broken(self, tmp_path):
         """When k=1 and no conformer passes connectivity, return an empty list."""
@@ -583,7 +592,7 @@ class TestConformerRankerMissingConvergedProp:
         AllChem.EmbedMolecule(bad, randomSeed=42)
         AllChem.MMFFOptimizeMolecule(bad)
         bad.SetProp('_Name', "bad_1")
-        bad.SetProp('E_tot', str(-9.0))
+        set_e_tot_from_ev(bad, -9.0)
         assert not bad.HasProp('Converged')
 
         input_path = str(tmp_path / "input.sdf")

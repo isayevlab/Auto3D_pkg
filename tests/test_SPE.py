@@ -274,7 +274,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
         def __init__(self, model_adapter):
             enforce_args.append(model_adapter)
 
-        def forward_batched(self, coords, numbers, charges):
+        def forward_batched(self, coords, numbers, charges, atom_mask=None):
             n = coords.shape[0]
             return torch.zeros(n, dtype=torch.float64), torch.zeros_like(coords)
 

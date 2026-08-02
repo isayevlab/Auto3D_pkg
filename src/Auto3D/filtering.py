@@ -11,6 +11,7 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.utils import check_connectivity
+from Auto3D.utils.energy import e_tot_ev, try_e_tot_ev
 from Auto3D.utils.stereo_check import stereo_preserved
 
 
@@ -31,10 +32,13 @@ def filter_unique_optimized(
     much smaller than n for molecules with diverse energies.
 
     Args:
-        mols: List of RDKit Mol objects with 'E_tot' and 'Converged' properties.
-            Records marked 'Stereo_changed' are excluded.
+        mols: List of RDKit Mol objects with 'E_tot' (Hartree) and 'Converged'
+            properties. Records marked 'Stereo_changed' are excluded.
         rmsd_threshold: RMSD threshold for considering structures similar (Angstrom).
-        energy_cluster_window: Energy window for clustering (eV).
+        energy_cluster_window: Energy window for clustering (eV). Unchanged:
+            the stored Hartree energies are converted to eV on read
+            (``Auto3D.utils.energy.e_tot_ev``), so this parameter keeps its
+            documented unit.
 
     Returns:
         List of unique molecules, sorted by energy (lowest first).
@@ -54,16 +58,17 @@ def filter_unique_optimized(
     if not valid_mols:
         return []
 
-    # Sort by energy
-    valid_mols.sort(key=lambda m: float(m.GetProp('E_tot')))
+    # Sort by energy. E_tot is stored in Hartree; energy_cluster_window and
+    # the duplicate tolerance below are both in eV, so convert on read.
+    valid_mols.sort(key=e_tot_ev)
 
     # Cluster by energy
     clusters: list[list[Chem.Mol]] = []
     current_cluster: list[Chem.Mol] = [valid_mols[0]]
-    current_min_e = float(valid_mols[0].GetProp('E_tot'))
+    current_min_e = e_tot_ev(valid_mols[0])
 
     for mol in valid_mols[1:]:
-        e = float(mol.GetProp('E_tot'))
+        e = e_tot_ev(mol)
         if e - current_min_e <= energy_cluster_window:
             current_cluster.append(mol)
         else:
@@ -141,12 +146,11 @@ def _filter_within_cluster(
 
 
 def _mol_energy(mol: Chem.Mol) -> float | None:
-    """Return a mol's optimized energy (eV) from the ``E_tot`` property, or None.
+    """Return a mol's optimized energy in eV, or None.
 
-    Used by the duplicate-conformer test as an energy guard; ``None`` signals
-    "no usable energy" so callers fall back to RMSD-only comparison.
+    ``E_tot`` is stored in Hartree; the conversion lives in
+    ``Auto3D.utils.energy`` so this module and ``ranking``/``utils.chemistry``
+    cannot drift apart on it. ``None`` signals "no usable energy" so callers
+    fall back to RMSD-only comparison.
     """
-    try:
-        return float(mol.GetProp("E_tot"))
-    except (KeyError, ValueError):
-        return None
+    return try_e_tot_ev(mol)

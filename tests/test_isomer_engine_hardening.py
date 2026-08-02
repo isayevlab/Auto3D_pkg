@@ -279,7 +279,7 @@ class TestSpeFiltersAndAligns:
             def __init__(self, adapter):
                 self.adapter = adapter
 
-            def forward_batched(self, coords, numbers, charges):
+            def forward_batched(self, coords, numbers, charges, atom_mask=None):
                 n = coords.shape[0]
                 captured["n"] = n
                 es = torch.arange(1, n + 1, dtype=torch.float64) * 10.0

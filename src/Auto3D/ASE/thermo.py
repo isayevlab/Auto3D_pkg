@@ -312,8 +312,36 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
 
 
 class Calculator(ase.calculators.calculator.Calculator):
-    """ASE calculator interface for AIMNET and ANI2xt"""
+    """ASE calculator interface for AIMNET and ANI2xt.
+
+    The molecular charge is part of the calculator's own ASE state
+    (``self.parameters['charge']``), not a bare attribute the caller mutates.
+    ASE decides whether a cached ``energy``/``forces`` may be reused by calling
+    ``check_state``, which delegates to ``compare_atoms`` and compares only
+    positions, atomic numbers, cell and pbc -- the charge is invisible to it.
+    Reassigning the charge without discarding the cache therefore let two
+    records with the SAME geometry and DIFFERENT formal charge share one
+    result: a vertical IP/EA input (one geometry, two charges) is the ordinary
+    case, and it silently reported the neutral energy for the ion. Downstream
+    that is the entire electron affinity, tens of kcal/mol, with no warning --
+    and because the cached FORCES were reused too, ``BFGS`` "converged" in zero
+    steps on the previous molecule's gradient and the stationary-point gate
+    passed.
+
+    ``discard_results_on_any_change`` makes ASE's own ``Calculator.set`` call
+    ``reset()`` whenever a parameter actually changes, so routing the charge
+    through ``set(charge=...)`` (see the ``charge`` setter below) is what
+    invalidates the cache. Both ``calc.set_charge(q)`` and a direct
+    ``calc.charge = q`` go through that one path.
+    """
     implemented_properties = ['energy', 'forces']
+    #: A change to any parameter (there is exactly one, ``charge``) makes every
+    #: cached result stale, so let ASE's ``Calculator.set`` call ``reset()``.
+    discard_results_on_any_change = True
+    #: Declared so ``self.parameters`` always carries a charge entry, even
+    #: before the first assignment in ``__init__``.
+    default_parameters = {'charge': 0}
+
     def __init__(self, model, charge=0, *, model_name):
         super().__init__()
         self.model = model
@@ -333,10 +361,43 @@ class Calculator(ase.calculators.calculator.Calculator):
             # so fall back to a sensible default for the ASE-facing tensors.
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.dtype = torch.double
-        self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
+        # Goes through the `charge` setter below, so `self.parameters['charge']`
+        # and the tensor `calculate()` reads are populated from one place.
+        self.charge = charge
 
-    def set_charge(self, charge:int):
-        self.charge = torch.tensor([charge], dtype=torch.float, device=self.device)
+    @property
+    def charge(self) -> torch.Tensor:
+        """Molecular charge as a ``(1,)`` float tensor on ``self.device``.
+
+        Kept as a tensor (rather than an int) because ``calculate`` hands it
+        straight to the model, and aimnet's AIMNet2 requires a 1-D per-molecule
+        charge tensor.
+        """
+        return self._charge
+
+    @charge.setter
+    def charge(self, value) -> None:
+        # Accept an int/float or a tensor: `Calculator(model, charge=1)` and a
+        # caller-supplied `calc.charge = torch.tensor([1])` must both land in
+        # `self.parameters`, or the assignment that skipped it would keep the
+        # stale cache alive again.
+        if isinstance(value, torch.Tensor):
+            scalar = int(value.reshape(-1)[0].item())
+        else:
+            scalar = int(value)
+        self._charge = torch.tensor([scalar], dtype=torch.float, device=self.device)
+        # ASE's own parameter bookkeeping: with
+        # discard_results_on_any_change=True this calls reset() -- dropping the
+        # cached energy AND forces -- exactly when the value actually changes.
+        self.set(charge=scalar)
+
+    def set_charge(self, charge: int) -> None:
+        """Set the molecular charge, discarding any result cached at the old one.
+
+        See the class docstring: ASE's cache-validity test never looks at the
+        charge, so this must invalidate the cache itself.
+        """
+        self.charge = charge
 
     def calculate(self, atoms=None, properties=None,
                   system_changes=ase.calculators.calculator.all_changes):

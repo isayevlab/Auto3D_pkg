@@ -40,6 +40,7 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
 from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.model_factory import create_model
+from Auto3D.utils.energy import set_e_tot_from_ev
 from Auto3D.utils.stereo_check import apply_optimized_coords
 
 from .padding import pad_from_mols
@@ -331,7 +332,15 @@ class optimizing:
                 converged_i = converged_flags[i]
                 osc_count_i = osc_counts[i]
                 convergence_i = converged_i and osc_count_i < patience
-                mol.SetProp('E_tot', str(energies[i]))
+                # The model returns eV; `E_tot` is a Hartree property at
+                # every Auto3D writer, so the conversion happens HERE, on the
+                # way to disk, and the unit-labeled sibling is written next to
+                # it. Writing eV under this name is what made the same tag mean
+                # two different things depending on entry point (see
+                # Auto3D.utils.energy).
+                set_e_tot_from_ev(mol, energies[i])
+                # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
+                # an energy, and no consumer converts it.
                 mol.SetProp('fmax', str(fmaxs[i]))
                 mol.SetProp('Converged', str(convergence_i))
                 # Mark structures dropped due to oscillation for diagnostics

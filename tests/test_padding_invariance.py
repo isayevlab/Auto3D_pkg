@@ -52,17 +52,22 @@ class TestPaddingInvariance:
         # (src/Auto3D/models/adapter.py:240, :302).
         coord_pad, species_pad = model.coord_pad, model.species_pad
 
-        # Alone: no padding at all.
-        c1, s1, q1, _ = pad_from_mols(
+        # Alone: no padding at all. The explicit atom_mask is forwarded in
+        # both calls: an adapter that has to strip padding (AIMNet2) takes it
+        # from here rather than re-deriving it from `species == species_pad`,
+        # which deletes a real atomic number 0 along with the padding
+        # (audit C13). Without it a padded AIMNET batch reaches the model with
+        # Z=0 ghosts at the origin and returns NaN.
+        c1, s1, q1, m1 = pad_from_mols(
             [small], engine, device, coord_pad=coord_pad, species_pad=species_pad
         )
-        e_alone = model.forward(c1, s1, q1)[0][0]
+        e_alone = model.forward(c1, s1, q1, atom_mask=m1)[0][0]
 
         # Batched with a larger molecule: `small` is now padded to `large`'s size.
-        c2, s2, q2, _ = pad_from_mols(
+        c2, s2, q2, m2 = pad_from_mols(
             [small, large], engine, device, coord_pad=coord_pad, species_pad=species_pad
         )
-        e_padded = model.forward(c2, s2, q2)[0][0]
+        e_padded = model.forward(c2, s2, q2, atom_mask=m2)[0][0]
 
         delta = abs(float(e_alone) - float(e_padded))
         assert delta < atol, (

@@ -189,8 +189,14 @@ def n_steps(
         oscillating_count = state["oscillating_count"][not_converged]
 
         coord.requires_grad_(True)
-        e, f = state['nn'].forward_batched(coord, numbers,
-                                           charges)  # Key step to calculate all energies and forces.
+        # atom_mask goes to the model too, not just to the force reduction
+        # below: an adapter that has to flatten a padded batch (AIMNet2) needs
+        # to know which slots are real, and deriving that from a species
+        # sentinel is what audit C13 forbids.
+        e, f = state['nn'].forward_batched(
+            coord, numbers, charges,
+            atom_mask=atom_mask_subset,
+        )  # Key step to calculate all energies and forces.
         coord.requires_grad_(False)
 
         # Zero forces on padded atom slots so convergence is independent of how
@@ -275,7 +281,10 @@ def n_steps(
     # state['coord']. The adapters differentiate internally for forces, so grad
     # must be enabled; the forces were previously discarded.
     final_coord = state['coord'].detach().clone().requires_grad_(True)
-    e_final, f_final = state['nn'].forward_batched(final_coord, state['numbers'], state['charges'])
+    e_final, f_final = state['nn'].forward_batched(
+        final_coord, state['numbers'], state['charges'],
+        atom_mask=state['atom_mask'],
+    )
     state['energy'] = e_final.detach().to(state['energy'].dtype)
     # Zero padded-atom force slots before the reduction, matching the in-loop
     # convergence check, so reported fmax is independent of how the model treats

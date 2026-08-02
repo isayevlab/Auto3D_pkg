@@ -97,7 +97,7 @@ class _SpeciesForceNN:
     def __init__(self, force_by_species: dict[int, float]) -> None:
         self.force_by_species = force_by_species
 
-    def forward_batched(self, coord, numbers, charges):
+    def forward_batched(self, coord, numbers, charges, atom_mask=None):
         e = torch.zeros(coord.shape[0])
         f = torch.zeros_like(coord)
         for row in range(coord.shape[0]):

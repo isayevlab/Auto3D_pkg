@@ -199,7 +199,7 @@ class TestNSteps:
         """n_steps should stop early when all structures converge."""
         call_count = [0]
 
-        def mock_forward(coord, numbers, charges):
+        def mock_forward(coord, numbers, charges, atom_mask=None):
             call_count[0] += 1
             batch_size = coord.shape[0]
             # Return very small forces so convergence happens immediately
@@ -228,7 +228,7 @@ class TestNSteps:
         """n_steps should mark oscillating structures as converged (dropped)."""
         step_count = [0]
 
-        def mock_forward(coord, numbers, charges):
+        def mock_forward(coord, numbers, charges, atom_mask=None):
             step_count[0] += 1
             batch_size = coord.shape[0]
             # Return forces that never decrease (always same value)
@@ -285,7 +285,7 @@ class _ConstantForceNN:
         self.energy_stable = energy_stable
         self.calls = 0
 
-    def forward_batched(self, coord, numbers, charges):
+    def forward_batched(self, coord, numbers, charges, atom_mask=None):
         self.calls += 1
         batch = coord.shape[0]
         value = -10.0 if self.energy_stable else -10.0 - self.calls
@@ -427,7 +427,7 @@ def test_fmax_ignores_padded_atoms():
     from Auto3D.batch_opt.optimization_engine import n_steps
 
     class MockNN:
-        def forward_batched(self, coord, numbers, charges):
+        def forward_batched(self, coord, numbers, charges, atom_mask=None):
             e = torch.zeros(coord.shape[0])
             f = torch.zeros_like(coord)
             f[:, 0, :] = 100.0  # huge force on the real atom at index 0 (species 0)
@@ -454,7 +454,7 @@ def test_stored_energy_matches_stored_coord():
     from Auto3D.batch_opt.optimization_engine import n_steps
 
     class MockNN:
-        def forward_batched(self, coord, numbers, charges):
+        def forward_batched(self, coord, numbers, charges, atom_mask=None):
             e = (coord ** 2).sum(dim=(1, 2))
             f = -2.0 * coord
             return e, f
@@ -490,7 +490,7 @@ def test_stored_fmax_matches_stored_coord():
     from Auto3D.batch_opt.optimization_engine import n_steps
 
     class MockNN:
-        def forward_batched(self, coord, numbers, charges):
+        def forward_batched(self, coord, numbers, charges, atom_mask=None):
             e = (coord ** 2).sum(dim=(1, 2))
             f = -2.0 * coord
             return e, f
@@ -520,7 +520,7 @@ class TestNStepsIntegration:
         """n_steps should converge structures with decreasing forces."""
         step_count = [0]
 
-        def mock_forward(coord, numbers, charges):
+        def mock_forward(coord, numbers, charges, atom_mask=None):
             step_count[0] += 1
             batch_size = coord.shape[0]
             # Simulate forces that decrease with each step

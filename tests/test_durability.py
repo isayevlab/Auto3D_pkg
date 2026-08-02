@@ -398,7 +398,7 @@ class TestSameFileGuard:
             def __init__(self, adapter):
                 pass
 
-            def forward_batched(self, coords, numbers, charges):
+            def forward_batched(self, coords, numbers, charges, atom_mask=None):
                 n = coords.shape[0]
                 return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
 
@@ -861,7 +861,7 @@ class TestOutputOverwriteGuard:
             def __init__(self, adapter):
                 pass
 
-            def forward_batched(self, coords, numbers, charges):
+            def forward_batched(self, coords, numbers, charges, atom_mask=None):
                 n = coords.shape[0]
                 return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
 

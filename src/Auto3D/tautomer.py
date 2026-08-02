@@ -9,6 +9,7 @@ from Auto3D.auto3D import main
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.utils import hartree2kcalpermol
+from Auto3D.utils.energy import e_tot_hartree
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -71,12 +72,12 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
     # the part before '@' -- this is the real tautomer-grouping separator (see
     # test_select_tautomers_groups_by_id), distinct from the '_' conformer index.
     ids = [title.split("@")[0].strip() for title in titles]
-    energies = [float(mol.GetProp("E_tot")) * hartree2kcalpermol for mol in mols]
+    energies = [e_tot_hartree(mol) * hartree2kcalpermol for mol in mols]
     df = pd.DataFrame({"id": ids, "energy": energies, "mol": mols})
     for group_name, group in df.groupby("id"):
         group = group.sort_values(by="energy")
         out_mols0 = list(group["mol"])
-        ref_energy = float(out_mols0[0].GetProp("E_tot")) * hartree2kcalpermol
+        ref_energy = e_tot_hartree(out_mols0[0]) * hartree2kcalpermol
         #select top k
         if k is not None:
             if k >= len(out_mols0):
@@ -84,7 +85,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
             else:
                 out_mols = out_mols0[:k]
             for mol in out_mols:
-                mol_energy = float(mol.GetProp("E_tot")) * hartree2kcalpermol
+                mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
                 e_rel = mol_energy - ref_energy
                 mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
                 mol.SetProp("_Name", group_name)
@@ -92,7 +93,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
         elif window is not None:
             out_mols = []
             for mol in out_mols0:
-                mol_energy = float(mol.GetProp("E_tot")) * hartree2kcalpermol
+                mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
                 e_rel = mol_energy - ref_energy
                 if e_rel <= window:
                     mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))

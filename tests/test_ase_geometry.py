@@ -36,7 +36,7 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     good = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     AllChem.EmbedMolecule(good, randomSeed=1)
     good.SetProp("_Name", "good")
-    good.SetProp("E_tot", "-100.0")  # eV
+    good.SetProp("E_tot", "-100.0")  # Hartree, as optimizing.run() writes it
     no_etot = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     AllChem.EmbedMolecule(no_etot, randomSeed=2)
     no_etot.SetProp("_Name", "no_etot")  # deliberately missing E_tot

@@ -105,6 +105,7 @@ class ModelAdapter(Protocol):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies and forces.
 
@@ -112,6 +113,12 @@ class ModelAdapter(Protocol):
             coords: Atomic coordinates (batch, n_atoms, 3).
             species: Atomic numbers (batch, n_atoms).
             charges: Molecular charges (batch,).
+            atom_mask: Boolean (batch, n_atoms), True for real atoms and False
+                for padded slots, as returned by
+                :func:`Auto3D.batch_opt.padding.pad_from_mols`. Required from
+                any caller that passes a PADDED batch; ``None`` means every
+                slot holds a real atom. An adapter must never re-derive this by
+                comparing ``species`` against ``species_pad`` (audit C13).
 
         Returns:
             Tuple of (energies, forces) where energies has shape (batch,)
@@ -186,6 +193,7 @@ class BaseModelAdapter(ABC, nn.Module):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies and forces.
 
@@ -193,6 +201,13 @@ class BaseModelAdapter(ABC, nn.Module):
             coords: Atomic coordinates (batch, n_atoms, 3).
             species: Atomic numbers (batch, n_atoms).
             charges: Molecular charges (batch,).
+            atom_mask: Boolean (batch, n_atoms), True for real atoms and False
+                for padded slots, threaded through from
+                :func:`Auto3D.batch_opt.padding.pad_from_mols`. ``None`` means
+                "every slot is a real atom" and is correct only for an
+                unpadded batch. Subclasses that need to know which slots are
+                padding must use THIS mask, never a comparison against
+                ``self.species_pad`` (audit C13).
 
         Returns:
             Tuple of (energies, forces) where energies has shape (batch,)
@@ -256,20 +271,41 @@ class AIMNet2Adapter(BaseModelAdapter):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies (eV) and forces (eV/A) for a padded batch.
 
         Args:
             coords: (batch, n_atoms, 3); padded slots at coord_pad.
-            species: atomic numbers (batch, n_atoms); padded slots == species_pad (0).
+            species: atomic numbers (batch, n_atoms); padded slots at
+                species_pad. The VALUE is never inspected here -- see below.
             charges: molecular charges (batch,).
+            atom_mask: Boolean (batch, n_atoms), True for real atoms, as
+                returned by :func:`Auto3D.batch_opt.padding.pad_from_mols`.
+                Required for a padded batch. ``None`` means every slot is a
+                real atom, which is what the unpadded single-molecule callers
+                (``ASE/thermo.py``'s ASE Calculator, ``auto3d models test``)
+                want.
 
         Returns:
             (energy[batch], forces[batch, n_atoms, 3]) in eV and eV/A. Padded
             atom slots have zero force.
+
+        The real-atom mask is the caller's explicit ``atom_mask``, NEVER
+        ``species != self.species_pad``. This adapter's ``species_pad`` is 0
+        and it consumes raw atomic numbers, so the sentinel comparison deleted
+        atomic number 0 -- an R-group/dummy ``*`` atom, which
+        ``utils.validation._requires_aimnet`` routes to precisely this engine.
+        For ``*CCO`` the padder reported 9 real atoms and this adapter scored
+        8: the energy belonged to a different species, and the dummy atom got
+        exactly zero force and stayed frozen for the whole optimization. That
+        is the collision class ``padding.pad_from_mols`` documents (audit C13).
         """
         b, n = species.shape[0], species.shape[1]
-        mask = species != self.species_pad                     # (B, N) real-atom mask
+        if atom_mask is None:
+            mask = torch.ones((b, n), dtype=torch.bool, device=species.device)
+        else:
+            mask = atom_mask.to(device=species.device, dtype=torch.bool)
         coord_flat = coords[mask]                              # (M, 3)
         numbers_flat = species[mask]                           # (M,)
         mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]  # (M,)
@@ -317,6 +353,7 @@ class ANI2xtAdapter(BaseModelAdapter):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies and forces using ANI2xt.
 
@@ -324,6 +361,11 @@ class ANI2xtAdapter(BaseModelAdapter):
             coords: Atomic coordinates (batch, n_atoms, 3).
             species: Indexed atomic species (batch, n_atoms).
             charges: Molecular charges (batch,) - not used by ANI2xt.
+            atom_mask: Accepted for interface uniformity and deliberately
+                unused: ANI consumes ``species_pad = -1`` as its own dummy-atom
+                index, so the model itself skips padded slots. -1 is not a
+                sentinel this adapter compares against, and it can never
+                collide with a real 0-based species index.
 
         Returns:
             Tuple of (energies, forces) in eV units.
@@ -362,6 +404,7 @@ class ANI2xAdapter(BaseModelAdapter):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies and forces using ANI2x.
 
@@ -369,6 +412,10 @@ class ANI2xAdapter(BaseModelAdapter):
             coords: Atomic coordinates (batch, n_atoms, 3).
             species: Atomic numbers (batch, n_atoms).
             charges: Molecular charges (batch,) - not used by ANI2x.
+            atom_mask: Accepted for interface uniformity and deliberately
+                unused: torchani consumes ``species_pad = -1`` as its own
+                dummy-atom index, which can never collide with a real atomic
+                number.
 
         Returns:
             Tuple of (energies, forces) in eV units.
@@ -448,6 +495,7 @@ class CustomModelAdapter(BaseModelAdapter):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies and forces using custom model.
 
@@ -455,6 +503,14 @@ class CustomModelAdapter(BaseModelAdapter):
             coords: Atomic coordinates (batch, n_atoms, 3).
             species: Atomic numbers or indexed species (batch, n_atoms).
             charges: Molecular charges (batch,).
+            atom_mask: Accepted for interface uniformity and NOT forwarded:
+                the published custom-NNP contract
+                (:class:`Auto3D.models.contract.CustomNNP`) is
+                ``forward(species, coords, charges)``, so a user model
+                identifies its own padding from the ``species_pad`` value it
+                declared. Choose a ``species_pad`` that cannot collide with a
+                real species index (-1 is always safe); see the class
+                docstring.
 
         Returns:
             Tuple of (energies, forces) in eV units.
