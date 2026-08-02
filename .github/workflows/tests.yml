@@ -43,7 +43,15 @@ jobs:
   slow:
     name: slow tests (NNP integration)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # These tests are NNP inference on CPU, so their wall time tracks whatever
+    # share of the runner we get. Three consecutive runs of the same commit
+    # took 6m21s, 17m57s and 6m52s: the middle one exceeded the old 20-minute
+    # ceiling and was cancelled *after* all 58 tests had passed, reporting a
+    # red slow tier for code that was fine. A job that fails on runner luck
+    # teaches people to ignore it, which is worse than a job that is slow.
+    # 45 gives roughly 2.5x headroom over the worst observed run while still
+    # catching a genuine hang.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
