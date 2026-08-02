@@ -60,12 +60,31 @@ def execute_run(
     gpu: bool | None = None,
     gpu_idx: str | None = None,
     job_name: str | None = None,
+    enumerate_tautomer: bool | None = None,
+    tauto_engine: str | None = None,
+    isomer_engine: str | None = None,
+    enumerate_isomer: bool | None = None,
+    max_confs: int | None = None,
+    threshold: float | None = None,
+    mpi_np: int | None = None,
+    opt_steps: int | None = None,
+    opt_tol: float | None = None,
+    patience: int | None = None,
+    batchsize_atoms: int | None = None,
+    memory: int | None = None,
+    tf32: bool | None = None,
     save_intermediate: bool = False,
     verbose: int = 0,
     quiet: bool = False,
     json_output: bool = False,
 ) -> None:
     """Execute the main conformer generation workflow.
+
+    Every pipeline override below is ``None`` when the flag was not given, and
+    only non-None entries reach ``merge_configs`` -- so a value set in a ``-c``
+    config file survives a flag the user did not pass, and a flag the user did
+    pass wins. See ``cli/app.py`` for which ``Auto3DOptions`` fields are
+    deliberately left to ``-c`` rather than given a flag.
 
     Args:
         input_file: Path to input .smi or .sdf file.
@@ -76,6 +95,22 @@ def execute_run(
         gpu: GPU enable/disable override.
         gpu_idx: GPU index override.
         job_name: Output folder/run name override.
+        enumerate_tautomer: Enumerate tautomers before conformer generation.
+        tauto_engine: Tautomer engine ('rdkit' or 'oechem').
+        isomer_engine: 3D isomer engine ('rdkit' or 'omega').
+        enumerate_isomer: Enumerate cis/trans and R/S isomers.
+        max_confs: Max conformers per molecule.
+        threshold: RMSD threshold for duplicate removal (Angstrom).
+        mpi_np: CPU cores for isomer generation.
+        opt_steps: Max optimization steps per structure.
+        opt_tol: Max-force convergence threshold, i.e.
+            ``Auto3DOptions.convergence_threshold``. Spelled ``--opt-tol`` to
+            match ``auto3d optimize``/``auto3d thermo``, which already used
+            that name for the same quantity.
+        patience: Steps without improvement before a conformer is dropped.
+        batchsize_atoms: Atoms per optimization batch per GB.
+        memory: RAM available to Auto3D in GB.
+        tf32: Allow TF32 matmul on Ampere+ GPUs (Auto3DOptions.allow_tf32).
         save_intermediate: Keep all intermediate metadata (Auto3DOptions.verbose).
         verbose: Logging verbosity level (0-2).
         quiet: Suppress non-error output.
@@ -125,6 +160,21 @@ def execute_run(
                 "use_gpu": gpu,
                 "gpu_idx": gpu_idx,
                 "job_name": job_name,
+                "enumerate_tautomer": enumerate_tautomer,
+                "tauto_engine": tauto_engine,
+                "isomer_engine": isomer_engine,
+                "enumerate_isomer": enumerate_isomer,
+                "max_confs": max_confs,
+                "threshold": threshold,
+                "mpi_np": mpi_np,
+                "opt_steps": opt_steps,
+                # --opt-tol is the CLI spelling of convergence_threshold, the
+                # same quantity `auto3d optimize --opt-tol` already named.
+                "convergence_threshold": opt_tol,
+                "patience": patience,
+                "batchsize_atoms": batchsize_atoms,
+                "memory": memory,
+                "allow_tf32": tf32,
                 # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
                 # Only override when set, so a config-file `verbose: true` is preserved.
                 "verbose": True if save_intermediate else None,

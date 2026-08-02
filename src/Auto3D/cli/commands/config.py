@@ -182,6 +182,14 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
     from the run -- a script gating on 2 got the wrong answer from the
     checker. Routing through ``handle_error`` means the exception the runner
     would raise picks the code here too, whatever it is.
+
+    A config file with no ``path`` key is valid here, because it is valid to
+    ``auto3d run INPUT -c <file>``: every modern entry point supplies the
+    input on the command line and overrides whatever ``path`` the file
+    carries. This command used to reject exactly that shape -- the reusable,
+    settings-only config -- with ``path / Field required``, so the natural way
+    to write a config validated as invalid and then ran fine. See
+    ``CLIConfig.path``.
     """
     try:
         if not config_file.exists():
@@ -209,8 +217,17 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
 
         warnings: list[str] = []
 
+        # Say where the input comes from, so "valid" is not mistaken for
+        # "complete": a settings-only file is valid for `auto3d run INPUT -c`
+        # and invalid for the deprecated `auto3d <config.yaml>` form, which
+        # has no other source of an input path.
+        input_line = (
+            str(config.path) if config.path is not None
+            else "supplied on the command line (no 'path' key)"
+        )
         console.print(Panel(
             f"[green]Valid configuration[/green]\n\n"
+            f"Input: {input_line}\n"
             f"Engine: {config.optimizing_engine}\n"
             f"GPU: {'Enabled' if config.use_gpu else 'Disabled'}\n"
             f"Output: {'k=' + str(config.k) if config.k else 'window=' + str(config.window)}",

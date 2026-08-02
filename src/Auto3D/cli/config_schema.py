@@ -34,9 +34,27 @@ from Auto3D.models.preflight import resolve_engine_name
 class CLIConfig(BaseModel):
     """Validated configuration for Auto3D CLI."""
 
-    # Required
-    path: Path
-    """Path to input .smi or .sdf file."""
+    # Input
+    path: Path | None = None
+    """Path to input .smi or .sdf file, or None for a settings-only config.
+
+    Optional, because the input is supplied on the command line by every
+    modern entry point: ``auto3d run INPUT -c cfg.yaml``,
+    ``auto3d tautomers INPUT -c cfg.yaml`` and ``auto3d smiles ... -c
+    cfg.yaml`` all override whatever ``path`` the file carries (``run``
+    explicitly excludes the key -- see ``cli/commands/run.py``). Requiring it
+    here made the natural reusable config -- settings only, input per run --
+    the one shape the CLI refused: ``auto3d config validate cfg.yaml`` and
+    ``auto3d run in.smi -c cfg.yaml`` both died on ``path / Field required``
+    for a file that describes a perfectly runnable set of options.
+
+    What "optional" must NOT mean is "runnable without an input", so the
+    obligation moves to :meth:`to_auto3d_options`, which refuses to build an
+    ``Auto3DOptions`` with no path. The deprecated ``auto3d config.yaml``
+    form -- the one entry point with no other source of an input path --
+    therefore still fails, as a ``ConfigurationError`` at exit 2 exactly as
+    before, and now says which key is missing instead of quoting pydantic.
+    """
 
     # Output control
     k: int | None = Field(None, description="Top-k conformers per molecule")
@@ -153,8 +171,40 @@ class CLIConfig(BaseModel):
             raise ValueError(str(exc)) from exc
         return self
 
-    def to_auto3d_options(self) -> Auto3DOptions:
-        """Convert to Auto3DOptions for core workflow."""
+    def to_auto3d_options(self, allow_missing_path: bool = False) -> Auto3DOptions:
+        """Convert to Auto3DOptions for core workflow.
+
+        Args:
+            allow_missing_path: Permit ``path=None``. Exactly one caller sets
+                it: ``auto3d smiles`` (``cli/commands/smiles.py``), which
+                takes its molecules from the command line and hands the
+                options to ``smiles2mols`` -- and ``smiles2mols`` writes the
+                SMILES to a temporary ``.smi`` and assigns ``args.path``
+                itself before validating anything, so any path supplied here
+                is discarded unread. Supplying a placeholder instead would put
+                a path in the options object that names no file the user ever
+                mentioned, which is worse than declaring the absence.
+
+        Raises:
+            ConfigurationError: ``path`` is unset and ``allow_missing_path``
+                is False. ``path`` is optional on this model so a
+                settings-only config file is valid (see the field's
+                docstring), but an ``Auto3DOptions`` with no input is not
+                runnable through ``main()`` -- it would fail inside
+                ``check_valid_configuration`` on ``path=None``. This is the
+                single place that obligation is discharged, so every consumer
+                (``run``/``tautomers``, the legacy YAML form, a direct caller)
+                gets the same refusal.
+        """
+        if self.path is None and not allow_missing_path:
+            raise ConfigurationError(
+                "No input path: this configuration sets options only.",
+                hint=(
+                    "Add a 'path:' key to the config file, or supply the "
+                    "input on the command line, e.g. 'auto3d run mols.smi "
+                    "-c config.yaml'."
+                ),
+            )
         # Map built-in engine names back to the canonical form expected by
         # Auto3DOptions; registry names and custom paths pass through verbatim.
         #
@@ -171,7 +221,9 @@ class CLIConfig(BaseModel):
         engine = engine_map.get(self.optimizing_engine.upper(), self.optimizing_engine)
 
         return Auto3DOptions(
-            path=str(self.path),
+            # `str(None)` would be the literal "None", a path that looks real
+            # and names nothing; keep the absence an absence.
+            path=str(self.path) if self.path is not None else None,
             k=self.k if self.k else False,
             window=self.window if self.window else False,
             enumerate_tautomer=self.enumerate_tautomer,
