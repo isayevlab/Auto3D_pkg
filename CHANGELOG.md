@@ -373,6 +373,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   -400 cm-1) was reported as an unmarked minimum on the same footing as a
   numerical artifact.
 
+- **A transition state no longer passes the `Thermo_failed` success filter.**
+  `analyze_vibrations` already identified a first-order saddle point and set
+  `Is_transition_state`, but the record was still written with
+  `Thermo_failed = ""` -- the property this changelog and the migration guide
+  document as *the* success filter -- so a saddle point was indistinguishable
+  from a minimum to every documented way of reading the output. The
+  rigid-rotor/harmonic partition function assumes a minimum; at a saddle point
+  the reaction coordinate is deleted outright and the resulting "free energy"
+  is a different quantity. Such a record now carries
+  `Thermo_failed = "transition_state"` and is written with the failures.
+  `G_hartree`, `H_hartree`, `S_hartree_per_K` and `E_hartree` are still
+  present, so a deliberate transition-state calculation can opt in by testing
+  for that exact value. A run whose output contained saddle points now reports
+  a higher failure count and a lower success count; no record is dropped.
+
+- **Sub-cutoff imaginary vibrational modes are kept at `|nu|` instead of being
+  deleted, so reported Gibbs energies move down.** `IMAGINARY_MODE_CUTOFF_CM =
+  50` declares an imaginary mode below 50 cm-1 a numerical artifact of a
+  low-frequency vibration, but ASE's `ignore_imag_modes=True` *removed* it from
+  the mode list, deleting its entire vibrational partition-function
+  contribution while the log said only "treat the result as approximate". 4.0
+  substitutes `|nu|` -- the Gaussian/ORCA convention for a numerical artifact --
+  and keeps the mode; a mode at or above the cutoff is a reaction coordinate
+  and is still dropped. `G` moves by -1.80 kcal/mol per 10 cm-1 artifact,
+  -1.39 at 20 cm-1, -1.14 at 30 cm-1 and -0.85 at 49 cm-1 (298.15 K, 1 atm),
+  dominated by the recovered `-T*S_vib` term; `H_hartree` and
+  `S_hartree_per_K` move for the same records. The bias does not cancel between
+  two species with different artifact counts, so **do not mix pre-4.0 and 4.0
+  Gibbs energies in one comparison**. A new `N_inverted_imaginary_modes` SD
+  property records how many modes were treated this way.
+
 - **Molecules with unspecified double-bond stereo now produce roughly twice the
   conformer groups.** One geometric isomer of every such molecule was previously
   discarded before embedding, because the enantiomer filter treated two empty
@@ -626,6 +657,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The Rich error panel is unchanged and still goes to stderr.
 
 ### Fixed
+
+- **The SMILES path's unspecified-stereo warning now sees double-bond
+  geometry.** `check_smi_format` counted unspecified stereo with
+  `CalcNumUnspecifiedAtomStereoCenters`, which reports **atom** centers only,
+  so with `enumerate_isomer=False` a molecule whose only open stereo element
+  was a C=C passed through with no warning. Measured: `OC(=O)C=CC(=O)O` embeds
+  as `O=C(O)/C=C/C(=O)O` *and* `O=C(O)/C=C\C(=O)O` -- fumaric and maleic acid,
+  ~5 kcal/mol apart -- under a single species id, so `k=1` returns whichever is
+  lower; `CC=CC` embeds as `C/C=C\C` (cis-2-butene) alone, with the trans
+  isomer absent entirely. The SDF path had already been fixed for exactly this
+  gap; both paths now use one predicate,
+  `Auto3D.utils.stereochemistry.count_unspecified_stereo`
+  (`Chem.FindPotentialStereo`), so the same molecule cannot warn on one path
+  and pass silently on the other. The conformers Auto3D emits are unchanged --
+  the warning makes the condition visible rather than overriding an explicit
+  `enumerate_isomer=False`.
 
 - **`calc_thermo` no longer runs one call on two devices at two precisions.**
   For a custom NNP holding no `nn.Parameter` (one that builds its backend

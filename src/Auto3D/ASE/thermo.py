@@ -49,6 +49,17 @@ __all__ = ["calc_thermo"]
 # and the allow_tf32 option in Auto3DOptions.
 ev2hatree = 1/hartree2ev
 
+#: SD property carrying the success/failure verdict for one thermo record.
+#: ``""`` means publishable; any non-empty value names the failure. This is the
+#: filter CHANGELOG.md and docs/source/migration-4.0.rst document.
+THERMO_FAILED_PROP = "Thermo_failed"
+
+#: ``Thermo_failed`` value for a geometry confirmed to be a first-order saddle
+#: point. The rigid-rotor/harmonic partition function assumes a MINIMUM, so a
+#: saddle point's Gibbs energy is not the same quantity as every other record's
+#: and must not pass the documented success filter.
+TRANSITION_STATE_FAILURE = "transition_state"
+
 logger = get_logger(__name__)
 
 
@@ -616,12 +627,27 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
 
 @dataclass
 class VibrationAnalysis:
-    """Verdict on a vibrational spectrum, computed without touching a model."""
+    """Verdict on a vibrational spectrum, computed without touching a model.
+
+    Attributes:
+        energies: The full, untouched input -- all 3N modes in input order.
+        corrected_energies: The same list with every sub-cutoff imaginary mode
+            replaced by its absolute value, i.e. kept at ``|nu|``. This is what
+            should be handed to ``IdealGasThermo``; see ``analyze_vibrations``
+            for why deleting such a mode instead is worth 1.4-2.4 kcal/mol of G.
+        n_imag: Imaginary modes among the genuine vibrations (3N-6 / 3N-5).
+        n_inverted: How many of those were sub-cutoff and therefore inverted.
+        max_imag_cm: Largest imaginary wavenumber among the genuine vibrations.
+        imag_cutoff_cm: Magnitude at or above which an imaginary mode is a
+            reaction coordinate rather than a numerical artifact.
+    """
 
     energies: list[complex]
     n_imag: int
     max_imag_cm: float
     imag_cutoff_cm: float
+    corrected_energies: list[complex]
+    n_inverted: int
 
     @property
     def is_transition_state(self) -> bool:
@@ -682,6 +708,31 @@ def analyze_vibrations(
     this divergence is intentional and only matters for that dissociated-system
     edge case.
 
+    A sub-cutoff imaginary mode is a numerical artifact of a low-frequency
+    vibration, not a reaction coordinate, and the two standard treatments are
+    to keep it at ``|nu|`` (the Gaussian/ORCA convention) or to damp it
+    quasi-harmonically. ``ignore_imag_modes=True`` does neither: ASE *deletes*
+    the mode, which removes its entire vibrational entropy contribution. That
+    is the one choice that changes the thermochemistry most. ASE RRHO at
+    298.15 K and 1 atm, G with the mode kept at |nu| minus G with it deleted::
+
+        |nu| = 10 cm-1 -> -1.80 kcal/mol      |nu| = 30 cm-1 -> -1.14 kcal/mol
+        |nu| = 20 cm-1 -> -1.39 kcal/mol      |nu| = 49 cm-1 -> -0.85 kcal/mol
+
+    dominated by the lost -T*S_vib term (S_vib diverges as 1/nu, so a low mode
+    carries several kcal/mol of -T*S that the +ZPE and +thermal-enthalpy terms
+    do not offset), and it does not cancel between two
+    species with different artifact counts -- which is exactly the comparison
+    a user runs thermochemistry to make. ``corrected_energies`` therefore
+    substitutes ``|nu|`` for every imaginary mode below ``imag_cutoff_cm`` and
+    leaves anything at or above it imaginary (that is a saddle point, handled
+    by ``is_transition_state``, and ASE still drops it).
+
+    Inverting a mode preserves ``abs(v)``, so ``IdealGasThermo``'s own
+    sort-by-magnitude slice selects exactly the same modes from
+    ``corrected_energies`` as from ``energies``; the translation/rotation
+    noise modes stay the smallest by magnitude and are still discarded.
+
     Args:
         vib_energies: Complex vibrational energies in eV, as ASE returns them
             (all 3N modes, translation/rotation included); an imaginary mode
@@ -696,31 +747,48 @@ def analyze_vibrations(
     Returns:
         A :class:`VibrationAnalysis`. ``energies`` is the full, untouched
         input, still all 3N modes in input order -- ``IdealGasThermo`` is
-        given this same full set and performs its own equivalent slice
-        internally, so trimming it here would double-cut and delete genuine
-        vibrations. Only ``n_imag`` and ``max_imag_cm`` are computed from the
-        vibration-only subset.
+        given this same full set (or ``corrected_energies``, of identical
+        length and order) and performs its own equivalent slice internally, so
+        trimming it here would double-cut and delete genuine vibrations. Only
+        ``n_imag``, ``n_inverted`` and ``max_imag_cm`` are computed from the
+        vibration-only subset, and only modes in that subset are inverted.
     """
     energies = [complex(e) for e in vib_energies]
 
     if geometry == "monatomic":
-        vibrational: list[complex] = []
+        vibrational_indices: list[int] = []
     else:
         n_needed = 3 * n_atoms - (5 if geometry == "linear" else 6)
-        vibrational = sorted(energies, key=abs)[-n_needed:] if n_needed > 0 else []
+        # Sort INDICES rather than values, so an inverted mode can be written
+        # back to the position it came from and ``corrected_energies`` stays
+        # aligned with ``energies`` element by element. Python's sort is
+        # stable, so this selects exactly the modes ``sorted(energies,
+        # key=abs)[-n_needed:]`` selects.
+        by_magnitude = sorted(range(len(energies)), key=lambda i: abs(energies[i]))
+        vibrational_indices = by_magnitude[-n_needed:] if n_needed > 0 else []
 
+    corrected = list(energies)
     n_imag = 0
+    n_inverted = 0
     max_imag_cm = 0.0
-    for value in vibrational:
+    for index in sorted(vibrational_indices):
+        value = energies[index]
         if abs(value.imag) > 0.0:
             n_imag += 1
-            max_imag_cm = max(max_imag_cm, abs(value.imag) / EV_PER_WAVENUMBER)
+            wavenumber = abs(value.imag) / EV_PER_WAVENUMBER
+            max_imag_cm = max(max_imag_cm, wavenumber)
+            if wavenumber < imag_cutoff_cm:
+                # Keep the artifact at |nu| instead of letting ASE delete it.
+                corrected[index] = complex(abs(value), 0.0)
+                n_inverted += 1
 
     return VibrationAnalysis(
         energies=energies,
         n_imag=n_imag,
         max_imag_cm=max_imag_cm,
         imag_cutoff_cm=imag_cutoff_cm,
+        corrected_energies=corrected,
+        n_inverted=n_inverted,
     )
 
 
@@ -753,28 +821,56 @@ def do_mol_thermo(mol: Chem.Mol,
     # ASE raising ValueError and the whole molecule being discarded.
     name = mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule"
     analysis = analyze_vibrations(vib_e, n_atoms=len(atoms), geometry=geometry)
-    if analysis.n_imag > 0:
+    if analysis.n_inverted > 0:
         logger.warning(
             "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
-            "they are dropped from the thermochemistry, so treat the result "
-            "as approximate.",
+            "%d below the %.0f cm-1 artifact threshold are kept at |nu| "
+            "(the Gaussian/ORCA convention for a numerical artifact) rather "
+            "than deleted. Deleting one instead raises G by roughly "
+            "0.8-1.8 kcal/mol per mode at 298 K, dominated by the lost "
+            "-T*S_vib term.",
             analysis.n_imag, name, analysis.max_imag_cm,
+            analysis.n_inverted, analysis.imag_cutoff_cm,
+        )
+    elif analysis.n_imag > 0:
+        logger.warning(
+            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
+            "they are at or above the %.0f cm-1 artifact threshold, so they "
+            "are dropped from the thermochemistry rather than inverted.",
+            analysis.n_imag, name, analysis.max_imag_cm,
+            analysis.imag_cutoff_cm,
         )
     if analysis.is_transition_state:
         # Well above the numerical-artifact scale: this is a reaction
         # coordinate, and a "free energy" computed here is a saddle point's,
-        # not a minimum's. Record it so a consumer can filter, rather than
-        # emitting a number that looks like every other one.
+        # not a minimum's -- the rigid-rotor/harmonic partition function
+        # assumes a minimum. The numbers are still written (a deliberate TS
+        # calculation wants them), but the record is marked as failed below so
+        # it cannot pass the documented `Thermo_failed == ""` success filter.
         logger.warning(
             "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
             "artifact threshold: this geometry is a saddle point, not a "
-            "minimum. Its thermochemistry is reported but marked.",
+            "minimum. Its thermochemistry is reported but marked "
+            "%s=%r, so it does not pass the success filter.",
             name, analysis.max_imag_cm, analysis.imag_cutoff_cm,
+            THERMO_FAILED_PROP, TRANSITION_STATE_FAILURE,
         )
     mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
+    mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
     mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
     mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
-    vib_e = analysis.energies
+    # A saddle point is not a minimum, so it must not read as a success. Set
+    # here, at the one place that knows, rather than left to the caller: the
+    # writer preserves a non-empty marker, so this verdict survives however
+    # the record is routed.
+    mol.SetProp(
+        THERMO_FAILED_PROP,
+        TRANSITION_STATE_FAILURE if analysis.is_transition_state else "",
+    )
+    # Sub-cutoff imaginary artifacts enter the partition function at |nu|
+    # instead of being deleted by ASE's ignore_imag_modes; ignore_imag_modes
+    # stays on to drop a genuine reaction coordinate without raising.
+    vib_e = analysis.corrected_energies
     thermo = IdealGasThermo(
         vib_energies=vib_e,
         potentialenergy=e,
@@ -977,11 +1073,19 @@ def _write_thermo_output(
 
     This is the filtering contract CHANGELOG.md and the migration guide
     document: ``if mol.GetProp("Thermo_failed") == "":`` selects a success.
-    Every ``out_mols`` record is marked with the empty-string positive marker
-    here (mirroring the negative one already set on every ``mols_failed``
-    record by its failure path in ``calc_thermo``), so a consumer can filter
-    on this single property either way without needing to know which failure
-    modes exist.
+    An ``out_mols`` record that does not already carry the marker is given the
+    empty-string positive one here (mirroring the negative one already set on
+    every ``mols_failed`` record by its failure path in ``calc_thermo``), so a
+    consumer can filter on this single property either way without needing to
+    know which failure modes exist.
+
+    A marker already present is never overwritten. ``do_mol_thermo`` sets the
+    verdict itself -- ``""`` for a minimum, ``"transition_state"`` for a
+    confirmed first-order saddle point, whose Gibbs energy is not the same
+    quantity as a minimum's -- and blindly stamping ``""`` over every
+    ``out_mols`` record would erase exactly that verdict if a record were ever
+    routed to the wrong list. The guarantee "a transition state cannot read as
+    a success" then holds regardless of routing.
 
     Every record reaching ``mols_failed`` already has ``Thermo_failed`` set by
     the failure path that put it there (the stationary-point gate sets
@@ -991,7 +1095,8 @@ def _write_thermo_output(
     """
     with Chem.SDWriter(str(outpath)) as w:
         for mol in out_mols:
-            mol.SetProp("Thermo_failed", "")
+            if not mol.HasProp(THERMO_FAILED_PROP):
+                mol.SetProp(THERMO_FAILED_PROP, "")
             w.write(mol)
         for mol in mols_failed:
             w.write(mol)
@@ -1151,25 +1256,33 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             if not converged:
                 # The harmonic approximation needs a stationary point.
                 # Emitting G here would look exactly like a real result.
-                mol.SetProp("Thermo_failed", "not_converged")
+                mol.SetProp(THERMO_FAILED_PROP, "not_converged")
                 mols_failed.append(mol)
                 continue
 
             mol = do_mol_thermo(mol, atoms, hessian_model,
                                 device, T, model_name=model_name)
-            out_mols.append(mol)
+            # do_mol_thermo writes the verdict: "" for a minimum, or
+            # "transition_state" for a confirmed saddle point, whose
+            # rigid-rotor/harmonic thermochemistry is not a minimum's and must
+            # not pass the documented success filter. Route on that single
+            # property, the same way the stationary-point gate above does.
+            if mol.GetProp(THERMO_FAILED_PROP):
+                mols_failed.append(mol)
+            else:
+                out_mols.append(mol)
         except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
                 np.linalg.LinAlgError, ZeroDivisionError) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")
-            mol.SetProp("Thermo_failed", type(e).__name__)
+            mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
             mols_failed.append(mol)
         except Exception as e:
             # Catch-all for truly unexpected errors - prevents batch failure
             # Log at ERROR level for debugging while allowing pipeline to continue
             logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed (unexpected): {idx}")
-            mol.SetProp("Thermo_failed", type(e).__name__)
+            mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
             mols_failed.append(mol)
 
     logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")

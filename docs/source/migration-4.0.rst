@@ -302,6 +302,46 @@ possibly after hundreds of Hessians had already been computed and were about
 to be discarded, since nothing is written until the loop over all records
 finishes.
 
+An unspecified C=C is warned about on the SMILES path too
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``check_smi_format`` counted unspecified stereo with
+``CalcNumUnspecifiedAtomStereoCenters``, which reports **atom** centers only
+and never double-bond geometry, so with ``enumerate_isomer=False`` a molecule
+whose only open stereo element was a C=C passed through with no warning at
+all. The SDF path had already been fixed for exactly this gap; both paths now
+use one predicate, ``Auto3D.utils.stereochemistry.count_unspecified_stereo``
+(``Chem.FindPotentialStereo``).
+
+Two measured cases, both with ``enumerate_isomer=False``:
+
+.. list-table::
+   :widths: 30 45 25
+   :header-rows: 1
+
+   * - Input SMILES
+     - Configurations actually emitted
+     - Warned in 3.x/4.0-pre?
+   * - ``OC(=O)C=CC(=O)O``
+     - ``O=C(O)/C=C/C(=O)O`` **and** ``O=C(O)/C=C\C(=O)O`` -- fumaric *and*
+       maleic acid, ~5 kcal/mol apart, under one species id
+     - no
+   * - ``CC=CC``
+     - ``C/C=C\C`` only -- cis-2-butene; the trans isomer is absent
+     - no
+
+The conformers Auto3D emits are unchanged: the fix makes the condition
+visible, it does not override an explicit ``enumerate_isomer=False``. Set
+``enumerate_isomer=True`` to get one consistent species per configuration
+(``CC=CC`` then yields both ``C/C=C/C`` and ``C/C=C\C``), or specify the
+geometry in the input SMILES.
+
+**What to check:** any ``enumerate_isomer=False`` run whose input SMILES leave
+a double bond, imine or oxime geometry unspecified. Ranking groups every
+conformer of one input under a single species id, so ``k=1`` returned whichever
+geometric isomer happened to be lower in energy -- an isomer the input named
+neither way.
+
 Imaginary-mode counting and ``Is_transition_state``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -330,6 +370,77 @@ structure could report several spurious imaginary modes -- measured up to
 19i cm-1 on a relaxed 5-atom cluster -- so a naive count is not the
 same measurement as ``N_imaginary_modes``; the property as shipped is safe to
 filter on directly.
+
+A transition state no longer passes the ``Thermo_failed`` filter
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Is_transition_state`` marked the record, but the record was still written
+with ``Thermo_failed = ""`` -- the success filter documented above -- so a
+saddle point was indistinguishable from a minimum to every documented way of
+reading the output. The rigid-rotor/harmonic partition function assumes a
+**minimum**: at a saddle point the reaction coordinate is deleted outright and
+the resulting "free energy" is a different quantity from every other record's.
+
+A record whose ``Is_transition_state`` is ``True`` now carries
+``Thermo_failed = "transition_state"`` and is written with the failures.
+``G_hartree``, ``H_hartree``, ``S_hartree_per_K`` and ``E_hartree`` are still
+present -- a deliberate transition-state calculation wants them -- so the
+numbers are not lost, only excluded from the success filter:
+
+.. code:: python
+
+   if mol.GetProp("Thermo_failed") == "":
+       g = mol.GetProp("G_hartree")            # minima only, as documented
+
+   if mol.GetProp("Thermo_failed") == "transition_state":
+       g_ts = mol.GetProp("G_hartree")         # opt-in, if you want saddle points
+
+**What changes:** a run whose output contained saddle points now reports a
+higher failure count and a lower success count. The records are all still in
+the file.
+
+Sub-cutoff imaginary modes are kept at ``|nu|``, not deleted
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``IMAGINARY_MODE_CUTOFF_CM = 50`` declares an imaginary mode below 50 cm-1 a
+numerical artifact of a low-frequency vibration. ASE's ``ignore_imag_modes``
+then **removed** it from the mode list, deleting its entire vibrational
+partition-function contribution, while the log said only "treat the result as
+approximate".
+
+4.0 substitutes ``|nu|`` for every sub-cutoff imaginary mode -- the
+Gaussian/ORCA convention for a numerical artifact -- and keeps it in the
+partition function. A mode at or above the cutoff is a reaction coordinate and
+is still dropped.
+
+**Reported Gibbs energies move down** for any record that carried such an
+artifact, by the harmonic free energy of one mode per artifact at 298.15 K:
+
+.. list-table::
+   :widths: 30 35 35
+   :header-rows: 1
+
+   * - Artifact ``|nu|``
+     - ``G`` change per mode (kcal/mol)
+     - Dominant term
+   * - 10 cm-1
+     - -1.80
+     - the recovered ``-T*S_vib``
+   * - 20 cm-1
+     - -1.39
+     - "
+   * - 30 cm-1
+     - -1.14
+     - "
+   * - 49 cm-1
+     - -0.85
+     - "
+
+The bias does not cancel between two species with different artifact counts,
+which is exactly the comparison thermochemistry is run to make, so **do not
+mix 3.x/4.0-pre and 4.0 Gibbs energies in one comparison**. The new
+``N_inverted_imaginary_modes`` SD property records how many modes were treated
+this way, and ``H_hartree``/``S_hartree_per_K`` move for the same records.
 
 API changes
 ------------

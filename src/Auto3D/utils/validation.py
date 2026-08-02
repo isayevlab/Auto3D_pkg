@@ -11,9 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 from rdkit import Chem
-from rdkit.Chem.rdMolDescriptors import (
-    CalcNumUnspecifiedAtomStereoCenters,
-)
 
 from Auto3D.constants import BUILTIN_ANI_MODELS
 from Auto3D.exceptions import (
@@ -27,6 +24,7 @@ from Auto3D.exceptions import (
 from Auto3D.models.loading import load_custom_nnp
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.stereochemistry import count_unspecified_stereo
 
 if TYPE_CHECKING:
     pass
@@ -437,19 +435,30 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     logger.info(f"\tThere are {len(smiles_all)} SMILES in the input file {args.path}.")
     logger.info("\tAll SMILES and IDs are valid.")
 
-    # Check number of unspecified atomic stereo center
+    # Warn about every stereo element the input leaves open -- tetrahedral
+    # centers AND double-bond geometry. This used to call
+    # CalcNumUnspecifiedAtomStereoCenters, which sees only ATOM centers, so an
+    # unspecified C=C passed silently: with enumerate_isomer=False,
+    # "OC(=O)C=CC(=O)O" embeds as fumaric AND maleic acid (~5 kcal/mol apart)
+    # under one species id, and "CC=CC" embeds as cis-2-butene alone with the
+    # trans isomer absent -- in both cases the user gets a molecule they did
+    # not submit, or loses one they did. count_unspecified_stereo is the same
+    # predicate RDKitSdfIsomer uses, so the SMILES and SDF paths agree.
     if not args.enumerate_isomer:
         for smiles in smiles_all:
             mol = Chem.MolFromSmiles(smiles)
             if mol is None:
                 warnings.warn(f"Failed to parse SMILES: {smiles}", UserWarning)
                 continue
-            c = CalcNumUnspecifiedAtomStereoCenters(mol)
+            c = count_unspecified_stereo(mol)
             if c > 0:
                 msg = (
-                    f"{smiles} contains unspecified atomic stereo centers, but enumerate_isomer=False. "
-                    "Please use enumerate_isomer=True so that Auto3D can enumerate the "
-                    "unspecified atomic stereo centers."
+                    f"{smiles} contains {c} unspecified stereo element(s) "
+                    "(atomic stereo centers and/or double-bond geometry), but "
+                    "enumerate_isomer=False, so its conformers will be a mixture "
+                    "of configurations -- or one arbitrary configuration. "
+                    "Please use enumerate_isomer=True so that Auto3D can enumerate "
+                    "the unspecified stereo elements."
                 )
                 warnings.warn(msg, UserWarning)
 
