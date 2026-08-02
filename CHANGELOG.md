@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **One exit-code scheme, used by every command.** `cli/errors.py` has mapped
+  exception types to differentiated exit codes since 3.x -- 0 success, 1
+  generic, 2 configuration/input, 3 dependency, 4 GPU, 5 model, plus 6 for a
+  partial `auto3d run` (added earlier in this release) -- but eight raise
+  sites hard-coded `SystemExit(1)` and never reached the mapping at all. The
+  worst consequence: the pre-flight commands disagreed with the run they
+  exist to predict. The same `k: 0` config gave `auto3d config validate` -> 1
+  and `auto3d run -c` -> 2, so a script gating on 2 got the wrong answer from
+  the checker. **The following exit codes changed, all from 1:**
+
+  | Command | Condition | Was | Now |
+  | --- | --- | --- | --- |
+  | `auto3d config validate` | any invalid config file | 1 | 2 |
+  | `auto3d config validate` | config file not found (direct API call only) | 1 | 2 |
+  | `auto3d config init -o existing.yaml` | refusing to clobber, no `--force` | 1 | 2 |
+  | `auto3d config init -p bogus` | unknown preset (direct API call only) | 1 | 2 |
+  | `auto3d config show missing.yaml` | config file not found | 1 | 2 |
+  | `auto3d validate mols.smi` | unparseable SMILES / SDF records | 1 | 2 |
+  | `auto3d validate mols.txt` | unsupported file extension | 1 | 2 |
+  | `auto3d validate mols.smi --json` | same, with `--json` | 1 | 2 |
+  | `auto3d models info BOGUS` | unrecognized engine name | 1 | 2 |
+  | `auto3d models test ANI2x`, `auto3d energy/optimize/thermo --engine ANI2x` | `torchani` not installed | 1 | 3 |
+  | `auto3d energy/optimize/thermo/models test --gpu-idx N` | `N` is not a visible CUDA device | 1 (from CUDA, later) | 4 |
+
+  **What stops working:** any script branching on exit code 1 from one of
+  these. **What to do instead:** branch on the class of failure rather than
+  on 1 -- 2 for "your configuration or input is wrong", 3 for "install
+  something", 4 for "GPU problem", 5 for "model problem", 6 for "the run
+  finished but lost molecules". `docs/source/cli.rst` now carries exactly one
+  exit-code table (it used to carry two, which disagreed with each other and
+  neither of which listed 6), every row of which is provoked and asserted by
+  a test in `tests/test_cli_exit_codes.py`.
+
+  Three supporting fixes made those codes reachable:
+
+  - `Auto3D.model_factory.get_device` now **range-checks `gpu_idx`** and
+    raises `GPUError`. It used to return `torch.device("cuda:99")` on an
+    8-device machine, deferring the failure into CUDA -- where it surfaces as
+    a driver error far from the `--gpu-idx` that caused it and maps to the
+    generic code 1. `check_valid_configuration` already range-checked the
+    index, but only for `main()`/`smiles2mols`; `calc_spe`, `opt_geometry`,
+    `calc_thermo` and `auto3d models test` call `get_device` directly and had
+    no bounds check at all. **This is a Python-API change too:** those four
+    functions now raise `GPUError` for an out-of-range `gpu_idx` instead of
+    failing later inside CUDA.
+  - `ModelFactory.create` translates a missing `torchani` into
+    `DependencyError` with the `pip install torchani` hint. `auto3d run`
+    already reported this as exit 3 via `check_input`'s own probe; every
+    other command reported the identical environment problem as "Unexpected
+    Error" at exit 1 with no hint. A `torchani` that is installed but broken
+    (an `ImportError` naming some other module) deliberately still propagates
+    untranslated -- "install torchani" would be the wrong advice for it.
+  - `auto3d validate` had **no error handling at all**: a `.smi` file that is
+    not valid UTF-8 produced a raw `UnicodeDecodeError` traceback. It now
+    goes through the same error panel as every other command.
+
+  `auto3d validate`, `auto3d config init/show/validate` and `auto3d models
+  info` also gained `-v`/`--verbose`, which every one of their error panels
+  already told users to pass.
+
+- **`auto3d run` names the molecules it lost.** The results summary reported
+  only a count (`1 failed`), so an interactive user who saw exit 6 had to
+  rerun with `--json` to learn which molecule was missing.
+  `migration-4.0.rst` already said the summary listed them. It now does: the
+  names are printed under the summary, in full with `-v`.
+
 - **The CLI refuses to overwrite an existing output file; pass `-f`/`--force`
   to allow it.** `auto3d energy mols.sdf -o precious.sdf` used to exit 0,
   print "Wrote precious.sdf", and leave `precious.sdf` **empty** -- RDKit's
@@ -18,7 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `tautomers` now stop with a `ConfigurationError` (exit code **2**) and
   the message `<path> already exists. Pass --force/-f to overwrite, or choose
   a different -o path.` -- the same message `auto3d config init` has always
-  printed for this case, though that command exits **1** rather than 2.
+  printed for this case, and (see the exit-code entry below) now the same
+  exit code too.
   **What stops working:** any script that re-runs one of these four commands
   into a path that already exists. For `energy`, `optimize` and `thermo` that
   includes the *default* derived name (`mols_AIMNET_E.sdf`,

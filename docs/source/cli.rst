@@ -163,7 +163,7 @@ Validate input SMILES/SDF file without running optimization.
    # Validate an SDF file
    auto3d validate conformers.sdf
 
-   # Machine-readable result (exit 0 clean, 1 with findings)
+   # Machine-readable result (exit 0 clean, 2 with findings)
    auto3d validate molecules.smi --json
 
 This command checks:
@@ -195,8 +195,8 @@ check is on the *resolved* output path, so the derived default name counts,
 not only an explicit ``-o``; ``tautomers`` checks only an explicit ``-o``,
 because it derives its own name inside the freshly created job directory,
 where nothing of yours can be. ``--force`` does not lift the separate
-refusal to write the output over the input file. (``auto3d config init``
-refuses an existing file with the same message, but exits 1.)
+refusal to write the output over the input file. ``auto3d config init``
+refuses an existing file with the same message and the same exit code.
 
 .. code:: console
 
@@ -218,26 +218,52 @@ or a path to a custom model; known names are offered via shell completion.
 Exit codes
 ~~~~~~~~~~
 
-Commands return differentiated exit codes for scripting:
+Every ``auto3d`` command uses the same scheme, and every command reports the
+same code for the same condition. In particular the pre-flight commands
+(``auto3d validate``, ``auto3d config validate``) return the code the run they
+predict would return, so ``auto3d config validate cfg.yaml || exit $?`` is a
+faithful gate.
 
 .. list-table::
-   :widths: 15 85
+   :widths: 8 42 50
    :header-rows: 1
 
    * - Code
      - Meaning
+     - Example that produces it
    * - ``0``
      - Success
+     - ``auto3d validate molecules.smi`` on a file with no problems
    * - ``1``
-     - Generic / unexpected error
+     - Generic / unexpected internal error
+     - ``auto3d validate broken.smi`` where ``broken.smi`` is not valid UTF-8
    * - ``2``
-     - Configuration or input-validation error (also Click usage errors)
+     - Configuration or input error -- including Click usage errors, which
+       Click itself reports as 2
+     - ``auto3d config validate cfg.yaml`` for a ``cfg.yaml`` with ``k: 0``;
+       ``auto3d config init -o existing.yaml`` without ``--force``;
+       ``auto3d validate mols.smi`` with unparseable SMILES in it;
+       ``auto3d models info BOGUS``
    * - ``3``
-     - Missing optional dependency (e.g. ASE for ``thermo``)
+     - Missing optional dependency
+     - ``auto3d models test ANI2x`` without ``torchani`` installed;
+       ``auto3d thermo mols.sdf`` without ``ase`` installed
    * - ``4``
-     - GPU/CUDA error (e.g. invalid GPU index)
+     - GPU/CUDA error
+     - ``auto3d models test AIMNET --gpu-idx 99`` on a machine with fewer
+       than 100 CUDA devices; any GPU command on a machine with none
    * - ``5``
-     - Model error (not found / failed to load / numerical)
+     - Model error -- not found, failed to load, or numerically unusable
+     - ``auto3d models test ./not_a_model.pt``
+   * - ``6``
+     - Partial success: the run completed, but some input molecules produced
+       no output
+     - ``auto3d run mols.smi --k 1`` where a molecule yields no conformer
+
+Code ``6`` is specific to ``auto3d run``. The results summary -- and, with
+``--json``, the results document -- is printed *before* the process exits with
+it, so a caller always learns which molecules were missing. See
+:doc:`migration-4.0` for what changed in 4.0.
 
 auto3d config
 ~~~~~~~~~~~~~
@@ -400,8 +426,9 @@ download, or a broken custom model file up front rather than mid-run.
    auto3d models test ANI2x --no-gpu    # verify ANI2x loads/runs on CPU
    auto3d models test ./my_model.pt     # verify a custom NNP file
 
-Exits 0 on success; 3 if a dependency is missing, 5 if the model loads but
-produces non-finite output.
+Exits 0 on success; 3 if a dependency is missing (``auto3d models test ANI2x``
+without ``torchani``), 4 if ``--gpu-idx`` names a device that does not exist,
+and 5 if the model cannot be loaded or produces non-finite output.
 
 Shell Completion
 ----------------
@@ -478,22 +505,6 @@ Where ``parameters.yaml`` contains both the input path and all options:
    k: 5
    optimizing_engine: AIMNET
    use_gpu: true
-
-Exit Codes
-----------
-
-.. list-table::
-   :widths: 15 85
-   :header-rows: 1
-
-   * - Code
-     - Meaning
-   * - 0
-     - Success
-   * - 1
-     - General error (invalid input, configuration error)
-   * - 2
-     - Command-line usage error
 
 Environment Variables
 ---------------------

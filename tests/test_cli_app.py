@@ -90,11 +90,17 @@ def test_models_info_ani2x(runner):
 
 
 def test_models_info_unknown_engine(runner):
-    """models info should fail for unknown engine."""
+    """models info should fail for unknown engine.
+
+    Exit 2 (ConfigurationError), not the hard-coded 1 this used to raise: an
+    unrecognized engine name is the same user mistake `resolve_engine_name`
+    already reports as exit 2 from `run` and `energy`.
+    """
     from Auto3D.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "UNKNOWN"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
+    assert "Unknown engine" in " ".join(result.stderr.split())
 
 
 def test_models_list_shows_aimnet_registry(runner):
@@ -128,14 +134,20 @@ def test_validate_valid_smi(runner, tmp_path):
 
 
 def test_validate_invalid_smi(runner, tmp_path):
-    """validate should fail for invalid SMILES."""
+    """validate should fail for invalid SMILES.
+
+    Exit 2 (InputValidationError), not the hard-coded 1 this used to raise:
+    the pre-flight checker must return the code `auto3d run` returns for the
+    same file, which is 2.
+    """
     from Auto3D.cli.app import app
 
     smi_file = tmp_path / "test.smi"
     smi_file.write_text("INVALID_SMILES mol1\n")
 
     result = runner.invoke(app, ["validate", str(smi_file)])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
+    assert "Validation Failed" in " ".join(result.stdout.split())
 
 
 @pytest.fixture
@@ -304,12 +316,17 @@ def test_config_show_displays_file(runner, tmp_path_cwd):
 
 
 def test_config_show_not_found(runner, tmp_path_cwd):
-    """config show should fail if file not found."""
+    """config show should fail if file not found.
+
+    Exit 2 (ConfigurationError), not the hard-coded 1 this used to raise --
+    the same code `config validate` gives for a missing file (there via
+    Typer's own `exists=True` check).
+    """
     from Auto3D.cli.app import app
 
     result = runner.invoke(app, ["config", "show", "nonexistent.yaml"])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "not found" in result.stderr
 
 
@@ -333,7 +350,13 @@ def test_config_validate_valid(runner, tmp_path_cwd):
 
 
 def test_config_validate_invalid(runner, tmp_path_cwd):
-    """config validate should fail for invalid config."""
+    """config validate should fail for invalid config.
+
+    Exit 2 (ConfigurationError), not the hard-coded 1 this used to raise:
+    `auto3d run -c` rejects this same file with 2, and a pre-flight checker
+    that answers a different number than the run it predicts is useless as a
+    script gate.
+    """
     from Auto3D.cli.app import app
 
     # Create an invalid config file (missing required 'path')
@@ -342,7 +365,8 @@ def test_config_validate_invalid(runner, tmp_path_cwd):
 
     result = runner.invoke(app, ["config", "validate", str(config_file)])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 2
+    assert "Validation Passed" not in result.output
 
 
 def test_run_requires_input(runner):
@@ -608,7 +632,12 @@ def test_validate_json_reports_every_bad_entry_and_exits_nonzero(
 
     result = runner.invoke(app, ["validate", str(smi), "--json"])
 
-    assert result.exit_code == 1
+    # Exit 2 (InputValidationError), matching every other input rejection in
+    # the CLI. The document on stdout is still validate's own, richer one --
+    # `handle_error`'s failure document is deliberately suppressed here,
+    # because two JSON documents on one stream is not parseable JSON.
+    assert result.exit_code == 2
+    assert result.stdout == json.dumps(json.loads(result.stdout), indent=2) + "\n"
     document = json.loads(result.stdout)
     assert document["success"] is False
     assert document["molecules"] == 12

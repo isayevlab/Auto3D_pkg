@@ -626,6 +626,119 @@ reaches the user. Code that constructs ``DependencyError`` directly can pass
 CLI behavior changes
 --------------------
 
+Every command uses one exit-code scheme
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``cli/errors.py`` has mapped exception types to differentiated exit codes
+since 3.x, but eight raise sites hard-coded ``SystemExit(1)`` and never
+reached that mapping. The visible consequence was that the pre-flight
+commands disagreed with the run they exist to predict -- one ``k: 0`` config
+gave ``auto3d config validate`` exit ``1`` and ``auto3d run -c`` exit ``2``:
+
+.. code:: console
+
+   $ auto3d config validate cfg.yaml; echo $?     # 3.x
+   1
+   $ auto3d run mols.smi -c cfg.yaml; echo $?     # 3.x
+   2
+
+Both are ``2`` in 4.0. The full scheme, with one table now in
+:doc:`cli` instead of the two contradictory ones 3.x shipped:
+
+.. list-table::
+   :widths: 10 90
+   :header-rows: 1
+
+   * - Code
+     - Meaning
+   * - ``0``
+     - Success
+   * - ``1``
+     - Generic / unexpected internal error
+   * - ``2``
+     - Configuration or input error (and Click usage errors)
+   * - ``3``
+     - Missing optional dependency
+   * - ``4``
+     - GPU/CUDA error
+   * - ``5``
+     - Model error (not found / failed to load / non-finite output)
+   * - ``6``
+     - Partial success -- see the next section
+
+Every code that changed, changed *from* ``1``:
+
+.. list-table::
+   :widths: 45 30 12 13
+   :header-rows: 1
+
+   * - Command
+     - Condition
+     - 3.x
+     - 4.0
+   * - ``auto3d config validate``
+     - any invalid config file
+     - 1
+     - 2
+   * - ``auto3d config init -o existing.yaml``
+     - refusing to clobber without ``--force``
+     - 1
+     - 2
+   * - ``auto3d config show missing.yaml``
+     - config file not found
+     - 1
+     - 2
+   * - ``auto3d validate mols.smi``
+     - unparseable SMILES/SDF records (also with ``--json``)
+     - 1
+     - 2
+   * - ``auto3d validate mols.txt``
+     - unsupported file extension
+     - 1
+     - 2
+   * - ``auto3d models info BOGUS``
+     - unrecognized engine name
+     - 1
+     - 2
+   * - ``models test``/``energy``/``optimize``/``thermo`` with ``--engine ANI2x``
+     - ``torchani`` not installed
+     - 1
+     - 3
+   * - ``models test``/``energy``/``optimize``/``thermo`` with ``--gpu-idx N``
+     - ``N`` is not a visible CUDA device
+     - 1 (raised later, by CUDA)
+     - 4
+
+If a script branches on ``1`` from any of these, branch on the class of
+failure instead: ``2`` for a bad configuration or input, ``3`` for something
+to install, ``4`` for a GPU problem, ``5`` for a model problem, ``6`` for a
+run that finished but lost molecules.
+
+Three supporting fixes made those codes reachable, and two of them are
+Python-API changes as well as CLI ones:
+
+- ``Auto3D.model_factory.get_device`` range-checks ``gpu_idx`` and raises
+  ``GPUError``. It used to return ``torch.device("cuda:99")`` on an 8-device
+  machine, so the failure surfaced later as a CUDA driver error far from the
+  option that caused it. ``check_valid_configuration`` already range-checked
+  the index for ``main()``/``smiles2mols``; ``calc_spe``, ``opt_geometry``,
+  ``calc_thermo`` and ``auto3d models test`` reach ``get_device`` directly and
+  had no check at all. Those three API functions now raise ``GPUError`` for an
+  out-of-range ``gpu_idx``.
+- ``ModelFactory.create`` translates a missing ``torchani`` into
+  ``DependencyError`` (with the ``pip install torchani`` hint) rather than
+  letting a bare ``ModuleNotFoundError`` reach the user as "Unexpected Error".
+  A ``torchani`` that is present but broken -- an ``ImportError`` naming some
+  other module -- still propagates untranslated, because "install torchani"
+  would be the wrong advice for it.
+- ``auto3d validate`` had no error handling whatsoever, so a ``.smi`` file
+  that is not valid UTF-8 produced a raw ``UnicodeDecodeError`` traceback. It
+  now renders the same error panel as every other command.
+
+``auto3d validate``, ``auto3d config init``/``show``/``validate`` and
+``auto3d models info`` also gained ``-v``/``--verbose``, which their error
+panels already told users to pass.
+
 ``auto3d run`` exits non-zero when molecules are missing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -675,8 +788,9 @@ every missing molecule by ID:
 - ``main()`` returns the missing input IDs as ``WorkflowResult.failures`` --
   the same ``str``-subclass return type as before (it already carried
   ``n_molecules``/``n_conformers``; this is not a new return type).
-- ``auto3d run``'s summary and ``--json`` output list them under
-  ``failures`` (each entry has a ``name`` and an ``error``).
+- ``auto3d run``'s summary names them under the results panel (with ``-v``,
+  as a table with the reason for each), and its ``--json`` output lists them
+  under ``failures``, each entry carrying a ``name`` and an ``error``.
 - ``smiles2mols()`` logs missing molecules directly, since its
   ``list[Chem.Mol]`` return has no carrier for a failure list.
 - SDF input is reconciled too, via a new ``find_ids_not_in_sdf`` that reads

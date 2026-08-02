@@ -13,6 +13,7 @@ from Auto3D.constants import (
     MODEL_ANI2X,
     MODEL_ANI2XT,
 )
+from Auto3D.exceptions import DependencyError, GPUError
 from Auto3D.models.adapter import (
     AIMNet2Adapter,
     ANI2xAdapter,
@@ -95,7 +96,16 @@ class ModelFactory:
             Initialized model adapter on the specified device.
 
         Raises:
-            ValueError: If model name is not recognized and not a valid path.
+            DependencyError: `name` is ANI2x/ANI2xt and `torchani` -- the
+                optional dependency both adapters import lazily -- is not
+                installed. Translated here rather than left as the raw
+                ``ModuleNotFoundError`` because this is the single point every
+                caller reaches: ``auto3d run`` got a ``DependencyError`` (exit
+                3, "pip install torchani") from ``check_input``'s own probe,
+                while ``auto3d energy``/``optimize``/``thermo``/``models test``
+                never run ``check_input`` and so reported the identical
+                environment problem as an "Unexpected Error" at exit 1 with no
+                install hint at all.
         """
         if device is None:
             device = torch.device("cpu")
@@ -117,7 +127,22 @@ class ModelFactory:
             cache_key = (name_upper, str(device), compile_model)
             if use_cache and cache_key in cls._cache:
                 return cls._cache[cache_key]
-            adapter = cls._adapters[name_upper](device, compile_model=compile_model)
+            try:
+                adapter = cls._adapters[name_upper](device, compile_model=compile_model)
+            except ImportError as exc:
+                # Only translate the *absence of torchani itself*. A broken
+                # torchani whose own transitive import fails names a different
+                # module, and "Install: pip install torchani" would be a wrong
+                # answer for it -- same judgment as `preflight_model`, which
+                # leaves anything it cannot positively identify to propagate
+                # with its own traceback rather than guessing a label.
+                missing = getattr(exc, "name", None) or ""
+                if missing != "torchani" and not missing.startswith("torchani."):
+                    raise
+                raise DependencyError(
+                    f"{name} requires TorchANI, which is not installed.",
+                    dependency_name="torchani",
+                ) from exc
             if use_cache:
                 cls._cache[cache_key] = adapter
             return adapter
@@ -185,9 +210,42 @@ def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device
 
     Returns:
         torch.device for the selected device.
+
+    Raises:
+        GPUError: `use_gpu` is True, CUDA is available, and `gpu_idx` names a
+            device that does not exist. This function used to return
+            ``torch.device("cuda:99")`` unchecked on an 8-device box, deferring
+            the failure into CUDA itself -- a driver-level error raised at the
+            first tensor move, far from the option that caused it, and mapped
+            to the generic exit code 1 because it is not an ``Auto3DError``.
+            ``check_valid_configuration`` already range-checked ``gpu_idx``,
+            but only for ``main()``/``smiles2mols``; ``calc_spe``,
+            ``opt_geometry``, ``calc_thermo`` and ``auto3d models test`` reach
+            this function directly and had no bounds check at all. Raising here
+            makes the documented "invalid GPU index -> exit 4" true for every
+            entry point instead of only the one that validates its config.
+
+            Only reachable when CUDA is present: with no visible device,
+            ``check_gpu_requested`` has already refused ``use_gpu=True`` (also
+            ``GPUError``, also exit 4) before any caller gets here, and
+            ``use_gpu=False`` never consults ``gpu_idx``.
     """
     if use_gpu and torch.cuda.is_available():
         if gpu_idx is not None:
+            device_count = torch.cuda.device_count()
+            if not 0 <= gpu_idx < device_count:
+                raise GPUError(
+                    f"GPU index {gpu_idx} is invalid: {device_count} CUDA "
+                    f"device(s) visible, so valid indices are "
+                    f"0-{device_count - 1}.",
+                    # The class hint ("Try --no-gpu ... or check CUDA
+                    # installation") is a non-sequitur here: CUDA is installed
+                    # and working, the index is simply out of range.
+                    hint=(
+                        "Pass a --gpu-idx within range, or --no-gpu to run "
+                        "on CPU."
+                    ),
+                )
             return torch.device(f"cuda:{gpu_idx}")
         return torch.device("cuda:0")
     return torch.device("cpu")

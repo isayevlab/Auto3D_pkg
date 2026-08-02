@@ -274,9 +274,12 @@ def test_config_init_force(tmp_path):
     target = tmp_path / "cfg.yaml"
     sentinel = "path: x.smi\n"
     target.write_text(sentinel)
-    # Without --force: refuse to clobber (exit 1, file left untouched).
+    # Without --force: refuse to clobber (exit 2, file left untouched). Exit 2
+    # and not the 1 this used to hard-code: the refusal is a ConfigurationError
+    # like every other overwrite refusal in the CLI (check_output_overwrite),
+    # and the CHANGELOG already described the two as behaving the same way.
     res = runner.invoke(app, ["config", "init", "-o", str(target)])
-    assert res.exit_code == 1
+    assert res.exit_code == 2
     assert target.read_text() == sentinel  # not overwritten
     # With --force: overwrite.
     res2 = runner.invoke(app, ["config", "init", "-o", str(target), "--force"])

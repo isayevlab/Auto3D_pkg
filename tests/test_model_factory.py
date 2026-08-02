@@ -134,10 +134,21 @@ class TestGetDevice:
         device = get_device(gpu_idx=0, use_gpu=True)
         assert device == torch.device("cpu")
 
+    @patch("Auto3D.model_factory.torch.cuda.device_count")
     @patch("Auto3D.model_factory.torch.cuda.is_available")
-    def test_get_device_cuda_when_available(self, mock_cuda):
-        """Test that CUDA device is returned when available."""
+    def test_get_device_cuda_when_available(self, mock_cuda, mock_count):
+        """Test that CUDA device is returned when available.
+
+        `device_count` must be patched alongside `is_available`, not left to
+        the host: `get_device` now range-checks `gpu_idx`, and a CI runner with
+        no CUDA reports `device_count() == 0`, so an unpatched version of this
+        test asks for `cuda:1` out of zero devices and (correctly) raises
+        `GPUError`. It passed on this 8-device dev box and would have gone red
+        on CI -- exactly the shape of failure the bounds check must not
+        introduce.
+        """
         mock_cuda.return_value = True
+        mock_count.return_value = 4
         device = get_device(gpu_idx=1, use_gpu=True)
         assert device == torch.device("cuda:1")
 

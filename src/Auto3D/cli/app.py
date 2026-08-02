@@ -227,6 +227,7 @@ def config_init(
         bool,
         typer.Option("-f", "--force", help="Overwrite an existing config file."),
     ] = False,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Generate a configuration file with sensible defaults."""
     from Auto3D.cli.commands.config import execute_config_init
@@ -234,6 +235,7 @@ def config_init(
         output=output,
         preset=preset.value if preset else None,
         force=force,
+        verbose=verbose,
     )
 
 
@@ -243,10 +245,11 @@ def config_show(
         Path | None,
         typer.Argument(help="Config file to display."),
     ] = None,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Display configuration with syntax highlighting."""
     from Auto3D.cli.commands.config import execute_config_show
-    execute_config_show(config_file=config_file)
+    execute_config_show(config_file=config_file, verbose=verbose)
 
 
 @config_app.command("validate")
@@ -258,10 +261,11 @@ def config_validate(
             help="Config file to validate.",
         ),
     ],
+    verbose: VerboseOption = 0,
 ) -> None:
     """Validate a configuration file without running."""
     from Auto3D.cli.commands.config import execute_config_validate
-    execute_config_validate(config_file=config_file)
+    execute_config_validate(config_file=config_file, verbose=verbose)
 
 
 @models_app.command("list")
@@ -277,10 +281,11 @@ def models_info(
         str,
         typer.Argument(help="Engine name: AIMNET, ANI2x, or ANI2xt."),
     ],
+    verbose: VerboseOption = 0,
 ) -> None:
     """Show detailed information about a specific engine."""
     from Auto3D.cli.commands.models import execute_models_info
-    execute_models_info(engine=engine)
+    execute_models_info(engine=engine, verbose=verbose)
 
 
 @models_app.command("test")
@@ -334,10 +339,13 @@ ForceFlag = Annotated[
 def validate(
     input_file: InputFile,
     json_output: JsonFlag = False,
+    verbose: VerboseOption = 0,
 ) -> None:
     """Validate input SMILES/SDF file without running optimization."""
     from Auto3D.cli.commands.validate import execute_validate
-    execute_validate(input_file=input_file, json_output=json_output)
+    execute_validate(
+        input_file=input_file, json_output=json_output, verbose=verbose,
+    )
 
 
 @app.command()

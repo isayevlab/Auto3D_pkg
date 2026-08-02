@@ -13,6 +13,7 @@ from Auto3D.cli.results import (
     FailedMolecule,
     WorkflowResults,
     output_json,
+    print_failures,
     print_results_summary,
 )
 from Auto3D.exceptions import Auto3DError, ConfigurationError
@@ -214,6 +215,14 @@ def execute_run(
             elif not quiet:
                 console.print()
                 print_results_summary(results)
+                # The summary panel carries only a *count* of missing
+                # molecules. `migration-4.0.rst` says the summary lists them,
+                # and `--json` does -- but the human path named none of them,
+                # so an interactive user who saw "1 failed" and exit 6 had no
+                # way to learn which molecule it was without rerunning with
+                # --json. `print_failures` existed for exactly this and had no
+                # production caller at all.
+                print_failures(results.failures, verbose=verbose > 0)
 
             _exit_if_incomplete(results)
 
