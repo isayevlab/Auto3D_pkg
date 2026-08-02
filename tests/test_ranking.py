@@ -16,7 +16,7 @@ def _create_mol_with_energy(
     smiles: str,
     energy_ev: float,
     name: str,
-    converged: bool = True,
+    converged: bool | None = True,
 ) -> Chem.Mol:
     """Helper to create a test molecule with properties set.
 
@@ -31,7 +31,10 @@ def _create_mol_with_energy(
     AllChem.EmbedMolecule(mol, randomSeed=42)
     AllChem.MMFFOptimizeMolecule(mol)
     mol.SetProp('_Name', name)
-    mol.SetProp('Converged', 'true' if converged else 'false')
+    # converged=None leaves the property off entirely -- what every SDF that
+    # batchopt did not write looks like.
+    if converged is not None:
+        mol.SetProp('Converged', 'true' if converged else 'false')
     set_e_tot_from_ev(mol, energy_ev)
     return mol
 
@@ -572,42 +575,217 @@ class TestConformerRankerEnergyUnitLabel:
 
 
 class TestConformerRankerMissingConvergedProp:
-    """run() must not abort when a record lacks the 'Converged' property."""
+    """A record that never claimed to be an optimizer output is not a failure.
 
-    def test_run_skips_record_without_converged_prop(self, tmp_path):
-        """A record missing 'Converged' is treated as not-converged and skipped.
+    ``ConformerRanker`` is a documented public class, and any SDF ``batchopt``
+    did not write carries no ``Converged`` property: an ``opt_geometry``
+    output, an ORCA/Gaussian export, a hand-built conformer set. Treating the
+    absent property as "did not converge" dropped **every** record of such a
+    file -- ``[]`` returned, a **0-byte** SDF written, exit 0, and the only
+    message an INFO line on a logger tree with no handler outside ``main()``.
+    """
 
-        Previously the unguarded mol.GetProp('Converged') raised KeyError on
-        the first record lacking the property, producing zero output for the
-        entire run. The valid (Converged=true) record must still be processed.
-        """
+    def test_a_file_with_no_converged_property_is_not_deleted(self, tmp_path):
+        """Three records in, a non-empty file and the same species out."""
         from Auto3D.ranking import ConformerRanker
 
-        # Valid record with Converged=true.
-        good = _create_mol_with_energy("CCO", -10.0, "good_1", converged=True)
+        mols = [
+            _create_mol_with_energy("CCO", -10.0, "ethanol_0_0", converged=None),
+            _create_mol_with_energy("CCCO", -9.0, "propanol_0_0", converged=None),
+            _create_mol_with_energy("CCCCO", -8.0, "butanol_0_0", converged=None),
+        ]
+        for mol in mols:
+            assert not mol.HasProp("Converged"), "test premise"
 
-        # Record lacking the 'Converged' property entirely.
-        bad = Chem.MolFromSmiles("CCCO")
-        bad = Chem.AddHs(bad)
-        AllChem.EmbedMolecule(bad, randomSeed=42)
-        AllChem.MMFFOptimizeMolecule(bad)
-        bad.SetProp('_Name', "bad_1")
-        set_e_tot_from_ev(bad, -9.0)
-        assert not bad.HasProp('Converged')
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf(mols, input_path)
+
+        results = ConformerRanker(
+            input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+        ).run()
+
+        assert {mol.GetProp("_Name") for mol in results} == {
+            "ethanol", "propanol", "butanol",
+        }
+        assert os.path.getsize(output_path) > 0, (
+            "a non-empty input produced a 0-byte output file"
+        )
+        written = [
+            m for m in Chem.SDMolSupplier(output_path, removeHs=False)
+            if m is not None
+        ]
+        assert len(written) == 3
+
+    def test_an_explicit_false_is_still_dropped(self, tmp_path):
+        """Absence is not failure -- but an explicit failure still is."""
+        from Auto3D.ranking import ConformerRanker
+
+        good = _create_mol_with_energy("CCO", -10.0, "good_0_0", converged=None)
+        bad = _create_mol_with_energy("CCCO", -9.0, "bad_0_0", converged=False)
 
         input_path = str(tmp_path / "input.sdf")
         output_path = str(tmp_path / "output.sdf")
         _write_mols_to_sdf([good, bad], input_path)
 
+        results = ConformerRanker(
+            input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+        ).run()
+
+        names = {mol.GetProp("_Name") for mol in results}
+        assert names == {"good"}
+
+    def test_a_record_without_an_energy_is_refused_not_dropped(self, tmp_path):
+        """Ranking is selection by energy; a record with none cannot be ranked.
+
+        This used to be masked: the record was silently deleted for lacking
+        'Converged' before anything asked it for an energy.
+        """
+        from Auto3D.exceptions import InputValidationError
+        from Auto3D.ranking import ConformerRanker
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", "no_energy_0_0")
+        assert not mol.HasProp("E_tot")
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf([mol], input_path)
+
         ranker = ConformerRanker(
-            input_path=input_path,
-            out_path=output_path,
-            threshold=0.3,
-            k=1,
+            input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+        )
+        with pytest.raises(InputValidationError, match="has no 'E_tot' property"):
+            ranker.run()
+
+    def test_selecting_nothing_from_a_non_empty_input_warns(self, tmp_path, caplog):
+        """An empty output must say so at WARNING, which reaches stderr.
+
+        ``logging.lastResort`` prints WARNING and above even for a caller who
+        never ran ``configure_logging`` -- i.e. every direct API caller. The
+        old INFO line reached nobody.
+        """
+        import logging
+
+        from Auto3D.ranking import ConformerRanker
+
+        mols = [
+            _create_mol_with_energy("CCO", -10.0, "a_0_0", converged=False),
+            _create_mol_with_energy("CCCO", -9.0, "b_0_0", converged=False),
+        ]
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf(mols, input_path)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
+            results = ConformerRanker(
+                input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+            ).run()
+
+        assert results == []
+        assert os.path.getsize(output_path) == 0
+        messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("Selected 0 structures from 2 record(s)" in m for m in messages), (
+            f"a 0-byte output was produced with no WARNING; got {messages}"
         )
 
-        # Must not raise KeyError, and must process the valid record.
-        results = ranker.run()
-        names = {mol.GetProp("_Name") for mol in results}
-        assert "good" in names
-        assert "bad" not in names
+
+class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
+    """Remediation goal #1: no path silently returns a different molecule.
+
+    ``smiles2smi`` renames the second of two inputs that share a standard
+    InChIKey to ``<KEY>_2`` *specifically so it is not dropped*. With
+    ``enumerate_isomer=False`` the SMILES path used to append only the
+    conformer index, so ``species_id`` stripped the ``_2`` along with it and
+    both molecules landed in one ranking group: ``k=1`` then returned ONE
+    conformer for the pair -- and, since selection is by energy across the
+    merged group, it could be the other molecule's geometry carrying this
+    molecule's name.
+
+    This test runs the real embedding path and stands in for the optimizer
+    (no NNP is loaded), then asserts the identity of what comes out.
+    """
+
+    # 2-pyridone / 2-hydroxypyridine: two different molecules the standard
+    # InChIKey conflates.
+    PYRIDONE = "O=c1cccc[nH]1"
+    HYDROXYPYRIDINE = "Oc1ccccn1"
+
+    @staticmethod
+    def _canonical(mol: Chem.Mol) -> str:
+        return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol)))
+
+    def test_enumerate_isomer_false_returns_both_molecules(self, tmp_path):
+        from Auto3D.isomer_engine import RDKitIsomer
+        from Auto3D.ranking import ConformerRanker, species_id
+        from Auto3D.utils.file_ops import smiles2smi
+
+        smi_path = str(tmp_path / "in.smi")
+        smiles2smi([self.PYRIDONE, self.HYDROXYPYRIDINE], smi_path)
+        ids = [line.split()[1] for line in open(smi_path) if line.strip()]
+        assert ids[1] == f"{ids[0]}_2", (
+            f"test premise: the two inputs must collide on one InChIKey and be "
+            f"disambiguated, got {ids}"
+        )
+        key, key_2 = ids
+
+        job = tmp_path / "job"
+        job.mkdir()
+        engine = RDKitIsomer(
+            smi=smi_path,
+            smiles_enumerated=str(tmp_path / "enum.smi"),
+            smiles_enumerated_reduced=str(tmp_path / "reduced.smi"),
+            smiles_hashed=str(tmp_path / "hashed.smi"),
+            enumerated_sdf=str(tmp_path / "enumerated.sdf"),
+            job_name=str(job),
+            max_confs=2,
+            threshold=0.3,
+            np=1,
+            flipper=False,  # enumerate_isomer=False -- the affected mode
+        )
+        enumerated = engine.run()
+
+        # Stand in for the optimizer: mark everything converged and make the
+        # SECOND input much lower in energy, so a merged group would keep ITS
+        # geometry under the FIRST molecule's name.
+        mols = [
+            m for m in Chem.SDMolSupplier(enumerated, removeHs=False)
+            if m is not None
+        ]
+        assert mols, "the embedding step produced nothing to rank"
+        seen_species = {species_id(m.GetProp("_Name")) for m in mols}
+        assert seen_species == {key, key_2}, (
+            f"both inputs must reach ranking as distinct species, got {seen_species}"
+        )
+        optimized = str(tmp_path / "optimized.sdf")
+        with Chem.SDWriter(optimized) as writer:
+            for mol in mols:
+                mol.SetProp("Converged", "true")
+                energy = -10.0 if species_id(mol.GetProp("_Name")) == key else -20.0
+                set_e_tot_from_ev(mol, energy)
+                writer.write(mol)
+
+        output = str(tmp_path / "ranked.sdf")
+        results = ConformerRanker(
+            input_path=optimized, out_path=output, threshold=0.3, k=1,
+        ).run()
+
+        by_name = {mol.GetProp("_Name"): mol for mol in results}
+        assert set(by_name) == {key, key_2}, (
+            f"expected one conformer per input molecule ({key}, {key_2}), got "
+            f"{sorted(by_name)}"
+        )
+        # Identity, not just count: the record under each name must BE that
+        # molecule, not the other one wearing its name.
+        assert self._canonical(by_name[key]) == Chem.CanonSmiles(self.PYRIDONE)
+        assert self._canonical(by_name[key_2]) == Chem.CanonSmiles(
+            self.HYDROXYPYRIDINE
+        )
+        assert self._canonical(by_name[key]) != self._canonical(by_name[key_2])
+
+        written = [
+            m for m in Chem.SDMolSupplier(output, removeHs=False) if m is not None
+        ]
+        assert {m.GetProp("_Name") for m in written} == {key, key_2}
+        assert os.path.getsize(output) > 0

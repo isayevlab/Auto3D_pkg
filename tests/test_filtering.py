@@ -28,6 +28,30 @@ def _create_mol_with_energy(smiles: str, energy_ev: float, converged: bool = Tru
     return mol
 
 
+class TestConvergenceFilterIsNotAnEraser:
+    """A record with no 'Converged' property must not be deleted.
+
+    ``filter_unique_optimized`` is reached by ``ConformerRanker`` on any SDF
+    the caller hands it, including files ``batchopt`` did not write -- which
+    carry no ``Converged`` property at all.
+    """
+
+    def test_missing_converged_property_is_kept(self):
+        mol = _create_mol_with_energy("CCO", -10.0)
+        mol.ClearProp("Converged")
+        assert not mol.HasProp("Converged"), "test premise"
+
+        result = filter_unique_optimized([mol], rmsd_threshold=0.3)
+        assert len(result) == 1, (
+            "a record that never claimed to be an optimizer output was deleted"
+        )
+
+    def test_explicit_false_is_still_dropped(self):
+        """Absence is not failure -- but a stated failure still is."""
+        mol = _create_mol_with_energy("CCO", -10.0, converged=False)
+        assert filter_unique_optimized([mol], rmsd_threshold=0.3) == []
+
+
 class TestFilterWithinCluster:
     """Tests for _filter_within_cluster function."""
 

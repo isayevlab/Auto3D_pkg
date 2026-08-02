@@ -6,10 +6,11 @@ import pandas as pd
 from rdkit import Chem
 
 from Auto3D.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
-from Auto3D.exceptions import ConfigurationError
+from Auto3D.exceptions import ConfigurationError, InputValidationError
 from Auto3D.filtering import filter_unique_optimized
 from Auto3D.utils import ev2kcalpermol, filter_unique
 from Auto3D.utils.chemistry import check_connectivity
+from Auto3D.utils.convergence import converged_or_unfiltered, has_convergence_flag
 from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.stereo_check import stereo_preserved
@@ -22,12 +23,13 @@ def species_id(name: str) -> str:
     """Recover the species id from a conformer's ``_Name``.
 
     Conformer names are ``<species_id>_<isomer>_<conformer>``: two trailing
-    integer components appended after the id every caller of this module
-    actually feeds it -- the SDF input path always (RDKitSdfIsomer names
-    "uniformly, including when there is only one isomer" per its docstring),
-    and the SMILES path (RDKitIsomer) with the default ``enumerate_isomer``
-    enabled (isomer index from ``write_enumerated_smi``, conformer index from
-    ``embed_conformer``).
+    integer components appended after the id by every producer, in every
+    mode. The SDF input path (RDKitSdfIsomer) names "uniformly, including
+    when there is only one isomer" per its docstring; the SMILES path
+    (RDKitIsomer) takes the isomer index from ``write_enumerated_smi`` when
+    ``enumerate_isomer`` is on and from ``write_single_isomer_smi`` (always
+    0 -- one "isomer", the molecule as written) when it is off. The
+    conformer index comes from ``embed_conformer`` either way.
 
     Stripping on the FIRST underscore is wrong whenever ``species_id`` itself
     contains an underscore -- notably ``smiles2smi``'s InChIKey-collision
@@ -38,15 +40,17 @@ def species_id(name: str) -> str:
     conformers of one species still group together AND a disambiguated id
     like ``KEY_2`` stays distinct from ``KEY``.
 
-    Known residual gap (pre-existing, not introduced here): the SMILES path
-    with ``enumerate_isomer=False`` appends only ONE trailing component (the
-    conformer index, no isomer index), so a disambiguated id there produces a
-    name indistinguishable in shape from the isomer-enabled case (e.g.
-    ``KEY_2_0`` could be species "KEY_2" conformer 0, or species "KEY" isomer
-    2 conformer 0) -- this function cannot tell them apart without knowing
-    which mode produced the name. An InChIKey collision combined with
-    ``enumerate_isomer=False`` still mis-groups, exactly as it did before this
-    fix; unlike the default path, this combination has no test pinning it.
+    That disambiguation is only recoverable because every producer appends
+    the same NUMBER of components. Until 4.0 the SMILES path with
+    ``enumerate_isomer=False`` appended only the conformer index, which made
+    ``KEY_2_0`` mean either species "KEY_2" conformer 0 or species "KEY"
+    isomer 2 conformer 0 -- indistinguishable here, so an InChIKey collision
+    in that mode merged two DIFFERENT input molecules into one ranking group
+    and ``k=1`` returned one conformer for the pair. The cure is the naming
+    (``RDKitIsomer.write_single_isomer_smi``), not a cleverer parse: a parser
+    that has to infer how many components were appended is the defect.
+    Pinned by ``tests/test_ranking.py`` and
+    ``tests/test_isomer_engine_hardening.py``.
     """
     return name.strip().rsplit("_", 2)[0].strip()
 
@@ -242,6 +246,10 @@ class ConformerRanker:
                 ConfigurationError -- this is the same guard, raising the
                 same exception type, for callers that construct
                 ConformerRanker directly).
+            InputValidationError: If a record carries no ``E_tot`` property.
+                Ranking is selection by energy; a record with no energy
+                cannot be ranked, and refusing the file beats emitting a
+                bare ``KeyError('E_tot')`` from inside RDKit.
         """
         logger.info("Begin to select structures that satisfy the requirements...")
         # Delegated to Auto3D.config rather than re-implemented here. This was
@@ -261,23 +269,54 @@ class ConformerRanker:
         results = []
 
         mols, names, energies = [], [], []
+        n_records = 0
+        n_unconverged = 0
+        n_unflagged = 0
         # Context-managed so the SDF file handle is released promptly rather than
         # left to GC. The mols are materialized into `mols` inside the block.
         with Chem.SDMolSupplier(self.input_path, removeHs=False) as supplier:
-            for mol in supplier:
+            for position, mol in enumerate(supplier):
                 if mol is None:
+                    logger.warning(
+                        "Skipping record %d of %s: RDKit could not parse it.",
+                        position, self.input_path,
+                    )
                     continue
-                # Guard the Converged read: a record lacking the property is
-                # treated as not-converged and skipped, matching the lenient
-                # pattern the RMSD filters use (filter_unique / filtering).
-                try:
-                    converged = mol.GetProp('Converged').lower() == 'true'
-                except KeyError:
-                    converged = False
-                if converged:
-                    mols.append(mol)
-                    names.append(species_id(mol.GetProp('_Name')))
-                    energies.append(e_tot_ev(mol))
+                n_records += 1
+                # Only an EXPLICIT Converged=false is a failed optimization.
+                # A record with no such property never claimed to be an
+                # optimizer output at all -- ConformerRanker is public, and
+                # any SDF batchopt did not write (opt_geometry output, an
+                # ORCA/Gaussian export, a hand-built conformer set) carries
+                # none -- and dropping those returned [], wrote a 0-byte file
+                # and exited 0. See Auto3D.utils.convergence.
+                if not converged_or_unfiltered(mol):
+                    n_unconverged += 1
+                    continue
+                if not has_convergence_flag(mol):
+                    n_unflagged += 1
+                if not mol.HasProp(E_TOT_PROP):
+                    name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
+                    raise InputValidationError(
+                        f"Record {position} "
+                        f"{'(' + name + ') ' if name else ''}of "
+                        f"{self.input_path} has no {E_TOT_PROP!r} property. "
+                        "ConformerRanker selects by energy, so every record "
+                        "needs one.",
+                        hint=(
+                            f"Add {E_TOT_PROP!r} (Hartree) to every record, or "
+                            "rank a file produced by Auto3D's optimizer."
+                        ),
+                    )
+                mols.append(mol)
+                names.append(species_id(mol.GetProp('_Name')))
+                energies.append(e_tot_ev(mol))
+        if n_unflagged:
+            logger.info(
+                "%d of %d record(s) in %s carry no 'Converged' property; they "
+                "are not filtered on convergence.",
+                n_unflagged, n_records, self.input_path,
+            )
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
         groups = df.groupby("names")
@@ -293,6 +332,19 @@ class ConformerRanker:
                                     'specified. Append "--k=1" if you'
                                     'only want one structure per SMILES')
             results += top_results
+
+        if n_records and not results:
+            # A non-empty input that selects nothing writes a 0-byte SDF and
+            # returns []. WARNING, not INFO: `logging.lastResort` puts WARNING
+            # and above on stderr even for a caller who never ran
+            # configure_logging, which is every direct API caller.
+            logger.warning(
+                "Selected 0 structures from %d record(s) in %s, so %s is "
+                "empty: %d record(s) are marked Converged=false and the rest "
+                "were dropped by the connectivity, stereochemistry or "
+                "energy-window filters.",
+                n_records, self.input_path, self.out_path, n_unconverged,
+            )
 
         with Chem.SDWriter(self.out_path) as f:
             for mol in results:

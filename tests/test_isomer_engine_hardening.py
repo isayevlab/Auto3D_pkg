@@ -18,20 +18,22 @@ from Auto3D.isomer_engine import RDKitIsomer, RDKitSdfIsomer, TautomerEngine
 from Auto3D.utils.chemistry import calculate_conformer_count
 
 
-def _make_engine(tmp_path, smi_path):
+def _make_engine(tmp_path, smi_path, flipper=True, max_confs=None):
     """Build an RDKitIsomer with throwaway output paths."""
     job_name = os.path.join(tmp_path, "job_" + uuid.uuid4().hex)
     os.makedirs(job_name)
+    unique = uuid.uuid4().hex
     return RDKitIsomer(
         smi=str(smi_path),
-        smiles_enumerated=os.path.join(tmp_path, "enum.smi"),
-        smiles_enumerated_reduced=os.path.join(tmp_path, "reduced.smi"),
-        smiles_hashed=os.path.join(tmp_path, "hashed.smi"),
-        enumerated_sdf=os.path.join(tmp_path, "out.sdf"),
+        smiles_enumerated=os.path.join(tmp_path, f"enum_{unique}.smi"),
+        smiles_enumerated_reduced=os.path.join(tmp_path, f"reduced_{unique}.smi"),
+        smiles_hashed=os.path.join(tmp_path, f"hashed_{unique}.smi"),
+        enumerated_sdf=os.path.join(tmp_path, f"out_{unique}.sdf"),
         job_name=job_name,
-        max_confs=None,
+        max_confs=max_confs,
         threshold=0.3,
         np=1,
+        flipper=flipper,
     )
 
 
@@ -356,3 +358,79 @@ class TestSpeFiltersAndAligns:
         assert out is not None
         # An output file is produced (empty SDF -> no molecule records).
         assert os.path.exists(out)
+
+
+class TestConformerNameShapeIsModeIndependent:
+    """Both SMILES modes must append the SAME number of name components.
+
+    ``ranking.species_id`` recovers the species id by stripping the two
+    trailing ``<isomer>_<conformer>`` components. With ``enumerate_isomer``
+    off, this path used to append only the conformer index, so ``KEY_2_0``
+    was ambiguous -- species "KEY_2" conformer 0, or species "KEY" isomer 2
+    conformer 0? -- and ``smiles2smi`` mints ``KEY_2`` for the second of two
+    DIFFERENT molecules that share a standard InChIKey. Both then grouped as
+    "KEY".
+    """
+
+    def test_names_carry_isomer_and_conformer_without_enumeration(self, tmp_path):
+        """<species>_<isomer>_<conformer>, with the isomer index always 0."""
+        from Auto3D.ranking import species_id
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO KEY\n")
+        engine = _make_engine(str(tmp_path), smi, flipper=False, max_confs=2)
+        engine.run()
+
+        mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
+        assert mols, "no conformers were written"
+        for mol in mols:
+            name = mol.GetProp("_Name")
+            parts = name.rsplit("_", 2)
+            assert len(parts) == 3, (
+                f"conformer name {name!r} has {len(parts)} component(s); "
+                "species_id strips two, so anything else is unparseable"
+            )
+            assert parts[1] == "0", (
+                f"{name!r}: the sole isomer must be index 0, got {parts[1]!r}"
+            )
+            assert species_id(name) == "KEY"
+            # The user-visible ID property carries the same name.
+            assert mol.GetProp("ID") == name
+
+    def test_a_disambiguated_id_stays_distinct_without_enumeration(self, tmp_path):
+        """``KEY`` and ``KEY_2`` are two molecules and must stay two species."""
+        from Auto3D.ranking import species_id
+
+        smi = tmp_path / "in.smi"
+        # 2-pyridone and 2-hydroxypyridine share a standard InChIKey; this is
+        # exactly the pair smiles2smi renames the second of.
+        smi.write_text("O=c1cccc[nH]1 KEY\nOc1ccccn1 KEY_2\n")
+        engine = _make_engine(str(tmp_path), smi, flipper=False, max_confs=2)
+        engine.run()
+
+        mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
+        species = {species_id(m.GetProp("_Name")) for m in mols}
+        assert species == {"KEY", "KEY_2"}, (
+            f"the two inputs collapsed into {species}; a conformer of one "
+            "molecule can then be reported under the other's name"
+        )
+
+    def test_the_two_modes_agree_on_shape(self, tmp_path):
+        """Same input, both modes, same number of name components."""
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO KEY\n")
+
+        shapes = {}
+        for flipper in (True, False):
+            engine = _make_engine(str(tmp_path), smi, flipper=flipper, max_confs=2)
+            engine.run()
+            mols = [
+                m for m in Chem.SDMolSupplier(engine.enumerated_sdf)
+                if m is not None
+            ]
+            assert mols, f"no conformers written with flipper={flipper}"
+            shapes[flipper] = {len(m.GetProp("_Name").split("_")) for m in mols}
+
+        assert shapes[True] == shapes[False] == {3}, (
+            f"name shapes differ between modes: {shapes}"
+        )

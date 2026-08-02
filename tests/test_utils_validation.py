@@ -193,6 +193,35 @@ class TestFilterUnique:
             # Only one should remain
             assert len(result) == 1
 
+    def test_filter_unique_keeps_records_with_no_converged_property(self):
+        """Absence of the property is not a failed optimization.
+
+        Only ``batchopt`` writes ``Converged``; an ``opt_geometry`` output, an
+        ORCA/Gaussian export or a hand-built conformer set carries none.
+        Treating that as "did not converge" deleted every record. The
+        consequence asserted here is that such a file filters exactly the same
+        as one whose records all say Converged=True.
+        """
+        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
+        flagged = [mol for mol in supp if mol is not None]
+        for mol in flagged:
+            mol.SetProp("Converged", "True")
+        expected = len(filter_unique(flagged))
+        assert expected >= 1, "test premise: the flagged file must keep something"
+
+        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
+        unflagged = [mol for mol in supp if mol is not None]
+        for mol in unflagged:
+            mol.ClearProp("Converged")
+            assert not mol.HasProp("Converged")
+
+        result = filter_unique(unflagged)
+        assert len(result) == expected, (
+            f"{len(unflagged)} record(s) with no 'Converged' property kept "
+            f"{len(result)}, but the same records marked Converged=True keep "
+            f"{expected}"
+        )
+
     def test_filter_unique_custom_threshold(self):
         """Test filter_unique with custom RMSD threshold."""
         supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)

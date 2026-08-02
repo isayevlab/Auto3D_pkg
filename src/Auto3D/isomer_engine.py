@@ -246,6 +246,26 @@ class RDKitIsomer:
                     line = isomer.strip() + '\t' + new_name + '\n'
                     f.write(line)
 
+    def write_single_isomer_smi(self) -> None:
+        """Copy the input .smi through, appending the isomer index 0 to each id.
+
+        The no-enumeration counterpart of :meth:`write_enumerated_smi`: this
+        branch produces exactly one "isomer" per input -- the molecule as the
+        user wrote it -- so its index is always 0. Writing it keeps the two
+        branches' output shape identical, which is what makes a conformer name
+        parseable at all (see :func:`Auto3D.ranking.species_id`).
+
+        Streams records instead of going through :meth:`read` so duplicate ids
+        still reach ``hash_enumerated_smi_IDs`` (which renames them) exactly as
+        they did when this branch handed it the input file directly; ``read()``
+        returns a dict and would collapse them into one.
+        """
+        with open(self.enumerated_smi_path, 'w+') as f:
+            for _line_no, smi, name in iter_smi_records(
+                self.input_f, on_malformed="skip"
+            ):
+                f.write(f"{smi.strip()}\t{str(name).strip()}_0\n")
+
     def embed_conformer(self, smi: str) -> Chem.Mol | None:
         """Embed multiple 3D conformers for a SMILES string.
 
@@ -301,7 +321,21 @@ class RDKitIsomer:
             hash_enumerated_smi_IDs(self.enumerated_smi_path_reduced,
                                     self.enumerated_smi_hashed_path)
         else:
-            hash_enumerated_smi_IDs(self.input_f,
+            # No stereoisomer enumeration -- but the conformer names must still
+            # carry BOTH trailing components, or they cannot be parsed back.
+            # Emitting only "<species>_<conformer>" here made "KEY_2_0"
+            # ambiguous: species "KEY_2" conformer 0 (this branch) or species
+            # "KEY" isomer 2 conformer 0 (the branch above)?
+            # `smiles2smi` mints exactly ids like "KEY_2" -- for the SECOND of
+            # two DIFFERENT input molecules that share a standard InChIKey --
+            # so that neither is dropped. `ranking.species_id` then grouped
+            # both under "KEY", and `k=1` returned a single conformer for the
+            # pair, possibly the other molecule's geometry under this
+            # molecule's name. Writing the isomer index makes the parse
+            # unambiguous instead of asking the parser to guess which branch
+            # produced the name.
+            self.write_single_isomer_smi()
+            hash_enumerated_smi_IDs(self.enumerated_smi_path,
                                     self.enumerated_smi_hashed_path)
 
         logger.info("Enumerating conformers/rotamers, removing duplicates...")
@@ -386,9 +420,9 @@ class RDKitSdfIsomer:
     ``remove_enantiomers`` -- since mirror images are exactly degenerate under
     any reflection-invariant potential. Conformers are named
     ``<name>_<isomer>_<conformer>`` uniformly, including when there is only one
-    isomer, so this path's own output has one consistent shape to parse (the
-    SMILES path is not identical: with ``enumerate_isomers`` disabled there it
-    emits only two components). The isomer component is what
+    isomer, so this path's own output has one consistent shape to parse -- the
+    same shape the SMILES path emits, with or without ``enumerate_isomers``.
+    The isomer component is what
     :func:`Auto3D.utils.file_ops.decode_ids` relies on to rebuild
     ``<original>_<isomer>_<conformer>`` IDs after the pipeline's numeric-ID
     encoding step; :class:`~Auto3D.ranking.ConformerRanker` groups on the

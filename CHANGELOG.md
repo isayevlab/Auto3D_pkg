@@ -581,6 +581,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tolerance keep their documented eV meaning and no public parameter changed
   units.
 
+- **Conformer names always carry `<isomer>_<conformer>`, in every mode.**
+  The SMILES path with `enumerate_isomer=False` used to append only the
+  conformer index, so a conformer's `ID` read `<species>_<conformer>` there
+  and `<species>_<isomer>_<conformer>` everywhere else.
+  `Auto3D.ranking.species_id` strips two trailing components, which made
+  `KEY_2_0` ambiguous -- species `KEY_2` conformer 0, or species `KEY` isomer
+  2 conformer 0? -- and `smiles2smi` mints exactly ids like `KEY_2`, for the
+  **second of two different molecules that share a standard InChIKey**
+  (a tautomer pair the standard key conflates, or the same molecule written
+  two ways). Both then grouped as one species: `k=1` returned a single
+  conformer for the pair, and because selection is by energy across the
+  merged group, the survivor could be the other molecule's geometry carrying
+  this molecule's name. `smiles2mols` returned a silently shorter list.
+
+  **What changes:** with `enumerate_isomer=False` and SMILES input, the `ID`
+  property of an output record gains one component --  `mol_3` becomes
+  `mol_0_3` (the isomer index is always 0 in that mode, since there is
+  exactly one "isomer": the molecule as written). The record's `_Name` (the
+  species id) is unchanged, as is every other mode and both SDF-input paths.
+  **What to do:** a script that parses `ID` with `split("_")` should read the
+  first component for the species id and the last for the conformer index, or
+  use `Auto3D.ranking.species_id`. Runs made with `enumerate_isomer=False`
+  and two inputs sharing an InChIKey lost a molecule and should be re-run.
+
 ### Added
 
 - **`auto3d validate` accepts `--json`**, the one result-producing command
@@ -602,6 +626,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The Rich error panel is unchanged and still goes to stderr.
 
 ### Fixed
+
+- **`calc_thermo` no longer runs one call on two devices at two precisions.**
+  For a custom NNP holding no `nn.Parameter` (one that builds its backend
+  lazily), `ASE/thermo.Calculator.__init__` had no parameter to read a device
+  off and chose
+  `torch.device("cuda" if torch.cuda.is_available() else "cpu")` with
+  `torch.double`. `use_gpu` and `gpu_idx` never reached it, so
+  `calc_thermo(..., use_gpu=False)` -- or `auto3d thermo ... --no-gpu` --
+  relaxed the geometry on **cuda:0 in float64** while the fmax pre-check and
+  the Hessian ran on **cpu in float32**: a GPU seized on a shared box against
+  an explicit `--no-gpu`, `gpu_idx` ignored entirely (always device 0), and a
+  Hessian built at a different precision from the geometry it describes.
+  Nothing was logged. `calc_thermo` now threads the device it already
+  resolved through `check_gpu_requested` + `get_device(gpu_idx, use_gpu)` --
+  Auto3D's single GPU policy -- into the calculator, and a `Calculator`
+  constructed with neither a device nor a parameter to infer one from stays
+  on CPU/float32 instead of taking a GPU nobody asked for.
+
+- **Auto3D no longer turns off a caller's deterministic algorithms.**
+  Every entry point calls `configure_torch`, which wrote
+  `torch.use_deterministic_algorithms(False)`,
+  `torch.backends.cudnn.deterministic = False` and
+  `torch.backends.cudnn.benchmark = False` unconditionally -- process-global
+  state. A script that called `torch.use_deterministic_algorithms(True)` for
+  reproducibility lost it for the rest of the process the moment it called
+  Auto3D, with nothing logged and no way to ask for it back; the next
+  nondeterministic op then silently produced a nondeterministic result
+  instead of raising, which is precisely the signal that setting exists to
+  obtain. `TorchConfig.deterministic` and `TorchConfig.cudnn_benchmark` now
+  default to `None`, meaning "leave the process's setting alone"; an explicit
+  `True`/`False` is still applied in both directions. `allow_tf32` keeps
+  being applied unconditionally -- it is a real Auto3D option with a
+  documented default. New `TorchConfig.deterministic_warn_only` (default
+  `True`, as before) lets a caller ask for `use_deterministic_algorithms` to
+  raise rather than warn.
+
+- **A conformer with no `Converged` property is no longer deleted.** The
+  three convergence filters (`ConformerRanker`,
+  `filtering.filter_unique_optimized`, `utils.chemistry.filter_unique`) read
+  the property inside `try/except KeyError` and treated its absence as
+  "did not converge". Only `batch_opt` writes that property, so the public
+  `ConformerRanker` -- pointed at an `opt_geometry` output, an ORCA/Gaussian
+  export or a hand-built conformer set -- dropped **every** record, returned
+  `[]`, wrote a **0-byte SDF** and exited 0. The only message was an INFO
+  line on a logger tree with no handler outside `main()`. Absence of the
+  property now means "not filtered on convergence" and the record is kept
+  (`Auto3D.utils.convergence` is the single owner of this property);
+  an explicit `Converged=false` is still dropped. Two related changes to
+  `ConformerRanker.run`: a record with no `E_tot` now raises
+  `InputValidationError` (exit 2) naming the record instead of emitting a
+  bare `KeyError` from inside RDKit, and selecting 0 structures from a
+  non-empty input now logs a **WARNING** -- which `logging.lastResort` puts
+  on stderr even for a caller who never configured logging -- instead of an
+  INFO nobody sees.
+
+- **The `userNNP2` example in the test suite padded species with 0.** Atomic
+  number 0 is a real element there (an R-group `*` atom), so the example's own
+  `mask = species != self.species_pad` deleted dummy atoms from the batch --
+  in code users copy. It now uses `-1`, matching
+  `docs/source/howto/custom_nnp.rst` and `pad_from_mols`' default.
 
 - **A charge change no longer reuses the previous molecule's energy and
   forces.** `ASE/thermo.py`'s `Calculator.set_charge` reassigned the charge

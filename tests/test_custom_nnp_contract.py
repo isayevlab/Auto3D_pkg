@@ -462,3 +462,87 @@ def test_a_module_inheriting_torchs_forward_stub_is_rejected(tmp_path):
 
     with pytest.raises(ModelLoadError, match="no forward method of its own"):
         load_custom_nnp(str(path), torch.device("cpu"))
+
+
+class TestExampleCustomNNPsDoNotPadWithARealElement:
+    """The copyable ``userNNP2`` examples must not pad species with 0.
+
+    Atomic number 0 is a real element in a batch Auto3D builds -- an R-group
+    ``*`` atom -- and each example identifies padding with
+    ``mask = species != self.species_pad``. With ``species_pad = 0`` that
+    expression deletes every dummy atom before the energy call, so the model
+    scores a molecule the user never submitted (audit C13). ``pad_from_mols``
+    defaults to -1 and ``docs/source/howto/custom_nnp.rst`` already says -1;
+    these three examples said 0, and they are the code users copy.
+
+    The examples are driven through their OWN ``forward`` with the AIMNet2
+    calculator replaced by a recorder, so no NNP is loaded and nothing is
+    downloaded.
+    """
+
+    EXAMPLE_MODULES = ("tests.test_SPE", "tests.test_thermo", "tests.test_auto3D")
+
+    @staticmethod
+    def _padded_batch(model):
+        """The batch Auto3D itself builds, with the example's own pad values."""
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.batch_opt.padding import pad_from_mols
+
+        mols = []
+        # Different sizes, so the batch really is padded; the first molecule
+        # carries an R-group atom (Z=0).
+        for smiles in ("*CCO", "C"):
+            mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0
+            mols.append(mol)
+        coords, species, charges, _atom_mask = pad_from_mols(
+            mols,
+            "AIMNET",
+            CPU,
+            coord_pad=model.coord_pad,
+            species_pad=model.species_pad,
+        )
+        return mols, coords, species, charges
+
+    @pytest.mark.parametrize("module_name", EXAMPLE_MODULES)
+    def test_every_submitted_atom_reaches_the_model(self, module_name):
+        import importlib
+
+        module = importlib.import_module(module_name)
+        model = module.userNNP2()
+
+        mols, coords, species, charges = self._padded_batch(model)
+
+        received: dict = {}
+
+        class _RecordingCalculator:
+            """Stands in for AIMNet2Calculator; records what it is handed."""
+
+            def __call__(self, inputs, forces=False):
+                received.update(inputs)
+                n_mols = int(inputs["mol_idx"].max().item()) + 1
+                return {"energy": torch.zeros(n_mols)}
+
+        # Pre-seed the lazily built backend so forward() never imports aimnet.
+        model._calc = _RecordingCalculator()
+        model._calc_device = species.device
+
+        model(species, coords, charges)
+
+        assert received, f"{module_name}.userNNP2 never called its calculator"
+        counts = torch.bincount(
+            received["mol_idx"], minlength=len(mols)
+        ).tolist()
+        expected = [mol.GetNumAtoms() for mol in mols]
+        assert counts == expected, (
+            f"{module_name}.userNNP2 passed {counts} atoms per molecule to the "
+            f"calculator but was given {expected}: with species_pad="
+            f"{model.species_pad!r}, its own 'species != species_pad' mask "
+            "deletes real atoms"
+        )
+        assert 0 in received["numbers"].tolist(), (
+            f"{module_name}.userNNP2 dropped the R-group (Z=0) atom, so it "
+            "scored a different molecule than the one submitted"
+        )

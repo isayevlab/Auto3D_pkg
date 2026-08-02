@@ -2,6 +2,7 @@
 
 This package contains utility functions split into focused modules:
 - chemistry: Energy conversions, molecular properties, geometry utilities
+- convergence: The single owner of the 'Converged' SDF property
 - stereochemistry: Functions for stereochemistry detection and manipulation
 - validation: Functions for input validation and filtering
 - file_ops: File I/O operations (SMILES files, SDF chunking, ID encoding)

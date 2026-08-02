@@ -8,12 +8,20 @@ class TestTorchConfig:
     """Tests for TorchConfig dataclass."""
 
     def test_torch_config_default_values(self):
-        """TorchConfig should have sensible defaults."""
+        """Defaults must name a value only for the flag Auto3D owns.
+
+        ``allow_tf32`` is a documented Auto3D option, so its default (False)
+        is a real request and is applied. ``cudnn_benchmark`` and
+        ``deterministic`` have no Auto3D-level option; their default is None,
+        which ``configure_torch`` reads as "leave the calling process's
+        setting alone".
+        """
         from Auto3D.torch_config import TorchConfig
 
         config = TorchConfig()
         assert config.allow_tf32 is False
-        assert config.cudnn_benchmark is False
+        assert config.cudnn_benchmark is None
+        assert config.deterministic is None
 
     def test_torch_config_custom_values(self):
         """TorchConfig should accept custom values."""
@@ -127,6 +135,117 @@ class TestConfigureTorch:
         finally:
             # Restore the default (non-deterministic) global state.
             configure_torch(TorchConfig(deterministic=False))
+
+
+def _nondeterministic_op_raises() -> bool:
+    """Run an op with no deterministic CPU kernel; True if torch refused it.
+
+    This is the *consequence* of determinism being on with warn_only=False --
+    the signal ``torch.use_deterministic_algorithms(True)`` is set to obtain.
+    Asserting on ``are_deterministic_algorithms_enabled()`` alone would only
+    report the flag; this reports what the flag does.
+    """
+    try:
+        torch.zeros(5).put_(
+            torch.tensor([0, 1]), torch.tensor([1.0, 2.0]), accumulate=False
+        )
+    except RuntimeError:
+        return True
+    return False
+
+
+class TestConfigureTorchLeavesUnrequestedGlobalsAlone:
+    """Process-global state the caller owns must survive an Auto3D call.
+
+    Every Auto3D entry point (``main``, ``smiles2mols``, ``calc_spe``,
+    ``opt_geometry``, ``calc_thermo``) builds ``TorchConfig(allow_tf32=...)``
+    and nothing else, so that exact config is what these tests apply.
+    """
+
+    @staticmethod
+    def _snapshot():
+        return (
+            torch.are_deterministic_algorithms_enabled(),
+            torch.is_deterministic_algorithms_warn_only_enabled(),
+            torch.backends.cudnn.deterministic,
+            torch.backends.cudnn.benchmark,
+        )
+
+    @staticmethod
+    def _restore(state):
+        deterministic, warn_only, cudnn_deterministic, benchmark = state
+        torch.use_deterministic_algorithms(deterministic, warn_only=warn_only)
+        torch.backends.cudnn.deterministic = cudnn_deterministic
+        torch.backends.cudnn.benchmark = benchmark
+
+    def test_a_callers_determinism_survives_an_entry_point_config(self):
+        """The caller set determinism; a nondeterministic op must still raise.
+
+        Auto3D used to write ``use_deterministic_algorithms(False)``
+        unconditionally, so after any entry point the caller's op silently
+        produced a nondeterministic result instead of raising -- with nothing
+        logged and no way to ask for the setting back.
+        """
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        saved = self._snapshot()
+        try:
+            torch.use_deterministic_algorithms(True, warn_only=False)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = True
+            assert _nondeterministic_op_raises(), "test premise: op must refuse"
+
+            configure_torch(TorchConfig(allow_tf32=False))
+
+            assert _nondeterministic_op_raises(), (
+                "configure_torch downgraded the caller's determinism: the op "
+                "that must refuse to run now runs and returns a "
+                "nondeterministic result"
+            )
+            assert torch.are_deterministic_algorithms_enabled() is True
+            assert torch.is_deterministic_algorithms_warn_only_enabled() is False
+            assert torch.backends.cudnn.deterministic is True
+            assert torch.backends.cudnn.benchmark is True
+        finally:
+            self._restore(saved)
+
+    def test_an_explicit_request_is_still_applied_in_both_directions(self):
+        """None means "leave alone", not "never write": explicit still wins."""
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        saved = self._snapshot()
+        try:
+            torch.use_deterministic_algorithms(False, warn_only=True)
+            torch.backends.cudnn.benchmark = False
+
+            configure_torch(TorchConfig(deterministic=True, cudnn_benchmark=True))
+            assert torch.are_deterministic_algorithms_enabled() is True
+            assert torch.backends.cudnn.deterministic is True
+            assert torch.backends.cudnn.benchmark is True
+
+            configure_torch(TorchConfig(deterministic=False, cudnn_benchmark=False))
+            assert torch.are_deterministic_algorithms_enabled() is False
+            assert torch.backends.cudnn.deterministic is False
+            assert torch.backends.cudnn.benchmark is False
+        finally:
+            self._restore(saved)
+
+    def test_deterministic_warn_only_false_is_honored(self):
+        """A caller asking to be raised at must not be downgraded to a warning."""
+        from Auto3D.torch_config import TorchConfig, configure_torch
+
+        saved = self._snapshot()
+        try:
+            configure_torch(
+                TorchConfig(deterministic=True, deterministic_warn_only=False)
+            )
+            assert torch.is_deterministic_algorithms_warn_only_enabled() is False
+            assert _nondeterministic_op_raises(), (
+                "deterministic_warn_only=False was requested, but the op only "
+                "warned instead of raising"
+            )
+        finally:
+            self._restore(saved)
 
 
 class TestAuto3DOptionsAllowTf32:

@@ -11,6 +11,7 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.utils import check_connectivity
+from Auto3D.utils.convergence import converged_or_unfiltered
 from Auto3D.utils.energy import e_tot_ev, try_e_tot_ev
 from Auto3D.utils.stereo_check import stereo_preserved
 
@@ -32,8 +33,11 @@ def filter_unique_optimized(
     much smaller than n for molecules with diverse energies.
 
     Args:
-        mols: List of RDKit Mol objects with 'E_tot' (Hartree) and 'Converged'
-            properties. Records marked 'Stereo_changed' are excluded.
+        mols: List of RDKit Mol objects with 'E_tot' (Hartree) and, optionally,
+            'Converged' properties. A record whose 'Converged' property is
+            explicitly false is dropped; a record without the property is kept
+            (it is not filtered on convergence). Records marked
+            'Stereo_changed' are excluded.
         rmsd_threshold: RMSD threshold for considering structures similar (Angstrom).
         energy_cluster_window: Energy window for clustering (eV). Unchanged:
             the stored Hartree energies are converted to eV on read
@@ -43,16 +47,19 @@ def filter_unique_optimized(
     Returns:
         List of unique molecules, sorted by energy (lowest first).
     """
-    # Filter converged structures with valid connectivity
+    # Filter converged structures with valid connectivity. A record with no
+    # 'Converged' property is not filtered on convergence (see
+    # Auto3D.utils.convergence): treating its absence as failure deleted every
+    # record of any SDF batchopt did not write.
     valid_mols = []
     for mol in mols:
         if mol is None:
             continue
-        try:
-            converged = mol.GetProp('Converged').lower() == 'true'
-        except KeyError:
-            converged = False
-        if converged and stereo_preserved(mol) and check_connectivity(mol):
+        if (
+            converged_or_unfiltered(mol)
+            and stereo_preserved(mol)
+            and check_connectivity(mol)
+        ):
             valid_mols.append(mol)
 
     if not valid_mols:
