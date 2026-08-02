@@ -12,10 +12,9 @@ clean message and a differentiated exit code instead of a traceback.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from Auto3D.cli.console import console, print_success
+from Auto3D.cli.console import emit_json, print_success
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError, DependencyError
 from Auto3D.models.preflight import resolve_engine_name
@@ -41,9 +40,16 @@ def engine_autocomplete(incomplete: str) -> list[str]:
 
 
 def _report(output_path: str, command: str, json_output: bool) -> None:
-    """Report the produced output file (JSON or human-readable)."""
+    """Report the produced output file (JSON or human-readable).
+
+    ``success`` is present so that every ``--json`` document this CLI emits --
+    from ``run``, from these four commands, from ``validate``, and from
+    ``handle_error``'s failure document -- answers the same ``jq -e .success``
+    question. Without it a caller had to know which command it invoked before
+    it could tell a success document from a failure one.
+    """
     if json_output:
-        console.print_json(json.dumps({"command": command, "output_file": output_path}))
+        emit_json({"success": True, "command": command, "output_file": output_path})
     else:
         print_success(f"Wrote {output_path}")
 
@@ -80,7 +86,7 @@ def execute_energy(
         )
         _report(out, "energy", json_output)
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)
 
 
 def execute_optimize(
@@ -108,7 +114,7 @@ def execute_optimize(
         )
         _report(out, "optimize", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)
 
 
 def execute_thermo(
@@ -147,7 +153,7 @@ def execute_thermo(
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)
 
 
 def execute_tautomers(
@@ -213,4 +219,4 @@ def execute_tautomers(
             out = str(output)
         _report(out, "tautomers", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)

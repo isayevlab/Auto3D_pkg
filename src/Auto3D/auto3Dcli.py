@@ -35,7 +35,14 @@ def cli() -> None:
     """
     # Legacy mode: single YAML file argument
     if len(sys.argv) == 2 and _is_yaml_file(sys.argv[1]):
-        _run_legacy_yaml(sys.argv[1])
+        # Same stdout reservation the modern commands get from
+        # Auto3D.cli.app._ReservedStdoutCommand: this is a whole command body,
+        # and it reaches the same engine-name resolution (and therefore the
+        # same aimnet -> warp stdout banner) via build_cli_config below.
+        from Auto3D.cli.console import reserve_stdout
+
+        with reserve_stdout():
+            _run_legacy_yaml(sys.argv[1])
         return
 
     # Modern Typer CLI

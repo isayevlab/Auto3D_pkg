@@ -102,7 +102,7 @@ Run conformer generation on input molecules.
      - Suppress non-error output
    * - ``--json``
      - False
-     - Output results as JSON
+     - Output results as JSON on stdout (nothing else is written there)
 
 **Examples:**
 
@@ -138,7 +138,7 @@ Validate input SMILES/SDF file without running optimization.
 
 .. code:: console
 
-   auto3d validate INPUT_FILE
+   auto3d validate INPUT_FILE [--json]
 
 **Arguments:**
 
@@ -150,6 +150,8 @@ Validate input SMILES/SDF file without running optimization.
      - Description
    * - ``INPUT_FILE``
      - Path to input file to validate (required)
+   * - ``--json``
+     - Emit the result as a JSON document instead of a table
 
 **Examples:**
 
@@ -161,10 +163,18 @@ Validate input SMILES/SDF file without running optimization.
    # Validate an SDF file
    auto3d validate conformers.sdf
 
+   # Machine-readable result (exit 0 clean, 1 with findings)
+   auto3d validate molecules.smi --json
+
 This command checks:
 
 - File format is ``.smi`` or ``.sdf``
 - Each SMILES/SDF record parses successfully with RDKit
+
+The ``--json`` document reports ``success``, ``format``, ``molecules``,
+``valid_molecules`` and an ``errors`` list of ``{line, content, error}``. The
+table shown to a human lists the first ten problems; the JSON lists all of
+them.
 
 Property commands
 ~~~~~~~~~~~~~~~~~
@@ -173,7 +183,11 @@ These wrap the corresponding Python API functions so single-point energy,
 geometry optimization, thermochemistry, and tautomer ranking are first-class CLI
 operations (not Python-only). Each takes an input file (validated for existence),
 shares ``--engine``, ``--gpu/--no-gpu``, ``--gpu-idx``, ``-o/--output``,
-``-f/--force``, and ``--json``, writes an SDF, and prints its path.
+``-f/--force``, and ``--json``, writes an SDF, and prints its path. The
+``--json`` document is ``{"success": true, "command": ..., "output_file":
+...}``; on failure every ``--json`` command instead emits ``{"success":
+false, "error", "error_type", "hint", "exit_code"}`` on stdout, with the
+human-readable panel still on stderr.
 
 All four refuse to write over a file that already exists and exit 2, telling
 you to pass ``-f/--force``. For ``energy``, ``optimize`` and ``thermo`` the
@@ -543,3 +557,9 @@ Pipeline Integration
 
    # JSON output for downstream processing
    auto3d run input.smi --k=1 --json > results.json
+
+   # ... or straight into a parser: stdout carries the document and nothing
+   # else, on success and on failure. Third-party libraries that print to
+   # stdout (the aimnet/warp device banner, for instance) are routed to
+   # stderr, and diagnostics stay there too.
+   auto3d run input.smi --k=1 --json | jq -e .success

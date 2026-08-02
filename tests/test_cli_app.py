@@ -145,6 +145,108 @@ def tmp_path_cwd(tmp_path, monkeypatch):
     return tmp_path
 
 
+# --------------------------------------------------------------------------
+# Out-of-process harness for the stdout contract.
+#
+# `--json` promises a stdout stream carrying nothing but the document, and
+# what broke that promise was a third-party import-time `print`. Asserting it
+# in-process cannot work: `CliRunner` swaps `sys.stdout` for a buffer, and any
+# earlier test in the same interpreter that already imported `aimnet` makes
+# the offending banner disappear -- an order-dependent guard that passes for
+# the wrong reason. So the tests below drive a real process and read its real
+# stdout and stderr.
+#
+# The pipeline itself is stubbed out (`Auto3D.auto3D` is replaced in
+# `sys.modules` before the CLI imports it): a real run would download and load
+# a neural network potential, which these tests have no business doing. The
+# stub prints FOREIGN_STDOUT_MARKER, standing in for the writes a real run's
+# libraries make to stdout after the command has started -- notably the same
+# warp banner, re-printed by every *spawned* optimizer worker.
+# --------------------------------------------------------------------------
+
+FOREIGN_STDOUT_MARKER = "FOREIGN-STDOUT-WRITE"
+
+_STUBBED_RUN_BOOTSTRAP = '''\
+"""Invoke the `auto3d` console-script entry point with the pipeline stubbed.
+
+argv: <output.sdf> <marker> <auto3d args...>
+"""
+import sys
+import types
+
+out_sdf, marker, cli_args = sys.argv[1], sys.argv[2], sys.argv[3:]
+
+from Auto3D.results import WorkflowResult
+
+
+def fake_main(options, **kwargs):
+    print(marker)
+    return WorkflowResult(out_sdf)
+
+
+stub = types.ModuleType("Auto3D.auto3D")
+stub.main = fake_main
+sys.modules["Auto3D.auto3D"] = stub
+
+sys.argv = ["auto3d", *cli_args]
+from Auto3D.auto3Dcli import cli
+
+cli()
+'''
+
+
+def _warp_is_installed() -> bool:
+    """Whether the library whose banner motivated all of this is present."""
+    import importlib.util
+
+    return importlib.util.find_spec("warp") is not None
+
+
+def _write_single_conformer_sdf(path) -> None:
+    """Write a one-molecule SDF for the stubbed run to report on."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    mol.SetProp("_Name", "mol1")
+    with Chem.SDWriter(str(path)) as writer:
+        writer.write(mol)
+
+
+@pytest.fixture
+def auto3d_process(tmp_path):
+    """Return a callable running `auto3d <args>` in a fresh subprocess.
+
+    The input file is appended after the subcommand automatically, so a caller
+    writes ``auto3d_process("run", "--k", "1", "--json")``.
+    """
+    import subprocess
+    import sys
+
+    bootstrap = tmp_path / "stubbed_auto3d.py"
+    bootstrap.write_text(_STUBBED_RUN_BOOTSTRAP)
+    smi = tmp_path / "in.smi"
+    smi.write_text("CCO mol1\n")
+    out_sdf = tmp_path / "in_out.sdf"
+    _write_single_conformer_sdf(out_sdf)
+
+    def run(subcommand: str, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable, str(bootstrap), str(out_sdf),
+                FOREIGN_STDOUT_MARKER, subcommand, str(smi), *args,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(tmp_path),
+            timeout=300,
+            check=False,
+        )
+
+    return run
+
+
 def test_config_init_creates_file(runner, tmp_path_cwd):
     """config init should create YAML file."""
     from Auto3D.cli.app import app
@@ -259,28 +361,43 @@ def test_run_with_nonexistent_file(runner):
     assert result.exit_code != 0
 
 
-def test_json_output_is_pure_json(runner, tmp_path_cwd, monkeypatch):
-    """--json stdout must be parseable even when the k/window warning fires."""
+def test_json_output_is_pure_json(auto3d_process):
+    """`auto3d run --json` must write the JSON document and nothing else to stdout.
+
+    Run as a real subprocess, not through ``CliRunner``, because the bytes on
+    stdout *are* the contract and the write that broke it was not ours: the
+    engine-name check imports ``aimnet`` -> ``warp``, which prints a 734-byte
+    device banner to stdout at import time. The version of this test that this
+    one replaces asserted the same guarantee in-process and did not provide
+    it -- it failed when run alone and passed in the full suite only because
+    some earlier test had already paid for that import, so the banner was
+    spent by the time it ran. A broken `--json` therefore shipped green.
+
+    The assertion is on the exact bytes rather than "json.loads succeeded":
+    ``json.loads`` accepts trailing whitespace and would also accept a
+    document that some future change decided to colorize with ANSI on a
+    terminal, so re-serializing and comparing is what actually pins "the
+    document, the whole document, and nothing but the document".
+    """
     import json
 
-    from Auto3D.cli.app import app
+    result = auto3d_process("run", "--k", "1", "--json")
 
-    smi = tmp_path_cwd / "in.smi"
-    smi.write_text("CCO mol1\n")
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout)
+    assert result.stdout == json.dumps(document, indent=2) + "\n", (
+        "stdout carried something other than the JSON document:\n"
+        f"{result.stdout!r}"
+    )
+    assert document["success"] is True
+    assert document["molecules"] == 1
 
-    import Auto3D.auto3D as a3d
-    out = tmp_path_cwd / "in_out.sdf"
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-    with Chem.SDWriter(str(out)) as w:
-        m = Chem.AddHs(Chem.MolFromSmiles("CCO")); AllChem.EmbedMolecule(m, randomSeed=1)
-        m.SetProp("_Name", "mol1"); w.write(m)
-    from Auto3D.results import WorkflowResult
-    monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
-
-    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
-    assert result.exit_code == 0
-    json.loads(result.stdout)  # must not raise
+    # Contained, not silenced: both third-party writes are still readable,
+    # they are just on the stream diagnostics belong on. A fix that dropped
+    # them would also drop a library's genuine failure message.
+    assert FOREIGN_STDOUT_MARKER in result.stderr
+    if _warp_is_installed():
+        assert "Warp" in result.stderr
 
 
 def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
@@ -322,15 +439,13 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
     assert result.exit_code != 0, (
         f"exited 0 despite a reported failure; output:\n{result.output}"
     )
-    # Slice from the first '{': on this box, a one-time CUDA/device-library
-    # init banner (unrelated to Auto3D, triggered by whichever test first
-    # touches CUDA in the pytest process) can land on real stdout ahead of
-    # our JSON when this test runs in isolation. That banner contains no
-    # brace, so this only strips ambient noise -- it does not weaken the
-    # assertion that our own JSON is present, parseable, and written before
-    # SystemExit.
+    # No slicing from the first '{' any more: the CLI now reserves stdout for
+    # its own output for the whole command, so the third-party banner that
+    # used to need routing around lands on stderr instead. A workaround left
+    # next to the fix would tell the next reader the stream is still dirty.
     stdout = result.stdout
-    data = json.loads(stdout[stdout.index("{"):])  # must not raise
+    data = json.loads(stdout)  # must not raise
+    assert stdout == json.dumps(data, indent=2) + "\n"
     assert data["success"] is False
     assert data["failed"] == 1
     assert data["molecules"] == 1
@@ -358,6 +473,214 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
 
     result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
     assert result.exit_code == 0
+
+
+def test_quiet_suppresses_third_party_stdout(auto3d_process):
+    """`--quiet` must silence output Auto3D does not write, too.
+
+    Before this, `auto3d run in.smi --k 1 -q` printed the 14-line warp device
+    banner it had promised to suppress -- `quiet` only ever gated Auto3D's own
+    `console.print` calls, and the banner is not one of them.
+    """
+    result = auto3d_process("run", "--k", "1", "--quiet")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    # Not merely moved to the other stream -- that is what happens *without*
+    # `--quiet`, and it is what makes `stdout == ""` on its own a vacuous
+    # check. stderr is not asserted empty, though: `--quiet` suppresses
+    # chatter, not diagnostics, and a library reporting a real problem there
+    # is exactly what must keep working (with no CUDA device visible, warp
+    # writes "no CUDA-capable device is detected" to stderr on this path).
+    assert FOREIGN_STDOUT_MARKER not in result.stdout
+    assert FOREIGN_STDOUT_MARKER not in result.stderr
+
+
+def test_quiet_releases_held_third_party_output_when_the_run_fails(
+    runner, tmp_path_cwd, monkeypatch
+):
+    """A library's stdout write is held back by `--quiet`, not thrown away.
+
+    Suppressing a banner must not also swallow the one line that explained a
+    crash, so anything held is written to stderr if the command fails.
+
+    The assertion is on *ordering*, not on "the text reached stderr", because
+    those are not the same claim: simply forwarding third-party stdout to
+    stderr live -- which is what happens without `--quiet` -- also puts the
+    text on stderr and would satisfy the weaker check while providing none of
+    the behavior. Held output can only be released once the failure is known,
+    so it necessarily lands *after* the error panel; forwarded output
+    necessarily lands before it.
+    """
+    from Auto3D.cli.app import app
+    from Auto3D.exceptions import ModelLoadError
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    import Auto3D.auto3D as a3d
+
+    def exploding_main(options, **kwargs):
+        print("libfoo: could not reach the model server")
+        raise ModelLoadError("model could not be obtained")
+
+    monkeypatch.setattr(a3d, "main", exploding_main)
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--quiet"])
+
+    assert result.exit_code == 5
+    assert result.stdout == ""
+    released_at = result.stderr.index("libfoo: could not reach the model server")
+    panel_at = result.stderr.index("model could not be obtained")
+    assert released_at > panel_at, (
+        "the library's message was forwarded live rather than held and "
+        f"released on failure:\n{result.stderr}"
+    )
+
+
+def test_json_error_document_is_emitted_when_the_command_fails(
+    runner, tmp_path_cwd
+):
+    """`--json` must leave a parseable document on stdout on the failure path too.
+
+    A caller that parses stdout got an empty stream on every error, so it
+    could not tell "the command failed" from "the command produced nothing to
+    say". The Rich panel still goes to stderr -- this adds a stdout document,
+    it does not move the diagnostics.
+    """
+    import json
+
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    result = runner.invoke(
+        app, ["run", str(smi), "--k", "1", "--json", "--engine", "aimnet2-2025x"]
+    )
+
+    assert result.exit_code == 2
+    document = json.loads(result.stdout)
+    assert result.stdout == json.dumps(document, indent=2) + "\n"
+    assert document["success"] is False
+    assert document["error_type"] == "ConfigurationError"
+    assert document["exit_code"] == 2
+    assert "aimnet2-2025x" in document["error"]
+    # The human-readable panel is unchanged and still on stderr.
+    assert "Configuration Error" in result.stderr
+
+
+def test_validate_json_reports_a_clean_file(runner, tmp_path_cwd):
+    """`auto3d validate --json`: every sibling command had --json, this one did not."""
+    import json
+
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("CCO mol1\nCCC mol2\n")
+
+    result = runner.invoke(app, ["validate", str(smi), "--json"])
+
+    assert result.exit_code == 0
+    document = json.loads(result.stdout)
+    assert result.stdout == json.dumps(document, indent=2) + "\n"
+    assert document == {
+        "success": True,
+        "command": "validate",
+        "input_file": str(smi),
+        "format": "SMI",
+        "molecules": 2,
+        "valid_molecules": 2,
+        "errors": [],
+    }
+
+
+def test_validate_json_reports_every_bad_entry_and_exits_nonzero(
+    runner, tmp_path_cwd
+):
+    """The JSON document lists all failures, not the ten the human table shows."""
+    import json
+
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "in.smi"
+    smi.write_text("".join(f"not_a_smiles_{i} mol{i}\n" for i in range(12)))
+
+    result = runner.invoke(app, ["validate", str(smi), "--json"])
+
+    assert result.exit_code == 1
+    document = json.loads(result.stdout)
+    assert document["success"] is False
+    assert document["molecules"] == 12
+    assert document["valid_molecules"] == 0
+    assert len(document["errors"]) == 12
+
+
+def test_json_document_is_not_colorized_on_a_terminal(tmp_path):
+    """Rich highlights JSON with ANSI whenever stdout is a tty.
+
+    That made `auto3d ... --json` in an interactive shell emit
+    ``ESC[1;34m"success"ESC[0m``: fine to look at, unparseable the moment it
+    is copied or captured. A pty is the only way to see it -- under pytest,
+    and under any pipe, Rich renders plain and the bug is invisible, which is
+    how it survived.
+    """
+    import json
+    import os
+    import pty
+    import subprocess
+    import sys
+
+    smi = tmp_path / "in.smi"
+    smi.write_text("CCO mol1\n")
+
+    master, slave = pty.openpty()
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys; sys.argv = ['auto3d', *sys.argv[1:]];"
+         " from Auto3D.auto3Dcli import cli; cli()",
+         "validate", str(smi), "--json"],
+        stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.DEVNULL,
+    )
+    os.close(slave)
+    chunks = []
+    try:
+        while True:
+            try:
+                data = os.read(master, 4096)
+            except OSError:  # EIO: the child closed its end of the pty
+                break
+            if not data:
+                break
+            chunks.append(data)
+    finally:
+        os.close(master)
+    assert process.wait(timeout=300) == 0
+
+    on_terminal = b"".join(chunks)
+    assert b"\x1b" not in on_terminal, (
+        f"ANSI escapes in a --json document: {on_terminal!r}"
+    )
+    # A pty turns "\n" into "\r\n"; the document itself must still parse.
+    assert json.loads(on_terminal.decode().replace("\r\n", "\n"))["success"] is True
+
+
+def test_help_goes_to_stdout_and_carries_no_import_banner(auto3d_process):
+    """Two things at once, and both matter.
+
+    Help is legitimate stdout output, so the stdout reservation must not
+    capture it -- an earlier attempt installed the reservation in the group
+    callback and sent every subcommand's `--help` to stderr. And because the
+    reservation only covers a command's *body*, everything imported before
+    that (`Auto3D.cli.app` and its module-level imports) has to stay silent on
+    stdout on its own; a banner printed at import time would land here, ahead
+    of the usage text.
+    """
+    result = auto3d_process("run", "--help")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.lstrip().startswith("Usage: auto3d run"), result.stdout
+    assert "Warp" not in result.stdout
 
 
 def test_run_cli_k_override_substitutes_file_window(runner, tmp_path_cwd, monkeypatch):

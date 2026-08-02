@@ -478,7 +478,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `__constants__` for TorchScript). The failure is now a clear
   `ModelLoadError` at load rather than a wrong padding value applied silently.
 
+### Added
+
+- **`auto3d validate` accepts `--json`**, the one result-producing command
+  that did not have it while `run`, `energy`, `optimize`, `thermo` and
+  `tautomers` all did. The document reports `success`, `format`, `molecules`,
+  `valid_molecules` and an `errors` list of `{line, content, error}`. Unlike
+  the human table, which shows the first ten problems, the JSON lists every
+  one; exit code is unchanged (0 clean, 1 with findings).
+
+- **Every `--json` document now carries a boolean `success`**, including the
+  ones from `energy`/`optimize`/`thermo`/`tautomers`, which previously emitted
+  only `{"command": ..., "output_file": ...}`. `jq -e .success` now answers
+  the same question for every command.
+
+- **`--json` emits a document on the failure path too.** A command that fails
+  used to leave stdout completely empty, so a caller parsing stdout could not
+  distinguish "failed" from "nothing to report". Failures now write
+  `{"success": false, "error", "error_type", "hint", "exit_code"}` to stdout.
+  The Rich error panel is unchanged and still goes to stderr.
+
 ### Fixed
+
+- **`auto3d ... --json` writes the JSON document and nothing else to stdout.**
+  Resolving the engine name imports `aimnet`, which pulls in `warp`, which
+  prints a 734-byte device banner to **stdout** at import time -- before any
+  output decision is made -- so `auto3d run mols.smi --k 1 --json | jq .`
+  could never parse. There was no Auto3D `print` to guard: the write was not
+  ours. The CLI now reserves stdout for its own output for the duration of a
+  command and routes every other write to stderr (`Auto3D.cli.console`), in
+  the parent process and in each spawned optimizer worker, which re-prints the
+  same banner from its own interpreter. Help text and usage errors are
+  deliberately outside the reservation and still go to stdout. Nothing is
+  discarded -- a library's genuine failure message still reaches the user, on
+  stderr where diagnostics belong.
+
+- **`--quiet` is quiet, including output Auto3D does not write.** It gated
+  only Auto3D's own `console.print` calls, so `auto3d run mols.smi --k 1 -q`
+  still printed 14 lines of third-party banner. Third-party stdout is now held
+  back for the run and released to stderr only if the run fails, so quieting a
+  banner cannot also swallow the message that explained a crash.
+
+- **`--json` output is no longer colorized.** It was rendered with
+  `Console.print_json`, and Rich emits ANSI escapes whenever stdout is a
+  terminal, so a user running `auto3d ... --json` interactively and copying
+  the result got `ESC[1;34m"success"ESC[0m`. JSON documents are now serialized
+  directly, with no styling and no width-dependent wrapping.
 
 - **CLI error panels no longer suggest `auto3d config init` for errors that
   have nothing to do with a config file.** `get_error_hint` picked its hint

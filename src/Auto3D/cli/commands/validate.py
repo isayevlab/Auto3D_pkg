@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 
 from rich.panel import Panel
 from rich.table import Table
 
-from Auto3D.cli.console import console, print_error
+from Auto3D.cli.console import console, emit_json, print_error
 
 
 @dataclass
@@ -93,21 +94,85 @@ def validate_sdf_file(file_path: Path) -> ValidationResult:
     )
 
 
-def execute_validate(input_file: Path) -> None:
-    """Validate an input file."""
+def _validate_json_document(input_file: Path, result: ValidationResult) -> dict:
+    """Build the ``--json`` document for a completed validation.
+
+    Same shape as every other ``--json`` document (``success`` first, see
+    ``cli/commands/properties.py::_report``). Unlike the human table, the
+    error list is *not* truncated to the first ten: a person reading a
+    terminal wants a summary, a program parsing stdout wants the whole
+    finding, and silently emitting a prefix of it would make `auto3d validate
+    --json` disagree with itself about how many entries are broken.
+    """
+    return {
+        "success": result.valid,
+        "command": "validate",
+        "input_file": str(input_file),
+        "format": result.file_format,
+        "molecules": result.total_count,
+        "valid_molecules": result.valid_count,
+        "errors": [
+            {"line": line_num, "content": content, "error": msg}
+            for line_num, content, msg in result.errors
+        ],
+    }
+
+
+def execute_validate(input_file: Path, json_output: bool = False) -> None:
+    """Validate an input file.
+
+    Args:
+        input_file: Path to the .smi/.sdf file to check.
+        json_output: Emit the result as a JSON document on stdout instead of
+            a Rich panel. Every other command that produces a result already
+            had ``--json``; this one did not, so it was the single hole in
+            ``auto3d validate x.smi --json && auto3d run ...`` pipelines.
+    """
     suffix = input_file.suffix.lower()
 
-    with console.status("[bold]Validating input file..."):
+    # The status spinner is a Live render on the document stream, so it must
+    # not run while stdout is reserved for a JSON document.
+    spinner = (
+        contextlib.nullcontext()
+        if json_output
+        else console.status("[bold]Validating input file...")
+    )
+    with spinner:
         if suffix == ".smi":
             result = validate_smiles_file(input_file)
         elif suffix == ".sdf":
             result = validate_sdf_file(input_file)
         else:
+            # The panel still goes to stderr, where diagnostics belong, but a
+            # --json caller must get a parseable document on stdout on this
+            # path too rather than an empty stream.
+            if json_output:
+                emit_json({
+                    "success": False,
+                    "command": "validate",
+                    "input_file": str(input_file),
+                    "format": suffix.lstrip(".").upper(),
+                    "molecules": 0,
+                    "valid_molecules": 0,
+                    "errors": [
+                        {
+                            "line": 0,
+                            "content": str(input_file),
+                            "error": f"Unsupported file format: {suffix}",
+                        }
+                    ],
+                })
             print_error(
                 f"Unsupported file format: {suffix}",
                 hint="Supported formats: .smi, .sdf",
             )
             raise SystemExit(1)
+
+    if json_output:
+        emit_json(_validate_json_document(input_file, result))
+        if not result.valid:
+            raise SystemExit(1)
+        return
 
     if result.valid:
         console.print(Panel(

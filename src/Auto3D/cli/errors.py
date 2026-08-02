@@ -6,7 +6,7 @@ from __future__ import annotations
 from rich.panel import Panel
 from rich.traceback import Traceback
 
-from Auto3D.cli.console import error_console
+from Auto3D.cli.console import emit_json, error_console
 from Auto3D.exceptions import (
     Auto3DError,
     ConfigurationError,
@@ -80,7 +80,7 @@ def get_error_hint(error: Auto3DError) -> str | None:
     return None
 
 
-def handle_error(error: Exception, verbose: int = 0) -> None:
+def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) -> None:
     """Handle an error with Rich formatting.
 
     Args:
@@ -91,7 +91,24 @@ def handle_error(error: Exception, verbose: int = 0) -> None:
             value above 0 additionally prints a full traceback to stderr, so
             an internal failure (a bare ``KeyError('ID')`` from a missing SDF
             property, say) is debuggable without editing source (M30).
+        json_output: The command was invoked with ``--json``. The human panel
+            below still goes to stderr -- diagnostics belong there and a
+            terminal user must not lose them -- but stdout additionally gets a
+            machine-readable failure document, so a caller that parses stdout
+            gets a parseable answer on the failure path too instead of an
+            empty stream. Emitted *before* ``SystemExit`` is raised, for the
+            same reason ``execute_run`` emits its results document before
+            ``_exit_if_incomplete``.
     """
+    if json_output:
+        emit_json({
+            "success": False,
+            "error": str(error),
+            "error_type": type(error).__name__,
+            "hint": get_error_hint(error) if isinstance(error, Auto3DError) else None,
+            "exit_code": exit_code_for(error),
+        })
+
     if isinstance(error, Auto3DError):
         error_type = type(error).__name__.replace("Error", " Error")
         hint = get_error_hint(error)

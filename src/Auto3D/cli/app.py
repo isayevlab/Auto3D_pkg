@@ -5,13 +5,52 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
+from typer.core import TyperCommand
 
 import Auto3D
 from Auto3D.cli.commands.properties import engine_autocomplete
-from Auto3D.cli.console import console
+from Auto3D.cli.console import console, reserve_stdout
+
+if TYPE_CHECKING:
+    import click
+
+
+class _ReservedStdoutCommand(TyperCommand):
+    """A command whose *body* runs with stdout reserved for Auto3D's output.
+
+    Third-party writes to stdout have to be contained for `--json` to mean
+    anything (see ``Auto3D.cli.console`` for the defect this closes), and the
+    containment has to start before the command does any work -- resolving the
+    engine name imports ``aimnet`` -> ``warp``, which prints a device banner to
+    stdout.
+
+    ``Command.invoke`` is the right seam, and the reason is a regression this
+    replaced: installing the same reservation in the group callback (or around
+    ``app()`` itself) also swallowed ``auto3d run --help``. Click handles the
+    eager ``--help`` option while *parsing* a command's parameters, which
+    happens before ``invoke``, so help and usage errors -- which are legitimate
+    stdout output and never import anything -- stay outside the reservation
+    while everything the command actually does stays inside it.
+
+    Attached to every command through ``_Auto3DTyper`` below rather than named
+    at each ``@app.command()``, so a command added later cannot quietly miss
+    it.
+    """
+
+    def invoke(self, ctx: click.Context) -> Any:
+        with reserve_stdout():
+            return super().invoke(ctx)
+
+
+class _Auto3DTyper(typer.Typer):
+    """A Typer app whose commands default to :class:`_ReservedStdoutCommand`."""
+
+    def command(self, *args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("cls", _ReservedStdoutCommand)
+        return super().command(*args, **kwargs)
 
 
 class Preset(StrEnum):
@@ -42,7 +81,7 @@ VerboseOption = Annotated[
 ]
 
 # Create main app
-app = typer.Typer(
+app = _Auto3DTyper(
     name="auto3d",
     help="Generate low-energy 3D molecular conformers from SMILES/SDF files.",
     no_args_is_help=True,
@@ -50,12 +89,12 @@ app = typer.Typer(
 )
 
 # Create subcommand groups
-config_app = typer.Typer(
+config_app = _Auto3DTyper(
     name="config",
     help="Configuration file management.",
     no_args_is_help=True,
 )
-models_app = typer.Typer(
+models_app = _Auto3DTyper(
     name="models",
     help="Neural network model information.",
     no_args_is_help=True,
@@ -262,15 +301,6 @@ def models_test(
     execute_models_test(engine=engine, gpu=gpu, gpu_idx=gpu_idx, verbose=verbose)
 
 
-@app.command()
-def validate(
-    input_file: InputFile,
-) -> None:
-    """Validate input SMILES/SDF file without running optimization."""
-    from Auto3D.cli.commands.validate import execute_validate
-    execute_validate(input_file=input_file)
-
-
 # Shared option annotations for the property commands ------------------------
 
 EngineOption = Annotated[
@@ -298,6 +328,16 @@ ForceFlag = Annotated[
     bool,
     typer.Option("-f", "--force", help="Overwrite an existing output file."),
 ]
+
+
+@app.command()
+def validate(
+    input_file: InputFile,
+    json_output: JsonFlag = False,
+) -> None:
+    """Validate input SMILES/SDF file without running optimization."""
+    from Auto3D.cli.commands.validate import execute_validate
+    execute_validate(input_file=input_file, json_output=json_output)
 
 
 @app.command()
