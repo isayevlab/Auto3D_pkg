@@ -20,8 +20,17 @@ from Auto3D.cli.progress import OptimizationDisplay
 
 
 def _render(panel) -> str:
-    """Render a Rich renderable to plain text (no ANSI: the file is not a tty)."""
-    console = Console(file=io.StringIO(), width=100)
+    """Render a Rich renderable to plain text, with styling forced off.
+
+    ``color_system=None`` is load-bearing, not decoration. Writing to a
+    non-tty ``StringIO`` does NOT by itself guarantee plain text: Rich also
+    honors ``FORCE_COLOR``, which GitHub Actions sets, so under CI this
+    helper emitted escapes and every ``assert "Converged 3" in rendered``
+    below failed while passing locally. An earlier version of this docstring
+    claimed "no ANSI: the file is not a tty", which was the guarantee it did
+    not provide.
+    """
+    console = Console(file=io.StringIO(), width=100, color_system=None)
     console.print(panel)
     return console.file.getvalue()
 
