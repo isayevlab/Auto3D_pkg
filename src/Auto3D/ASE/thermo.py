@@ -311,8 +311,31 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     return multiplicity
 
 
+def _devices_agree(a: torch.device, b: torch.device) -> bool:
+    """True when two devices name the same hardware.
+
+    ``torch.device("cuda")`` and ``torch.device("cuda:0")`` are different
+    objects but the same device, so an unindexed device compares equal to any
+    index of the same type. Used only to decide whether a mismatch is worth a
+    warning.
+    """
+    if a.type != b.type:
+        return False
+    if a.index is None or b.index is None:
+        return True
+    return a.index == b.index
+
+
 class Calculator(ase.calculators.calculator.Calculator):
     """ASE calculator interface for AIMNET and ANI2xt.
+
+    ``device`` and ``dtype`` are the caller's, not this class's to guess.
+    ``calc_thermo`` resolves the device once, through
+    ``check_gpu_requested`` + ``get_device(gpu_idx, use_gpu=...)`` -- Auto3D's
+    single GPU policy -- and threads the result here, so every tensor in a
+    ``calc_thermo`` call lives on the one device the user asked for. Omitting
+    both arguments reads them off the model's own parameters, and falls back
+    to CPU/float32 for a model that has none.
 
     The molecular charge is part of the calculator's own ASE state
     (``self.parameters['charge']``), not a bare attribute the caller mutates.
@@ -342,7 +365,7 @@ class Calculator(ase.calculators.calculator.Calculator):
     #: before the first assignment in ``__init__``.
     default_parameters = {'charge': 0}
 
-    def __init__(self, model, charge=0, *, model_name):
+    def __init__(self, model, charge=0, *, model_name, device=None, dtype=None):
         super().__init__()
         self.model = model
         # Engine name in Auto3D's own convention (e.g. 'ANI2xt'), used by
@@ -352,15 +375,40 @@ class Calculator(ase.calculators.calculator.Calculator):
         params = list(self.model.parameters())
         for p in params:
             p.requires_grad_(False)
-        if params:
-            self.device = params[0].device
-            self.dtype = params[0].dtype
+        param_device = params[0].device if params else None
+        param_dtype = params[0].dtype if params else None
+        if device is not None:
+            self.device = torch.device(device)
+            if param_device is not None and not _devices_agree(param_device, self.device):
+                logger.warning(
+                    "Calculator was asked for device %s but the model's "
+                    "parameters are on %s; the ASE-facing tensors follow the "
+                    "requested device.", self.device, param_device,
+                )
+        elif param_device is not None:
+            self.device = param_device
         else:
             # Param-less custom model (e.g. one that builds its NNP backend
-            # lazily): it handles device/dtype internally from the input tensors,
-            # so fall back to a sensible default for the ASE-facing tensors.
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.dtype = torch.double
+            # lazily) and no device from the caller. CPU is the only answer
+            # that cannot violate Auto3D's GPU policy: this branch used to read
+            # torch.cuda.is_available() and seize cuda:0 even when the caller
+            # had asked for use_gpu=False, which check_gpu_requested/get_device
+            # had already resolved to CPU. That made one calc_thermo call run
+            # on two devices -- BFGS and the ASE energy on cuda:0, the fmax
+            # pre-check and the Hessian on cpu -- and ignored gpu_idx entirely
+            # (always device 0). Nothing was logged, so nobody could find out.
+            self.device = torch.device("cpu")
+        if dtype is not None:
+            self.dtype = dtype
+        elif param_dtype is not None:
+            self.dtype = param_dtype
+        else:
+            # float32, not float64: mol2aimnet_input, the charge tensor below,
+            # and every model adapter Auto3D ships are float32. Defaulting a
+            # param-less model to torch.double relaxed the geometry at one
+            # precision and built the Hessian on it at another, inside a single
+            # calc_thermo call.
+            self.dtype = torch.float32
         # Goes through the `charge` setter below, so `self.parameters['charge']`
         # and the tensor `calculate()` reads are populated from one place.
         self.charge = charge
@@ -451,7 +499,12 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     Args:
         model_name: Model name ('AIMNET', 'ANI2x', 'ANI2xt') or path to custom model.
-        device: Target device for the model.
+        device: Target device for the model. Threaded into the calculator as
+            well, so the ASE-facing tensors land on the same device as the
+            rest of the call rather than on whatever the calculator would
+            infer. A custom NNP with no parameters has no device to infer
+            from, and inferring one is how ``use_gpu=False`` used to end up
+            running on cuda:0.
         charge: Molecular charge for the calculator.
 
     Returns:
@@ -461,7 +514,7 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     # Wrap in EnForce_ANI for compatibility with existing code
     model = EnForce_ANI(model_adapter)
-    calculator = Calculator(model, charge, model_name=model_name)
+    calculator = Calculator(model, charge, model_name=model_name, device=device)
 
     return model_adapter, calculator
 

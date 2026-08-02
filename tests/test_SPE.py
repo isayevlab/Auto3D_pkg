@@ -88,7 +88,12 @@ class userNNP2(torch.nn.Module):
         self._calc_device = None
 
         self.coord_pad = 0  # int, the padding value for coordinates
-        self.species_pad = 0  # int, the padding value for species.
+        # -1, NOT 0: atomic number 0 is a real element here (an R-group '*'
+        # atom), and the mask in forward() below is `species !=
+        # self.species_pad`, so a species_pad of 0 silently deletes every
+        # dummy atom from the batch -- a different molecule than the one
+        # submitted. Matches docs/source/howto/custom_nnp.rst.
+        self.species_pad = -1  # int, the padding value for species.
 
     def forward(self,
                 species: torch.Tensor,
@@ -115,7 +120,8 @@ class userNNP2(torch.nn.Module):
             self._calc = AIMNet2Calculator("aimnet2", device=str(species.device))
             self._calc_device = species.device
         # Auto3D feeds padded (B, N) batches; use ragged mol_idx batching to drop
-        # padded atoms (AIMNet2 yields NaN on species-0 padding otherwise).
+        # padded atoms (AIMNet2 has no element for a padding slot and yields
+        # NaN if one reaches it).
         b, n = species.shape
         mask = species != self.species_pad
         coord_flat = coords[mask]

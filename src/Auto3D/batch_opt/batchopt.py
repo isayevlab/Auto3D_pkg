@@ -40,6 +40,7 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
 from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.model_factory import create_model
+from Auto3D.utils.convergence import set_converged
 from Auto3D.utils.energy import set_e_tot_from_ev
 from Auto3D.utils.stereo_check import apply_optimized_coords
 
@@ -342,7 +343,10 @@ class optimizing:
                 # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
                 # an energy, and no consumer converts it.
                 mol.SetProp('fmax', str(fmaxs[i]))
-                mol.SetProp('Converged', str(convergence_i))
+                # Routed through the single owner of this property so the
+                # writer and the three filters that read it cannot drift
+                # (Auto3D.utils.convergence).
+                set_converged(mol, convergence_i)
                 # Mark structures dropped due to oscillation for diagnostics
                 is_oscillating = converged_i and osc_count_i >= patience
                 mol.SetProp('Dropped_Oscillating', str(is_oscillating))

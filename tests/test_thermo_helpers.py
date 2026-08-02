@@ -1112,10 +1112,12 @@ class TestCalculatorChargeInvalidatesCache:
     def _calculator(charge=0):
         """A ``Calculator`` over a stub whose energy/forces depend on charge.
 
-        The stub owns one real ``nn.Parameter`` on the CPU purely so
-        ``Calculator.__init__`` reads device/dtype from it: the param-less
-        branch falls back to ``cuda`` whenever a GPU happens to be visible,
-        which would make this test machine-dependent. No NNP is loaded.
+        The stub owns one real ``nn.Parameter`` on the CPU so
+        ``Calculator.__init__`` reads device/dtype from it, pinning this test
+        to CPU/float32 regardless of what is visible. (The param-less branch
+        is CPU now too -- see
+        ``TestCalculatorDeviceAndDtypeFollowTheCaller`` -- but reading a real
+        parameter is what this class is about.) No NNP is loaded.
         """
         import torch
         from torch import nn
@@ -1207,3 +1209,190 @@ class TestCalculatorChargeInvalidatesCache:
         calc.set_charge(0)
         atoms.get_potential_energy()
         assert model.calls == 1
+
+
+class TestCalculatorDeviceAndDtypeFollowTheCaller:
+    """A ``calc_thermo`` call must run on the one device the user asked for.
+
+    For a **param-less** custom NNP (one that builds its backend lazily, so
+    ``Calculator.__init__`` has no ``nn.Parameter`` to read a device off),
+    the calculator used to choose
+    ``torch.device("cuda" if torch.cuda.is_available() else "cpu")`` and
+    ``torch.double`` on its own. ``use_gpu`` and ``gpu_idx`` never reached it,
+    so ``calc_thermo(..., use_gpu=False)`` relaxed the geometry on **cuda:0 in
+    float64** while the fmax pre-check and the Hessian ran on **cpu in
+    float32** -- one call, two devices, two precisions, nothing logged, and
+    ``gpu_idx`` ignored entirely (always device 0).
+
+    These tests assert the device and dtype of the tensors the model actually
+    receives, not that a branch was taken, and they fake CUDA availability so
+    they mean the same thing on a CI runner with no GPU as on an 8-GPU box.
+    """
+
+    @staticmethod
+    def _paramless_model():
+        """A custom NNP holding no ``nn.Parameter`` -- the H1 input shape.
+
+        Records the device and dtype of every tensor it is handed, which is
+        the only thing that decides whether the run stayed where it was told.
+        """
+        import torch
+        from torch import nn
+
+        class _ParamlessRecordingNNP(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.seen: list[dict] = []
+
+            def forward(self, coords, species, charges, atom_mask=None):
+                self.seen.append({
+                    "device": coords.device,
+                    "dtype": coords.dtype,
+                    "species_device": species.device,
+                    "charge_device": charges.device,
+                })
+                energy = torch.zeros(coords.shape[0], dtype=coords.dtype)
+                # A toy restoring force: non-zero (so the fmax pre-check fails
+                # and the ASE calculator -- the cuda-seizing half of the split
+                # -- is actually exercised) and geometry-dependent (so BFGS's
+                # curvature update does not divide by zero). Detached because
+                # ASE converts forces with .numpy().
+                forces = (-0.5 * coords).detach()
+                return energy, forces
+
+        assert not list(_ParamlessRecordingNNP().parameters()), (
+            "test premise: the model must hold no nn.Parameter"
+        )
+        return _ParamlessRecordingNNP()
+
+    @staticmethod
+    def _pretend_cuda_is_available(monkeypatch, count: int = 8):
+        """Make the CUDA-availability probe say yes without touching a GPU.
+
+        Both ``is_available`` and ``device_count`` are patched: CI runners have
+        no CUDA device at all, and a test that only passes on the 8-GPU
+        development box would not defend anything.
+        """
+        import torch
+
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(torch.cuda, "device_count", lambda: count)
+
+    @staticmethod
+    def _atoms():
+        from ase import Atoms
+
+        return Atoms("H2", [(0.0, 0.0, 0.0), (0.0, 0.0, 0.74)])
+
+    def test_requested_cpu_device_wins_over_visible_cuda(self, monkeypatch):
+        """device=cpu means every tensor is on the CPU, CUDA visible or not."""
+        import torch
+
+        from Auto3D.ASE.thermo import Calculator
+
+        self._pretend_cuda_is_available(monkeypatch)
+        model = self._paramless_model()
+        calc = Calculator(model, 0, model_name="AIMNET", device=torch.device("cpu"))
+
+        assert calc.device == torch.device("cpu")
+        assert calc.dtype is torch.float32
+
+        atoms = self._atoms()
+        atoms.calc = calc
+        atoms.get_potential_energy()
+
+        assert model.seen, "the model was never called"
+        for call in model.seen:
+            assert call["device"].type == "cpu", (
+                f"coordinates were built on {call['device']}, not the "
+                "requested cpu"
+            )
+            assert call["dtype"] is torch.float32, (
+                f"coordinates were built as {call['dtype']}; the rest of the "
+                "call (mol2aimnet_input, the charge tensor) is float32"
+            )
+            assert call["species_device"].type == "cpu"
+            assert call["charge_device"].type == "cpu"
+
+    def test_no_device_argument_never_seizes_a_gpu(self, monkeypatch):
+        """With nothing to infer from, CPU is the only safe answer.
+
+        A calculator that picks cuda because a GPU happens to be visible makes
+        ``use_gpu=False`` untrue for anyone who does not pass a device.
+        """
+        import torch
+
+        from Auto3D.ASE.thermo import Calculator
+
+        self._pretend_cuda_is_available(monkeypatch)
+        calc = Calculator(self._paramless_model(), 0, model_name="AIMNET")
+
+        assert calc.device == torch.device("cpu")
+        assert calc.dtype is torch.float32
+
+    def test_a_models_own_parameter_device_is_still_honored(self):
+        """Nothing changes for a model that does carry parameters."""
+        import torch
+        from torch import nn
+
+        from Auto3D.ASE.thermo import Calculator
+
+        class _WithParam(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.anchor = nn.Parameter(torch.zeros(1, dtype=torch.float64))
+
+            def forward(self, coords, species, charges, atom_mask=None):
+                return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
+
+        calc = Calculator(_WithParam(), 0, model_name="AIMNET")
+        assert calc.device == torch.device("cpu")
+        assert calc.dtype is torch.float64
+
+    def test_calc_thermo_no_gpu_uses_one_device_and_one_dtype(
+        self, monkeypatch, tmp_path
+    ):
+        """The whole call, both stages, on the device ``use_gpu=False`` means.
+
+        The fmax pre-check goes through ``mol2aimnet_input`` (device from
+        ``get_device``) and the relaxation goes through the ASE ``Calculator``.
+        Before this fix those two disagreed for a param-less custom NNP.
+        """
+        import torch
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        import Auto3D.ASE.thermo as thermo_mod
+
+        self._pretend_cuda_is_available(monkeypatch)
+        model = self._paramless_model()
+        monkeypatch.setattr(thermo_mod, "create_model", lambda *a, **k: model)
+        monkeypatch.setattr(
+            thermo_mod, "_load_hessian_model", lambda *a, **k: object()
+        )
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("O"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", "water")
+        sdf = tmp_path / "in.sdf"
+        with Chem.SDWriter(str(sdf)) as writer:
+            writer.write(mol)
+        out = tmp_path / "out.sdf"
+
+        thermo_mod.calc_thermo(
+            str(sdf), "AIMNET", use_gpu=False, opt_steps=2, out_path=str(out)
+        )
+
+        assert len(model.seen) >= 2, (
+            "expected both the fmax pre-check and the ASE relaxation to call "
+            f"the model; got {len(model.seen)} call(s)"
+        )
+        devices = {call["device"].type for call in model.seen}
+        dtypes = {call["dtype"] for call in model.seen}
+        assert devices == {"cpu"}, (
+            f"use_gpu=False, but one calc_thermo call spanned devices {devices}"
+        )
+        assert dtypes == {torch.float32}, (
+            f"one calc_thermo call spanned precisions {dtypes}: the geometry "
+            "would be relaxed at one precision and the Hessian built at another"
+        )

@@ -28,6 +28,7 @@ from Auto3D.constants import (
     MAX_CONFORMERS_CAP,
     MIN_ATOM_DISTANCE,
 )
+from Auto3D.utils.convergence import converged_or_unfiltered
 from Auto3D.utils.energy import try_e_tot_ev
 from Auto3D.utils.stereo_check import stereo_descriptors_from_3d, stereo_preserved
 
@@ -485,8 +486,10 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
     then removes similar structures based on RMSD comparison.
 
     Args:
-        mols: List of RDKit molecule objects with 'Converged' property set.
-            Records marked 'Stereo_changed' are excluded.
+        mols: List of RDKit molecule objects, optionally carrying a 'Converged'
+            property. A record whose 'Converged' is explicitly false is
+            dropped; a record without the property is kept (not filtered on
+            convergence). Records marked 'Stereo_changed' are excluded.
         crit: RMSD threshold for considering two structures as identical.
             Structures with RMSD below this value are considered duplicates.
             Defaults to DEFAULT_RMSD_THRESHOLD (0.3 Angstroms).
@@ -505,13 +508,12 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
         >>> filter_unique([mol], crit=0.3)  # Returns list with 1 molecule
         [...]
     """
-    # Remove unconverged structures
+    # Remove structures that explicitly failed to converge. A record with no
+    # 'Converged' property is NOT filtered on convergence -- see
+    # Auto3D.utils.convergence for why absence is not failure.
     mols_: list[Chem.Mol] = []
     for mol in mols:
-        try:
-            convergence_flag = mol.GetProp("Converged").lower() == "true"
-        except KeyError:
-            convergence_flag = False
+        convergence_flag = converged_or_unfiltered(mol)
         has_valid_bonds = check_connectivity(mol)
         if convergence_flag and has_valid_bonds and stereo_preserved(mol):
             mols_.append(mol)

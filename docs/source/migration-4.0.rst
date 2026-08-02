@@ -113,6 +113,61 @@ was swallowed, and the molecule was reported as failed.
 Recompute any ANI2xt thermochemistry from 3.x. AIMNet2 and ANI2x results are
 unaffected.
 
+Two inputs that share an InChIKey, with ``enumerate_isomer=False``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Distinct inputs can share a standard InChIKey -- a tautomer pair the standard
+key conflates, or the same molecule written two ways. ``smiles2smi`` renames
+the second one ``<KEY>_2`` *specifically so it is not dropped*.
+
+With SMILES input and ``enumerate_isomer=False``, 3.x/4.0-pre named conformers
+``<species>_<conformer>`` -- one trailing component, where every other mode
+appends two (``<species>_<isomer>_<conformer>``).
+:func:`Auto3D.ranking.species_id` strips two, so ``KEY_0`` and ``KEY_2_0``
+both reduced to ``KEY``: the two molecules landed in one ranking group,
+``k=1`` returned a **single** conformer for the pair, and because selection is
+by energy across the merged group, the survivor could be the *other*
+molecule's geometry carrying this molecule's name. ``smiles2mols`` returned a
+silently shorter list; the only signal was a stderr WARNING from
+``find_smiles_not_in_sdf`` naming the missing id.
+
+**Re-run anything that used** ``enumerate_isomer=False`` **on a SMILES/`.smi`
+input containing two molecules with the same standard InChIKey.** Every other
+combination is unaffected: the SDF input paths and the isomer-enumerating
+SMILES path already appended both components.
+
+Conformer ``ID`` gains a component in that one mode
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The cure is the naming, not a cleverer parse: a parser that has to infer how
+many components were appended is the defect. Both SMILES modes now append the
+isomer index, which for ``enumerate_isomer=False`` is always 0 -- there is
+exactly one "isomer", the molecule as written.
+
+.. list-table::
+   :widths: 40 30 30
+   :header-rows: 1
+
+   * - Producer
+     - ``ID`` in 3.x / 4.0-pre
+     - ``ID`` in 4.0
+   * - SMILES input, ``enumerate_isomer=True``
+     - ``mol_1_3``
+     - ``mol_1_3`` (unchanged)
+   * - SMILES input, ``enumerate_isomer=False``
+     - ``mol_3``
+     - **``mol_0_3``**
+   * - SDF input, either setting
+     - ``mol_1_3``
+     - ``mol_1_3`` (unchanged)
+
+The record's ``_Name`` -- the species id ConformerRanker writes into the final
+output -- is unchanged in every case. Only the ``ID`` property, and the names
+inside the intermediate/``--verbose`` files, gain the component. A script that
+parses ``ID`` with ``split("_")`` should take the **first** component for the
+species id and the **last** for the conformer index, or call
+``Auto3D.ranking.species_id``.
+
 Custom NNPs that pad species with 0
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -161,6 +216,25 @@ before optimization and can invert a center by the same mechanism: a
 conformer whose configuration changes there is discarded before optimization
 ever sees it, with a warning logged, instead of reaching the neural-network
 check already inverted and passing through unnoticed.
+
+``calc_thermo`` with a param-less custom NNP
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If your custom NNP holds no ``nn.Parameter`` -- a buffer-only model, a
+closed-form potential, or one that builds its backend lazily on first call --
+3.x/4.0-pre had nothing to read a device off in the ASE calculator and chose
+``cuda`` whenever a GPU was visible, in ``float64``. ``use_gpu`` and
+``gpu_idx`` never reached that decision, so ``calc_thermo(..., use_gpu=False)``
+relaxed the geometry on **cuda:0 in float64** while the fmax pre-check and the
+Hessian ran on **cpu in float32** -- one call, two devices, two precisions,
+and ``gpu_idx`` ignored (always device 0). Nothing was logged.
+
+4.0 threads the device ``calc_thermo`` already resolved (through
+``check_gpu_requested`` and ``get_device(gpu_idx, use_gpu)``) into the
+calculator, and a param-less model defaults to CPU/float32 rather than taking
+a GPU nobody asked for. **Numbers change** for such a model: the relaxation
+now runs in float32, consistently with the Hessian built on it. Recompute if
+you relied on the float64 half.
 
 ``calc_thermo`` relaxes more, and further
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -448,6 +522,13 @@ error. ``model_name`` is now a required keyword-only argument on both.
    calc = Calculator(model, charge=0, model_name="ANI2xt")
    inp = mol2aimnet_input(mol, device, model_name="ANI2xt")
 
+``Calculator`` also accepts optional ``device`` and ``dtype`` keywords. Pass
+the device you resolved (Auto3D's own callers pass
+``get_device(gpu_idx, use_gpu)``) rather than letting the calculator infer
+one; a model with no ``nn.Parameter`` has nothing to infer from, and the
+inference used to take cuda:0 whenever a GPU was visible. Omitting both still
+reads them off the model's parameters, and falls back to CPU/float32.
+
 SDF input
 ~~~~~~~~~
 
@@ -474,6 +555,60 @@ conformers, not 24. A molecule with two independent unspecified centers (e.g.
 threonine) keeps two surviving diastereomers, so the same ``max_confs=12``
 does produce up to 24 there. A stereoisomer ETKDG cannot embed is now named in
 a logged warning instead of disappearing from the output with no trace.
+
+``ConformerRanker`` on a file Auto3D's optimizer did not write
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``ConformerRanker`` (aliased ``Auto3D.ranking.ranking``) is public and
+documented, and only ``batch_opt`` writes the ``Converged`` SD property. The
+three convergence filters treated a missing ``Converged`` as "did not
+converge", so ranking an ``opt_geometry`` output, an ORCA/Gaussian export or a
+hand-built conformer set dropped **every** record: ``[]`` returned, a
+**0-byte** SDF written, exit 0, and the only message an INFO line on a logger
+tree with no handler outside ``main()``.
+
+A record that never claimed to be an optimizer output is not a record that
+failed one. A missing ``Converged`` now means "not filtered on convergence"
+and the record is kept; the connectivity, stereochemistry, RMSD and energy
+filters still apply to it, and an explicit ``Converged=false`` is still
+dropped. ``Auto3D.utils.convergence`` is the single owner of the property.
+
+Two related changes on the same path:
+
+- a record with no ``E_tot`` raises ``InputValidationError`` (exit 2) naming
+  the record, instead of a bare ``KeyError('E_tot')`` from inside RDKit --
+  ranking is selection by energy, and a record without one cannot be ranked;
+- selecting 0 structures from a non-empty input logs a **WARNING** naming the
+  input, the output and the count. ``logging.lastResort`` puts WARNING and
+  above on stderr even for a caller who never ran ``configure_logging``, which
+  is every direct API caller.
+
+Callers who *relied* on the old behavior to filter unconverged records must
+set ``Converged`` explicitly on their input.
+
+Determinism and cuDNN flags are left alone unless asked for
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``configure_torch`` -- called by ``main``, ``smiles2mols``, ``calc_spe``,
+``opt_geometry`` and ``calc_thermo`` on the way in -- wrote
+``torch.use_deterministic_algorithms(False)``,
+``torch.backends.cudnn.deterministic = False`` and
+``torch.backends.cudnn.benchmark = False`` unconditionally. Those are
+process-global settings the caller may own: a script that enabled determinism
+for reproducibility lost it for the rest of the process, silently.
+
+``TorchConfig.deterministic`` and ``TorchConfig.cudnn_benchmark`` are now
+``bool | None`` with a ``None`` default meaning "leave the process's setting
+alone". Passing ``True`` or ``False`` still applies it in both directions, so
+a run that enabled determinism can still restore fast mode.
+``TorchConfig.allow_tf32`` is unchanged and still applied unconditionally --
+it is a real Auto3D option with a documented default. The new
+``TorchConfig.deterministic_warn_only`` (default ``True``) lets a caller ask
+``use_deterministic_algorithms`` to raise rather than warn.
+
+If you construct ``TorchConfig`` yourself and relied on its defaults to
+*disable* determinism or cuDNN benchmarking, pass the value explicitly:
+``TorchConfig(allow_tf32=False, deterministic=False, cudnn_benchmark=False)``.
 
 Configuration and validation changes
 -------------------------------------
