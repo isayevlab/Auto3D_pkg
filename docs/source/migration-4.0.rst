@@ -698,3 +698,75 @@ the ``energy``/``optimize``/``thermo`` commands) and inside
 ``opt_geometry``, or ``calc_thermo`` directly from Python with an
 unrecognized ``model_name`` is still unguarded and fails the same opaque
 way it did in 3.x.
+
+Output files are no longer overwritten silently
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``auto3d energy``/``optimize``/``thermo``/``tautomers`` refuse to write over an
+existing file. In 3.x, ``-o results.sdf`` truncated ``results.sdf`` before the
+run began, so a mistyped path destroyed the file and a failed run left nothing
+behind:
+
+.. code:: console
+
+   $ auto3d energy mols.sdf --no-gpu -o results.sdf
+   Error: results.sdf already exists.
+   Hint: pass --force/-f to overwrite, or choose a different -o path.
+   $ echo $?
+   2
+
+Pass ``-f``/``--force`` to opt in. A looping script that reuses one output
+path needs ``--force`` added, or a distinct path per iteration.
+
+The Python API is unchanged by default: ``calc_spe``, ``opt_geometry``,
+``calc_thermo`` and ``ConformerRanker`` take ``overwrite=True``. Pass
+``overwrite=False`` to get the CLI's protection in a script.
+
+``auto3d run`` requires ``--k`` or ``--window``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x injected ``k=1`` with a warning when neither was given. ``main()``,
+``smiles2mols`` and the legacy ``auto3d config.yaml`` form all raised instead,
+so ``auto3d run`` was the only entry point that chose a conformer-selection
+parameter on your behalf — and one conformer per molecule is a plausible
+result, not an obvious error, so the choice was invisible downstream.
+
+.. code:: console
+
+   $ auto3d run mols.smi
+   Error: Either k or window needs to be specified.
+   Usually, setting '--k=1' satisfies most needs.
+   $ echo $?
+   2
+
+Add ``--k 1`` to reproduce the old default explicitly. ``auto3d config
+validate`` now reports the same config as invalid rather than warning that it
+will use ``k=1``.
+
+Your working directory is left alone
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x swept files matching ``oeomega_*`` and ``flipper_*`` out of the *current
+working directory* into the run's metadata folder, which is deleted unless
+``verbose`` is set. Running ``auto3d run`` from a directory containing a file
+with either prefix destroyed it, on every run, whether or not OpenEye was
+used. Auto3D now runs the OpenEye isomer engine inside a directory it owns and
+never touches the working directory.
+
+The encoded input file no longer lands beside your input
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+3.x wrote ``<stem>_encoded.<ext>`` next to the input and deleted it at the end
+of the run, so a file you owned at that path was overwritten and then removed.
+The encoded input is now written inside the job directory.
+
+``encode_ids`` gained an ``out_dir`` parameter for this. Called directly
+without it, it now refuses rather than overwrite an existing file at the
+derived name.
+
+A rejected run leaves nothing behind
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A run rejected during input validation — duplicate molecule IDs, blank names,
+malformed rows — no longer leaves an empty job directory beside the input.
+Retrying no longer accumulates one directory per attempt.
