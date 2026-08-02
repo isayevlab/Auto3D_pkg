@@ -11,13 +11,15 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 from Auto3D.cli.config_schema import load_yaml_config
-from Auto3D.cli.console import console, print_error, print_success
+from Auto3D.cli.console import console, print_success
+from Auto3D.cli.errors import handle_error
 from Auto3D.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
 )
+from Auto3D.exceptions import ConfigurationError
 
 # Default configuration template
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -96,71 +98,116 @@ def generate_commented_yaml(config: dict) -> str:
 
 
 def execute_config_init(
-    output: Path, preset: str | None = None, force: bool = False
+    output: Path, preset: str | None = None, force: bool = False,
+    verbose: int = 0,
 ) -> None:
-    """Generate a configuration file."""
-    # Don't clobber an existing config without explicit consent.
-    if output.exists() and not force:
-        print_error(
-            f"{output} already exists.",
-            hint="Pass --force/-f to overwrite, or choose a different -o path.",
-        )
-        raise SystemExit(1)
+    """Generate a configuration file.
 
-    config = DEFAULT_CONFIG.copy()
-
-    if preset:
-        if preset not in PRESETS:
-            print_error(
-                f"Unknown preset: {preset}",
-                hint=f"Available presets: {', '.join(PRESETS.keys())}",
-            )
-            raise SystemExit(1)
-        config.update(PRESETS[preset])
-
-    yaml_content = generate_commented_yaml(config)
-    output.write_text(yaml_content)
-
-    print_success(f"Created [cyan]{output}[/cyan]")
-    console.print()
-    console.print(Syntax(yaml_content, "yaml", theme="monokai", line_numbers=True))
-
-
-def execute_config_show(config_file: Path | None = None) -> None:
-    """Display a configuration file with syntax highlighting."""
-    if config_file is None:
-        config_file = Path("auto3d.yaml")
-
-    if not config_file.exists():
-        print_error(
-            f"Config file not found: {config_file}",
-            hint="Run 'auto3d config init' to create one.",
-        )
-        raise SystemExit(1)
-
-    content = config_file.read_text()
-    console.print(Panel(
-        Syntax(content, "yaml", theme="monokai", line_numbers=True),
-        title=f"[cyan]{config_file}[/cyan]",
-    ))
-
-
-def execute_config_validate(config_file: Path) -> None:
-    """Validate a configuration file."""
-    if not config_file.exists():
-        print_error(
-            f"Config file not found: {config_file}",
-            hint="Run 'auto3d config init' to create one.",
-        )
-        raise SystemExit(1)
-
+    Both refusals below are configuration problems, so both leave through
+    ``handle_error`` at exit **2**. The overwrite refusal in particular had to
+    move: the CLI's own ``-o`` overwrite gate
+    (``utils.validation.check_output_overwrite``) raises ``ConfigurationError``
+    and exits 2, and the CHANGELOG described the two as printing "the same
+    message" -- while this one hard-coded ``SystemExit(1)``, so a script
+    branching on 2 saw one of them and not the other.
+    """
     try:
+        # Don't clobber an existing config without explicit consent.
+        if output.exists() and not force:
+            raise ConfigurationError(
+                f"{output} already exists.",
+                # Same reason check_output_overwrite suppresses its class
+                # hint: "Run 'auto3d config init'" is what the user just ran.
+                hint=(
+                    "Pass --force/-f to overwrite, or choose a different "
+                    "-o path."
+                ),
+            )
+
+        config = DEFAULT_CONFIG.copy()
+
+        if preset:
+            # Unreachable from the CLI, where Typer's `Preset` enum rejects an
+            # unknown value as a usage error first (also exit 2). Kept for
+            # direct callers of this function, and mapped to the same code the
+            # CLI would have produced.
+            if preset not in PRESETS:
+                raise ConfigurationError(
+                    f"Unknown preset: {preset}",
+                    hint=f"Available presets: {', '.join(PRESETS.keys())}",
+                )
+            config.update(PRESETS[preset])
+
+        yaml_content = generate_commented_yaml(config)
+        output.write_text(yaml_content)
+
+        print_success(f"Created [cyan]{output}[/cyan]")
+        console.print()
+        console.print(
+            Syntax(yaml_content, "yaml", theme="monokai", line_numbers=True)
+        )
+    except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
+        handle_error(e, verbose=verbose)
+
+
+def execute_config_show(config_file: Path | None = None, verbose: int = 0) -> None:
+    """Display a configuration file with syntax highlighting."""
+    try:
+        if config_file is None:
+            config_file = Path("auto3d.yaml")
+
+        if not config_file.exists():
+            raise ConfigurationError(
+                f"Config file not found: {config_file}",
+                hint="Run 'auto3d config init' to create one.",
+            )
+
+        content = config_file.read_text()
+
+        console.print(Panel(
+            Syntax(content, "yaml", theme="monokai", line_numbers=True),
+            title=f"[cyan]{config_file}[/cyan]",
+        ))
+    except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
+        handle_error(e, verbose=verbose)
+
+
+def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
+    """Validate a configuration file.
+
+    The exit code must be the one ``auto3d run -c <config_file>`` would give
+    for the same file, because predicting that run is this command's only
+    purpose. It used to answer every rejection with a hard-coded
+    ``SystemExit(1)``, so the identical ``k: 0`` file produced 1 here and 2
+    from the run -- a script gating on 2 got the wrong answer from the
+    checker. Routing through ``handle_error`` means the exception the runner
+    would raise picks the code here too, whatever it is.
+    """
+    try:
+        if not config_file.exists():
+            # Unreachable from the CLI (Typer's `exists=True` on the argument
+            # rejects a missing path as a usage error, also exit 2), but this
+            # function is callable directly.
+            raise ConfigurationError(
+                f"Config file not found: {config_file}",
+                hint="Run 'auto3d config init' to create one.",
+            )
+
         config = load_yaml_config(config_file)
 
-        # Check required fields
-        warnings = []
+        # Conformer selection is required by every entry point, so a config
+        # missing both is invalid, not merely incomplete. This used to be a
+        # warning saying "using k=1", which was true only of `auto3d run` --
+        # and is now true of nothing, since run refuses too. A pre-flight
+        # checker that predicts success for a config the runner rejects is
+        # worse than no checker.
         if config.k is None and config.window is None:
-            warnings.append("Neither 'k' nor 'window' specified - using k=1")
+            raise ConfigurationError(
+                "Either k or window needs to be specified. "
+                "Usually, setting 'k: 1' satisfies most needs."
+            )
+
+        warnings: list[str] = []
 
         console.print(Panel(
             f"[green]Valid configuration[/green]\n\n"
@@ -174,6 +221,5 @@ def execute_config_validate(config_file: Path) -> None:
         for warning in warnings:
             console.print(f"[yellow]Warning:[/yellow] {warning}")
 
-    except Exception as e:
-        print_error(str(e), hint="Check YAML syntax and field values.")
-        raise SystemExit(1)
+    except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
+        handle_error(e, verbose=verbose)

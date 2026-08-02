@@ -17,6 +17,7 @@ from Auto3D.utils.validation import (
     check_engine_supports_molecules,
     check_gpu_requested,
     check_output_not_input,
+    check_output_overwrite,
 )
 
 logger = get_logger(__name__)
@@ -33,6 +34,7 @@ def calc_spe(
     use_gpu: bool = True,
     allow_tf32: bool = False,
     out_path: str | None = None,
+    overwrite: bool = True,
 ) -> str:
     """Calculates single point energy.
 
@@ -44,6 +46,10 @@ def calc_spe(
         allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
         out_path: Output SDF path. Defaults to ``<input_stem>_<model>_E.sdf`` next
             to the input file.
+        overwrite: Allow writing over an existing output file. Defaults to
+            True, which is the historical behavior every Python-API caller
+            was written against. ``auto3d energy`` passes False unless
+            ``--force`` is given, so the CLI refuses to clobber.
 
     Returns:
         Path to output SDF file with energies.
@@ -85,6 +91,14 @@ def calc_spe(
         else:
             basename = f"{stem}_{model_name}_E.sdf"
         outpath = dir_path / basename
+
+    # Refuse to truncate a file that already exists. `Chem.SDWriter(outpath)`
+    # below truncates on open, so without this `-o precious.sdf` destroyed
+    # precious.sdf before the first record was written -- and a run whose
+    # every record failed to parse then left it at 0 bytes and exited 0.
+    # Checked on the RESOLVED path, so the derived default name is covered
+    # too, and before get_device/create_model so nothing is loaded first.
+    check_output_overwrite(outpath, overwrite)
 
     # Filter once up front: drop None records (unparseable) and conformerless
     # molecules so pad_from_mols never dereferences a bad record, and so the

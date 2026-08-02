@@ -1,104 +1,63 @@
 # src/Auto3D/cli/progress.py
-"""Progress display components for Auto3D CLI.
+"""Live optimization status panel for the Auto3D CLI.
 
-This module provides Rich-based progress bars and live status displays
-for long-running operations.
+This module renders the counts the optimizer workers emit. It deliberately
+renders **no percentage and no progress bar**: see
+:meth:`OptimizationDisplay.make_panel` for why there is no honest denominator
+available at this layer.
 """
 
 from __future__ import annotations
 
 from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
 from rich.table import Table
-
-from Auto3D.cli.console import console
-
-
-def create_progress() -> Progress:
-    """Create a Rich progress bar with standard columns.
-
-    Returns:
-        Configured Progress instance.
-    """
-    return Progress(
-        SpinnerColumn(),
-        TextColumn("[bold]{task.description}"),
-        BarColumn(bar_width=40),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    )
 
 
 class OptimizationDisplay:
-    """Live-updating display during geometry optimization.
+    """Live-updating display of the optimizer batch currently in flight.
 
-    This class tracks optimization statistics and renders them as a
-    Rich panel suitable for use with Live display.
+    Fed by :meth:`update_from_jobs` from the per-step events
+    ``Auto3D.batch_opt.optimization_engine.n_steps`` emits, and rendered into a
+    Rich ``Live`` by ``Auto3D.cli.commands.run``.
 
     Attributes:
-        total: Total number of structures.
-        converged: Number of converged structures.
-        active: Number of actively optimizing structures.
-        dropped: Number of dropped (oscillating) structures.
-        step: Current optimization step.
-        best_energy: Best (lowest) energy found.
+        total: Structures in the batch(es) currently being optimized.
+        converged: Structures in those batches that have converged.
+        active: Structures in those batches still being optimized.
+        dropped: Structures in those batches dropped for oscillating.
+        step: Furthest optimizer step reached by any reporting worker.
     """
 
     def __init__(self, total_structures: int) -> None:
-        """Initialize display with total structure count.
+        """Initialize display with a starting structure count.
 
         Args:
-            total_structures: Total number of structures to optimize.
+            total_structures: Structures in the first batch, if already known;
+                callers that learn the count only from the first event pass 0.
         """
         self.total = total_structures
         self.converged = 0
         self.active = total_structures
         self.dropped = 0
         self.step = 0
-        self.best_energy: float | None = None
-
-    def update(
-        self,
-        converged: int,
-        active: int,
-        dropped: int,
-        step: int,
-        best_energy: float | None = None,
-    ) -> None:
-        """Update optimization statistics.
-
-        Args:
-            converged: Number of converged structures.
-            active: Number of active structures.
-            dropped: Number of dropped structures.
-            step: Current step number.
-            best_energy: Best energy found (optional).
-        """
-        self.converged = converged
-        self.active = active
-        self.dropped = dropped
-        self.step = step
-        if best_energy is not None:
-            self.best_energy = best_energy
 
     def update_from_jobs(self, jobs: dict) -> None:
-        """Aggregate the latest per-job progress events into the display.
+        """Aggregate the latest per-job progress event into the display.
 
-        Each value in ``jobs`` is the most recent event for one optimizer worker
-        (``{"total", "converged", "dropped", "active", "step"}``). Counts are
-        summed across jobs and the step shown is the furthest along, so a single
-        optimizer (the common case) renders exactly its own progress and a
-        multi-GPU run shows a sensible aggregate.
+        Each value in ``jobs`` is the most recent event from one optimizer
+        worker (``{"total", "converged", "dropped", "active", "step"}``). Those
+        counts describe **the batch that worker currently has in the
+        optimizer**, not its whole share of the run: a worker pulls chunk after
+        chunk off the queue and ``n_steps`` starts over -- new ``total``, step
+        back to 1 -- for each one. Summing across workers therefore yields the
+        set of structures in flight right now, and that is all this display
+        claims.
+
+        An earlier version of this method described the result as "exactly its
+        own progress" for a single optimizer and rendered it as a percentage of
+        ``total``. It was neither: the percentage ran ``25% -> 75% -> 100% ->
+        6% -> 100% -> 2%`` across successive batches, because each new batch
+        reset both halves of the fraction.
         """
         if not jobs:
             return
@@ -108,21 +67,33 @@ class OptimizationDisplay:
         self.active = sum(j.get("active", 0) for j in jobs.values())
         self.step = max((j.get("step", 0) for j in jobs.values()), default=0)
 
+    def as_batch_counts(self) -> dict[str, int]:
+        """Return the current counts as a plain dict (for the interrupt report)."""
+        return {
+            "total": self.total,
+            "converged": self.converged,
+            "active": self.active,
+            "dropped": self.dropped,
+            "step": self.step,
+        }
+
     def make_panel(self) -> Panel:
-        """Create a Rich panel showing current status.
+        """Create a Rich panel showing the in-flight batch.
+
+        No bar and no percentage, on purpose. A fraction needs a denominator
+        that is the whole job, and this layer does not have one: the number of
+        structures a run will optimize is not known until stereoisomer and
+        tautomer enumeration have finished, which happens *while* the optimizer
+        is already consuming the earlier chunks. The two denominators that were
+        available were both lies -- the optimizer's own ``tqdm`` divided by the
+        *step budget* (so a run converging at step 300 of 2000 showed 15% and
+        then vanished, and a run where nothing converged showed 100%), and this
+        panel divided by the current batch size (so the percentage sawtoothed
+        back down on every new chunk).
 
         Returns:
-            Panel with progress bar and statistics.
+            Panel with the current counts and step.
         """
-        # Calculate progress
-        completed = self.converged + self.dropped
-        pct = completed / self.total if self.total > 0 else 0
-
-        # Create progress bar
-        filled = int(pct * 30)
-        bar = "━" * filled + ("╺" if filled < 30 else "") + "─" * (29 - filled)
-
-        # Stats grid
         stats = Table.grid(padding=(0, 3))
         stats.add_row(
             "[green]Converged[/green]", f"[green]{self.converged}[/green]",
@@ -130,33 +101,14 @@ class OptimizationDisplay:
             "[red]Dropped[/red]", f"[red]{self.dropped}[/red]",
         )
 
-        # Build content
-        content = f"{bar} {pct:.0%}  Step {self.step}\n\n"
+        content = Table.grid()
+        content.add_row(stats)
+        content.add_row(
+            f"\n[dim]{self.total} structures in this batch, step {self.step}[/dim]"
+        )
 
-        if self.best_energy is not None:
-            content += f"[dim]Best energy: {self.best_energy:.2f} kcal/mol[/dim]"
-
-        return Panel(content, title="[bold]Optimizing[/bold]", border_style="blue")
-
-
-class IsomerProgressCallback:
-    """Callback for isomer enumeration progress."""
-
-    def __init__(self, progress: Progress, task_id) -> None:
-        """Initialize callback.
-
-        Args:
-            progress: Rich Progress instance.
-            task_id: Progress task ID.
-        """
-        self.progress = progress
-        self.task_id = task_id
-
-    def __call__(self, current: int, total: int) -> None:
-        """Update progress.
-
-        Args:
-            current: Current item number.
-            total: Total items.
-        """
-        self.progress.update(self.task_id, completed=current, total=total)
+        return Panel(
+            content,
+            title="[bold]Optimizing (current batch)[/bold]",
+            border_style="blue",
+        )

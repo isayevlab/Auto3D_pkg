@@ -7,9 +7,11 @@ auto3D<->workflow import cycle, so the dependency direction is now one-way:
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
+import sys
 import tarfile
 from logging.handlers import QueueHandler
 from pathlib import Path
@@ -48,6 +50,27 @@ if TYPE_CHECKING:
 # is exact-prefix and case-sensitive), so a single log call is only ever
 # routed through one of them and nothing is ever delivered twice.
 _RUN_LOG_LOGGER_NAMES = ("auto3d", "Auto3D")
+
+
+def _worker_stdout_to_stderr() -> contextlib.AbstractContextManager[object]:
+    """Keep a worker process off the run's stdout.
+
+    These workers are *spawned* (``auto3D.main`` forces the spawn start
+    method), so each one is a fresh interpreter with its own ``sys.stdout``
+    on the inherited fd 1 -- the parent's ``Auto3D.cli.console.reserve_stdout``
+    redirection is a Python-level object swap and does not follow them. The
+    first thing an optimizer worker does with a model is build it, which
+    imports ``aimnet`` -> ``warp`` and prints a device banner to stdout: one
+    per worker, straight into the middle of the ``--json`` document the parent
+    is writing on the very same fd.
+
+    Nothing here is meant for stdout in the first place -- every worker
+    message goes through the logging queue to the run log and the parent's
+    stderr handler -- so anything that does write to stdout is by definition
+    third-party, and stderr is where it belongs. Redirected rather than
+    discarded, so a library's genuine failure message is still readable.
+    """
+    return contextlib.redirect_stdout(sys.stderr)
 
 
 def _attach_run_log_handlers(
@@ -98,64 +121,65 @@ def isomer_wrapper(
         queue: Queue for passing enumerated SDF paths to optimizer.
         logging_queue: Queue for centralized logging.
     """
-    #prepare logging
-    logger = logging.getLogger("auto3d")
-    _attach_run_log_handlers(logging_queue)
+    with _worker_stdout_to_stderr():
+        #prepare logging
+        logger = logging.getLogger("auto3d")
+        _attach_run_log_handlers(logging_queue)
 
-    tautomer_processor = TautomerProcessor(args)
+        tautomer_processor = TautomerProcessor(args)
 
-    # Number of optimizer processes that will consume from the queue.
-    # Each optimizer blocks on queue.get() until it receives a "Done" sentinel,
-    # so we must emit exactly one sentinel per optimizer in a `finally` block to
-    # avoid deadlocking the optimizers when isomer generation fails partway.
-    # Use the same rule as the spawn site (a CPU run with a list of gpu_idx runs
-    # a single optimizer, not one per index) so the counts cannot drift.
-    n_optimizers = len(optimizer_worker_indices(args.use_gpu, args.gpu_idx))
+        # Number of optimizer processes that will consume from the queue.
+        # Each optimizer blocks on queue.get() until it receives a "Done" sentinel,
+        # so we must emit exactly one sentinel per optimizer in a `finally` block to
+        # avoid deadlocking the optimizers when isomer generation fails partway.
+        # Use the same rule as the spawn site (a CPU run with a list of gpu_idx runs
+        # a single optimizer, not one per index) so the counts cannot drift.
+        n_optimizers = len(optimizer_worker_indices(args.use_gpu, args.gpu_idx))
 
-    try:
-        for i, path_dir in enumerate(chunk_info):
-            logger.info(f"\n\nIsomer generation for job{i+1}")
-            path, dir = path_dir
-            meta = create_chunk_meta_names(path, dir)
+        try:
+            for i, path_dir in enumerate(chunk_info):
+                logger.info(f"\n\nIsomer generation for job{i+1}")
+                path, dir = path_dir
+                meta = create_chunk_meta_names(path, dir)
 
-            # Tautomer enumeration (if enabled)
-            path = tautomer_processor.process(path, meta["output_taut"])
+                # Tautomer enumeration (if enabled)
+                path = tautomer_processor.process(path, meta["output_taut"])
 
-            smiles_enumerated = meta["smiles_enumerated"]
-            smiles_reduced = meta["smiles_reduced"]
-            smiles_hashed = meta["smiles_hashed"]
-            enumerated_sdf = meta["enumerated_sdf"]
-            max_confs = args.max_confs
-            duplicate_threshold = args.threshold
-            mpi_np = args.mpi_np
-            enumerate_isomer = args.enumerate_isomer
-            isomer_program = args.isomer_engine
-            # Isomer enumeration step using factory
-            engine = IsomerEngineFactory.create(
-                engine_type=isomer_program,
-                input_path=path,
-                output_path=enumerated_sdf,
-                input_format=args.input_format,
-                smiles_enumerated=smiles_enumerated,
-                smiles_reduced=smiles_reduced,
-                smiles_hashed=smiles_hashed,
-                job_dir=dir,
-                max_confs=max_confs,
-                threshold=duplicate_threshold,
-                n_jobs=mpi_np,
-                enumerate_isomers=enumerate_isomer,
-                mode=args.mode_oe if isomer_program == 'omega' else 'classic',
-            )
-            engine.run()
+                smiles_enumerated = meta["smiles_enumerated"]
+                smiles_reduced = meta["smiles_reduced"]
+                smiles_hashed = meta["smiles_hashed"]
+                enumerated_sdf = meta["enumerated_sdf"]
+                max_confs = args.max_confs
+                duplicate_threshold = args.threshold
+                mpi_np = args.mpi_np
+                enumerate_isomer = args.enumerate_isomer
+                isomer_program = args.isomer_engine
+                # Isomer enumeration step using factory
+                engine = IsomerEngineFactory.create(
+                    engine_type=isomer_program,
+                    input_path=path,
+                    output_path=enumerated_sdf,
+                    input_format=args.input_format,
+                    smiles_enumerated=smiles_enumerated,
+                    smiles_reduced=smiles_reduced,
+                    smiles_hashed=smiles_hashed,
+                    job_dir=dir,
+                    max_confs=max_confs,
+                    threshold=duplicate_threshold,
+                    n_jobs=mpi_np,
+                    enumerate_isomers=enumerate_isomer,
+                    mode=args.mode_oe if isomer_program == 'omega' else 'classic',
+                )
+                engine.run()
 
-            queue.put((enumerated_sdf, path, dir, i+1))
-    except Exception:
-        logger.exception("Isomer generation failed; signaling optimizers to stop.")
-        raise
-    finally:
-        # Always wake every optimizer, even on failure, so none blocks forever.
-        for _ in range(n_optimizers):
-            queue.put("Done")
+                queue.put((enumerated_sdf, path, dir, i+1))
+        except Exception:
+            logger.exception("Isomer generation failed; signaling optimizers to stop.")
+            raise
+        finally:
+            # Always wake every optimizer, even on failure, so none blocks forever.
+            for _ in range(n_optimizers):
+                queue.put("Done")
 
 
 def optim_rank_wrapper(
@@ -165,89 +189,90 @@ def optim_rank_wrapper(
     gpu_idx: int,
     progress_queue: Queue[dict] | None = None,
 ) -> list[list[Chem.Mol]]:
-    #prepare logging
-    logger = logging.getLogger("auto3d")
-    _attach_run_log_handlers(logging_queue)
+    with _worker_stdout_to_stderr():
+        #prepare logging
+        logger = logging.getLogger("auto3d")
+        _attach_run_log_handlers(logging_queue)
 
-    conformers = []
-    while True:
-        sdf_path_dir_job = queue.get()
-        if sdf_path_dir_job == "Done":
-            break
-        enumerated_sdf, path, dir, job = sdf_path_dir_job
-        # Isolate each chunk: a single failing chunk (a molecule the optimizer
-        # chokes on, a CUDA OOM, an isomer step that produced nothing, an mkdir
-        # collision) must not kill this worker and silently drop every chunk
-        # still queued behind it. Log it and move on to the next chunk.
-        try:
-            logger.info(f"\n\nOptimizing on job{job}")
-            meta = create_chunk_meta_names(path, dir)
+        conformers = []
+        while True:
+            sdf_path_dir_job = queue.get()
+            if sdf_path_dir_job == "Done":
+                break
+            enumerated_sdf, path, dir, job = sdf_path_dir_job
+            # Isolate each chunk: a single failing chunk (a molecule the optimizer
+            # chokes on, a CUDA OOM, an isomer step that produced nothing, an mkdir
+            # collision) must not kill this worker and silently drop every chunk
+            # still queued behind it. Log it and move on to the next chunk.
+            try:
+                logger.info(f"\n\nOptimizing on job{job}")
+                meta = create_chunk_meta_names(path, dir)
 
-            # Optimizing step
-            opt_config = args.to_optimization_config()
-            optimized_og = meta["optimized_og"]
-            optimizing_engine = args.optimizing_engine
-            if args.use_gpu:
-                device = torch.device(f"cuda:{gpu_idx}")
-            else:
-                device = torch.device("cpu")
-            # When a progress queue is supplied (interactive `auto3d run`), tag
-            # each event with this chunk's job id and forward it to the main
-            # process for the live display. Guarded so a full/closed queue can
-            # never break the optimization.
-            progress_cb = None
-            if progress_queue is not None:
-                def progress_cb(event, _q=progress_queue, _job=job):
-                    try:
-                        _q.put({**event, "job": _job})
-                    except Exception:
-                        pass
-            optimizer = optimizing(enumerated_sdf, optimized_og,
-                                   optimizing_engine, device, opt_config,
-                                   progress_cb=progress_cb)
-            optimizer.run()
+                # Optimizing step
+                opt_config = args.to_optimization_config()
+                optimized_og = meta["optimized_og"]
+                optimizing_engine = args.optimizing_engine
+                if args.use_gpu:
+                    device = torch.device(f"cuda:{gpu_idx}")
+                else:
+                    device = torch.device("cpu")
+                # When a progress queue is supplied (interactive `auto3d run`), tag
+                # each event with this chunk's job id and forward it to the main
+                # process for the live display. Guarded so a full/closed queue can
+                # never break the optimization.
+                progress_cb = None
+                if progress_queue is not None:
+                    def progress_cb(event, _q=progress_queue, _job=job):
+                        try:
+                            _q.put({**event, "job": _job})
+                        except Exception:
+                            pass
+                optimizer = optimizing(enumerated_sdf, optimized_og,
+                                       optimizing_engine, device, opt_config,
+                                       progress_cb=progress_cb)
+                optimizer.run()
 
-            # optimizing.run() returns early without writing optimized_og when
-            # the isomer step yielded an empty/missing SDF for this chunk. Skip
-            # ranking rather than letting RDKit raise on a nonexistent path; the
-            # chunk simply contributes no conformers.
-            if not os.path.exists(optimized_og):
-                logger.warning(
-                    f"job{job}: no optimized structures were produced; "
-                    "skipping ranking for this chunk."
+                # optimizing.run() returns early without writing optimized_og when
+                # the isomer step yielded an empty/missing SDF for this chunk. Skip
+                # ranking rather than letting RDKit raise on a nonexistent path; the
+                # chunk simply contributes no conformers.
+                if not os.path.exists(optimized_og):
+                    logger.warning(
+                        f"job{job}: no optimized structures were produced; "
+                        "skipping ranking for this chunk."
+                    )
+                    continue
+
+                # Ranking step
+                output = meta["output"]
+                duplicate_threshold = args.threshold
+                k = args.k
+                window = args.window
+                rank_engine = ranking(optimized_og,
+                                      output, duplicate_threshold, k=k, window=window)
+                conformers.append(rank_engine.run())
+
+                # Housekeeping
+                housekeeping_folder = meta["housekeeping_folder"]
+                os.mkdir(housekeeping_folder)
+                housekeeping(dir, housekeeping_folder, output)
+                #Conpress verbose folder
+                housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
+                with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
+                    tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
+                shutil.rmtree(housekeeping_folder)
+                if not args.verbose:
+                    try:  # Clusters does not support send2trash
+                        send2trash(housekeeping_folder_gz)
+                    except OSError:
+                        os.remove(housekeeping_folder_gz)
+            except Exception:
+                logger.exception(
+                    f"job{job} failed during optimization/ranking; "
+                    "skipping this chunk and continuing with the rest."
                 )
                 continue
-
-            # Ranking step
-            output = meta["output"]
-            duplicate_threshold = args.threshold
-            k = args.k
-            window = args.window
-            rank_engine = ranking(optimized_og,
-                                  output, duplicate_threshold, k=k, window=window)
-            conformers.append(rank_engine.run())
-
-            # Housekeeping
-            housekeeping_folder = meta["housekeeping_folder"]
-            os.mkdir(housekeeping_folder)
-            housekeeping(dir, housekeeping_folder, output)
-            #Conpress verbose folder
-            housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
-            with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
-                tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
-            shutil.rmtree(housekeeping_folder)
-            if not args.verbose:
-                try:  # Clusters does not support send2trash
-                    send2trash(housekeeping_folder_gz)
-                except OSError:
-                    os.remove(housekeeping_folder_gz)
-        except Exception:
-            logger.exception(
-                f"job{job} failed during optimization/ranking; "
-                "skipping this chunk and continuing with the rest."
-            )
-            continue
-    return conformers
+        return conformers
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     """A child process for logging all information from other processes."""

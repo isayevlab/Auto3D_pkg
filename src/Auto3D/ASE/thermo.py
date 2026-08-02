@@ -40,6 +40,7 @@ from Auto3D.utils.validation import (
     check_engine_supports_molecules,
     check_gpu_requested,
     check_output_not_input,
+    check_output_overwrite,
 )
 
 __all__ = ["calc_thermo"]
@@ -886,7 +887,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
                 opt_steps=DEFAULT_OPT_STEPS,
                 use_gpu: bool = True, allow_tf32: bool = False,
-                out_path: str | None = None):
+                out_path: str | None = None, overwrite: bool = True):
     """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.
 
     Args:
@@ -902,6 +903,10 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
         out_path: Output SDF path. Defaults to ``<input_stem>_<model>_G.sdf`` next
             to the input file.
+        overwrite: Allow writing over an existing output file. Defaults to
+            True, which is the historical behavior every Python-API caller
+            was written against. ``auto3d thermo`` passes False unless
+            ``--force`` is given, so the CLI refuses to clobber.
 
     Notes:
         Gibbs energies are reported at the 1 atm standard state (matching
@@ -959,6 +964,17 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         outpath = path_obj.parent / f"{path_obj.stem}_userNNP_G.sdf"
     else:
         outpath = path_obj.parent / f"{path_obj.stem}_{model_name}_G.sdf"
+
+    # Refuse to truncate a file that already exists. `_write_thermo_output`
+    # opens `Chem.SDWriter(outpath)`, which truncates on open, so without this
+    # `-o precious.sdf` destroyed precious.sdf. The destruction happened at
+    # the very END of the run: nothing is written until every Hessian is done
+    # (`_write_thermo_output` is called after the loop), so a failure anywhere
+    # in between left precious.sdf UNTOUCHED, and only a run that got all the
+    # way through replaced it. Checked on the RESOLVED path, so the derived
+    # default name is covered too, and before get_device/_load_hessian_model/
+    # model_name2model_calculator so nothing is loaded first.
+    check_output_overwrite(outpath, overwrite)
 
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
 

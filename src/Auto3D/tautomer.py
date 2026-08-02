@@ -24,6 +24,19 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
 
     Output: the path of the low-energy tautomer 3D conformers
 
+    Warning:
+        This function writes ``<dir(sdf)>/<stem>_top_tautomers.sdf`` with no
+        overwrite gate: ``Chem.SDWriter`` truncates on open, so a direct call
+        such as ``select_tautomers("/data/results.sdf", k=1)`` replaces any
+        existing ``/data/results_top_tautomers.sdf``. Every route Auto3D
+        itself takes is safe -- ``get_stable_tautomers`` passes ``main()``'s
+        output, which lives in a job directory created fresh for that run, and
+        ``auto3d tautomers`` additionally gates its ``-o`` with
+        ``check_output_overwrite`` -- so this is a hazard for direct API
+        callers only, the same residual class as
+        ``Auto3D.utils.file_ops.smiles2smi`` and ``decode_ids``. See
+        ``docs/superpowers/follow-ups-after-4.0.0-remediation.md``.
+
     Note:
         Tautomers are ranked by the optimized NNP *electronic* energy (``E_tot``)
         only -- no zero-point energy or thermal/entropy correction. Tautomer

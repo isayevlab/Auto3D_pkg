@@ -12,14 +12,17 @@ clean message and a differentiated exit code instead of a traceback.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from Auto3D.cli.console import console, print_success
+from Auto3D.cli.console import emit_json, print_success
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError, DependencyError
 from Auto3D.models.preflight import resolve_engine_name
-from Auto3D.utils.validation import check_gpu_requested, check_output_not_input
+from Auto3D.utils.validation import (
+    check_gpu_requested,
+    check_output_not_input,
+    check_output_overwrite,
+)
 
 # Engine names offered for shell completion. Free-form registry names and custom
 # model paths are also accepted -- each command below validates them with
@@ -37,9 +40,16 @@ def engine_autocomplete(incomplete: str) -> list[str]:
 
 
 def _report(output_path: str, command: str, json_output: bool) -> None:
-    """Report the produced output file (JSON or human-readable)."""
+    """Report the produced output file (JSON or human-readable).
+
+    ``success`` is present so that every ``--json`` document this CLI emits --
+    from ``run``, from these four commands, from ``validate``, and from
+    ``handle_error``'s failure document -- answers the same ``jq -e .success``
+    question. Without it a caller had to know which command it invoked before
+    it could tell a success document from a failure one.
+    """
     if json_output:
-        console.print_json(json.dumps({"command": command, "output_file": output_path}))
+        emit_json({"success": True, "command": command, "output_file": output_path})
     else:
         print_success(f"Wrote {output_path}")
 
@@ -47,9 +57,15 @@ def _report(output_path: str, command: str, json_output: bool) -> None:
 def execute_energy(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int,
     output: Path | None, allow_tf32: bool, json_output: bool,
-    verbose: int = 0,
+    verbose: int = 0, force: bool = False,
 ) -> None:
-    """Single-point energy: wraps calc_spe."""
+    """Single-point energy: wraps calc_spe.
+
+    ``force`` is the CLI half of ``calc_spe``'s ``overwrite`` parameter. The
+    API defaults to permissive (``overwrite=True``) so no existing script
+    breaks; the CLI defaults to refusing, because an interactive
+    ``-o precious.sdf`` typo is unrecoverable.
+    """
     try:
         # Validate before doing any work: calc_spe passes `engine` straight to
         # create_model with no CLIConfig/resolve_engine_name gate of its own,
@@ -66,19 +82,24 @@ def execute_energy(
         out = calc_spe(
             str(input_file), engine, gpu_idx=gpu_idx, use_gpu=gpu,
             allow_tf32=allow_tf32, out_path=str(output) if output else None,
+            overwrite=force,
         )
         _report(out, "energy", json_output)
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)
 
 
 def execute_optimize(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int, output: Path | None,
     opt_tol: float, opt_steps: int, patience: int | None, batchsize_atoms: int,
     allow_tf32: bool, json_output: bool,
-    verbose: int = 0,
+    verbose: int = 0, force: bool = False,
 ) -> None:
-    """Geometry-only optimization of an existing SDF: wraps opt_geometry."""
+    """Geometry-only optimization of an existing SDF: wraps opt_geometry.
+
+    See ``execute_energy`` for why ``force`` defaults to False here and
+    ``overwrite`` defaults to True in the API.
+    """
     try:
         # Validate before doing any work -- see execute_energy's comment.
         resolve_engine_name(engine)
@@ -89,19 +110,24 @@ def execute_optimize(
             opt_steps=opt_steps, patience=patience, batchsize_atoms=batchsize_atoms,
             use_gpu=gpu, allow_tf32=allow_tf32,
             out_path=str(output) if output else None,
+            overwrite=force,
         )
         _report(out, "optimize", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)
 
 
 def execute_thermo(
     input_file: Path, engine: str, gpu: bool, gpu_idx: int, output: Path | None,
     temperature: float, opt_tol: float, opt_steps: int,
     allow_tf32: bool, json_output: bool,
-    verbose: int = 0,
+    verbose: int = 0, force: bool = False,
 ) -> None:
-    """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra."""
+    """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra.
+
+    See ``execute_energy`` for why ``force`` defaults to False here and
+    ``overwrite`` defaults to True in the API.
+    """
     try:
         # Validate before doing any work -- see execute_energy's comment.
         resolve_engine_name(engine)
@@ -123,19 +149,28 @@ def execute_thermo(
             str(input_file), engine, mol_info_func=mol_info_func, gpu_idx=gpu_idx,
             opt_tol=opt_tol, opt_steps=opt_steps, use_gpu=gpu, allow_tf32=allow_tf32,
             out_path=str(output) if output else None,
+            overwrite=force,
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)
 
 
 def execute_tautomers(
     input_file: Path, engine: str, gpu: bool, gpu_idx: str | None,
     tauto_k: int | None, tauto_window: float | None,
     output: Path | None, json_output: bool,
-    verbose: int = 0,
+    verbose: int = 0, force: bool = False,
 ) -> None:
-    """Tautomer enumeration + stable-tautomer ranking: wraps get_stable_tautomers."""
+    """Tautomer enumeration + stable-tautomer ranking: wraps get_stable_tautomers.
+
+    Unlike ``energy``/``optimize``/``thermo``, there is no API parameter to
+    forward ``force`` to: ``get_stable_tautomers`` derives its own output name
+    and this wrapper honors ``-o`` with a ``shutil.move``. The overwrite gate
+    is therefore applied here, by the same shared function the API functions
+    call -- see the ``check_output_not_input`` call right below, which is here
+    for exactly the same reason.
+    """
     try:
         # `energy`/`optimize`/`thermo` get this guard for free by forwarding
         # --output to calc_spe/opt_geometry/calc_thermo, which call it
@@ -144,6 +179,20 @@ def execute_tautomers(
         # `auto3d tautomers mols.smi -o mols.smi` moved the result over the
         # input and destroyed it. Checked here, before the pipeline runs.
         check_output_not_input(str(input_file), str(output) if output else None)
+        # `shutil.move` below replaces the destination silently, so -o at an
+        # existing file destroyed it. Checked here, before the (expensive)
+        # tautomer pipeline runs, rather than just before the move: refusing
+        # after the work is done would be a worse experience for no gain.
+        #
+        # This guards the explicit -o ONLY -- unlike energy/optimize/thermo,
+        # where the same function is handed the resolved path and therefore
+        # also covers the derived default name. There is no resolved path to
+        # hand it here: without -o the result keeps the name
+        # `get_stable_tautomers` derives, `<job_dir>/<stem>_out_top_tautomers.sdf`,
+        # inside a job directory `main()` creates fresh for this run (a bare
+        # mkdir(), no exist_ok), so that path cannot collide with a file the
+        # user owns and there is nothing for a gate to protect.
+        check_output_overwrite(output, force)
 
         if tauto_k is not None and tauto_window is not None:
             raise ConfigurationError(
@@ -170,4 +219,4 @@ def execute_tautomers(
             out = str(output)
         _report(out, "tautomers", json_output)
     except Exception as e:  # noqa: BLE001
-        handle_error(e, verbose=verbose)
+        handle_error(e, verbose=verbose, json_output=json_output)

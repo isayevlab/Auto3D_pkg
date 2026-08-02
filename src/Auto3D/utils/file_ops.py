@@ -23,7 +23,7 @@ from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import inchi
 
-from Auto3D.exceptions import InputValidationError
+from Auto3D.exceptions import ConfigurationError, InputValidationError
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -379,11 +379,32 @@ def housekeeping_helper(folder: str, file: str) -> None:
 
 
 def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
-    """Move all metadata files into a folder.
+    """Move this job directory's metadata files into a folder.
 
-    Moves all files from the job directory into the specified folder,
-    except for the optimized structures file. Also moves any omega/flipper
-    temporary files.
+    Moves every entry of ``job_name`` except the optimized structures file
+    into ``folder``. **Nothing outside ``job_name`` is ever touched**, which
+    is a correctness requirement and not a style preference: the caller
+    (``workflow_workers.optim_rank_wrapper``) tars ``folder``, ``rmtree``s it,
+    and -- under the default ``verbose=False`` -- sends the tarball to trash
+    or, when that is unavailable (the cluster path), plainly ``os.remove``s
+    it. Whatever ends up in ``folder`` is therefore *deleted*.
+
+    This function used to additionally sweep ``oeomega_*`` and ``flipper_*``
+    out of the **process working directory**, which for an ordinary
+    ``cd ~/project && auto3d run mols.smi --k 1`` is the user's own directory:
+    a file named e.g. ``~/project/oeomega_settings.txt`` was moved into the
+    run's ``verbose`` folder and then destroyed with it, unrecoverably on the
+    ``os.remove`` path. That loop ran on *every* run, not only OpenEye ones.
+    The OpenEye logfiles it existed to collect now land inside the chunk
+    directory instead -- ``isomer_engine.oe_isomer`` runs the OpenEye section
+    with its working directory set to the directory it owns -- so the loop
+    below collects them like any other metadata file.
+
+    Each move is guarded individually: a single file that cannot be moved
+    (permissions, a vanished file) must not abandon the rest of the sweep and
+    leave a half-populated ``verbose`` folder plus a spurious traceback
+    behind. Everything here is diagnostic -- the ranked output is excluded and
+    has already been written by the time this runs.
 
     Args:
         job_name: Path to the job directory containing files to move.
@@ -398,19 +419,14 @@ def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
     """
     files = list(Path(job_name).glob("*"))
     for file in files:
-        if str(file) != optimized_structures:
-            shutil.move(str(file), folder)
-
-    # Sweep OpenEye omega/flipper logfiles the binaries drop in the CWD. Guard
-    # each move individually: with multi-GPU optimizers running concurrently a
-    # peer may move/remove a file first, and a single bare try used to abandon
-    # the rest of the sweep on the first such error. (Diagnostic logs only.)
-    for file in list(Path(".").glob("oeomega_*")) + list(Path(".").glob("flipper_*")):
+        if str(file) == optimized_structures:
+            continue
         try:
-            if file.exists():
-                shutil.move(str(file), folder)
+            shutil.move(str(file), folder)
         except OSError:
-            pass
+            logger.warning(
+                "Could not move %s into %s; leaving it where it is.", file, folder
+            )
 
 
 def create_chunk_meta_names(path: str, dir: str) -> dict[str, str]:
@@ -544,14 +560,29 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     return chunks
 
 
-def encode_ids(path: str) -> tuple[str, dict[str, int]]:
+def encode_ids(
+    path: str, out_dir: str | os.PathLike[str] | None = None
+) -> tuple[str, dict[str, int]]:
     """Encode molecule IDs to numeric indices.
 
     For a .smi or .sdf file, replaces all molecule IDs with sequential
     integer indices and returns a mapping from original IDs to indices.
 
+    The encoded file is named ``<stem>_encoded.<ext>``. That name is derived
+    from the input, so it can collide with a file the user already owns:
+    ``mols_encoded.smi`` sitting beside ``mols.smi`` is a perfectly ordinary
+    thing for a user to have, and this function used to overwrite it without
+    a word (``WorkflowOrchestrator`` then ``unlink()``ed it at the end of the
+    run, so the file was destroyed twice over). Two things prevent that now:
+    ``out_dir`` lets the caller redirect the encoded file somewhere it owns
+    -- ``WorkflowOrchestrator`` passes its freshly created job directory --
+    and the collision check below refuses to write over an existing file for
+    every caller, including ones that take the default location.
+
     Args:
         path: Path to the input .smi or .sdf file.
+        out_dir: Directory to write the encoded file into. Defaults to the
+            input file's own directory.
 
     Returns:
         Tuple containing:
@@ -560,6 +591,7 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
 
     Raises:
         ValueError: If the input file is neither .smi nor .sdf format.
+        ConfigurationError: If a file already exists at the encoded path.
         InputValidationError: If a molecule has a missing/blank ID or a
             duplicate ID is encountered.
 
@@ -570,7 +602,20 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
     """
     path_obj = Path(path).resolve()
     extension = path_obj.suffix[1:]
-    new_path = path_obj.parent / f"{path_obj.stem}_encoded.{extension}"
+    # Checked up front rather than in a trailing `else`: the collision check
+    # below must not be the thing that reports an unsupported extension.
+    if extension not in ("smi", "sdf"):
+        raise ValueError("The input file should be either smi or sdf")
+
+    directory = Path(out_dir) if out_dir is not None else path_obj.parent
+    new_path = directory / f"{path_obj.stem}_encoded.{extension}"
+    if new_path.exists():
+        raise ConfigurationError(
+            f"encode_ids would overwrite the existing file {new_path}. "
+            "Auto3D writes its encoded copy of the input there; move or "
+            "rename that file, or pass out_dir to write the encoded copy "
+            "somewhere else."
+        )
 
     if extension == "smi":
         new_data: list[str] = []
@@ -597,7 +642,7 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
                 f.write(line)
         return str(new_path), mapping
 
-    elif extension == "sdf":
+    else:  # "sdf" -- the only remaining possibility, checked above
         suppl = Chem.SDMolSupplier(path, removeHs=False)
         mapping = {}
         with Chem.SDWriter(str(new_path)) as w:
@@ -619,9 +664,6 @@ def encode_ids(path: str) -> tuple[str, dict[str, int]]:
                 mol.SetProp("_Name", str(i))
                 w.write(mol)
         return str(new_path), mapping
-
-    else:
-        raise ValueError("The input file should be either smi or sdf")
 
 
 def decode_ids(path: str, mapping: dict[str, int]) -> str:

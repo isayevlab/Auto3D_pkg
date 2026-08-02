@@ -244,9 +244,43 @@ def build_cli_config(**kwargs: Any) -> CLIConfig:
 
 
 def load_yaml_config(yaml_path: Path) -> CLIConfig:
-    """Load and validate configuration from YAML file."""
-    with open(yaml_path) as f:
-        data = yaml.safe_load(f)
+    """Load and validate configuration from a YAML file.
+
+    Uses ``yaml.safe_load``, so Python-specific tags such as
+    ``!!python/name:os.system`` are rejected rather than constructed.
+
+    Raises:
+        ConfigurationError: the file is empty, is not a YAML mapping, or is
+            not parseable as YAML; or the mapping fails ``CLIConfig``
+            validation (via ``build_cli_config``).
+    """
+    try:
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as exc:
+        # A syntax error in the user's file is a configuration problem, not an
+        # internal fault. Raised as ConfigurationError so the CLI reports it at
+        # exit 2 with a hint rather than as "Unexpected Error" at exit 1.
+        raise ConfigurationError(
+            f"{yaml_path} is not valid YAML: {exc}"
+        ) from exc
+
+    # An empty file parses to None, and a top-level list or scalar parses to a
+    # non-mapping. Both used to reach `data.items()` and surface as
+    # `AttributeError: 'NoneType' object has no attribute 'items'` under the
+    # generic "Unexpected Error" panel at exit 1 -- an internal-looking crash
+    # for an ordinary mistake, and precisely the outcome build_cli_config
+    # exists to prevent.
+    if data is None:
+        raise ConfigurationError(
+            f"{yaml_path} is empty. A config file must contain a YAML mapping "
+            "of option names to values, for example 'k: 1'."
+        )
+    if not isinstance(data, dict):
+        raise ConfigurationError(
+            f"{yaml_path} must contain a YAML mapping of option names to "
+            f"values, but its top level is a {type(data).__name__}."
+        )
 
     # Convert 'None' strings to actual None
     for key, val in list(data.items()):

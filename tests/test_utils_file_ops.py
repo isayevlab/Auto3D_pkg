@@ -668,6 +668,50 @@ class TestEncodeDecodeIds:
         with pytest.raises(InputValidationError):
             encode_ids(str(sdf))
 
+    def test_encode_ids_refuses_to_overwrite_an_existing_file(self, tmp_path):
+        """The `<stem>_encoded.<ext>` name belongs to the user until proven
+        otherwise.
+
+        The name is derived from the input, so `mols_encoded.smi` beside
+        `mols.smi` is an ordinary thing for a user to own -- and this function
+        used to open it for writing without a word. `WorkflowOrchestrator`
+        now redirects the encoded copy into its own job directory (see
+        `out_dir` below), but this check keeps the guarantee attached to the
+        function itself, so a caller taking the default location cannot
+        reintroduce the defect.
+        """
+        from Auto3D.exceptions import ConfigurationError
+
+        p = tmp_path / "mols.smi"
+        p.write_text("CCO a\n")
+        users_file = tmp_path / "mols_encoded.smi"
+        users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
+
+        with pytest.raises(ConfigurationError, match="would overwrite"):
+            encode_ids(str(p))
+
+        assert users_file.read_bytes() == b"IRREPLACEABLE USER DATA\n"
+
+    def test_encode_ids_writes_into_out_dir_when_given_one(self, tmp_path):
+        """`out_dir` moves the encoded copy somewhere the caller owns.
+
+        This is how the run pipeline avoids the collision above entirely: it
+        passes the job directory it just created. The file name is unchanged,
+        only its directory -- downstream code (`_setup_job_directory`,
+        `decode_ids`) parses that name.
+        """
+        p = tmp_path / "mols.smi"
+        p.write_text("CCO a\nCCC b\n")
+        staging = tmp_path / "staging"
+        staging.mkdir()
+
+        new_path, mapping = encode_ids(str(p), out_dir=staging)
+
+        assert Path(new_path).parent == staging
+        assert Path(new_path).name == "mols_encoded.smi"
+        assert mapping == {"a": 0, "b": 1}
+        assert not (tmp_path / "mols_encoded.smi").exists()
+
 
 class TestReorderSdf:
     """Tests for reorder_sdf function."""
@@ -1097,8 +1141,18 @@ class TestIterSmiRecords:
             list(iter_smi_records(str(p), on_malformed="bogus"))
 
 
-def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
-    """A vanished/peer-moved oeomega_* file must not abort moving the rest."""
+def test_housekeeping_sweep_is_per_file_robust(tmp_path, monkeypatch):
+    """One unmovable file must not abandon the rest of the sweep.
+
+    This guard used to live on a second loop that swept `oeomega_*` out of the
+    *process working directory*; that loop is gone (it destroyed user files --
+    see `TestHousekeepingStaysInsideTheJobDirectory` in tests/test_durability.py)
+    and the OpenEye logfiles it collected now land inside the job directory,
+    where this loop picks them up. The robustness property moved with them: a
+    permission error, or a file that vanished under us, must leave a complete
+    `verbose` folder minus that one file rather than a half-populated one plus
+    a traceback out of `optim_rank_wrapper`'s blanket except.
+    """
     import os
 
     from Auto3D.utils.file_ops import housekeeping
@@ -1107,13 +1161,11 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
     job.mkdir()
     dest = tmp_path / "verbose"
     dest.mkdir()
-    cwd = tmp_path / "cwd"
-    cwd.mkdir()
-    monkeypatch.chdir(cwd)
 
-    # Two omega logfiles; the FIRST one encountered (by counter) will "disappear".
-    (cwd / "oeomega_a.log").write_text("a")
-    (cwd / "oeomega_b.log").write_text("b")
+    # Two logfiles in the job directory; the FIRST one encountered (by
+    # counter) will fail to move.
+    (job / "oeomega_a.log").write_text("a")
+    (job / "oeomega_b.log").write_text("b")
 
     real_move = __import__("shutil").move
     call_count = {"n": 0}
@@ -1121,7 +1173,7 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
     def flaky_move(src, dst):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            # Simulate a peer worker having already moved the first file.
+            # Simulate the file having gone away underneath the sweep.
             if os.path.exists(src):
                 os.remove(src)
             raise OSError("already gone")
@@ -1131,7 +1183,8 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
 
     housekeeping(str(job), str(dest), str(job / "out.sdf"))  # must not raise
 
-    # Exactly one of the two logfiles must have been successfully moved.
+    # Exactly one of the two logfiles must have been successfully moved: the
+    # sweep continued past the failure instead of stopping on it.
     moved = list(dest.glob("oeomega_*.log"))
     assert len(moved) == 1, f"Expected 1 moved file, got {[f.name for f in moved]}"
 

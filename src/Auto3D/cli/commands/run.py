@@ -7,15 +7,21 @@ import time
 from pathlib import Path
 
 from Auto3D.cli.config_schema import build_cli_config, load_yaml_config, merge_configs
-from Auto3D.cli.console import console, print_banner, print_warning
-from Auto3D.cli.errors import handle_error
+from Auto3D.cli.console import (
+    console,
+    error_console,
+    print_banner,
+    suppress_foreign_stdout,
+)
+from Auto3D.cli.errors import handle_error, handle_interrupt, job_directory_hint
 from Auto3D.cli.results import (
     FailedMolecule,
     WorkflowResults,
     output_json,
+    print_failures,
     print_results_summary,
 )
-from Auto3D.exceptions import Auto3DError
+from Auto3D.exceptions import Auto3DError, ConfigurationError
 from Auto3D.utils.logging_config import configure_logging
 
 # A partial run (the process completed, but some input molecules produced no
@@ -81,125 +87,192 @@ def execute_run(
     # configure_logging), so --json stdout stays a clean, parseable document.
     configure_logging(verbose=verbose > 0)
 
-    try:
-        # Validate input file exists
-        if not input_file.exists():
-            from Auto3D.exceptions import InputValidationError
-            raise InputValidationError(f"Input file not found: {input_file}")
+    # What a Ctrl-C handler will have to work with. Both stay None until the
+    # corresponding fact is actually known, so the interrupt report can state
+    # what is known and omit the rest -- an interrupt during configuration
+    # building has no job directory and no counts to speak of.
+    job_hint: str | None = None
+    display = None
 
-        # Build configuration
-        if config_file:
-            config = load_yaml_config(config_file)
-            config = build_cli_config(path=input_file, **config.model_dump(exclude={"path"}))
-        else:
-            # Pydantic provides defaults for all fields except path
-            config = build_cli_config(path=input_file)  # type: ignore[call-arg]
+    # `--quiet` has to cover output Auto3D does not write. Building the
+    # configuration below resolves the engine name, which imports
+    # `aimnet` -> `warp` and prints a 14-line device banner to stdout; a
+    # `quiet` check around our own `console.print` calls never touched it.
+    # Held rather than dropped: if this run fails, whatever the library
+    # printed is released to stderr on the way out (see
+    # suppress_foreign_stdout), so quieting a banner cannot also swallow
+    # the message that explained a crash.
+    with suppress_foreign_stdout(quiet):
+        try:
+            # Validate input file exists
+            if not input_file.exists():
+                from Auto3D.exceptions import InputValidationError
+                raise InputValidationError(f"Input file not found: {input_file}")
 
-        # Apply CLI overrides
-        overrides = {
-            "k": k,
-            "window": window,
-            "optimizing_engine": engine,
-            "use_gpu": gpu,
-            "gpu_idx": gpu_idx,
-            "job_name": job_name,
-            # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
-            # Only override when set, so a config-file `verbose: true` is preserved.
-            "verbose": True if save_intermediate else None,
-        }
-        config = merge_configs(config, {key: val for key, val in overrides.items() if val is not None})
+            # Build configuration
+            if config_file:
+                config = load_yaml_config(config_file)
+                config = build_cli_config(path=input_file, **config.model_dump(exclude={"path"}))
+            else:
+                # Pydantic provides defaults for all fields except path
+                config = build_cli_config(path=input_file)  # type: ignore[call-arg]
 
-        # Validate output settings
-        if config.k is None and config.window is None:
-            config = merge_configs(config, {"k": 1})
-            if not quiet:
-                print_warning("Neither k nor window specified, using k=1")
+            # Apply CLI overrides
+            overrides = {
+                "k": k,
+                "window": window,
+                "optimizing_engine": engine,
+                "use_gpu": gpu,
+                "gpu_idx": gpu_idx,
+                "job_name": job_name,
+                # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
+                # Only override when set, so a config-file `verbose: true` is preserved.
+                "verbose": True if save_intermediate else None,
+            }
+            config = merge_configs(config, {key: val for key, val in overrides.items() if val is not None})
 
-        # Print banner unless quiet/json
-        if not quiet and not json_output:
-            gpu_info = f"CUDA:{config.gpu_idx}" if config.use_gpu else "CPU"
-            output_info = f"k={config.k}" if config.k else f"window={config.window}"
-            print_banner(
-                input_path=str(config.path),
-                engine=config.optimizing_engine,
-                gpu_info=gpu_info,
-                output_info=output_info,
+            # Conformer selection is required, exactly as it is for main(),
+            # smiles2mols and the legacy `auto3d config.yaml` form. This used to
+            # inject k=1 with a warning, which made `auto3d run` the only entry
+            # point that would pick a scientific parameter on the user's behalf --
+            # a user who forgot --k silently got one conformer per molecule while
+            # every other surface refused. Raised here rather than left to
+            # check_valid_configuration inside main() so it fails before the banner
+            # prints (which would otherwise render "window=None") and before any
+            # work starts. Same wording as auto3D.py:167 / workflow.py:198.
+            if config.k is None and config.window is None:
+                raise ConfigurationError(
+                    "Either k or window needs to be specified. "
+                    "Usually, setting '--k=1' satisfies most needs."
+                )
+
+            # Print banner unless quiet/json
+            if not quiet and not json_output:
+                gpu_info = f"CUDA:{config.gpu_idx}" if config.use_gpu else "CPU"
+                output_info = f"k={config.k}" if config.k else f"window={config.window}"
+                print_banner(
+                    input_path=str(config.path),
+                    engine=config.optimizing_engine,
+                    gpu_info=gpu_info,
+                    output_info=output_info,
+                )
+                console.print()
+
+            # Convert to Auto3DOptions and run
+            options = config.to_auto3d_options()
+            job_hint = job_directory_hint(config.path, config.job_name)
+
+            from Auto3D.auto3D import main
+
+            if not quiet and not json_output:
+                # Interactive: render a live optimization panel (converged/active/
+                # dropped/step) fed by per-step events from the optimizer workers.
+                from rich.live import Live
+
+                from Auto3D.cli.progress import OptimizationDisplay
+
+                display = OptimizationDisplay(0)
+                jobs: dict = {}
+                # On `error_console` (stderr), not `console` (the reserved
+                # stdout). Progress is a diagnostic and belongs on the stream
+                # every other diagnostic uses; results belong on stdout. Putting
+                # the parent `Live` on stdout while the child's `print_stats`
+                # went to stderr meant the two interleaved under a pty and tore
+                # the panel border apart, and it meant `auto3d run > log` -- the
+                # case where a live panel is *most* useful, because stdout is
+                # not on screen -- put the panel in the log file and showed the
+                # user nothing. It also kept stdout non-empty during a run,
+                # which is the same stream `--json` promises carries only the
+                # document.
+                with Live(
+                    display.make_panel(), console=error_console, refresh_per_second=8
+                ) as live:
+                    def progress_cb(event: dict) -> None:
+                        jobs[event.get("job", 0)] = event
+                        display.update_from_jobs(jobs)
+                        live.update(display.make_panel())
+
+                    output_path = main(options, progress_callback=progress_cb)
+            else:
+                # Quiet / JSON: no live display, keep stdout clean for piping.
+                output_path = main(options)
+
+            elapsed = time.time() - start_time
+
+            # main() returns a WorkflowResult (a path str carrying the counts and
+            # the reconciled failure list), so we read everything off the result
+            # instead of re-opening the output SDF or re-deriving a count here.
+            # getattr keeps the old graceful defaults if a caller/mock ever hands
+            # back a plain str instead of a WorkflowResult.
+            molecules = getattr(output_path, "n_molecules", 0)
+            conformers = getattr(output_path, "n_conformers", 0)
+            # `failures` is Task 3's reconciliation carrier: the input molecule
+            # IDs that WorkflowOrchestrator._finalize_output could not find in
+            # the output SDF. This replaces the old `max(0, input_count -
+            # molecules)` derivation, which was wrong two ways: the `max(0, ...)`
+            # silently floored to zero whenever tautomer enumeration made
+            # `molecules` legitimately exceed the input count (more outputs than
+            # inputs is not a failure), and even when the arithmetic was right it
+            # was only ever a count -- it could never say *which* molecule was
+            # lost, so `results.failures` was hardcoded to `[]` regardless.
+            # `missing_ids` is one entry per input molecule absent from the
+            # output, independent of how many conformers it would have produced,
+            # so a molecule that generated 3 conformers is still exactly one
+            # success and never appears here.
+            missing_ids: list[str] = list(getattr(output_path, "failures", []) or [])
+            failed_count = len(missing_ids)
+            results = WorkflowResults(
+                success_count=molecules,
+                failed_count=failed_count,
+                total_conformers=conformers,
+                output_path=str(output_path) if output_path else "N/A",
+                elapsed_seconds=elapsed,
+                failures=[
+                    FailedMolecule(name=mol_id, error="no conformer generated (missing from output)")
+                    for mol_id in missing_ids
+                ],
             )
-            console.print()
 
-        # Convert to Auto3DOptions and run
-        options = config.to_auto3d_options()
+            # Output results before deciding whether to exit non-zero, so a
+            # --json consumer always receives a parseable document -- even on a
+            # run that is about to signal partial failure (C6/B8).
+            if json_output:
+                output_json(results)
+            elif not quiet:
+                console.print()
+                print_results_summary(results)
+                # The summary panel carries only a *count* of missing
+                # molecules. `migration-4.0.rst` says the summary lists them,
+                # and `--json` does -- but the human path named none of them,
+                # so an interactive user who saw "1 failed" and exit 6 had no
+                # way to learn which molecule it was without rerunning with
+                # --json. `print_failures` existed for exactly this and had no
+                # production caller at all.
+                print_failures(results.failures, verbose=verbose > 0)
 
-        from Auto3D.auto3D import main
+            _exit_if_incomplete(results)
 
-        if not quiet and not json_output:
-            # Interactive: render a live optimization panel (converged/active/
-            # dropped/step) fed by per-step events from the optimizer workers.
-            from rich.live import Live
-
-            from Auto3D.cli.progress import OptimizationDisplay
-
-            display = OptimizationDisplay(0)
-            jobs: dict = {}
-            with Live(display.make_panel(), console=console, refresh_per_second=8) as live:
-                def progress_cb(event: dict) -> None:
-                    jobs[event.get("job", 0)] = event
-                    display.update_from_jobs(jobs)
-                    live.update(display.make_panel())
-
-                output_path = main(options, progress_callback=progress_cb)
-        else:
-            # Quiet / JSON: no live display, keep stdout clean for piping.
-            output_path = main(options)
-
-        elapsed = time.time() - start_time
-
-        # main() returns a WorkflowResult (a path str carrying the counts and
-        # the reconciled failure list), so we read everything off the result
-        # instead of re-opening the output SDF or re-deriving a count here.
-        # getattr keeps the old graceful defaults if a caller/mock ever hands
-        # back a plain str instead of a WorkflowResult.
-        molecules = getattr(output_path, "n_molecules", 0)
-        conformers = getattr(output_path, "n_conformers", 0)
-        # `failures` is Task 3's reconciliation carrier: the input molecule
-        # IDs that WorkflowOrchestrator._finalize_output could not find in
-        # the output SDF. This replaces the old `max(0, input_count -
-        # molecules)` derivation, which was wrong two ways: the `max(0, ...)`
-        # silently floored to zero whenever tautomer enumeration made
-        # `molecules` legitimately exceed the input count (more outputs than
-        # inputs is not a failure), and even when the arithmetic was right it
-        # was only ever a count -- it could never say *which* molecule was
-        # lost, so `results.failures` was hardcoded to `[]` regardless.
-        # `missing_ids` is one entry per input molecule absent from the
-        # output, independent of how many conformers it would have produced,
-        # so a molecule that generated 3 conformers is still exactly one
-        # success and never appears here.
-        missing_ids: list[str] = list(getattr(output_path, "failures", []) or [])
-        failed_count = len(missing_ids)
-        results = WorkflowResults(
-            success_count=molecules,
-            failed_count=failed_count,
-            total_conformers=conformers,
-            output_path=str(output_path) if output_path else "N/A",
-            elapsed_seconds=elapsed,
-            failures=[
-                FailedMolecule(name=mol_id, error="no conformer generated (missing from output)")
-                for mol_id in missing_ids
-            ],
-        )
-
-        # Output results before deciding whether to exit non-zero, so a
-        # --json consumer always receives a parseable document -- even on a
-        # run that is about to signal partial failure (C6/B8).
-        if json_output:
-            output_json(results)
-        elif not quiet:
-            console.print()
-            print_results_summary(results)
-
-        _exit_if_incomplete(results)
-
-    except Auto3DError as e:
-        handle_error(e, verbose=verbose)
-    except Exception as e:
-        handle_error(e, verbose=verbose)
+        except KeyboardInterrupt:
+            # KeyboardInterrupt is a BaseException, so neither `except
+            # Auto3DError` nor `except Exception` below ever saw it: Ctrl-C
+            # printed nothing at all and left the user with no idea how far the
+            # run had got or whether anything reached disk.
+            #
+            # Note what this clause is NOT for: typer/core.py already converts
+            # an escaping KeyboardInterrupt into click's Exit(130), so the exit
+            # *code* was correct without it (verified -- a test asserting only
+            # `exit_code == 130` passes with this whole clause deleted). What
+            # the framework cannot do is report anything about the run, and it
+            # does nothing at all for the legacy `auto3d config.yaml` entry
+            # point, which is not a Typer command and dumps a raw traceback.
+            # The report is the fix; the constant just makes the code
+            # deliberate and shared between the two entry points.
+            handle_interrupt(
+                job_hint=job_hint,
+                batch=display.as_batch_counts() if display is not None else None,
+                elapsed_seconds=time.time() - start_time,
+            )
+        except Auto3DError as e:
+            handle_error(e, verbose=verbose, json_output=json_output)
+        except Exception as e:
+            handle_error(e, verbose=verbose, json_output=json_output)

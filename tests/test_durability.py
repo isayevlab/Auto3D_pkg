@@ -647,3 +647,631 @@ class TestConformerRankerSameFileGuard:
             threshold=0.3, k=1,
         )
         assert ranker.out_path.endswith("ranked.sdf")
+
+
+class _StopAfterEncodingError(Exception):
+    """Sentinel: the pipeline reached the phase right after encoding.
+
+    Raised from a stubbed ``_setup_logging`` so ``run()`` executes Phase 1 for
+    real -- validation, job-directory creation, ``encode_ids`` -- and then
+    unwinds through the same ``finally`` a real run does, without forking a
+    worker or loading an NNP (both disallowed on this box).
+    """
+
+
+def _stop_after_encoding(self):
+    raise _StopAfterEncodingError()
+
+
+class TestEncodedInputStaging:
+    """`auto3d run mols.smi` must not touch a user's `mols_encoded.smi`.
+
+    ``encode_ids`` names its output ``<stem>_encoded.<ext>``, derived from the
+    input. That collides with a perfectly ordinary user file, and the collision
+    used to be silent and doubly fatal: ``encode_ids`` opened the path for
+    writing (truncating it), and ``run()``'s ``finally`` then ``unlink()``ed
+    it. The comment on that unlink claimed its ``is_file()`` test "guards
+    against ever unlinking anything but a real encoded input" -- it cannot tell
+    Auto3D's file from the user's, and both halves of the damage were
+    reproduced against a file containing "IRREPLACEABLE USER DATA".
+
+    The fix stages the encoded copy inside the run's own job directory, which
+    ``_setup_job_directory`` creates with a bare ``mkdir()`` immediately
+    before. That directory is provably new, which is what makes both the write
+    and the unlink safe -- so the second test below pins the ``mkdir()``, not
+    just the location.
+    """
+
+    def test_a_users_encoded_file_is_untouched_byte_for_byte(
+        self, job_dir, monkeypatch
+    ):
+        """The whole point: run the pipeline over `mols.smi` with a user's
+        `mols_encoded.smi` sitting beside it, and that file must come back
+        identical -- not merely still present.
+
+        Byte comparison, not `exists()`: the old code overwrote the file with
+        encoded output *and then* deleted it, so an existence check alone
+        would also have been satisfied by an overwrite that happened not to be
+        cleaned up. `id_mapping` is asserted too, because the run must
+        *succeed* past encoding -- a fix that refused the run whenever the
+        encoded name was taken would leave the file intact and still be wrong.
+        """
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        smi = job_dir / "mols.smi"
+        smi.write_text("CCO ethanol\n")
+        users_file = job_dir / "mols_encoded.smi"
+        users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
+        original = users_file.read_bytes()
+
+        monkeypatch.setattr(
+            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
+        )
+        # ANI2xt is bundled, so Phase 1's real preflight_model stays offline
+        # (no registry lookup, no download); use_gpu=False keeps the GPU check
+        # from failing for an unrelated reason.
+        orch = WorkflowOrchestrator(
+            Auto3DOptions(
+                path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
+            )
+        )
+
+        with pytest.raises(_StopAfterEncodingError):
+            orch.run()
+
+        assert orch.id_mapping == {"ethanol": 0}, (
+            "encoding never completed, so this test would pass even if the "
+            "run were simply refused whenever mols_encoded.smi exists"
+        )
+        assert users_file.exists(), "the user's file was deleted by the run"
+        assert users_file.read_bytes() == original, (
+            "the user's mols_encoded.smi was overwritten with encoded output"
+        )
+
+        # The encoded copy went into the run's own directory, and the cleanup
+        # in run()'s finally removed *that* file rather than the user's.
+        assert orch.input_path.parent == orch.job_dir, (
+            f"encoded input {orch.input_path} was not staged inside the job "
+            f"directory {orch.job_dir}"
+        )
+        assert not orch.input_path.exists()
+
+    def test_the_job_directory_is_never_reused(self, job_dir, monkeypatch):
+        """`_setup_job_directory` must fail on a name collision, not merge.
+
+        Everything above rests on the job directory being new: that is the
+        only reason `_encode_input` may write into it without an existence
+        check and `run()`'s `finally` may unlink out of it. A stray
+        `exist_ok=True` would silently restore the original defect one level
+        up -- Auto3D would clobber and delete inside a directory the user
+        already owned -- while leaving the first test green, since it never
+        collides on the job name.
+        """
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        smi = job_dir / "mols.smi"
+        smi.write_text("CCO ethanol\n")
+        # job_name is pinned so the directory name is predictable; the real
+        # default is a microsecond timestamp.
+        squatted = job_dir / "mols_pinned"
+        squatted.mkdir()
+        precious = squatted / "results.sdf"
+        precious.write_bytes(b"EARLIER RUN\n")
+
+        monkeypatch.setattr(
+            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
+        )
+        orch = WorkflowOrchestrator(
+            Auto3DOptions(
+                path=str(smi), k=1, use_gpu=False,
+                optimizing_engine="ANI2xt", job_name="pinned",
+            )
+        )
+
+        with pytest.raises(FileExistsError):
+            orch.run()
+
+        assert precious.read_bytes() == b"EARLIER RUN\n"
+        assert sorted(p.name for p in squatted.iterdir()) == ["results.sdf"], (
+            "the run wrote into a directory it did not create"
+        )
+
+
+class TestOutputOverwriteGuard:
+    """An existing output file must not be truncated without consent.
+
+    `auto3d energy junk.sdf --no-gpu -o precious.sdf` exited 0, printed
+    "Wrote precious.sdf", and left precious.sdf at 0 bytes: `Chem.SDWriter`
+    truncates on open, and a run whose every record failed to parse then wrote
+    nothing back. `auto3d config init` has refused to clobber since it
+    shipped; the calculators did not.
+
+    `check_output_overwrite` is one shared function called from calc_spe,
+    opt_geometry, calc_thermo and ConformerRanker, so -- exactly as for
+    `TestSameFileGuard` above -- each gets its own test here: a guard wired
+    into three of the four would otherwise sail through with the fourth
+    silently still destroying its caller's file.
+
+    Every test below passes `overwrite=False` explicitly, because the API
+    parameter deliberately defaults to True: `--force` is a CLI concept, and
+    a strict API default would break every existing Python caller that
+    re-runs into the same output path. The CLI is what supplies False (see
+    `tests/test_cli_property_commands.py`, which pins that wiring); these
+    tests pin what the API does once it is supplied.
+
+    Every test asserts `ConfigurationError`, never the base `Auto3DError`:
+    `check_gpu_requested` runs earlier in all three API functions and raises
+    `GPUError`, which is also an `Auto3DError` and would satisfy a base-class
+    assertion on any CPU-only runner without ever reaching the subject.
+    `use_gpu=False` below is the other half of that protection.
+    """
+
+    def test_calc_spe_refuses_an_existing_output(self, job_dir, monkeypatch):
+        import Auto3D.SPE as spe_mod
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        precious = job_dir / "precious.sdf"
+        precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
+        original = precious.read_bytes()
+
+        # The guard is specified to run before any model construction, so
+        # reaching either of these is itself the bug -- and it keeps the test
+        # from loading an NNP if the guard is ever removed.
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "calc_spe reached model construction; the overwrite guard "
+                "must refuse an existing output before any model is built"
+            )
+
+        monkeypatch.setattr(spe_mod, "get_device", _never)
+        monkeypatch.setattr(spe_mod, "create_model", _never)
+
+        with pytest.raises(ConfigurationError, match="already exists"):
+            spe_mod.calc_spe(
+                str(sdf), "AIMNET", out_path=str(precious), use_gpu=False,
+                overwrite=False,
+            )
+
+        assert precious.read_bytes() == original
+
+    def test_calc_spe_overwrites_when_the_caller_asks(self, job_dir, monkeypatch):
+        """Negative control: `overwrite=True` (what `--force` sets) must still
+        replace the file, and the API default must stay permissive so no
+        existing Python caller breaks.
+
+        Without this, a guard that refused unconditionally would satisfy every
+        other test in this class.
+        """
+        import Auto3D.SPE as spe_mod
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        stale = job_dir / "stale.sdf"
+        stale.write_bytes(b"OLD RESULTS\n")
+
+        class FakeAdapter:
+            coord_pad = 0.0
+            species_pad = 0
+
+        class FakeEnForce:
+            def __init__(self, adapter):
+                pass
+
+            def forward_batched(self, coords, numbers, charges):
+                n = coords.shape[0]
+                return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
+
+        def fake_pad(mols, model_name, device, coord_pad, species_pad):
+            n = len(mols)
+            return (
+                torch.zeros(n, 1, 3),
+                torch.zeros(n, 1, dtype=torch.long),
+                torch.zeros(n, dtype=torch.long),
+                torch.ones(n, 1, dtype=torch.bool),
+            )
+
+        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+        monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
+
+        out = spe_mod.calc_spe(
+            str(sdf), "AIMNET", out_path=str(stale), use_gpu=False, overwrite=True
+        )
+
+        assert out == str(stale)
+        assert stale.read_bytes() != b"OLD RESULTS\n", "the run did not write"
+        assert "E_hartree" in stale.read_text()
+
+        # And the default is permissive: the same call without `overwrite`
+        # must also go through, which is what keeps every pre-existing
+        # Python-API caller working.
+        spe_mod.calc_spe(str(sdf), "AIMNET", out_path=str(stale), use_gpu=False)
+
+    def test_the_derived_default_output_path_is_guarded_too(
+        self, job_dir, monkeypatch
+    ):
+        """The guard is on the resolved path, not on `out_path is not None`.
+
+        A second `auto3d energy mols.sdf` writes `mols_AIMNET_E.sdf` -- the
+        first run's results -- with no `-o` anywhere in sight. Checking only
+        the explicit `-o` would leave that case silently destructive.
+        """
+        import Auto3D.SPE as spe_mod
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        earlier = job_dir / "mols_AIMNET_E.sdf"
+        earlier.write_bytes(b"FIRST RUN RESULTS\n")
+
+        def _never(*args, **kwargs):
+            raise AssertionError("model construction reached")
+
+        monkeypatch.setattr(spe_mod, "get_device", _never)
+        monkeypatch.setattr(spe_mod, "create_model", _never)
+
+        with pytest.raises(ConfigurationError, match="already exists"):
+            spe_mod.calc_spe(str(sdf), "AIMNET", use_gpu=False, overwrite=False)
+
+        assert earlier.read_bytes() == b"FIRST RUN RESULTS\n"
+
+    def test_opt_geometry_refuses_an_existing_output(self, job_dir, monkeypatch):
+        import Auto3D.ASE.geometry as geometry
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        precious = job_dir / "precious.sdf"
+        precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
+        original = precious.read_bytes()
+
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "opt_geometry reached model construction; the overwrite guard "
+                "must refuse an existing output before any model is built"
+            )
+
+        monkeypatch.setattr(geometry, "get_device", _never)
+        monkeypatch.setattr(geometry, "optimizing", _never)
+
+        with pytest.raises(ConfigurationError, match="already exists"):
+            geometry.opt_geometry(
+                str(sdf), "AIMNET", out_path=str(precious), use_gpu=False,
+                overwrite=False,
+            )
+
+        assert precious.read_bytes() == original
+
+    def test_calc_thermo_refuses_an_existing_output(self, job_dir, monkeypatch):
+        import Auto3D.ASE.thermo as thermo_mod
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        precious = job_dir / "precious.sdf"
+        precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
+        original = precious.read_bytes()
+
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "calc_thermo reached model construction; the overwrite guard "
+                "must refuse an existing output before any model is built"
+            )
+
+        monkeypatch.setattr(thermo_mod, "_load_hessian_model", _never)
+        monkeypatch.setattr(thermo_mod, "model_name2model_calculator", _never)
+
+        with pytest.raises(ConfigurationError, match="already exists"):
+            thermo_mod.calc_thermo(
+                str(sdf), "AIMNET", out_path=str(precious), use_gpu=False,
+                overwrite=False,
+            )
+
+        assert precious.read_bytes() == original
+
+    def test_conformer_ranker_refuses_an_existing_output(self, job_dir):
+        """Fourth writer, same exposure -- and the same construction-time
+        check as its same-file guard, so it fails before any work."""
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.ranking import ConformerRanker
+
+        sdf = job_dir / "opt.sdf"
+        _write_sdf(sdf, ["a", "b"])
+        precious = job_dir / "precious.sdf"
+        precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
+
+        with pytest.raises(ConfigurationError, match="already exists"):
+            ConformerRanker(
+                input_path=str(sdf), out_path=str(precious), threshold=0.3,
+                k=1, overwrite=False,
+            )
+
+        assert precious.read_bytes() == b"IRREPLACEABLE USER DATA\n"
+
+        # Default stays permissive: Auto3D's own pipeline always writes into a
+        # job directory it just created, and every existing caller relies on it.
+        ranker = ConformerRanker(
+            input_path=str(sdf), out_path=str(precious), threshold=0.3, k=1
+        )
+        assert ranker.out_path == str(precious)
+
+    def test_the_guard_permits_everything_it_should(self, job_dir):
+        """Negative controls for the shared function itself."""
+        from Auto3D.utils.validation import check_output_overwrite
+
+        existing = job_dir / "there.sdf"
+        existing.write_text("x")
+
+        # Nothing to write; a path that does not exist yet; and an existing
+        # path the caller explicitly consented to replace.
+        check_output_overwrite(None, False)
+        check_output_overwrite(job_dir / "not_created_yet.sdf", False)
+        check_output_overwrite(existing, True)
+
+    def test_the_guard_accepts_str_and_path_alike(self, job_dir):
+        """Call sites pass both: calc_thermo resolves a `Path`, opt_geometry
+        an `os.path.join` string. A guard that only handled one would silently
+        no-op for the other."""
+        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.utils.validation import check_output_overwrite
+
+        existing = job_dir / "there.sdf"
+        existing.write_text("x")
+
+        for spelling in (str(existing), existing):
+            with pytest.raises(ConfigurationError, match="already exists"):
+                check_output_overwrite(spelling, False)
+
+    def test_the_same_file_guard_still_applies_under_force(self, job_dir, monkeypatch):
+        """`--force` lifts the overwrite gate, not the same-file gate.
+
+        Overwriting your own earlier output is a recoverable choice; writing
+        the filtered result over the input it was computed from is not, so
+        `check_output_not_input` must keep refusing regardless.
+        """
+        import Auto3D.SPE as spe_mod
+        from Auto3D.exceptions import ConfigurationError
+
+        sdf = job_dir / "mols.sdf"
+        _write_sdf(sdf, ["m1"])
+        original = sdf.read_bytes()
+
+        def _never(*args, **kwargs):
+            raise AssertionError("model construction reached")
+
+        monkeypatch.setattr(spe_mod, "get_device", _never)
+        monkeypatch.setattr(spe_mod, "create_model", _never)
+
+        with pytest.raises(ConfigurationError, match="same file"):
+            spe_mod.calc_spe(
+                str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False,
+                overwrite=True,
+            )
+
+        assert sdf.read_bytes() == original
+
+
+class TestHousekeepingStaysInsideTheJobDirectory:
+    """`housekeeping` must never touch a file outside the directory it is given.
+
+    Everything `housekeeping` moves into `folder` is *deleted*:
+    `workflow_workers.optim_rank_wrapper` tars `folder`, `rmtree`s it and --
+    under the default `verbose=False` -- sends the tarball to trash, falling
+    back to a plain `os.remove` when `send2trash` is unavailable (the cluster
+    path). So the second loop this function used to carry, which globbed
+    `Path(".")` -- the *process working directory*, i.e. the user's own shell
+    directory for an ordinary `auto3d run` -- for `oeomega_*`/`flipper_*` and
+    moved the hits into `folder`, was a destructive write to a directory
+    Auto3D does not own. It ran on every run, not only OpenEye ones.
+
+    This is the third data-loss path of this effort and the second one that a
+    search *by operation* still nearly missed: the earlier audit did grep
+    every `shutil.move`, and cleared this line as "moves within the job dir"
+    on the strength of the enclosing function's name rather than the value
+    `Path(".")` holds at runtime.
+    """
+
+    def test_a_users_cwd_file_matching_the_sweep_globs_is_untouched(
+        self, job_dir, monkeypatch
+    ):
+        """Byte-identical, not merely present.
+
+        `shutil.move` across filesystems copies and then unlinks, and the
+        tar/rmtree/remove chain downstream would destroy a copy just as
+        thoroughly as the original -- so `exists()` alone would also be
+        satisfied by a sweep that moved the file and happened to be
+        interrupted before the deletion.
+        """
+        from Auto3D.utils.file_ops import housekeeping
+
+        # The user's shell directory: `cd ~/project && auto3d run mols.smi`.
+        project = job_dir / "project"
+        project.mkdir()
+        users_file = project / "oeomega_settings.txt"
+        users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
+        original = users_file.read_bytes()
+        users_other = project / "flipper_notes.md"
+        users_other.write_bytes(b"KEEP ME TOO\n")
+
+        # The run's own chunk directory, laid out the way
+        # create_chunk_meta_names/optim_rank_wrapper build it.
+        chunk = job_dir / "chunk1"
+        chunk.mkdir()
+        verbose = chunk / "verbose"
+        verbose.mkdir()
+        output = chunk / "mols_3d.sdf"
+        output.write_bytes(b"THE RANKED RESULT\n")
+        (chunk / "smiles_enumerated.smi").write_text("CCO 0\n")
+        (chunk / "oeomega_from_this_run.log").write_text("omega diagnostics\n")
+
+        monkeypatch.chdir(project)
+        housekeeping(str(chunk), str(verbose), str(output))
+
+        # Positive control first: a housekeeping() that did nothing at all
+        # would satisfy every assertion below it.
+        assert (verbose / "smiles_enumerated.smi").exists(), (
+            "housekeeping swept nothing; the rest of this test proves nothing"
+        )
+        assert (verbose / "oeomega_from_this_run.log").exists(), (
+            "an OpenEye logfile inside the job directory must still be "
+            "collected -- oe_isomer now puts them there"
+        )
+        assert output.read_bytes() == b"THE RANKED RESULT\n"
+
+        # ... and now the subject.
+        assert users_file.read_bytes() == original, (
+            "the user's oeomega_settings.txt was swept out of their working "
+            "directory and into a folder that is about to be deleted"
+        )
+        assert users_other.read_bytes() == b"KEEP ME TOO\n"
+        assert sorted(p.name for p in project.iterdir()) == [
+            "flipper_notes.md",
+            "oeomega_settings.txt",
+        ]
+
+    def test_openeye_logfiles_land_in_the_chunk_directory(
+        self, job_dir, monkeypatch
+    ):
+        """The other half: the sweep was removed, not merely narrowed.
+
+        The logfiles it collected are real, so `oe_isomer` now runs the
+        OpenEye section with its working directory set to the chunk directory
+        it owns. OpenEye is not installed on any CI box here, so the toolkit
+        is stubbed and the stub does what the real one does that matters:
+        write a file named after itself into whatever directory the process
+        happens to be in.
+        """
+        from unittest.mock import MagicMock
+
+        import Auto3D.isomer_engine as ie
+
+        project = job_dir / "project"
+        project.mkdir()
+        chunk = job_dir / "chunk1"
+        chunk.mkdir()
+        monkeypatch.chdir(project)
+
+        recorded: dict[str, Path] = {}
+
+        def _build_omega(_opts):
+            recorded["cwd"] = Path(os.getcwd()).resolve()
+            Path("oeomega_20260801_120000.log").write_text("omega diagnostics\n")
+            return MagicMock()
+
+        fake_oeomega = MagicMock()
+        fake_oeomega.OEOmega.side_effect = _build_omega
+        monkeypatch.setattr(ie, "oeomega", fake_oeomega, raising=False)
+        monkeypatch.setattr(ie, "oechem", MagicMock(), raising=False)
+
+        source = chunk / "in.sdf"
+        source.write_text("")
+        rc = ie.oe_isomer(
+            "classic",
+            str(source),
+            str(chunk / "smiles_enumerated.smi"),
+            str(chunk / "smiles_enumerated_reduced.smi"),
+            str(chunk / "smiles_enumerated_hashed.smi"),
+            str(chunk / "smiles_enumerated.sdf"),
+            None,
+            0.3,
+            flipper=False,
+        )
+        assert rc == 0
+
+        assert recorded["cwd"] == Path(os.path.realpath(chunk)), (
+            "OpenEye ran in the caller's working directory, so its logfiles "
+            "land wherever the user happened to be"
+        )
+        assert (chunk / "oeomega_20260801_120000.log").exists()
+        assert list(project.iterdir()) == [], (
+            "a logfile was dropped into the user's working directory"
+        )
+        assert Path(os.getcwd()).resolve() == Path(os.path.realpath(project)), (
+            "oe_isomer did not restore the working directory"
+        )
+
+
+class TestRejectedRunLeavesNoTrace:
+    """A run rejected for a bad input must leave nothing on disk.
+
+    Duplicate IDs, blank names and malformed `.smi` rows are only detectable
+    while reading the records, which is `encode_ids`' job -- and `encode_ids`
+    must run *after* `_setup_job_directory`, because the job directory is
+    where it now writes its encoded copy (that is what closed the earlier
+    data-loss path; see `TestEncodedInputStaging`). Until this fix, that
+    ordering meant `auto3d run dupes.smi --k 1` raised and left an empty
+    `dupes_<timestamp>/` beside the user's input, one more on every retry.
+    """
+
+    def test_duplicate_smi_ids_leave_no_job_directory(self, job_dir, monkeypatch):
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import InputValidationError
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        smi = job_dir / "dupes.smi"
+        smi.write_text("CCO a\nCCC a\n")
+
+        # Safety net only: the rejection happens before this is reached, but
+        # if it ever stops happening this stops the test forking workers.
+        monkeypatch.setattr(
+            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
+        )
+        orch = WorkflowOrchestrator(
+            Auto3DOptions(
+                path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
+            )
+        )
+
+        with pytest.raises(InputValidationError, match="Duplicate molecule ID"):
+            orch.run()
+
+        # The discriminator. "No directory on disk" is also what a fix that
+        # moved encode_ids back in front of the mkdir() would produce -- and
+        # that fix would reintroduce the encoded-file data loss. Assert
+        # instead that the run DID create its job directory (job_dir is
+        # assigned only by _setup_job_directory) and then removed it.
+        assert orch.job_dir != Path(), (
+            "the run never reached _setup_job_directory, so this test is no "
+            "longer exercising the cleanup it was written for"
+        )
+        assert not orch.job_dir.exists(), (
+            f"rejected run left {orch.job_dir} behind"
+        )
+        assert sorted(p.name for p in job_dir.iterdir()) == ["dupes.smi"]
+
+    def test_a_partially_written_encoded_sdf_goes_with_the_directory(
+        self, job_dir, monkeypatch
+    ):
+        """The `.sdf` branch opens `Chem.SDWriter` before it sees the
+        duplicate, so the rejected run has already written a partial encoded
+        file inside the job directory. It must not survive either."""
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import InputValidationError
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        sdf = job_dir / "dupes.sdf"
+        _write_sdf(sdf, ["a", "a"])
+
+        monkeypatch.setattr(
+            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
+        )
+        orch = WorkflowOrchestrator(
+            Auto3DOptions(
+                path=str(sdf), k=1, use_gpu=False, optimizing_engine="ANI2xt"
+            )
+        )
+
+        with pytest.raises(InputValidationError, match="Duplicate molecule name"):
+            orch.run()
+
+        assert orch.job_dir != Path()
+        assert not orch.job_dir.exists()
+        assert not list(job_dir.rglob("*_encoded*")), (
+            "the partial encoded copy outlived the run that was rejected"
+        )
+        assert sorted(p.name for p in job_dir.iterdir()) == ["dupes.sdf"]

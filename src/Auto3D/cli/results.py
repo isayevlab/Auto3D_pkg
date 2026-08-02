@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from rich.panel import Panel
 from rich.table import Table
 
-from Auto3D.cli.console import console
+from Auto3D.cli.console import console, emit_json
 
 
 @dataclass
@@ -123,9 +123,7 @@ def output_json(results: WorkflowResults) -> None:
     Args:
         results: Workflow results to output.
     """
-    import json
-
-    data = {
+    emit_json({
         "success": results.failed_count == 0,
         "molecules": results.success_count,
         "failed": results.failed_count,
@@ -133,5 +131,4 @@ def output_json(results: WorkflowResults) -> None:
         "output_file": results.output_path,
         "elapsed_seconds": results.elapsed_seconds,
         "failures": [{"name": f.name, "error": f.error} for f in results.failures],
-    }
-    console.print_json(json.dumps(data))
+    })

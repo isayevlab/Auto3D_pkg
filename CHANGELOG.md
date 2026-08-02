@@ -9,6 +9,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **One exit-code scheme, used by every command.** `cli/errors.py` has mapped
+  exception types to differentiated exit codes since 3.x -- 0 success, 1
+  generic, 2 configuration/input, 3 dependency, 4 GPU, 5 model, plus 6 for a
+  partial `auto3d run` (added earlier in this release) -- but eight raise
+  sites hard-coded `SystemExit(1)` and never reached the mapping at all. The
+  worst consequence: the pre-flight commands disagreed with the run they
+  exist to predict. The same `k: 0` config gave `auto3d config validate` -> 1
+  and `auto3d run -c` -> 2, so a script gating on 2 got the wrong answer from
+  the checker. **The following exit codes changed, all from 1:**
+
+  | Command | Condition | Was | Now |
+  | --- | --- | --- | --- |
+  | `auto3d config validate` | any invalid config file | 1 | 2 |
+  | `auto3d config validate` | config file not found (direct API call only) | 1 | 2 |
+  | `auto3d config init -o existing.yaml` | refusing to clobber, no `--force` | 1 | 2 |
+  | `auto3d config init -p bogus` | unknown preset (direct API call only) | 1 | 2 |
+  | `auto3d config show missing.yaml` | config file not found | 1 | 2 |
+  | `auto3d validate mols.smi` | unparseable SMILES / SDF records | 1 | 2 |
+  | `auto3d validate mols.txt` | unsupported file extension | 1 | 2 |
+  | `auto3d validate mols.smi --json` | same, with `--json` | 1 | 2 |
+  | `auto3d models info BOGUS` | unrecognized engine name | 1 | 2 |
+  | `auto3d models test ANI2x`, `auto3d energy/optimize/thermo --engine ANI2x` | `torchani` not installed | 1 | 3 |
+  | `auto3d energy/optimize/thermo/models test --gpu-idx N` | `N` is not a visible CUDA device | 1 (from CUDA, later) | 4 |
+
+  **What stops working:** any script branching on exit code 1 from one of
+  these. **What to do instead:** branch on the class of failure rather than
+  on 1 -- 2 for "your configuration or input is wrong", 3 for "install
+  something", 4 for "GPU problem", 5 for "model problem", 6 for "the run
+  finished but lost molecules", 130 for "you pressed Ctrl-C" (new in 4.0).
+  `docs/source/cli.rst` now carries exactly one
+  exit-code table (it used to carry two, which disagreed with each other and
+  neither of which listed 6), every row of which is provoked and asserted by
+  a test in `tests/test_cli_exit_codes.py`.
+
+  Three supporting fixes made those codes reachable:
+
+  - `Auto3D.model_factory.get_device` now **range-checks `gpu_idx`** and
+    raises `GPUError`. It used to return `torch.device("cuda:99")` on an
+    8-device machine, deferring the failure into CUDA -- where it surfaces as
+    a driver error far from the `--gpu-idx` that caused it and maps to the
+    generic code 1. `check_valid_configuration` already range-checked the
+    index, but only for `main()`/`smiles2mols`; `calc_spe`, `opt_geometry`,
+    `calc_thermo` and `auto3d models test` call `get_device` directly and had
+    no bounds check at all. **This is a Python-API change too:** those four
+    functions now raise `GPUError` for an out-of-range `gpu_idx` instead of
+    failing later inside CUDA.
+  - `ModelFactory.create` translates a missing `torchani` into
+    `DependencyError` with the `pip install torchani` hint. `auto3d run`
+    already reported this as exit 3 via `check_input`'s own probe; every
+    other command reported the identical environment problem as "Unexpected
+    Error" at exit 1 with no hint. A `torchani` that is installed but broken
+    (an `ImportError` naming some other module) deliberately still propagates
+    untranslated -- "install torchani" would be the wrong advice for it.
+  - `auto3d validate` had **no error handling at all**: a `.smi` file that is
+    not valid UTF-8 produced a raw `UnicodeDecodeError` traceback. It now
+    goes through the same error panel as every other command.
+
+  `auto3d validate`, `auto3d config init/show/validate` and `auto3d models
+  info` also gained `-v`/`--verbose`, which every one of their error panels
+  already told users to pass.
+
+- **`auto3d run` names the molecules it lost.** The results summary reported
+  only a count (`1 failed`), so an interactive user who saw exit 6 had to
+  rerun with `--json` to learn which molecule was missing.
+  `migration-4.0.rst` already said the summary listed them. It now does: the
+  names are printed under the summary, in full with `-v`.
+
+- **The CLI refuses to overwrite an existing output file; pass `-f`/`--force`
+  to allow it.** `auto3d energy mols.sdf -o precious.sdf` used to exit 0,
+  print "Wrote precious.sdf", and leave `precious.sdf` **empty** -- RDKit's
+  `SDWriter` truncates on open, so the file was destroyed before the first
+  record was written, and a run that computed nothing (every record failing
+  to parse, for instance) wrote nothing back. `energy`, `optimize`, `thermo`
+  and `tautomers` now stop with a `ConfigurationError` (exit code **2**) and
+  the message `<path> already exists. Pass --force/-f to overwrite, or choose
+  a different -o path.` -- the same message `auto3d config init` has always
+  printed for this case, and (see the exit-code entry below) now the same
+  exit code too.
+  **What stops working:** any script that re-runs one of these four commands
+  into a path that already exists. For `energy`, `optimize` and `thermo` that
+  includes the *default* derived name (`mols_AIMNET_E.sdf`,
+  `mols_AIMNET_opt.sdf`, `mols_AIMNET_G.sdf`), not only an explicit `-o`,
+  because the check is on the resolved output path. `tautomers` checks only
+  an explicit `-o`: its own name is derived inside the freshly created job
+  directory (`<job_dir>/<stem>_out_top_tautomers.sdf`), which cannot collide
+  with anything of yours. **What to do instead:** add `--force` if
+  replacing the previous result is what you meant, or write to a fresh path
+  and delete the old one yourself. **The Python API is unchanged by default:**
+  `calc_spe`, `opt_geometry`, `calc_thermo` and `ConformerRanker` take a new
+  `overwrite` parameter that defaults to `True`, so existing Python callers
+  keep their current behavior; pass `overwrite=False` to opt into the CLI's
+  refusal. The check lives in one place,
+  `Auto3D.utils.validation.check_output_overwrite`. It does **not** replace
+  the same-file guard: `-o` naming the input is still refused even with
+  `--force`, because there is no recovering an input overwritten by a
+  filtered subset of itself.
+
+- **`auto3d run` no longer writes its encoded input beside your input file.**
+  The pipeline rewrites molecule IDs into a temporary `<stem>_encoded.<ext>`
+  copy. That copy used to be written next to the input with no existence
+  check and `unlink`ed when the run finished, so a user who happened to own
+  `mols_encoded.smi` next to `mols.smi` lost it: silently overwritten, then
+  deleted. The encoded copy is now written **inside the run's own job
+  directory** (created fresh by a bare `mkdir()`, so it can never contain a
+  pre-existing file), and `Auto3D.utils.file_ops.encode_ids` additionally
+  refuses to write over an existing file and raises `ConfigurationError`.
+  **What stops working:** code that assumed the encoded file appears next to
+  the input during a run, or that called `encode_ids(path)` twice for the
+  same `path` without deleting the first result in between. **What to do
+  instead:** pass the new `encode_ids(path, out_dir=...)` argument to choose
+  where the encoded copy goes, or remove the stale `<stem>_encoded.<ext>`
+  file. The final output path and its name are unchanged.
+
+- **`auto3d run` no longer moves files out of your working directory.**
+  `Auto3D.utils.file_ops.housekeeping` globbed the **process working
+  directory** for `oeomega_*` and `flipper_*` and moved every hit into the
+  run's `verbose/` folder -- which is then tarred, `rmtree`d and, under the
+  default `verbose=False`, sent to trash or (when `send2trash` is
+  unavailable, the cluster case) plainly `os.remove`d. So
+  `cd ~/project && auto3d run mols.smi --k 1` with a file named
+  `~/project/oeomega_settings.txt` destroyed it, unrecoverably on the
+  `os.remove` path, and that loop ran on **every** run, not only ones using
+  the OpenEye engine. `housekeeping` now touches nothing outside the job
+  directory it is given. The OpenEye logfiles it existed to collect are still
+  collected: `Auto3D.isomer_engine.oe_isomer` now runs the OpenEye section
+  with its working directory set to the per-chunk directory it owns, so the
+  toolkit drops them there and the ordinary sweep picks them up. **What stops
+  working:** nothing a user does deliberately -- but if you relied on an
+  `omega` run tidying `oeomega_*` logfiles out of your shell's working
+  directory, they now appear inside the run's `verbose` folder instead (or
+  not at all, under the default `verbose=False`). A single failed move no
+  longer aborts the rest of the sweep either; it is logged as a warning.
+
+- **A rejected `auto3d run` no longer leaves an empty job directory behind.**
+  Duplicate molecule IDs, blank names and malformed `.smi` rows can only be
+  detected while reading the records, which happens in `encode_ids` -- and
+  `encode_ids` now runs after the job directory is created, because that is
+  where it writes. `auto3d run dupes.smi --k 1` therefore raised
+  `InputValidationError` and left an empty `dupes_<timestamp>/` beside the
+  input, one more on every retry (plus a partial `dupes_encoded.sdf` inside
+  it, for `.sdf` input). The run now removes that directory on its way out,
+  restoring the property that a rejected run leaves no trace on disk. The
+  directory is provably new -- it was created moments earlier by a bare
+  `mkdir()` -- so nothing that predates the run can be inside it.
+
 - **Configuration bounds are now enforced on every entry point.** A single
   `FIELD_BOUNDS` table in `config.py` is now consulted by both
   `Auto3DOptions.__post_init__` and `CLIConfig`'s model validator, so a config
@@ -401,7 +546,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `__constants__` for TorchScript). The failure is now a clear
   `ModelLoadError` at load rather than a wrong padding value applied silently.
 
+### Added
+
+- **`auto3d validate` accepts `--json`**, the one result-producing command
+  that did not have it while `run`, `energy`, `optimize`, `thermo` and
+  `tautomers` all did. The document reports `success`, `format`, `molecules`,
+  `valid_molecules` and an `errors` list of `{line, content, error}`. Unlike
+  the human table, which shows the first ten problems, the JSON lists every
+  one; exit code is unchanged (0 clean, 1 with findings).
+
+- **Every `--json` document now carries a boolean `success`**, including the
+  ones from `energy`/`optimize`/`thermo`/`tautomers`, which previously emitted
+  only `{"command": ..., "output_file": ...}`. `jq -e .success` now answers
+  the same question for every command.
+
+- **`--json` emits a document on the failure path too.** A command that fails
+  used to leave stdout completely empty, so a caller parsing stdout could not
+  distinguish "failed" from "nothing to report". Failures now write
+  `{"success": false, "error", "error_type", "hint", "exit_code"}` to stdout.
+  The Rich error panel is unchanged and still goes to stderr.
+
 ### Fixed
+
+- **`auto3d <config.yaml>` no longer reports success on a run that lost
+  molecules.** The deprecated single-argument form printed a green
+  `OK Output: <path>` and returned 0 without ever consulting
+  `result.failures`, while `auto3d run` on the identical result named the
+  missing molecules and exited 6 -- so the two supported ways of running the
+  same configuration disagreed about whether the run had succeeded. The
+  reconciliation data was correct all along; only this entry point never read
+  it. It now prints the same results summary, names every missing molecule,
+  and exits 6. The `OK Output:` line is replaced by that summary, so a script
+  scraping it for the output path should read `Output:` from the panel or move
+  to `auto3d run ... --json`. Because this form has no `-v` flag to offer
+  (`cli()` reaches it only for a single argv entry that is a YAML path), it
+  always lists the failed molecules by name instead of advising a re-run
+  with a flag that cannot be passed.
+
+- **Ctrl-C now says how far the run got.** `KeyboardInterrupt` is a
+  `BaseException`, so neither `execute_run`'s `except Exception` nor the
+  legacy runner's saw it: interrupting a run printed *nothing at all* (the
+  legacy form additionally dumped a raw traceback), leaving no indication of
+  how much work had been done or whether anything had reached disk. Both entry
+  points now print elapsed time, the counts for the optimizer batch that was
+  in flight, and the job directory partial output was written to, then exit
+  **130** (128 + `SIGINT`). The report goes to stderr, so `--json` consumers
+  still see nothing but the document on stdout.
+
+- **The optimization progress bar measured the step budget, not progress.**
+  `n_steps` wrapped its loop in `tqdm(range(1, opt_steps + 1))`, so a run
+  converging at step 300 of 2000 showed 15% and then vanished, while a run
+  where nothing converged marched confidently to 100%. It also wrote carriage
+  returns into stderr unconditionally (tqdm only auto-disables on
+  `disable=None`), so every redirected log and CI transcript collected the
+  control characters. The bar is removed; `print_stats` still logs real
+  converged/dropped/active counts at every 10% of the step budget.
+
+- **`auto3d run`'s live panel no longer sawtooths, and no longer renders on
+  stdout.** Its percentage divided by the *current batch's* size while the
+  display aggregated across jobs, so the figure ran `25% -> 75% -> 100% -> 6%
+  -> 100% -> 2%` as workers picked up new chunks -- and the docstring claimed
+  it "renders exactly its own progress", which it never did. There is no
+  whole-run denominator available while enumeration is still producing
+  structures, so the panel now reports the converged/active/dropped counts for
+  the batch in flight and says so in its title, with no bar and no fraction.
+  It is also rendered on **stderr** now: on stdout it interleaved with the
+  optimizer's own stderr status under a pty and tore the panel border apart,
+  and `auto3d run > log` filed the panel into the log and showed the user
+  nothing. Three dead pieces went with it -- `create_progress`,
+  `IsomerProgressCallback` (isomer enumeration uses raw tqdm and never called
+  either) and `OptimizationDisplay.update`, along with the panel's
+  `best_energy` row, which no emitter ever populated and which labelled its
+  never-shown value `kcal/mol` while the pipeline's energies are in eV.
+
+- **`auto3d ... --json` writes the JSON document and nothing else to stdout.**
+  Resolving the engine name imports `aimnet`, which pulls in `warp`, which
+  prints a 734-byte device banner to **stdout** at import time -- before any
+  output decision is made -- so `auto3d run mols.smi --k 1 --json | jq .`
+  could never parse. There was no Auto3D `print` to guard: the write was not
+  ours. The CLI now reserves stdout for its own output for the duration of a
+  command and routes every other write to stderr (`Auto3D.cli.console`), in
+  the parent process and in each spawned optimizer worker, which re-prints the
+  same banner from its own interpreter. Help text and usage errors are
+  deliberately outside the reservation and still go to stdout. Nothing is
+  discarded -- a library's genuine failure message still reaches the user, on
+  stderr where diagnostics belong.
+
+- **`--quiet` is quiet, including output Auto3D does not write.** It gated
+  only Auto3D's own `console.print` calls, so `auto3d run mols.smi --k 1 -q`
+  still printed 14 lines of third-party banner. Third-party stdout is now held
+  back for the run and released to stderr only if the run fails, so quieting a
+  banner cannot also swallow the message that explained a crash.
+
+- **`--json` output is no longer colorized.** It was rendered with
+  `Console.print_json`, and Rich emits ANSI escapes whenever stdout is a
+  terminal, so a user running `auto3d ... --json` interactively and copying
+  the result got `ESC[1;34m"success"ESC[0m`. JSON documents are now serialized
+  directly, with no styling and no width-dependent wrapping.
+
+- **CLI error panels no longer suggest `auto3d config init` for errors that
+  have nothing to do with a config file.** `get_error_hint` picked its hint
+  from the exception *class* alone, so every `ConfigurationError` -- including
+  the new "`precious.sdf` already exists, pass `--force`" refusal, likely to
+  become one of the most frequently printed errors in the CLI -- carried
+  "Run 'auto3d config init' to generate a valid config file". `Auto3DError`
+  now accepts a per-raise `hint`, which wins over the class hint (and, when
+  empty, suppresses it for a message that already says what to do). The
+  per-class hints are unchanged for every error that does not set one.
 
 - **A failed rewrite can no longer destroy a completed optimization.**
   `opt_geometry` converts `E_tot` from eV to hartree by reading the SDF that

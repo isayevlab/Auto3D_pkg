@@ -274,9 +274,12 @@ def test_config_init_force(tmp_path):
     target = tmp_path / "cfg.yaml"
     sentinel = "path: x.smi\n"
     target.write_text(sentinel)
-    # Without --force: refuse to clobber (exit 1, file left untouched).
+    # Without --force: refuse to clobber (exit 2, file left untouched). Exit 2
+    # and not the 1 this used to hard-code: the refusal is a ConfigurationError
+    # like every other overwrite refusal in the CLI (check_output_overwrite),
+    # and the CHANGELOG already described the two as behaving the same way.
     res = runner.invoke(app, ["config", "init", "-o", str(target)])
-    assert res.exit_code == 1
+    assert res.exit_code == 2
     assert target.read_text() == sentinel  # not overwritten
     # With --force: overwrite.
     res2 = runner.invoke(app, ["config", "init", "-o", str(target), "--force"])
@@ -451,3 +454,121 @@ def test_tautomers_refuses_output_equal_to_input(smi):
     assert "Traceback" not in res.output
     assert not m.called, "the guard ran after the pipeline, not before it"
     assert smi.read_bytes() == original, "the input file was modified"
+
+
+# --- --force: the CLI refuses to clobber an existing output -----------------
+#
+# `auto3d energy junk.sdf --no-gpu -o precious.sdf` used to exit 0, print
+# "Wrote precious.sdf", and leave precious.sdf at 0 bytes. `config init` has
+# had -f/--force since it shipped; these four commands did not. The guard
+# itself (`Auto3D.utils.validation.check_output_overwrite`) is exercised per
+# API function in tests/test_durability.py; what is pinned here is the CLI
+# half -- that each command actually *passes* its flag down, which is the part
+# a refactor drops silently.
+#
+# The API parameter defaults to True (permissive) so no existing Python caller
+# breaks; the CLI must supply False unless --force is given. A test asserting
+# only `res.exit_code == 0` would pass with the flag never forwarded at all,
+# so both directions of the mapping are asserted.
+
+@pytest.mark.parametrize(
+    ("argv", "expected_overwrite"),
+    [([], False), (["--force"], True), (["-f"], True)],
+)
+def test_energy_maps_force_to_calc_spe_overwrite(sdf, argv, expected_overwrite):
+    with patch("Auto3D.SPE.calc_spe", return_value="out_E.sdf") as m:
+        res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", *argv])
+    assert res.exit_code == 0, res.output
+    assert m.call_args.kwargs["overwrite"] is expected_overwrite
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_overwrite"), [([], False), (["--force"], True)]
+)
+def test_optimize_maps_force_to_opt_geometry_overwrite(sdf, argv, expected_overwrite):
+    with patch("Auto3D.ASE.geometry.opt_geometry", return_value="out_opt.sdf") as m:
+        res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", *argv])
+    assert res.exit_code == 0, res.output
+    assert m.call_args.kwargs["overwrite"] is expected_overwrite
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_overwrite"), [([], False), (["--force"], True)]
+)
+def test_thermo_maps_force_to_calc_thermo_overwrite(sdf, argv, expected_overwrite):
+    with patch("Auto3D.ASE.thermo.calc_thermo", return_value="out_G.sdf") as m:
+        res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu", *argv])
+    assert res.exit_code == 0, res.output
+    assert m.call_args.kwargs["overwrite"] is expected_overwrite
+
+
+def test_energy_refuses_to_overwrite_an_existing_output(sdf, tmp_path):
+    """End-to-end: the real calc_spe, reached through the real CLI.
+
+    The three tests above mock calc_spe, so they cannot show that the guard
+    inside it ever fires; this one runs calc_spe for real and only stubs the
+    model machinery -- as an assertion failure, since the guard is specified
+    to refuse before any model is constructed. Nothing is loaded either way.
+    """
+    precious = tmp_path / "precious.sdf"
+    precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
+
+    def never(*args, **kwargs):
+        raise AssertionError("calc_spe built a model before checking --force")
+
+    with patch("Auto3D.SPE.get_device", never), \
+         patch("Auto3D.SPE.create_model", never):
+        res = runner.invoke(
+            app, ["energy", str(sdf), "--no-gpu", "-o", str(precious)]
+        )
+
+    assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
+    assert "already exists" in res.output
+    assert "--force" in res.output
+    assert "Traceback" not in res.output
+    # The panel must not carry ConfigurationError's generic class hint here;
+    # "run auto3d config init" is a non-sequitur for an -o collision. Checked
+    # on the whitespace-collapsed output because Rich wraps the panel and a
+    # hint that IS printed can arrive split across two lines.
+    assert "config init" not in " ".join(res.output.split())
+    assert precious.read_bytes() == b"IRREPLACEABLE USER DATA\n"
+
+
+def test_tautomers_refuses_to_overwrite_an_existing_output(smi, tmp_path):
+    """`tautomers` has no API parameter to forward --force to.
+
+    It derives its own output name inside the pipeline and honors -o with a
+    `shutil.move`, which replaces the destination silently -- so its wrapper
+    calls the shared guard itself, before the (expensive) pipeline runs.
+    `get_stable_tautomers` is patched to prove that ordering: if the check
+    ever moves below the pipeline, the mock records a call and this fails.
+    """
+    precious = tmp_path / "precious.sdf"
+    precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
+
+    with patch("Auto3D.tautomer.get_stable_tautomers") as m:
+        res = runner.invoke(
+            app, ["tautomers", str(smi), "--no-gpu", "-o", str(precious)]
+        )
+
+    assert res.exit_code == 2, res.output
+    assert "already exists" in res.output
+    assert not m.called, "the guard ran after the pipeline, not before it"
+    assert precious.read_bytes() == b"IRREPLACEABLE USER DATA\n"
+
+
+def test_tautomers_force_allows_the_overwrite(smi, tmp_path):
+    """Negative control: with --force the pipeline runs and the move happens."""
+    precious = tmp_path / "precious.sdf"
+    precious.write_bytes(b"OLD RESULTS\n")
+    produced = tmp_path / "derived_out.sdf"
+    produced.write_bytes(b"NEW RESULTS\n")
+
+    with patch("Auto3D.tautomer.get_stable_tautomers", return_value=str(produced)) as m:
+        res = runner.invoke(
+            app, ["tautomers", str(smi), "--no-gpu", "--force", "-o", str(precious)]
+        )
+
+    assert res.exit_code == 0, res.output
+    assert m.called
+    assert precious.read_bytes() == b"NEW RESULTS\n"

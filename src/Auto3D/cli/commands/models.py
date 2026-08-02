@@ -6,7 +6,9 @@ from __future__ import annotations
 from rich.panel import Panel
 from rich.table import Table
 
-from Auto3D.cli.console import console, print_error
+from Auto3D.cli.console import console
+from Auto3D.cli.errors import handle_error
+from Auto3D.exceptions import ConfigurationError
 
 
 def check_dependency_status(name: str) -> tuple[bool, str]:
@@ -171,23 +173,32 @@ ENGINE_INFO = {
 }
 
 
-def execute_models_info(engine: str) -> None:
-    """Display detailed information about an engine."""
-    engine_upper = engine.upper()
-    # Any aimnet2-* registry name describes an AIMNet2 model. Variants with their
-    # own ENGINE_INFO block (aimnet2-2025/-nse/-pd) are shown directly; any other
-    # aimnet2* name (e.g. the bare 'aimnet2' alias or a future registry variant)
-    # falls back to the base AIMNET entry instead of printing "Unknown engine".
-    if engine_upper not in ENGINE_INFO and engine_upper.startswith("AIMNET2"):
-        engine_upper = "AIMNET"
+def execute_models_info(engine: str, verbose: int = 0) -> None:
+    """Display detailed information about an engine.
 
-    if engine_upper not in ENGINE_INFO:
-        from Auto3D.model_factory import ModelFactory
-        print_error(
-            f"Unknown engine: {engine}",
-            hint=f"Available: {', '.join(ModelFactory.available_models())}",
-        )
-        raise SystemExit(1)
+    An unrecognized engine name is the same user mistake ``resolve_engine_name``
+    already reports as a ``ConfigurationError`` (exit 2) from ``auto3d run``
+    and ``auto3d energy``; it exited 1 here only because this raise site
+    predated the funnel.
+    """
+    try:
+        engine_upper = engine.upper()
+        # Any aimnet2-* registry name describes an AIMNet2 model. Variants with
+        # their own ENGINE_INFO block (aimnet2-2025/-nse/-pd) are shown
+        # directly; any other aimnet2* name (e.g. the bare 'aimnet2' alias or a
+        # future registry variant) falls back to the base AIMNET entry instead
+        # of printing "Unknown engine".
+        if engine_upper not in ENGINE_INFO and engine_upper.startswith("AIMNET2"):
+            engine_upper = "AIMNET"
+
+        if engine_upper not in ENGINE_INFO:
+            from Auto3D.model_factory import ModelFactory
+            raise ConfigurationError(
+                f"Unknown engine: {engine}",
+                hint=f"Available: {', '.join(ModelFactory.available_models())}",
+            )
+    except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
+        handle_error(e, verbose=verbose)
 
     info = ENGINE_INFO[engine_upper]
 

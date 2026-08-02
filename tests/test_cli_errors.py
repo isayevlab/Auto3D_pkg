@@ -264,3 +264,90 @@ def test_models_test_verbose_flag_reaches_handle_error(monkeypatch):
     assert "torchani not installed" in verbose.stderr
     assert "Traceback" not in verbose.stdout
     assert "Traceback" in verbose.stderr
+
+
+# --- the hint must fit the error, not just its class ------------------------
+#
+# `get_error_hint` picked its hint from the exception class alone, so the
+# output-overwrite refusal -- a ConfigurationError, and about to become one of
+# the most frequently printed errors in the CLI -- was rendered with
+# "Run 'auto3d config init' to generate a valid config file" under it. That is
+# a non-sequitur for `-o precious.sdf`. `Auto3DError` now takes a per-raise
+# `hint` that wins over the class hint, and an empty one suppresses it.
+#
+# Every assertion below runs on the whitespace-collapsed stream: Rich wraps
+# the panel at the console width, so a hint that IS printed can appear as
+# "config\ninit" and slip past a naive `not in` check -- the exact way a
+# negative assertion goes quietly vacuous.
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_overwrite_refusal_does_not_suggest_config_init(capsys, tmp_path):
+    """Raised by the real guard, not hand-built: this pins the raise site's
+    choice of hint together with handle_error's presentation of it."""
+    from Auto3D.utils.validation import check_output_overwrite
+
+    existing = tmp_path / "precious.sdf"
+    existing.write_text("x")
+
+    try:
+        check_output_overwrite(existing, False)
+    except ConfigurationError as e:
+        with pytest.raises(SystemExit) as exc_info:
+            handle_error(e, verbose=0)
+    assert exc_info.value.code == 2  # still a ConfigurationError -> exit 2
+
+    err = _flat(capsys.readouterr().err)
+    # The panel must still say what happened and how to proceed -- without
+    # these, "config init is absent" would also hold for a panel that failed
+    # to render anything at all.
+    assert "already exists" in err
+    assert "--force" in err
+    assert "config init" not in err
+
+
+def test_a_configuration_error_with_no_hint_still_gets_the_class_hint(capsys):
+    """Control: the class hints are unchanged for every raise site that does
+    not opt out, so this must keep printing exactly what it always did."""
+    with pytest.raises(SystemExit):
+        handle_error(ConfigurationError("k must be >= 1"), verbose=0)
+
+    err = _flat(capsys.readouterr().err)
+    assert "k must be >= 1" in err
+    assert "config init" in err
+
+
+def test_an_explicit_hint_replaces_the_class_hint(capsys):
+    """A non-empty hint is shown instead of the class hint -- the mechanism is
+    an override, not just a suppression switch."""
+    with pytest.raises(SystemExit):
+        handle_error(
+            ConfigurationError("bad gpu index", hint="Try --no-gpu"), verbose=0
+        )
+
+    err = _flat(capsys.readouterr().err)
+    assert "Try --no-gpu" in err
+    assert "config init" not in err
+
+
+def test_dependency_error_still_accepts_its_own_hint_override(capsys):
+    """DependencyError overrides __init__; the hint keyword must reach the
+    base class through it rather than being swallowed."""
+    from Auto3D.exceptions import DependencyError
+
+    with pytest.raises(SystemExit):
+        handle_error(
+            DependencyError(
+                "ASE is not installed",
+                dependency_name="ase",
+                hint="Install the ase extra: conda install -c conda-forge ase",
+            ),
+            verbose=0,
+        )
+
+    err = _flat(capsys.readouterr().err)
+    assert "conda install -c conda-forge ase" in err
+    assert "pip install ase" not in err  # the dependency-name hint, overridden

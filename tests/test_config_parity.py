@@ -643,3 +643,74 @@ class TestValidationParityAcrossEntryPoints:
         # shows exit code 2 with a hint instead of the generic "Unexpected
         # Error" panel at exit 1 -- the same fix `auto3d run -c` already got.
         assert isinstance(error, ConfigurationError)
+
+
+class TestSelectorRequiredEverywhere:
+    """A missing conformer selector must be refused by every entry point.
+
+    `auto3d run` used to be the sole exception: it injected `k=1` with a
+    warning while `main()`, `smiles2mols` and the legacy `auto3d config.yaml`
+    form all raised. That made the CLI the one surface that would pick a
+    scientific parameter on the user's behalf -- a user who forgot `--k`
+    silently got one conformer per molecule, which is a result, not an error,
+    and therefore indistinguishable from a deliberate choice downstream.
+    """
+
+    def test_cli_run_refuses_when_neither_selector_is_given(self, tmp_path):
+        from typer.testing import CliRunner
+
+        from Auto3D.cli.app import app
+
+        smi = tmp_path / "mols.smi"
+        smi.write_text("CCO m1\n")
+
+        result = CliRunner().invoke(app, ["run", str(smi)])
+
+        assert result.exit_code == 2, result.output
+        assert "k or window" in result.output
+
+        # The exit code alone does NOT discriminate: with the CLI check
+        # removed, main()'s own check_valid_configuration raises the same
+        # ConfigurationError and handle_error maps it to exit 2 as well.
+        # Verified by mutation -- an exit-code-only assertion passes either
+        # way. What distinguishes "refused by the CLI, before any work" from
+        # "refused later, inside main()" is the startup banner, which
+        # execute_run prints AFTER this check and BEFORE calling main().
+        assert "Engine:" not in result.output, (
+            "the startup banner was printed, so the run was not refused "
+            "until after the CLI had already committed to starting it"
+        )
+        assert not list(tmp_path.glob("mols_*")), (
+            "run created a job directory before refusing the configuration"
+        )
+
+    def test_config_validate_agrees_with_the_runner(self, tmp_path):
+        """The pre-flight checker must not bless what the runner rejects.
+
+        This previously emitted `Neither 'k' nor 'window' specified - using
+        k=1` as a *warning* and exited 0 -- true of `auto3d run` at the time,
+        and true of nothing now.
+        """
+        from typer.testing import CliRunner
+
+        from Auto3D.cli.app import app
+
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text("path: mols.smi\noptimizing_engine: AIMNET\n")
+
+        result = CliRunner().invoke(app, ["config", "validate", str(cfg)])
+
+        assert result.exit_code != 0, result.output
+        assert "Validation Passed" not in result.output
+        assert "using k=1" not in result.output
+
+    def test_the_python_api_still_refuses(self, tmp_path):
+        """Negative control: the API's refusal is what the CLI now matches."""
+        from Auto3D.auto3D import main
+        from Auto3D.config import Auto3DOptions
+
+        smi = tmp_path / "mols.smi"
+        smi.write_text("CCO m1\n")
+
+        with pytest.raises(ConfigurationError, match="k or window"):
+            main(Auto3DOptions(path=str(smi), use_gpu=False))

@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 
 from rich.panel import Panel
 from rich.table import Table
 
-from Auto3D.cli.console import console, print_error
+from Auto3D.cli.console import console, emit_json
+from Auto3D.cli.errors import handle_error
+from Auto3D.exceptions import InputValidationError
 
 
 @dataclass
@@ -93,51 +96,149 @@ def validate_sdf_file(file_path: Path) -> ValidationResult:
     )
 
 
-def execute_validate(input_file: Path) -> None:
-    """Validate an input file."""
-    suffix = input_file.suffix.lower()
+def _validate_json_document(input_file: Path, result: ValidationResult) -> dict:
+    """Build the ``--json`` document for a completed validation.
 
-    with console.status("[bold]Validating input file..."):
-        if suffix == ".smi":
-            result = validate_smiles_file(input_file)
-        elif suffix == ".sdf":
-            result = validate_sdf_file(input_file)
+    Same shape as every other ``--json`` document (``success`` first, see
+    ``cli/commands/properties.py::_report``). Unlike the human table, the
+    error list is *not* truncated to the first ten: a person reading a
+    terminal wants a summary, a program parsing stdout wants the whole
+    finding, and silently emitting a prefix of it would make `auto3d validate
+    --json` disagree with itself about how many entries are broken.
+    """
+    return {
+        "success": result.valid,
+        "command": "validate",
+        "input_file": str(input_file),
+        "format": result.file_format,
+        "molecules": result.total_count,
+        "valid_molecules": result.valid_count,
+        "errors": [
+            {"line": line_num, "content": content, "error": msg}
+            for line_num, content, msg in result.errors
+        ],
+    }
+
+
+def execute_validate(
+    input_file: Path, json_output: bool = False, verbose: int = 0
+) -> None:
+    """Validate an input file.
+
+    Every failure leaves through ``handle_error``, so this command's exit
+    codes come from ``exit_code_for`` like every other command's. It had no
+    error handling at all before: a bad file format and a file full of
+    unparseable SMILES both raised a hard-coded ``SystemExit(1)``, and
+    anything the reader itself raised -- a non-UTF-8 ``.smi``, say -- escaped
+    as a raw ``UnicodeDecodeError`` traceback. A file the runner will reject
+    is an ``InputValidationError`` (exit **2**), the same verdict and the same
+    code ``auto3d run`` gives the same file, which is the entire point of a
+    pre-flight checker.
+
+    Args:
+        input_file: Path to the .smi/.sdf file to check.
+        json_output: Emit the result as a JSON document on stdout instead of
+            a Rich panel. Every other command that produces a result already
+            had ``--json``; this one did not, so it was the single hole in
+            ``auto3d validate x.smi --json && auto3d run ...`` pipelines.
+        verbose: CLI verbosity, forwarded to ``handle_error`` so an
+            unexpected internal failure can be turned into a traceback with
+            ``-v`` -- the panel tells the user to do exactly that.
+    """
+    # Tracks whether stdout has already received this command's own JSON
+    # document. `handle_error` emits a *second* (failure-shaped) document when
+    # told to, and two documents on one stream is not parseable JSON -- so the
+    # richer validate document, which names every bad line, wins wherever it
+    # was already written.
+    document_emitted = False
+    try:
+        suffix = input_file.suffix.lower()
+
+        # The status spinner is a Live render on the document stream, so it
+        # must not run while stdout is reserved for a JSON document.
+        spinner = (
+            contextlib.nullcontext()
+            if json_output
+            else console.status("[bold]Validating input file...")
+        )
+        with spinner:
+            if suffix == ".smi":
+                result = validate_smiles_file(input_file)
+            elif suffix == ".sdf":
+                result = validate_sdf_file(input_file)
+            else:
+                # The panel still goes to stderr, where diagnostics belong,
+                # but a --json caller must get a parseable document on stdout
+                # on this path too rather than an empty stream.
+                if json_output:
+                    emit_json({
+                        "success": False,
+                        "command": "validate",
+                        "input_file": str(input_file),
+                        "format": suffix.lstrip(".").upper(),
+                        "molecules": 0,
+                        "valid_molecules": 0,
+                        "errors": [
+                            {
+                                "line": 0,
+                                "content": str(input_file),
+                                "error": f"Unsupported file format: {suffix}",
+                            }
+                        ],
+                    })
+                    document_emitted = True
+                raise InputValidationError(
+                    f"Unsupported file format: {suffix}",
+                    hint="Supported formats: .smi, .sdf",
+                )
+
+        if json_output:
+            emit_json(_validate_json_document(input_file, result))
+            document_emitted = True
+        elif result.valid:
+            console.print(Panel(
+                f"[green]Valid {result.file_format} file[/green]\n\n"
+                f"Molecules: {result.total_count}\n"
+                f"All entries parsed successfully",
+                title="Validation Passed",
+                border_style="green",
+            ))
         else:
-            print_error(
-                f"Unsupported file format: {suffix}",
-                hint="Supported formats: .smi, .sdf",
+            error_table = Table(show_header=True, header_style="bold red")
+            error_table.add_column("Line")
+            error_table.add_column("Content")
+            error_table.add_column("Error")
+
+            for line_num, content, msg in result.errors[:10]:
+                error_table.add_row(str(line_num), content, msg)
+
+            more_msg = ""
+            if len(result.errors) > 10:
+                more_msg = (
+                    f"\n[dim]... and {len(result.errors) - 10} more errors[/dim]"
+                )
+
+            console.print(Panel(
+                f"[red]{len(result.errors)} invalid entries found[/red]\n\n"
+                f"Valid: {result.valid_count}/{result.total_count}",
+                title="Validation Failed",
+                border_style="red",
+            ))
+            console.print(error_table)
+            if more_msg:
+                console.print(more_msg)
+
+        if not result.valid:
+            raise InputValidationError(
+                f"{len(result.errors)} invalid entries in {input_file} "
+                f"({result.valid_count}/{result.total_count} valid).",
+                # InputValidationError's class hint is "Run 'auto3d validate
+                # <file>' to check your input file", which is absurd advice
+                # to print at the end of `auto3d validate <file>`. The table
+                # above already lists what is wrong and where.
+                hint="",
             )
-            raise SystemExit(1)
-
-    if result.valid:
-        console.print(Panel(
-            f"[green]Valid {result.file_format} file[/green]\n\n"
-            f"Molecules: {result.total_count}\n"
-            f"All entries parsed successfully",
-            title="Validation Passed",
-            border_style="green",
-        ))
-    else:
-        error_table = Table(show_header=True, header_style="bold red")
-        error_table.add_column("Line")
-        error_table.add_column("Content")
-        error_table.add_column("Error")
-
-        for line_num, content, msg in result.errors[:10]:
-            error_table.add_row(str(line_num), content, msg)
-
-        more_msg = ""
-        if len(result.errors) > 10:
-            more_msg = f"\n[dim]... and {len(result.errors) - 10} more errors[/dim]"
-
-        console.print(Panel(
-            f"[red]{len(result.errors)} invalid entries found[/red]\n\n"
-            f"Valid: {result.valid_count}/{result.total_count}",
-            title="Validation Failed",
-            border_style="red",
-        ))
-        console.print(error_table)
-        if more_msg:
-            console.print(more_msg)
-
-        raise SystemExit(1)
+    except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
+        handle_error(
+            e, verbose=verbose, json_output=json_output and not document_emitted
+        )
