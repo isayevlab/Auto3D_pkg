@@ -665,6 +665,8 @@ Both are ``2`` in 4.0. The full scheme, with one table now in
      - Model error (not found / failed to load / non-finite output)
    * - ``6``
      - Partial success -- see the next section
+   * - ``130``
+     - Interrupted by the user (128 + ``SIGINT``) -- new in 4.0
 
 Every code that changed, changed *from* ``1``:
 
@@ -712,7 +714,7 @@ Every code that changed, changed *from* ``1``:
 If a script branches on ``1`` from any of these, branch on the class of
 failure instead: ``2`` for a bad configuration or input, ``3`` for something
 to install, ``4`` for a GPU problem, ``5`` for a model problem, ``6`` for a
-run that finished but lost molecules.
+run that finished but lost molecules, ``130`` for a run you interrupted.
 
 Three supporting fixes made those codes reachable, and two of them are
 Python-API changes as well as CLI ones:
@@ -804,6 +806,93 @@ every missing molecule by ID:
        print(f"{len(result.failures)} molecule(s) produced no output:")
        for mol_id in result.failures:
            print(f"  {mol_id}")
+
+The deprecated ``auto3d config.yaml`` form reports them too
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Everything above applied to ``auto3d run`` only. The legacy single-argument
+form printed a green ``OK Output: <path>`` and returned ``0`` without ever
+consulting ``result.failures``, so the two supported ways of running the same
+configuration disagreed about whether the run had succeeded:
+
+.. code:: console
+
+   $ auto3d params.yaml; echo $?                       # 3.x and early 4.0
+   OK Output: /data/mols_20260801-101500-123456/mols_out.sdf
+   0
+   $ auto3d run mols.smi -c params.yaml; echo $?       # same run, same result
+   ... 1 failed ...
+   6
+
+Both now print the results panel, name the missing molecules and exit ``6``.
+The old ``OK Output:`` line is replaced by the same results summary
+``auto3d run`` prints (molecules succeeded/failed, conformers, output path,
+elapsed time), so a script scraping that line for the output path should read
+``Output:`` from the panel or, better, move to ``auto3d run ... --json``.
+Because this entry point has no ``-v`` flag to offer -- ``cli()`` routes to it
+only for a single argv entry that is a YAML path -- it always lists the failed
+molecules by name rather than telling you to re-run with ``-v``.
+
+Ctrl-C says how far the run got
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Interrupting a run printed nothing at all. ``KeyboardInterrupt`` is a
+``BaseException``, so neither ``auto3d run``'s handler nor the legacy runner's
+saw it; you were returned to the prompt with no indication of how much work had
+been done or whether anything had reached disk (the legacy form additionally
+dumped a raw traceback).
+
+Both entry points now print what is known -- elapsed time, the counts for the
+optimizer batch that was in flight, and the job directory partial output was
+written to -- and exit ``130``:
+
+.. code:: console
+
+   $ auto3d run mols.smi --k 1
+   ^C
+   ╭─ Interrupted ──────────────────────────────────────────────╮
+   │ Interrupted by the user (Ctrl-C).                          │
+   │ Ran for 4m 12s before the signal arrived.                  │
+   │                                                            │
+   │ Optimizer batch in flight: 61 converged, 3 active,         │
+   │ 0 dropped, at step 940.                                    │
+   │ Counts describe that batch, not the whole run.             │
+   │                                                            │
+   │ Anything already written is under the job directory:       │
+   │   /data/mols_<timestamp>/                                  │
+   │ No output SDF is combined for an interrupted run.          │
+   ╰────────────────────────────────────────────────────────────╯
+   $ echo $?
+   130
+
+The report goes to stderr, so ``--json`` consumers still see nothing but the
+document (or, on an interrupt, nothing at all) on stdout. The exact timestamped
+directory is shown only when you passed ``--job-name``/``job_name:``; otherwise
+the name is generated inside the run and the pattern is shown instead.
+
+Progress output: no bars, and it is on stderr
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The optimizer's ``tqdm`` bar counted *optimization steps against the step
+budget*, which is not progress: a run converging at step 300 of 2000 showed
+15% and then vanished, while a run where nothing converged marched to 100%.
+It also wrote carriage returns into stderr unconditionally, so every
+redirected log and CI transcript collected the control characters. It has been
+removed. Per-run status is still logged by ``print_stats`` at every 10% of the
+step budget, now as ordinary log lines.
+
+``auto3d run``'s live panel no longer shows a percentage either. Its
+denominator was the *current batch's* size, so the figure sawtoothed
+(``25% -> 75% -> 100% -> 6% -> 100% -> 2%``) as workers picked up new chunks;
+there is no whole-run denominator available while enumeration is still
+producing structures. The panel now reports the converged/active/dropped
+counts for the batch in flight, and says so in its title.
+
+Finally, the panel is rendered on **stderr** rather than stdout. In 3.x
+``auto3d run > log`` filed the panel into the log and showed you nothing,
+and under a pty the panel interleaved with the optimizer's own stderr status
+and tore its border apart. If you were capturing stdout to keep the panel,
+capture stderr instead.
 
 A known limitation: engine-name validation (``resolve_engine_name``) was
 also tightened this release, but only at the CLI layer (``CLIConfig`` and

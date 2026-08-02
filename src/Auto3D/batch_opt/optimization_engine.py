@@ -11,7 +11,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from tqdm import tqdm
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
 from Auto3D.utils.logging_config import get_logger
@@ -157,7 +156,16 @@ def n_steps(
     state["oscillating_count"] = oscillating_count0
 
     istep = 0  # Initialize in case loop doesn't execute (n=0)
-    for istep in tqdm(range(1, (n + 1), 1)):
+    # Plain range, not tqdm. A bar over `range(1, n+1)` measures the *step
+    # budget*, which is not the work: a run that converges at step 300 of 2000
+    # showed 15% and then disappeared, and a run where nothing converged
+    # marched confidently to 100%. It also wrote carriage returns into stderr
+    # unconditionally -- tqdm only auto-disables on `disable=None`, so every
+    # redirected log and CI transcript collected the control characters too.
+    # Real progress is reported by `print_stats` (every 10% of the budget) and
+    # by the `progress_cb` events below, both of which carry converged/active/
+    # dropped counts rather than a step ratio.
+    for istep in range(1, n + 1):
         not_converged = ~ state['converged_mask']  # Essential tracker handle, size fixed
         # Stop optimization if all structures converged. The all-converged check
         # `not not_converged.any()` forces a GPU->CPU sync, so throttle it to

@@ -37,7 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   these. **What to do instead:** branch on the class of failure rather than
   on 1 -- 2 for "your configuration or input is wrong", 3 for "install
   something", 4 for "GPU problem", 5 for "model problem", 6 for "the run
-  finished but lost molecules". `docs/source/cli.rst` now carries exactly one
+  finished but lost molecules", 130 for "you pressed Ctrl-C" (new in 4.0).
+  `docs/source/cli.rst` now carries exactly one
   exit-code table (it used to carry two, which disagreed with each other and
   neither of which listed 6), every row of which is provoked and asserted by
   a test in `tests/test_cli_exit_codes.py`.
@@ -566,6 +567,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The Rich error panel is unchanged and still goes to stderr.
 
 ### Fixed
+
+- **`auto3d <config.yaml>` no longer reports success on a run that lost
+  molecules.** The deprecated single-argument form printed a green
+  `OK Output: <path>` and returned 0 without ever consulting
+  `result.failures`, while `auto3d run` on the identical result named the
+  missing molecules and exited 6 -- so the two supported ways of running the
+  same configuration disagreed about whether the run had succeeded. The
+  reconciliation data was correct all along; only this entry point never read
+  it. It now prints the same results summary, names every missing molecule,
+  and exits 6. The `OK Output:` line is replaced by that summary, so a script
+  scraping it for the output path should read `Output:` from the panel or move
+  to `auto3d run ... --json`. Because this form has no `-v` flag to offer
+  (`cli()` reaches it only for a single argv entry that is a YAML path), it
+  always lists the failed molecules by name instead of advising a re-run
+  with a flag that cannot be passed.
+
+- **Ctrl-C now says how far the run got.** `KeyboardInterrupt` is a
+  `BaseException`, so neither `execute_run`'s `except Exception` nor the
+  legacy runner's saw it: interrupting a run printed *nothing at all* (the
+  legacy form additionally dumped a raw traceback), leaving no indication of
+  how much work had been done or whether anything had reached disk. Both entry
+  points now print elapsed time, the counts for the optimizer batch that was
+  in flight, and the job directory partial output was written to, then exit
+  **130** (128 + `SIGINT`). The report goes to stderr, so `--json` consumers
+  still see nothing but the document on stdout.
+
+- **The optimization progress bar measured the step budget, not progress.**
+  `n_steps` wrapped its loop in `tqdm(range(1, opt_steps + 1))`, so a run
+  converging at step 300 of 2000 showed 15% and then vanished, while a run
+  where nothing converged marched confidently to 100%. It also wrote carriage
+  returns into stderr unconditionally (tqdm only auto-disables on
+  `disable=None`), so every redirected log and CI transcript collected the
+  control characters. The bar is removed; `print_stats` still logs real
+  converged/dropped/active counts at every 10% of the step budget.
+
+- **`auto3d run`'s live panel no longer sawtooths, and no longer renders on
+  stdout.** Its percentage divided by the *current batch's* size while the
+  display aggregated across jobs, so the figure ran `25% -> 75% -> 100% -> 6%
+  -> 100% -> 2%` as workers picked up new chunks -- and the docstring claimed
+  it "renders exactly its own progress", which it never did. There is no
+  whole-run denominator available while enumeration is still producing
+  structures, so the panel now reports the converged/active/dropped counts for
+  the batch in flight and says so in its title, with no bar and no fraction.
+  It is also rendered on **stderr** now: on stdout it interleaved with the
+  optimizer's own stderr status under a pty and tore the panel border apart,
+  and `auto3d run > log` filed the panel into the log and showed the user
+  nothing. Three dead pieces went with it -- `create_progress`,
+  `IsomerProgressCallback` (isomer enumeration uses raw tqdm and never called
+  either) and `OptimizationDisplay.update`, along with the panel's
+  `best_energy` row, which no emitter ever populated and which labelled its
+  never-shown value `kcal/mol` while the pipeline's energies are in eV.
 
 - **`auto3d ... --json` writes the JSON document and nothing else to stdout.**
   Resolving the engine name imports `aimnet`, which pulls in `warp`, which

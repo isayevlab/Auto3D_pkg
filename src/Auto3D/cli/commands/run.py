@@ -7,8 +7,13 @@ import time
 from pathlib import Path
 
 from Auto3D.cli.config_schema import build_cli_config, load_yaml_config, merge_configs
-from Auto3D.cli.console import console, print_banner, suppress_foreign_stdout
-from Auto3D.cli.errors import handle_error
+from Auto3D.cli.console import (
+    console,
+    error_console,
+    print_banner,
+    suppress_foreign_stdout,
+)
+from Auto3D.cli.errors import handle_error, handle_interrupt, job_directory_hint
 from Auto3D.cli.results import (
     FailedMolecule,
     WorkflowResults,
@@ -82,6 +87,13 @@ def execute_run(
     # configure_logging), so --json stdout stays a clean, parseable document.
     configure_logging(verbose=verbose > 0)
 
+    # What a Ctrl-C handler will have to work with. Both stay None until the
+    # corresponding fact is actually known, so the interrupt report can state
+    # what is known and omit the rest -- an interrupt during configuration
+    # building has no job directory and no counts to speak of.
+    job_hint: str | None = None
+    display = None
+
     # `--quiet` has to cover output Auto3D does not write. Building the
     # configuration below resolves the engine name, which imports
     # `aimnet` -> `warp` and prints a 14-line device banner to stdout; a
@@ -148,6 +160,7 @@ def execute_run(
 
             # Convert to Auto3DOptions and run
             options = config.to_auto3d_options()
+            job_hint = job_directory_hint(config.path, config.job_name)
 
             from Auto3D.auto3D import main
 
@@ -160,7 +173,20 @@ def execute_run(
 
                 display = OptimizationDisplay(0)
                 jobs: dict = {}
-                with Live(display.make_panel(), console=console, refresh_per_second=8) as live:
+                # On `error_console` (stderr), not `console` (the reserved
+                # stdout). Progress is a diagnostic and belongs on the stream
+                # every other diagnostic uses; results belong on stdout. Putting
+                # the parent `Live` on stdout while the child's `print_stats`
+                # went to stderr meant the two interleaved under a pty and tore
+                # the panel border apart, and it meant `auto3d run > log` -- the
+                # case where a live panel is *most* useful, because stdout is
+                # not on screen -- put the panel in the log file and showed the
+                # user nothing. It also kept stdout non-empty during a run,
+                # which is the same stream `--json` promises carries only the
+                # document.
+                with Live(
+                    display.make_panel(), console=error_console, refresh_per_second=8
+                ) as live:
                     def progress_cb(event: dict) -> None:
                         jobs[event.get("job", 0)] = event
                         display.update_from_jobs(jobs)
@@ -226,6 +252,26 @@ def execute_run(
 
             _exit_if_incomplete(results)
 
+        except KeyboardInterrupt:
+            # KeyboardInterrupt is a BaseException, so neither `except
+            # Auto3DError` nor `except Exception` below ever saw it: Ctrl-C
+            # printed nothing at all and left the user with no idea how far the
+            # run had got or whether anything reached disk.
+            #
+            # Note what this clause is NOT for: typer/core.py already converts
+            # an escaping KeyboardInterrupt into click's Exit(130), so the exit
+            # *code* was correct without it (verified -- a test asserting only
+            # `exit_code == 130` passes with this whole clause deleted). What
+            # the framework cannot do is report anything about the run, and it
+            # does nothing at all for the legacy `auto3d config.yaml` entry
+            # point, which is not a Typer command and dumps a raw traceback.
+            # The report is the fix; the constant just makes the code
+            # deliberate and shared between the two entry points.
+            handle_interrupt(
+                job_hint=job_hint,
+                batch=display.as_batch_counts() if display is not None else None,
+                elapsed_seconds=time.time() - start_time,
+            )
         except Auto3DError as e:
             handle_error(e, verbose=verbose, json_output=json_output)
         except Exception as e:

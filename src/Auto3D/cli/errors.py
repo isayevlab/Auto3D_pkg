@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from rich.panel import Panel
 from rich.traceback import Traceback
 
@@ -26,6 +28,20 @@ EXIT_CODES: dict[type, int] = {
     GPUError: 4,
     ModelError: 5,  # includes ModelLoadError / NumericalError
 }
+
+# Ctrl-C. 128 + SIGINT(2) is the shell convention for "terminated by a signal",
+# so `auto3d run ...; echo $?` after Ctrl-C answers what every other well-behaved
+# program answers. Deliberately not folded into EXIT_CODES: that table maps
+# *exception classes* through exit_code_for, and KeyboardInterrupt is a
+# BaseException that never reaches an `except Exception` handler -- which is
+# exactly why an interrupted run used to report nothing at all.
+#
+# The value is not novel for the Typer commands: typer/core.py already turns an
+# escaping KeyboardInterrupt into click's Exit(130). Naming it here is what lets
+# the deprecated `auto3d config.yaml` runner -- which is not a Typer command, and
+# so dumped a raw traceback and exited 1 -- agree with them, and what lets both
+# report something before they go.
+EXIT_INTERRUPTED = 130
 
 
 def exit_code_for(error: Exception) -> int:
@@ -148,3 +164,81 @@ def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) 
         )
 
     raise SystemExit(exit_code_for(error))
+
+
+def job_directory_hint(path: str | Path | None, job_name: str | None) -> str | None:
+    """Where this run's job directory is, as far as the CLI can know it.
+
+    ``WorkflowOrchestrator`` builds the job directory as
+    ``<input parent>/<input stem>_<job_name>`` and, when ``job_name`` is empty,
+    invents a timestamp for it *inside its own private copy of the config*
+    (``run()`` does ``replace(self.config)`` before ``_validate_input`` fills the
+    name in). So the caller can name the directory exactly when it supplied
+    ``--job-name``/``job_name:`` and can only name the pattern otherwise; this
+    returns whichever of the two is true rather than guessing a timestamp or
+    globbing for a directory that a *different* run may have left behind.
+
+    Returns None when there is no input path to derive anything from.
+    """
+    if not path:
+        return None
+    input_path = Path(path)
+    stem = f"{input_path.stem}_{job_name}" if job_name else f"{input_path.stem}_<timestamp>"
+    return str(input_path.parent / stem)
+
+
+def handle_interrupt(
+    job_hint: str | None = None,
+    batch: dict[str, int] | None = None,
+    elapsed_seconds: float | None = None,
+) -> None:
+    """Report what is known about a Ctrl-C'd run, then exit :data:`EXIT_INTERRUPTED`.
+
+    An interrupted run used to print nothing whatsoever -- ``KeyboardInterrupt``
+    is a ``BaseException``, so neither ``execute_run``'s ``except Exception`` nor
+    the legacy runner's saw it, and the user was left with a bare prompt, no idea
+    how far the run had got and no idea whether anything reached disk.
+
+    Every field is optional and omitted when unknown, because the point of this
+    panel is to state what is known and nothing else:
+
+    Args:
+        job_hint: Job directory (or the pattern it follows) from
+            :func:`job_directory_hint`.
+        batch: The most recent optimizer progress counts, if any arrived --
+            ``{"converged", "active", "dropped", "step"}``. These describe the
+            batch that was in the optimizer, not the whole run (see
+            ``Auto3D.cli.progress.OptimizationDisplay``), and are labelled that
+            way; claiming them as run totals would be the same defect this
+            module's neighbours were just cleared of.
+        elapsed_seconds: Wall-clock time before the signal arrived.
+
+    Raises:
+        SystemExit: Always, with :data:`EXIT_INTERRUPTED`.
+    """
+    from Auto3D.cli.results import format_duration
+
+    lines = ["[yellow]Interrupted by the user (Ctrl-C).[/yellow]"]
+    if elapsed_seconds is not None:
+        lines.append(f"Ran for {format_duration(elapsed_seconds)} before the signal arrived.")
+    if batch:
+        lines.append(
+            "\nOptimizer batch in flight: "
+            f"[green]{batch.get('converged', 0)}[/green] converged, "
+            f"[yellow]{batch.get('active', 0)}[/yellow] active, "
+            f"[red]{batch.get('dropped', 0)}[/red] dropped, "
+            f"at step {batch.get('step', 0)}."
+            "\n[dim]Counts describe that batch, not the whole run.[/dim]"
+        )
+    if job_hint:
+        lines.append(
+            f"\nAnything already written is under the job directory:\n  [cyan]{job_hint}[/cyan]"
+            "\n[dim]No output SDF is combined for an interrupted run.[/dim]"
+        )
+
+    error_console.print(Panel(
+        "\n".join(lines),
+        title="[yellow]Interrupted[/yellow]",
+        border_style="yellow",
+    ))
+    raise SystemExit(EXIT_INTERRUPTED)

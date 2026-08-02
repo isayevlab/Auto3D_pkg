@@ -259,11 +259,22 @@ faithful gate.
      - Partial success: the run completed, but some input molecules produced
        no output
      - ``auto3d run mols.smi --k 1`` where a molecule yields no conformer
+   * - ``130``
+     - Interrupted by the user (128 + ``SIGINT``)
+     - Ctrl-C during ``auto3d run mols.smi --k 1`` or ``auto3d params.yaml``
 
-Code ``6`` is specific to ``auto3d run``. The results summary -- and, with
-``--json``, the results document -- is printed *before* the process exits with
-it, so a caller always learns which molecules were missing. See
-:doc:`migration-4.0` for what changed in 4.0.
+Code ``6`` is specific to ``auto3d run`` and to the deprecated
+``auto3d <config.yaml>`` form, which report it for the same condition on the
+same data. The results summary -- and, with ``--json``, the results document --
+is printed *before* the process exits with it, so a caller always learns which
+molecules were missing.
+
+Code ``130`` follows the shell convention for a process terminated by
+``SIGINT``. Before exiting, both run entry points print what is known about the
+interrupted run -- elapsed time, the counts for the optimizer batch that was in
+flight, and the job directory where any partial output was written. That report
+goes to stderr, so ``--json`` consumers still see nothing but the document (or
+nothing at all) on stdout. See :doc:`migration-4.0` for what changed in 4.0.
 
 auto3d config
 ~~~~~~~~~~~~~

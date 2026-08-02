@@ -566,24 +566,90 @@ def test_exit_6_is_not_used_for_a_clean_run(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
 
 
+# --- 130: interrupted --------------------------------------------------------
+
+def _squash(text: str) -> str:
+    """Strip ANSI and box-drawing characters, then remove all whitespace.
+
+    ``_flat`` above is not enough for the interrupt panel: Rich folds a long job
+    directory at the panel width, putting a border character *inside* the path.
+    """
+    import re
+
+    plain = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text)
+    return "".join(re.sub(r"[─-╿]", "", plain).split())
+
+
+def test_exit_130_ctrl_c_reports_how_far_the_run_got(tmp_path, monkeypatch):
+    """Ctrl-C mid-run. 130 is 128 + SIGINT, the shell convention.
+
+    ``KeyboardInterrupt`` is a ``BaseException``, so ``execute_run``'s
+    ``except Exception`` never saw it: an interrupted run printed *nothing* and
+    the user could not tell how far it had got or whether anything reached disk.
+
+    **The exit code is worthless as an assertion here and is checked only for
+    completeness.** ``typer/core.py`` turns an escaping ``KeyboardInterrupt``
+    into ``click.exceptions.Exit(130)`` all by itself, so this test's
+    ``exit_code == 130`` passed with the handler deleted outright -- verified,
+    not assumed. What the framework does *not* do is say anything about the run,
+    and it does nothing at all for the legacy ``auto3d config.yaml`` entry point,
+    which is not a Typer command and dumps a raw traceback instead.
+
+    So every load-bearing assertion below keys on the report: the job name is
+    echoed back only by a handler that read the configuration, and the counts
+    only by one that read the live display.
+    """
+    import Auto3D.auto3D as a3d
+    from Auto3D.cli.errors import EXIT_INTERRUPTED
+
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\nCCC m2\n")
+
+    def interrupted_main(options, progress_callback=None, **kwargs):
+        progress_callback(
+            {"job": 0, "total": 9, "converged": 4, "dropped": 1, "active": 4, "step": 250}
+        )
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(a3d, "main", interrupted_main)
+
+    # ANI2xt short-circuits engine resolution, so this test never imports
+    # `aimnet`/`warp` for a run that is stubbed out anyway.
+    result = runner.invoke(
+        app,
+        ["run", str(smi), "--k", "1", "--no-gpu", "--engine", "ANI2xt",
+         "--job-name", "kestrel"],
+    )
+
+    assert result.exit_code == EXIT_INTERRUPTED, result.output
+    err = _squash(result.stderr)
+    assert "Interruptedbytheuser" in err
+    assert "4converged" in err and "4active" in err and "1dropped" in err
+    assert "atstep250" in err
+    assert "mols_kestrel" in err, "the interrupt report never named the job directory"
+    # Diagnostics only: an interrupted run must not put a results document,
+    # or anything else, on the stream --json reserves.
+    assert "Interrupted" not in result.stdout
+
+
 # --- the table itself --------------------------------------------------------
 
 def test_documented_table_lists_exactly_the_codes_the_cli_can_emit():
     """``cli.rst`` must document every code and no phantom ones.
 
     ``cli.rst`` carried two tables that disagreed; the surviving one is
-    generated from nothing, so this checks it against the two structures that
-    actually decide the codes -- ``EXIT_CODES`` and ``EXIT_PARTIAL_SUCCESS`` --
-    rather than against a second hand-written list that would drift the same
-    way the two tables did.
+    generated from nothing, so this checks it against the three structures that
+    actually decide the codes -- ``EXIT_CODES``, ``EXIT_PARTIAL_SUCCESS`` and
+    ``EXIT_INTERRUPTED`` -- rather than against a second hand-written list that
+    would drift the same way the two tables did.
     """
     import re
     from pathlib import Path
 
     from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS
-    from Auto3D.cli.errors import EXIT_CODES
+    from Auto3D.cli.errors import EXIT_CODES, EXIT_INTERRUPTED
 
-    expected = {0, 1, *EXIT_CODES.values(), EXIT_PARTIAL_SUCCESS}
+    expected = {0, 1, *EXIT_CODES.values(), EXIT_PARTIAL_SUCCESS, EXIT_INTERRUPTED}
 
     cli_rst = Path(__file__).resolve().parents[1] / "docs" / "source" / "cli.rst"
     lines = cli_rst.read_text().splitlines()
@@ -597,8 +663,11 @@ def test_documented_table_lists_exactly_the_codes_the_cli_can_emit():
     # The section runs to the next heading underline; 60 lines is comfortably
     # more than the table and comfortably less than the next section's own rows.
     section = "\n".join(lines[headings[0] : headings[0] + 60])
+    # `\d+`, not `\d`: a single-digit pattern silently stopped matching the row
+    # for 130 rather than failing on it, which would have left the newest code
+    # documented-but-unchecked -- the table drifting again, quietly.
     documented = {
-        int(m) for m in re.findall(r"^\s+\* - ``(\d)``$", section, re.MULTILINE)
+        int(m) for m in re.findall(r"^\s+\* - ``(\d+)``$", section, re.MULTILINE)
     }
     assert documented == expected, (
         f"cli.rst documents exit codes {sorted(documented)} but the CLI emits "
