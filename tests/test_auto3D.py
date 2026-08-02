@@ -369,6 +369,15 @@ def test_auto3D_optimization_moves_the_embedded_geometry(job_dir):
     an order of magnitude under the relaxation an ETKDG embedding actually
     undergoes on the way to an NNP minimum (typically 0.1-0.5 A), so it fails
     only for an optimizer that did essentially nothing.
+
+    Joining on the full conformer ID does NOT work, and an earlier version of
+    this test asserted that it did: `encode_ids` replaces every input id with
+    a numeric index before enumeration, so the pre-optimization records carry
+    `0_<isomer>_<conformer>` while the final output has been decoded back to
+    `ethanol_<isomer>_<conformer>`. CI reported exactly that mismatch. The two
+    trailing components are the isomer and conformer indices and ARE shared,
+    so this joins on those -- unambiguous here because the input is a single
+    molecule, which the assertion below pins rather than assumes.
     """
     smi = job_dir / "ethanol.smi"
     smi.write_text("CCO ethanol\n")
@@ -384,14 +393,35 @@ def test_auto3D_optimization_moves_the_embedded_geometry(job_dir):
     embedded = read_pre_optimization_geometries(os.path.dirname(os.path.abspath(out)))
 
     assert records, "no output records to compare against the embedding"
+    assert embedded, "no pre-optimization geometries were recovered"
+
+    def _isomer_conformer(name: str) -> str:
+        """The `<isomer>_<conformer>` tail, which survives id encoding."""
+        parts = name.strip().rsplit("_", 2)
+        assert len(parts) == 3, (
+            f"conformer name {name!r} is not <species>_<isomer>_<conformer>; "
+            "the naming convention this join relies on has changed"
+        )
+        return "_".join(parts[1:])
+
+    by_tail = {_isomer_conformer(k): v for k, v in embedded.items()}
+    # Single input molecule, so the tail identifies a conformer uniquely. If
+    # that ever stops holding, this join is wrong rather than merely unlucky.
+    assert len(by_tail) == len(embedded), (
+        f"isomer/conformer tails are not unique across {sorted(embedded)}; "
+        "this join assumes a single input molecule"
+    )
+
     for mol in records:
         conformer_id = mol.GetProp("ID").strip()
-        assert conformer_id in embedded, (
-            f"output conformer ID {conformer_id!r} has no counterpart among the "
-            f"pre-optimization conformers {sorted(embedded)}; the join between "
-            f"an optimized record and its starting geometry is broken"
+        tail = _isomer_conformer(conformer_id)
+        assert tail in by_tail, (
+            f"output conformer ID {conformer_id!r} (tail {tail!r}) has no "
+            f"counterpart among the pre-optimization conformers "
+            f"{sorted(embedded)}; the join between an optimized record and "
+            f"its starting geometry is broken"
         )
-        displacement = max_atom_displacement(embedded[conformer_id], mol)
+        displacement = max_atom_displacement(by_tail[tail], mol)
         assert displacement > 0.01, (
             f"{conformer_id}: no atom moved further than {displacement:.5f} A "
             f"from the ETKDG embedding, so the geometry optimization did not "
