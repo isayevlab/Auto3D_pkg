@@ -175,11 +175,14 @@ operations (not Python-only). Each takes an input file (validated for existence)
 shares ``--engine``, ``--gpu/--no-gpu``, ``--gpu-idx``, ``-o/--output``,
 ``-f/--force``, and ``--json``, writes an SDF, and prints its path.
 
-All four refuse to write over a file that already exists -- the resolved
-output path, so the derived default name counts, not only an explicit
-``-o`` -- and exit 2 telling you to pass ``-f/--force``, the same way
-``auto3d config init`` does. ``--force`` does not lift the separate refusal
-to write the output over the input file.
+All four refuse to write over a file that already exists and exit 2, telling
+you to pass ``-f/--force``. For ``energy``, ``optimize`` and ``thermo`` the
+check is on the *resolved* output path, so the derived default name counts,
+not only an explicit ``-o``; ``tautomers`` checks only an explicit ``-o``,
+because it derives its own name inside the freshly created job directory,
+where nothing of yours can be. ``--force`` does not lift the separate
+refusal to write the output over the input file. (``auto3d config init``
+refuses an existing file with the same message, but exits 1.)
 
 .. code:: console
 

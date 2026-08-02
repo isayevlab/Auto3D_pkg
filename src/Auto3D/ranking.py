@@ -95,9 +95,13 @@ class ConformerRanker:
         check_output_not_input(input_path, out_path)
         # ... and the same overwrite gate the three API entry points run, for
         # the same reason: `Chem.SDWriter(self.out_path)` truncates on open,
-        # so a run() that fails partway leaves an unrelated existing file
-        # empty. Both guards run; neither subsumes the other (a same-file
-        # out_path is refused even with overwrite=True).
+        # so an existing file at `out_path` is replaced by this run's
+        # selection with no warning. The writer opens only after the grouping
+        # and selection are done (run(), below), so a failure before that
+        # left the file alone -- it is the *successful* run that destroyed it,
+        # which is exactly why nothing ever surfaced a problem. Both guards
+        # run; neither subsumes the other (a same-file out_path is refused
+        # even with overwrite=True).
         check_output_overwrite(out_path, overwrite)
         self.input_path = input_path
         self.out_path = out_path

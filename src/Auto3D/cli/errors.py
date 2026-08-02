@@ -39,12 +39,26 @@ def exit_code_for(error: Exception) -> int:
 def get_error_hint(error: Auto3DError) -> str | None:
     """Get a helpful hint for an error.
 
+    A per-raise ``hint`` set on the exception wins over the per-class hints
+    below, including when it is empty: the class hints are broad guesses from
+    the exception *type* alone, and a raise site that knows better must be
+    able to say "nothing useful to add" as well as "say this instead". The
+    output-overwrite refusal is the motivating case -- it is a
+    ``ConfigurationError``, so it inherited "Run 'auto3d config init' to
+    generate a valid config file", which is a non-sequitur for
+    ``-o precious.sdf`` and would have become one of the most frequently
+    printed hints in the CLI.
+
     Args:
         error: The error that occurred.
 
     Returns:
         Helpful hint string, or None.
     """
+    explicit_hint = getattr(error, "hint", None)
+    if explicit_hint is not None:
+        return explicit_hint or None
+
     if isinstance(error, ConfigurationError):
         return "Run 'auto3d config init' to generate a valid config file"
 

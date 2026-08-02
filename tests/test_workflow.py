@@ -45,14 +45,12 @@ class TestWorkflowExceptions:
 
         orchestrator = WorkflowOrchestrator(config)
 
-        # Mock encode_ids to return the same path with _encoded suffix
-        with patch('Auto3D.workflow.encode_ids') as mock_encode:
-            mock_encode.return_value = (str(tmp_path / "test_encoded.xyz"), {})
-            # Create the encoded file so it exists
-            (tmp_path / "test_encoded.xyz").write_text("content")
-
-            with pytest.raises(FileFormatError, match="not supported"):
-                orchestrator._validate_input()
+        # No encode_ids stub: _validate_input does not encode anything. The
+        # ordering guarantee (format checked before any encoding) is pinned by
+        # test_unsupported_extension_rejected_before_encoding, which drives
+        # run() where encoding actually lives.
+        with pytest.raises(FileFormatError, match="not supported"):
+            orchestrator._validate_input()
 
     def test_validate_input_missing_k_and_window_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when neither k nor window specified."""
@@ -71,13 +69,8 @@ class TestWorkflowExceptions:
 
         orchestrator = WorkflowOrchestrator(config)
 
-        # Mock encode_ids
-        with patch('Auto3D.workflow.encode_ids') as mock_encode:
-            mock_encode.return_value = (str(tmp_path / "test_encoded.smi"), {})
-            (tmp_path / "test_encoded.smi").write_text("CCO ethanol")
-
-            with pytest.raises(ConfigurationError, match="k or window"):
-                orchestrator._validate_input()
+        with pytest.raises(ConfigurationError, match="k or window"):
+            orchestrator._validate_input()
 
     def test_validate_input_invalid_config_raises_configuration_error(self, tmp_path):
         """An invalid config (e.g. out-of-range gpu_idx) must fail fast in
@@ -90,14 +83,10 @@ class TestWorkflowExceptions:
         config = Auto3DOptions(path=str(smi_file), k=1)
         orchestrator = WorkflowOrchestrator(config)
 
-        with patch('Auto3D.workflow.encode_ids') as mock_encode, \
-             patch(
-                 'Auto3D.workflow.check_valid_configuration',
-                 return_value=["GPU index 5 is invalid. Available GPUs: 1"],
-             ):
-            mock_encode.return_value = (str(tmp_path / "test_encoded.smi"), {})
-            (tmp_path / "test_encoded.smi").write_text("CCO ethanol")
-
+        with patch(
+            'Auto3D.workflow.check_valid_configuration',
+            return_value=["GPU index 5 is invalid. Available GPUs: 1"],
+        ):
             with pytest.raises(ConfigurationError, match="GPU index 5 is invalid"):
                 orchestrator._validate_input()
 
@@ -368,20 +357,31 @@ def test_unsupported_extension_rejected_before_encoding(tmp_path):
 
     Validating the suffix after encoding raised a generic ValueError from
     encode_ids and left an orphaned *_encoded file on disk.
+
+    Driven through ``run()``, not ``_validate_input()``. Encoding no longer
+    happens inside ``_validate_input`` at all -- it is its own phase, after
+    the job directory is created -- so ``enc.assert_not_called()`` against
+    ``_validate_input`` could not fail under any input whatsoever and pinned
+    nothing. Against ``run()`` it can: move the format check after
+    ``_encode_input`` and the mock is called.
     """
     from Auto3D.config import Auto3DOptions
     from Auto3D.workflow import WorkflowOrchestrator
 
     bad = tmp_path / "mol.xyz"
     bad.write_text("stuff\n")
-    orch = WorkflowOrchestrator(Auto3DOptions(path=str(bad), k=1))
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(bad), k=1, use_gpu=False))
 
     with patch("Auto3D.workflow.encode_ids") as enc:
         with pytest.raises(FileFormatError, match="not supported"):
-            orch._validate_input()
+            orch.run()
         enc.assert_not_called()  # format is validated before any encoding
 
-    assert not list(tmp_path.glob("*_encoded*"))
+    # Nothing was created: no encoded file anywhere (rglob, because the
+    # encoded copy's home is now a subdirectory), and no job directory --
+    # the format check runs before _setup_job_directory too.
+    assert not list(tmp_path.rglob("*_encoded*"))
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mol.xyz"]
 
 
 def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
@@ -406,11 +406,13 @@ def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="boom"):
         orch.run()
 
-    # The encoded temp file written during _validate_input must be gone, and no
-    # *_encoded file may be left orphaned next to the input.
+    # The encoded temp file must be gone, and no *_encoded file may be left
+    # orphaned anywhere under the input's directory. rglob, not glob: the
+    # encoded copy lives in `tmp_path/<stem>_<job_name>/` now, which a
+    # non-recursive glob cannot see -- it would hold with the cleanup deleted.
     assert orch.input_path != Path()
     assert not orch.input_path.exists()
-    assert not list(tmp_path.glob("*_encoded*"))
+    assert not list(tmp_path.rglob("*_encoded*"))
 
 
 def test_finalize_raises_when_all_outputs_empty(tmp_path):

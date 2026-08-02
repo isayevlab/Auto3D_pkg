@@ -379,11 +379,32 @@ def housekeeping_helper(folder: str, file: str) -> None:
 
 
 def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
-    """Move all metadata files into a folder.
+    """Move this job directory's metadata files into a folder.
 
-    Moves all files from the job directory into the specified folder,
-    except for the optimized structures file. Also moves any omega/flipper
-    temporary files.
+    Moves every entry of ``job_name`` except the optimized structures file
+    into ``folder``. **Nothing outside ``job_name`` is ever touched**, which
+    is a correctness requirement and not a style preference: the caller
+    (``workflow_workers.optim_rank_wrapper``) tars ``folder``, ``rmtree``s it,
+    and -- under the default ``verbose=False`` -- sends the tarball to trash
+    or, when that is unavailable (the cluster path), plainly ``os.remove``s
+    it. Whatever ends up in ``folder`` is therefore *deleted*.
+
+    This function used to additionally sweep ``oeomega_*`` and ``flipper_*``
+    out of the **process working directory**, which for an ordinary
+    ``cd ~/project && auto3d run mols.smi --k 1`` is the user's own directory:
+    a file named e.g. ``~/project/oeomega_settings.txt`` was moved into the
+    run's ``verbose`` folder and then destroyed with it, unrecoverably on the
+    ``os.remove`` path. That loop ran on *every* run, not only OpenEye ones.
+    The OpenEye logfiles it existed to collect now land inside the chunk
+    directory instead -- ``isomer_engine.oe_isomer`` runs the OpenEye section
+    with its working directory set to the directory it owns -- so the loop
+    below collects them like any other metadata file.
+
+    Each move is guarded individually: a single file that cannot be moved
+    (permissions, a vanished file) must not abandon the rest of the sweep and
+    leave a half-populated ``verbose`` folder plus a spurious traceback
+    behind. Everything here is diagnostic -- the ranked output is excluded and
+    has already been written by the time this runs.
 
     Args:
         job_name: Path to the job directory containing files to move.
@@ -398,19 +419,14 @@ def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
     """
     files = list(Path(job_name).glob("*"))
     for file in files:
-        if str(file) != optimized_structures:
-            shutil.move(str(file), folder)
-
-    # Sweep OpenEye omega/flipper logfiles the binaries drop in the CWD. Guard
-    # each move individually: with multi-GPU optimizers running concurrently a
-    # peer may move/remove a file first, and a single bare try used to abandon
-    # the rest of the sweep on the first such error. (Diagnostic logs only.)
-    for file in list(Path(".").glob("oeomega_*")) + list(Path(".").glob("flipper_*")):
+        if str(file) == optimized_structures:
+            continue
         try:
-            if file.exists():
-                shutil.move(str(file), folder)
+            shutil.move(str(file), folder)
         except OSError:
-            pass
+            logger.warning(
+                "Could not move %s into %s; leaving it where it is.", file, folder
+            )
 
 
 def create_chunk_meta_names(path: str, dir: str) -> dict[str, str]:

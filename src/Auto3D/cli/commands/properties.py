@@ -177,6 +177,15 @@ def execute_tautomers(
         # existing file destroyed it. Checked here, before the (expensive)
         # tautomer pipeline runs, rather than just before the move: refusing
         # after the work is done would be a worse experience for no gain.
+        #
+        # This guards the explicit -o ONLY -- unlike energy/optimize/thermo,
+        # where the same function is handed the resolved path and therefore
+        # also covers the derived default name. There is no resolved path to
+        # hand it here: without -o the result keeps the name
+        # `get_stable_tautomers` derives, `<job_dir>/<stem>_out_top_tautomers.sdf`,
+        # inside a job directory `main()` creates fresh for this run (a bare
+        # mkdir(), no exist_ok), so that path cannot collide with a file the
+        # user owns and there is nothing for a gate to protect.
         check_output_overwrite(output, force)
 
         if tauto_k is not None and tauto_window is not None:

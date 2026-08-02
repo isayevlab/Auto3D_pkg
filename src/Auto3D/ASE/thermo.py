@@ -967,10 +967,12 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     # Refuse to truncate a file that already exists. `_write_thermo_output`
     # opens `Chem.SDWriter(outpath)`, which truncates on open, so without this
-    # `-o precious.sdf` destroyed precious.sdf -- and calc_thermo writes
-    # nothing until every Hessian is done, so a failure anywhere in between
-    # left it at 0 bytes. Checked on the RESOLVED path, so the derived default
-    # name is covered too, and before get_device/_load_hessian_model/
+    # `-o precious.sdf` destroyed precious.sdf. The destruction happened at
+    # the very END of the run: nothing is written until every Hessian is done
+    # (`_write_thermo_output` is called after the loop), so a failure anywhere
+    # in between left precious.sdf UNTOUCHED, and only a run that got all the
+    # way through replaced it. Checked on the RESOLVED path, so the derived
+    # default name is covered too, and before get_device/_load_hessian_model/
     # model_name2model_calculator so nothing is loaded first.
     check_output_overwrite(outpath, overwrite)
 

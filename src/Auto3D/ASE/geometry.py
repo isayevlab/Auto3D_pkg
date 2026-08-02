@@ -222,9 +222,12 @@ def opt_geometry(
 
     # Refuse to truncate a file that already exists. `optimizing.run()` opens
     # `Chem.SDWriter(outpath)`, which truncates on open, so without this
-    # `-o precious.sdf` destroyed precious.sdf before the optimization even
-    # started. Checked on the RESOLVED path, so the derived default name is
-    # covered too, and before get_device/optimizing so nothing is loaded first.
+    # `-o precious.sdf` destroyed precious.sdf. Not at the start: that writer
+    # is opened at batch_opt/batchopt.py:323, AFTER every bucket has been
+    # optimized, so precious.sdf survived the whole optimization and was
+    # replaced by the final write -- a completed run, no error, no warning.
+    # Checked on the RESOLVED path, so the derived default name is covered
+    # too, and before get_device/optimizing so nothing is loaded first.
     check_output_overwrite(outpath, overwrite)
 
     device = get_device(gpu_idx, use_gpu=use_gpu)

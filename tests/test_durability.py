@@ -1054,3 +1054,224 @@ class TestOutputOverwriteGuard:
             )
 
         assert sdf.read_bytes() == original
+
+
+class TestHousekeepingStaysInsideTheJobDirectory:
+    """`housekeeping` must never touch a file outside the directory it is given.
+
+    Everything `housekeeping` moves into `folder` is *deleted*:
+    `workflow_workers.optim_rank_wrapper` tars `folder`, `rmtree`s it and --
+    under the default `verbose=False` -- sends the tarball to trash, falling
+    back to a plain `os.remove` when `send2trash` is unavailable (the cluster
+    path). So the second loop this function used to carry, which globbed
+    `Path(".")` -- the *process working directory*, i.e. the user's own shell
+    directory for an ordinary `auto3d run` -- for `oeomega_*`/`flipper_*` and
+    moved the hits into `folder`, was a destructive write to a directory
+    Auto3D does not own. It ran on every run, not only OpenEye ones.
+
+    This is the third data-loss path of this effort and the second one that a
+    search *by operation* still nearly missed: the earlier audit did grep
+    every `shutil.move`, and cleared this line as "moves within the job dir"
+    on the strength of the enclosing function's name rather than the value
+    `Path(".")` holds at runtime.
+    """
+
+    def test_a_users_cwd_file_matching_the_sweep_globs_is_untouched(
+        self, job_dir, monkeypatch
+    ):
+        """Byte-identical, not merely present.
+
+        `shutil.move` across filesystems copies and then unlinks, and the
+        tar/rmtree/remove chain downstream would destroy a copy just as
+        thoroughly as the original -- so `exists()` alone would also be
+        satisfied by a sweep that moved the file and happened to be
+        interrupted before the deletion.
+        """
+        from Auto3D.utils.file_ops import housekeeping
+
+        # The user's shell directory: `cd ~/project && auto3d run mols.smi`.
+        project = job_dir / "project"
+        project.mkdir()
+        users_file = project / "oeomega_settings.txt"
+        users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
+        original = users_file.read_bytes()
+        users_other = project / "flipper_notes.md"
+        users_other.write_bytes(b"KEEP ME TOO\n")
+
+        # The run's own chunk directory, laid out the way
+        # create_chunk_meta_names/optim_rank_wrapper build it.
+        chunk = job_dir / "chunk1"
+        chunk.mkdir()
+        verbose = chunk / "verbose"
+        verbose.mkdir()
+        output = chunk / "mols_3d.sdf"
+        output.write_bytes(b"THE RANKED RESULT\n")
+        (chunk / "smiles_enumerated.smi").write_text("CCO 0\n")
+        (chunk / "oeomega_from_this_run.log").write_text("omega diagnostics\n")
+
+        monkeypatch.chdir(project)
+        housekeeping(str(chunk), str(verbose), str(output))
+
+        # Positive control first: a housekeeping() that did nothing at all
+        # would satisfy every assertion below it.
+        assert (verbose / "smiles_enumerated.smi").exists(), (
+            "housekeeping swept nothing; the rest of this test proves nothing"
+        )
+        assert (verbose / "oeomega_from_this_run.log").exists(), (
+            "an OpenEye logfile inside the job directory must still be "
+            "collected -- oe_isomer now puts them there"
+        )
+        assert output.read_bytes() == b"THE RANKED RESULT\n"
+
+        # ... and now the subject.
+        assert users_file.read_bytes() == original, (
+            "the user's oeomega_settings.txt was swept out of their working "
+            "directory and into a folder that is about to be deleted"
+        )
+        assert users_other.read_bytes() == b"KEEP ME TOO\n"
+        assert sorted(p.name for p in project.iterdir()) == [
+            "flipper_notes.md",
+            "oeomega_settings.txt",
+        ]
+
+    def test_openeye_logfiles_land_in_the_chunk_directory(
+        self, job_dir, monkeypatch
+    ):
+        """The other half: the sweep was removed, not merely narrowed.
+
+        The logfiles it collected are real, so `oe_isomer` now runs the
+        OpenEye section with its working directory set to the chunk directory
+        it owns. OpenEye is not installed on any CI box here, so the toolkit
+        is stubbed and the stub does what the real one does that matters:
+        write a file named after itself into whatever directory the process
+        happens to be in.
+        """
+        from unittest.mock import MagicMock
+
+        import Auto3D.isomer_engine as ie
+
+        project = job_dir / "project"
+        project.mkdir()
+        chunk = job_dir / "chunk1"
+        chunk.mkdir()
+        monkeypatch.chdir(project)
+
+        recorded: dict[str, Path] = {}
+
+        def _build_omega(_opts):
+            recorded["cwd"] = Path(os.getcwd()).resolve()
+            Path("oeomega_20260801_120000.log").write_text("omega diagnostics\n")
+            return MagicMock()
+
+        fake_oeomega = MagicMock()
+        fake_oeomega.OEOmega.side_effect = _build_omega
+        monkeypatch.setattr(ie, "oeomega", fake_oeomega, raising=False)
+        monkeypatch.setattr(ie, "oechem", MagicMock(), raising=False)
+
+        source = chunk / "in.sdf"
+        source.write_text("")
+        rc = ie.oe_isomer(
+            "classic",
+            str(source),
+            str(chunk / "smiles_enumerated.smi"),
+            str(chunk / "smiles_enumerated_reduced.smi"),
+            str(chunk / "smiles_enumerated_hashed.smi"),
+            str(chunk / "smiles_enumerated.sdf"),
+            None,
+            0.3,
+            flipper=False,
+        )
+        assert rc == 0
+
+        assert recorded["cwd"] == Path(os.path.realpath(chunk)), (
+            "OpenEye ran in the caller's working directory, so its logfiles "
+            "land wherever the user happened to be"
+        )
+        assert (chunk / "oeomega_20260801_120000.log").exists()
+        assert list(project.iterdir()) == [], (
+            "a logfile was dropped into the user's working directory"
+        )
+        assert Path(os.getcwd()).resolve() == Path(os.path.realpath(project)), (
+            "oe_isomer did not restore the working directory"
+        )
+
+
+class TestRejectedRunLeavesNoTrace:
+    """A run rejected for a bad input must leave nothing on disk.
+
+    Duplicate IDs, blank names and malformed `.smi` rows are only detectable
+    while reading the records, which is `encode_ids`' job -- and `encode_ids`
+    must run *after* `_setup_job_directory`, because the job directory is
+    where it now writes its encoded copy (that is what closed the earlier
+    data-loss path; see `TestEncodedInputStaging`). Until this fix, that
+    ordering meant `auto3d run dupes.smi --k 1` raised and left an empty
+    `dupes_<timestamp>/` beside the user's input, one more on every retry.
+    """
+
+    def test_duplicate_smi_ids_leave_no_job_directory(self, job_dir, monkeypatch):
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import InputValidationError
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        smi = job_dir / "dupes.smi"
+        smi.write_text("CCO a\nCCC a\n")
+
+        # Safety net only: the rejection happens before this is reached, but
+        # if it ever stops happening this stops the test forking workers.
+        monkeypatch.setattr(
+            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
+        )
+        orch = WorkflowOrchestrator(
+            Auto3DOptions(
+                path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
+            )
+        )
+
+        with pytest.raises(InputValidationError, match="Duplicate molecule ID"):
+            orch.run()
+
+        # The discriminator. "No directory on disk" is also what a fix that
+        # moved encode_ids back in front of the mkdir() would produce -- and
+        # that fix would reintroduce the encoded-file data loss. Assert
+        # instead that the run DID create its job directory (job_dir is
+        # assigned only by _setup_job_directory) and then removed it.
+        assert orch.job_dir != Path(), (
+            "the run never reached _setup_job_directory, so this test is no "
+            "longer exercising the cleanup it was written for"
+        )
+        assert not orch.job_dir.exists(), (
+            f"rejected run left {orch.job_dir} behind"
+        )
+        assert sorted(p.name for p in job_dir.iterdir()) == ["dupes.smi"]
+
+    def test_a_partially_written_encoded_sdf_goes_with_the_directory(
+        self, job_dir, monkeypatch
+    ):
+        """The `.sdf` branch opens `Chem.SDWriter` before it sees the
+        duplicate, so the rejected run has already written a partial encoded
+        file inside the job directory. It must not survive either."""
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import InputValidationError
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        sdf = job_dir / "dupes.sdf"
+        _write_sdf(sdf, ["a", "a"])
+
+        monkeypatch.setattr(
+            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
+        )
+        orch = WorkflowOrchestrator(
+            Auto3DOptions(
+                path=str(sdf), k=1, use_gpu=False, optimizing_engine="ANI2xt"
+            )
+        )
+
+        with pytest.raises(InputValidationError, match="Duplicate molecule name"):
+            orch.run()
+
+        assert orch.job_dir != Path()
+        assert not orch.job_dir.exists()
+        assert not list(job_dir.rglob("*_encoded*")), (
+            "the partial encoded copy outlived the run that was rejected"
+        )
+        assert sorted(p.name for p in job_dir.iterdir()) == ["dupes.sdf"]

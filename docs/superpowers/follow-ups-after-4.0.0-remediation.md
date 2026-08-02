@@ -48,6 +48,26 @@ and were judged out of scope for the phase that found them.
   during Phase 6 and then disproved: `utils/file_ops.py` imports only
   `Auto3D.exceptions` and `logging_config`, never `stereochemistry`.
 
+### Public writers with no overwrite gate (residual, reported not fixed)
+
+`check_output_overwrite` covers every writer reachable from a documented
+entry point. These three public helpers derive an output path from their
+argument and truncate it (`Chem.SDWriter`/`open(..., "w")` both truncate on
+open) with no gate and no `overwrite` parameter:
+
+| helper | path it truncates | why it is not a live hazard |
+|---|---|---|
+| `utils.file_ops.smiles2smi(smiles, path)` | `path`, as given | `smiles2mols` calls it inside a `TemporaryDirectory` |
+| `utils.file_ops.decode_ids(path, mapping)` | `<dir(path)>/<stem minus two components>_out.<ext>` | only ever called with a job-directory path |
+| `tautomer.select_tautomers(sdf, ...)` | `<dir(sdf)>/<stem>_top_tautomers.sdf` | `get_stable_tautomers` passes `main()`'s output, which is inside a job directory created fresh by a bare `mkdir()`; `auto3d tautomers` additionally gates its `-o` |
+
+A direct API caller can still clobber with any of them —
+`select_tautomers("/data/results.sdf", k=1)` replaces
+`/data/results_top_tautomers.sdf`. Same class as, and no worse than, the
+`hash_*` / `combine_smi` / `remove_enantiomers` helpers. Adding `overwrite`
+to all three would be consistent with `calc_spe`/`opt_geometry`/`calc_thermo`/
+`ConformerRanker`, whose default is permissive anyway.
+
 ### Interfaces
 
 - **`ConformerRanker.run` dispatches on `k`/`window` by name.** Phase 5 made
@@ -119,3 +139,18 @@ neither can be re-derived from its finding ID:
    `auto3d tautomers` — and both destroyed their input. Any future
    "find all callers of X" audit should start from the *operation*
    (who writes files?) rather than from an existing guard.
+3. **Searching by operation is necessary but not sufficient — resolve what
+   each path holds at runtime.** The follow-up audit did grep every
+   `shutil.move`, and still cleared `utils/file_ops.py:411` as "`housekeeping`,
+   moves within the job dir" on the strength of the enclosing function's name.
+   That line globbed `Path(".")` — the *process* working directory — for
+   `oeomega_*`/`flipper_*` and moved the hits into the run's `verbose` folder,
+   which `workflow_workers.optim_rank_wrapper` then tars, `rmtree`s and
+   (default `verbose=False`) sends to trash or plainly `os.remove`s. So
+   `cd ~/project && auto3d run mols.smi --k 1` destroyed
+   `~/project/oeomega_settings.txt`, on **every** run and not only OpenEye
+   ones. Third data-loss path of the effort, and the second one a
+   by-operation search found only after the variable's runtime value was
+   resolved instead of its name read. Fixed: the sweep is gone and
+   `isomer_engine.oe_isomer` runs OpenEye with its cwd set to the chunk
+   directory it owns.

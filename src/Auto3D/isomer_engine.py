@@ -2,6 +2,8 @@
 """Isomer enumeration engines for stereoisomer and conformer generation."""
 from __future__ import annotations
 
+import contextlib
+import os
 from pathlib import Path
 
 from rdkit import Chem
@@ -563,19 +565,75 @@ def oe_isomer(
 ) -> int:
     """Generate R/S, cis/trans isomers and conformers using OpenEye Omega.
 
+    The OpenEye toolkit's application-options machinery writes ``oeomega_*``
+    and ``flipper_*`` logfiles into the **process working directory**, which
+    for an ordinary ``cd ~/project && auto3d run mols.smi`` is the user's own
+    directory. ``utils.file_ops.housekeeping`` used to sweep those names out
+    of the cwd and into the run's ``verbose`` folder, which is tarred and then
+    deleted -- so a user file named ``oeomega_settings.txt`` in the cwd was
+    destroyed by an ordinary run. The fix is on this side rather than on the
+    sweep's: the OpenEye section below runs with the working directory set to
+    the directory this call already owns (``output``'s parent, i.e. the
+    per-chunk directory Auto3D created for this job), so the logfiles land
+    there and ``housekeeping`` collects them with the rest of the chunk's
+    metadata.
+
+    Every path argument is made absolute first, because a relative one would
+    otherwise be resolved against that new working directory. The change is
+    invisible to callers: the pipeline already passes absolute paths derived
+    from ``create_chunk_meta_names``.
+
     Args:
         mode: Omega mode ('classic', 'macrocycle', 'dense', 'pose', 'rocs', 'fast_rocs').
         input_f: Path to input SMI or SDF file.
         smiles_enumerated: Path for enumerated stereoisomers.
         smiles_reduced: Path for reduced isomers (no enantiomers).
         smiles_hashed: Path for hashed SMILES IDs.
-        output: Path for output SDF file.
+        output: Path for output SDF file. Its parent directory is where the
+            OpenEye logfiles are written, and must exist.
         max_confs: Maximum conformers per molecule. None for default (1000).
         threshold: RMSD threshold for duplicate removal.
         flipper: Whether to enumerate stereoisomers.
 
     Returns:
         0 on success.
+    """
+    input_f = os.path.abspath(input_f)
+    smiles_enumerated = os.path.abspath(smiles_enumerated)
+    smiles_reduced = os.path.abspath(smiles_reduced)
+    smiles_hashed = os.path.abspath(smiles_hashed)
+    output = os.path.abspath(output)
+
+    with contextlib.chdir(os.path.dirname(output)):
+        return _oe_isomer_in_owned_cwd(
+            mode,
+            input_f,
+            smiles_enumerated,
+            smiles_reduced,
+            smiles_hashed,
+            output,
+            max_confs,
+            threshold,
+            flipper,
+        )
+
+
+def _oe_isomer_in_owned_cwd(
+    mode: str,
+    input_f: str,
+    smiles_enumerated: str,
+    smiles_reduced: str,
+    smiles_hashed: str,
+    output: str,
+    max_confs: int | None,
+    threshold: float,
+    flipper: bool = True,
+) -> int:
+    """Body of :func:`oe_isomer`, run with the cwd set to a directory we own.
+
+    Split out only so the ``chdir`` wrapper above stays readable; every path
+    reaching this function is already absolute. Do not call it directly --
+    doing so puts the OpenEye logfiles back in the caller's cwd.
     """
     input_format = Path(input_f).suffix[1:].strip()
     if max_confs is None:

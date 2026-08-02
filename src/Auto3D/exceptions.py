@@ -11,8 +11,30 @@ class Auto3DError(Exception):
 
     All Auto3D-specific exceptions inherit from this class, allowing users
     to catch all Auto3D errors with a single except clause if desired.
+
+    Attributes:
+        hint: Per-raise override for the actionable next step
+            ``cli.errors.get_error_hint`` prints under the message, in the
+            same spirit as ``DependencyError.dependency_name``. Three states,
+            and the difference between the last two matters:
+
+            - ``None`` (the default) -- unset; the hint for this exception
+              *class* is used.
+            - a non-empty string -- shown instead of the class hint.
+            - ``""`` -- shown instead of the class hint, and that is nothing.
+              Used where the class hint would be a non-sequitur and the
+              message already says what to do (the output-overwrite refusal
+              is a ``ConfigurationError``, but "run ``auto3d config init``"
+              is no help at all for an ``-o`` collision).
+
+            Not preserved across pickling: ``BaseException.__reduce__``
+            replays only ``args``. Hints are a CLI presentation concern and
+            the CLI catches in-process, so nothing depends on it surviving.
     """
-    pass
+
+    def __init__(self, *args: object, hint: str | None = None) -> None:
+        super().__init__(*args)
+        self.hint = hint
 
 
 class ConfigurationError(Auto3DError):
@@ -94,8 +116,14 @@ class DependencyError(Auto3DError):
             than a crash in the hint lookup.
     """
 
-    def __init__(self, message: str, dependency_name: str | None = None) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        dependency_name: str | None = None,
+        *,
+        hint: str | None = None,
+    ) -> None:
+        super().__init__(message, hint=hint)
         self.dependency_name = dependency_name or "unknown"
 
 

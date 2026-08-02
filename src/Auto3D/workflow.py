@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import shutil
 import time
 from dataclasses import replace
 from datetime import datetime
@@ -118,7 +119,30 @@ class WorkflowOrchestrator:
             # -- see _encode_input.
             self._validate_input()
             self._setup_job_directory()
-            self._encode_input()
+            try:
+                self._encode_input()
+            except BaseException:
+                # encode_ids is the last step that can still *reject* the run:
+                # it raises InputValidationError on a duplicate ID, a blank
+                # molecule name, or a malformed .smi row. Moving it after the
+                # mkdir() (which is what lets it write the encoded copy into a
+                # provably new directory) therefore made a rejected run leave
+                # an empty `<stem>_<timestamp>/` beside the user's input --
+                # one more on every retry -- and, for .sdf input, a partial
+                # `<stem>_encoded.sdf` inside it, because Chem.SDWriter opens
+                # before the duplicate is seen. Removing the directory here
+                # restores the property _validate_input's docstring names: a
+                # rejected run leaves no trace on disk.
+                #
+                # Unconditionally safe, and only because _setup_job_directory
+                # used a bare mkdir(): the directory is provably new, so
+                # nothing in it can predate this run. `except BaseException`
+                # (matching ASE/geometry.py's staging cleanup) so a
+                # KeyboardInterrupt mid-encode cleans up too, and
+                # ignore_errors so a cleanup failure never masks the real
+                # rejection the user needs to see.
+                shutil.rmtree(self.job_dir, ignore_errors=True)
+                raise
             self._setup_logging()
 
             # Phase 2: Prepare chunks
@@ -153,9 +177,16 @@ class WorkflowOrchestrator:
     def _validate_input(self) -> None:
         """Validate the input configuration. Writes nothing.
 
-        Every check that can reject the run happens here, before
+        Every configuration, format and model check happens here, before
         ``_setup_job_directory`` creates a directory and ``_encode_input``
-        writes a file, so a rejected run leaves no trace on disk at all.
+        writes a file. One further class of rejection cannot be made here at
+        all: duplicate molecule IDs, blank names and malformed ``.smi`` rows
+        are only detectable while reading the records, which is
+        ``encode_ids``' job, and ``encode_ids`` must run *after* the job
+        directory exists because that is where it writes. ``run()`` therefore
+        removes that freshly created directory when ``_encode_input`` raises,
+        which is what keeps the overall property true: a rejected run leaves
+        no trace on disk at all.
 
         Also resolves the optimizing engine name and verifies the model is
         obtainable (see ``preflight_model``), so a bad model name, a cold

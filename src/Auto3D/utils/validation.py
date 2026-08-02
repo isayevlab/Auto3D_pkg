@@ -218,11 +218,19 @@ def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: b
     """Refuse to write over a file that already exists.
 
     ``auto3d energy junk.sdf --no-gpu -o precious.sdf`` used to exit 0, print
-    "Wrote precious.sdf", and leave ``precious.sdf`` at 0 bytes: every writer
-    below opens ``Chem.SDWriter(outpath)``, which truncates on open, so the
-    user's file was destroyed before a single record was written -- and, when
-    the run produced nothing (an SDF whose records all fail to parse), nothing
-    was written afterwards either. ``auto3d config init`` has refused to
+    "Wrote precious.sdf", and leave ``precious.sdf`` at **0 bytes**: every
+    writer below opens ``Chem.SDWriter(outpath)``, which truncates on open,
+    and ``calc_spe`` takes an early-return branch that opens the writer and
+    writes nothing when every record in the input fails to parse.
+
+    Be precise about *when* the destruction happened, because it is not what
+    "truncates on open" suggests: all four writers open their output only
+    after the compute is finished (``SPE.py:161``, ``ASE/thermo.py:878``,
+    ``batch_opt/batchopt.py:323`` for ``opt_geometry``, ``ranking.py:287``),
+    so a run that failed part-way left the user's file untouched. What
+    destroyed it was a run that *succeeded*, or -- for the 0-byte case above
+    -- one that had nothing to write. This guard exists because both of those
+    are silent: nothing warned that the path was occupied. ``auto3d config init`` has refused to
     clobber an existing file since it shipped; the calculators did not.
 
     Single source of truth for that policy, in the same spirit as
@@ -264,7 +272,12 @@ def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: b
     if os.path.exists(out_path):
         raise ConfigurationError(
             f"{out_path} already exists. Pass --force/-f to overwrite, or "
-            "choose a different -o path. (Python API: pass overwrite=True.)"
+            "choose a different -o path. (Python API: pass overwrite=True.)",
+            # No hint: the message above already states both ways out, and
+            # ConfigurationError's class hint ("run auto3d config init") has
+            # nothing to do with an -o collision. "" suppresses it; None
+            # would have meant "unset" and let the class hint through.
+            hint="",
         )
 
 

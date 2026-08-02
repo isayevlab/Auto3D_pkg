@@ -17,12 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to parse, for instance) wrote nothing back. `energy`, `optimize`, `thermo`
   and `tautomers` now stop with a `ConfigurationError` (exit code **2**) and
   the message `<path> already exists. Pass --force/-f to overwrite, or choose
-  a different -o path.`, matching what `auto3d config init` has always done.
+  a different -o path.` -- the same message `auto3d config init` has always
+  printed for this case, though that command exits **1** rather than 2.
   **What stops working:** any script that re-runs one of these four commands
-  into a path that already exists -- including the *default* derived name
-  (`mols_AIMNET_E.sdf`, `mols_AIMNET_opt.sdf`, `mols_AIMNET_G.sdf`,
-  `mols_top_tautomers.sdf`), not only an explicit `-o`, because the check is
-  on the resolved output path. **What to do instead:** add `--force` if
+  into a path that already exists. For `energy`, `optimize` and `thermo` that
+  includes the *default* derived name (`mols_AIMNET_E.sdf`,
+  `mols_AIMNET_opt.sdf`, `mols_AIMNET_G.sdf`), not only an explicit `-o`,
+  because the check is on the resolved output path. `tautomers` checks only
+  an explicit `-o`: its own name is derived inside the freshly created job
+  directory (`<job_dir>/<stem>_out_top_tautomers.sdf`), which cannot collide
+  with anything of yours. **What to do instead:** add `--force` if
   replacing the previous result is what you meant, or write to a fresh path
   and delete the old one yourself. **The Python API is unchanged by default:**
   `calc_spe`, `opt_geometry`, `calc_thermo` and `ConformerRanker` take a new
@@ -49,6 +53,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead:** pass the new `encode_ids(path, out_dir=...)` argument to choose
   where the encoded copy goes, or remove the stale `<stem>_encoded.<ext>`
   file. The final output path and its name are unchanged.
+
+- **`auto3d run` no longer moves files out of your working directory.**
+  `Auto3D.utils.file_ops.housekeeping` globbed the **process working
+  directory** for `oeomega_*` and `flipper_*` and moved every hit into the
+  run's `verbose/` folder -- which is then tarred, `rmtree`d and, under the
+  default `verbose=False`, sent to trash or (when `send2trash` is
+  unavailable, the cluster case) plainly `os.remove`d. So
+  `cd ~/project && auto3d run mols.smi --k 1` with a file named
+  `~/project/oeomega_settings.txt` destroyed it, unrecoverably on the
+  `os.remove` path, and that loop ran on **every** run, not only ones using
+  the OpenEye engine. `housekeeping` now touches nothing outside the job
+  directory it is given. The OpenEye logfiles it existed to collect are still
+  collected: `Auto3D.isomer_engine.oe_isomer` now runs the OpenEye section
+  with its working directory set to the per-chunk directory it owns, so the
+  toolkit drops them there and the ordinary sweep picks them up. **What stops
+  working:** nothing a user does deliberately -- but if you relied on an
+  `omega` run tidying `oeomega_*` logfiles out of your shell's working
+  directory, they now appear inside the run's `verbose` folder instead (or
+  not at all, under the default `verbose=False`). A single failed move no
+  longer aborts the rest of the sweep either; it is logged as a warning.
+
+- **A rejected `auto3d run` no longer leaves an empty job directory behind.**
+  Duplicate molecule IDs, blank names and malformed `.smi` rows can only be
+  detected while reading the records, which happens in `encode_ids` -- and
+  `encode_ids` now runs after the job directory is created, because that is
+  where it writes. `auto3d run dupes.smi --k 1` therefore raised
+  `InputValidationError` and left an empty `dupes_<timestamp>/` beside the
+  input, one more on every retry (plus a partial `dupes_encoded.sdf` inside
+  it, for `.sdf` input). The run now removes that directory on its way out,
+  restoring the property that a rejected run leaves no trace on disk. The
+  directory is provably new -- it was created moments earlier by a bare
+  `mkdir()` -- so nothing that predates the run can be inside it.
 
 - **Configuration bounds are now enforced on every entry point.** A single
   `FIELD_BOUNDS` table in `config.py` is now consulted by both
@@ -443,6 +479,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModelLoadError` at load rather than a wrong padding value applied silently.
 
 ### Fixed
+
+- **CLI error panels no longer suggest `auto3d config init` for errors that
+  have nothing to do with a config file.** `get_error_hint` picked its hint
+  from the exception *class* alone, so every `ConfigurationError` -- including
+  the new "`precious.sdf` already exists, pass `--force`" refusal, likely to
+  become one of the most frequently printed errors in the CLI -- carried
+  "Run 'auto3d config init' to generate a valid config file". `Auto3DError`
+  now accepts a per-raise `hint`, which wins over the class hint (and, when
+  empty, suppresses it for a message that already says what to do). The
+  per-class hints are unchanged for every error that does not set one.
 
 - **A failed rewrite can no longer destroy a completed optimization.**
   `opt_geometry` converts `E_tot` from eV to hartree by reading the SDF that

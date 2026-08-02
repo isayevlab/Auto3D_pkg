@@ -523,6 +523,11 @@ def test_energy_refuses_to_overwrite_an_existing_output(sdf, tmp_path):
     assert "already exists" in res.output
     assert "--force" in res.output
     assert "Traceback" not in res.output
+    # The panel must not carry ConfigurationError's generic class hint here;
+    # "run auto3d config init" is a non-sequitur for an -o collision. Checked
+    # on the whitespace-collapsed output because Rich wraps the panel and a
+    # hint that IS printed can arrive split across two lines.
+    assert "config init" not in " ".join(res.output.split())
     assert precious.read_bytes() == b"IRREPLACEABLE USER DATA\n"
 
 

@@ -1141,8 +1141,18 @@ class TestIterSmiRecords:
             list(iter_smi_records(str(p), on_malformed="bogus"))
 
 
-def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
-    """A vanished/peer-moved oeomega_* file must not abort moving the rest."""
+def test_housekeeping_sweep_is_per_file_robust(tmp_path, monkeypatch):
+    """One unmovable file must not abandon the rest of the sweep.
+
+    This guard used to live on a second loop that swept `oeomega_*` out of the
+    *process working directory*; that loop is gone (it destroyed user files --
+    see `TestHousekeepingStaysInsideTheJobDirectory` in tests/test_durability.py)
+    and the OpenEye logfiles it collected now land inside the job directory,
+    where this loop picks them up. The robustness property moved with them: a
+    permission error, or a file that vanished under us, must leave a complete
+    `verbose` folder minus that one file rather than a half-populated one plus
+    a traceback out of `optim_rank_wrapper`'s blanket except.
+    """
     import os
 
     from Auto3D.utils.file_ops import housekeeping
@@ -1151,13 +1161,11 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
     job.mkdir()
     dest = tmp_path / "verbose"
     dest.mkdir()
-    cwd = tmp_path / "cwd"
-    cwd.mkdir()
-    monkeypatch.chdir(cwd)
 
-    # Two omega logfiles; the FIRST one encountered (by counter) will "disappear".
-    (cwd / "oeomega_a.log").write_text("a")
-    (cwd / "oeomega_b.log").write_text("b")
+    # Two logfiles in the job directory; the FIRST one encountered (by
+    # counter) will fail to move.
+    (job / "oeomega_a.log").write_text("a")
+    (job / "oeomega_b.log").write_text("b")
 
     real_move = __import__("shutil").move
     call_count = {"n": 0}
@@ -1165,7 +1173,7 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
     def flaky_move(src, dst):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            # Simulate a peer worker having already moved the first file.
+            # Simulate the file having gone away underneath the sweep.
             if os.path.exists(src):
                 os.remove(src)
             raise OSError("already gone")
@@ -1175,7 +1183,8 @@ def test_housekeeping_omega_sweep_is_per_file_robust(tmp_path, monkeypatch):
 
     housekeeping(str(job), str(dest), str(job / "out.sdf"))  # must not raise
 
-    # Exactly one of the two logfiles must have been successfully moved.
+    # Exactly one of the two logfiles must have been successfully moved: the
+    # sweep continued past the failure instead of stopping on it.
     moved = list(dest.glob("oeomega_*.log"))
     assert len(moved) == 1, f"Expected 1 moved file, got {[f.name for f in moved]}"
 
