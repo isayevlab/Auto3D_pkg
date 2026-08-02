@@ -1,6 +1,8 @@
 # tests/test_cli_app.py
 """Tests for main Typer application."""
 
+import re
+
 import pytest
 from typer.testing import CliRunner
 
@@ -694,6 +696,11 @@ def test_json_document_is_not_colorized_on_a_terminal(tmp_path):
     assert json.loads(on_terminal.decode().replace("\r\n", "\n"))["success"] is True
 
 
+# Rich styles help output when it thinks the stream supports colour, which CI
+# forces on via FORCE_COLOR. Tests that match on the text must ignore styling.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def test_help_goes_to_stdout_and_carries_no_import_banner(auto3d_process):
     """Two things at once, and both matter.
 
@@ -708,7 +715,17 @@ def test_help_goes_to_stdout_and_carries_no_import_banner(auto3d_process):
     result = auto3d_process("run", "--help")
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.lstrip().startswith("Usage: auto3d run"), result.stdout
+
+    # Strip ANSI before matching. Rich emits a bold escape ahead of the usage
+    # line whenever it believes the stream is colour-capable, and GitHub
+    # Actions sets FORCE_COLOR, so `lstrip()` alone left a leading `\x1b[1m`
+    # and this assertion failed on every CI runner while passing locally --
+    # the same local/CI split that has produced several defects in this
+    # effort. The subject here is that no banner precedes the usage text, not
+    # how the usage text is styled.
+    plain = _ANSI_RE.sub("", result.stdout).lstrip()
+
+    assert plain.startswith("Usage: auto3d run"), result.stdout
     assert "Warp" not in result.stdout
 
 
