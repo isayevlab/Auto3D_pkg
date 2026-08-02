@@ -358,17 +358,53 @@ def test_config_validate_invalid(runner, tmp_path_cwd):
     `auto3d run -c` rejects this same file with 2, and a pre-flight checker
     that answers a different number than the run it predicts is useless as a
     script gate.
+
+    The config here is invalid on its *values* (`k: 0` violates FIELD_BOUNDS).
+    It used to be a file whose only defect was a missing `path`, which is no
+    longer a defect at all -- see
+    test_config_validate_accepts_a_settings_only_config below.
     """
     from Auto3D.cli.app import app
 
-    # Create an invalid config file (missing required 'path')
     config_file = tmp_path_cwd / "invalid.yaml"
-    config_file.write_text("k: 5\noptimizing_engine: AIMNET\n")
+    config_file.write_text("path: mols.smi\nk: 0\noptimizing_engine: AIMNET\n")
 
     result = runner.invoke(app, ["config", "validate", str(config_file)])
 
     assert result.exit_code == 2
     assert "Validation Passed" not in result.output
+
+
+def test_config_validate_accepts_a_settings_only_config(runner, tmp_path_cwd):
+    """A config with no `path` is valid, because `auto3d run INPUT -c` is.
+
+    Every modern entry point supplies the input on the command line and
+    overrides whatever `path` the file carries, so the reusable settings-only
+    config is the shape users actually want. `config validate` used to reject
+    it with `path / Field required` -- a pre-flight checker calling invalid
+    the one file shape that runs fine.
+
+    The paired `run` invocation is what makes this a parity assertion rather
+    than a claim about the validator alone: both must agree.
+    """
+    from unittest.mock import patch
+
+    from Auto3D.cli.app import app
+
+    cfg = tmp_path_cwd / "settings_only.yaml"
+    cfg.write_text("k: 5\noptimizing_engine: AIMNET\nuse_gpu: false\n")
+
+    result = runner.invoke(app, ["config", "validate", str(cfg)])
+    assert result.exit_code == 0, result.output
+    assert "Validation Passed" in result.output
+
+    # And the run it predicts really does accept it.
+    smi = tmp_path_cwd / "mols.smi"
+    smi.write_text("CCO m1\n")
+    with patch("Auto3D.auto3D.main", return_value="out.sdf") as m:
+        run_result = runner.invoke(app, ["run", str(smi), "-c", str(cfg), "--no-gpu"])
+    assert run_result.exit_code == 0, run_result.output
+    assert m.called, "run rejected the config that config validate approved"
 
 
 def test_run_requires_input(runner):
@@ -975,3 +1011,50 @@ def test_config_validate_missing_file(runner, tmp_path_cwd):
     result = runner.invoke(app, ["config", "validate", "nonexistent.yaml"])
     assert result.exit_code == 2
     assert "does not exist" in result.output
+
+
+@pytest.mark.parametrize(
+    "flag,value,field,expected",
+    [
+        ("--max-confs", "5", "max_confs", 5),
+        ("--threshold", "0.7", "threshold", 0.7),
+        ("--mpi-np", "2", "mpi_np", 2),
+        ("--opt-steps", "77", "opt_steps", 77),
+        ("--opt-tol", "0.05", "convergence_threshold", 0.05),
+        ("--patience", "33", "patience", 33),
+        ("--batchsize-atoms", "512", "batchsize_atoms", 512),
+        ("--isomer-engine", "rdkit", "isomer_engine", "rdkit"),
+        ("--tauto-engine", "rdkit", "tauto_engine", "rdkit"),
+    ],
+)
+def test_run_forwards_each_new_flag_to_auto3d_options(
+    runner, tmp_path_cwd, flag, value, field, expected
+):
+    """Each flag must reach the field it names, not merely be accepted.
+
+    `run` exposed 7 of 23 Auto3DOptions fields; the rest were YAML-only even
+    though `optimize`/`thermo` exposed their equivalents. Adding a flag that
+    Typer accepts but `execute_run` never forwards would be invisible to a
+    test that only checks the exit code -- the command would still exit 0 and
+    the option would silently do nothing, which is the defect class this
+    codebase keeps finding. Asserting on the constructed Auto3DOptions is what
+    makes dropping the flag from the override dict fail this test.
+    """
+    from unittest.mock import patch
+
+    from Auto3D.cli.app import app
+
+    smi = tmp_path_cwd / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    with patch("Auto3D.auto3D.main", return_value="out.sdf") as m:
+        result = runner.invoke(
+            app, ["run", str(smi), "--k", "1", "--no-gpu", flag, value]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert m.called, f"{flag} prevented the run from starting"
+    options = m.call_args[0][0]
+    assert getattr(options, field) == expected, (
+        f"{flag}={value} did not reach Auto3DOptions.{field}"
+    )

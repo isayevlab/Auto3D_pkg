@@ -105,6 +105,84 @@ app.add_typer(config_app, name="config")
 app.add_typer(models_app, name="models")
 
 
+# Shared option annotations for the two conformer-generation commands --------
+#
+# `run` (-> Auto3D.auto3D.main) drives these pipeline stages through
+# `Auto3DOptions`, so each knob is declared once here rather than inline. Declaring them per command is
+# how the CLI acquired the divergences this phase is closing -- `--opt-tol`,
+# `--opt-steps`, `--patience` and `--batchsize-atoms` existed on `optimize`
+# and on nothing else, though `run` is where they matter most.
+#
+# All default to None, never to the field's default value: `merge_configs`
+# applies only non-None overrides, so None means "not specified on the command
+# line" and a value set in a `-c` config file survives. A flag defaulting to
+# the schema default would silently overwrite the config file with it.
+#
+# Deliberately NOT given flags on either command (still reachable via `-c`):
+#   pKaNorm  -- only meaningful with tauto_engine='oechem', and it is an
+#               ionization-state policy that belongs with the rest of the
+#               tautomer setup, not a per-invocation switch.
+#   mode_oe  -- only meaningful with isomer_engine='omega' (needs an OpenEye
+#               license); picking an Omega mode is part of that setup.
+#   capacity -- "SMILES per 1GB", a tuning constant for the chunking
+#               heuristic, paired with `memory` and not independently useful.
+
+EnumerateTautomerFlag = Annotated[
+    bool | None,
+    typer.Option(
+        "--enumerate-tautomer/--no-enumerate-tautomer",
+        help="Enumerate tautomers before generating conformers.",
+    ),
+]
+TautoEngineOption = Annotated[
+    str | None,
+    typer.Option("--tauto-engine", help="Tautomer enumeration engine: rdkit or oechem."),
+]
+IsomerEngineOption = Annotated[
+    str | None,
+    typer.Option("--isomer-engine", help="3D isomer engine: rdkit or omega (needs OpenEye)."),
+]
+EnumerateIsomerFlag = Annotated[
+    bool | None,
+    typer.Option(
+        "--enumerate-isomer/--no-enumerate-isomer",
+        help="Enumerate cis/trans and R/S isomers.",
+    ),
+]
+MaxConfsOption = Annotated[
+    int | None,
+    typer.Option("--max-confs", help="Max conformers per molecule (default: heavy atoms - 1)."),
+]
+ThresholdOption = Annotated[
+    float | None,
+    typer.Option("--threshold", help="RMSD threshold for duplicate removal (Angstrom)."),
+]
+MpiNpOption = Annotated[
+    int | None,
+    typer.Option("--mpi-np", help="CPU cores used for isomer generation."),
+]
+RunOptStepsOption = Annotated[
+    int | None,
+    typer.Option("--opt-steps", help="Max optimization steps per structure."),
+]
+RunOptTolOption = Annotated[
+    float | None,
+    typer.Option("--opt-tol", help="Max-force convergence threshold (eV/A)."),
+]
+RunPatienceOption = Annotated[
+    int | None,
+    typer.Option("--patience", help="Drop a conformer after this many non-improving steps."),
+]
+RunBatchsizeAtomsOption = Annotated[
+    int | None,
+    typer.Option("--batchsize-atoms", help="Atoms per optimization batch per GB."),
+]
+RunTf32Flag = Annotated[
+    bool | None,
+    typer.Option("--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs (faster, less precise)."),
+]
+
+
 def version_callback(value: bool) -> None:
     """Print version and exit."""
     if value:
@@ -175,6 +253,22 @@ def run(
         str | None,
         typer.Option("--job-name", help="Name for the output folder/run."),
     ] = None,
+    enumerate_tautomer: EnumerateTautomerFlag = None,
+    tauto_engine: TautoEngineOption = None,
+    isomer_engine: IsomerEngineOption = None,
+    enumerate_isomer: EnumerateIsomerFlag = None,
+    max_confs: MaxConfsOption = None,
+    threshold: ThresholdOption = None,
+    mpi_np: MpiNpOption = None,
+    opt_steps: RunOptStepsOption = None,
+    opt_tol: RunOptTolOption = None,
+    patience: RunPatienceOption = None,
+    batchsize_atoms: RunBatchsizeAtomsOption = None,
+    memory: Annotated[
+        int | None,
+        typer.Option("--memory", help="RAM available to Auto3D in GB (default: auto-detect)."),
+    ] = None,
+    tf32: RunTf32Flag = None,
     save_intermediate: Annotated[
         bool,
         typer.Option(
@@ -206,6 +300,19 @@ def run(
         gpu=gpu,
         gpu_idx=gpu_idx,
         job_name=job_name,
+        enumerate_tautomer=enumerate_tautomer,
+        tauto_engine=tauto_engine,
+        isomer_engine=isomer_engine,
+        enumerate_isomer=enumerate_isomer,
+        max_confs=max_confs,
+        threshold=threshold,
+        mpi_np=mpi_np,
+        opt_steps=opt_steps,
+        opt_tol=opt_tol,
+        patience=patience,
+        batchsize_atoms=batchsize_atoms,
+        memory=memory,
+        tf32=tf32,
         save_intermediate=save_intermediate,
         verbose=verbose,
         quiet=quiet,
