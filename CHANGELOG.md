@@ -1238,6 +1238,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
   `models test`, and the legacy YAML path).
 
+- **The test suite no longer depends on the order its tests run in.** No
+  shipped behavior changes here, but every CI verdict on this release was
+  carrying an unknown amount of luck, so it is recorded. CI runs `pytest tests/
+  -q -m "not slow"` *without* `-p no:randomly`, so `pytest-randomly` shuffles
+  the order on every run; three runs of that command on one commit produced 0,
+  1 and 13 failures, and `main` failed the same 13 at seed `1351916419`. Three
+  independent causes, all pre-existing:
+
+  - A test patched `Auto3D.cli.errors.handle_error`, but
+    `cli/commands/run.py` copies that function into its own namespace with
+    `from ... import handle_error` at import time, and the CLI imports `run`
+    lazily. Whenever that test was the first to reach the lazy import, `run`
+    captured the stub permanently -- `monkeypatch` restored the module it had
+    patched and could not know a second module had copied the value meanwhile.
+    The leaked stub swallows the exception it is handed, so 13 later tests
+    across six CLI modules saw exit 0 where they expected a non-zero code.
+  - A test evicted `Auto3D.ASE.thermo` from `sys.modules` and re-imported it
+    without restoring the original, which does not refresh a module but builds
+    a second one with its own globals. 182 tests downstream, a thermo test
+    patched a flag on one copy and called a helper bound to the other.
+  - `main()` sets the multiprocessing start method to `spawn` process-wide (a
+    deliberate fix: forking from a CUDA-initialized process breaks the child),
+    which outlived the test that called it. A `parallel_embed` test gates on
+    `get_start_method() != "fork"`, so it *skipped* whenever any
+    `main()`-calling test was scheduled ahead of it -- silently, on most seeds.
+
+  `tests/conftest.py` now imports Auto3D's modules eagerly so module identity
+  is fixed before any test can patch anything, restores the start method after
+  each test, and asserts per test that Auto3D's modules come out as they went
+  in -- naming the guilty test and repairing the damage, rather than letting it
+  surface as unrelated failures later. Twelve seeds now give identical pass and
+  skip counts.
+
 ## [3.5.0] - 2026-06-13
 
 ### Breaking Changes
