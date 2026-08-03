@@ -118,8 +118,49 @@ LINEARITY_MAX_PERP_ANGSTROM = 0.25  # Å, max allowed atom distance from the pri
 
 # Imaginary modes below this magnitude (cm^-1) are numerical artifacts of an
 # NNP Hessian at conformer-generation convergence; above it, the structure is a
-# saddle point and its "free energy" is not a minimum's.
+# saddle point and its "free energy" is not a minimum's. This is a
+# CLASSIFICATION threshold ("is this geometry a saddle point?"), deliberately
+# kept separate from LOW_FREQUENCY_CUTOFF_CM below, which is a thermodynamic
+# floor. They answer different questions and must not be merged: raising the
+# saddle-point threshold would silently publish transition-state free energies
+# as minima, while raising the quasi-harmonic floor only changes how a soft
+# mode is modeled.
 IMAGINARY_MODE_CUTOFF_CM = 50.0
+
+# cm^-1. Quasi-harmonic floor: every real vibrational mode below this
+# wavenumber is evaluated AT this wavenumber instead (Truhlar's "raising"
+# prescription; Ribeiro, Marenich, Cramer, Truhlar, J. Phys. Chem. B 2011,
+# 115, 14556). The rigid-rotor/harmonic entropy of a mode diverges as
+# -R*ln(h*nu/kT) as nu -> 0, so G is most sensitive to exactly the modes an
+# NNP Hessian knows least well: at 298 K, dG/dnu is +0.059 kcal/mol per cm^-1
+# at 10 cm^-1 but only +0.006 at 100 cm^-1, so an fp32 Hessian that places a
+# torsion at 30 +/- 5 cm^-1 carries +/-0.10 kcal/mol of pure noise in G. The
+# floor makes that derivative exactly zero below the cutoff. 100 cm^-1 is the
+# value used by both Truhlar's quasi-harmonic approximation and Grimme's
+# quasi-RRHO (Chem. Eur. J. 2012, 18, 9955); at 298 K, kT = 207 cm^-1, so
+# every mode below the floor is deep in the classical limit.
+#
+# Set to 0.0 to disable and recover plain RRHO (calc_thermo's and
+# do_mol_thermo's low_freq_cutoff_cm argument). Turning the floor ON is a
+# convention change, not a bug fix: it does not cancel between species and it
+# moves published numbers (measured on an MMFF n-decane spectrum, +1.6
+# kcal/mol; on n-butane, +0.0). Every record therefore records the convention
+# that produced it in its Thermo_convention SD property.
+LOW_FREQUENCY_CUTOFF_CM = 100.0
+
+# Dimensionless. After translations and rotations are projected out of the
+# mass-weighted Hessian, the projected-out eigenvalues are zero by
+# construction, so the discarded ones are machine noise (~1e-16) while the
+# smallest genuine vibration is many orders of magnitude larger. This is the
+# fraction of the smallest KEPT eigenvalue magnitude at which the largest
+# DISCARDED eigenvalue stops being negligible -- i.e. at which a genuine
+# vibration has become numerically indistinguishable from the projected null
+# space (a dissociating fragment, a zero-mass atom, a badly conditioned
+# Hessian). projected_vibrations warns rather than raising, since the
+# resulting spectrum is still the best available one. This assumption is
+# exactly what ASE's magnitude-sorting mode selection made silently and never
+# checked.
+PROJECTION_RESIDUAL_FRACTION = 0.05
 
 # eV per wavenumber, for reporting vibrational energies in cm^-1.
 EV_PER_WAVENUMBER = 1.0 / 8065.54429

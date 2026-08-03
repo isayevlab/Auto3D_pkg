@@ -15,62 +15,36 @@ calculation wants them -- but the record now carries
 ``Thermo_failed = "transition_state"``, so the documented filter rejects it.
 
 Nothing here loads a neural network potential: ``vib_hessian`` is replaced by a
-fake returning a canned spectrum, and the model/calculator construction is
-monkeypatched exactly as ``test_thermo_helpers`` already does.
+fake returning a synthetic Hessian with a known spectrum, and the
+model/calculator construction is monkeypatched exactly as
+``test_thermo_helpers`` already does.
 """
 from __future__ import annotations
 
-import numpy as np
 import pytest
 from rdkit import Chem
-from rdkit.Chem import AllChem
 
 import Auto3D.ASE.thermo as thermo_mod
 from Auto3D.ASE.thermo import THERMO_FAILED_PROP, TRANSITION_STATE_FAILURE
+from tests.helpers_vibrations import atoms_for as _atoms_for
+from tests.helpers_vibrations import fake_vib_for, probe_mol
 
-EV_PER_CM = 1.0 / 8065.54429
-
-
-def _ev(*wavenumbers_cm):
-    """Vibrational energies in eV; a negative wavenumber is an imaginary mode."""
-    return [
-        complex(0.0, abs(w) * EV_PER_CM) if w < 0 else complex(w * EV_PER_CM, 0.0)
-        for w in wavenumbers_cm
-    ]
-
-
-#: Water: 3 atoms, nonlinear, so 9 modes of which 3 are genuine vibrations.
-#: The trans/rot six are tiny (and deliberately include the small spurious
-#: imaginary values a real NNP Hessian produces), so the 3N-6 cut keeps exactly
-#: the last three named here.
+#: Water: 3 atoms, nonlinear, so exactly 3 genuine vibrations. The six
+#: translation/rotation eigenvalues are tiny and deliberately include the small
+#: spurious imaginary values a real NNP Hessian produces; the projection in
+#: ``do_mol_thermo`` removes them by construction rather than by magnitude, so
+#: they never reach the analysis whatever their size.
 _TRANS_ROT = (-8, -5, -3, 2, 4, 6)
-SADDLE_SPECTRUM = _ev(*_TRANS_ROT, -400, 1600, 3700)
-MINIMUM_SPECTRUM = _ev(*_TRANS_ROT, 1595, 3657, 3756)
+SADDLE_MODES = (-400, 1600, 3700)
+MINIMUM_MODES = (1595, 3657, 3756)
 
 
 def _water(name):
-    mol = Chem.AddHs(Chem.MolFromSmiles("O"))
-    AllChem.EmbedMolecule(mol, randomSeed=42)
-    mol.SetProp("_Name", name)
-    return mol
+    return probe_mol("O", name)
 
 
-def _atoms_for(mol, potential_energy=-1234.5):
-    from ase import Atoms
-
-    positions = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
-    atoms = Atoms([a.GetSymbol() for a in mol.GetAtoms()], positions)
-    atoms.get_calculator = lambda: None
-    atoms.get_potential_energy = lambda: potential_energy
-    return atoms
-
-
-class _FakeVib:
-    def __init__(self, energies):
-        self._energies = energies
-
-    def get_energies(self):
-        return list(self._energies)
+def _fake_vib(mol, modes):
+    return fake_vib_for(_atoms_for(mol), list(modes), _TRANS_ROT, "nonlinear")
 
 
 class TestDoMolThermoMarksASaddlePoint:
@@ -80,7 +54,7 @@ class TestDoMolThermoMarksASaddlePoint:
         mol = _water("saddle")
         monkeypatch.setattr(
             thermo_mod, "vib_hessian",
-            lambda *a, **k: _FakeVib(SADDLE_SPECTRUM),
+            lambda *a, **k: _fake_vib(mol, SADDLE_MODES),
         )
 
         result = thermo_mod.do_mol_thermo(
@@ -102,7 +76,7 @@ class TestDoMolThermoMarksASaddlePoint:
         mol = _water("minimum")
         monkeypatch.setattr(
             thermo_mod, "vib_hessian",
-            lambda *a, **k: _FakeVib(MINIMUM_SPECTRUM),
+            lambda *a, **k: _fake_vib(mol, MINIMUM_MODES),
         )
 
         result = thermo_mod.do_mol_thermo(
@@ -140,7 +114,7 @@ class TestTheWriterCannotEraseTheVerdict:
         mol = _water("saddle")
         monkeypatch.setattr(
             thermo_mod, "vib_hessian",
-            lambda *a, **k: _FakeVib(SADDLE_SPECTRUM),
+            lambda *a, **k: _fake_vib(mol, SADDLE_MODES),
         )
         saddle = thermo_mod.do_mol_thermo(
             mol, _atoms_for(mol), model=None, model_name="AIMNET"
@@ -186,12 +160,12 @@ class TestCalcThermoRoutesASaddlePointToTheFailures:
         self, monkeypatch, tmp_path
     ):
         spectra = {
-            "saddle": SADDLE_SPECTRUM,
-            "minimum": MINIMUM_SPECTRUM,
+            "saddle": SADDLE_MODES,
+            "minimum": MINIMUM_MODES,
         }
 
         def fake_vib_hessian(mol, *a, **k):
-            return _FakeVib(spectra[mol.GetProp("_Name")])
+            return _fake_vib(mol, spectra[mol.GetProp("_Name")])
 
         monkeypatch.setattr(
             thermo_mod, "create_model", lambda *a, **k: self._zero_force_model()

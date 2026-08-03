@@ -358,20 +358,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type name (e.g. `"RuntimeError"`) for any other failure. Filter on this
   property instead of on the presence of `G_hartree`.
 
+- **The vibrational spectrum now comes from a projected Hessian, and ASE's own
+  mode selection is disabled.** `VibrationsData.get_energies()` returns all 3N
+  eigenvalues of the raw mass-weighted Hessian, translations and rotations
+  included -- eigenvalues that are exactly zero only at a stationary point in
+  exact arithmetic and in practice land a few cm-1 either side of zero, some
+  of them imaginary. 3.x handed that whole list to `IdealGasThermo` and let
+  ASE decide which 3N-6 entries were vibrations. **That was never a stable
+  interface, and ASE changed it:** releases 3.23.0-3.27.x sort by `np.abs` and
+  keep the last 3N-6, while 3.28.0 (2026-03-17) and later sort by
+  `(f**2).real` instead (`vib_selection='highest'`). Under the newer key every
+  imaginary mode ranks below every real one, so a genuine imaginary mode is
+  discarded by the *selection* and a translation/rotation noise mode is
+  promoted into the vibrational partition function to fill the quota. Measured
+  on a 9-atom test spectrum at 298.15 K, that is worth **-2.39 kcal/mol on
+  every transition-state record**, and it moved a tolerated artifact's G by
+  -0.59 to -1.53 kcal/mol against a 3.27 spread of +0.85 to +1.80 -- a
+  **2.4-2.9 kcal/mol difference between two ASE versions on identical input**.
+
+  4.0 removes translation and rotation by Eckart/Sayvetz projection instead
+  (`projected_vibrations`): mass-weight the Hessian, build the three
+  translation and three (or two) infinitesimal-rotation vectors,
+  orthonormalize them to `V`, and diagonalize `P H P` with `P = I - V V'`. The
+  external subspace is then a null space by construction -- no threshold, no
+  sorting, no tie-breaking -- and exactly 3N-6 (or 3N-5, or 0) modes reach
+  `IdealGasThermo`, which is told to consume them verbatim
+  (`vib_selection='exact'`/`'all'` where available, `natoms=0` otherwise).
+  **Gibbs energies no longer depend on the installed ASE version.** The number
+  of external degrees of freedom comes from `_detect_geometry`, never from a
+  rank test on the projection basis: `_is_collinear` deliberately calls a
+  molecule linear up to 0.25 A of bend, where an SVD rank test would already
+  say "nonlinear" and cost a whole low-frequency mode.
+
+  At a converged stationary point the projected frequencies are identical to
+  what the old heuristic selected (measured on MMFF n-butane and n-butanol:
+  0.00 cm-1 difference), so this changes nothing for a clean minimum. Off a
+  stationary point it is the only correct answer.
+
 - **Records gain `N_imaginary_modes`, `Max_imaginary_mode_cm-1`, and
-  `Is_transition_state` properties.** `VibrationsData.get_energies()` returns
-  all 3N modes, including translation and rotation - eigenvalues that should
-  be exactly zero but come out as small numerical noise, some of which
-  routinely presents as spurious imaginary modes. `analyze_vibrations` now
-  selects the vibrational subset the same way `IdealGasThermo` does before
-  counting; without that exclusion, a clean, fully converged structure could
-  report several spurious imaginary modes - measured up to 19i cm-1 on a
-  relaxed 5-atom cluster - so `N_imaginary_modes` would have been untrustworthy
-  as a filter. `Is_transition_state` is `True` when `Max_imaginary_mode_cm-1`
-  is at or above the 50 cm-1 artifact threshold: 3.x's `ignore_imag_modes=True`
-  discarded every imaginary mode alike, so a genuine reaction coordinate (e.g.
-  -400 cm-1) was reported as an unmarked minimum on the same footing as a
-  numerical artifact.
+  `Is_transition_state` properties.** These are computed from the projected
+  spectrum, before any correction is applied, so they describe the same mode
+  set that produced `G_hartree`. `Is_transition_state` is `True` when
+  `Max_imaginary_mode_cm-1` is at or above the 50 cm-1 artifact threshold:
+  3.x's `ignore_imag_modes=True` discarded every imaginary mode alike, so a
+  genuine reaction coordinate (e.g. -400 cm-1) was reported as an unmarked
+  minimum on the same footing as a numerical artifact.
 
 - **A transition state no longer passes the `Thermo_failed` success filter.**
   `analyze_vibrations` already identified a first-order saddle point and set
@@ -389,20 +420,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a higher failure count and a lower success count; no record is dropped.
 
 - **Sub-cutoff imaginary vibrational modes are kept at `|nu|` instead of being
-  deleted, so reported Gibbs energies move down.** `IMAGINARY_MODE_CUTOFF_CM =
-  50` declares an imaginary mode below 50 cm-1 a numerical artifact of a
-  low-frequency vibration, but ASE's `ignore_imag_modes=True` *removed* it from
-  the mode list, deleting its entire vibrational partition-function
-  contribution while the log said only "treat the result as approximate". 4.0
-  substitutes `|nu|` -- the Gaussian/ORCA convention for a numerical artifact --
-  and keeps the mode; a mode at or above the cutoff is a reaction coordinate
-  and is still dropped. `G` moves by -1.80 kcal/mol per 10 cm-1 artifact,
-  -1.39 at 20 cm-1, -1.14 at 30 cm-1 and -0.85 at 49 cm-1 (298.15 K, 1 atm),
-  dominated by the recovered `-T*S_vib` term; `H_hartree` and
-  `S_hartree_per_K` move for the same records. The bias does not cancel between
-  two species with different artifact counts, so **do not mix pre-4.0 and 4.0
-  Gibbs energies in one comparison**. A new `N_inverted_imaginary_modes` SD
-  property records how many modes were treated this way.
+  deleted, and a confirmed reaction coordinate is removed deliberately.**
+  `IMAGINARY_MODE_CUTOFF_CM = 50` declares an imaginary mode below 50 cm-1 a
+  numerical artifact of a low-frequency vibration, but ASE's
+  `ignore_imag_modes=True` *removed* it from the mode list, deleting its entire
+  vibrational partition-function contribution while the log said only "treat
+  the result as approximate". The argument against deleting is mode counting,
+  not the size of any one number: a nonlinear molecule has exactly 3N-6
+  vibrational degrees of freedom, so deleting an artifact gives a species with
+  one artifact a 3N-7-mode partition function and a species with none a
+  3N-6-mode one, and those two free energies are not the same thermodynamic
+  quantity. 4.0 substitutes `|nu|` -- the Gaussian/ORCA convention -- and keeps
+  the mode. A mode at or above the cutoff is a reaction coordinate; Auto3D now
+  removes it itself and passes 3N-7 deliberately, rather than leaving the count
+  to `ignore_imag_modes` (which, on ASE >= 3.28, never saw it -- the selection
+  had already dropped it and pulled in a rotation instead). New
+  `N_inverted_imaginary_modes` and `Thermo_vib_modes` SD properties record how
+  many modes were inverted and how many the partition function actually used.
+
+- **A quasi-harmonic floor of 100 cm-1 is applied to vibrational frequencies by
+  default, which moves published Gibbs energies.** Every real mode below
+  `LOW_FREQUENCY_CUTOFF_CM = 100` is evaluated at 100 cm-1 instead (Truhlar's
+  raising; Ribeiro, Marenich, Cramer & Truhlar, *J. Phys. Chem. B* **2011**,
+  *115*, 14556). The harmonic entropy of a mode diverges as `-R*ln(h*nu/kT)`
+  as `nu -> 0`, so G is most sensitive to exactly the modes an fp32 NNP
+  Hessian resolves worst: at 298 K `dG/dnu` is +0.059 kcal/mol per cm-1 at
+  10 cm-1 against +0.006 at 100 cm-1, so a torsion placed at 30 +/- 5 cm-1
+  carries +/-0.10 kcal/mol of pure noise. The floor makes that derivative zero
+  below the cutoff, and it means an inverted artifact at 10i, 20i, 30i or 49i
+  all contribute identically -- G stops depending on a frequency the code has
+  just declared untrustworthy.
+
+  **This changes numbers.** Any molecule with a mode below 100 cm-1 moves;
+  measured on MMFF spectra, n-decane (three modes at 36-45 cm-1) by
+  **+1.635 kcal/mol**, n-butanol by +0.154, n-butane (lowest mode 123 cm-1) by
+  +0.000. It does not cancel between species. Every record therefore states
+  the prescription that produced it in a new `Thermo_convention` property
+  (`"RRHO+quasiharmonic(100cm-1)"`, or `"RRHO"` when disabled), alongside
+  `N_raised_modes`. Pass `low_freq_cutoff_cm=0.0` to `calc_thermo` (or
+  `do_mol_thermo`) for plain RRHO, e.g. to compare against a Gaussian/ORCA
+  number computed without a quasi-harmonic correction. The floor is applied to
+  the zero-point and enthalpy sums as well as the entropy; at 298 K that
+  differs from raising inside the entropy alone by 0.010-0.012 kcal/mol per
+  mode, because a sub-floor mode's `ZPE + dH_vib` is nearly independent of
+  `nu` (0.594 kcal/mol at 30 cm-1, 0.604 at 100).
+
+  **Do not mix pre-4.0 and 4.0 Gibbs energies in one comparison**, and check
+  `Thermo_convention` before comparing two 4.0 files.
+
+- **The `ase` extra now requires `ase>=3.23.0` (was `>=3.22.1`).** 3.22.1's
+  `IdealGasThermo` has no `ignore_imag_modes` parameter at all, so
+  `calc_thermo` raised `TypeError` on it; the declared floor was never
+  installable. 3.22.1 also slices the last 3N-6 of the input list without
+  sorting it first, a third distinct mode-selection semantics inside the old
+  pin range. Verified against the 3.22.1 and 3.23.0 wheels.
 
 - **Molecules with unspecified double-bond stereo now produce roughly twice the
   conformer groups.** One geometric isomer of every such molecule was previously

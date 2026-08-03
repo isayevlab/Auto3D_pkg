@@ -584,10 +584,19 @@ class TestValidationParityAcrossEntryPoints:
         monkeypatch.setattr("Auto3D.auto3D.main", fake_main)
 
         errors: list[Exception] = []
-        monkeypatch.setattr(
-            "Auto3D.cli.errors.handle_error",
-            lambda error, verbose=0: errors.append(error),
-        )
+
+        # **kwargs, not a fixed signature. The real handle_error is
+        # (error, verbose=0, json_output=False); a stub that omits json_output
+        # raises TypeError the moment anything calls it with that argument,
+        # and the CLI always does. Under pytest-randomly -- which CI runs and
+        # which the box's -p no:randomly hides -- this stub was reachable from
+        # later tests and turned their expected exit 2 into exit 1. Thirteen
+        # tests failed on an unlucky seed, zero on a lucky one. Accepting the
+        # real signature makes the stub harmless wherever it is reached.
+        def _capture(error, *args, **kwargs):
+            errors.append(error)
+
+        monkeypatch.setattr("Auto3D.cli.errors.handle_error", _capture)
 
         _run_legacy_yaml(str(yaml_path))
         if errors:
