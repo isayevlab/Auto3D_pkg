@@ -6,14 +6,12 @@ and provides batched forward functionality for calculating energies and forces.
 """
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
 
 from Auto3D.exceptions import OptimizationError
-from Auto3D.utils import hartree2ev
 
 if TYPE_CHECKING:
     from Auto3D.model_factory import BaseModelAdapter
@@ -26,9 +24,8 @@ class EnForce_ANI(nn.Module):
     for calculating energies and forces.
 
     Args:
-        model_adapter: A model adapter implementing the forward(coords, species, charges) interface,
-                       or a raw model (for backward compatibility).
-        name_or_batchsize: Either a string name (deprecated old API) or an int batchsize_atoms.
+        model_adapter: A model adapter implementing the
+            forward(coords, species, charges) interface.
         batchsize_atoms: Maximum number of atoms that can be handled in one batch.
 
     Examples:
@@ -45,44 +42,33 @@ class EnForce_ANI(nn.Module):
     def __init__(
         self,
         model_adapter: BaseModelAdapter,
-        name_or_batchsize: str | int | None = None,
         batchsize_atoms: int = 1024 * 16,
     ) -> None:
         """Initialize EnForce_ANI wrapper.
 
         Args:
             model_adapter: A model adapter implementing the forward interface.
-            name_or_batchsize: For backward compatibility - either model name (deprecated)
-                               or batchsize_atoms as int.
             batchsize_atoms: Maximum number of atoms per batch (default: 16384).
+
+        The second parameter used to be ``name_or_batchsize: str | int | None``,
+        type-switched between a model name (the pre-adapter API) and a batch size.
+        Passing a string warned that it would be "removed in Auto3D v2.0"; the
+        package reached 3.0.0 with it still in place, and no caller in ``src/``
+        ever passed one. Removed, so the parameter has one meaning.
         """
         super().__init__()
-        # Handle backward compatibility
-        if isinstance(name_or_batchsize, str):
-            # Old API: EnForce_ANI(model, name, batchsize_atoms)
-            warnings.warn(
-                "Passing 'name' to EnForce_ANI is deprecated and will be removed in Auto3D v2.0. "
-                "Use model adapters from Auto3D.model_factory instead.",
-                DeprecationWarning,
-                stacklevel=2,
+        # A caller migrating off the removed API would pass a model name here and,
+        # with the union gone, silently set the batch size to a string -- surfacing
+        # much later inside batching as an unrelated comparison error. Rejected on
+        # the spot, naming what the parameter is now for.
+        if not isinstance(batchsize_atoms, int) or isinstance(batchsize_atoms, bool):
+            raise TypeError(
+                "EnForce_ANI's second parameter is batchsize_atoms (an int), got "
+                f"{batchsize_atoms!r}. The model-name form was removed in 3.0.0; "
+                "build an adapter with Auto3D.model_factory.create_model instead."
             )
-            self.add_module("ani", model_adapter)
-            self.model = model_adapter
-            self.name = name_or_batchsize
-            self.batchsize_atoms = batchsize_atoms
-            self._use_legacy_forward = True
-        elif isinstance(name_or_batchsize, int):
-            # New API with explicit batchsize: EnForce_ANI(model_adapter, batchsize_atoms)
-            self.model = model_adapter
-            self.batchsize_atoms = name_or_batchsize
-            self.name = None
-            self._use_legacy_forward = False
-        else:
-            # New API: EnForce_ANI(model_adapter) or EnForce_ANI(model_adapter, None, batchsize)
-            self.model = model_adapter
-            self.batchsize_atoms = batchsize_atoms
-            self.name = None
-            self._use_legacy_forward = False
+        self.model = model_adapter
+        self.batchsize_atoms = batchsize_atoms
 
     def forward(
         self,
@@ -120,65 +106,8 @@ class EnForce_ANI(nn.Module):
             Tuple of (energies, forces) where energies has shape (B,) and
             forces has shape (B, N, 3).
         """
-        if self._use_legacy_forward:
-            return self._legacy_forward(coord, numbers, charges)
         return self.model.forward(coord, numbers, charges, atom_mask=atom_mask)
 
-    def _legacy_forward(
-        self,
-        coord: torch.Tensor,
-        numbers: torch.Tensor,
-        charges: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Legacy forward implementation for backward compatibility.
-
-        .. deprecated:: 1.0
-            This method is deprecated and will be removed in Auto3D v2.0.
-            Use model adapters from :mod:`Auto3D.model_factory` instead.
-
-        Handles raw models that were passed with the old API.
-
-        Note: Cannot use torch.inference_mode() because force calculation
-        requires computing gradients via torch.autograd.grad(). Model parameters
-        are already frozen (requires_grad=False), but coordinates must have
-        requires_grad=True for force computation.
-
-        Args:
-            coord: Coordinates for all input structures.
-            numbers: The periodic numbers for all atoms.
-            charges: Molecular charges.
-
-        Returns:
-            Tuple of (energies, forces).
-        """
-        warnings.warn(
-            "_legacy_forward is deprecated and will be removed in Auto3D v2.0. "
-            "Use model adapters from Auto3D.model_factory instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if self.name == "AIMNET":
-            d = self.ani(dict(coord=coord, numbers=numbers, charge=charges))
-            e = d["energy"].to(torch.double)
-            f = d["forces"]
-        elif self.name == "ANI2xt":
-            e = self.ani(numbers, coord)
-            # create_graph=False avoids building second-order gradient graph
-            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
-            f = -g
-        elif self.name == "ANI2x":
-            e = self.ani((numbers, coord)).energies
-            e = e * hartree2ev  # ANI2x output energy unit is Hartree; convert to eV
-            # create_graph=False avoids building second-order gradient graph
-            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
-            f = -g
-        else:
-            # user NNP that was loaded from a file
-            e = self.ani(numbers, coord, charges)
-            # create_graph=False avoids building second-order gradient graph
-            g = torch.autograd.grad([e.sum()], [coord], create_graph=False)[0]
-            f = -g
-        return e, f
 
     def forward_batched(
         self,

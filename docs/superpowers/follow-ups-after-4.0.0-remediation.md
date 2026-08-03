@@ -121,7 +121,7 @@ present and dead:
 | **already deleted** by earlier phases | `pad_molecular_batch`, `cli/progress` `create_progress`, `IsomerProgressCallback` |
 | **not dead — M53 wrong** | `utils/stereo_check` (6 live uses), `cli/results` `FailedMolecule` + `print_failures` (live from `run.py` since the C6/C7 reconciliation work — the finding's "run.py admits failures is always []" no longer holds), `ASE/thermo` `mol2atoms`, `STANDARD_PRESSURE`, `isomers/parallel_embed` |
 | **genuinely dead — deleted** | `utils_file.py` (whole module), `count_from_output`, `encode_smiles`, `decode_smiles`, `housekeeping_helper`, and 3 constants (`BOND_STRETCH_TOLERANCE`, `COLLISION_THRESHOLD`, `SUPPORTED_MODELS`) |
-| **unresolved — line numbers stale** | `exceptions.py` "4 classes never raised" (line 41 is `OptimizationError`, raised 3x, so the cited lines no longer point at what the finding describes); `model_wrapper`'s legacy `name` API; `ASE/thermo` `model_name` param |
+| **unresolved — line numbers stale** | `exceptions.py` "4 classes never raised" (line 41 is `OptimizationError`, raised 3x, so the cited lines no longer point at what the finding describes); `ASE/thermo` `model_name` param (the `model_wrapper` legacy `name` API is **DONE 2026-08-03**) |
 
 Net: **256 lines removed from `src/`, 167 from `tests/`** — not the ~450 of `src/`
 the finding claimed, because a third of it was gone and half of the rest is alive.
