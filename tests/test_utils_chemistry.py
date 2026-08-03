@@ -529,6 +529,59 @@ class TestFilterUnique:
         # Should keep both (or at least not crash)
         assert len(unique_mols) >= 1
 
+    def test_two_diastereomers_are_never_merged(self):
+        """A distinct compound must survive dedup, however close its geometry.
+
+        The same guarantee ``tests/test_filtering.py`` asserts for
+        ``filter_unique_optimized``, asserted here because this is the other
+        duplicate filter and it applies the identical RMSD-plus-energy criterion.
+        Fixing one path and not the other would leave the defect reachable
+        through ``ConformerRanker(use_optimized_filtering=False)``.
+
+        cis/trans-4-tert-butylcyclohexanol: heavy-atom RMSD between the two
+        diastereomers was measured at 0.300 A, i.e. at the 0.3 A default
+        threshold. ``crit`` is opened wide here so RMSD and energy both say
+        "duplicate" and the only thing that can keep the pair apart is the fact
+        that they are different compounds.
+        """
+        from Auto3D.utils.chemistry import filter_unique
+        from Auto3D.utils.energy import set_e_tot_from_ev
+
+        def build(smiles: str) -> Chem.Mol:
+            mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            AllChem.EmbedMolecule(mol, randomSeed=42)
+            AllChem.MMFFOptimizeMolecule(mol)
+            mol.SetProp("Converged", "true")
+            set_e_tot_from_ev(mol, -10.0)  # identical energies
+            return mol
+
+        cis = build("O[C@H]1CC[C@@H](CC1)C(C)(C)C")
+        trans = build("O[C@H]1CC[C@H](CC1)C(C)(C)C")
+        assert Chem.MolToSmiles(cis) != Chem.MolToSmiles(trans), "test premise"
+
+        assert len(filter_unique([cis, trans], crit=10.0)) == 2, (
+            "the legacy filter merged two distinct diastereomers, so an input "
+            "molecule vanished from the output with no record"
+        )
+
+    def test_duplicate_conformers_of_one_stereoisomer_still_collapse(self):
+        """The other half: the stereo guard must narrow dedup, not disable it."""
+        from Auto3D.utils.chemistry import filter_unique
+        from Auto3D.utils.energy import set_e_tot_from_ev
+
+        def build() -> Chem.Mol:
+            mol = Chem.AddHs(Chem.MolFromSmiles("O[C@H]1CC[C@@H](CC1)C(C)(C)C"))
+            AllChem.EmbedMolecule(mol, randomSeed=42)
+            AllChem.MMFFOptimizeMolecule(mol)
+            mol.SetProp("Converged", "true")
+            set_e_tot_from_ev(mol, -10.0)
+            return mol
+
+        assert len(filter_unique([build(), build()], crit=10.0)) == 1, (
+            "duplicate conformers of one stereoisomer survived, so the stereo "
+            "guard has switched dedup off rather than narrowing it"
+        )
+
     def test_filter_unconverged_removed(self):
         """Test that unconverged structures are removed."""
         from Auto3D.utils.chemistry import filter_unique

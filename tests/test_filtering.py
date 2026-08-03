@@ -120,6 +120,94 @@ class TestFilterWithinCluster:
         assert len(result) >= 1  # At least one conformer
 
 
+class TestDistinctStereoisomersAreNeverDuplicates:
+    """Dedup must remove duplicate *conformers*, never a distinct compound.
+
+    ``ranking.species_id`` strips ``<isomer>_<conformer>``, so every enumerated
+    stereoisomer of one input shares a ranking group and reaches this filter
+    together. Heavy-atom ``GetBestRMS`` between two diastereomers of a
+    1,4-disubstituted ring is small -- 0.300 A measured for
+    cis/trans-4-tert-butylcyclohexanol, 0.335 A for cyclohexane-1,4-diol -- so
+    with ``--threshold`` raised above the default, or with the two isomers
+    within the duplicate energy tolerance, one of two distinct compounds
+    disappears from the output with nothing logged.
+
+    The thresholds below are deliberately set wide enough that RMSD and energy
+    both say "duplicate". What must keep the pair apart is the only thing that
+    should: they are different compounds.
+    """
+
+    #: cis/trans-4-tert-butylcyclohexanol -- the measured worst case.
+    _CIS = "O[C@H]1CC[C@@H](CC1)C(C)(C)C"
+    _TRANS = "O[C@H]1CC[C@H](CC1)C(C)(C)C"
+
+    def test_two_diastereomers_are_both_kept(self):
+        cis = _create_mol_with_energy(self._CIS, -10.0)
+        trans = _create_mol_with_energy(self._TRANS, -10.0)  # identical energy
+        assert Chem.MolToSmiles(cis) != Chem.MolToSmiles(trans), "test premise"
+
+        result = _filter_within_cluster([cis, trans], rmsd_threshold=10.0)
+
+        assert len(result) == 2, (
+            "two distinct diastereomers were merged into one: an input molecule "
+            "vanished from the output with no record"
+        )
+
+    def test_two_double_bond_isomers_are_both_kept(self):
+        """The same guarantee for E/Z, which the SDF path enumerates too."""
+        e_isomer = _create_mol_with_energy(r"C/C=C/CCO", -10.0)
+        z_isomer = _create_mol_with_energy(r"C/C=C\CCO", -10.0)
+
+        result = _filter_within_cluster([e_isomer, z_isomer], rmsd_threshold=10.0)
+
+        assert len(result) == 2, "an E/Z pair was merged into one compound"
+
+    def test_two_conformers_of_one_stereoisomer_are_still_deduplicated(self):
+        """The other half of the contract, and the reason this test exists.
+
+        A stereo guard that declared everything distinct would satisfy the two
+        tests above and quietly disable duplicate removal entirely. Two
+        conformers of ONE stereoisomer, same geometry and same energy, must
+        still collapse to one.
+        """
+        first = _create_mol_with_energy(self._CIS, -10.0)
+        second = _create_mol_with_energy(self._CIS, -10.0)
+
+        result = _filter_within_cluster([first, second], rmsd_threshold=10.0)
+
+        assert len(result) == 1, (
+            "duplicate conformers of one stereoisomer survived, so the stereo "
+            "guard has switched dedup off rather than narrowing it"
+        )
+
+
+class TestDuplicatesCannotEscapeAcrossAnEnergyBoundary:
+    """A duplicate pair must be compared however the energy axis is partitioned.
+
+    ``filter_unique_optimized`` groups by energy and only RMSD-compares within a
+    group, so a duplicate pair straddling a boundary was never compared at all.
+    Three bit-identical geometries whose energies span exactly one default
+    ``energy_cluster_window`` (0.1 eV) all survived, and the two that differ by
+    2e-6 eV are unambiguously the same conformer.
+    """
+
+    def test_a_duplicate_pair_split_by_a_boundary_is_still_removed(self):
+        base = -100.0
+        # Sorted: the first is far from the other two; the last two are 2e-6 eV
+        # apart and identical in geometry, so exactly two structures are unique.
+        energies = [base, base + 0.099999, base + 0.100001]
+        mols = [_create_mol_with_energy("CCO", e) for e in energies]
+
+        result = filter_unique_optimized(
+            mols, rmsd_threshold=0.5, energy_cluster_window=0.1
+        )
+
+        assert len(result) == 2, (
+            "a duplicate pair 2e-6 eV apart survived because the two halves "
+            f"landed in different energy groups; got {len(result)} structures"
+        )
+
+
 class TestFilterUniqueOptimized:
     """Tests for filter_unique_optimized function."""
 

@@ -2,6 +2,7 @@
 """Tests for workflow orchestration, including multi-GPU handling."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -302,6 +303,99 @@ class TestOptimizerEmptyInput:
 def test_workers_importable_from_workflow_workers():
     from Auto3D.workflow_workers import isomer_wrapper, logger_process, optim_rank_wrapper
     assert all(callable(f) for f in (isomer_wrapper, optim_rank_wrapper, logger_process))
+
+
+class TestAFailedChunksCauseReachesTheUser:
+    """A worker's warnings and errors must not stay buried in the run log.
+
+    Worker processes log through a ``QueueHandler`` whose only destination was a
+    ``FileHandler`` in ``logger_process``. So when a chunk failed, its traceback
+    went to ``<job_dir>/Auto3D.log`` and the user saw nothing: the *loss* was
+    reported (reconciliation names the missing molecules, the run exits 6) but
+    the *cause* was not, making a systematic bug that failed every chunk
+    identically look like a batch of difficult molecules.
+
+    These drive ``logger_process`` directly rather than spawning a real worker,
+    because the behavior under test belongs to the collector: it is the one place
+    that decides where a worker's records go.
+    """
+
+    @staticmethod
+    def _drain(records, logging_path, capfd):
+        """Run logger_process over `records`, return (stderr, log file contents).
+
+        logger_process adds handlers to the process-wide "auto3d" logger and, in
+        production, is the whole life of a dedicated process. Called in-process
+        here, so its handlers are removed again afterwards -- otherwise every
+        later test in the session inherits them.
+        """
+        import logging as logging_mod
+        import queue as queue_mod
+
+        from Auto3D.workflow_workers import logger_process
+
+        logger = logging_mod.getLogger("auto3d")
+        before = list(logger.handlers)
+        before_level = logger.level
+        q: queue_mod.Queue = queue_mod.Queue()
+        for record in records:
+            q.put(record)
+        q.put(None)
+        try:
+            logger_process(q, str(logging_path))
+        finally:
+            for handler in list(logger.handlers):
+                if handler not in before:
+                    logger.removeHandler(handler)
+                    handler.close()
+            logger.setLevel(before_level)
+        return capfd.readouterr().err, Path(logging_path).read_text()
+
+    @staticmethod
+    def _record(level, message):
+        import logging as logging_mod
+
+        return logging_mod.LogRecord(
+            name="auto3d", level=level, pathname=__file__, lineno=1,
+            msg=message, args=(), exc_info=None,
+        )
+
+    def test_an_error_from_a_worker_is_written_to_stderr(self, tmp_path, capfd):
+        message = "job3 failed during optimization/ranking"
+        err, log_text = self._drain(
+            [self._record(logging.ERROR, message)], tmp_path / "Auto3D.log", capfd
+        )
+
+        assert message in err, (
+            "a failed chunk's cause never reached stderr, so the user sees only "
+            "that molecules are missing and not why"
+        )
+        assert message in log_text, "the run log must still receive it as well"
+
+    def test_a_warning_from_a_worker_is_written_to_stderr(self, tmp_path, capfd):
+        """Covers the sibling case: 'no optimized structures were produced'."""
+        message = "job7: no optimized structures were produced"
+        err, _ = self._drain(
+            [self._record(logging.WARNING, message)], tmp_path / "Auto3D.log", capfd
+        )
+
+        assert message in err
+
+    def test_info_stays_in_the_run_log_and_off_stderr(self, tmp_path, capfd):
+        """The step-by-step narrative must not be promoted to the terminal.
+
+        Without this, the fix above would turn every 'Optimizing on jobN' line
+        into console output and bury the warnings it exists to surface -- and it
+        would put chatter on the stream an interactive run draws its live panel
+        on.
+        """
+        message = "Optimizing on job1"
+        err, log_text = self._drain(
+            [self._record(logging.INFO, message)], tmp_path / "Auto3D.log", capfd
+        )
+
+        assert message in log_text, "the run log must still receive INFO"
+        assert message not in err, "INFO was promoted to stderr"
 
 
 def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):

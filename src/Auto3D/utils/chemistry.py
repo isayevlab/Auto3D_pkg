@@ -30,7 +30,11 @@ from Auto3D.constants import (
 )
 from Auto3D.utils.convergence import converged_or_unfiltered
 from Auto3D.utils.energy import try_e_tot_ev
-from Auto3D.utils.stereo_check import stereo_descriptors_from_3d, stereo_preserved
+from Auto3D.utils.stereo_check import (
+    species_key,
+    stereo_descriptors_from_3d,
+    stereo_preserved,
+)
 
 logger = logging.getLogger("auto3d")
 
@@ -533,12 +537,24 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
     unique_mols: list[Chem.Mol] = []
     unique_noH: list[Chem.Mol] = []
     unique_energies: list[float | None] = []
+    unique_species: list[str] = []
     for mol_i in mols:
         mol_i_noH = Chem.RemoveHs(mol_i)
         # E_tot is stored in Hartree; DEFAULT_DUPLICATE_ENERGY_TOL is in eV.
         e_i: float | None = try_e_tot_ev(mol_i)
+        species_i = species_key(mol_i)
         unique = True
-        for mol_j_noH, e_j in zip(unique_noH, unique_energies, strict=True):
+        for mol_j_noH, e_j, species_j in zip(
+            unique_noH, unique_energies, unique_species, strict=True
+        ):
+            # Two different compounds are never duplicates of each other, however
+            # close their geometries. All stereoisomers of one input share a
+            # ranking group, and two ring diastereomers can sit below the default
+            # 0.3 A threshold, so without this the RMSD test could delete one of
+            # them (Auto3D.utils.stereo_check.species_key). Checked before the
+            # RMSD call it makes unnecessary.
+            if species_i != species_j:
+                continue
             try:
                 # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
                 # removing Hs speeds up the calculation
@@ -560,4 +576,5 @@ def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) ->
             unique_mols.append(mol_i)
             unique_noH.append(mol_i_noH)
             unique_energies.append(e_i)
+            unique_species.append(species_i)
     return unique_mols

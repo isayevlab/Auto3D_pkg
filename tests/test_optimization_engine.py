@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock
 
+import pytest
 import torch
 
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats
@@ -511,6 +512,65 @@ def test_stored_fmax_matches_stored_coord():
     n_steps(state, n=3, opttol=1e-9, patience=1000)
     recomputed_fmax = (2.0 * state["coord"]).norm(dim=-1).max(dim=-1)[0]
     assert abs(state["fmax"].item() - recomputed_fmax.item()) < 1e-5
+
+
+class TestConvergedAndFmaxDescribeTheSameGeometry:
+    """``Converged=True`` and the reported ``fmax`` must not contradict.
+
+    ``batchopt`` writes both to every output record: ``Converged`` from
+    ``converged_mask``, and ``fmax`` recomputed at the final geometry. The loop
+    decided convergence from the force measured *before* its last FIRE step and
+    then took that step anyway, so the flag described one geometry and the number
+    beside it described another. A consumer filtering on ``fmax <= opt_tol`` and
+    one filtering on ``Converged == "True"`` got different sets out of the same
+    file, and the file asserted both.
+
+    The discrepancy scales with stiffness, which is why it was easy to dismiss: a
+    soft potential moves little in one step and stays inside the tolerance. On a
+    stiff one, measured before the fix, ``Converged=True`` came back with fmax up
+    to 6.9x the tolerance.
+    """
+
+    class _Harmonic:
+        """E = k*sum(coord^2), F = -2*k*coord. Exact, hermetic, no NNP."""
+
+        def __init__(self, k: float):
+            self.k = k
+
+        def forward_batched(self, coord, numbers, charges, atom_mask=None):
+            return self.k * (coord ** 2).sum(dim=(1, 2)), -2.0 * self.k * coord
+
+    @staticmethod
+    def _run(k: float, start: float, opttol: float) -> tuple[bool, float]:
+        state = {
+            "coord": torch.full((1, 2, 3), start, dtype=torch.float),
+            "numbers": torch.ones(1, 2, dtype=torch.long),
+            "charges": torch.zeros(1, dtype=torch.long),
+            "nn": TestConvergedAndFmaxDescribeTheSameGeometry._Harmonic(k),
+            "converged_mask": torch.zeros(1, dtype=torch.bool),
+            "fmax": torch.full((1,), 999.0),
+            "energy": torch.full((1,), float("inf"), dtype=torch.double),
+        }
+        # patience above n so nothing leaves the active set as oscillating:
+        # converged_mask would then be True for a structure that never met the
+        # force criterion, and this assertion would be about the wrong thing.
+        n_steps(state, n=2000, opttol=opttol, patience=5000)
+        return bool(state["converged_mask"][0]), float(state["fmax"][0])
+
+    # Stiffnesses spanning the soft case (where the inconsistency hides below
+    # the tolerance) and the stiff case (where it was 2x-7x the tolerance).
+    @pytest.mark.parametrize("k", [1.0, 10.0, 100.0])
+    @pytest.mark.parametrize("start", [0.5, 1.0, 1.5, 3.0])
+    def test_a_structure_reported_converged_reports_a_converged_force(self, k, start):
+        opttol = 0.01
+        converged, fmax = self._run(k, start, opttol)
+
+        assert converged, "test premise: this configuration should converge"
+        assert fmax <= opttol, (
+            f"reported Converged=True beside fmax={fmax:.6f}, which is "
+            f"{fmax / opttol:.1f}x the {opttol} eV/A tolerance: the flag and the "
+            f"force in the same record describe different geometries"
+        )
 
 
 class TestNStepsIntegration:
