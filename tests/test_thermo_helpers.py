@@ -273,170 +273,142 @@ def test_load_hessian_model_aimnet_is_fp32(aimnet_hessian_model):
 
 
 from Auto3D.ASE.thermo import analyze_vibrations  # noqa: E402
+from tests.helpers_vibrations import energies_ev as _ev  # noqa: E402
+from tests.helpers_vibrations import wavenumbers  # noqa: E402
 
 EV_PER_CM = 1.0 / 8065.54429  # eV per wavenumber
 
 
-def _ev(*wavenumbers_cm):
-    """Build a vibrational-energy array in eV from wavenumbers.
-
-    A negative wavenumber is an imaginary mode, which ASE represents as a
-    complex energy with a nonzero imaginary part.
-    """
-    out = []
-    for w in wavenumbers_cm:
-        if w < 0:
-            out.append(complex(0.0, abs(w) * EV_PER_CM))
-        else:
-            out.append(complex(w * EV_PER_CM, 0.0))
-    return np.array(out)
-
-
 class TestVibrationAnalysis:
-    """analyze_vibrations must count imaginary modes over the vibration-only
-    subset (3N-6 / 3N-5), mirroring IdealGasThermo's own slice exactly, while
-    still returning the full 3N-mode set in ``.energies`` for IdealGasThermo
-    to slice itself. Most cases below use n_atoms chosen so 3N-6 (nonlinear)
-    equals the number of modes given, i.e. every mode supplied is a genuine
-    vibration and none of it is trans/rot -- the trans/rot exclusion itself is
-    covered separately below.
+    """analyze_vibrations takes exactly the vibrations, and nothing else.
+
+    Translation and rotation are removed upstream by ``projected_vibrations``
+    (an Eckart/Sayvetz projection), so there is no selection left to perform
+    here. The function used to mirror ``IdealGasThermo``'s own
+    magnitude-sorted ``3N-6`` slice so Auto3D's reported diagnostics would
+    match what ASE did internally; ASE changed that slice in 3.28.0, after
+    which the mirror described a different mode set from the one that produced
+    ``G_hartree``. Mirroring is gone, and the exact mode count is now a
+    checked precondition instead.
+
+    Cases that exercise the corrections rather than the classification pass
+    ``low_freq_cutoff_cm=0.0`` so the quasi-harmonic floor does not obscure
+    what is being asserted; the floor has its own tests in
+    ``test_thermo_imaginary_mode_inversion.py``.
     """
 
     def test_a_clean_spectrum_is_untouched(self):
         result = analyze_vibrations(
-            _ev(200, 800, 1600, 3000), n_atoms=4, geometry="nonlinear"
+            _ev(200, 800, 1600, 3000, 3100, 3200), n_atoms=4,
+            geometry="nonlinear", low_freq_cutoff_cm=0.0,
         )
         assert result.n_imag == 0
         assert result.max_imag_cm == pytest.approx(0.0)
-        assert len(result.energies) == 4
+        assert result.n_inverted == result.n_removed == result.n_raised == 0
+        assert result.corrected_energies == result.energies
 
     def test_a_small_imaginary_mode_is_counted_but_tolerated(self):
-        """A -15 cm-1 artifact is the reason ignore_imag_modes exists."""
+        """A -15 cm-1 artifact is the reason the cutoff exists."""
         result = analyze_vibrations(
-            _ev(-15, 800, 1600), n_atoms=3, geometry="nonlinear"
+            _ev(-15, 800, 1600), n_atoms=3, geometry="nonlinear",
+            low_freq_cutoff_cm=0.0,
         )
         assert result.n_imag == 1
         assert result.max_imag_cm == pytest.approx(15.0, abs=0.5)
         assert result.is_transition_state is False
+        assert result.n_inverted == 1
+        assert len(result.corrected_energies) == 3, "the mode count must be conserved"
 
     def test_a_large_imaginary_mode_is_a_transition_state(self):
-        """-400 cm-1 is a reaction coordinate, not numerical noise.
-
-        ASE sorts by absolute value and deletes both indiscriminately, so
-        without this distinction a saddle point is reported as a minimum.
-        """
+        """-400 cm-1 is a reaction coordinate, not numerical noise."""
         result = analyze_vibrations(
-            _ev(-400, 800, 1600), n_atoms=3, geometry="nonlinear"
+            _ev(-400, 800, 1600), n_atoms=3, geometry="nonlinear",
+            low_freq_cutoff_cm=0.0,
         )
         assert result.n_imag == 1
         assert result.max_imag_cm == pytest.approx(400.0, abs=1.0)
         assert result.is_transition_state is True
+        assert result.n_removed == 1
+        assert len(result.corrected_energies) == 2, (
+            "a saddle point must pass 3N-7 modes"
+        )
 
-    # A prior version of this class had a
-    # "test_the_largest_imaginary_mode_decides" test, meant to catch a
-    # max(...) -> last-wins regression in the running max_imag_cm
-    # computation by putting the largest-magnitude imaginary mode first in
-    # the input. That achieves nothing: analyze_vibrations sorts a *copy* of
-    # the energies by magnitude before ever touching max_imag_cm, so input
-    # order never reaches the loop that computes it -- every element the
-    # loop sees is already in ascending-magnitude order regardless of how
-    # the caller ordered the input, so a last-wins mutation over that
-    # (already-sorted) iteration order is indistinguishable from a genuine
-    # running max. There is no input ordering that makes the two diverge.
-    # Verified by mutation: replacing the running
-    # ``max(max_imag_cm, ...)`` with an unconditional last-write and
-    # re-running the whole class (any ordering of inputs) still passes.
-    # Deleted rather than "fixed" -- there is nothing order-sensitive here
-    # for a test to assert on.
+    def test_the_exact_mode_count_is_a_precondition(self):
+        """The old contract -- pass 3N and let something downstream cut -- is gone.
 
-    def test_energies_preserve_the_full_mode_count(self):
-        """.energies must stay the full 3N set, and the 3N-6 trim that
-        separates genuine vibrations from translation/rotation must
-        actually remove modes, not be a no-op.
-
-        The previous version of this test used n_atoms=4 with exactly 6
-        input modes, so 3N-6 == 6 == len(modes): the trim (keep the last
-        3N-6 of a magnitude-sorted copy) selected all 6 elements right back,
-        a no-op. A bug that assigned ``.energies`` from the trimmed
-        vibrational-only list instead of the untouched input would have had
-        the *same* length (6) in that case, so ``len(result.energies) ==
-        len(modes)`` could never fail regardless. Supplying the full
-        3N=12-mode spectrum here -- with every mode imaginary -- makes the
-        two diverge: ``.energies`` must retain all 12 entries, while
-        ``n_imag`` (computed over the trimmed window only) must be exactly
-        3N-6=6, not 12 -- so a regression to counting over the full input
-        (or to trimming ``.energies`` itself) is now visible either way.
+        Feeding the full 3N spectrum must fail loudly rather than being
+        silently re-sliced, because a silent re-slice is exactly the
+        delegation that made G depend on the installed ASE version.
         """
-        modes = _ev(-1, -2, -3, -4, -5, -6, -400, -500, -600, -700, -800, -900)
-        result = analyze_vibrations(modes, n_atoms=4, geometry="nonlinear")
-        assert len(result.energies) == len(modes)
-        assert result.n_imag == 3 * 4 - 6
+        full_3n = _ev(-1, -2, -3, 4, 5, 6, 200, 800, 1600, 3000, 3100, 3200)
+        with pytest.raises(ValueError, match="projected_vibrations"):
+            analyze_vibrations(full_3n, n_atoms=4, geometry="nonlinear")
+        # Non-vacuity: the same call with the right number of modes is fine.
+        assert len(
+            analyze_vibrations(full_3n[-6:], n_atoms=4, geometry="nonlinear").energies
+        ) == 6
 
-    def test_linear_geometry_uses_3n_minus_5(self):
-        """A linear molecule has 5 translation/rotation degrees of freedom,
-        not 6 (only 2 independent rotational axes instead of 3), so its
-        retained window is 3N-5 -- one mode wider than the nonlinear case.
-
-        Nothing in this class exercised ``geometry="linear"`` before this
-        test, so a mutation collapsing the linear branch onto the nonlinear
-        one (3N-5 -> 3N-6) -- silently discarding one genuine vibration for
-        every linear molecule, e.g. CO2's doubly-degenerate bend -- would
-        have gone undetected.
-        """
-        modes = _ev(-1, -2, -3, -4, -5, -600, -700, -800, -900)
-        result = analyze_vibrations(modes, n_atoms=3, geometry="linear")
-        assert len(result.energies) == len(modes)
-        assert result.n_imag == 3 * 3 - 5
-
-    def test_translation_rotation_pseudo_imaginary_modes_are_excluded(self):
-        """The critical bug: VibrationsData.get_energies() returns all 3N
-        modes, including translation/rotation. Those eigenvalues should be
-        exactly zero but come out as small positive or negative numerical
-        noise, so several of them routinely present as spurious "imaginary"
-        modes. Measured case: a 5-atom Lennard-Jones cluster at Auto3D's own
-        0.01 eV/A convergence threshold reports 5 spurious imaginary modes up
-        to 19i cm-1 counting over the raw 3N set, while ASE's own
-        IdealGasThermo -- which performs the 3N-6 cut before counting --
-        reports 0. A user filtering N_imaginary_modes == 0 would discard
-        every valid conformer without this fix.
-        """
-        # 5 atoms, nonlinear: 15 modes total, 6 trans/rot (of which several
-        # are spuriously "imaginary", all tiny in magnitude) and 9 genuine,
-        # entirely real vibrations.
-        trans_rot = _ev(-19, -12, -8, 3, 5, 7)
-        vibrational = _ev(120, 300, 450, 600, 800, 1000, 1400, 1800, 3000)
-        modes = np.concatenate([trans_rot, vibrational])
-        result = analyze_vibrations(modes, n_atoms=5, geometry="nonlinear")
-        assert result.n_imag == 0
-        assert result.max_imag_cm == pytest.approx(0.0)
-        assert len(result.energies) == len(modes)
+    def test_linear_geometry_expects_3n_minus_5(self):
+        """A linear molecule has 5 external degrees of freedom, not 6, so its
+        vibrational set is one mode wider than a nonlinear molecule of the same
+        size. A collapse of the linear branch onto the nonlinear one would
+        silently discard a genuine vibration -- CO2's degenerate bend."""
+        result = analyze_vibrations(
+            _ev(667, 667, 1333, 2349), n_atoms=3, geometry="linear",
+            low_freq_cutoff_cm=0.0,
+        )
+        assert len(result.energies) == 3 * 3 - 5
+        with pytest.raises(ValueError, match="4"):
+            analyze_vibrations(
+                _ev(667, 667, 1333, 2349), n_atoms=3, geometry="nonlinear",
+            )
 
     def test_monatomic_has_no_vibrational_modes(self):
-        """A single atom has 3N=3 modes, all translation -- nothing to cut."""
-        result = analyze_vibrations(_ev(5, -3, 2), n_atoms=1, geometry="monatomic")
+        result = analyze_vibrations([], n_atoms=1, geometry="monatomic")
         assert result.n_imag == 0
         assert result.max_imag_cm == pytest.approx(0.0)
-        assert len(result.energies) == 3
+        assert result.energies == []
+        assert result.corrected_energies == []
 
     def test_a_raised_cutoff_suppresses_the_transition_state_flag(self):
         """imag_cutoff_cm must actually be read by is_transition_state, not
         just accepted and ignored: at the 50 cm-1 default, a 100 cm-1
-        imaginary mode is a real artifact; raising the cutoff to 500 must
-        suppress the flag."""
+        imaginary mode is a saddle point; raising the cutoff to 500 makes it a
+        tolerated artifact instead."""
         result = analyze_vibrations(
             _ev(-100, 800, 1600), n_atoms=3, geometry="nonlinear",
-            imag_cutoff_cm=500.0,
+            imag_cutoff_cm=500.0, low_freq_cutoff_cm=0.0,
         )
         assert result.is_transition_state is False
+        assert result.n_inverted == 1
+        assert min(wavenumbers(result.corrected_energies)) == pytest.approx(
+            100.0, abs=1e-6
+        )
 
     def test_a_lowered_cutoff_triggers_the_transition_state_flag(self):
         """A 30 cm-1 imaginary mode is noise at the 50 cm-1 default, but must
         trigger the flag once the cutoff is lowered below it."""
         result = analyze_vibrations(
             _ev(-30, 800, 1600), n_atoms=3, geometry="nonlinear",
-            imag_cutoff_cm=20.0,
+            imag_cutoff_cm=20.0, low_freq_cutoff_cm=0.0,
         )
         assert result.is_transition_state is True
+        assert result.n_removed == 1
+
+    def test_the_diagnostics_describe_the_input_not_the_corrected_list(self):
+        """n_imag, max_imag_cm and is_transition_state are computed first.
+
+        They are meaningless on a list that has already been inverted, trimmed
+        and floored, so the ordering inside analyze_vibrations is load-bearing:
+        here the corrected list contains no imaginary mode at all, yet the
+        record must still report one.
+        """
+        result = analyze_vibrations(
+            _ev(-30, 800, 1600), n_atoms=3, geometry="nonlinear",
+        )
+        assert result.n_imag == 1
+        assert result.max_imag_cm == pytest.approx(30.0, abs=0.5)
+        assert all(v.imag == 0.0 for v in result.corrected_energies)
 
 
 import logging  # noqa: E402
@@ -928,17 +900,19 @@ class TestFailedRecordKeepsInputGeometry:
         atoms, original, relaxed = self._relaxed_atoms(mol, displacement=0.5)
         atoms.get_potential_energy = lambda: 0.0
 
-        n_modes = 3 * mol.GetNumAtoms()
+        from tests.helpers_vibrations import fake_vib_for
 
-        class _FakeVib:
-            def get_energies(self):
-                return [0.01 + 0j] * n_modes
+        n_vib = 3 * mol.GetNumAtoms() - 6
+        fake = fake_vib_for(
+            atoms, [200.0 + 50.0 * i for i in range(n_vib)],
+            (1.6, -3.2, 3.4, -3.5, 3.7, -4.1), "nonlinear",
+        )
 
         class _Boom:
             def __init__(self, *args, **kwargs):
                 raise ValueError("synthetic thermo failure")
 
-        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: _FakeVib())
+        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: fake)
         monkeypatch.setattr(thermo_mod, "IdealGasThermo", _Boom)
 
         with pytest.raises(ValueError):
@@ -962,15 +936,14 @@ class TestFailedRecordKeepsInputGeometry:
         atoms, original, relaxed = self._relaxed_atoms(mol, displacement=0.1)
         atoms.get_potential_energy = lambda: -1234.5
 
-        n_atoms = mol.GetNumAtoms()
-        n_modes = 3 * n_atoms
-        vib_values = [1e-6] * 6 + [0.05 + 0.01 * i for i in range(n_modes - 6)]
+        from tests.helpers_vibrations import fake_vib_for
 
-        class _FakeVib:
-            def get_energies(self):
-                return [complex(v) for v in vib_values]
-
-        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: _FakeVib())
+        n_vib = 3 * mol.GetNumAtoms() - 6
+        fake = fake_vib_for(
+            atoms, [400.0 + 80.0 * i for i in range(n_vib)],
+            (1.6, -3.2, 3.4, -3.5, 3.7, -4.1), "nonlinear",
+        )
+        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: fake)
 
         result = thermo_mod.do_mol_thermo(mol, atoms, model=None, model_name="AIMNET")
 

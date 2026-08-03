@@ -60,7 +60,12 @@ ani = [
     "torchani>=2.8",
 ]
 ase = [
-    "ase>=3.22.1",
+    # 3.23.0, not 3.22.1: IdealGasThermo gained `ignore_imag_modes` in 3.23.0,
+    # and Auto3D.ASE.thermo passes it -- on 3.22.1 that call raises TypeError.
+    # 3.22.1 also slices the last 3N-6 of the input list without sorting it
+    # first, a third distinct mode-selection semantics. Verified against the
+    # 3.22.1 and 3.23.0 wheels.
+    "ase>=3.23.0",
 ]
 dev = [
     "pytest>=7.0",

@@ -45,6 +45,7 @@ from Auto3D.utils.stereochemistry import (
     amend_configuration,
     amend_configuration_w,
     check_value,
+    count_unspecified_stereo,
     create_enantiomer,
     enantiomer,
     enantiomer_helper,
@@ -80,6 +81,7 @@ __all__ = [
     "get_mol_connectivity",
     "filter_unique",
     # Stereochemistry functions
+    "count_unspecified_stereo",
     "enantiomer",
     "enantiomer_helper",
     "remove_enantiomers",

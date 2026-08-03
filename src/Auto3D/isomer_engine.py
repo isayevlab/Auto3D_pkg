@@ -28,6 +28,9 @@ from Auto3D.utils import (
 )
 from Auto3D.utils.chemistry import calculate_conformer_count
 from Auto3D.utils.file_ops import combine_smi, iter_smi_records
+from Auto3D.utils.stereochemistry import (
+    count_unspecified_stereo as _count_unspecified_stereo,
+)
 from Auto3D.utils.stereochemistry import enantiomer_key
 
 try:
@@ -457,20 +460,14 @@ class RDKitSdfIsomer:
 
     @staticmethod
     def count_unspecified_stereo(mol: Chem.Mol) -> int:
-        """Count stereo elements the input leaves unspecified."""
-        # A double bond drawn with no geometry (e.g. a flat 2D depiction of
-        # C=C) is reported by RDKit as Chem.StereoSpecified.Unknown, not
-        # Unspecified -- Unspecified is what an sp3 center with no wedge
-        # gets. Counting only Unspecified silently misses every unspecified
-        # C=C, which is the exact case this warning exists to catch (e.g. a
-        # flat fumaric/maleic-acid SDF mixing two geometries ~5 kcal/mol
-        # apart into one species with no warning).
-        unspecified = (Chem.StereoSpecified.Unspecified, Chem.StereoSpecified.Unknown)
-        return sum(
-            1
-            for element in Chem.FindPotentialStereo(mol)
-            if element.specified in unspecified
-        )
+        """Count stereo elements the input leaves unspecified.
+
+        Thin alias for :func:`Auto3D.utils.stereochemistry.count_unspecified_stereo`,
+        which owns the predicate so this path and ``check_smi_format`` cannot
+        drift apart on what counts as unspecified (they did: the SMILES path
+        used to count atom centers only and never saw an unspecified C=C).
+        """
+        return _count_unspecified_stereo(mol)
 
     def stereoisomers(self, mol: Chem.Mol, name: str) -> list[Chem.Mol]:
         """Return the distinct configurations to embed for one input record.

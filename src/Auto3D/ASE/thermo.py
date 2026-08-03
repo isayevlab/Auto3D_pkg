@@ -4,6 +4,7 @@ Calculating thermodynamic properties using Auto3D output
 """
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import partial
@@ -14,6 +15,7 @@ import ase.calculators.calculator
 import numpy as np
 import torch
 from ase import Atoms
+from ase import units as ase_units
 from ase.optimize import BFGS
 from ase.thermochemistry import IdealGasThermo
 from ase.vibrations import VibrationsData
@@ -30,6 +32,8 @@ from Auto3D.constants import (
     IMAGINARY_MODE_CUTOFF_CM,
     LINEARITY_MAX_PERP_ANGSTROM,
     LINEARITY_MOMENT_RATIO,
+    LOW_FREQUENCY_CUTOFF_CM,
+    PROJECTION_RESIDUAL_FRACTION,
 )
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
@@ -48,6 +52,17 @@ __all__ = ["calc_thermo"]
 # TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions.
 ev2hatree = 1/hartree2ev
+
+#: SD property carrying the success/failure verdict for one thermo record.
+#: ``""`` means publishable; any non-empty value names the failure. This is the
+#: filter CHANGELOG.md and docs/source/migration-4.0.rst document.
+THERMO_FAILED_PROP = "Thermo_failed"
+
+#: ``Thermo_failed`` value for a geometry confirmed to be a first-order saddle
+#: point. The rigid-rotor/harmonic partition function assumes a MINIMUM, so a
+#: saddle point's Gibbs energy is not the same quantity as every other record's
+#: and must not pass the documented success filter.
+TRANSITION_STATE_FAILURE = "transition_state"
 
 logger = get_logger(__name__)
 
@@ -614,19 +629,274 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     vib = VibrationsData(atoms, hess)
     return vib
 
+
+#: Translational + rotational degrees of freedom, by geometry class. 3N minus
+#: this count is the number of genuine vibrational modes. ``IdealGasThermo``
+#: derives the SAME count from ``geometry`` for its rotational partition
+#: function, so taking both from ``_detect_geometry`` is what keeps the
+#: vibrational and rotational halves of G describing the same molecule. This is
+#: also why the rotation count must never come from a rank test on the
+#: translation/rotation basis: ``_is_collinear`` deliberately calls a molecule
+#: linear up to LINEARITY_MAX_PERP_ANGSTROM = 0.25 A of bend, where the third
+#: rotation vector still has a singular value of ~0.22 (measured on CO2), while
+#: an SVD tolerance flips to "nonlinear" around 1e-6 A. A disagreement between
+#: the two would leave the mode count and the rotational partition function
+#: describing different molecules, and the error is a whole low-frequency mode
+#: (~1-3 kcal/mol).
+_EXTERNAL_DOF = {"monatomic": 3, "linear": 5, "nonlinear": 6}
+
+#: Eigenvalue -> energy conversion for a mass-weighted Hessian in eV/A^2 with
+#: masses in amu: the result is an energy in eV. Recomputed from ``ase.units``
+#: rather than hardcoded, and byte-identical to the expression
+#: ``ase.vibrations.VibrationsData`` uses internally in every ASE release from
+#: 3.22.1 through 3.29.0 (``units._hbar * units.m / sqrt(units._e *
+#: units._amu)``), so a projected spectrum is directly comparable with
+#: ``VibrationsData.get_energies()``.
+_HESSIAN_ENERGY_CONVERSION = (
+    ase_units._hbar * ase_units.m / (ase_units._e * ase_units._amu) ** 0.5
+)
+
+#: True when the installed ``IdealGasThermo`` exposes the ``vib_selection``
+#: parameter, which ASE added in 3.28.0 (2026-03-17). Detected from the
+#: signature rather than from ``ase.__version__`` so a backport, a fork or a
+#: development snapshot is classified by what it can actually do.
+_ASE_HAS_VIB_SELECTION = "vib_selection" in inspect.signature(
+    IdealGasThermo.__init__
+).parameters
+
+
+def n_vibrational_modes(n_atoms: int, geometry: str) -> int:
+    """Number of genuine vibrational modes: ``3N-6``, ``3N-5``, or 0.
+
+    Args:
+        n_atoms: Number of atoms.
+        geometry: 'monatomic', 'linear' or 'nonlinear', as classified by
+            ``_detect_geometry``.
+    """
+    try:
+        external = _EXTERNAL_DOF[geometry]
+    except KeyError:
+        raise ValueError(
+            f"Unsupported geometry {geometry!r}; expected one of "
+            f"{sorted(_EXTERNAL_DOF)}."
+        ) from None
+    return max(0, 3 * n_atoms - external)
+
+
+def _external_mode_basis(positions: np.ndarray, masses: np.ndarray) -> np.ndarray:
+    """Mass-weighted translation and infinitesimal-rotation vectors, ``3N x 6``.
+
+    Column ``a`` of the first three is the rigid translation along axis ``a``,
+    ``T_a[3i+a] = sqrt(m_i)``; column ``a`` of the last three is the
+    infinitesimal rotation about axis ``a`` through the center of mass,
+    ``R_a[3i:3i+3] = sqrt(m_i) * (e_a x (r_i - r_cm))``. These are the
+    Sayvetz/Eckart conditions written as vectors in mass-weighted Cartesian
+    space: an exact Hessian at a stationary point annihilates all six.
+
+    For a linear molecule the rotation about the molecular axis is identically
+    zero, so the six columns span only five dimensions; the caller keeps the
+    leading ``_EXTERNAL_DOF[geometry]`` left singular vectors, which is why the
+    count comes from the geometry rather than from the rank of this matrix.
+    """
+    sqrt_m = np.sqrt(masses)
+    center = (masses[:, np.newaxis] * positions).sum(axis=0) / masses.sum()
+    offsets = positions - center
+    columns = []
+    for axis in range(3):
+        translation = np.zeros_like(positions)
+        translation[:, axis] = sqrt_m
+        columns.append(translation.reshape(-1))
+    for axis in range(3):
+        unit = np.zeros(3)
+        unit[axis] = 1.0
+        rotation = np.cross(unit, offsets) * sqrt_m[:, np.newaxis]
+        columns.append(rotation.reshape(-1))
+    return np.column_stack(columns)
+
+
+def projected_vibrations(
+    atoms: ase.Atoms,
+    hessian,
+    geometry: str,
+    *,
+    name: str = "molecule",
+) -> list[complex]:
+    """Vibrational energies with translation and rotation projected out.
+
+    Returns exactly ``n_vibrational_modes(len(atoms), geometry)`` complex
+    energies in eV, ascending in eigenvalue (ASE's own ordering), with a
+    negative curvature represented as a purely imaginary energy ``0 + b*i``.
+
+    **Why this exists.** ``VibrationsData.get_energies()`` diagonalizes the raw
+    mass-weighted Hessian and returns all ``3N`` eigenvalues; six of them (five
+    for a linear molecule) are the translations and rotations, which are exact
+    zero modes only at a stationary point in exact arithmetic and in practice
+    land at small positive or negative values. Auto3D used to hand that full
+    ``3N`` list to ``IdealGasThermo`` and let ASE decide which entries were
+    vibrations. That is not a stable interface: ASE 3.23.0-3.27.x sort the list
+    by ``np.abs`` and keep the last ``3N-6``; ASE 3.28.0 and later sort by
+    ``(f**2).real`` and keep the last ``3N-6`` (``vib_selection='highest'``,
+    the default). The two rules disagree whenever any vibrational mode is
+    imaginary: under the ``(f**2).real`` key every imaginary mode sorts *below*
+    every real one, so the selection discards it and promotes a
+    translation/rotation noise mode into the vibrational partition function in
+    its place -- worth several kcal/mol of G, silently, with no change to the
+    reported mode count.
+
+    Neither rule can be repaired, because both throw away the information
+    needed to answer the question. Only the caller has the geometry and the
+    eigenvectors; once the eigenvalues are flattened into a list of complex
+    numbers, "is this a rotation" is unanswerable except by magnitude, and
+    magnitude is exactly the assumption that fails off a stationary point.
+
+    **What this does instead** is the standard vibrational analysis used by
+    production quantum-chemistry codes (Gaussian, ORCA; Miller, Handy and
+    Adams, J. Chem. Phys. 1980, 72, 99): mass-weight the Hessian, build the
+    translation and infinitesimal-rotation vectors, orthonormalize them to
+    ``V``, and diagonalize ``P H P`` with ``P = I - V V^T``. The projected-out
+    subspace is then a null space *by construction* -- there is no threshold,
+    no sorting and no tie-breaking -- and the remaining eigenvalues are the
+    vibrations. Where the magnitude heuristic works, this agrees with it
+    exactly (measured on MMFF n-butane and n-butanol at a tight stationary
+    point: identical to 0.00 cm-1); where it does not, this is the only
+    correct answer.
+
+    Args:
+        atoms: The atoms the Hessian describes. Supplies both the masses (so
+            an isotopic label set by ``mol2atoms`` weights the Hessian the same
+            way it weights the moments of inertia) and the positions used to
+            build the rotation vectors.
+        hessian: The Cartesian Hessian in eV/A^2, shaped ``(3N, 3N)`` or
+            ``(N, 3, N, 3)``. This is the unit
+            ``ase.vibrations.VibrationsData`` expects and the unit both Hessian
+            paths in ``vib_hessian`` produce.
+        geometry: 'monatomic', 'linear' or 'nonlinear', from
+            ``_detect_geometry``. Fixes how many external degrees of freedom
+            are projected out, and must be the same value passed to
+            ``IdealGasThermo``.
+        name: Molecule identifier, for the diagnostic log message only.
+
+    Returns:
+        A list of ``3N-6`` (or ``3N-5``, or ``[]``) complex energies in eV.
+    """
+    n_atoms = len(atoms)
+    n_vib = n_vibrational_modes(n_atoms, geometry)
+    if n_vib <= 0:
+        # A monatomic species has no vibrational degrees of freedom at all;
+        # nothing to diagonalize and nothing for IdealGasThermo to sum over.
+        return []
+    n_external = _EXTERNAL_DOF[geometry]
+
+    masses = np.asarray(atoms.get_masses(), dtype=float)
+    if not np.all(masses > 0.0):
+        raise ValueError(
+            f"{name} has a zero or negative atomic mass; the mass-weighted "
+            "Hessian is undefined. Set every mass with Atoms.set_masses()."
+        )
+    positions = np.asarray(atoms.get_positions(), dtype=float)
+    hessian_2d = np.asarray(hessian, dtype=float).reshape(3 * n_atoms, 3 * n_atoms)
+    # A Hessian is symmetric; a finite-difference or fp32 analytic one is only
+    # nearly so. Symmetrizing before eigh makes the spectrum independent of
+    # which triangle LAPACK happens to read.
+    hessian_2d = 0.5 * (hessian_2d + hessian_2d.T)
+
+    weights = np.repeat(masses ** -0.5, 3)
+    mass_weighted = weights[:, np.newaxis] * hessian_2d * weights[np.newaxis, :]
+
+    left_singular, _, _ = np.linalg.svd(
+        _external_mode_basis(positions, masses), full_matrices=False
+    )
+    external = left_singular[:, :n_external]
+    projector = np.eye(3 * n_atoms) - external @ external.T
+    eigenvalues = np.linalg.eigvalsh(projector @ mass_weighted @ projector)
+
+    by_magnitude = np.argsort(np.abs(eigenvalues))
+    discarded = eigenvalues[by_magnitude[:n_external]]
+    kept = np.sort(eigenvalues[by_magnitude[n_external:]])
+
+    largest_discarded = float(np.max(np.abs(discarded)))
+    smallest_kept = float(np.min(np.abs(kept)))
+    if largest_discarded >= PROJECTION_RESIDUAL_FRACTION * smallest_kept:
+        # Projection puts n_external eigenvalues at machine zero by
+        # construction, so this fires only when a genuine vibration has become
+        # numerically indistinguishable from that null space -- a dissociating
+        # fragment, or a Hessian conditioned badly enough that the separation
+        # is gone. Reported rather than raised: the spectrum is still the best
+        # available one, and this assumption is precisely what the magnitude
+        # heuristic made silently and never checked.
+        logger.warning(
+            "%s: the translation/rotation subspace is not cleanly separated "
+            "from the vibrations. Largest projected-out eigenvalue %.3e vs "
+            "smallest retained %.3e (ratio %.2f, expected below %.2f). The "
+            "%d retained modes may include a rotation or omit a very soft "
+            "vibration.",
+            name, largest_discarded, smallest_kept,
+            largest_discarded / smallest_kept if smallest_kept else float("inf"),
+            PROJECTION_RESIDUAL_FRACTION, n_vib,
+        )
+
+    energies = _HESSIAN_ENERGY_CONVERSION * kept.astype(complex) ** 0.5
+    return [complex(value) for value in energies]
+
+
 @dataclass
 class VibrationAnalysis:
-    """Verdict on a vibrational spectrum, computed without touching a model."""
+    """Verdict on a vibrational spectrum, computed without touching a model.
+
+    Attributes:
+        energies: The untouched input -- exactly the ``3N-6`` / ``3N-5``
+            projected vibrational modes, in input order. Every diagnostic
+            below is computed from this, before any correction.
+        corrected_energies: The list actually handed to ``IdealGasThermo``,
+            after (1) inverting every sub-cutoff imaginary mode to ``|nu|``,
+            (2) removing every remaining imaginary mode, i.e. a genuine
+            reaction coordinate, and (3) applying the quasi-harmonic floor to
+            the real modes. Its length is ``len(energies) - n_removed``, which
+            is ``3N-6`` for a minimum and ``3N-7`` for a first-order saddle
+            point.
+        n_imag: Imaginary modes in ``energies``.
+        n_inverted: How many of those were below ``imag_cutoff_cm`` and were
+            therefore kept at ``|nu|``.
+        n_removed: How many were at or above it and were therefore dropped --
+            the reaction coordinate(s) of a saddle point.
+        n_raised: How many modes in ``corrected_energies`` were below
+            ``low_freq_cutoff_cm`` and were evaluated at the floor instead.
+            Counts inverted artifacts too, since after inversion they are
+            ordinary soft real modes.
+        max_imag_cm: Largest imaginary wavenumber in ``energies``.
+        imag_cutoff_cm: Magnitude at or above which an imaginary mode is a
+            reaction coordinate rather than a numerical artifact.
+        low_freq_cutoff_cm: The quasi-harmonic floor, in cm^-1; 0.0 means
+            plain RRHO with no floor.
+    """
 
     energies: list[complex]
     n_imag: int
     max_imag_cm: float
     imag_cutoff_cm: float
+    corrected_energies: list[complex]
+    n_inverted: int
+    n_removed: int
+    n_raised: int
+    low_freq_cutoff_cm: float
 
     @property
     def is_transition_state(self) -> bool:
         """True when an imaginary mode is too large to be numerical noise."""
         return self.max_imag_cm >= self.imag_cutoff_cm
+
+    @property
+    def convention(self) -> str:
+        """The thermochemical convention that produced ``corrected_energies``.
+
+        Written to every record's ``Thermo_convention`` SD property, because
+        the quasi-harmonic floor is a modeling choice rather than a bug fix:
+        two Auto3D runs with different floors are not comparable, and neither
+        is a floored Auto3D number and a plain-RRHO Gaussian/ORCA one.
+        """
+        if self.low_freq_cutoff_cm > 0.0:
+            return f"RRHO+quasiharmonic({self.low_freq_cutoff_cm:g}cm-1)"
+        return "RRHO"
 
 
 def analyze_vibrations(
@@ -635,102 +905,197 @@ def analyze_vibrations(
     geometry: str,
     *,
     imag_cutoff_cm: float = IMAGINARY_MODE_CUTOFF_CM,
+    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
 ) -> VibrationAnalysis:
-    """Classify a vibrational spectrum.
+    """Classify a vibrational spectrum and build the list ASE is given.
 
-    ASE's ``ignore_imag_modes`` sorts by absolute value and drops every
-    imaginary mode alike, so a -400 cm^-1 reaction coordinate is discarded on
-    the same footing as a -15 cm^-1 artifact and the saddle point is reported
-    as a minimum. Separating the two is the point of ``max_imag_cm``: the
-    caller can keep tolerating artifacts while refusing to publish a Gibbs
-    energy for a transition state.
+    Takes exactly the projected vibrational modes -- ``3N-6`` for a nonlinear
+    molecule, ``3N-5`` for a linear one, none for a monatomic -- as
+    ``projected_vibrations`` returns them, and raises ``ValueError`` on any
+    other length. It does **not** select modes: translation and rotation were
+    already removed by projection, so there is nothing here to cut, and the
+    magnitude-sorted slice this function used to perform (to mirror what ASE
+    would do internally) is gone. Mirroring was never safe -- ASE changed that
+    rule in 3.28.0, after which Auto3D's reported ``N_imaginary_modes`` and
+    ``Is_transition_state`` described a different mode set from the one that
+    produced ``G_hartree``.
 
-    ``VibrationsData.get_energies()`` returns all 3N modes, including
-    translation and rotation -- eigenvalues that should be exactly zero but
-    come out as small positive or negative numerical noise, i.e. some of them
-    routinely present as spurious "imaginary" modes. Counting imaginary modes
-    over the raw 3N set therefore counts these alongside genuine vibrations:
-    measured on a 5-atom Lennard-Jones cluster at Auto3D's own 0.01 eV/A
-    convergence threshold, this reports 5 spurious imaginary modes up to 19i
-    cm^-1 while ASE's own IdealGasThermo (which performs the same cut before
-    counting) reports 0.
+    The three diagnostics -- ``n_imag``, ``max_imag_cm`` and
+    ``is_transition_state`` -- are computed first, on the untouched input.
+    That ordering is load-bearing: they are meaningless once modes have been
+    inverted, removed or raised.
 
-    To avoid that, this mirrors ``ase.thermochemistry.IdealGasThermo.__init__``
-    exactly: sort a *copy* of the energies by absolute value, ascending, then
-    keep only the last ``3*n_atoms - 6`` (nonlinear) or ``3*n_atoms - 5``
-    (linear) entries -- ASE's own slice for separating genuine vibrations from
-    translation/rotation, which are the smallest-magnitude modes by
-    construction. Monatomic species have no vibrational modes at all. See
-    ``ase/thermochemistry.py``, ``IdealGasThermo.__init__``: ``vib_energies =
-    list(vib_energies); vib_energies.sort(key=np.abs)`` then
-    ``vib_energies[-(3*natoms-6):]`` / ``[-(3*natoms-5):]`` / ``[]``, as
-    installed (ase 3.27.0). If a future ASE version changes this slicing, this
-    function's behavior should follow the installed source, not this comment.
+    Then three corrections are applied, in this order:
 
-    One classification detail deliberately does NOT mirror ASE: this function
-    calls a mode imaginary when ``imag(v) != 0``, while ASE's own
-    ``_clean_vib_energies`` keeps a mode only when ``real(v) > 0``, i.e. it
-    treats ``real(v) <= 0`` as imaginary. The two agree everywhere except for
-    a mode that is exactly zero (``complex(0, 0)``): this function calls that
-    real (not imaginary), ASE calls it imaginary. An exactly-zero mode is not
-    a numerical-noise case -- floating-point Hessian eigenvalues essentially
-    never land on precisely zero -- so in practice it only shows up for a
-    genuinely singular mode, e.g. a dissociated system where a fragment's
-    separation coordinate carries no restoring force at all. Matching ASE
-    exactly here would reclassify legitimate near-zero (but nonzero-real,
-    zero-imaginary) vibrational modes as imaginary, which is not wanted, so
-    this divergence is intentional and only matters for that dissociated-system
-    edge case.
+    1. **Invert** every imaginary mode below ``imag_cutoff_cm``, keeping it at
+       ``|nu|``. This is the Gaussian/ORCA convention for a numerical
+       artifact, and the reason is mode counting rather than the size of any
+       one number: a nonlinear molecule has exactly ``3N-6`` vibrational
+       degrees of freedom, so deleting an artifact would give a species with
+       one artifact a ``3N-7``-mode partition function and a species with none
+       a ``3N-6``-mode one. Those two free energies are not the same
+       thermodynamic quantity, and the difference does not cancel in the
+       comparison a user runs thermochemistry to make.
+    2. **Remove** every imaginary mode at or above ``imag_cutoff_cm``. That is
+       a genuine reaction coordinate: the rigid-rotor/harmonic partition
+       function has no expression for it, and the standard treatment is to
+       omit it and report ``3N-7``. Removing it here, rather than leaving it
+       to ``ignore_imag_modes``, is what makes the count deliberate -- and it
+       is the case ASE >= 3.28's selection got wrong, dropping the reaction
+       coordinate at the *selection* stage and pulling a ~1.6 cm-1 rotation
+       into the partition function to fill the quota.
+    3. **Raise** every remaining real mode below ``low_freq_cutoff_cm`` to the
+       floor (Truhlar's quasi-harmonic prescription). The harmonic entropy of
+       a mode diverges as ``-R*ln(h*nu/kT)`` as ``nu -> 0``, so G is most
+       sensitive to exactly the modes an fp32 NNP Hessian resolves worst; the
+       floor makes ``dG/dnu`` zero below the cutoff. It is applied to the
+       zero-point and enthalpy sums as well as the entropy, which is what
+       handing a single floored list to ``IdealGasThermo`` does. That
+       simplification is measured, not assumed: at 298 K a mode below the
+       floor carries ``ZPE + dH_vib`` of 0.594 kcal/mol at 30 cm-1 and 0.604
+       at 100 cm-1 -- the zero-point rise is cancelled by the thermal-enthalpy
+       fall -- so raising everywhere differs from raising inside the entropy
+       only by 0.010-0.012 kcal/mol per mode.
+
+    ``imag_cutoff_cm`` and ``low_freq_cutoff_cm`` answer different questions
+    and are deliberately not merged. The first is a classification threshold:
+    is this geometry a saddle point? The second is a thermodynamic floor: how
+    far do we trust a soft mode's frequency? A useful consequence is that once
+    the floor is in force the exact artifact cutoff stops mattering for G --
+    an artifact at 10i, 20i, 30i or 49i all invert to a sub-floor real mode
+    and are all evaluated at the floor, contributing identically.
+
+    One classification detail deliberately does NOT match ASE: this function
+    calls a mode imaginary when ``imag(v) != 0``, while ``_clean_vib_energies``
+    keeps a mode only when ``real(v) > 0``, i.e. it treats ``real(v) <= 0`` as
+    imaginary. The two agree everywhere except for an exactly-zero mode
+    (``complex(0, 0)``), which this function calls real. With the
+    quasi-harmonic floor in force such a mode is raised to the floor and the
+    difference is moot; with the floor disabled it is passed through as a zero
+    energy, which is a genuinely singular mode (a dissociated fragment with no
+    restoring force) and is reported rather than silently deleted.
 
     Args:
-        vib_energies: Complex vibrational energies in eV, as ASE returns them
-            (all 3N modes, translation/rotation included); an imaginary mode
-            has a nonzero imaginary part.
-        n_atoms: Number of atoms, to compute how many of the 3N modes are
-            genuinely vibrational.
-        geometry: 'monatomic', 'linear', or 'nonlinear', as classified by
-            ``_detect_geometry``.
-        imag_cutoff_cm: Magnitude above which an imaginary mode means the
-            structure is a saddle point, not a noisy minimum.
+        vib_energies: Complex vibrational energies in eV -- exactly the
+            projected ``3N-6`` / ``3N-5`` set, translation and rotation
+            already removed. An imaginary mode has a nonzero imaginary part.
+        n_atoms: Number of atoms, for the mode-count check.
+        geometry: 'monatomic', 'linear' or 'nonlinear', as classified by
+            ``_detect_geometry``, for the mode-count check.
+        imag_cutoff_cm: Magnitude at or above which an imaginary mode means
+            the structure is a saddle point, not a noisy minimum.
+        low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1; 0.0 disables
+            raising and gives plain RRHO.
 
     Returns:
-        A :class:`VibrationAnalysis`. ``energies`` is the full, untouched
-        input, still all 3N modes in input order -- ``IdealGasThermo`` is
-        given this same full set and performs its own equivalent slice
-        internally, so trimming it here would double-cut and delete genuine
-        vibrations. Only ``n_imag`` and ``max_imag_cm`` are computed from the
-        vibration-only subset.
+        A :class:`VibrationAnalysis`.
+
+    Raises:
+        ValueError: if ``vib_energies`` does not hold exactly the number of
+            vibrational modes ``n_atoms`` and ``geometry`` imply.
     """
     energies = [complex(e) for e in vib_energies]
+    expected = n_vibrational_modes(n_atoms, geometry)
+    if len(energies) != expected:
+        raise ValueError(
+            f"analyze_vibrations expects exactly the {expected} vibrational "
+            f"mode(s) of a {geometry} {n_atoms}-atom molecule, got "
+            f"{len(energies)}. Translation and rotation must already be "
+            "removed -- build the list with projected_vibrations."
+        )
 
-    if geometry == "monatomic":
-        vibrational: list[complex] = []
-    else:
-        n_needed = 3 * n_atoms - (5 if geometry == "linear" else 6)
-        vibrational = sorted(energies, key=abs)[-n_needed:] if n_needed > 0 else []
-
+    # Diagnostics first, on the untouched spectrum: n_imag, max_imag_cm and
+    # is_transition_state are meaningless on an inverted or raised list.
     n_imag = 0
     max_imag_cm = 0.0
-    for value in vibrational:
+    for value in energies:
         if abs(value.imag) > 0.0:
             n_imag += 1
             max_imag_cm = max(max_imag_cm, abs(value.imag) / EV_PER_WAVENUMBER)
+
+    floor_ev = max(0.0, low_freq_cutoff_cm) * EV_PER_WAVENUMBER
+    corrected: list[complex] = []
+    n_inverted = 0
+    n_removed = 0
+    n_raised = 0
+    for value in energies:
+        if abs(value.imag) > 0.0:
+            if abs(value.imag) / EV_PER_WAVENUMBER < imag_cutoff_cm:
+                # Numerical artifact of a soft mode: keep it at |nu| so the
+                # mode count is conserved.
+                value = complex(abs(value), 0.0)
+                n_inverted += 1
+            else:
+                # Reaction coordinate: no harmonic expression exists for it.
+                n_removed += 1
+                continue
+        if floor_ev > 0.0 and value.real < floor_ev:
+            value = complex(floor_ev, 0.0)
+            n_raised += 1
+        corrected.append(value)
 
     return VibrationAnalysis(
         energies=energies,
         n_imag=n_imag,
         max_imag_cm=max_imag_cm,
         imag_cutoff_cm=imag_cutoff_cm,
+        corrected_energies=corrected,
+        n_inverted=n_inverted,
+        n_removed=n_removed,
+        n_raised=n_raised,
+        low_freq_cutoff_cm=max(0.0, low_freq_cutoff_cm),
     )
+
+
+def _verbatim_mode_kwargs(n_passed: int, n_expected: int) -> dict:
+    """``IdealGasThermo`` kwargs that make it consume the mode list verbatim.
+
+    Auto3D builds the vibrational list itself -- projected, inverted, trimmed
+    and floored -- so ASE's own selection must not run on top of it. Two
+    mechanisms exist across the supported range, and both were read out of the
+    installed sources rather than assumed:
+
+    * ASE >= 3.28.0 has ``vib_selection``. ``'exact'`` consumes the list
+      unchanged *and* asserts it has the ``3N-6`` / ``3N-5`` length the
+      geometry implies, which is a free independent check for the ordinary
+      minimum path. A confirmed transition state deliberately supplies
+      ``3N-7``, so it uses ``'all'``, which disables both the selection and
+      the length check.
+    * ASE 3.23.0-3.27.x has no ``vib_selection``; its cut is guarded by
+      ``if natoms:``, so passing ``natoms=0`` skips it. ``self.natoms`` is
+      assigned there and read nowhere else in the module, and in 3.28+ it is
+      not even stored, so this is inert beyond disabling the cut. (In 3.28+
+      the same ``natoms=0`` would also work -- ``if natoms and ...`` -- but
+      ``vib_selection`` is the documented mechanism, so it is preferred where
+      it exists.)
+
+    ASE 3.22.1 is not supported: its ``IdealGasThermo`` has no
+    ``ignore_imag_modes`` parameter at all, and it does not sort before
+    slicing. ``pyproject.toml`` pins ``ase>=3.23.0`` accordingly.
+    """
+    if _ASE_HAS_VIB_SELECTION:
+        return {"vib_selection": "exact" if n_passed == n_expected else "all"}
+    return {"natoms": 0}
 
 
 def do_mol_thermo(mol: Chem.Mol,
                   atoms: ase.Atoms,
                   model: torch.nn.Module,
                   device=torch.device('cpu'),
-                  T=298.15, model_name='AIMNET'):
+                  T=298.15, model_name='AIMNET',
+                  *,
+                  low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM):
     """For a RDKit mol object, calculate its thermochemistry properties.
-    model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate Hessian"""
+
+    model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate
+    the Hessian.
+
+    Args:
+        low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1 (see
+            ``analyze_vibrations``). 0.0 disables it and gives plain RRHO.
+            Whichever value is used is recorded in the record's
+            ``Thermo_convention`` property.
+    """
     # atoms already holds the relaxed (post-BFGS) geometry; everything below --
     # the Hessian, the energy, the geometry classification and the moments of
     # inertia -- is computed from these coordinates directly (vib_hessian takes
@@ -739,7 +1104,6 @@ def do_mol_thermo(mol: Chem.Mol,
     coord = atoms.get_positions()
     vib = vib_hessian(mol, atoms.get_calculator(), model, device,
                       model_name=model_name, positions=coord)
-    vib_e = vib.get_energies()
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
     symmetry = _symmetry_number(mol)
@@ -747,34 +1111,82 @@ def do_mol_thermo(mol: Chem.Mol,
     multiplicity = _resolve_multiplicity(mol)
     spin = (multiplicity - 1) / 2.0
 
-    # NNP Hessians at the loose conformer-generation convergence threshold
-    # routinely yield one or two tiny artifact imaginary modes. Dropping them
-    # (ignore_imag_modes=True) keeps otherwise-valid thermochemistry instead of
-    # ASE raising ValueError and the whole molecule being discarded.
     name = mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule"
-    analysis = analyze_vibrations(vib_e, n_atoms=len(atoms), geometry=geometry)
-    if analysis.n_imag > 0:
+    # Project translation and rotation out of the Hessian instead of taking
+    # VibrationsData.get_energies()'s raw 3N spectrum and letting
+    # IdealGasThermo guess which entries are vibrations. `atoms` supplies the
+    # masses and positions here and the moments of inertia below, so the
+    # vibrational and rotational partition functions cannot disagree about the
+    # molecule; `vib` supplies only the Hessian matrix, which vib_hessian built
+    # from these same coordinates.
+    vib_e = projected_vibrations(atoms, vib.get_hessian_2d(), geometry, name=name)
+    n_expected = len(vib_e)
+    analysis = analyze_vibrations(
+        vib_e, n_atoms=len(atoms), geometry=geometry,
+        low_freq_cutoff_cm=low_freq_cutoff_cm,
+    )
+    if analysis.n_inverted > 0:
         logger.warning(
             "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
-            "they are dropped from the thermochemistry, so treat the result "
-            "as approximate.",
+            "%d below the %.0f cm-1 saddle-point threshold are kept at |nu| "
+            "(the Gaussian/ORCA convention for a numerical artifact) rather "
+            "than deleted, so the partition function keeps all %d vibrational "
+            "modes. Deleting one instead removes that mode's entire "
+            "contribution to G -- dominated by -T*S_vib, which diverges as "
+            "1/nu -- and the resulting mode-count mismatch does not cancel "
+            "between two species with different artifact counts.",
             analysis.n_imag, name, analysis.max_imag_cm,
+            analysis.n_inverted, analysis.imag_cutoff_cm, n_expected,
+        )
+    elif analysis.n_imag > 0:
+        logger.warning(
+            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
+            "they are at or above the %.0f cm-1 saddle-point threshold, so "
+            "they are removed from the thermochemistry rather than inverted.",
+            analysis.n_imag, name, analysis.max_imag_cm,
+            analysis.imag_cutoff_cm,
         )
     if analysis.is_transition_state:
         # Well above the numerical-artifact scale: this is a reaction
         # coordinate, and a "free energy" computed here is a saddle point's,
-        # not a minimum's. Record it so a consumer can filter, rather than
-        # emitting a number that looks like every other one.
+        # not a minimum's -- the rigid-rotor/harmonic partition function
+        # assumes a minimum. The numbers are still written (a deliberate TS
+        # calculation wants them), but the record is marked as failed below so
+        # it cannot pass the documented `Thermo_failed == ""` success filter.
         logger.warning(
             "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
             "artifact threshold: this geometry is a saddle point, not a "
-            "minimum. Its thermochemistry is reported but marked.",
+            "minimum. Its thermochemistry is reported but marked "
+            "%s=%r, so it does not pass the success filter.",
             name, analysis.max_imag_cm, analysis.imag_cutoff_cm,
+            THERMO_FAILED_PROP, TRANSITION_STATE_FAILURE,
         )
     mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
+    mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
     mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
     mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
-    vib_e = analysis.energies
+    # Name the convention and the mode count in the file itself: the
+    # quasi-harmonic floor is a modeling choice, so without these a consumer
+    # cannot tell which prescription produced G_hartree.
+    mol.SetProp("N_raised_modes", str(analysis.n_raised))
+    mol.SetProp("Thermo_vib_modes", str(len(analysis.corrected_energies)))
+    mol.SetProp("Thermo_convention", analysis.convention)
+    # A saddle point is not a minimum, so it must not read as a success. Set
+    # here, at the one place that knows, rather than left to the caller: the
+    # writer preserves a non-empty marker, so this verdict survives however
+    # the record is routed.
+    mol.SetProp(
+        THERMO_FAILED_PROP,
+        TRANSITION_STATE_FAILURE if analysis.is_transition_state else "",
+    )
+    # The list handed to ASE is final: 3N-6 (or 3N-5) modes for a minimum,
+    # 3N-7 for a confirmed saddle point whose reaction coordinate Auto3D
+    # removed itself. _verbatim_mode_kwargs stops ASE re-selecting on top of
+    # it, which is what made G depend on the installed ASE version.
+    # ignore_imag_modes stays on as a backstop only: after inversion, removal
+    # and the quasi-harmonic floor there is nothing left for it to drop, and
+    # the check below says so if that ever stops being true.
+    vib_e = analysis.corrected_energies
     thermo = IdealGasThermo(
         vib_energies=vib_e,
         potentialenergy=e,
@@ -783,7 +1195,16 @@ def do_mol_thermo(mol: Chem.Mol,
         symmetrynumber=symmetry,
         spin=spin,
         ignore_imag_modes=True,
+        **_verbatim_mode_kwargs(len(vib_e), n_expected),
     )
+    n_used = len(thermo.vib_energies)
+    if n_used != len(vib_e):
+        logger.warning(
+            "%s: ASE kept %d of the %d vibrational modes it was given. Auto3D "
+            "builds that list to be consumed verbatim, so G is missing %d "
+            "mode(s) it was meant to include.",
+            name, n_used, len(vib_e), len(vib_e) - n_used,
+        )
     H = thermo.get_enthalpy(temperature=T) * ev2hatree
     # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
     # Hartree. Name the property accordingly so a downstream G = H - T*S
@@ -813,6 +1234,7 @@ def do_mol_thermo(mol: Chem.Mol,
         conformer.SetAtomPosition(i, coord[i])
 
     return mol
+
 
 def _load_hessian_model(model_name: str, device):
     """Return a Hessian/energy evaluator for vib_hessian.
@@ -977,11 +1399,19 @@ def _write_thermo_output(
 
     This is the filtering contract CHANGELOG.md and the migration guide
     document: ``if mol.GetProp("Thermo_failed") == "":`` selects a success.
-    Every ``out_mols`` record is marked with the empty-string positive marker
-    here (mirroring the negative one already set on every ``mols_failed``
-    record by its failure path in ``calc_thermo``), so a consumer can filter
-    on this single property either way without needing to know which failure
-    modes exist.
+    An ``out_mols`` record that does not already carry the marker is given the
+    empty-string positive one here (mirroring the negative one already set on
+    every ``mols_failed`` record by its failure path in ``calc_thermo``), so a
+    consumer can filter on this single property either way without needing to
+    know which failure modes exist.
+
+    A marker already present is never overwritten. ``do_mol_thermo`` sets the
+    verdict itself -- ``""`` for a minimum, ``"transition_state"`` for a
+    confirmed first-order saddle point, whose Gibbs energy is not the same
+    quantity as a minimum's -- and blindly stamping ``""`` over every
+    ``out_mols`` record would erase exactly that verdict if a record were ever
+    routed to the wrong list. The guarantee "a transition state cannot read as
+    a success" then holds regardless of routing.
 
     Every record reaching ``mols_failed`` already has ``Thermo_failed`` set by
     the failure path that put it there (the stationary-point gate sets
@@ -991,7 +1421,8 @@ def _write_thermo_output(
     """
     with Chem.SDWriter(str(outpath)) as w:
         for mol in out_mols:
-            mol.SetProp("Thermo_failed", "")
+            if not mol.HasProp(THERMO_FAILED_PROP):
+                mol.SetProp(THERMO_FAILED_PROP, "")
             w.write(mol)
         for mol in mols_failed:
             w.write(mol)
@@ -1001,7 +1432,8 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
                 opt_steps=DEFAULT_OPT_STEPS,
                 use_gpu: bool = True, allow_tf32: bool = False,
-                out_path: str | None = None, overwrite: bool = True):
+                out_path: str | None = None, overwrite: bool = True,
+                low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM):
     """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.
 
     Args:
@@ -1021,6 +1453,12 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             True, which is the historical behavior every Python-API caller
             was written against. ``auto3d thermo`` passes False unless
             ``--force`` is given, so the CLI refuses to clobber.
+        low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1. Every real
+            vibrational mode below it is evaluated at it instead (Truhlar
+            raising), which removes G's sensitivity to soft modes an NNP
+            Hessian cannot resolve. Defaults to 100 cm^-1; pass 0.0 for plain
+            RRHO. Whichever value is used is recorded in each record's
+            ``Thermo_convention`` property.
 
     Notes:
         Gibbs energies are reported at the 1 atm standard state (matching
@@ -1028,6 +1466,13 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         per-mol integer 'symmetry_number' property is set; for symmetric
         molecules (e.g. benzene, sigma=12) the default over-counts rotational
         entropy by up to a few kcal/mol in T*S, so set that property when known.
+
+        The vibrational spectrum comes from an Eckart/Sayvetz-projected
+        Hessian (``projected_vibrations``), so exactly 3N-6 / 3N-5 modes reach
+        ``IdealGasThermo`` and ASE's own mode selection is disabled. Before
+        4.0 the full 3N list was passed and ASE chose; that choice changed in
+        ASE 3.28.0, so the same input gave different Gibbs energies on
+        different ASE versions.
     """
     # Fail fast on an unrecognized engine name -- the same guard the CLI's
     # `thermo` command already runs before calling this function
@@ -1151,25 +1596,34 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             if not converged:
                 # The harmonic approximation needs a stationary point.
                 # Emitting G here would look exactly like a real result.
-                mol.SetProp("Thermo_failed", "not_converged")
+                mol.SetProp(THERMO_FAILED_PROP, "not_converged")
                 mols_failed.append(mol)
                 continue
 
             mol = do_mol_thermo(mol, atoms, hessian_model,
-                                device, T, model_name=model_name)
-            out_mols.append(mol)
+                                device, T, model_name=model_name,
+                                low_freq_cutoff_cm=low_freq_cutoff_cm)
+            # do_mol_thermo writes the verdict: "" for a minimum, or
+            # "transition_state" for a confirmed saddle point, whose
+            # rigid-rotor/harmonic thermochemistry is not a minimum's and must
+            # not pass the documented success filter. Route on that single
+            # property, the same way the stationary-point gate above does.
+            if mol.GetProp(THERMO_FAILED_PROP):
+                mols_failed.append(mol)
+            else:
+                out_mols.append(mol)
         except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
                 np.linalg.LinAlgError, ZeroDivisionError) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")
-            mol.SetProp("Thermo_failed", type(e).__name__)
+            mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
             mols_failed.append(mol)
         except Exception as e:
             # Catch-all for truly unexpected errors - prevents batch failure
             # Log at ERROR level for debugging while allowing pipeline to continue
             logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed (unexpected): {idx}")
-            mol.SetProp("Thermo_failed", type(e).__name__)
+            mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
             mols_failed.append(mol)
 
     logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")

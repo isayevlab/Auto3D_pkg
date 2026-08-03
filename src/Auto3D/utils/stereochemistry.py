@@ -23,6 +23,46 @@ from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+#: Stereo-specification states RDKit uses for an element the input leaves open.
+#: A tetrahedral center drawn with no wedge is ``Unspecified``; a double bond
+#: drawn with no geometry is ``Unspecified`` when parsed from SMILES and
+#: ``Unknown`` when read from a molblock that marks the bond "either" (the
+#: crossed-bond flag). Both mean "the input did not say", so both count.
+_UNSPECIFIED_STEREO_STATES = (
+    Chem.StereoSpecified.Unspecified,
+    Chem.StereoSpecified.Unknown,
+)
+
+
+def count_unspecified_stereo(mol: Chem.Mol) -> int:
+    """Count stereo elements the input leaves unspecified.
+
+    Single owner of that question for every Auto3D entry point: the SMILES
+    path (``check_smi_format``) and the SDF path
+    (``RDKitSdfIsomer.count_unspecified_stereo``) must agree on what counts,
+    or the same molecule warns on one path and passes silently on the other.
+
+    ``Chem.FindPotentialStereo`` is used rather than
+    ``CalcNumUnspecifiedAtomStereoCenters`` because the latter sees only
+    **atom** centers and never double-bond geometry. Counting only atom
+    centers silently misses every unspecified C=C -- e.g. ``OC(=O)C=CC(=O)O``
+    embeds as a mixture of fumaric *and* maleic acid (~5 kcal/mol apart)
+    under one species id, and ``CC=CC`` embeds as cis-2-butene alone with the
+    trans isomer absent, both with no warning.
+
+    Args:
+        mol: Molecule to inspect. Not modified.
+
+    Returns:
+        Number of potential stereo elements (tetrahedral centers, double-bond
+        geometries, ...) whose configuration the input does not fix.
+    """
+    return sum(
+        1
+        for element in Chem.FindPotentialStereo(mol)
+        if element.specified in _UNSPECIFIED_STEREO_STATES
+    )
+
 
 def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
     """Check if two lists of stereo centers represent enantiomers.
