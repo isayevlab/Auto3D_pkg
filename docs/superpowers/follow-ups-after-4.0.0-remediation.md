@@ -121,13 +121,35 @@ present and dead:
 | **already deleted** by earlier phases | `pad_molecular_batch`, `cli/progress` `create_progress`, `IsomerProgressCallback` |
 | **not dead — M53 wrong** | `utils/stereo_check` (6 live uses), `cli/results` `FailedMolecule` + `print_failures` (live from `run.py` since the C6/C7 reconciliation work — the finding's "run.py admits failures is always []" no longer holds), `ASE/thermo` `mol2atoms`, `STANDARD_PRESSURE`, `isomers/parallel_embed` |
 | **genuinely dead — deleted** | `utils_file.py` (whole module), `count_from_output`, `encode_smiles`, `decode_smiles`, `housekeeping_helper`, and 3 constants (`BOND_STRETCH_TOLERANCE`, `COLLISION_THRESHOLD`, `SUPPORTED_MODELS`) |
-| **unresolved — line numbers stale** | `exceptions.py` "4 classes never raised" (line 41 is `OptimizationError`, raised 3x, so the cited lines no longer point at what the finding describes); `ASE/thermo` `model_name` param (the `model_wrapper` legacy `name` API is **DONE 2026-08-03**) |
+| **resolved 2026-08-03 — also wrong** | `exceptions.py` "4 classes never raised"; `ASE/thermo`'s `model_name` param |
+| **resolved 2026-08-03 — was right, removed** | `model_wrapper`'s legacy `name` API |
 
 Net: **256 lines removed from `src/`, 167 from `tests/`** — not the ~450 of `src/`
 the finding claimed, because a third of it was gone and half of the rest is alive.
 
-The three unresolved entries need their own pass; the audit's line numbers cannot
-be used to find them.
+**M53 is now closed.** The last three entries were resolved by checking source
+rather than line numbers:
+
+- **`model_wrapper`'s legacy `name` API** — right, and removed. The deprecation
+  said "removed in Auto3D v2.0"; the package reached 3.0.0 with it in place.
+- **`ASE/thermo`'s `model_name` parameter** — **wrong**. `Calculator` reads
+  `self.model_name` at `thermo.py:536`, passing it to `to_model_species`. The
+  C3/C4 species-conversion work made it live after the audit was written.
+- **`exceptions.py`'s "4 classes never raised"** — **wrong**, and the shape of the
+  claim is the problem. Only `ModelError` is never raised directly, and that is
+  deliberate: `ModelLoadError` and `NumericalError` subclass it, and
+  `cli/errors.py:29` maps it to exit code 5 precisely so both subclasses inherit
+  that code. Deleting it would break the exit-code scheme the 3.0.0 release
+  documents. "Never raised" is not the same as "unused" for a base class — an
+  audit that greps for `raise X` cannot tell them apart.
+
+**Final tally for M53: of 13 entries, 4 were real.** Three had already been done,
+six were wrong when re-checked, and the remaining four were deleted in #135/#136.
+Nothing further to remove. The single most useful lesson is that a dead-code
+finding decays faster than any other kind: the same work that fixes defects revives
+symbols the audit saw as dead (`mol2atoms`, `STANDARD_PRESSURE`, `FailedMolecule`,
+`print_failures`, `model_name`), and a mechanical sweep would have deleted five
+live ones.
 
 ## What the remediation closed
 
