@@ -27,6 +27,22 @@ they did not affect its conclusions.
 
 ---
 
+## Re-verification, 2026-08-03
+
+An AST scan of all 1237 test functions (assert / raise / pytest.raises / warns /
+`assert_*` helper) finds **8** with no failable check, none of them in
+`test_thermo.py` or `test_auto3D.py`: findings 2 and 3 are closed.
+
+Of the 8, six are legitimate smoke tests whose stated guarantee *is* "does not
+raise". Two are not, and neither is in this report:
+`tests/test_cli_results.py::test_print_results_summary` and `::test_output_json`
+are named for output content and assert nothing about it.
+
+Findings 15, 20 and 29 were re-checked individually and are still open; finding
+15 survived a full rewrite of its file. The remaining Tier 1 items and all of
+Tier 2/3 have **not** been individually re-verified — treat their line numbers as
+stale, since `thermo.py` alone has shifted by ~500 lines since this sweep.
+
 ## Counts
 
 | Tier | Meaning | Count |
@@ -74,7 +90,7 @@ line 147 assertion: PASSES  <-- VACUOUS
 => whole test stays GREEN under the mutation.
 ```
 
-### 2. `tests/test_thermo.py:259, 267, 275, 303, 317` — five slow tests with zero assertions — **VERIFIED**
+### 2. `tests/test_thermo.py:259, 267, 275, 303, 317` — five slow tests with zero assertions — **VERIFIED** — **CLOSED**
 
 `test_opt_geometry1`…`5` call `opt_geometry(..., opt_steps=5000)` against a real NNP, then
 `try: os.remove(out) except OSError: pass`. No assertion of any kind, and
@@ -85,7 +101,7 @@ verbatim bodies: `test_opt_geometry1/2/3: PASSES`. The sibling
 `test_opt_geometry_with_patience_and_batchsize` asserts only `os.path.exists(out)`.
 Optimisation returning the input geometry unchanged is invisible to all six.
 
-### 3. `tests/test_auto3D.py:136-372` — nineteen slow tests with zero assertions — **VERIFIED**
+### 3. `tests/test_auto3D.py:136-372` — nineteen slow tests with zero assertions — **VERIFIED** — **CLOSED**
 
 Every test is `main(args)` followed by directory cleanup. 19 of the module's 20 slow tests
 assert nothing. The docstrings are honest (*"Check that the program runs"*) but the
