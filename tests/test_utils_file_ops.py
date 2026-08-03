@@ -7,11 +7,8 @@ from rdkit import Chem
 from Auto3D.utils.file_ops import (
     smiles2smi,
     guess_file_type,
-    encode_smiles,
-    decode_smiles,
     hash_enumerated_smi_IDs,
     hash_taut_smi,
-    housekeeping_helper,
     housekeeping,
     create_chunk_meta_names,
     combine_smi,
@@ -197,136 +194,6 @@ class TestGuessFileType:
         assert guess_file_type(".hidden.sdf") == "sdf"
 
 
-class TestEncodeSmiles:
-    """Tests for encode_smiles function."""
-
-    def test_simple_smiles(self):
-        """Test that simple SMILES without special chars are unchanged."""
-        assert encode_smiles("CCO") == "CCO"
-        assert encode_smiles("CCCC") == "CCCC"
-        assert encode_smiles("c1ccccc1") == "c1ccccc1"
-
-    def test_double_bond(self):
-        """Test encoding of double bonds."""
-        assert encode_smiles("C=C") == "CdC"
-        assert encode_smiles("CC=CC") == "CCdCC"
-
-    def test_triple_bond(self):
-        """Test encoding of triple bonds."""
-        assert encode_smiles("C#N") == "CtN"
-        assert encode_smiles("C#C") == "CtC"
-
-    def test_stereochemistry(self):
-        """Test encoding of stereochemistry markers."""
-        assert encode_smiles("C/C=C/C") == "CsCdCsC"
-        assert encode_smiles("C/C=C\\C") == "CsCdCbC"
-
-    def test_chiral_center(self):
-        """Test encoding of chiral centers."""
-        encoded = encode_smiles("[C@H](F)(Cl)Br")
-        assert "a" in encoded  # @ becomes 'a'
-        assert "K" in encoded  # [ becomes 'K'
-        assert "J" in encoded  # ] becomes 'J'
-
-    def test_charged_species(self):
-        """Test encoding of charged molecules."""
-        encoded = encode_smiles("[NH4+]")
-        assert encoded == "KNH4pJ"
-
-        encoded = encode_smiles("[O-]")
-        assert encoded == "KOmJ"
-
-    def test_parentheses(self):
-        """Test encoding of parentheses."""
-        encoded = encode_smiles("CC(C)C")
-        assert encoded == "CCLCRC"
-
-    def test_brackets(self):
-        """Test encoding of brackets."""
-        encoded = encode_smiles("[Na]")
-        assert encoded == "KNaJ"
-
-    def test_ring_numbers_with_percent(self):
-        """Test encoding of large ring numbers."""
-        encoded = encode_smiles("C%12CCCCC%12")
-        assert "X12" in encoded
-
-    def test_long_smiles_uses_hash(self):
-        """Test that very long SMILES are hash-encoded."""
-        # Create a SMILES longer than 50 characters
-        long_smiles = "C" * 100
-        encoded = encode_smiles(long_smiles, max_length=50)
-        assert len(encoded) <= 50
-        assert "_" in encoded  # Hash separator
-
-    def test_max_length_parameter(self):
-        """Test that max_length parameter controls output length."""
-        long_smiles = "C=C" * 20  # 60 chars when encoded
-        encoded = encode_smiles(long_smiles, max_length=30)
-        assert len(encoded) <= 30
-
-    def test_deterministic_encoding(self):
-        """Test that same input always produces same output."""
-        smiles = "CC(=O)OC1=CC=CC=C1C(=O)O"  # Aspirin
-        encoded1 = encode_smiles(smiles)
-        encoded2 = encode_smiles(smiles)
-        assert encoded1 == encoded2
-
-    def test_different_smiles_different_encodings(self):
-        """Test that different SMILES produce different encodings."""
-        encoded1 = encode_smiles("CCO")
-        encoded2 = encode_smiles("OCC")
-        assert encoded1 != encoded2
-
-
-class TestDecodeSmiles:
-    """Tests for decode_smiles function."""
-
-    def test_simple_decode(self):
-        """Test decoding simple SMILES."""
-        assert decode_smiles("CCO") == "CCO"
-
-    def test_decode_double_bond(self):
-        """Test decoding double bonds."""
-        assert decode_smiles("CdC") == "C=C"
-
-    def test_decode_triple_bond(self):
-        """Test decoding triple bonds."""
-        assert decode_smiles("CtN") == "C#N"
-
-    def test_decode_charged(self):
-        """Test decoding charged species."""
-        assert decode_smiles("KNH4pJ") == "[NH4+]"
-        assert decode_smiles("KOmJ") == "[O-]"
-
-    def test_decode_parentheses(self):
-        """Test decoding parentheses."""
-        assert decode_smiles("CCLCRC") == "CC(C)C"
-
-    def test_roundtrip_simple(self):
-        """Test encode/decode roundtrip for simple SMILES."""
-        original = "CCO"
-        assert decode_smiles(encode_smiles(original)) == original
-
-    def test_roundtrip_complex(self):
-        """Test encode/decode roundtrip for complex SMILES."""
-        original = "C=C(C)C"
-        assert decode_smiles(encode_smiles(original)) == original
-
-    def test_roundtrip_charged(self):
-        """Test encode/decode roundtrip for charged species."""
-        original = "[NH4+]"
-        assert decode_smiles(encode_smiles(original)) == original
-
-    def test_hash_encoded_not_decoded(self):
-        """Test that hash-encoded strings are returned unchanged."""
-        # Simulate a hash-encoded string
-        hash_encoded = "CCCCC_abc123def456"
-        result = decode_smiles(hash_encoded)
-        # Should not try to decode the hash portion
-        assert "_" in result
-
-
 class TestHashEnumeratedSmiIDs:
     """Tests for hash_enumerated_smi_IDs function."""
 
@@ -412,24 +279,6 @@ class TestHashTautSmi:
         # Should have different taut numbers
         assert len(set(ids)) == 2
         assert all("@taut" in id for id in ids)
-
-
-class TestHousekeepingHelper:
-    """Tests for housekeeping_helper function."""
-
-    def test_moves_file_to_folder(self, tmp_path):
-        """Test that file is moved to the specified folder."""
-        folder = tmp_path / "output"
-        folder.mkdir()
-
-        source_file = tmp_path / "test.txt"
-        source_file.write_text("test content")
-
-        housekeeping_helper(str(folder), str(source_file))
-
-        # File should be in folder now
-        assert (folder / "test.txt").exists()
-        assert not source_file.exists()
 
 
 class TestHousekeeping:

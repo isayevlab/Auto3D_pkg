@@ -30,14 +30,11 @@ from Auto3D.utils.file_ops import (
     combine_smi,
     create_chunk_meta_names,
     decode_ids,
-    decode_smiles,
     encode_ids,
-    encode_smiles,
     guess_file_type,
     hash_enumerated_smi_IDs,
     hash_taut_smi,
     housekeeping,
-    housekeeping_helper,
     reorder_sdf,
 )
 from Auto3D.utils.logging_config import configure_logging, get_logger
@@ -99,11 +96,8 @@ __all__ = [
     "check_valid_configuration",
     # File operations
     "guess_file_type",
-    "encode_smiles",
-    "decode_smiles",
     "hash_enumerated_smi_IDs",
     "hash_taut_smi",
-    "housekeeping_helper",
     "housekeeping",
     "create_chunk_meta_names",
     "combine_smi",

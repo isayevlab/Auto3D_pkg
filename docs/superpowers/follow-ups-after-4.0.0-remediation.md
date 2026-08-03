@@ -112,10 +112,22 @@ Verified against current source:
 | `constants.py` `check_connectivity` hardcodes 1.25/1.1 | recheck; the surrounding code has moved |
 | `isomers/parallel_embed.py` 138 lines | claim stands, but see the decision needed above |
 
-The remaining nine entries were not re-checked and must be before anything is
-deleted. This is the third time a manifest entry has turned out to be already
-closed or wrong; the pattern is now reliable enough to treat every entry as a
-claim rather than a fact.
+**Full re-verification, 2026-08-03.** All 13 entries checked against source. The
+list was **substantially wrong** — only 4 of 13 described code that was both
+present and dead:
+
+| verdict | entries |
+|---|---|
+| **already deleted** by earlier phases | `pad_molecular_batch`, `cli/progress` `create_progress`, `IsomerProgressCallback` |
+| **not dead — M53 wrong** | `utils/stereo_check` (6 live uses), `cli/results` `FailedMolecule` + `print_failures` (live from `run.py` since the C6/C7 reconciliation work — the finding's "run.py admits failures is always []" no longer holds), `ASE/thermo` `mol2atoms`, `STANDARD_PRESSURE`, `isomers/parallel_embed` |
+| **genuinely dead — deleted** | `utils_file.py` (whole module), `count_from_output`, `encode_smiles`, `decode_smiles`, `housekeeping_helper`, and 3 constants (`BOND_STRETCH_TOLERANCE`, `COLLISION_THRESHOLD`, `SUPPORTED_MODELS`) |
+| **unresolved — line numbers stale** | `exceptions.py` "4 classes never raised" (line 41 is `OptimizationError`, raised 3x, so the cited lines no longer point at what the finding describes); `model_wrapper`'s legacy `name` API; `ASE/thermo` `model_name` param |
+
+Net: **256 lines removed from `src/`, 167 from `tests/`** — not the ~450 of `src/`
+the finding claimed, because a third of it was gone and half of the rest is alive.
+
+The three unresolved entries need their own pass; the audit's line numbers cannot
+be used to find them.
 
 ## What the remediation closed
 
