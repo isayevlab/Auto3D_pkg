@@ -275,9 +275,33 @@ def optim_rank_wrapper(
         return conformers
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
-    """A child process for logging all information from other processes."""
+    """A child process for logging all information from other processes.
+
+    Everything the workers log arrives here, and this is the only place that
+    decides where it goes. WARNING and above additionally go to stderr; INFO and
+    DEBUG stay in the run log, which is where the step-by-step narrative belongs.
+
+    Why the stderr handler exists: a worker's ``logger`` reaches this process
+    through a ``QueueHandler`` and nothing else, so with a file as the only
+    handler here, a chunk that failed wrote its traceback to
+    ``<job_dir>/Auto3D.log`` and told the user nothing. The loss itself was
+    visible -- reconciliation names the missing molecules and the run exits 6 --
+    but the *cause* was not, so a systematic bug that failed every chunk
+    identically was indistinguishable from a batch of hard molecules, and read
+    as "N molecules produced no conformer". The same silence covered the "no
+    optimized structures were produced" warning and every other worker warning,
+    which is why this is fixed at the collector rather than at one call site.
+
+    Stderr, not stdout: ``--json`` promises stdout carries only the document.
+    Interactive runs render a live panel on stderr too, so a warning mid-run can
+    tear that panel -- an acceptable trade for a diagnosis, and the reason INFO
+    is kept out of it.
+    """
     logger = logging.getLogger("auto3d")
     logger.addHandler(logging.FileHandler(logging_path))
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    logger.addHandler(stderr_handler)
     logger.setLevel(logging.INFO)
     while True:
         message = queue.get()

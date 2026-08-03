@@ -277,7 +277,12 @@ symmetry element.
 
 ## Minor
 
-### m1. `src/Auto3D/filtering.py:60-81` — duplicates escape across an energy-cluster boundary — DEMONSTRATED
+### m1. `src/Auto3D/filtering.py:60-81` — duplicates escape across an energy-cluster boundary — DEMONSTRATED — **FIXED 2026-08-03**
+
+> A run now ends only where the energy gap to the *previous* molecule exceeds the
+> duplicate tolerance, which no duplicate pair can straddle, so the result is
+> identical to comparing every pair. `energy_cluster_window` survives as a
+> performance knob that cannot become a correctness hole.
 
 `filter_unique_optimized` clusters by energy first and only RMSD-compares *within* a
 cluster, so a duplicate pair straddling a boundary is never compared. Three
@@ -291,7 +296,16 @@ E - (-100) = [0.0, 0.099999, 0.100001]  -> filter kept 3/3   <-- duplicates surv
 The last two differ by 2×10⁻⁶ eV. Consequence: a `k=5` request can return 5 slots
 filled by 2 distinct structures. The legacy O(n²) `filter_unique` is unaffected.
 
-### m2. `src/Auto3D/batch_opt/optimization_engine.py:212, 234-235, 277-284` — `Converged` and `fmax` in the output SDF are mutually inconsistent — DEMONSTRATED
+### m2. `src/Auto3D/batch_opt/optimization_engine.py:212, 234-235, 277-284` — `Converged` and `fmax` in the output SDF are mutually inconsistent — DEMONSTRATED — **FIXED 2026-08-03**
+
+> The force criterion is now tested *before* the FIRE step, so a structure that
+> has met it keeps the geometry its force was measured at. Convergence decisions
+> are unchanged and still-active trajectories are bit-identical.
+>
+> The silent-fallbacks sweep examined these same lines and dismissed them as
+> numerically negligible (its L7). That dismissal is now retracted in
+> `review-2026-08-02-hunt-silent-fallbacks.md`: it assumed `v = 0`, and this
+> sweep's numbers over a range of stiffnesses were right.
 
 Convergence is decided from the **pre-step** force (`not_converged_post1 = fmax >
 opttol`, line 212), one more FIRE step is then taken (line 209), and `fmax` is
@@ -308,7 +322,13 @@ Energy consequence is small (<0.05 kcal/mol for realistic stiffness), but a cons
 filtering on `fmax <= 0.01` gets a different set than one filtering on
 `Converged == "True"`, and the SDF asserts both.
 
-### m3. `src/Auto3D/ranking.py:50, 163, 203` — RMSD dedup runs *between diastereomers* — MEASURED
+### m3. `src/Auto3D/ranking.py:50, 163, 203` — RMSD dedup runs *between diastereomers* — MEASURED — **FIXED 2026-08-03**
+
+> A pair must now also be the same compound, keyed on stereochemistry perceived
+> from the coordinates (`utils.stereo_check.species_key`). Applied to both
+> filters, since the legacy `utils.chemistry.filter_unique` carried the identical
+> criterion and would have left the defect reachable through
+> `ConformerRanker(use_optimized_filtering=False)`.
 
 `species_id` strips `<isomer>_<conformer>`, so all enumerated stereoisomers of one
 input share a group, and `_filter_mols` then runs heavy-atom `GetBestRMS` across

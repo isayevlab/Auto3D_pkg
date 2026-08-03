@@ -1238,6 +1238,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
   `models test`, and the legacy YAML path).
 
+- **Duplicate removal no longer deletes a distinct stereoisomer.** Both
+  conformer filters treated a pair as duplicates on heavy-atom RMSD plus an
+  energy check, with nothing asking whether the two were the same compound.
+  `ranking.species_id` strips `<isomer>_<conformer>`, so every enumerated
+  stereoisomer of one input arrives in one group, and `GetBestRMS` between two
+  diastereomers of a 1,4-disubstituted ring is small: **0.300 Å** measured
+  between cis- and trans-4-*tert*-butylcyclohexanol, 0.335 Å for
+  cyclohexane-1,4-diol, both at or below the 0.3 Å default `threshold`. Only the
+  0.23 kcal/mol duplicate-energy tolerance stood between them and a collapse, and
+  ring diastereomers that close are ordinary — so raising `--threshold`, a
+  documented knob, could make one of two distinct compounds vanish from the
+  output with nothing logged. A pair must now also *be the same compound*, judged
+  by stereochemistry perceived from the coordinates
+  (`Auto3D.utils.stereo_check.species_key`) rather than from tags that a foreign
+  SDF may not carry. Applied to `filter_unique_optimized` **and** the legacy
+  `utils.chemistry.filter_unique`, so the defect is not still reachable through
+  `ConformerRanker(use_optimized_filtering=False)`. No effect on single-isomer
+  inputs, where every conformer has the same key.
+
+- **A duplicate pair can no longer escape by straddling an energy boundary.**
+  `filter_unique_optimized` grouped molecules by energy and only RMSD-compared
+  within a group, measuring each against its group's *minimum*. Two molecules
+  2×10⁻⁶ eV apart could therefore land in different groups — one just inside the
+  window, the next just outside — and never be compared at all: three
+  bit-identical geometries at 0.0 / 0.099999 / 0.100001 eV all survived, which is
+  how a `k=5` request returned five slots holding two distinct structures. A
+  group now ends only where the gap to the *previous* molecule exceeds the
+  duplicate energy tolerance, which no duplicate pair can straddle, making the
+  result identical to comparing every pair. `energy_cluster_window` keeps its
+  meaning as a performance knob and can no longer become a correctness hole.
+
+- **`Converged` and `fmax` in the output SDF now describe the same geometry.**
+  The optimizer decided convergence from the force measured *before* its last
+  FIRE step and then took that step anyway, while `fmax` is recomputed at the
+  final geometry — so one record asserted both a convergence flag for one
+  geometry and a force for another. A consumer filtering on `fmax <= opt_tol` and
+  one filtering on `Converged == "True"` got different sets from the same file.
+  Measured on a harmonic potential at `opt_tol = 0.01 eV/Å`, `Converged=True`
+  came back beside fmax up to **6.9× the tolerance**; the discrepancy grows with
+  stiffness, which is why a soft test case shows it as negligible. The force
+  criterion is now tested before the step, and a structure that has met it keeps
+  the geometry its force was measured at. Convergence decisions are unchanged and
+  the trajectory of every still-moving structure is bit-identical; only the
+  reported geometry of a converged structure moves, back by the one step that
+  used to follow its own measurement. Deriving the flag from the final force
+  instead was rejected: it would flip structures to `Converged=False`, which the
+  filters **drop**, trading a wrong label for a deleted conformer.
+
+- **A failed chunk now says why on stderr, not only in the run log.** Worker
+  processes log through a `QueueHandler` whose collector had a `FileHandler` as
+  its only destination, so a chunk that died wrote its traceback to
+  `<job_dir>/Auto3D.log` and told the user nothing. The *loss* was reported —
+  reconciliation names the missing molecules and the run exits 6 — but the
+  *cause* was not, so a systematic bug failing every chunk identically was
+  indistinguishable from a batch of hard molecules and read as "N molecules
+  produced no conformer". WARNING and above now also go to stderr (keeping
+  stdout clean for `--json`); INFO stays in the run log, where the step-by-step
+  narrative belongs. Fixed at the collector, so it covers every worker
+  diagnostic rather than the one call site — including the sibling "no optimized
+  structures were produced" warning, which was equally invisible.
+
 - **The test suite no longer depends on the order its tests run in.** No
   shipped behavior changes here, but the suite is how this release is verified,
   so it is recorded. With `pytest-randomly` installed -- as it is in a typical

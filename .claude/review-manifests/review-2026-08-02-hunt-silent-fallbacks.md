@@ -234,7 +234,13 @@ processed fewer molecules than the file contains. The same blindness applies to
 molecule count and the exit code both assert completeness. The C7 reconciliation is
 explicitly the mechanism that is supposed to make a lost molecule visible.
 
-## M4. `src/Auto3D/workflow_workers.py:269-274` — `except Exception: … continue` drops an entire chunk — REASONED
+## M4. `src/Auto3D/workflow_workers.py:269-274` — `except Exception: … continue` drops an entire chunk — REASONED — **FIXED 2026-08-03**
+
+> Fixed at the collector rather than this call site: `logger_process` now sends
+> WARNING and above to stderr as well as the run log, so every worker diagnostic
+> reaches the user — including the sibling "no optimized structures were
+> produced" warning, which was equally invisible. INFO stays in the log file, and
+> stdout stays clean for `--json`.
 
 ```python
 except Exception:
@@ -271,6 +277,35 @@ asked to look for. (`job_directory_hint` does point at the directory.)
 **L6. `chunk_manager.py:101` vs `ASE/geometry.py:134` — `batchsize_atoms` means two different things.** REASONED. `main()` multiplies it by detected memory (`batchsize_atoms * memory_gb`), `opt_geometry` uses it absolutely. On an 80 GB card the same value is 80x apart between the two entry points. Memory/performance only.
 
 **L7. `batch_opt/optimization_engine.py:277-284` — `Converged` and `fmax` describe different geometries.** REASONED. Energy and fmax are recomputed at the final geometry after the loop; `converged_mask` (which becomes the `Converged` SD property) is not re-evaluated, so `Converged=True` describes the force *before* the last FIRE step while the reported `fmax` and coordinates describe the one after. With `v = 0` on a just-converged structure the step is `dt²·f ≤ 1e-4 Å`, so the discrepancy is numerically negligible. Recorded for completeness, not as a defect.
+
+> **RETRACTED 2026-08-03 — this dismissal was wrong, and the chemistry sweep's
+> m2 (same lines) was right.** The "numerically negligible" estimate assumes
+> `v = 0`, which is true only of a structure on its first step; FIRE reaches its
+> convergence step carrying accumulated velocity, and the displacement is not
+> bounded by `dt²·f`. Measured on a hermetic harmonic potential, `E = k·Σx²`,
+> `opttol = 0.01 eV/Å`, across three stiffnesses:
+>
+> | k | reported fmax beside `Converged=True` | × tolerance |
+> |---|---|---|
+> | 1 | 0.0012 – 0.0072 | 0.1 – 0.7 |
+> | 10 | 0.0023 – 0.0052 | 0.2 – 0.5 |
+> | 100 | 0.0040 – 0.0692 | 0.4 – **6.9** |
+>
+> The estimate holds for soft potentials and fails for stiff ones, which is the
+> trap: a single soft test case shows the defect as negligible and it gets
+> dismissed. **Two sweeps looked at these same lines and reached opposite
+> conclusions**; the one that ran numbers over a range was right, and the one
+> that reasoned from a favorable special case was not.
+>
+> Fixed 2026-08-03 by testing the force criterion *before* the FIRE step instead
+> of after, so a structure that has met the criterion keeps the geometry its force
+> was measured at. Note what was NOT done: re-deriving `Converged` from the final
+> recomputed force would flip structures to `Converged=False`, and
+> `converged_or_unfiltered` **drops** those — trading a mislabeled record for a
+> silently deleted conformer. Trajectories of still-active structures are
+> bit-identical before and after (verified by hashing final coordinates for a run
+> where nothing converges), and convergence decisions are unchanged, because the
+> reordering moves the same comparison across the same forces.
 
 ---
 

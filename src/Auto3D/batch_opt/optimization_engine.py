@@ -208,14 +208,34 @@ def n_steps(
         # optimizer step also keeps padded atoms from drifting.
         pad_mask = ~atom_mask_subset.unsqueeze(-1)
         f = f.masked_fill(pad_mask, 0.0)
+        fmax = f.norm(dim=-1).max(dim=-1)[
+            0]  # Tensor, Norm is the length of each vector. Here it returns the maximum force length for each conformer. Size (100)
+        not_converged_post1 = fmax > opttol
         # Detach the optimizer output so the next step starts from a leaf tensor.
         # Production adapters return detached forces, so coord never tracks grad
         # across steps; detaching here makes the loop robust to NNPs whose forces
         # still carry a grad graph (otherwise the next requires_grad_ would error).
-        coord = optimizer(coord, f).detach()
-        fmax = f.norm(dim=-1).max(dim=-1)[
-            0]  # Tensor, Norm is the length of each vector. Here it returns the maximum force length for each conformer. Size (100)
-        not_converged_post1 = fmax > opttol
+        stepped = optimizer(coord, f).detach()
+        # A structure that has just met the force criterion keeps the geometry its
+        # force was measured at; only the ones still moving take the step.
+        #
+        # The convergence test above and the step used to run in the other order,
+        # so every structure took one more FIRE step *after* the force that
+        # declared it converged. `Converged` then described the geometry before
+        # that step while the reported `fmax` (recomputed at the end of this
+        # function) described the geometry after it -- and `batchopt` writes both
+        # onto the same record. A consumer filtering on `fmax <= opt_tol` and one
+        # filtering on `Converged == "True"` got different sets from one file.
+        # Measured on a hermetic harmonic potential before this change: fmax up to
+        # 6.9x the tolerance beside `Converged=True`. The discrepancy grows with
+        # stiffness, so a soft test case hides it entirely -- which is how it
+        # survived being looked at twice.
+        #
+        # Structures leaving the active set as oscillating are stepped like any
+        # other: they are reported `Converged=False`, so no consistency is claimed
+        # for them, and the end-of-function recompute makes their `fmax` match
+        # their coordinates regardless.
+        coord = torch.where(not_converged_post1.view(-1, 1, 1), stepped, coord)
 
         # Update smallest_fmax for each molecule
         fmax_reduced = fmax.reshape(-1, 1) < smallest_fmax

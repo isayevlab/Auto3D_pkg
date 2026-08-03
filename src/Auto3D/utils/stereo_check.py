@@ -80,6 +80,52 @@ def stereo_descriptors_from_3d(
     return atoms, bonds
 
 
+def species_key(mol: Chem.Mol) -> str:
+    """A canonical identifier for the *compound* ``mol``'s geometry represents.
+
+    Two molecules share this key when they are conformers of the same
+    stereoisomer, and differ when they are different compounds. Both duplicate
+    filters use it to answer the question their RMSD comparison cannot: whether
+    the pair in front of them is a repeated conformer or two distinct species.
+
+    Why they need it: ``ranking.species_id`` strips ``<isomer>_<conformer>``, so
+    every enumerated stereoisomer of one input arrives in the same group, and
+    heavy-atom ``GetBestRMS`` between two diastereomers of a 1,4-disubstituted
+    ring is small -- 0.300 A measured between cis- and trans-4-tert-
+    butylcyclohexanol, 0.335 A for cyclohexane-1,4-diol, both at or below the
+    0.3 A default threshold. Only the duplicate energy tolerance stood between
+    them and a collapse, and two ring diastereomers within 0.23 kcal/mol are
+    ordinary. When it fired, one of two distinct compounds left the output with
+    nothing logged.
+
+    Stereochemistry is perceived from the coordinates rather than read from the
+    molecule's tags, because the question is about the geometry in front of us: a
+    record from an SDF Auto3D did not write may carry no tags at all, and a stale
+    tag would answer for a structure that no longer exists. Perception runs on a
+    copy, so the caller's molecule is untouched, and on the H-explicit form,
+    because a stereocenter whose fourth substituent is a hydrogen cannot be
+    perceived once the hydrogens are gone.
+
+    Contrast :func:`stereo_descriptors_from_3d`, which answers a different
+    question: it keys descriptors by atom index and is therefore only comparable
+    between two readings of *one* molecule object. This returns a canonical
+    isomeric SMILES, which is comparable across separately parsed molecules --
+    the case both filters actually have.
+
+    Args:
+        mol: Molecule with at least one conformer. Not modified.
+
+    Returns:
+        Canonical isomeric SMILES with explicit hydrogens retained. Hydrogens
+        cannot change the comparison, since any pair reaching a duplicate check
+        carries the same atoms, and keeping them avoids a second ``RemoveHs``
+        per molecule on top of the one the RMSD comparison already needs.
+    """
+    probe = Chem.Mol(mol)
+    Chem.AssignStereochemistryFrom3D(probe)
+    return Chem.MolToSmiles(probe)
+
+
 def apply_optimized_coords(
     mol: Chem.Mol, coords: Sequence[Sequence[float]]
 ) -> bool:
