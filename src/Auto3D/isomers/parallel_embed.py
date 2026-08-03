@@ -47,6 +47,13 @@ def _embed_single(
     # Validate SMILES first to avoid unpicklable Boost.Python errors
     mol_noh = Chem.MolFromSmiles(smi)
     if mol_noh is None:
+        # Same message the serial path emits (isomer_engine._run_serial_embedding).
+        # This branch returned [] in silence, so a molecule dropped for an
+        # unparseable SMILES was reported by the parallel path and not by the
+        # serial one -- a switch documented as a performance option decided how
+        # much the user was told. The parent also warns on an empty result, which
+        # is the guaranteed signal; this one adds the reason.
+        logger.warning(f"Skipping molecule {name!r}: failed to parse {smi!r}")
         return []
     mol = Chem.AddHs(mol_noh)
 
@@ -121,8 +128,9 @@ def embed_conformers_parallel(
         # order is deterministic and matches the serial path; all futures are
         # already running concurrently, so this costs no parallelism.
         for future in futures:
+            smi, name = futures[future]
             try:
-                yield from future.result()
+                conformers = future.result()
             except BrokenProcessPool:
                 # A worker died (e.g. OOM-killed): the pool is broken and EVERY
                 # remaining future will also raise this. Surface it loudly --
@@ -134,5 +142,20 @@ def embed_conformers_parallel(
                 # RDKit's Boost.Python.ArgumentError, which is a TypeError and so
                 # escaped the previous narrow except) must not abort the whole
                 # batch and silently drop every remaining molecule.
-                smi, name = futures[future]
                 logger.warning(f"Failed to embed {name}: {type(e).__name__}: {e}")
+                continue
+            if not conformers:
+                # The counterpart to the serial path's `n_written == 0` warning,
+                # which this path had no equivalent of. A species that embeds
+                # nothing -- unparseable SMILES, or every conformer rejected by
+                # clash relief -- is absent from the output and never reaches
+                # ranking, so not even "No structure converged" appears for it.
+                # Warned here, in the parent, because a message from a
+                # ProcessPoolExecutor worker depends on that child's logging
+                # configuration, while this one does not.
+                logger.warning(
+                    f"{name!r} produced no conformers; this species is absent "
+                    "from the output."
+                )
+                continue
+            yield from conformers

@@ -950,3 +950,109 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(
     assert ethanol_id not in missing_ids
     assert len(missing_ids) == 1
     assert any(missing_ids[0] in r.message for r in caplog.records)
+
+
+class TestQuietPathsNameWhatTheyDropped:
+    """Two readers dropped molecules more quietly than their siblings.
+
+    Both are the same defect: a code path that loses a molecule and says less
+    about it than another path doing the identical thing, so how much the user is
+    told depends on which door they came through.
+    """
+
+    def test_the_optimizer_names_each_record_it_could_not_parse(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        """`optimizing` logged only the all-records-failed case.
+
+        A single bad record among a thousand left the output SDF shorter than the
+        input with nothing said about which one -- for `opt_geometry`, that is a
+        short file, the path returned, and exit 0. The only trace was RDKit's own
+        C++ parse error, which names a file offset rather than a molecule.
+        `SPE.calc_spe` and `ASE/thermo`'s `iter_thermo_records` both log
+        per-record for exactly this; this reader did not.
+        """
+        from types import SimpleNamespace
+
+        import torch
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.batch_opt.batchopt import optimizing
+
+        monkeypatch.setattr(
+            "Auto3D.batch_opt.batchopt.create_model",
+            lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
+        )
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=1)
+        mol.SetProp("_Name", "mol_a")
+        block = Chem.MolToMolBlock(mol).splitlines()
+        block[3] = "!! corrupted counts line !!"
+        # Every record unparseable, so this returns before any model is needed --
+        # the per-record warning under test happens while reading the file.
+        bad_sdf = tmp_path / "bad.sdf"
+        bad_sdf.write_text("\n".join(block) + "\n$$$$\n")
+
+        config = {
+            "opt_steps": 100, "opttol": 0.003, "patience": 100,
+            "batchsize_atoms": 1024,
+        }
+        optimizer = optimizing(
+            str(bad_sdf), str(tmp_path / "out.sdf"), "AIMNET",
+            torch.device("cpu"), config,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            optimizer.run()
+
+        assert "index 0" in caplog.text, (
+            "the unparseable record was dropped without being named; only the "
+            f"all-failed case was reported. Log was: {caplog.text!r}"
+        )
+
+    def test_the_parallel_embed_path_names_a_species_it_produced_nothing_for(
+        self, caplog
+    ):
+        """The serial path warns twice here; the parallel path warned not at all.
+
+        `_embed_single` returned `[]` for an unparseable SMILES in silence, and
+        `_run_parallel_embedding` had no counterpart to the serial path's
+        `n_written == 0` warning. So `use_parallel_embedding` -- documented as a
+        performance option -- decided whether a lost species was reported.
+
+        The warning asserted here is the parent-side one, which is the guaranteed
+        signal: a message logged inside a ProcessPoolExecutor worker depends on
+        that child's logging configuration, and this one does not.
+        """
+        from Auto3D.isomers.parallel_embed import embed_conformers_parallel
+
+        with caplog.at_level(logging.WARNING):
+            results = list(
+                embed_conformers_parallel(
+                    [("this-is-not-a-smiles", "bad_mol")],
+                    n_conformers=1,
+                    n_workers=1,
+                )
+            )
+
+        assert results == [], "test premise: an unparseable SMILES embeds nothing"
+        assert "bad_mol" in caplog.text, (
+            f"a species that produced no conformers was absent from the output "
+            f"with nothing logged. Log was: {caplog.text!r}"
+        )
+
+    def test_a_species_that_embeds_normally_is_not_warned_about(self, caplog):
+        """The new branch must not fire for a molecule that worked."""
+        from Auto3D.isomers.parallel_embed import embed_conformers_parallel
+
+        with caplog.at_level(logging.WARNING):
+            results = list(
+                embed_conformers_parallel(
+                    [("CCO", "ethanol")], n_conformers=2, n_workers=1
+                )
+            )
+
+        assert results, "test premise: ethanol should embed"
+        assert "produced no conformers" not in caplog.text
