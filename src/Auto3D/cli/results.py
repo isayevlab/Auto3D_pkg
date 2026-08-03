@@ -105,18 +105,6 @@ def print_failures(failures: list[FailedMolecule], verbose: bool = False) -> Non
         console.print("[dim]Run with -v to see details[/dim]")
 
 
-def count_from_output(output_path: str) -> tuple[int, int]:
-    """Return (unique_molecule_count, conformer_count) from an output SDF.
-
-    Thin back-compat wrapper around :func:`Auto3D.results.count_output` (the
-    single source of truth). ``main()`` now returns a ``WorkflowResult`` that
-    carries these counts, so the CLI reads them off the result instead.
-    """
-    from Auto3D.results import count_output
-
-    return count_output(output_path)
-
-
 def output_json(results: WorkflowResults) -> None:
     """Output results as JSON.
 

@@ -12,9 +12,7 @@ This module provides functions for file I/O operations, including:
 """
 from __future__ import annotations
 
-import base64
 import collections
-import hashlib
 import os
 import shutil
 from collections import defaultdict
@@ -176,135 +174,6 @@ def guess_file_type(filename: str) -> str:
     return Path(filename).suffix[1:]
 
 
-def encode_smiles(smiles: str, max_length: int = 50) -> str:
-    """Encode a SMILES string for use in filenames.
-
-    Transforms a SMILES string into a filesystem-safe string by replacing
-    special characters with alphanumeric equivalents. For SMILES longer
-    than max_length, uses a hash-based encoding.
-
-    The encoding maps common SMILES characters to filename-safe alternatives:
-    - '=' -> 'd' (double bond)
-    - '#' -> 't' (triple bond)
-    - '@' -> 'a' (stereochemistry)
-    - '/' -> 's' (cis/trans)
-    - '\\' -> 'b' (cis/trans)
-    - '+' -> 'p' (positive charge)
-    - '-' -> 'm' (negative charge)
-    - '(' -> 'L' (left paren)
-    - ')' -> 'R' (right paren)
-    - '[' -> 'K' (left bracket)
-    - ']' -> 'J' (right bracket)
-    - '%' -> 'X' (ring number indicator)
-
-    Args:
-        smiles: The SMILES string to encode.
-        max_length: Maximum length for encoded string before using hash.
-            Defaults to 50 characters.
-
-    Returns:
-        A filesystem-safe encoded string representing the SMILES.
-
-    Example:
-        >>> encode_smiles("CCO")
-        'CCO'
-        >>> encode_smiles("C=C")
-        'CdC'
-        >>> encode_smiles("C#N")
-        'CtN'
-        >>> encode_smiles("[NH4+]")
-        'KNH4pJ'
-    """
-    # Define character replacements for filesystem safety
-    # Using single lowercase letters that are unlikely to cause collisions
-    replacements = {
-        '=': 'd',   # double bond
-        '#': 't',   # triple bond
-        '@': 'a',   # stereochemistry
-        '/': 's',   # cis/trans
-        '\\': 'b',  # cis/trans (backslash)
-        '+': 'p',   # positive charge
-        '-': 'm',   # negative charge (also single bond, but rare in SMILES)
-        '(': 'L',   # left parenthesis
-        ')': 'R',   # right parenthesis
-        '[': 'K',   # left bracket
-        ']': 'J',   # right bracket
-        '%': 'X',   # ring number indicator (for rings > 9)
-    }
-
-    # Apply replacements
-    encoded = smiles
-    for char, replacement in replacements.items():
-        encoded = encoded.replace(char, replacement)
-
-    # If still too long, use a hash-based encoding
-    if len(encoded) > max_length:
-        # Use SHA256 hash truncated to produce a shorter, unique identifier
-        hash_obj = hashlib.sha256(smiles.encode('utf-8'))
-        # Take first 16 characters of base64-encoded hash (url-safe)
-        hash_str = base64.urlsafe_b64encode(hash_obj.digest()[:12]).decode('utf-8')
-        # Combine a prefix of the encoded SMILES with the hash
-        prefix_len = max_length - len(hash_str) - 1  # -1 for separator
-        if prefix_len > 0:
-            encoded = f"{encoded[:prefix_len]}_{hash_str}"
-        else:
-            encoded = hash_str
-
-    return encoded
-
-
-def decode_smiles(encoded: str) -> str:
-    """Decode an encoded SMILES string back to the original SMILES.
-
-    Reverses the encoding performed by encode_smiles for short SMILES strings.
-    Note: For hash-encoded (long) SMILES, the original cannot be recovered.
-
-    Args:
-        encoded: The encoded SMILES string.
-
-    Returns:
-        The decoded SMILES string. For hash-encoded strings, returns the
-        input unchanged since the original cannot be recovered.
-
-    Example:
-        >>> decode_smiles("CdC")
-        'C=C'
-        >>> decode_smiles("CtN")
-        'C#N'
-        >>> decode_smiles("KNH4pJ")
-        '[NH4+]'
-    """
-    # Define reverse replacements
-    # Order matters: longer replacements should not interfere with shorter ones
-    replacements = {
-        'd': '=',   # double bond
-        't': '#',   # triple bond
-        'a': '@',   # stereochemistry
-        's': '/',   # cis/trans
-        'b': '\\',  # cis/trans (backslash)
-        'p': '+',   # positive charge
-        'm': '-',   # negative charge
-        'L': '(',   # left parenthesis
-        'R': ')',   # right parenthesis
-        'K': '[',   # left bracket
-        'J': ']',   # right bracket
-        'X': '%',   # ring number indicator
-    }
-
-    # Check if this looks like a hash-encoded string (contains underscore near end
-    # followed by base64-like characters)
-    if '_' in encoded and len(encoded.split('_')[-1]) >= 12:
-        # Likely hash-encoded, can't decode
-        return encoded
-
-    # Apply reverse replacements
-    decoded = encoded
-    for char, replacement in replacements.items():
-        decoded = decoded.replace(char, replacement)
-
-    return decoded
-
-
 def hash_enumerated_smi_IDs(smi: str, out: str) -> None:
     """Write all SMILES with hashed IDs into a new file.
 
@@ -366,23 +235,6 @@ def hash_taut_smi(smi: str, out: str) -> None:
         for id, smiles in dict0.items():
             molecule = smiles.strip() + " " + id.strip() + "\n"
             f.write(molecule)
-
-
-def housekeeping_helper(folder: str, file: str) -> None:
-    """Move a file into the specified folder.
-
-    Args:
-        folder: Destination folder path.
-        file: Path to the file to move.
-
-    Returns:
-        None. Moves the file to the destination folder.
-
-    Example:
-        >>> housekeeping_helper("/tmp/output", "/tmp/results.sdf")
-    """
-    new_name = Path(folder) / Path(file).name
-    shutil.move(file, str(new_name))
 
 
 def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
