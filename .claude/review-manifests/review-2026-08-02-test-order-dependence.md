@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** `tests/` (fast tier), `tests/conftest.py`
-**Trigger:** every CI verdict in this repository was carrying an unknown amount of luck.
+**Trigger:** the suite's result depended on the order its tests ran in.
 
 ## The observation that started it
 
@@ -12,15 +12,42 @@ CI runs, verbatim:
 pytest tests/ -q -m "not slow" --continue-on-collection-errors
 ```
 
-Note what is *absent*: `-p no:randomly`. `pytest-randomly` is installed and
-enabled by default, so **CI shuffles test order on every run** while the local
-habit in this repo (`-p no:randomly`) does not. Three runs of that exact command
-on the same commit produced **0, 1, and 13 failures**, differing only by seed.
-`git archive` of `main` failed the identical 13 at seed `1351916419`, so this
-predated the remediation branches — it was not introduced by them.
+Note what is *absent*: `-p no:randomly`. Running that same command locally, where
+`pytest-randomly` is installed and enabled by default, produced **0, 1, and 13
+failures across three runs of one commit**, differing only by seed. `git archive`
+of `main` failed the identical 13 at seed `1351916419`, so this predated the
+remediation branches — it was not introduced by them.
 
-A suite whose result depends on the seed cannot answer the only question CI is
-asked: *did this change break anything?*
+### Correction: CI itself was never shuffling
+
+An early draft of this write-up claimed CI was flaky for the same reason. It was
+not, and the check is one line of any CI log:
+
+```
+plugins: cov-7.1.0, anyio-4.14.2
+```
+
+`pytest-randomly` is **not installed on CI** — it is not in the `dev` extra, so
+it arrives only in a developer's environment. CI's order is therefore fixed
+collection order, and it happens to be an order in which causes 1 and 2 below do
+not fire. So the accurate statement is narrower than "every CI verdict was
+luck", and worth stating precisely:
+
+| | locally, shuffled | on CI, fixed order |
+|---|---|---|
+| cause 1 (captured stub) | 13 failures on unlucky seeds | latent, not firing |
+| cause 2 (split module) | 1 failure on seed `12345` | latent, not firing |
+| cause 3 (leaked start method) | test skipped on most seeds | **test skipped every run** |
+
+Two things follow. First, cause 3 *was* costing CI real coverage every single
+run, and the CI skip count falling from **2 to 1** is the receipt. Second,
+causes 1 and 2 are latent on CI rather than fixed: CI's order is stable only
+until a test module is added or renamed, at which point the same 13 failures can
+appear with no code change to blame them on.
+
+A suite whose result depends on collection order cannot reliably answer the only
+question CI is asked — *did this change break anything?* — even when today's
+particular order is a lucky one.
 
 ## Three independent defects, three different mechanisms
 
@@ -92,12 +119,14 @@ test that calls `main()` converts the rest of the session to spawn.
 `test_parallel_embed.py::test_parallel_embed_reraises_broken_pool` gates itself
 on `mp.get_start_method() != "fork"`. It therefore ran or skipped depending on
 whether a `main()`-calling test was scheduled ahead of it: **skipped under most
-seeds, ran under 999983.** A test that quietly stops testing anything on most
-orderings is worse than one that fails, because the summary still reads green.
+seeds locally, ran under 999983 — and skipped on every CI run.** A test that
+quietly stops testing anything is worse than one that fails, because the summary
+still reads green.
 
 This one produced no failure — which is exactly why it had gone unnoticed. It
 showed up only as a pass/skip count that moved between seeds
-(`1227 passed, 10 skipped` vs `1228 passed, 9 skipped`).
+(`1227 passed, 10 skipped` vs `1228 passed, 9 skipped`), and on CI as a `2` in
+the skip column that nobody had reason to look at.
 
 ## The fixes
 
@@ -154,6 +183,25 @@ the guard exists to catch.
   flake; it passes three times out of three in isolation.
 - The suite also got ~15% faster (78s → 66s), because tests that had been
   inheriting `spawn` from an earlier `main()` call now fork.
+- On CI, against the `main` baseline at `02fba12` (`1234 passed, 2 skipped`):
+  **`1236 passed, 1 skipped`** — the two added passes are the new guard test and
+  the revived broken-pool test, and the lost skip is that same test no longer
+  opting out.
+
+## Open recommendation: let CI shuffle
+
+The guard added here works in any order, so it earns its keep on CI today: it
+fails a test that leaks even when the leak is not currently causing a failure.
+What CI still cannot see is *order sensitivity itself*, because it runs one fixed
+order.
+
+Adding `pytest-randomly` to the `dev` extra would close that. The argument for:
+12 seeds are now demonstrably stable, and when a shuffle does break something the
+guard names the guilty test instead of leaving 13 unexplained failures. The
+argument against: it introduces a source of CI variation that can turn a build
+red for reasons unrelated to the change under review, and the seed must then be
+read out of the log to reproduce. Left as the maintainer's call rather than
+bundled into this change, whose premise had already needed one correction.
 
 ## What generalizes
 
@@ -176,3 +224,9 @@ were all invisible under `-p no:randomly`, which is what this repo's own notes
 recommend running. When local and CI invocations differ, the difference is a
 place for defects to live — this session found three others the same way (GPU
 visibility, `FORCE_COLOR`, and random ordering itself).
+
+**Check which plugins are actually loaded before reasoning about what a test run
+did.** The `plugins:` line is in every pytest header, local and CI. Assuming the
+two environments load the same set is what produced the wrong claim corrected
+above: the local suite had six plugins, CI had two, and the one that mattered was
+in the difference.
