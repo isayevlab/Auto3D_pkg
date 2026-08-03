@@ -922,7 +922,11 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
         sdf: Path to the output SDF file (decoded IDs).
 
     Returns:
-        List of input molecule IDs with no corresponding structure in ``sdf``.
+        Input molecule IDs with no corresponding structure in ``sdf``. A source
+        record RDKit could not parse has no ``_Name`` to return, so it appears as
+        ``UNPARSEABLE_RECORD_ID`` filled in with its position -- it is a molecule
+        the user supplied and did not get back, and omitting it is what let a run
+        exit 0 having processed fewer molecules than its input contained.
 
     Example:
         >>> missing = find_ids_not_in_sdf("input.sdf", "output.sdf")
@@ -949,7 +953,14 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
     source_ids: list[str] = []
     for i, mol in enumerate(Chem.SDMolSupplier(source_sdf, removeHs=False)):
         if mol is None:
-            logger.warning("Skipping molecule at index %d: failed to parse", i)
+            # Not "Skipping ...", which is what this said while it was in fact
+            # skipping: the record is now counted as a failure, and a message
+            # claiming otherwise would be the same defect one layer up.
+            logger.warning(
+                "Input record at index %d could not be parsed; reporting it as a "
+                "molecule that produced no output.",
+                i,
+            )
             source_ids.append(UNPARSEABLE_RECORD_ID.format(index=i))
             continue
         source_ids.append(mol.GetProp("_Name").strip())
