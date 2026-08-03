@@ -346,3 +346,81 @@ class TestSentinelsAreNotSilentlyReinterpreted:
         from Auto3D.config import Auto3DOptions
 
         assert Auto3DOptions(path="in.smi", k=1).k == 1
+
+
+class TestParallelEmbeddingIsReachable:
+    """The option must arrive at the isomer engine, not just exist on the config.
+
+    Until 3.0.0 `use_parallel_embedding` was a constructor argument on the isomer
+    engine with no route from `Auto3DOptions`, so no `main()` or `smiles2mols` run
+    could reach it and `isomers/parallel_embed.py` was reachable only from tests --
+    which is why an audit listed that module as dead code.
+
+    Asserting `Auto3DOptions(use_parallel_embedding=True).use_parallel_embedding
+    is True` would pass with the plumbing still missing: it tests the dataclass,
+    not the wiring. These assert what the factory is actually called with.
+    """
+
+    def test_the_option_reaches_the_isomer_engine_factory(self, monkeypatch, tmp_path):
+        from Auto3D import auto3D as auto3D_mod
+        from Auto3D.config import Auto3DOptions
+
+        seen = {}
+
+        class _StubEngine:
+            def run(self):
+                raise RuntimeError("stop here: the factory call is what is asserted")
+
+        def _capture(**kwargs):
+            seen.update(kwargs)
+            return _StubEngine()
+
+        monkeypatch.setattr(
+            auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture)
+        )
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO ethanol\n")
+        options = Auto3DOptions(
+            # use_gpu=False: this box and CI are CPU-only, and check_gpu_requested
+            # is fatal for a GPU request with no visible device -- it would fire
+            # before the factory call under test.
+            path=str(smi), k=1, use_gpu=False,
+            use_parallel_embedding=True,
+            parallel_workers=3,
+            parallel_embedding_threshold=2,
+        )
+
+        with pytest.raises(RuntimeError, match="stop here"):
+            auto3D_mod.smiles2mols(["CCO"], options)
+
+        assert seen.get("use_parallel_embedding") is True, (
+            "use_parallel_embedding never reached the isomer engine: the field "
+            f"exists on the config but is not plumbed. Factory got: {sorted(seen)}"
+        )
+        assert seen.get("parallel_workers") == 3, (
+            "parallel_workers stayed at the constructor default, so enabling "
+            "parallel embedding could not control its worker count"
+        )
+        assert seen.get("parallel_embedding_threshold") == 2, (
+            "parallel_embedding_threshold stayed at its default, so the batch-size "
+            "gate could not be tuned"
+        )
+
+    def test_the_default_is_still_serial(self):
+        """Off by default: enabling it changes a run's resource profile."""
+        from Auto3D.config import Auto3DOptions
+
+        options = Auto3DOptions(path="in.smi", k=1)
+        assert options.use_parallel_embedding is False
+
+    @pytest.mark.parametrize(
+        "field", ["parallel_workers", "parallel_embedding_threshold"]
+    )
+    def test_a_count_below_one_is_rejected(self, field):
+        """Bounds come from FIELD_BOUNDS, so both entry points share them."""
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match=field):
+            Auto3DOptions(path="in.smi", k=1, **{field: 0})

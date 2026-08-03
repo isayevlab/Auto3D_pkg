@@ -36,6 +36,8 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
     "patience": ("ge", 1),
     "threshold": ("gt", 0),
     "batchsize_atoms": ("ge", 1),
+    "parallel_workers": ("ge", 1),
+    "parallel_embedding_threshold": ("ge", 1),
     "memory": ("ge", 1),
     "capacity": ("ge", 1),
     "max_confs": ("ge", 1),
@@ -296,6 +298,28 @@ class Auto3DOptions:
 
     memory: int | None = None
     """RAM size assigned to Auto3D in GB. None for automatic detection."""
+
+    use_parallel_embedding: bool = False
+    """Embed conformers in parallel worker processes instead of serially.
+
+    Off by default: parallel embedding spawns processes, so enabling it changes
+    a run's resource profile, and that should be the caller's choice rather than
+    something they discover.
+
+    Until 3.0.0 this existed only as a constructor argument on the isomer engine
+    with no route from here, so no ``main()``/``smiles2mols`` run could reach it
+    and the code behind it was reachable only from tests.
+    """
+
+    parallel_workers: int = 4
+    """Worker processes used when ``use_parallel_embedding`` is on."""
+
+    parallel_embedding_threshold: int = 10
+    """Fewest molecules worth embedding in parallel.
+
+    Below this count a run stays serial even with ``use_parallel_embedding`` on,
+    since spawning processes for a handful of molecules costs more than it saves.
+    """
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
     """Atoms per optimization batch, **per gigabyte** of detected GPU memory.

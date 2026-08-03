@@ -1279,6 +1279,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
   `models test`, and the legacy YAML path).
 
+- **`use_parallel_embedding` is now reachable.** Parallel conformer embedding
+  existed as a constructor argument on the isomer engine with no route from
+  `Auto3DOptions`, so no `main()` or `smiles2mols` run could turn it on and the
+  module behind it was reachable only from tests — which is why an audit listed
+  `isomers/parallel_embed.py` as dead code. Three fields now flow from
+  `Auto3DOptions` through `CLIConfig` (so they work from a YAML config too) to
+  both isomer-engine construction sites: `use_parallel_embedding`,
+  `parallel_workers`, and `parallel_embedding_threshold`, the last of which keeps a
+  run serial below a given molecule count because spawning processes for a handful
+  of molecules costs more than it saves.
+
+  Wiring only the boolean would have half-plumbed it: the other two are read by the
+  same code path and would have stayed at their constructor defaults, leaving the
+  worker count and the batch-size gate untunable.
+
+  **Default is unchanged (off).** Enabling it changes a run's resource profile,
+  which should be the caller's choice rather than something they discover.
+
 - **A monatomic molecule no longer crashes the ANI2xt thermochemistry path.**
   `aimnet_hessian_helper` built its species list with `numbers.squeeze()`, which
   collapses the `(1, 1)` tensor of a one-atom molecule to 0-d; `.tolist()` then

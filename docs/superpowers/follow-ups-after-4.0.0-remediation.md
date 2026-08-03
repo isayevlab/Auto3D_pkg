@@ -94,9 +94,13 @@ diagnostics in `isomers/parallel_embed.py` — a module M53 lists for deletion.
 Re-verified: `use_parallel_embedding` is a constructor parameter of the isomer
 engine defaulting to `False`, with no plumbing from `Auto3DOptions` or the CLI, so
 no production path enables it and M53's "test-only" claim stands. The M2 fix is
-correct but applies to a path no run takes. **Whether to delete the module is a
-feature removal, not a dead-code cleanup, and needs a decision** — it is a public
-constructor argument, so removing it changes a documented API.
+correct but applies to a path no run takes. **RESOLVED 2026-08-03: wired through instead of deleted.**
+`use_parallel_embedding`, `parallel_workers` and `parallel_embedding_threshold` now
+flow from `Auto3DOptions` through `CLIConfig` to both isomer-engine construction
+sites, so the option is reachable from Python and from a YAML config. M53's
+"test-only" claim for `isomers/parallel_embed.py` no longer holds, and the module
+is off that deletion list; the M2 diagnostics fix now protects a path a user can
+actually take.
 
 **M53's inventory is partly stale — do not delete from it without re-checking.**
 Verified against current source:
