@@ -337,6 +337,31 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                 return value
     n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
     multiplicity = n_radical + 1
+    # The derived value gets the same parity check the supplied one gets.
+    # Both the bounds and parity checks above sit inside the `HasProp` branch, so
+    # a multiplicity Auto3D derived itself was returned unchecked -- and 2S+1
+    # requires odd multiplicity for an even-electron species and even for an
+    # odd-electron one, which the radical count can violate when the drawing is
+    # wrong (a valence-satisfied structure hiding an open shell). Getting it wrong
+    # is worth R*ln 3 = 0.65 kcal/mol in T*S_elec.
+    #
+    # Warn-only, and deliberately so: unlike the supplied-value branch, there is
+    # no further fallback to take -- this IS the fallback. Silently substituting a
+    # parity-consistent guess would replace a wrong number the user can see with a
+    # wrong number they cannot.
+    n_electrons = _electron_count(mol)
+    if multiplicity % 2 == n_electrons % 2:
+        logger.warning(
+            "Molecule %s: the multiplicity derived from its radical-electron "
+            "count (%d) has a parity inconsistent with a %d-electron species "
+            "(2S+1 requires odd multiplicity for an even-electron species, even "
+            "for an odd-electron one). The drawing may hide an open shell. Set "
+            "the 'multiplicity' property explicitly; the electronic entropy term "
+            "is otherwise wrong by up to R*ln(3) = 0.65 kcal/mol in T*S.",
+            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            multiplicity,
+            n_electrons,
+        )
     mol.SetUnsignedProp("multiplicity", int(multiplicity))
     if n_radical > 0:
         logger.warning(

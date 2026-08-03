@@ -314,3 +314,35 @@ class TestOptimizerWorkerIndices:
     def test_cpu_empty_list_is_safe(self):
         from Auto3D.config import optimizer_worker_indices
         assert optimizer_worker_indices(False, []) == [0]
+
+
+class TestSentinelsAreNotSilentlyReinterpreted:
+    """`k=True` passed every gate and meant `k=1`.
+
+    bool is a subclass of int, so `operator.ge(True, 1)` is True and the bounds
+    check let it through; `top_k`'s `if k == 1` then matched. The effect was
+    harmless, but `k: int | bool = False` advertises a bool where only `False` was
+    ever meant as a sentinel, so `True` was a value the type called legal and
+    nothing gave a meaning to. A caller who wrote it meant something, and it was
+    not "one conformer".
+    """
+
+    def test_k_true_is_rejected_rather_than_read_as_one(self):
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="got True"):
+            Auto3DOptions(path="in.smi", k=True)
+
+    def test_k_false_is_still_the_not_specified_sentinel(self):
+        """False must keep working: it is how "use window instead" is spelled."""
+        from Auto3D.config import Auto3DOptions
+
+        options = Auto3DOptions(path="in.smi", k=False, window=2.0)
+        assert options.k is False
+        assert options.window == 2.0
+
+    def test_a_real_k_is_unaffected(self):
+        from Auto3D.config import Auto3DOptions
+
+        assert Auto3DOptions(path="in.smi", k=1).k == 1

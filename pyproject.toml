@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Auto3D"
-version = "3.5.0"
+version = "3.0.0"
 description = "Generating Low-energy 3D Conformers from SMILES/SDF"
 readme = "README.md"
 license = {text = "MIT"}

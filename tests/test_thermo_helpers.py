@@ -1620,3 +1620,56 @@ class TestLoadHessianModelDispatchFoldsCase:
         )
 
         assert thermo_mod._load_hessian_model(spelling, "cpu") == "the-ani-module"
+
+
+class TestDerivedMultiplicityIsAlsoChecked:
+    """The bounds and parity checks only ever ran on a *supplied* multiplicity.
+
+    Both sit inside ``if mol.HasProp("multiplicity")``, so a multiplicity Auto3D
+    derived from the radical-electron count was returned unchecked -- and 2S+1
+    requires odd multiplicity for an even-electron species, even for an odd-electron
+    one, which the radical count can violate when the drawing hides an open shell.
+    Getting it wrong is worth R*ln 3 = 0.65 kcal/mol in T*S_elec.
+
+    RDKit re-derives radical electrons on sanitization and is self-consistent for
+    every ordinary species (checked: CH2, CH3, O2, N, ethanol), which is why this
+    needed a deliberately inconsistent molecule rather than a realistic one --
+    and why the check is worth having: the case it catches is precisely the one no
+    ordinary input produces.
+    """
+
+    def test_a_parity_inconsistent_derived_multiplicity_warns(self, caplog):
+        from rdkit import Chem
+
+        from Auto3D.ASE import thermo as thermo_mod
+
+        # CH3 has 9 electrons (odd), so 2S+1 must be even. Forcing two unpaired
+        # electrons makes the derived multiplicity 3 -- odd, and impossible.
+        mol = Chem.MolFromSmiles("[CH3]")
+        mol.GetAtomWithIdx(0).SetNumRadicalElectrons(2)
+        mol.SetProp("_Name", "impossible_radical")
+        assert thermo_mod._electron_count(mol) % 2 == 1, "test premise: odd electrons"
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            multiplicity = thermo_mod._resolve_multiplicity(mol)
+
+        assert multiplicity == 3, "the derived value is still returned, not replaced"
+        assert any("parity" in r.message for r in caplog.records), (
+            f"an impossible derived multiplicity was returned with no warning: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_a_consistent_derived_multiplicity_is_not_warned_about(self, caplog):
+        """Every ordinary radical must stay quiet, or the check is noise."""
+        from rdkit import Chem
+
+        from Auto3D.ASE import thermo as thermo_mod
+
+        for smiles in ("[CH3]", "[CH2]", "CCO", "[N]"):
+            caplog.clear()
+            mol = Chem.MolFromSmiles(smiles)
+            with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+                thermo_mod._resolve_multiplicity(mol)
+            assert not any("parity" in r.message for r in caplog.records), (
+                f"{smiles} triggered a parity warning it should not have"
+            )

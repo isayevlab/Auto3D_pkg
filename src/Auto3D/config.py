@@ -109,6 +109,18 @@ def check_field_bounds(values: dict) -> None:
         value = values[name]
         if name in SENTINEL_FIELDS and (value is None or value is False):
             continue
+        # `k=True` used to pass every gate and mean k=1: bool is a subclass of
+        # int, so operator.ge(True, 1) is True, and `top_k`'s `if k == 1` then
+        # matched. Harmless in effect, but `k: int | bool = False` advertises a
+        # bool where only `False` was ever meant as a sentinel, so `True` is a
+        # value the type says is legal and nothing gives a meaning to. Rejected
+        # rather than silently reinterpreted -- a caller who wrote it meant
+        # something, and it was not "one conformer".
+        if value is True:
+            raise ConfigurationError(
+                f"{name} must be a number, got True. Only False is a sentinel "
+                f"here (meaning 'not specified'); write {name}=1 for one."
+            )
         cmp, symbol = _BOUND_OPS[kind]
         try:
             in_bounds = cmp(value, limit)
@@ -286,7 +298,16 @@ class Auto3DOptions:
     """RAM size assigned to Auto3D in GB. None for automatic detection."""
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
-    """Number of atoms per optimization batch per GB."""
+    """Atoms per optimization batch, **per gigabyte** of detected GPU memory.
+
+    ``ChunkManager`` multiplies this by the detected memory, so the default 1024
+    means 1024 atoms per batch on a 1 GB card and 81,920 on an 80 GB one.
+
+    ``ASE.geometry.opt_geometry`` takes the same parameter name **absolutely** --
+    1024 means 1024 there whatever the card. The two entry points are 80x apart on
+    the same value; each docstring says which it is rather than pointing at the
+    other.
+    """
 
     # Performance options
     allow_tf32: bool = False

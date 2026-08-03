@@ -164,9 +164,16 @@ def opt_geometry(
         opt_steps: Maximum optimization steps per structure. Defaults to 2000.
         patience: Drop conformer if force doesn't decrease for this many
             consecutive steps. Defaults to None (uses opt_steps value).
-        batchsize_atoms: Number of atoms per optimization batch. Larger values
-            use more GPU memory but may be faster. Defaults to 1024.
-            Recommendation: ~1024 per GB of GPU memory.
+        batchsize_atoms: Number of atoms per optimization batch, used **as
+            given**. Larger values use more GPU memory but may be faster.
+            Defaults to 1024.
+
+            Note the difference from ``main()``/``Auto3DOptions``, where the same
+            parameter name is a per-gigabyte *multiplier*: ``ChunkManager``
+            multiplies it by the detected GPU memory, so ``batchsize_atoms=1024``
+            means 1024 there and 81,920 on an 80 GB card, while here it always
+            means 1024. Two meanings for one name, which is why each is spelled
+            out rather than cross-referenced.
         use_gpu: Use the GPU when available. Defaults to True.
         allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
         out_path: Output SDF path. Defaults to ``<input_stem>_<model>_opt.sdf``
