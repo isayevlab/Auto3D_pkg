@@ -28,6 +28,13 @@ from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+#: Stand-in ID for an input record Auto3D could not parse, used by the
+#: input-vs-output reconciliation. Such a record has no ``_Name`` to report, so it
+#: is identified by its position in the source file. The angle brackets make it
+#: unmistakable as a placeholder rather than a molecule name a user chose -- an ID
+#: read from a file can be anything, including ``record 3``, but not with these.
+UNPARSEABLE_RECORD_ID = "<unparseable input record at index {index}>"
+
 
 def iter_smi_records(path, *, on_malformed="skip"):
     """Yield (line_no, smiles, mol_id) for each non-blank, non-comment line of
@@ -915,19 +922,46 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
         sdf: Path to the output SDF file (decoded IDs).
 
     Returns:
-        List of input molecule IDs with no corresponding structure in ``sdf``.
+        Input molecule IDs with no corresponding structure in ``sdf``. A source
+        record RDKit could not parse has no ``_Name`` to return, so it appears as
+        ``UNPARSEABLE_RECORD_ID`` filled in with its position -- it is a molecule
+        the user supplied and did not get back, and omitting it is what let a run
+        exit 0 having processed fewer molecules than its input contained.
 
     Example:
         >>> missing = find_ids_not_in_sdf("input.sdf", "output.sdf")
         >>> for mol_id in missing:
         ...     print(f"Failed: {mol_id}")
     """
-    # Find all input molecule IDs
+    # Find all input molecule IDs.
+    #
+    # A record RDKit cannot parse is reported, not skipped. `encode_ids` drops
+    # such a record with a warning so it never enters the run; this function then
+    # built its expected-ID list from the SAME file and skipped the SAME record,
+    # so the record was in neither `source_ids` nor the output, could not appear
+    # in `failures`, and `_exit_if_incomplete` saw `failed_count == 0`. The run
+    # printed a success summary and exited 0 having processed fewer molecules than
+    # the file contained -- exactly what this reconciliation exists to prevent
+    # (audit C7). It has no `_Name` to report, so it is named by position.
+    #
+    # Only the SDF path needed this. `encode_ids` reads `.smi` input with
+    # `on_malformed="raise"`, so a malformed SMILES line aborts the run with
+    # InputValidationError long before reconciliation. That the two input formats
+    # disagree on strictness -- `.smi` refuses the file, `.sdf` processes the rest
+    # -- is a real divergence, but unifying it changes behavior for large files
+    # and belongs with the other validation-consistency work, not here.
     source_ids: list[str] = []
-    suppl = Chem.SDMolSupplier(source_sdf, removeHs=False)
-    for i, mol in enumerate(suppl):
+    for i, mol in enumerate(Chem.SDMolSupplier(source_sdf, removeHs=False)):
         if mol is None:
-            logger.warning("Skipping molecule at index %d: failed to parse", i)
+            # Not "Skipping ...", which is what this said while it was in fact
+            # skipping: the record is now counted as a failure, and a message
+            # claiming otherwise would be the same defect one layer up.
+            logger.warning(
+                "Input record at index %d could not be parsed; reporting it as a "
+                "molecule that produced no output.",
+                i,
+            )
+            source_ids.append(UNPARSEABLE_RECORD_ID.format(index=i))
             continue
         source_ids.append(mol.GetProp("_Name").strip())
 
