@@ -346,7 +346,21 @@ rings from collapsing, and 1,4-ring diastereomer gaps below 0.23 kcal/mol are co
 for small substituents. When it fires, one of two distinct compounds vanishes from
 the output with no record.
 
-### m4. `src/Auto3D/ASE/thermo.py:420-436` — natural-abundance masses where the reference programs use most-abundant-isotope masses — REASONED
+### m4. `src/Auto3D/ASE/thermo.py:420-436` — natural-abundance masses where the reference programs use most-abundant-isotope masses — REASONED — **FIXED 2026-08-03 (breaking)**
+
+> Maintainer decision: follow the QM convention and accept the compatibility
+> break, with no option to keep the old behavior. `mol2atoms` now always sets
+> masses -- most-abundant-isotope for an unlabeled atom, the named isotope for a
+> labeled one -- so every reported H/S/G changes. Measured T*dS from the
+> translational and rotational terms alone at 298.15 K: cyclooctane -0.0014,
+> CH3Cl -0.0113, p-dichlorobenzene -0.0134, CH2Br2 -0.0178 kcal/mol, with the
+> vibrational contribution on top (halogen modes shift ~1%).
+>
+> Two tests pinned the old convention and were rewritten, not deleted:
+> `test_unlabeled_species_uses_ordinary_masses` asserted equality with ASE's
+> defaults, and `tests/helpers_vibrations.py` built its reference `Atoms` with
+> RDKit's `GetMass()`, which would have mass-weighted the fixture Hessians
+> differently from production.
 
 `mol2atoms` leaves ASE's default masses in place for unlabeled atoms (IUPAC standard
 atomic weights: C = 12.011, Cl = 35.453). Gaussian and ORCA default to the most

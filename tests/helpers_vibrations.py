@@ -251,5 +251,13 @@ def mmff_hessian(smiles: str, *, displacement: np.ndarray | None = None):
     atoms = Atoms(
         [a.GetSymbol() for a in mol.GetAtoms()], flat.reshape(-1, 3)
     )
-    atoms.set_masses([a.GetMass() for a in mol.GetAtoms()])
+    # Masses through the production helper, not RDKit's GetMass(): mol2atoms
+    # applies the QM (most-abundant-isotope) convention for unlabeled atoms,
+    # where GetMass() returns the natural-abundance average. A reference Atoms
+    # built the other way would mass-weight this Hessian differently from the way
+    # Auto3D does, so every frequency in these fixtures would be a few tenths of
+    # a percent away from the one production computes for the same geometry.
+    from Auto3D.ASE.thermo import mol2atoms
+
+    atoms.set_masses(mol2atoms(mol, positions=flat.reshape(-1, 3)).get_masses())
     return atoms, hessian

@@ -161,18 +161,61 @@ class TestIsotopeMasses:
         protiated = embedded("C#N")
         assert deuterated.get_masses().sum() > protiated.get_masses().sum()
 
-    def test_unlabeled_species_uses_ordinary_masses(self):
-        """No isotopes set -> the symbol-only path, byte-for-byte unchanged."""
+    def test_an_unlabeled_atom_gets_its_most_abundant_isotope_mass(self):
+        """The QM convention, not the natural-abundance average.
+
+        Gaussian and ORCA build thermochemistry on the most abundant isotope;
+        ASE's per-element default is the IUPAC standard atomic weight. Auto3D
+        follows the QM programs, because that is what its numbers get compared
+        against and because this module already claims to match them on standard
+        state. Chlorine is the sharp case among common organic elements: 35.45
+        averaged versus 34.96885 for 35-Cl, a 1.4% difference that propagates
+        into every C-Cl frequency and into the moments of inertia.
+        """
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
         from Auto3D.ASE.thermo import mol2atoms
 
-        mol = Chem.AddHs(Chem.MolFromSmiles("C#N"))
+        mol = Chem.AddHs(Chem.MolFromSmiles("ClC"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
         atoms = mol2atoms(mol)
         assert atoms.get_chemical_symbols() == [a.GetSymbol() for a in mol.GetAtoms()]
-        assert list(atoms.get_masses()) == list(Atoms(atoms.get_chemical_symbols()).get_masses())
+
+        periodic_table = Chem.GetPeriodicTable()
+        expected = [
+            periodic_table.GetMostCommonIsotopeMass(a.GetAtomicNum())
+            for a in mol.GetAtoms()
+        ]
+        assert list(atoms.get_masses()) == pytest.approx(expected, abs=1e-9)
+
+        # And it is genuinely different from what ASE would have supplied, or
+        # this test would pass against the behavior it replaced.
+        ase_defaults = list(Atoms(atoms.get_chemical_symbols()).get_masses())
+        assert list(atoms.get_masses()) != pytest.approx(ase_defaults, abs=1e-9)
+
+    def test_a_labeled_atom_still_gets_the_isotope_it_names(self):
+        """The QM convention applies to *unlabeled* atoms only.
+
+        An explicit label is a statement about which isotope is present and must
+        win over any per-element default, old or new.
+        """
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.ASE.thermo import mol2atoms
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("[13C]#N"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        atoms = mol2atoms(mol)
+
+        carbon = next(
+            mass for atom, mass in zip(mol.GetAtoms(), atoms.get_masses())
+            if atom.GetAtomicNum() == 6
+        )
+        assert carbon == pytest.approx(13.00335, abs=1e-4), (
+            "an explicit 13C label was overwritten with the 12C mass"
+        )
 
 
 @pytest.fixture(scope="module")
@@ -627,6 +670,16 @@ class TestHessianGeometrySourcing:
 
             def get_positions(self):
                 return self._positions
+
+            # mol2atoms now always applies the QM (most-abundant-isotope) mass
+            # convention rather than leaving ASE's per-element default, so the
+            # double has to accept masses even though this test is about
+            # geometry sourcing.
+            def set_masses(self, masses):
+                self._masses = np.asarray(masses, dtype=float)
+
+            def get_masses(self):
+                return self._masses
 
         monkeypatch.setattr(thermo_mod, "Atoms", _FakeAtoms)
         monkeypatch.setattr(

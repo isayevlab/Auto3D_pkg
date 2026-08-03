@@ -585,16 +585,34 @@ def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     )
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     atoms = Atoms(species, coord)
-    if any(a.GetIsotope() for a in mol.GetAtoms()):
-        # Isotope masses feed the rotational partition function directly, and
-        # (since the moment-of-inertia linearity test) now the linear/nonlinear
-        # classification too: ASE's per-element default is the natural-abundance
-        # average mass, so a labeled D/13C/15N atom would silently keep
-        # protium/12C/14N mass otherwise. RDKit's Atom.GetMass() already returns
-        # the isotope-specific mass when GetIsotope() is nonzero and the
-        # ordinary average mass otherwise, so this is a no-op for unlabeled
-        # input -- the symbol-only path above is unchanged for ordinary molecules.
-        atoms.set_masses([a.GetMass() for a in mol.GetAtoms()])
+    # Masses are always set, never left to ASE's per-element default.
+    #
+    # That default is the IUPAC standard atomic weight -- the natural-abundance
+    # average (C 12.011, Cl 35.45, Br 79.904). Gaussian and ORCA build their
+    # thermochemistry on the MOST ABUNDANT ISOTOPE instead (12.000, 34.96885,
+    # 78.91834), and this module states elsewhere that it reports G at the same
+    # standard state they do. Mass enters the moments of inertia (rotational
+    # partition function), the mass-weighted Hessian (every frequency, hence
+    # ZPE and S_vib), and the molecular mass in the translational term, so the
+    # convention was an undeclared difference from the programs Auto3D's numbers
+    # get compared against -- around 1% on halogen-bearing frequencies and
+    # growing with heavy-halogen content.
+    #
+    # Auto3D now follows the QM convention. This CHANGES reported H, S and G for
+    # every molecule; see the CHANGELOG entry, which is why it is a breaking
+    # change rather than a fix.
+    #
+    # A labeled atom keeps the mass of the isotope it names: RDKit's
+    # ``Atom.GetMass()`` returns the isotope-specific mass when ``GetIsotope()``
+    # is nonzero. It is exactly the unlabeled case where it cannot help -- it
+    # falls back to the same natural-abundance average -- so the two cases are
+    # taken from different accessors.
+    periodic_table = Chem.GetPeriodicTable()
+    atoms.set_masses([
+        atom.GetMass() if atom.GetIsotope()
+        else periodic_table.GetMostCommonIsotopeMass(atom.GetAtomicNum())
+        for atom in mol.GetAtoms()
+    ])
     return atoms
 
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,
