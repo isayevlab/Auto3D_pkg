@@ -536,10 +536,10 @@ All verified unreferenced in `src/`:
 | `cli/progress.py:25-39`, `70-92`, `142-163` | `create_progress`, `update`, `IsomerProgressCallback` | test-only; `best_energy` never assigned, so `make_panel:136-137` is unreachable |
 | `utils/file_ops.py:352-366` | `housekeeping_helper` | test-only |
 | `ASE/thermo.py:197-209` | `mol2atoms` | dead, while its body is inlined at `:225-228` and `:443-446` |
-| `exceptions.py:41,72,81,89` | 4 classes | never raised; see M29 |
+| `exceptions.py:41,72,81,89` | 4 classes | ~~never raised~~ **WRONG as of 2026-08-03**: only `ModelError` is never raised directly, and deliberately -- `ModelLoadError`/`NumericalError` subclass it and `cli/errors.py` maps it to exit code 5 so both inherit that code. "Never raised" != "unused" for a base class |
 | `constants.py:10,11,38,46,79` | 5 constants | `SUPPORTED_MODELS` is the very whitelist M50 shows written four times; `STANDARD_PRESSURE` unused while `thermo.py:308-309` hardcodes `101325`; `check_connectivity` hardcodes `1.25`/`1.1` at `chemistry.py:331,336` instead of the two constants named for them |
 | `model_wrapper.py:60-85`, `120-174` | legacy `name` API + `_legacy_forward` (55 lines) | says "removed in Auto3D v2.0"; package is **3.5.0** |
-| `ASE/thermo.py:159` | `model_name` param | accepted, never read, yet `calc_thermo:459` passes it explicitly |
+| `ASE/thermo.py:159` | `model_name` param | ~~accepted, never read~~ **WRONG as of 2026-08-03**: `Calculator` reads `self.model_name` and passes it to `to_model_species`; the C3/C4 species-conversion work made it live |
 
 `encode_smiles`/`decode_smiles`/`housekeeping_helper`/`filter_unique` are in `utils/__init__.py` `__all__`, and the four exceptions are in `docs/source/api.rst:86-92` — removals are API-breaking and need a deprecation cycle.
 
