@@ -1238,6 +1238,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
   `models test`, and the legacy YAML path).
 
+- **The test suite no longer depends on the order its tests run in.** No
+  shipped behavior changes here, but the suite is how this release is verified,
+  so it is recorded. With `pytest-randomly` installed -- as it is in a typical
+  dev environment, though the repo does not declare it -- `pytest tests/`
+  shuffles the order by default, and three runs of the same commit produced 0,
+  1 and 13 failures. CI does *not* install it, so CI's order is fixed and only
+  one of the three causes below was costing it anything; the other two were
+  latent there, and would surface on CI the first time a test module is added
+  or renamed, with no code change to blame. Three independent causes, all
+  pre-existing:
+
+  - A test patched `Auto3D.cli.errors.handle_error`, but
+    `cli/commands/run.py` copies that function into its own namespace with
+    `from ... import handle_error` at import time, and the CLI imports `run`
+    lazily. Whenever that test was the first to reach the lazy import, `run`
+    captured the stub permanently -- `monkeypatch` restored the module it had
+    patched and could not know a second module had copied the value meanwhile.
+    The leaked stub swallows the exception it is handed, so 13 later tests
+    across six CLI modules saw exit 0 where they expected a non-zero code.
+  - A test evicted `Auto3D.ASE.thermo` from `sys.modules` and re-imported it
+    without restoring the original, which does not refresh a module but builds
+    a second one with its own globals. 182 tests downstream, a thermo test
+    patched a flag on one copy and called a helper bound to the other.
+  - `main()` sets the multiprocessing start method to `spawn` process-wide (a
+    deliberate fix: forking from a CUDA-initialized process breaks the child),
+    which outlived the test that called it. A `parallel_embed` test gates on
+    `get_start_method() != "fork"`, so it *skipped* whenever any
+    `main()`-calling test was scheduled ahead of it -- which in CI's fixed order
+    was every run. This is the one cause that was costing CI real coverage, and
+    the CI skip count dropping from 2 to 1 is the evidence.
+
+  `tests/conftest.py` now imports Auto3D's modules eagerly so module identity
+  is fixed before any test can patch anything, restores the start method after
+  each test, and asserts per test that Auto3D's modules come out as they went
+  in -- naming the guilty test and repairing the damage, rather than letting it
+  surface as unrelated failures later. Twelve seeds now give identical pass and
+  skip counts.
+
 ## [3.5.0] - 2026-06-13
 
 ### Breaking Changes
