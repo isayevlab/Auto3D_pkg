@@ -34,6 +34,7 @@ from Auto3D.constants import (
     LINEARITY_MOMENT_RATIO,
     LOW_FREQUENCY_CUTOFF_CM,
     PROJECTION_RESIDUAL_FRACTION,
+    STANDARD_PRESSURE,
 )
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
@@ -139,6 +140,13 @@ def _detect_geometry(atoms: ase.Atoms) -> str:
 _symmetry_default_warned = False
 
 
+#: Largest external rotational symmetry number any real molecule has: 60, for
+#: the icosahedral point groups (I, Ih -- C60, B12H12(2-)). Used as the upper
+#: bound on a user-supplied 'symmetry_number', since a larger value is a typo
+#: and each factor of e in sigma moves Gibbs energy by RT (0.59 kcal/mol at 298 K).
+_MAX_SYMMETRY_NUMBER = 60
+
+
 def _symmetry_number(mol: Chem.Mol) -> int:
     """External rotational symmetry number for IdealGasThermo.
 
@@ -151,17 +159,18 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     safe default; set the 'symmetry_number' property to the correct value
     (e.g. 2 for water, 12 for benzene, 6 for ethane) when known.
 
-    Defaulting to sigma=1 (whether because the property is absent or
-    unparseable) now warns, since the bias does not cancel between tautomers,
-    isomers or reaction partners the way it does between conformers of one
-    species. The defaulting-from-absence warning fires once per calc_thermo
-    run, not once per molecule, since every molecule lacking the property
-    triggers the identical message.
+    Defaulting to sigma=1 warns, whatever the reason -- the property is absent,
+    unparseable, or outside 1..``_MAX_SYMMETRY_NUMBER`` -- since the bias does not
+    cancel between tautomers, isomers or reaction partners the way it does
+    between conformers of one species. The defaulting-from-absence warning fires
+    once per calc_thermo run, not once per molecule, since every molecule lacking
+    the property triggers the identical message; the two invalid-value warnings
+    name the offending value and so fire per molecule.
     """
     global _symmetry_default_warned
     if mol.HasProp("symmetry_number"):
         try:
-            return max(1, int(mol.GetProp("symmetry_number")))
+            value = int(mol.GetProp("symmetry_number"))
         except (ValueError, TypeError):
             logger.warning(
                 "Molecule %s has an unparseable 'symmetry_number' property "
@@ -170,6 +179,31 @@ def _symmetry_number(mol: Chem.Mol) -> int:
                 mol.GetProp("symmetry_number"),
             )
             return 1
+        else:
+            # A parseable but impossible value used to be clamped by
+            # `max(1, ...)` in silence, while every other invalid value in this
+            # function warns: symmetry_number="0" and "-3" both became sigma=1
+            # with nothing logged. And there was no upper bound at all, so
+            # "1000000" was accepted unchecked and shifted Gibbs energy by
+            # R*T*ln(1e6) = 8.2 kcal/mol at 298 K -- a silent 8 kcal/mol from one
+            # mistyped property. _resolve_multiplicity two functions below already
+            # bounds and parity-checks its property; this one did neither.
+            #
+            # The upper bound is the highest external rotational symmetry number
+            # of any real molecule: 60 for the icosahedral point groups (I, Ih --
+            # C60, B12H12(2-)). Anything above that is a typo, not a molecule.
+            if value < 1 or value > _MAX_SYMMETRY_NUMBER:
+                logger.warning(
+                    "Molecule %s has an invalid 'symmetry_number' property "
+                    "(%d); it must be between 1 and %d (the largest external "
+                    "rotational symmetry number of any real molecule, for the "
+                    "icosahedral point groups). Falling back to sigma=1.",
+                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    value,
+                    _MAX_SYMMETRY_NUMBER,
+                )
+                return 1
+            return value
     if not _symmetry_default_warned:
         logger.warning(
             "No 'symmetry_number' property on %s; using sigma=1. Gibbs energy is "
@@ -552,16 +586,34 @@ def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     )
     species = [a.GetSymbol() for a in mol.GetAtoms()]
     atoms = Atoms(species, coord)
-    if any(a.GetIsotope() for a in mol.GetAtoms()):
-        # Isotope masses feed the rotational partition function directly, and
-        # (since the moment-of-inertia linearity test) now the linear/nonlinear
-        # classification too: ASE's per-element default is the natural-abundance
-        # average mass, so a labeled D/13C/15N atom would silently keep
-        # protium/12C/14N mass otherwise. RDKit's Atom.GetMass() already returns
-        # the isotope-specific mass when GetIsotope() is nonzero and the
-        # ordinary average mass otherwise, so this is a no-op for unlabeled
-        # input -- the symbol-only path above is unchanged for ordinary molecules.
-        atoms.set_masses([a.GetMass() for a in mol.GetAtoms()])
+    # Masses are always set, never left to ASE's per-element default.
+    #
+    # That default is the IUPAC standard atomic weight -- the natural-abundance
+    # average (C 12.011, Cl 35.45, Br 79.904). Gaussian and ORCA build their
+    # thermochemistry on the MOST ABUNDANT ISOTOPE instead (12.000, 34.96885,
+    # 78.91834), and this module states elsewhere that it reports G at the same
+    # standard state they do. Mass enters the moments of inertia (rotational
+    # partition function), the mass-weighted Hessian (every frequency, hence
+    # ZPE and S_vib), and the molecular mass in the translational term, so the
+    # convention was an undeclared difference from the programs Auto3D's numbers
+    # get compared against -- around 1% on halogen-bearing frequencies and
+    # growing with heavy-halogen content.
+    #
+    # Auto3D now follows the QM convention. This CHANGES reported H, S and G for
+    # every molecule; see the CHANGELOG entry, which is why it is a breaking
+    # change rather than a fix.
+    #
+    # A labeled atom keeps the mass of the isotope it names: RDKit's
+    # ``Atom.GetMass()`` returns the isotope-specific mass when ``GetIsotope()``
+    # is nonzero. It is exactly the unlabeled case where it cannot help -- it
+    # falls back to the same natural-abundance average -- so the two cases are
+    # taken from different accessors.
+    periodic_table = Chem.GetPeriodicTable()
+    atoms.set_masses([
+        atom.GetMass() if atom.GetIsotope()
+        else periodic_table.GetMostCommonIsotopeMass(atom.GetAtomicNum())
+        for atom in mol.GetAtoms()
+    ])
     return atoms
 
 def vib_hessian(mol: Chem.Mol, ase_calculator, model,
@@ -1209,12 +1261,16 @@ def do_mol_thermo(mol: Chem.Mol,
     # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
     # Hartree. Name the property accordingly so a downstream G = H - T*S
     # reconstruction is not off by a factor of T.
-    # Standard state is 1 atm (101325 Pa). ASE's internal reference is 1 bar
+    # Standard state is 1 atm (STANDARD_PRESSURE = 101325 Pa). Read from the
+    # constant rather than repeating the literal: it had no reader anywhere in
+    # src/ or tests/ while these two calls each hardcoded 101325, so editing the
+    # constant would silently have changed nothing.
+    # ASE's internal reference is 1 bar
     # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
     # 1 atm -- matching ORCA/Gaussian. The translational-entropy difference vs
     # 1 bar is R*T*ln(1.01325) = ~0.0078 kcal/mol at 298.15 K.
-    S = thermo.get_entropy(temperature=T, pressure=101325) * ev2hatree
-    G = thermo.get_gibbs_energy(temperature=T, pressure=101325) * ev2hatree
+    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * ev2hatree
+    G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * ev2hatree
 
     mol.SetProp("H_hartree", str(H))
     mol.SetProp("S_hartree_per_K", str(S))
@@ -1276,7 +1332,18 @@ def _load_hessian_model(model_name: str, device):
     a single uniform call across all three cases, not because it changes
     behavior for the custom path.
     """
-    if model_name in ("ANI2xt", "ANI2x") or Path(model_name).exists():
+    # Case-folded, because every other engine-name gate in Auto3D folds case --
+    # ModelFactory.create (name.upper()), resolve_engine_name, to_model_species
+    # and check_engine_supports_molecules were all verified to -- and this one
+    # did not. `calc_thermo(path, "ani2x")` and `auto3d thermo -e ani2x` passed
+    # every one of those gates and then fell through to the registry branch
+    # below, which returns an ANI2xAdapter with no `.calculator`, so the run died
+    # with `AttributeError: 'ANI2xAdapter' object has no attribute 'calculator'`
+    # inside the generic "Unexpected Error" panel at exit 1 -- after paying for
+    # model construction. `auto3d run -e ani2x` worked, because
+    # CLIConfig.to_auto3d_options normalizes there. A path is left unfolded:
+    # filesystem paths are case-sensitive on most platforms.
+    if model_name.upper() in ("ANI2XT", "ANI2X") or Path(model_name).exists():
         # compile_model=False: torch.compile guards on dtype, and nothing in
         # this autograd-Hessian path benefits from it anyway.
         adapter = create_model(model_name, device, compile_model=False, use_cache=False)
@@ -1305,22 +1372,43 @@ def aimnet_hessian_helper(
     kept only as a defensive fallback should a bare aimnet nn.Module ever be
     passed here directly; note it omits the external modules and is not the
     supported path.'''
-    if model_name == 'AIMNET':
+    # Case-folded for the same reason as _load_hessian_model above: every other
+    # engine-name gate in Auto3D folds case, and a lowercase spelling reaching
+    # here used to fall through to the ValueError below rather than dispatch.
+    model_name_upper = model_name.upper()
+    if model_name_upper == 'AIMNET':
         dct = dict(coord=coord, numbers=numbers, charge=charge)
         return model(dct)['energy']  # energy unit: eV
-    elif model_name == 'ANI2xt':
+    elif model_name_upper == 'ANI2XT':
         device = coord.device
+        # reshape(-1), not squeeze(): squeeze() on a MONATOMIC molecule collapses
+        # the (1, 1) numbers tensor to 0-d, whose .tolist() is a bare int, and
+        # iterating an int raises TypeError. vib_hessian builds the Hessian
+        # (thermo.py, do_mol_thermo) BEFORE _detect_geometry runs three lines
+        # later, so nothing classifies the species monatomic in time to skip
+        # this -- a lone atom on the ANI2xt thermo path died inside the catch-all
+        # handler and was reported as `Thermo_failed`, not as monatomic.
         numbers2 = torch.tensor(
-            to_model_species([int(num) for num in numbers.squeeze().tolist()], "ANI2xt"),
+            to_model_species([int(num) for num in numbers.reshape(-1).tolist()], "ANI2xt"),
             device=device,
         ).unsqueeze(0)
         e = model(numbers2, coord)
         return e  # energy unit: eV
-    elif model_name == 'ANI2x':
+    elif model_name_upper == 'ANI2X':
         e = model((numbers, coord)).energies * hartree2ev
         return e  # energy unit: eV
     elif Path(model_name).exists():
-        e = model.forward(numbers, coord, charge)
+        # charge cast to coord's floating dtype. vib_hessian builds it with
+        # `torch.tensor([charge])` from a Python int, i.e. int64, while the
+        # optimization half of the same calc_thermo call feeds this same custom
+        # model a float32 charge through pad_from_mols (batch_opt/padding.py) --
+        # so a custom NNP that does arithmetic on the charge, or that is
+        # dtype-sensitive, got two different answers in one run. Matching coord
+        # keeps the one call internally consistent, which is what this branch can
+        # guarantee; it does not route through CustomModelAdapter, so the
+        # remaining float64-vs-float32 difference between the Hessian and
+        # optimization paths is deliberate (the Hessian is built in double).
+        e = model.forward(numbers, coord, charge.to(coord.dtype))
         return e  # energy unit: eV
     else:
         # Every aimnet registry alias (aimnet2-2025, aimnet2-nse, ...) and the

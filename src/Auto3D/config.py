@@ -244,7 +244,17 @@ class Auto3DOptions:
     """Number of CPU cores for isomer generation."""
 
     max_confs: int | None = None
-    """Maximum conformers per SMILES. None uses dynamic number (num_heavy_atoms - 1)."""
+    """Maximum conformers per SMILES.
+
+    ``None`` derives the count per molecule via
+    :func:`Auto3D.utils.chemistry.calculate_conformer_count`, which is
+    ``min(max(1, num_heavy, 2 * 8.481 * num_rotatable ** 1.642), 1000)``
+    (https://doi.org/10.1021/acs.jctc.0c01213). The rotatable-bond term dominates
+    for anything flexible: glycerol gets **238**, not 5. This docstring used to
+    say ``num_heavy_atoms - 1``, which is neither the formula nor the right order
+    of magnitude, so a user sizing a run off it underestimated the conformer
+    budget by one to two orders of magnitude.
+    """
 
     # GPU settings
     use_gpu: bool = True
