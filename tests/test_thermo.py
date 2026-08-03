@@ -182,20 +182,92 @@ def test_model_name2model_calculator_uses_factory():
             assert calc is not None
 
 
-def test_calc_thermo_aimnet():
-    #load wB97m-D4/Def2-TZVPP output file
-    path = os.path.join(folder, "tests/files/cyclooctane.sdf")
-    reference_G = -314.49236715
-    reference_H = -314.45168666
+#: Cyclooctane thermochemistry from a wB97m-D4/Def2-TZVPP calculation, in Hartree.
+#: Used by every test below that compares against QM rather than against another
+#: Auto3D engine.
+REFERENCE_G_HARTREE = -314.49236715
+REFERENCE_H_HARTREE = -314.45168666
 
-    #compare Auto3D output with the above
+#: Entropy the reference numbers imply: G = H - T*S, so S = (H - G)/T. At 298.15 K
+#: this is 1.3644e-4 Hartree/K (85.6 cal/mol/K), a plausible cyclooctane value.
+REFERENCE_T_K = 298.15
+REFERENCE_S_HARTREE_PER_K = (
+    (REFERENCE_H_HARTREE - REFERENCE_G_HARTREE) / REFERENCE_T_K
+)
+
+
+def assert_thermo_record(mol, *, reference_G=None, reference_H=None):
+    """Check a calc_thermo output record's three thermochemical properties.
+
+    What each assertion here does and does not establish, because the loose one
+    used to be the only one and reads stronger than it is:
+
+    * **G and H against QM** (when a reference is given) is a *smoke bound*, not a
+      validation: the 0.02 Hartree window is **12.5 kcal/mol** wide, on absolute
+      totals near -314 Hartree. It catches a grossly wrong total energy or a
+      missing thermal correction and nothing finer. It is far too wide to see a
+      frequency error, a ZPE error, or the mass-convention change (which moves
+      cyclooctane by 0.0014 kcal/mol) -- in either direction.
+    * **G == H - T*S** is exact, not approximate: ASE's ``IdealGasThermo``
+      computes G that way, and the residual through the SDF's string round-trip
+      measures 6e-14 Hartree. This is what pins the *units of the property
+      names*: ``S_hartree_per_K`` is Hartree per kelvin, not Hartree, and a
+      downstream ``G = H - T*S`` reconstruction being off by a factor of T is the
+      failure ``do_mol_thermo``'s own comment warns about. Nothing checked it.
+    * **S against the reference-implied S** is the only assertion that constrains
+      the entropy directly. The old G/H pair bounded it to roughly +-50%, since
+      T*S for cyclooctane is 25.5 kcal/mol against a 12.5 kcal/mol window on each
+      of G and H. The 10% band here is deliberate rather than tight: Auto3D uses
+      sigma=1 when a molecule carries no ``symmetry_number`` property, and if the
+      reference calculation used cyclooctane's rotational symmetry number instead,
+      R*ln(8) alone accounts for 4.8% of S.
+    """
+    G = float(mol.GetProp("G_hartree"))
+    H = float(mol.GetProp("H_hartree"))
+    S = float(mol.GetProp("S_hartree_per_K"))
+    T = float(mol.GetProp("T_K"))
+
+    assert T == pytest.approx(REFERENCE_T_K), f"unexpected temperature {T} K"
+
+    assert G == pytest.approx(H - T * S, abs=1e-9), (
+        f"G ({G}) is not H - T*S ({H - T * S}); the three reported properties "
+        f"disagree, so at least one of them is not in the unit its name gives"
+    )
+
+    assert S > 0, f"entropy must be positive, got {S} Hartree/K"
+    assert S == pytest.approx(REFERENCE_S_HARTREE_PER_K, rel=0.10), (
+        f"entropy {S:.6e} Hartree/K is more than 10% from the "
+        f"{REFERENCE_S_HARTREE_PER_K:.6e} the QM reference implies"
+    )
+
+    if reference_G is not None:
+        assert abs(reference_G - G) <= 0.02, (
+            f"G {G} is more than 0.02 Hartree (12.5 kcal/mol) from the "
+            f"reference {reference_G}"
+        )
+    if reference_H is not None:
+        assert abs(reference_H - H) <= 0.02, (
+            f"H {H} is more than 0.02 Hartree (12.5 kcal/mol) from the "
+            f"reference {reference_H}"
+        )
+
+
+def test_calc_thermo_aimnet():
+    """AIMNET thermochemistry for cyclooctane against a wB97m-D4/Def2-TZVPP run.
+
+    See `assert_thermo_record` for what the three checks establish. The two that
+    matter most are new: the entropy is now constrained directly (nothing read
+    `S_hartree_per_K` at all before), and G, H and S are required to be mutually
+    consistent, which is what pins their documented units.
+    """
+    path = os.path.join(folder, "tests/files/cyclooctane.sdf")
+
     out = calc_thermo(path, "AIMNET", opt_tol=0.003, use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
 
-    G_out = float(mol.GetProp("G_hartree"))
-    H_out = float(mol.GetProp("H_hartree"))
-    assert(abs(reference_G - G_out) <= 0.02)
-    assert(abs(reference_H - H_out) <= 0.02)
+    assert_thermo_record(
+        mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE
+    )
     try:
         os.remove(out)
     except OSError:
@@ -409,8 +481,6 @@ def test_calc_thermo_userNNP1():
 def test_calc_thermo_userNNP2():
     #load wB97m-D4/Def2-TZVPP output file
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")
-    reference_G = -314.49236715
-    reference_H = -314.45168666
 
     #compare Auto3D output with the above
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -421,12 +491,11 @@ def test_calc_thermo_userNNP2():
         out = calc_thermo(path, model_path, opt_tol=0.003, use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
 
-    G_out = float(mol.GetProp("G_hartree"))
-    H_out = float(mol.GetProp("H_hartree"))
     # The example wraps the full AIMNet2 calculator (with D3), so thermochemistry
     # matches the D3-inclusive reference; also exercises the eager custom-NNP load.
-    assert(abs(reference_G - G_out) <= 0.02)
-    assert(abs(reference_H - H_out) <= 0.02)
+    assert_thermo_record(
+        mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE
+    )
     try:
         os.remove(out)
     except OSError:

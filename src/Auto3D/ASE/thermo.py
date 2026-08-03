@@ -159,12 +159,13 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     safe default; set the 'symmetry_number' property to the correct value
     (e.g. 2 for water, 12 for benzene, 6 for ethane) when known.
 
-    Defaulting to sigma=1 (whether because the property is absent or
-    unparseable) now warns, since the bias does not cancel between tautomers,
-    isomers or reaction partners the way it does between conformers of one
-    species. The defaulting-from-absence warning fires once per calc_thermo
-    run, not once per molecule, since every molecule lacking the property
-    triggers the identical message.
+    Defaulting to sigma=1 warns, whatever the reason -- the property is absent,
+    unparseable, or outside 1..``_MAX_SYMMETRY_NUMBER`` -- since the bias does not
+    cancel between tautomers, isomers or reaction partners the way it does
+    between conformers of one species. The defaulting-from-absence warning fires
+    once per calc_thermo run, not once per molecule, since every molecule lacking
+    the property triggers the identical message; the two invalid-value warnings
+    name the offending value and so fire per molecule.
     """
     global _symmetry_default_warned
     if mol.HasProp("symmetry_number"):
