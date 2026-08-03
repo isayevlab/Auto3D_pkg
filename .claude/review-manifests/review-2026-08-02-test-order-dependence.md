@@ -188,20 +188,33 @@ the guard exists to catch.
   the revived broken-pool test, and the lost skip is that same test no longer
   opting out.
 
-## Open recommendation: let CI shuffle
+## Decided: CI stays on a fixed order
 
-The guard added here works in any order, so it earns its keep on CI today: it
-fails a test that leaks even when the leak is not currently causing a failure.
-What CI still cannot see is *order sensitivity itself*, because it runs one fixed
-order.
+`pytest-randomly` was considered for the `dev` extra so CI would exercise order
+variation, and **declined** (maintainer decision, 2026-08-03). CI keeps running
+one fixed collection order.
 
-Adding `pytest-randomly` to the `dev` extra would close that. The argument for:
-12 seeds are now demonstrably stable, and when a shuffle does break something the
-guard names the guilty test instead of leaving 13 unexplained failures. The
-argument against: it introduces a source of CI variation that can turn a build
-red for reasons unrelated to the change under review, and the seed must then be
-read out of the log to reproduce. Left as the maintainer's call rather than
-bundled into this change, whose premise had already needed one correction.
+That decision is worth understanding rather than just recording, because it
+changes what protects this suite. The rejected upside was CI detecting *order
+sensitivity itself*; the cost was a source of CI variation that can redden a
+build for reasons unrelated to the change under review, with the seed to be dug
+out of a log before anything can be reproduced.
+
+What still holds without it:
+
+- `_fail_on_auto3d_state_a_test_leaves_behind` is **order-independent**. It fails
+  a test that leaves state behind even when nothing downstream currently trips
+  over it, so it catches a new leak on CI's fixed order, on the first run, and
+  names the test that caused it. This is the load-bearing guard, not the shuffle.
+- `_import_every_auto3d_module_before_any_test` removes the lazy-import race
+  outright rather than detecting it.
+
+What is genuinely given up: if a *future* defect is order-sensitive in a way that
+leaves no state behind on an `Auto3D.` module — ordering coupled through a
+temp directory, an env var, a logging handler, an RDKit global — CI will not see
+it, and it will surface only when someone runs the suite locally with the plugin
+installed. Worth knowing where the blind spot is: the guard covers Auto3D module
+state, and nothing wider.
 
 ## What generalizes
 
