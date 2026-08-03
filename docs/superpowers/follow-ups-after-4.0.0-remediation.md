@@ -10,6 +10,54 @@ scratch and will not survive a `git clean`. This file is the durable record.
 Source of the finding IDs: `.claude/review-manifests/review-2026-07-30-package-audit.md`.
 Design and rationale: `docs/superpowers/specs/2026-07-30-audit-remediation-design.md` §1.
 
+## Plan of record, as of 2026-08-03
+
+Everything in this file plus the deferred clusters below is now scheduled rather
+than merely recorded. Design detail lives in
+`docs/superpowers/specs/2026-08-03-debt-closure-design.md` (git-ignored, like every
+spec in this repo); the decisions and the order are here because this file is the
+durable record.
+
+**Three decisions, settled so they are not re-litigated per phase:**
+
+1. **Fix everything, then ship one release.** No release until every cluster is
+   closed. One version absorbs every breaking change so users migrate once.
+2. **Clean sweep on the public surface, no shims and no separate migration
+   guide.** The CHANGELOG's Breaking Changes section carries the import changes.
+   Defensible because **PyPI's latest Auto3D is 2.3.1** — `v3.0.0` and `v3.5.0`
+   are git tags only, since `publish.yml` fires on *GitHub release published* and
+   no release was ever cut for either. Shims would protect only source installs
+   off a tag.
+3. **No speedup claimed without measurement.** The GPU work lands behind
+   correctness tests that assert unchanged results; the number comes from a
+   maintainer-run benchmark.
+
+**Version:** 4.0.0, not 3.5.0. `pyproject.toml` still reads `3.5.0` and must
+move; the `v3.5.0` tag points at `0d21094`, many merges behind, and is retired
+rather than moved.
+
+**Order:** correctness leftovers -> the *subset* of test-quality findings covering
+files the architecture work will move -> dead-code deletion -> one model contract
+-> barrels and public surface -> configuration -> file splits -> the items in this
+file -> cleanup and duplication -> performance -> release.
+
+Two positions in that order are deliberate. Dead-code deletion (M53, ~450 lines
+of `src/` whose only callers are its own tests) runs early because it deletes
+those tests too, shrinking the test-quality cluster before any effort goes into
+it. And the test hardening step is not all ~105 vacuous-test findings but a
+rule-selected subset — only those naming a test that covers a `src/` file the
+architecture work moves; the rest are fixed when their module is visited.
+
+Estimated 15–20 phases.
+
+**Correction found while scoping this:** M46 (`use_ensemble`) and M47 (discarded
+`**kwargs`) are closed — verified against source. The "What the remediation
+closed" list below is right about them and
+`.claude/review-manifests/review-2026-07-30-package-audit.md` is not. More
+generally, the manifests' line numbers are stale (`ASE/thermo.py` has shifted
+~500 lines), so every finding is re-verified against source before being worked,
+not read out of a ledger. Chemistry M4 was already fixed and no ledger knew.
+
 ## What the remediation closed
 
 All 14 Criticals (C1–C14), plus M1, M2 (moot), M8–M17, M19, M21–M23,
