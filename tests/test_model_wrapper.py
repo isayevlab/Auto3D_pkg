@@ -47,7 +47,6 @@ class TestEnForceANIForward:
         wrapper = EnForce_ANI(mock_adapter, batchsize_atoms=512)
 
         assert wrapper.batchsize_atoms == 512
-        assert wrapper._use_legacy_forward is False
 
     def test_enforce_ani_forward_with_int_second_arg(self):
         """EnForce_ANI should accept int as second argument for batchsize."""
@@ -60,7 +59,6 @@ class TestEnForceANIForward:
         wrapper = EnForce_ANI(mock_adapter, 256)
 
         assert wrapper.batchsize_atoms == 256
-        assert wrapper._use_legacy_forward is False
 
 
 class TestEnForceANIForwardBatched:
@@ -164,20 +162,6 @@ class TestEnForceANIForwardBatched:
 class TestEnForceANIBackwardCompatibility:
     """Tests for backward compatibility with legacy API."""
 
-    def test_enforce_ani_legacy_api_emits_deprecation_warning(self):
-        """Using string name should emit deprecation warning."""
-        # Need a real nn.Module for the legacy API since it uses add_module()
-        mock_model = torch.nn.Linear(1, 1)
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            wrapper = EnForce_ANI(mock_model, "AIMNET", 1024)
-
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "deprecated" in str(w[0].message).lower()
-            assert wrapper._use_legacy_forward is True
-            assert wrapper.name == "AIMNET"
 
     def test_enforce_ani_import_from_batchopt(self):
         """EnForce_ANI should be importable from batchopt for backward compatibility."""
@@ -243,3 +227,23 @@ def test_forward_batched_retries_on_oom():
     e, f = wrapper.forward_batched(coord, numbers, charges)
     assert e.shape == (2,) and torch.isfinite(e).all()
     assert f.shape == coord.shape
+
+
+def test_a_model_name_in_the_batchsize_slot_is_rejected():
+    """The removed API's shape must fail loudly, not become a bad batch size.
+
+    Until 3.0.0 the second parameter was `name_or_batchsize: str | int | None`,
+    type-switched between a model name and a batch size, and passing a string
+    warned it would be "removed in Auto3D v2.0". The package reached 3.0.0 with it
+    still there and no caller in `src/` ever passing one, so it is gone.
+
+    With the union removed and nothing else added, `EnForce_ANI(adapter, "AIMNET")`
+    would have assigned a string to `batchsize_atoms` and failed much later inside
+    batching, as a comparison error naming neither the parameter nor the removal.
+    """
+    import pytest
+
+    from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+
+    with pytest.raises(TypeError, match="batchsize_atoms"):
+        EnForce_ANI(MagicMock(), "AIMNET")

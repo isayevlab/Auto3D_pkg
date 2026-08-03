@@ -1279,6 +1279,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
   `models test`, and the legacy YAML path).
 
+- **`EnForce_ANI`'s type-switched second parameter is gone.** It was
+  `name_or_batchsize: str | int | None`, switching between a model name (the
+  pre-adapter API) and a batch size, and passing a string warned that it would be
+  *"removed in Auto3D v2.0"*. The package reached 3.0.0 with it still in place,
+  two majors past its own removal notice, and no caller in `src/` ever passed one.
+  The signature is now `EnForce_ANI(model_adapter, batchsize_atoms=16384)` and
+  `_legacy_forward` (55 lines dispatching on `self.name`) is deleted.
+
+  **Migration:** build an adapter with `Auto3D.model_factory.create_model` and pass
+  it as the first argument. A string in the second position now raises `TypeError`
+  naming the parameter — without that guard, removing the union would have silently
+  assigned a model name to `batchsize_atoms` and failed much later inside batching,
+  as a comparison error mentioning neither the parameter nor the removal.
+
 - **`use_parallel_embedding` is now reachable.** Parallel conformer embedding
   existed as a constructor argument on the isomer engine with no route from
   `Auto3DOptions`, so no `main()` or `smiles2mols` run could turn it on and the
