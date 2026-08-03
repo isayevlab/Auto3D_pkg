@@ -1369,3 +1369,201 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
             f"one calc_thermo call spanned precisions {dtypes}: the geometry "
             "would be relaxed at one precision and the Hessian built at another"
         )
+
+
+class TestSymmetryNumberIsValidatedNotClamped:
+    """An impossible sigma must be reported, not silently turned into 1 or used.
+
+    Every other invalid value in ``_symmetry_number`` warns. A *parseable* but
+    impossible one did not: ``max(1, int(...))`` turned "0" and "-3" into sigma=1
+    in silence, and there was no upper bound at all, so a mistyped "1000000" was
+    accepted and shifted Gibbs energy by R·T·ln(1e6) = 8.2 kcal/mol at 298 K.
+    ``_resolve_multiplicity``, two functions below in the same file, already
+    bounds and parity-checks its property.
+    """
+
+    @pytest.mark.parametrize("bad", ["0", "-3", "1000000", "61"])
+    def test_an_impossible_value_warns_and_falls_back_to_one(self, bad, caplog):
+        from Auto3D.ASE import thermo as thermo_mod
+
+        mol = _mol("c1ccccc1", symmetry_number=bad)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            sigma = thermo_mod._symmetry_number(mol)
+
+        assert sigma == 1, f"sigma={bad!r} was used or clamped without falling back"
+        assert any("symmetry_number" in r.message for r in caplog.records), (
+            f"symmetry_number={bad!r} was accepted or clamped with no warning"
+        )
+
+    @pytest.mark.parametrize("good", ["1", "2", "6", "12", "60"])
+    def test_a_real_symmetry_number_is_used_without_complaint(self, good, caplog):
+        """The bound must not reject values real molecules have.
+
+        60 is the top of the range (icosahedral I/Ih -- C60, B12H12(2-)), so it
+        has to be accepted; a guard written as ``> 60`` versus ``>= 60`` differs
+        exactly here.
+        """
+        from Auto3D.ASE import thermo as thermo_mod
+
+        mol = _mol("c1ccccc1", symmetry_number=good)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            sigma = thermo_mod._symmetry_number(mol)
+
+        assert sigma == int(good)
+        assert not any("symmetry_number" in r.message for r in caplog.records), (
+            f"a valid symmetry_number={good!r} was warned about"
+        )
+
+
+class TestAimnetHessianHelperBoundaries:
+    """Two boundary defects in the autograd-Hessian dispatch.
+
+    ``aimnet_hessian_helper`` is what ``vib_hessian`` differentiates for
+    ANI2xt / ANI2x / custom NNPs. Stubs stand in for the models: what is under
+    test is the dispatch and the tensors it builds, not any potential.
+    """
+
+    @staticmethod
+    def _one_atom_inputs(device="cpu"):
+        import torch
+
+        coord = torch.zeros(1, 1, 3, dtype=torch.double, requires_grad=False)
+        numbers = torch.tensor([[6]])          # monatomic carbon -- shape (1, 1)
+        charge = torch.tensor([0])             # int64, exactly as vib_hessian builds it
+        return coord, numbers, charge
+
+    def test_a_monatomic_species_does_not_crash_the_ani2xt_branch(self):
+        """squeeze() collapsed a (1, 1) numbers tensor to 0-d.
+
+        ``.tolist()`` on a 0-d tensor is a bare ``int``, and iterating an int
+        raises ``TypeError: 'int' object is not iterable``. Reachable: ``vib_hessian``
+        builds the Hessian before ``_detect_geometry`` runs three lines later, so
+        nothing classifies the species monatomic in time to skip this, and the
+        lone atom was reported as ``Thermo_failed`` rather than as monatomic.
+        """
+        import torch
+
+        from Auto3D.ASE.thermo import aimnet_hessian_helper
+
+        coord, numbers, charge = self._one_atom_inputs()
+        seen = {}
+
+        class _FakeANI2xt:
+            def __call__(self, species, positions):
+                seen["species"] = species
+                return torch.zeros(1, dtype=torch.double)
+
+        aimnet_hessian_helper(
+            coord, numbers=numbers, charge=charge,
+            model=_FakeANI2xt(), model_name="ANI2xt",
+        )
+
+        assert seen["species"].shape == (1, 1), (
+            f"expected one species index for one atom, got {seen['species'].shape}"
+        )
+
+    def test_a_custom_model_sees_a_float_charge_matching_its_coordinates(self, tmp_path):
+        """The optimization half of the same run passes float32 (padding.py).
+
+        This branch passed the int64 tensor ``vib_hessian`` built from a Python
+        int, so a custom NNP that does arithmetic on the charge, or that is
+        dtype-sensitive, got two different answers within one ``calc_thermo``
+        call.
+        """
+        import torch
+
+        from Auto3D.ASE.thermo import aimnet_hessian_helper
+
+        model_file = tmp_path / "custom_nnp.pt"
+        model_file.write_bytes(b"not a real model; only its existence is checked")
+        coord, numbers, charge = self._one_atom_inputs()
+        assert charge.dtype == torch.int64, "test premise: vib_hessian builds int64"
+        seen = {}
+
+        class _FakeCustom:
+            def forward(self, species, positions, charges):
+                seen["charge_dtype"] = charges.dtype
+                return torch.zeros(1, dtype=torch.double)
+
+        aimnet_hessian_helper(
+            coord, numbers=numbers, charge=charge,
+            model=_FakeCustom(), model_name=str(model_file),
+        )
+
+        assert seen["charge_dtype"] == coord.dtype, (
+            f"custom NNP received charge as {seen['charge_dtype']} beside "
+            f"{coord.dtype} coordinates"
+        )
+
+    @pytest.mark.parametrize("spelling", ["ANI2xt", "ani2xt", "ANI2XT"])
+    def test_the_engine_name_is_matched_case_insensitively(self, spelling):
+        """Every other engine-name gate in Auto3D folds case; this one did not.
+
+        `calc_thermo(path, "ani2x")` passed `resolve_engine_name`,
+        `to_model_species` and `check_engine_supports_molecules` -- all verified
+        to fold case -- and then failed here, after paying for model
+        construction. `auto3d run -e ani2x` worked, so the two entry points
+        disagreed on the same string.
+        """
+        import torch
+
+        from Auto3D.ASE.thermo import aimnet_hessian_helper
+
+        coord, numbers, charge = self._one_atom_inputs()
+
+        class _FakeANI2xt:
+            def __call__(self, species, positions):
+                return torch.zeros(1, dtype=torch.double)
+
+        # No ValueError: the name dispatched instead of falling through.
+        aimnet_hessian_helper(
+            coord, numbers=numbers, charge=charge,
+            model=_FakeANI2xt(), model_name=spelling,
+        )
+
+    def test_an_unrecognized_name_still_raises(self):
+        """Case folding must not turn the unknown-name guard into a catch-all."""
+        import torch
+
+        from Auto3D.ASE.thermo import aimnet_hessian_helper
+
+        coord, numbers, charge = self._one_atom_inputs()
+        with pytest.raises(ValueError, match="cannot evaluate model_name"):
+            aimnet_hessian_helper(
+                coord, numbers=numbers, charge=charge,
+                model=object(), model_name="aimnet2-2025x",
+            )
+
+
+class TestLoadHessianModelDispatchFoldsCase:
+    """The other half of the case-sensitivity defect, one function up.
+
+    `_load_hessian_model("ani2x", device)` used to miss the ANI branch and fall
+    through to the aimnet-registry branch, which returns an ANI2xAdapter that has
+    no `.calculator` -- so the run died with `AttributeError: 'ANI2xAdapter'
+    object has no attribute 'calculator'` in the generic "Unexpected Error" panel
+    at exit 1, after model construction had already been paid for.
+    """
+
+    @pytest.mark.parametrize("spelling", ["ANI2x", "ani2x", "ANI2xt", "ani2xt"])
+    def test_an_ani_name_takes_the_ani_branch_in_any_case(self, spelling, monkeypatch):
+        from Auto3D.ASE import thermo as thermo_mod
+
+        class _FakeModel:
+            def double(self):
+                return "the-ani-module"
+
+        class _FakeAdapter:
+            model = _FakeModel()
+
+            @property
+            def calculator(self):  # pragma: no cover - reaching this is the bug
+                raise AssertionError(
+                    "took the aimnet-registry branch for an ANI engine name"
+                )
+
+        monkeypatch.setattr(
+            thermo_mod, "create_model", lambda *a, **k: _FakeAdapter()
+        )
+
+        assert thermo_mod._load_hessian_model(spelling, "cpu") == "the-ani-module"

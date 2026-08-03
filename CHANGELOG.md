@@ -1238,6 +1238,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into every CLI command (`run`, `energy`, `optimize`, `thermo`, `tautomers`,
   `models test`, and the legacy YAML path).
 
+- **A monatomic molecule no longer crashes the ANI2xt thermochemistry path.**
+  `aimnet_hessian_helper` built its species list with `numbers.squeeze()`, which
+  collapses the `(1, 1)` tensor of a one-atom molecule to 0-d; `.tolist()` then
+  returns a bare `int`, and iterating it raises `TypeError`. Nothing skipped the
+  branch, because `vib_hessian` builds the Hessian *before* `_detect_geometry`
+  runs three lines later — so a lone atom died inside the catch-all handler and
+  was reported as `Thermo_failed` rather than as monatomic. Now `reshape(-1)`.
+
+- **A custom NNP is handed the same charge dtype by both halves of a
+  `calc_thermo` call.** The Hessian path passed the int64 tensor built from a
+  Python `int`, while the optimization half of the same call passes float32 via
+  `pad_from_mols` — so a model that does arithmetic on the charge, or that is
+  dtype-sensitive, produced two different answers in one run. Charge is now cast
+  to the coordinates' dtype. (The remaining float64-vs-float32 *coordinate*
+  difference between the two paths is deliberate: the Hessian is built in double.)
+
+- **`calc_thermo` and `auto3d thermo` accept engine names in any case, like
+  every other entry point.** `ModelFactory.create`, `resolve_engine_name`,
+  `to_model_species` and `check_engine_supports_molecules` all fold case; the two
+  dispatch sites in `ASE/thermo.py` did not. So `calc_thermo(path, "ani2x")` and
+  `auto3d thermo -e ani2x` passed every gate, missed the ANI branch, fell through
+  to the aimnet-registry branch, and died with `AttributeError: 'ANI2xAdapter'
+  object has no attribute 'calculator'` in the generic "Unexpected Error" panel
+  at exit 1 — *after* paying for model construction. `auto3d run -e ani2x` worked,
+  so two entry points disagreed about the same string. A custom-NNP path is still
+  matched with its case intact, since filesystem paths are case-sensitive on most
+  platforms, and an unrecognized name still raises.
+
+- **An impossible `symmetry_number` is reported instead of silently used or
+  clamped.** `max(1, int(...))` turned `"0"` and `"-3"` into σ=1 with nothing
+  logged, while every other invalid value in that function warns; and there was
+  no upper bound at all, so a mistyped `"1000000"` was accepted and shifted Gibbs
+  energy by *R·T*·ln(10⁶) = **8.2 kcal/mol** at 298 K. Values outside 1–60 now
+  warn and fall back to σ=1. The ceiling is the largest external rotational
+  symmetry number any real molecule has — 60, for the icosahedral point groups
+  (C₆₀, B₁₂H₁₂²⁻). `_resolve_multiplicity`, two functions below, already bounded
+  and parity-checked its own property.
+
+- **`Auto3DOptions.max_confs`'s docstring no longer understates the conformer
+  budget by two orders of magnitude.** It claimed `None` uses
+  `num_heavy_atoms - 1`. The actual rule is
+  `min(max(1, num_heavy, 2·8.481·num_rotatable^1.642), 1000)`, and the
+  rotatable-bond term dominates: glycerol gets **238**, not 5. The corrected
+  docstring quotes that number and a test pins it.
+
+- **`STANDARD_PRESSURE` is read rather than re-typed.** The constant had no
+  reader anywhere in `src/` or `tests/` while `do_mol_thermo` hardcoded `101325`
+  twice, so editing it would have changed nothing. Reported values are unchanged.
+
 - **Duplicate removal no longer deletes a distinct stereoisomer.** Both
   conformer filters treated a pair as duplicates on heavy-atom RMSD plus an
   energy check, with nothing asking whether the two were the same compound.

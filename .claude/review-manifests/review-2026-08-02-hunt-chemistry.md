@@ -356,7 +356,11 @@ Magnitude: ~1% on M and on halogen-bearing frequencies, T·ΔS ≈ 0.01 kcal/mol
 CH₃Cl and growing with heavy-halogen content. The `if any(a.GetIsotope() ...)` branch
 does not help — RDKit's `GetMass()` also returns the average mass for unlabeled atoms.
 
-### m5. `src/Auto3D/constants.py:38` — `STANDARD_PRESSURE` is dead; `101325` is hardcoded twice — REASONED
+### m5. `src/Auto3D/constants.py:38` — `STANDARD_PRESSURE` is dead; `101325` is hardcoded twice — REASONED — **FIXED 2026-08-03**
+
+> `do_mol_thermo` reads the constant now. Pure DRY: the reported numbers are
+> unchanged by construction, so there is no behavior to assert and no test was
+> written for it — a source-scanning test would only restate the diff.
 
 `STANDARD_PRESSURE = 101325  # Pa` has no reader anywhere in `src/` or `tests/`.
 `thermo.py:681` and `:682` each hardcode the literal. A change to the constant would
@@ -375,7 +379,11 @@ only O₂. A singlet-drawn carbene/nitrene gets multiplicity 1, and an
 antiferromagnetically coupled biradical gets multiplicity 3 where 1 is right — either
 way R·ln 3 → **0.65 kcal/mol** in T·S_elec.
 
-### m7. `src/Auto3D/config.py:245` — `max_confs` docstring contradicts the code — REASONED
+### m7. `src/Auto3D/config.py:245` — `max_confs` docstring contradicts the code — REASONED — **FIXED 2026-08-03**
+
+> The docstring now carries the real formula and the glycerol number (238, not
+> 5), and `test_the_documented_conformer_budget_matches_what_max_confs_none_does`
+> pins that number so the two cannot drift apart again.
 
 > `"""Maximum conformers per SMILES. None uses dynamic number (num_heavy_atoms - 1)."""`
 
@@ -385,7 +393,15 @@ rotatable-bond term dominates for anything flexible (glycerol → 238, not 5). U
 sizing a run off this docstring will underestimate the conformer budget by 1–2 orders
 of magnitude.
 
-### m8. `src/Auto3D/ASE/thermo.py:778, 787` — two small boundary defects in `aimnet_hessian_helper` — REASONED
+### m8. `src/Auto3D/ASE/thermo.py:778, 787` — two small boundary defects in `aimnet_hessian_helper` — REASONED — **FIXED 2026-08-03**
+
+> Both fixed. The first was upgraded from REASONED to a **confirmed reachable
+> crash** during re-verification: `vib_hessian` builds the Hessian at
+> `do_mol_thermo` before `_detect_geometry` runs three lines later, so nothing
+> classifies a lone atom monatomic in time to skip the branch. `reshape(-1)`
+> replaces `squeeze()`. The second is the same defect as the silent-fallbacks
+> sweep's L3, filed twice by two sweeps; charge is now cast to the coordinates'
+> dtype.
 
 * Line 778: `numbers.squeeze()` on a 1-atom molecule yields a 0-d tensor whose
   `.tolist()` is a scalar `int`, so `to_model_species` iterates an int and raises

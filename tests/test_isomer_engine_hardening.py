@@ -434,3 +434,30 @@ class TestConformerNameShapeIsModeIndependent:
         assert shapes[True] == shapes[False] == {3}, (
             f"name shapes differ between modes: {shapes}"
         )
+
+
+def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
+    """Pins the number `Auto3DOptions.max_confs`'s docstring now quotes.
+
+    That docstring said `max_confs=None` uses `num_heavy_atoms - 1`. It does not:
+    `calculate_conformer_count` is
+    `min(max(1, num_heavy, 2*8.481*num_rotatable**1.642), 1000)`, and the
+    rotatable-bond term dominates for anything flexible. Glycerol has 6 heavy
+    atoms, so the old docstring implied 5; the real budget is 238 -- a user sizing
+    a run off it underestimated by nearly two orders of magnitude. Asserted on the
+    H-complete molecule, which is what both embed paths pass (O-H torsions only
+    count as rotatable once hydrogens are explicit).
+    """
+    from rdkit import Chem
+
+    glycerol = Chem.AddHs(Chem.MolFromSmiles("OCC(O)CO"))
+    num_heavy = sum(1 for a in glycerol.GetAtoms() if a.GetAtomicNum() > 1)
+    count = calculate_conformer_count(glycerol)
+
+    assert num_heavy == 6, "test premise: glycerol has 6 heavy atoms"
+    assert count == 238, (
+        f"the documented conformer budget for glycerol is 238, got {count}"
+    )
+    assert count > num_heavy - 1, (
+        "the retired 'num_heavy_atoms - 1' claim would still be defensible"
+    )
