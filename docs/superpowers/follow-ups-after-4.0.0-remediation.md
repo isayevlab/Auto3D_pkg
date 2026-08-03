@@ -32,9 +32,30 @@ durable record.
    correctness tests that assert unchanged results; the number comes from a
    maintainer-run benchmark.
 
-**Version:** 4.0.0, not 3.5.0. `pyproject.toml` still reads `3.5.0` and must
-move; the `v3.5.0` tag points at `0d21094`, many merges behind, and is retired
-rather than moved.
+**Version: 3.0.0** (revised 2026-08-03 from 4.0.0). No 3.x release ever reached a
+package channel — **PyPI's latest is 2.3.1 and conda-forge's is 2.3.0** — so
+skipping to 4.0.0 would leave users wondering where 3.x went. `2.3.1 → 3.0.0` is a
+plain major bump and correctly signals the breaking changes.
+
+That collides with existing artifacts, and the resolution needs one approval
+before anything destructive happens:
+
+- The `v3.0.0` and `v3.5.0` git tags exist but correspond to no published
+  artifact. They must be deleted and `v3.0.0` re-created at the release commit;
+  leaving `v3.0.0` pointing at old code while publishing a *different* 3.0.0 would
+  be worse than deleting it. Deleting pushed tags is outward-facing, so it waits
+  for an explicit go-ahead.
+- The CHANGELOG's `[3.0.0] - 2026-01-02` and `[3.5.0] - 2026-06-13` sections
+  describe development milestones that never shipped. Recommendation: relabel them
+  as never-published rather than delete them, then retitle the unreleased `[4.0.0]`
+  section `[3.0.0]`. Preserves the record, removes the collision, tells the truth.
+- **The CHANGELOG and the published record diverge in both directions**, found
+  while checking the above: the CHANGELOG has a `[2.2.10]` that was never
+  published, and is missing `2.3.0` and `2.3.1`, which were. The last CHANGELOG
+  entry corresponding to a real release is `2.2.9`. Worth fixing in the same pass.
+
+`pyproject.toml` still reads `3.5.0` and moves to `3.0.0` as part of the release
+step.
 
 **Order:** correctness leftovers -> the *subset* of test-quality findings covering
 files the architecture work will move -> dead-code deletion -> one model contract

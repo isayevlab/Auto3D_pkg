@@ -272,10 +272,23 @@ class optimizing:
             logger.warning(f"Input file {self.in_f} is empty. Skipping optimization.")
             return
 
-        mols = list(Chem.SDMolSupplier(self.in_f, removeHs=False))
-
-        # Filter out None molecules (failed to parse)
-        mols = [m for m in mols if m is not None]
+        # Name every record that could not be parsed, not just the case where all
+        # of them failed. The all-failed warning below was the only signal, so a
+        # single bad record among a thousand left the output file shorter than the
+        # input with nothing said about which one -- for `opt_geometry` that is an
+        # output SDF with fewer records, the path returned and exit 0, and the only
+        # trace is RDKit's own C++ parse error on stderr, which names a file offset
+        # rather than a molecule. `SPE.calc_spe` and `ASE/thermo`'s
+        # `iter_thermo_records` both log per-record for the identical situation;
+        # this was the one reader that did not.
+        mols = []
+        for index, mol in enumerate(Chem.SDMolSupplier(self.in_f, removeHs=False)):
+            if mol is None:
+                logger.warning(
+                    "Skipping molecule at index %d: failed to parse", index
+                )
+                continue
+            mols.append(mol)
 
         if not mols:
             logger.warning("No valid molecules in input file. Skipping optimization.")
