@@ -24,8 +24,30 @@ def test_python_floor_is_3_11():
     assert _pyproject()["project"]["requires-python"] == ">=3.11"
 
 
-def test_version_is_3_5():
-    assert _pyproject()["project"]["version"].startswith("3.5")
+def test_version_matches_the_newest_changelog_section():
+    """``pyproject.toml``'s version must equal the newest CHANGELOG heading.
+
+    This asserted ``startswith("3.5")`` and so had to be edited by hand on every
+    version change -- and was missed on one, turning three CI jobs red for a
+    release-prep commit whose own message claimed a green suite. Deriving the
+    expected value from the CHANGELOG makes the two unable to drift, and makes the
+    test say what it actually cares about: that the file recording the release and
+    the file declaring it agree.
+    """
+    import re
+
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+    # The newest release heading. `-dev` sections are development records for
+    # versions that were never published (see CHANGELOG.md) and are skipped, or
+    # this would compare against a milestone rather than the shipping version.
+    newest = next(
+        m.group(1)
+        for m in re.finditer(r"^## \[([0-9][0-9.]*)\]", changelog, re.MULTILINE)
+    )
+    assert _pyproject()["project"]["version"] == newest, (
+        f"pyproject.toml declares {_pyproject()['project']['version']!r} while the "
+        f"newest CHANGELOG section is [{newest}]"
+    )
 
 
 def test_no_jpt_package_data():
