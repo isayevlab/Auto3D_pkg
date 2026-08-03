@@ -40,22 +40,21 @@ plain major bump and correctly signals the breaking changes.
 That collides with existing artifacts, and the resolution needs one approval
 before anything destructive happens:
 
-- The `v3.0.0` and `v3.5.0` git tags exist but correspond to no published
-  artifact. They must be deleted and `v3.0.0` re-created at the release commit;
-  leaving `v3.0.0` pointing at old code while publishing a *different* 3.0.0 would
-  be worse than deleting it. Deleting pushed tags is outward-facing, so it waits
-  for an explicit go-ahead.
-- The CHANGELOG's `[3.0.0] - 2026-01-02` and `[3.5.0] - 2026-06-13` sections
-  describe development milestones that never shipped. Recommendation: relabel them
-  as never-published rather than delete them, then retitle the unreleased `[4.0.0]`
-  section `[3.0.0]`. Preserves the record, removes the collision, tells the truth.
-- **The CHANGELOG and the published record diverge in both directions**, found
-  while checking the above: the CHANGELOG has a `[2.2.10]` that was never
-  published, and is missing `2.3.0` and `2.3.1`, which were. The last CHANGELOG
-  entry corresponding to a real release is `2.2.9`. Worth fixing in the same pass.
+- **DONE 2026-08-03.** The `v3.0.0` and `v3.5.0` tags corresponded to no
+  published artifact and are deleted, locally and on the remote. `v3.0.0` is
+  re-created at the release commit when the release is cut. The five `v2.*` tags
+  are kept: each matches a real PyPI or conda-forge release.
+- **DONE 2026-08-03.** The two never-shipped sections are relabelled
+  `[3.5.0-dev]` and `[3.0.0-dev]`, each marked "never published" with a note
+  saying so, and the unreleased section is retitled `[3.0.0]`. Content preserved;
+  the collision is gone.
+- **DONE 2026-08-03.** `[2.3.0]` and `[2.3.1]` are added with their real PyPI
+  upload dates (2024-08-02 and 2024-08-13, read from the index rather than
+  guessed), and `[2.2.10]` is marked never published. `[2.2.9]`'s hand-written date
+  disagrees with PyPI's record by a month; that is noted in place rather than
+  overwritten.
 
-`pyproject.toml` still reads `3.5.0` and moves to `3.0.0` as part of the release
-step.
+`pyproject.toml` now reads `3.0.0`.
 
 **Order:** correctness leftovers -> the *subset* of test-quality findings covering
 files the architecture work will move -> dead-code deletion -> one model contract
@@ -78,6 +77,41 @@ closed" list below is right about them and
 generally, the manifests' line numbers are stale (`ASE/thermo.py` has shifted
 ~500 lines), so every finding is re-verified against source before being worked,
 not read out of a ledger. Chemistry M4 was already fixed and no ledger knew.
+
+## Two planning corrections, 2026-08-03
+
+**The order in the plan above is wrong, and I wrote it that way.** It runs
+`A -> targeted test hardening -> B2`, while B2's own stated rationale is that
+deleting dead code early shrinks the test-quality cluster *before* effort goes
+into it. The selection rule even says "findings naming a test whose `src/` target
+B2 deletes are not hardened at all". Both point the same way: **B2 must come
+before the test hardening**, and arguably before the rest of A. Corrected order:
+
+    B2 -> remaining A -> targeted test hardening -> B1 -> B3 -> B4 -> B5 -> G -> C -> D -> F
+
+**That mis-ordering already cost work.** Cluster A's fallbacks-M2 fix hardened the
+diagnostics in `isomers/parallel_embed.py` — a module M53 lists for deletion.
+Re-verified: `use_parallel_embedding` is a constructor parameter of the isomer
+engine defaulting to `False`, with no plumbing from `Auto3DOptions` or the CLI, so
+no production path enables it and M53's "test-only" claim stands. The M2 fix is
+correct but applies to a path no run takes. **Whether to delete the module is a
+feature removal, not a dead-code cleanup, and needs a decision** — it is a public
+constructor argument, so removing it changes a documented API.
+
+**M53's inventory is partly stale — do not delete from it without re-checking.**
+Verified against current source:
+
+| M53 entry | status now |
+|---|---|
+| `STANDARD_PRESSURE` unused | **wrong** — read 4x in `ASE/thermo.py` since 2026-08-03 |
+| `ASE/thermo.py` `mol2atoms` dead | **wrong** — 2 callers in `src/`; `vib_hessian` uses it |
+| `constants.py` `check_connectivity` hardcodes 1.25/1.1 | recheck; the surrounding code has moved |
+| `isomers/parallel_embed.py` 138 lines | claim stands, but see the decision needed above |
+
+The remaining nine entries were not re-checked and must be before anything is
+deleted. This is the third time a manifest entry has turned out to be already
+closed or wrong; the pattern is now reliable enough to treat every entry as a
+claim rather than a fact.
 
 ## What the remediation closed
 

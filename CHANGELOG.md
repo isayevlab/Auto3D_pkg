@@ -5,7 +5,7 @@ All notable changes to Auto3D will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.0.0] - unreleased
+## [3.0.0] - unreleased
 
 ### Breaking Changes
 
@@ -1427,7 +1427,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surface as unrelated failures later. Twelve seeds now give identical pass and
   skip counts.
 
-## [3.5.0] - 2026-06-13
+## [3.5.0-dev] - 2026-06-13 — never published
+
+> Tagged `v3.5.0` in git and never released to any package channel. Retained as
+> a development record; nothing below reached a user through pip or conda.
 
 ### Breaking Changes
 
@@ -1530,7 +1533,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dead `torch.jit.optimized_execution` guard in the batch optimizer (a no-op for
   the eager-mode model wrapper).
 
-## [3.0.0] - 2026-01-02
+## [3.0.0-dev] - 2026-01-02 — never published
+
+> Tagged `v3.0.0` in git and never released to any package channel. The version
+> number is reused by the release above, which is the 3.0.0 users actually get:
+> PyPI went 2.3.1 -> 3.0.0 and conda-forge 2.3.0 -> 3.0.0, with no 3.x in
+> between. Retained as a development record.
 
 ### Breaking Changes
 
@@ -1626,12 +1634,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Various bug fixes and stability improvements
 - Better handling of edge cases in stereoisomer enumeration
 
-## [2.2.10] - 2024-03-29
+## [2.3.1] - 2024-08-13
+
+- Published to PyPI. No CHANGELOG entry was written at the time; recorded here
+  so the file and the package index agree.
+
+## [2.3.0] - 2024-08-02
+
+- Published to PyPI and conda-forge. No CHANGELOG entry was written at the time;
+  recorded here for the same reason.
+
+## [2.2.10] - 2024-03-29 — never published
+
+> Present in this file but absent from PyPI, which went 2.2.9 -> 2.3.0.
 
 ### Fixed
 - Minor bug fixes
 
 ## [2.2.9] - 2024-03-15
+
+> PyPI records this upload as 2024-02-13. The date above is as originally
+> written; the discrepancy is noted rather than overwritten.
 
 ### Changed
 - Performance improvements
