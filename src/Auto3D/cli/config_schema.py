@@ -82,6 +82,16 @@ class CLIConfig(BaseModel):
     threshold: float = DEFAULT_RMSD_THRESHOLD
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
 
+    # Parallel conformer embedding. Mirrors Auto3DOptions, which
+    # test_cliconfig_covers_all_auto3doptions_fields requires -- and which is what
+    # makes these reachable from a YAML config rather than Python only.
+    # No Field(ge=1) here: the bounds live in Auto3D.config.FIELD_BOUNDS and are
+    # enforced by _check_bounds below. A second constraint declared here is the
+    # drift that validator's own docstring warns against.
+    use_parallel_embedding: bool = False
+    parallel_workers: int = 4
+    parallel_embedding_threshold: int = 10
+
     # Resource settings
     memory: int | None = None
     capacity: int = DEFAULT_CAPACITY
@@ -242,6 +252,9 @@ class CLIConfig(BaseModel):
             patience=self.patience,
             threshold=self.threshold,
             batchsize_atoms=self.batchsize_atoms,
+            use_parallel_embedding=self.use_parallel_embedding,
+            parallel_workers=self.parallel_workers,
+            parallel_embedding_threshold=self.parallel_embedding_threshold,
             memory=self.memory,
             capacity=self.capacity,
             allow_tf32=self.allow_tf32,

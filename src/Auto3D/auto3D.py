@@ -212,6 +212,9 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             threshold=args.threshold,
             n_jobs=args.mpi_np,
             enumerate_isomers=args.enumerate_isomer,
+            use_parallel_embedding=args.use_parallel_embedding,
+            parallel_workers=args.parallel_workers,
+            parallel_embedding_threshold=args.parallel_embedding_threshold,
         )
         isomer_engine.run()
 

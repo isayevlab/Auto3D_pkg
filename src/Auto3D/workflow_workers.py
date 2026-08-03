@@ -169,6 +169,9 @@ def isomer_wrapper(
                     n_jobs=mpi_np,
                     enumerate_isomers=enumerate_isomer,
                     mode=args.mode_oe if isomer_program == 'omega' else 'classic',
+                    use_parallel_embedding=args.use_parallel_embedding,
+                    parallel_workers=args.parallel_workers,
+                    parallel_embedding_threshold=args.parallel_embedding_threshold,
                 )
                 engine.run()
 
