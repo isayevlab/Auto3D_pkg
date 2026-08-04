@@ -1,6 +1,25 @@
 #!/usr/bin/env python
-"""Optimized conformer filtering with hierarchical RMSD comparison."""
+"""The one conformer filter: duplicate removal with hierarchical RMSD comparison.
+
+Auto3D carried two implementations of this until 3.0.0 -- this energy-clustered
+one and a legacy all-pairs ``filter_unique``, selected by
+``ConformerRanker(use_optimized_filtering=...)``. They applied the identical
+duplicate criterion and were kept side by side so each could act as the other's
+oracle, but a boolean kwarg that swaps one filter for another is two behaviors
+to keep in step, and they had already drifted on malformed input: the legacy one
+tolerated a record with no usable ``E_tot`` while this one raised ``KeyError``
+from its sort key. The survivor tolerates it (see :func:`_energy_sort_key`), and
+the flag and the duplicate implementation are gone.
+
+The filter reports **why** it dropped things, not just what survived
+(:class:`FilterResult`). ``ranking`` used to log "No structure converged" for a
+species whose conformers were all dropped for *stereochemistry* -- a message
+that sent the reader to the optimizer settings for a problem in the input's
+stereo definitions.
+"""
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
@@ -12,67 +31,187 @@ from Auto3D.constants import (
 )
 from Auto3D.utils.connectivity import check_connectivity
 from Auto3D.utils.convergence import converged_or_unfiltered
-from Auto3D.utils.energy import e_tot_ev, try_e_tot_ev
+from Auto3D.utils.energy import try_e_tot_ev
 from Auto3D.utils.stereo_check import species_key, stereo_preserved
 
+__all__ = [
+    "DROP_REASONS",
+    "FilterResult",
+    "filter_conformers",
+    "filter_unique_optimized",
+]
 
-def filter_unique_optimized(
+#: Every reason a conformer can leave the selected set, in report order.
+#:
+#: The authoritative vocabulary: :class:`FilterResult` refuses a count keyed by
+#: anything else, so a producer that invents a reason fails at construction
+#: rather than contributing a silently unlabeled drop to a diagnostic.
+#: ``energy_window`` is produced by ``ranking.ConformerRanker.top_window``
+#: rather than by this module -- it is a selection criterion, not a validity
+#: one -- but it belongs in the same vocabulary because it reaches the user
+#: through the same message.
+DROP_REASONS: tuple[str, ...] = (
+    "unparsed",
+    "unconverged",
+    "stereochemistry",
+    "connectivity",
+    "duplicate",
+    "energy_window",
+)
+
+#: Human-readable phrase per reason, used by :meth:`FilterResult.summary`.
+_REASON_PHRASES: dict[str, str] = {
+    "unparsed": "unparseable by RDKit",
+    "unconverged": "marked Converged=false",
+    "stereochemistry": "changed stereochemistry during optimization",
+    "connectivity": "have broken or newly formed bonds",
+    "duplicate": "duplicates of a kept conformer",
+    "energy_window": "outside the energy window",
+}
+
+
+@dataclass(frozen=True)
+class FilterResult:
+    """What survived filtering, and a count of what did not, by reason.
+
+    Deliberately tiny: a list and a ``{reason: count}`` dict. The alternative
+    considered -- attaching a reason to each dropped molecule -- would keep
+    every rejected conformer alive for the duration of a chunk, which is the
+    memory the filter exists to release.
+
+    Args:
+        kept: Surviving molecules, sorted by energy (lowest first); records
+            with no usable energy sort last.
+        dropped: Count per reason. Keys must come from :data:`DROP_REASONS`;
+            reasons that did not fire may be omitted or present as 0.
+
+    Raises:
+        ValueError: ``dropped`` carries a key outside :data:`DROP_REASONS`.
+    """
+
+    kept: list[Chem.Mol]
+    dropped: dict[str, int]
+
+    def __post_init__(self) -> None:
+        unknown = sorted(set(self.dropped) - set(DROP_REASONS))
+        if unknown:
+            raise ValueError(
+                f"unknown filter drop reason(s) {unknown}; expected one of "
+                f"{list(DROP_REASONS)}"
+            )
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        """The reasons that actually fired, in :data:`DROP_REASONS` order."""
+        return tuple(r for r in DROP_REASONS if self.dropped.get(r))
+
+    def summary(self) -> str:
+        """One phrase per reason that fired, e.g. ``"2 marked Converged=false"``.
+
+        Empty string when nothing was dropped, so a caller can test it for
+        truth rather than special-casing a placeholder.
+        """
+        return ", ".join(
+            f"{self.dropped[reason]} {_REASON_PHRASES[reason]}"
+            for reason in self.reasons
+        )
+
+
+def _energy_sort_key(mol: Chem.Mol) -> tuple[bool, float]:
+    """Sort key that tolerates a record with no usable ``E_tot``.
+
+    Returns ``(False, energy_ev)`` for a record that has one and
+    ``(True, 0.0)`` for a record that does not, so the energy-less records land
+    **after** every record that has an energy, whatever their values.
+
+    The 0.0 is a tie-break placeholder, never an energy: reading a missing
+    ``E_tot`` as 0.0 on its own would sort a garbage record ahead of every
+    genuine structure (real ``E_tot`` values are large and negative), making it
+    the reference conformer ``E_rel`` is measured from and the single structure
+    a ``k=1`` request returns. Among themselves, energy-less records keep their
+    input order (``list.sort`` is stable), which is the only ordering there is
+    any evidence for.
+    """
+    energy = try_e_tot_ev(mol)
+    if energy is None:
+        return (True, 0.0)
+    return (False, energy)
+
+
+def filter_conformers(
     mols: list[Chem.Mol],
+    *,
     rmsd_threshold: float = DEFAULT_RMSD_THRESHOLD,
     energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
-) -> list[Chem.Mol]:
+) -> FilterResult:
     """Remove duplicate conformers, skipping RMSD comparisons that cannot match.
 
-    Sorts by energy and only RMSD-compares molecules close enough in energy to be
-    duplicates at all, which avoids the O(n^2) comparisons of the legacy
-    :func:`filter_unique` below **without changing which molecules
-    survive** -- the partitioning is chosen so that no duplicate pair can be
-    separated by it. See the comment on the split rule below for why that
-    holds; it did not hold before 4.0.0.
+    Sorts by energy and only RMSD-compares molecules close enough in energy to
+    be duplicates at all, which avoids comparing all pairs **without changing
+    which molecules survive** -- the partitioning is chosen so that no duplicate
+    pair can be separated by it. See the comment on the split rule below for why
+    that holds; it did not hold before 3.0.0.
 
     A pair counts as a duplicate only when all three of these agree: the two are
     the same compound (:func:`Auto3D.utils.stereo_check.species_key`), their
     heavy-atom RMSD is under ``rmsd_threshold``, and their energies agree within
-    ``DEFAULT_DUPLICATE_ENERGY_TOL``.
+    ``DEFAULT_DUPLICATE_ENERGY_TOL`` (or at least one of them has no usable
+    energy, in which case that term cannot apply and RMSD alone decides).
 
     Args:
         mols: List of RDKit Mol objects with 'E_tot' (Hartree) and, optionally,
             'Converged' properties. A record whose 'Converged' property is
             explicitly false is dropped; a record without the property is kept
             (it is not filtered on convergence). Records marked
-            'Stereo_changed' are excluded.
+            'Stereo_changed' are excluded. ``None`` entries -- what
+            ``SDMolSupplier`` yields for a record RDKit cannot parse -- are
+            counted and skipped.
         rmsd_threshold: RMSD threshold for considering structures similar (Angstrom).
         energy_cluster_window: Energy width (eV) below which molecules are
             compared to each other. A performance knob only: values below the
             duplicate energy tolerance cannot shrink the comparison set, because
             that tolerance is the floor at which a pair can still be a duplicate.
             The stored Hartree energies are converted to eV on read
-            (``Auto3D.utils.energy.e_tot_ev``), so the unit is as documented.
+            (``Auto3D.utils.energy``), so the unit is as documented.
 
     Returns:
-        List of unique molecules, sorted by energy (lowest first).
+        A :class:`FilterResult` whose ``kept`` list is sorted by energy (lowest
+        first) and whose ``dropped`` counts say why the rest are missing.
     """
+    dropped: dict[str, int] = {}
+
+    def _drop(reason: str) -> None:
+        dropped[reason] = dropped.get(reason, 0) + 1
+
     # Filter converged structures with valid connectivity. A record with no
     # 'Converged' property is not filtered on convergence (see
     # Auto3D.utils.convergence): treating its absence as failure deleted every
     # record of any SDF batchopt did not write.
-    valid_mols = []
+    #
+    # Checked in this order, one reason attributed per record, so a structure
+    # that fails several is reported under the first -- the same short-circuit
+    # order the single `and` chain here used to have, hence the same verdicts.
+    valid_mols: list[Chem.Mol] = []
     for mol in mols:
         if mol is None:
-            continue
-        if (
-            converged_or_unfiltered(mol)
-            and stereo_preserved(mol)
-            and check_connectivity(mol)
-        ):
+            _drop("unparsed")
+        elif not converged_or_unfiltered(mol):
+            _drop("unconverged")
+        elif not stereo_preserved(mol):
+            _drop("stereochemistry")
+        elif not check_connectivity(mol):
+            _drop("connectivity")
+        else:
             valid_mols.append(mol)
 
     if not valid_mols:
-        return []
+        return FilterResult(kept=[], dropped=dropped)
 
     # Sort by energy. E_tot is stored in Hartree; energy_cluster_window and
     # the duplicate tolerance below are both in eV, so convert on read.
-    valid_mols.sort(key=e_tot_ev)
+    # Records with no usable energy sort last -- see _energy_sort_key.
+    valid_mols.sort(key=_energy_sort_key)
+    energies = [try_e_tot_ev(mol) for mol in valid_mols]
 
     # Partition the energy-sorted list into runs, and only RMSD-compare within a
     # run. Where a run may end is a correctness question, not a tuning one.
@@ -97,22 +236,34 @@ def filter_unique_optimized(
     # splitting on LARGER gaps is always safe (it only merges runs and compares
     # more pairs). It therefore stays a performance knob and can no longer become
     # a correctness hole. Runs are no longer width-bounded, so a dense energy
-    # ladder degrades to the O(n^2) of the legacy `filter_unique` -- the price of
-    # the guarantee, on conformer counts that are tens per species.
-    split_gap = max(DEFAULT_DUPLICATE_ENERGY_TOL, energy_cluster_window)
-    clusters: list[list[Chem.Mol]] = []
-    current_cluster: list[Chem.Mol] = [valid_mols[0]]
-    previous_e = e_tot_ev(valid_mols[0])
+    # ladder degrades to comparing all pairs -- the price of the guarantee, on
+    # conformer counts that are tens per species.
+    #
+    # That entire argument rests on every record HAVING an energy. As soon as one
+    # does not, no gap proves anything about it: `_filter_within_cluster` falls
+    # back to RMSD-only for a pair where either side's energy is missing, so such
+    # a record can be a duplicate of any same-species structure at any energy.
+    # The honest response is to stop partitioning and compare all pairs, which is
+    # exactly what the legacy all-pairs filter did with this input -- so the
+    # survivor keeps its verdicts. Malformed input is rare and reaches here only
+    # through a direct API call (`ConformerRanker` refuses a record with no
+    # 'E_tot' up front), so the quadratic cost is paid where it is warranted.
+    if any(energy is None for energy in energies):
+        clusters: list[list[Chem.Mol]] = [valid_mols]
+    else:
+        split_gap = max(DEFAULT_DUPLICATE_ENERGY_TOL, energy_cluster_window)
+        clusters = []
+        current_cluster: list[Chem.Mol] = [valid_mols[0]]
+        previous_e = energies[0]
 
-    for mol in valid_mols[1:]:
-        e = e_tot_ev(mol)
-        if e - previous_e <= split_gap:
-            current_cluster.append(mol)
-        else:
-            clusters.append(current_cluster)
-            current_cluster = [mol]
-        previous_e = e
-    clusters.append(current_cluster)
+        for mol, e in zip(valid_mols[1:], energies[1:], strict=True):
+            if e - previous_e <= split_gap:
+                current_cluster.append(mol)
+            else:
+                clusters.append(current_cluster)
+                current_cluster = [mol]
+            previous_e = e
+        clusters.append(current_cluster)
 
     # Filter unique within each cluster
     unique_mols: list[Chem.Mol] = []
@@ -120,7 +271,32 @@ def filter_unique_optimized(
         unique_in_cluster = _filter_within_cluster(cluster, rmsd_threshold)
         unique_mols.extend(unique_in_cluster)
 
-    return unique_mols
+    n_duplicates = len(valid_mols) - len(unique_mols)
+    if n_duplicates:
+        dropped["duplicate"] = n_duplicates
+    return FilterResult(kept=unique_mols, dropped=dropped)
+
+
+def filter_unique_optimized(
+    mols: list[Chem.Mol],
+    rmsd_threshold: float = DEFAULT_RMSD_THRESHOLD,
+    energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
+) -> list[Chem.Mol]:
+    """The surviving molecules from :func:`filter_conformers`, nothing else.
+
+    Kept as the public name it has always been, for callers that want the list
+    and not the drop counts. Prefer :func:`filter_conformers` when the reason
+    something is missing has to reach a user.
+
+    Returns:
+        List of unique molecules, sorted by energy (lowest first); records with
+        no usable energy sort last.
+    """
+    return filter_conformers(
+        mols,
+        rmsd_threshold=rmsd_threshold,
+        energy_cluster_window=energy_cluster_window,
+    ).kept
 
 
 def _filter_within_cluster(
@@ -206,105 +382,3 @@ def _mol_energy(mol: Chem.Mol) -> float | None:
     """
     return try_e_tot_ev(mol)
 
-
-def filter_unique(mols: list[Chem.Mol], crit: float = DEFAULT_RMSD_THRESHOLD) -> list[Chem.Mol]:
-    """Remove structures that are very similar and remove unconverged structures.
-
-    The legacy all-pairs filter, kept beside :func:`filter_unique_optimized`
-    (which supersedes it) because ``ConformerRanker(use_optimized_filtering=False)``
-    still selects it and because it is the oracle the optimized filter is
-    compared against.
-
-    This function filters a list of molecules to keep only unique, converged structures.
-    It first removes unconverged structures and those with invalid connectivity,
-    then removes similar structures based on RMSD comparison.
-
-    Args:
-        mols: List of RDKit molecule objects, optionally carrying a 'Converged'
-            property. A record whose 'Converged' is explicitly false is
-            dropped; a record without the property is kept (not filtered on
-            convergence). Records marked 'Stereo_changed' are excluded.
-        crit: RMSD threshold for considering two structures as identical.
-            Structures with RMSD below this value are considered duplicates.
-            Defaults to DEFAULT_RMSD_THRESHOLD (0.3 Angstroms).
-
-    Returns:
-        List of unique, converged molecules with valid connectivity.
-
-    Example:
-        >>> from rdkit import Chem
-        >>> from rdkit.Chem import AllChem
-        >>> mol = Chem.MolFromSmiles("CCO")
-        >>> mol = Chem.AddHs(mol)
-        >>> AllChem.EmbedMolecule(mol, randomSeed=42)
-        0
-        >>> mol.SetProp("Converged", "true")
-        >>> filter_unique([mol], crit=0.3)  # Returns list with 1 molecule
-        [...]
-    """
-    # Remove structures that explicitly failed to converge. A record with no
-    # 'Converged' property is NOT filtered on convergence -- see
-    # Auto3D.utils.convergence for why absence is not failure.
-    mols_: list[Chem.Mol] = []
-    for mol in mols:
-        convergence_flag = converged_or_unfiltered(mol)
-        has_valid_bonds = check_connectivity(mol)
-        if convergence_flag and has_valid_bonds and stereo_preserved(mol):
-            mols_.append(mol)
-    mols = mols_
-
-    # Remove similar structures. Strip Hs once per molecule (O(n)) instead of on
-    # both sides of every comparison (O(n^2)); GetBestRMS on no-H forms is
-    # symmetric so results are unchanged. The ORIGINAL (H-explicit) mols are
-    # returned; no-H forms are comparison-only.
-    #
-    # Heavy-atom RMSD alone collapses conformers that differ only in an O-H / N-H
-    # rotor orientation. Guard with an energy check: a pair counts as duplicate
-    # only when the RMSD is below ``crit`` AND the energies agree within
-    # DEFAULT_DUPLICATE_ENERGY_TOL (eV; 'E_tot' is stored in Hartree and is
-    # converted on read by Auto3D.utils.energy). Mols without a usable 'E_tot'
-    # fall back to RMSD-only (energy guard cannot apply).
-    unique_mols: list[Chem.Mol] = []
-    unique_noH: list[Chem.Mol] = []
-    unique_energies: list[float | None] = []
-    unique_species: list[str] = []
-    for mol_i in mols:
-        mol_i_noH = Chem.RemoveHs(mol_i)
-        # E_tot is stored in Hartree; DEFAULT_DUPLICATE_ENERGY_TOL is in eV.
-        e_i: float | None = try_e_tot_ev(mol_i)
-        species_i = species_key(mol_i)
-        unique = True
-        for mol_j_noH, e_j, species_j in zip(
-            unique_noH, unique_energies, unique_species, strict=True
-        ):
-            # Two different compounds are never duplicates of each other, however
-            # close their geometries. All stereoisomers of one input share a
-            # ranking group, and two ring diastereomers can sit below the default
-            # 0.3 A threshold, so without this the RMSD test could delete one of
-            # them (Auto3D.utils.stereo_check.species_key). Checked before the
-            # RMSD call it makes unnecessary.
-            if species_i != species_j:
-                continue
-            try:
-                # temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
-                # removing Hs speeds up the calculation
-                rmsd = rdMolAlign.GetBestRMS(mol_i_noH, mol_j_noH)
-            except RuntimeError:
-                # Incomparable pair: treat as distinct (not a duplicate) so the
-                # conformer is kept. Using 0 would make it look like a perfect
-                # duplicate and drop a genuinely distinct structure.
-                rmsd = float("inf")
-            energy_close = (
-                e_i is None
-                or e_j is None
-                or abs(e_i - e_j) < DEFAULT_DUPLICATE_ENERGY_TOL
-            )
-            if rmsd < crit and energy_close:
-                unique = False
-                break
-        if unique:
-            unique_mols.append(mol_i)
-            unique_noH.append(mol_i_noH)
-            unique_energies.append(e_i)
-            unique_species.append(species_i)
-    return unique_mols

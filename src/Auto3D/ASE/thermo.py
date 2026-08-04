@@ -42,11 +42,10 @@ from Auto3D.models.species import to_model_species
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.energy import hartree2ev
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
     check_gpu_requested,
-    check_output_not_input,
-    check_output_overwrite,
 )
 
 __all__ = ["calc_thermo"]
@@ -686,7 +685,11 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     # mass weighting, and the rotational partition function silently disagree
     # for isotopically labeled input.
     atoms = mol2atoms(mol, positions=positions)
-    atoms.set_calculator(ase_calculator)
+    # atoms.set_calculator() is deprecated since ase 3.22.1 in favor of the
+    # `.calc` attribute (Minor 6); `pyproject.toml` pins no ase upper bound
+    # and globally ignores DeprecationWarning, so removal would otherwise
+    # land as a silent-until-runtime AttributeError with no advance warning.
+    atoms.calc = ase_calculator
     charge = rdmolops.GetFormalCharge(mol)
 
     # get the Hessian
@@ -1194,7 +1197,9 @@ def do_mol_thermo(mol: Chem.Mol,
     # them via the explicit `positions=` argument, not from mol's conformer),
     # so nothing here depends on mol's conformer being in sync yet.
     coord = atoms.get_positions()
-    vib = vib_hessian(mol, atoms.get_calculator(), model, device,
+    # atoms.get_calculator() is deprecated since ase 3.22.1; use `.calc`
+    # (Minor 6, same rationale as the set_calculator() call above).
+    vib = vib_hessian(mol, atoms.calc, model, device,
                       model_name=model_name, positions=coord)
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
@@ -1691,7 +1696,9 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
         atoms = mol2atoms(mol)
 
         calculator.set_charge(charge)
-        atoms.set_calculator(calculator)
+        # atoms.set_calculator() is deprecated since ase 3.22.1; use `.calc`
+        # (Minor 6, same rationale as vib_hessian's call above).
+        atoms.calc = calculator
 
         if mol_info_func is None:
             idx = mol.GetProp("_Name").strip()

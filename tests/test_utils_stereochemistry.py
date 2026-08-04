@@ -9,6 +9,7 @@ import tempfile
 import pytest
 from rdkit import Chem
 
+from Auto3D.exceptions import InputValidationError
 from Auto3D.utils.stereochemistry import (
     amend_configuration,
     amend_configuration_w,
@@ -202,6 +203,30 @@ class TestCreateEnantiomer:
         for orig, res in zip(orig_info, result_info):
             assert orig != res
 
+    def test_three_centers_all_inverted(self):
+        """M60 regression: 3+ centers used to be handled by a loop reading a
+        variable (key2) set inside the loop's else-branch and read again
+        after the loop -- correct only by Python's lack of block scoping.
+        A single-pass rewrite must still invert every center in order."""
+        smi = "C[C@H](O)[C@@H](F)[C@H](Cl)Br"
+        result = create_enantiomer(smi)
+        assert result == "C[C@@H](O)[C@H](F)[C@@H](Cl)Br"
+        orig_info = list(get_stereo_info(smi).values())
+        result_info = list(get_stereo_info(result).values())
+        assert len(result_info) == len(orig_info) == 3
+        for orig, res in zip(orig_info, result_info):
+            assert orig != res
+
+    def test_four_centers_all_inverted(self):
+        """Same as above, one more center, to rule out an off-by-one at the
+        boundary between the removed len(keys)==1 special case and the
+        general multi-key path."""
+        smi = "C[C@H](O)[C@@H](F)[C@H](Cl)[C@@H](Br)I"
+        result = create_enantiomer(smi)
+        assert result == "C[C@@H](O)[C@H](F)[C@@H](Cl)[C@H](Br)I"
+        result_info = list(get_stereo_info(result).values())
+        assert len(result_info) == 4
+
 
 class TestCheckValue:
     """Tests for the check_value() function."""
@@ -281,6 +306,32 @@ class TestRemoveEnantiomers:
             os.unlink(inpath)
             os.unlink(outpath)
 
+    def test_remove_enantiomers_tolerates_blank_lines(self, tmp_path):
+        """M59: switched to iter_smi_records, which skips blank/comment lines.
+
+        The old hand-rolled parser did `vals = line.split()` then indexed
+        vals[0]/vals[1] unconditionally, so a blank line raised a bare
+        IndexError and aborted the whole function.
+        """
+        inpath = tmp_path / "in.smi"
+        inpath.write_text("CCO mol1_1\n\n# a comment\nCCCO mol2_1\n")
+        outpath = tmp_path / "out.smi"
+
+        result = remove_enantiomers(str(inpath), str(outpath))
+
+        assert "mol1" in result
+        assert "mol2" in result
+
+    def test_remove_enantiomers_rejects_missing_id(self, tmp_path):
+        """A non-blank, non-comment line with no ID must still fail loudly,
+        just as an InputValidationError rather than a bare IndexError."""
+        inpath = tmp_path / "in.smi"
+        inpath.write_text("CCO\n")
+        outpath = tmp_path / "out.smi"
+
+        with pytest.raises(InputValidationError):
+            remove_enantiomers(str(inpath), str(outpath))
+
 
 class TestAmendConfiguration:
     """Tests for the amend_configuration() function."""
@@ -316,6 +367,39 @@ class TestAmendConfiguration:
             assert len(lines) >= 1
         finally:
             os.unlink(path)
+
+    def test_amend_configuration_tolerates_blank_and_comment_lines(self, tmp_path):
+        """M59: switched to iter_smi_records. The old parser did
+        `tuple(line.strip().split())`, which raises "not enough values to
+        unpack" on a blank line -- aborting the whole function -- and "too
+        many values to unpack" on a line with a third whitespace column.
+        """
+        path = tmp_path / "in.smi"
+        path.write_text(
+            "C[C@H](O)F mol_1\n\n# comment\nC[C@@H](O)F mol_2\n"
+        )
+
+        result = amend_configuration(str(path))
+
+        assert "mol" in result
+
+    def test_amend_configuration_tolerates_extra_column(self, tmp_path):
+        """A trailing whitespace-separated column beyond SMILES+ID must not
+        raise, matching every other consumer of this format."""
+        path = tmp_path / "in.smi"
+        path.write_text("C[C@H](O)F mol_1 extra_column\n")
+
+        result = amend_configuration(str(path))
+
+        assert "mol" in result
+
+    def test_amend_configuration_rejects_missing_id(self, tmp_path):
+        """A non-blank, non-comment line with no ID must still fail loudly."""
+        path = tmp_path / "in.smi"
+        path.write_text("C[C@H](O)F\n")
+
+        with pytest.raises(InputValidationError):
+            amend_configuration(str(path))
 
 
 class TestIntegration:

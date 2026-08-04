@@ -10,8 +10,7 @@ Until 4.0.1 it was only *sometimes* true. ``batch_opt.optimizing.run`` wrote
 ``E_tot`` in eV and ``ASE/geometry.opt_geometry`` converted the same tag to
 Hartree afterwards, so the identical property name carried two units depending
 on which entry point produced the file -- and the five in-package consumers
-(``ranking``, ``filtering.filter_unique_optimized``,
-``filtering.filter_unique``) all hard-coded
+(``ranking``, ``filtering.filter_conformers``) all hard-coded
 eV. Feeding an ``opt_geometry`` output straight to
 ``ConformerRanker(window=2.0)`` therefore opened a window 27.2x too wide, kept
 3 conformers where 2 belong, reported ``E_rel`` 0.037 kcal/mol where the truth

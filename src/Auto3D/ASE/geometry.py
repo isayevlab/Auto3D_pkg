@@ -20,11 +20,10 @@ from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.atomic_io import atomic_write_path
 from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
+from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
     check_gpu_requested,
-    check_output_not_input,
-    check_output_overwrite,
 )
 
 __all__ = ["opt_geometry"]

@@ -272,7 +272,7 @@ def _step_active_subset(
     not_oscillating = oscillating_count < patience
 
     # Combine the convergence criteria. An `& ~energy_converged` term stood
-    # here until 4.0.0; `energy_converged` required `fmax < opttol` while
+    # here until 3.0.0; `energy_converged` required `fmax < opttol` while
     # `not_converged_post1` is `fmax > opttol`, so the term was the identity
     # of `&` wherever it was consulted and false-dominated elsewhere -- it
     # could never change an outcome, including at the `fmax == opttol`
@@ -373,7 +373,7 @@ def n_steps(
     2. Oscillation detection: drops structures that don't improve for patience steps
 
     There is deliberately no energy-stability criterion. One existed until
-    4.0.0 but could never fire: it required ``fmax < opttol``, which is
+    3.0.0 but could never fire: it required ``fmax < opttol``, which is
     exactly the condition under which the force criterion has already stopped
     the structure, so the term was the identity of ``&`` at every element (see
     ``test_convergence_outcome_never_depends_on_energy_stability``).

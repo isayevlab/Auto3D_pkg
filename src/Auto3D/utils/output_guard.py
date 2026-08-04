@@ -8,8 +8,9 @@ the whole ``Auto3D.models`` tree. This module imports nothing but ``os`` and
 ``Auto3D.exceptions``, which is what lets the ``.smi``/``.sdf`` writers under
 ``utils/`` and the top-level ID/layout helpers gate their own output.
 
-``utils/validation.py`` still re-exports both names, because ``SPE``,
-``ASE.thermo`` and ``cli.commands.properties`` import them from there.
+This is the only path to these two names. ``utils/validation.py`` re-exported
+them for one release while call sites moved over; that re-export is gone, so
+importing them from ``validation`` now fails rather than quietly working.
 """
 from __future__ import annotations
 

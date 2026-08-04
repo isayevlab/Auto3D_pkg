@@ -18,6 +18,7 @@ from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 
 from Auto3D.utils.atomic_io import atomic_write_path
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.smi_io import iter_smi_records
 
 logger = get_logger(__name__)
 
@@ -252,12 +253,16 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
         If enantiomer removal fails for a molecule, all original SMILES
         are kept and a message is printed.
     """
-    with open(inpath) as f:
-        data = f.readlines()
-
+    # iter_smi_records is the single parser for this format (M59). The loop
+    # this replaced built `vals = line.split()` and indexed vals[0]/vals[1]
+    # with no guard, so a blank line in `inpath` raised a bare IndexError;
+    # "raise" keeps that fail-fast behavior (as an InputValidationError naming
+    # the line, not a crash) for any genuinely malformed row while blank lines
+    # -- which should never appear in a file this module itself wrote, but
+    # previously crashed the whole function if one did -- are now skipped like
+    # every other consumer of this format.
     smiles: dict[str, list[str]] = defaultdict(lambda: [])
-    for line in data:
-        vals = line.split()
+    for _line_no, smi, mol_id in iter_smi_records(inpath, on_malformed="raise"):
         # Strip only the trailing isomer-index component write_enumerated_smi
         # appends (rsplit, maxsplit=1), not everything after the first
         # underscore: an id like "KEY_2" -- smiles2smi's disambiguation of a
@@ -265,7 +270,7 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
         # specifically so it is not dropped -- must survive this grouping
         # intact, or it silently merges back onto "KEY" here before ranking
         # ever sees it (M17).
-        smi, name = vals[0].strip(), vals[1].strip().rsplit("_", 1)[0].strip()
+        name = mol_id.rsplit("_", 1)[0]
         smiles[name].append(smi)
 
     for key, values in smiles.items():
@@ -407,47 +412,35 @@ def create_enantiomer(smi: str) -> str:
         'C[C@@H](O)F'
     """
     stereo_info = get_stereo_info(smi)
-    new_smi = ""
     keys = list(stereo_info.keys())
-    if len(keys) == 0:
+    if not keys:
         # No stereo centers to invert
         return smi
-    if len(keys) == 1:
-        key = keys[0]
-        val = stereo_info[key]
-        if val == "@":
-            new_smi += smi[:key]
-            new_smi += "@@"
-            new_smi += smi[(key + 1) :]
-        elif val == "@@":
-            new_smi += smi[:key]
-            new_smi += "@"
-            new_smi += smi[(key + 2) :]
-        else:
-            raise ValueError("Invalid %s" % smi)
-        return new_smi
 
-    for i in range(len(keys)):
-        if i == 0:
-            key = keys[i]
-            new_smi += smi[:key]
-        else:
-            key1 = keys[i - 1]
-            key2 = keys[i]
-            val1 = stereo_info[key1]
-            if val1 == "@":
-                new_smi += "@@"
-                new_smi += smi[int(key1 + 1) : key2]
-            elif val1 == "@@":
-                new_smi += "@"
-                new_smi += smi[int(key1 + 2) : key2]
-    val2 = stereo_info[key2]
-    if val2 == "@":
-        new_smi += "@@"
-        new_smi += smi[int(key2 + 1) :]
-    elif val2 == "@@":
-        new_smi += "@"
-        new_smi += smi[int(key2 + 2) :]
+    # Single pass with a cursor, one key at a time: emit smi[cursor:key]
+    # verbatim, then the inverted marker, then advance the cursor past the
+    # marker just consumed. The tail after the last key is emitted once,
+    # after the loop, from the final cursor position.
+    #
+    # This replaces two copies of the same logic that used to disagree in
+    # shape: a `len(keys) == 1` branch handled one stereo center, and a
+    # general loop handled two or more by reading `key2`/`val2` (set inside
+    # the loop's `else` branch) *after* the `for` -- correct only because
+    # Python does not scope loop variables to the loop body, so `key2` still
+    # held the last iteration's value. That accident breaks the moment
+    # `keys` can be empty going into the tail read, which is exactly what the
+    # `len(keys) == 1` branch existed to avoid (M60).
+    inverted = {"@": "@@", "@@": "@"}
+    new_smi = ""
+    cursor = 0
+    for key in keys:
+        val = stereo_info[key]
+        if val not in inverted:
+            raise ValueError("Invalid %s" % smi)
+        new_smi += smi[cursor:key]
+        new_smi += inverted[val]
+        cursor = key + len(val)
+    new_smi += smi[cursor:]
     return new_smi
 
 
@@ -499,16 +492,20 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
         For input "N=C1OC(CN2CC(C)OC(C)C2)CN1", if some stereo configurations
         are missing, this function will attempt to add them.
     """
-    with open(smis) as f:
-        data = f.readlines()
+    # iter_smi_records is the single parser for this format (M59). The
+    # `tuple(line.strip().split())` this replaced required EXACTLY 2 tokens
+    # (a third raised "too many values to unpack") and had no blank/comment
+    # handling at all; "raise" preserves the fail-fast behavior for a
+    # genuinely malformed row (now a named InputValidationError instead of a
+    # bare ValueError) while tolerating a trailing extra column, matching
+    # every other consumer of this format.
     dct: dict[str, list[str]] = defaultdict(lambda: [])
-    for line in data:
-        smi, idx = tuple(line.strip().split())
+    for _line_no, smi, mol_id in iter_smi_records(smis, on_malformed="raise"):
         # See the matching note in remove_enantiomers: strip only the
         # trailing isomer-index component, not everything after the first
         # underscore, so a disambiguated id like "KEY_2" is not merged back
         # onto "KEY" here (M17).
-        idx = idx.rsplit("_", 1)[0].strip()
+        idx = mol_id.rsplit("_", 1)[0]
         dct[idx].append(smi)
 
     for key in dct.keys():

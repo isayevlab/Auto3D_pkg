@@ -14,7 +14,6 @@ from rdkit.Chem import AllChem
 
 from Auto3D.filtering import filter_unique_optimized
 from Auto3D.ranking import ConformerRanker
-from Auto3D.filtering import filter_unique
 from Auto3D.utils.stereo_check import (
     STEREO_CHANGED_PROP,
     apply_optimized_coords,
@@ -176,12 +175,22 @@ class TestFiltersExcludeStereoChangedRecords:
         assert len(result) == 1, f"expected only the preserved record: {len(result)}"
         assert result[0].GetProp("E_tot") == "-1.0"
 
-    def test_filter_unique_drops_the_changed_record(self):
-        kept = _optimized(-1.0, changed=False)
-        dropped = _optimized(-2.0, changed=True)
-        result = filter_unique([dropped, kept], crit=0.3)
-        assert len(result) == 1, f"expected only the preserved record: {len(result)}"
-        assert result[0].GetProp("E_tot") == "-1.0"
+    def test_the_filter_reports_stereochemistry_as_the_drop_reason(self):
+        """Not just that it dropped, but that it says why.
+
+        Until 4.1.0 the two conformer filters returned a bare list, so
+        ``ranking`` reported a stereo-changed species as "No structure
+        converged" -- pointing the reader at the optimizer settings for a
+        problem in the input's stereo definitions.
+        """
+        from Auto3D.filtering import filter_conformers
+
+        result = filter_conformers(
+            [_optimized(-2.0, changed=True), _optimized(-1.0, changed=False)],
+            rmsd_threshold=0.3,
+        )
+        assert result.dropped == {"stereochemistry": 1}
+        assert result.reasons == ("stereochemistry",)
 
     def test_top_k_one_skips_the_changed_lowest_energy_record(self):
         """k=1 takes a fast path that bypasses the RMSD filters entirely."""
@@ -207,4 +216,3 @@ class TestFiltersExcludeStereoChangedRecords:
         """No regression for molecules that never went through the check."""
         mols = [_optimized(-1.0, changed=None), _optimized(-2.0, changed=None)]
         assert len(filter_unique_optimized(mols, rmsd_threshold=0.3)) == 2
-        assert len(filter_unique(mols, crit=0.3)) == 2

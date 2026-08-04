@@ -119,7 +119,7 @@ def execute_config_init(
     Both refusals below are configuration problems, so both leave through
     ``handle_error`` at exit **2**. The overwrite refusal in particular had to
     move: the CLI's own ``-o`` overwrite gate
-    (``utils.validation.check_output_overwrite``) raises ``ConfigurationError``
+    (``utils.output_guard.check_output_overwrite``) raises ``ConfigurationError``
     and exits 2, and the CHANGELOG described the two as printing "the same
     message" -- while this one hard-coded ``SystemExit(1)``, so a script
     branching on 2 saw one of them and not the other.

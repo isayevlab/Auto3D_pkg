@@ -23,6 +23,7 @@ from rdkit.Chem import inchi
 
 from Auto3D.exceptions import InputValidationError
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.output_guard import check_output_overwrite
 
 logger = get_logger(__name__)
 
@@ -86,7 +87,7 @@ def iter_smi_records(path, *, on_malformed="skip"):
         yield line_no, parts[0], parts[1]
 
 
-def smiles2smi(smiles: list[str], path: str) -> str:
+def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:
     """Convert a list of SMILES strings to a .smi file with InChIKey IDs.
 
     Each SMILES string is converted to a molecule, and its InChIKey is computed
@@ -96,9 +97,21 @@ def smiles2smi(smiles: list[str], path: str) -> str:
     Args:
         smiles: List of SMILES strings to convert.
         path: Output file path for the .smi file.
+        overwrite: Allow replacing an existing file at `path`. Keyword-only.
+            Defaults to **True**, unlike the writers that derive their own
+            output name (``id_mapping.encode_ids``/``decode_ids``,
+            ``tautomer.select_tautomers``): the caller named this file, so
+            refusing it would gate a decision the caller already made.
+            ``smiles2mols`` writes into a fresh ``TemporaryDirectory`` on every
+            call and relies on that. Pass False to make the write refuse an
+            occupied path.
 
     Returns:
         The output file path.
+
+    Raises:
+        ConfigurationError: `path` exists and `overwrite` is False.
+        InputValidationError: A SMILES string could not be parsed by RDKit.
 
     Example:
         >>> smiles2smi(["CCO", "CCC"], "molecules.smi")
@@ -107,6 +120,11 @@ def smiles2smi(smiles: list[str], path: str) -> str:
         # CCO  LFQSCWFLJHTTHZ-UHFFFAOYSA-N
         # CCC  ATUOYWHBWRKTHZ-UHFFFAOYSA-N
     """
+    # Checked before any SMILES is parsed: refusing after the work is done is a
+    # worse experience for no gain, and `open(path, "w+")` below truncates on
+    # open, so by the time the write starts the file is already gone.
+    check_output_overwrite(path, overwrite)
+
     lines = []
     seen_ids: dict[str, int] = {}
     for idx, smi in enumerate(smiles):

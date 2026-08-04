@@ -16,15 +16,19 @@ from pathlib import Path
 
 from rdkit import Chem
 
-from Auto3D.exceptions import ConfigurationError, InputValidationError
+from Auto3D.exceptions import InputValidationError
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.output_guard import check_output_overwrite
 from Auto3D.utils.smi_io import iter_smi_records
 
 logger = get_logger(__name__)
 
 
 def encode_ids(
-    path: str, out_dir: str | os.PathLike[str] | None = None
+    path: str,
+    out_dir: str | os.PathLike[str] | None = None,
+    *,
+    overwrite: bool = False,
 ) -> tuple[str, dict[str, int]]:
     """Encode molecule IDs to numeric indices.
 
@@ -46,6 +50,13 @@ def encode_ids(
         path: Path to the input .smi or .sdf file.
         out_dir: Directory to write the encoded file into. Defaults to the
             input file's own directory.
+        overwrite: Allow replacing an existing file at the encoded path.
+            Keyword-only, defaults to False -- Auto3D derives this name, so it
+            belongs to whoever already owns it. This used to refuse
+            *unconditionally*, with no way for a caller who meant it to say so;
+            the keyword and its default now match ``decode_ids`` and
+            ``tautomer.select_tautomers``, and all three raise through the same
+            ``utils.output_guard.check_output_overwrite``.
 
     Returns:
         Tuple containing:
@@ -54,7 +65,8 @@ def encode_ids(
 
     Raises:
         ValueError: If the input file is neither .smi nor .sdf format.
-        ConfigurationError: If a file already exists at the encoded path.
+        ConfigurationError: If a file already exists at the encoded path and
+            `overwrite` is False.
         InputValidationError: If a molecule has a missing/blank ID or a
             duplicate ID is encountered.
 
@@ -72,13 +84,7 @@ def encode_ids(
 
     directory = Path(out_dir) if out_dir is not None else path_obj.parent
     new_path = directory / f"{path_obj.stem}_encoded.{extension}"
-    if new_path.exists():
-        raise ConfigurationError(
-            f"encode_ids would overwrite the existing file {new_path}. "
-            "Auto3D writes its encoded copy of the input there; move or "
-            "rename that file, or pass out_dir to write the encoded copy "
-            "somewhere else."
-        )
+    check_output_overwrite(new_path, overwrite)
 
     if extension == "smi":
         new_data: list[str] = []
@@ -129,7 +135,9 @@ def encode_ids(
         return str(new_path), mapping
 
 
-def decode_ids(path: str, mapping: dict[str, int]) -> str:
+def decode_ids(
+    path: str, mapping: dict[str, int], *, overwrite: bool = False
+) -> str:
     """Decode numeric IDs back to original molecule IDs.
 
     For an SDF file with numeric IDs, restores the original IDs using
@@ -139,9 +147,20 @@ def decode_ids(path: str, mapping: dict[str, int]) -> str:
         path: Path to the input SDF file with encoded (numeric) IDs.
         mapping: Dictionary mapping original IDs to their numeric indices
                  (as returned by encode_ids).
+        overwrite: Allow replacing an existing file at the decoded path.
+            Keyword-only, defaults to False: ``<base>_out.<ext>`` is a name
+            Auto3D derives from `path`, so an existing file there belongs to
+            someone else, and ``Chem.SDWriter`` truncates on open.
+            ``WorkflowOrchestrator`` calls this on the combined output inside a
+            job directory it created with a bare ``mkdir()``, where the derived
+            name is always free.
 
     Returns:
         Path to the new SDF file with decoded IDs (adds '_out' suffix).
+
+    Raises:
+        ConfigurationError: A file already exists at the decoded path and
+            `overwrite` is False.
 
     Example:
         >>> mapping = {'mol_A': 0, 'mol_B': 1}
@@ -155,6 +174,8 @@ def decode_ids(path: str, mapping: dict[str, int]) -> str:
     stem_parts = path_obj.stem.split("_")[:-2]
     new_stem = "_".join(stem_parts) + "_out"
     new_path = path_obj.parent / f"{new_stem}.{extension}"
+    # Before the supplier is opened, so a refusal costs nothing.
+    check_output_overwrite(new_path, overwrite)
 
     suppl = Chem.SDMolSupplier(path, removeHs=False)
     with Chem.SDWriter(str(new_path)) as w:
