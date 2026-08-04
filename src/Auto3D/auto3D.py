@@ -25,14 +25,14 @@ from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.model_factory import create_model
 from Auto3D.models.preflight import preflight_model
 from Auto3D.ranking import ranking
-from Auto3D.utils import (
-    check_input,
-    check_valid_configuration,
+from Auto3D.utils.file_ops import (
     create_chunk_meta_names,
+    find_smiles_not_in_sdf,
     reorder_sdf,
+    smiles2smi,
 )
-from Auto3D.utils.file_ops import find_smiles_not_in_sdf, smiles2smi
 from Auto3D.utils.logging_config import configure_logging, get_logger
+from Auto3D.utils.validation import check_input, check_valid_configuration
 
 # Pipeline workers live in workflow_workers to break the auto3D<->workflow import
 # cycle. Re-exported here for backward compatibility with code/tests that import

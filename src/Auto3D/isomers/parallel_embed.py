@@ -10,8 +10,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.constants import CONFORMER_RANDOM_SEED
-from Auto3D.utils import relieve_clash
-from Auto3D.utils.chemistry import calculate_conformer_count
+from Auto3D.utils.chemistry import calculate_conformer_count, relieve_clash
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)

@@ -310,24 +310,24 @@ class TestCheckConnectivity:
 
 
 class TestModuleImports:
-    """Test that module can be imported from different paths."""
+    """Every name has exactly one import path: the module that defines it.
+
+    There used to be a second test here importing the same names out of the
+    ``Auto3D.utils`` package barrel, asserting that both paths worked. The
+    barrel is gone (``tests/test_import_boundaries.py`` now forbids it), so the
+    two-paths-for-one-name shape it pinned is the thing being prevented rather
+    than checked.
+    """
 
     def test_import_from_utils_chemistry(self):
         """Test direct import from Auto3D.utils.chemistry."""
-        from Auto3D.utils.chemistry import get_mol_charge, min_pairwise_distance, check_connectivity
-        assert callable(get_mol_charge)
-        assert callable(min_pairwise_distance)
-        assert callable(check_connectivity)
-
-    def test_import_from_utils_package(self):
-        """Test import from Auto3D.utils package."""
-        from Auto3D.utils import (
+        from Auto3D.utils.chemistry import (
             HARTREE_TO_EV,
-            hartree2ev,
-            get_mol_charge,
-            min_pairwise_distance,
-            get_rmsd,
             check_connectivity,
+            get_mol_charge,
+            get_rmsd,
+            hartree2ev,
+            min_pairwise_distance,
         )
         assert HARTREE_TO_EV == hartree2ev
         assert callable(get_mol_charge)

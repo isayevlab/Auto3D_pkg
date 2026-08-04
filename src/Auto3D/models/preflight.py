@@ -165,10 +165,12 @@ def preflight_model(engine: str) -> None:
     # (pure, offline) functions importable without pulling in the model stack.
     # `requests` is now also declared directly in pyproject.toml (previously
     # it arrived only transitively, via aimnet's own `requests>=2.32.3`), but
-    # deferring the import here still matters on its own: `import Auto3D.utils`
-    # (which reaches this module through utils/validation.py) stays free of a
-    # dependency it does not otherwise need, regardless of how `requests`
-    # is declared.
+    # deferring the import here still matters on its own: `resolve_engine_name`
+    # is a pure offline dict read that config validation calls on every run, and
+    # it must not require a network library to be importable. (The original
+    # reason was narrower and no longer applies: `import Auto3D.utils` used to
+    # reach this module through a module-scope import in utils/validation.py,
+    # which audit M43 deferred into the two functions that use it.)
     import requests
     from aimnet.calculators.model_registry import get_registry_model_path
 

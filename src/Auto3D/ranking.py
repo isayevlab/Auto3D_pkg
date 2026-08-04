@@ -8,8 +8,7 @@ from rdkit import Chem
 from Auto3D.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.exceptions import ConfigurationError, InputValidationError
 from Auto3D.filtering import filter_unique_optimized
-from Auto3D.utils import ev2kcalpermol, filter_unique
-from Auto3D.utils.chemistry import check_connectivity
+from Auto3D.utils.chemistry import check_connectivity, ev2kcalpermol, filter_unique
 from Auto3D.utils.convergence import converged_or_unfiltered, has_convergence_flag
 from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
 from Auto3D.utils.logging_config import get_logger

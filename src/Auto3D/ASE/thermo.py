@@ -23,7 +23,7 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
-from Auto3D.batch_opt.batchopt import EnForce_ANI
+from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.constants import (
     DEFAULT_OPT_STEPS,
     DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
@@ -39,7 +39,7 @@ from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.models.species import to_model_species
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils import hartree2ev
+from Auto3D.utils.chemistry import hartree2ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,

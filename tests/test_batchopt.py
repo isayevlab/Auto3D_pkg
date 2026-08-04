@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from Auto3D.batch_opt.batchopt import optimizing, EnForce_ANI
+from Auto3D.batch_opt.batchopt import optimizing
+from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from tests.helpers_adapter import FakeAdapter
 
 

@@ -20,18 +20,20 @@ from rdkit.Chem.MolStandardize import rdMolStandardize
 from tqdm import tqdm
 
 from Auto3D.constants import CONFORMER_RANDOM_SEED, MAX_STEREOISOMERS
-from Auto3D.utils import (
-    amend_configuration_w,
+from Auto3D.utils.chemistry import calculate_conformer_count, relieve_clash
+from Auto3D.utils.file_ops import (
+    combine_smi,
     hash_enumerated_smi_IDs,
-    relieve_clash,
+    iter_smi_records,
+)
+from Auto3D.utils.stereochemistry import (
+    amend_configuration_w,
+    enantiomer_key,
     remove_enantiomers,
 )
-from Auto3D.utils.chemistry import calculate_conformer_count
-from Auto3D.utils.file_ops import combine_smi, iter_smi_records
 from Auto3D.utils.stereochemistry import (
     count_unspecified_stereo as _count_unspecified_stereo,
 )
-from Auto3D.utils.stereochemistry import enantiomer_key
 
 try:
     from openeye import oechem, oeomega, oequacpac

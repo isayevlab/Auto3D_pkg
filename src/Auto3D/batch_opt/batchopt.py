@@ -22,14 +22,15 @@ from rdkit import Chem
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
 # removed to allow user configuration.
-# EnForce_ANI extracted to separate module for better modularity
-# Re-export for backward compatibility - modules like SPE.py and ASE/thermo.py
-# import EnForce_ANI from this module
+#
+# `EnForce_ANI` and `n_steps` are imported because this module uses them
+# (`ensemble_opt`'s annotation and `optimizing.run`'s construction; the step
+# loop), NOT as re-exports. Their homes are `batch_opt.model_wrapper` and
+# `batch_opt.optimization_engine`; import them from there. `print_stats` used to
+# be imported here purely to re-export -- nothing in this file called it -- and
+# is gone.
 from Auto3D.batch_opt.model_wrapper import EnForce_ANI
-
-# Optimization loop functions extracted to separate module for better modularity
-# Re-export for backward compatibility (print_stats kept as public re-export)
-from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
+from Auto3D.batch_opt.optimization_engine import n_steps
 from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 
 # Deliberately NOT `from Auto3D.model_factory import create_model`. This module

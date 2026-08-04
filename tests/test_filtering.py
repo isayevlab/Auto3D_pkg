@@ -391,7 +391,7 @@ class TestFilterUniqueBehavior:
         real Auto3D contract). Use genuinely distinct conformers of one molecule
         so RMSD is well-defined and comparable across both implementations.
         """
-        from Auto3D.utils import filter_unique
+        from Auto3D.utils.chemistry import filter_unique
 
         def conformer(seed: float, energy_ev: float) -> Chem.Mol:
             m = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))  # flexible chain

@@ -159,16 +159,15 @@ class TestEnForceANIForwardBatched:
         assert mock_adapter.forward.call_count == 3
 
 
-class TestEnForceANIBackwardCompatibility:
-    """Tests for backward compatibility with legacy API."""
+class TestEnForceANIImportPath:
+    """``model_wrapper`` is the one home of ``EnForce_ANI``.
 
-
-    def test_enforce_ani_import_from_batchopt(self):
-        """EnForce_ANI should be importable from batchopt for backward compatibility."""
-        from Auto3D.batch_opt.batchopt import EnForce_ANI as EnForce_ANI_batchopt
-
-        # Should be the same class
-        assert EnForce_ANI_batchopt is EnForce_ANI
+    A companion test used to assert the same class was reachable as
+    ``from Auto3D.batch_opt.batchopt import EnForce_ANI``, which pinned the
+    compat barrel in place. ``batchopt`` still imports the class -- it uses it --
+    but no first-party module may reach it through there, which
+    ``tests/test_import_boundaries.py`` now enforces statically.
+    """
 
     def test_enforce_ani_import_from_model_wrapper(self):
         """EnForce_ANI should be importable from model_wrapper."""

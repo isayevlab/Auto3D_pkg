@@ -27,7 +27,7 @@ from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.model_factory import create_model
 from Auto3D.processors import TautomerProcessor
 from Auto3D.ranking import ranking
-from Auto3D.utils import create_chunk_meta_names, housekeeping
+from Auto3D.utils.file_ops import create_chunk_meta_names, housekeeping
 
 if TYPE_CHECKING:
     from logging import LogRecord
