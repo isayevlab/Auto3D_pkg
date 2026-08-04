@@ -1265,7 +1265,12 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         import torch
         from torch import nn
 
-        class _ParamlessRecordingNNP(nn.Module):
+        from tests.helpers_adapter import AdapterModuleMixin
+
+        # The mixin supplies the ModelAdapter members this double does not
+        # care about (pads, to_species, energy); EnForce_ANI gates on them.
+        # It contributes no nn.Parameter, so the premise below still holds.
+        class _ParamlessRecordingNNP(AdapterModuleMixin, nn.Module):
             def __init__(self):
                 super().__init__()
                 self.seen: list[dict] = []

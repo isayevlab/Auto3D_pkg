@@ -469,7 +469,12 @@ def test_exit_5_unloadable_custom_model(tmp_path):
 
 def test_exit_5_non_finite_model_output(monkeypatch):
     """The other ``ModelError`` subclass: a model that loads but produces NaN."""
-    class _NanAdapter:
+    # AdapterModuleMixin supplies the ModelAdapter members this stub does not
+    # care about; `models test` asks the adapter for the species convention now
+    # instead of resolving it from the engine name separately (audit C4).
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _NanAdapter(AdapterModuleMixin):
         def forward(self, coords, species, charges):
             return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
 

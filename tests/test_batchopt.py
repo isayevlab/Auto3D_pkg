@@ -2,60 +2,13 @@
 """Unit tests for the batchopt module."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import torch
 
 from Auto3D.batch_opt.batchopt import optimizing, EnForce_ANI
-
-
-class TestOptimizingUsesModelFactory:
-    """Tests for optimizing class using ModelFactory."""
-
-    def test_optimizing_uses_model_factory(self):
-        """optimizing class should use ModelFactory for model creation."""
-        with patch('Auto3D.batch_opt.batchopt.create_model') as mock_factory:
-            mock_adapter = MagicMock()
-            mock_adapter.coord_pad = 0.0
-            mock_adapter.species_pad = 0
-            mock_factory.return_value = mock_adapter
-
-            config = {
-                'opt_steps': 100,
-                'opttol': 0.003,
-                'patience': 1000,
-                'batchsize_atoms': 1024
-            }
-            device = torch.device("cpu")
-            opt = optimizing("dummy.sdf", "out.sdf", "AIMNET", device, config)
-
-            # Check that create_model was called with the right model name and device
-            mock_factory.assert_called_once_with("AIMNET", device)
-            # Verify the adapter's properties are used
-            assert opt.coord_pad == 0.0
-            assert opt.species_pad == 0
-
-    def test_optimizing_uses_adapter_padding_values(self):
-        """optimizing should get coord_pad and species_pad from the adapter."""
-        with patch('Auto3D.batch_opt.batchopt.create_model') as mock_factory:
-            mock_adapter = MagicMock()
-            mock_adapter.coord_pad = 1.5
-            mock_adapter.species_pad = -2
-            mock_factory.return_value = mock_adapter
-
-            config = {
-                'opt_steps': 100,
-                'opttol': 0.003,
-                'patience': 1000,
-                'batchsize_atoms': 1024
-            }
-            device = torch.device("cpu")
-            opt = optimizing("dummy.sdf", "out.sdf", "AIMNET", device, config)
-
-            # Verify padding values come from adapter
-            assert opt.coord_pad == 1.5
-            assert opt.species_pad == -2
+from tests.helpers_adapter import FakeAdapter
 
 
 class TestEnForceANI:
@@ -182,10 +135,12 @@ class TestConvergenceFlagDerivation:
 
         # patience=1 guarantees the oscillation path is taken on any structure
         # that does not reduce fmax on its very first step.
+        from Auto3D.model_factory import create_model
+
         opt = optimizing(
             in_f=str(sdf),
             out_f=str(job_dir / "out.sdf"),
-            name="ANI2xt",
+            adapter=create_model("ANI2xt", torch.device("cpu")),
             device=torch.device("cpu"),
             config={"opt_steps": 5, "opttol": 1e-9, "patience": 1, "batchsize_atoms": 1024},
         )
@@ -219,19 +174,10 @@ class TestConvergenceFlagDerivation:
 
 def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
     """Buckets must be size-homogeneous; a size outlier splits into its own bucket."""
-    from types import SimpleNamespace
-
     from rdkit import Chem
     from rdkit.Chem import AllChem
     import torch
     from Auto3D.batch_opt.batchopt import optimizing
-
-    # _make_buckets is pure-Python; stub create_model so this never loads the
-    # real AIMNet2 model.
-    monkeypatch.setattr(
-        "Auto3D.batch_opt.batchopt.create_model",
-        lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
-    )
 
     # Build an optimizing instance without running (just to call _make_buckets)
     inp = tmp_path / "in.sdf"
@@ -241,8 +187,12 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
         for i, s in enumerate(sizes):
             m = Chem.AddHs(Chem.MolFromSmiles(s)); AllChem.EmbedMolecule(m, randomSeed=1)
             m.SetProp("_Name", str(i)); w.write(m); mols.append(m)
-    eng = optimizing(str(inp), str(tmp_path/"o.sdf"), "AIMNET", torch.device("cpu"),
-                     {"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
+    # _make_buckets is pure-Python, so a conforming double is enough and no
+    # model is loaded. `optimizing` no longer builds its own adapter, so there is
+    # no create_model seam left to patch.
+    eng = optimizing(str(inp), str(tmp_path/"o.sdf"), adapter=FakeAdapter(),
+                     device=torch.device("cpu"),
+                     config={"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
     buckets = eng._make_buckets(mols)
     # the big 20-carbon ring must not share a bucket with methane
     big_idx = 3
@@ -252,8 +202,6 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
 
 def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     """Bucketing reorders internally but output order must match input."""
-    from types import SimpleNamespace
-
     from rdkit import Chem
     from rdkit.Chem import AllChem
     import torch
@@ -274,16 +222,99 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
                     numbers=numbers.tolist(), converged_mask=[True]*n,
                     oscillating_count=[0]*n)
     monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
-    # The optimization itself is faked above; stub create_model so constructing
-    # `optimizing` does not load the real AIMNet2 model.
-    monkeypatch.setattr(
-        bo, "create_model",
-        lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
-    )
 
     out = tmp_path / "out.sdf"
-    eng = bo.optimizing(str(inp), str(out), "AIMNET", torch.device("cpu"),
-                        {"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
+    eng = bo.optimizing(str(inp), str(out), adapter=FakeAdapter(),
+                        device=torch.device("cpu"),
+                        config={"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
     eng.run()
     names = [m.GetProp("_Name") for m in Chem.SDMolSupplier(str(out), removeHs=False)]
     assert names == ["0", "1", "2"]  # original input order
+
+
+class TestBatchOptDependsDownwards:
+    """``batch_opt`` must depend on ``models/``, never on ``model_factory``.
+
+    ``batchopt.py`` imported ``Auto3D.model_factory.create_model`` at module
+    scope and called it in ``optimizing.__init__``: the numerical layer
+    constructing its own dependency, and reaching UP into the layer that is
+    supposed to sit above it. The visible symptom was in the tests -- every one
+    of them had to monkeypatch ``Auto3D.batch_opt.batchopt.create_model``, a seam
+    that existed only because the arrow pointed the wrong way.
+    """
+
+    def test_importing_batchopt_does_not_pull_in_the_factory(self):
+        """Asserted in a fresh interpreter: an already-imported ``model_factory``
+        would make this vacuous inside the test session."""
+        import subprocess
+        import sys
+
+        program = (
+            "import sys; import Auto3D.batch_opt.batchopt as b; "
+            "assert 'Auto3D.model_factory' not in sys.modules, "
+            "sorted(m for m in sys.modules if m.startswith('Auto3D')); "
+            "print('ok')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", program], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "ok" in result.stdout
+
+    def test_batchopt_exposes_no_create_model_seam(self):
+        import Auto3D.batch_opt.batchopt as bo
+
+        assert not hasattr(bo, "create_model")
+
+
+class TestOptimizingTakesAnAdapterNotAName:
+    """Construction is the caller's job, and the caller must be in the worker.
+
+    ``optimizing`` no longer knows an engine name at all: ``pad_from_mols`` asks
+    the adapter, so there is nothing left for a name to decide.
+    """
+
+    @staticmethod
+    def _config():
+        return {
+            "opt_steps": 100,
+            "opttol": 0.003,
+            "patience": 1000,
+            "batchsize_atoms": 1024,
+        }
+
+    def test_an_engine_name_is_rejected(self):
+        """The parameters after ``out_f`` are keyword-only, so a stale positional
+        call fails at the call rather than silently binding a string into the
+        slot that supplies the padding values."""
+        with pytest.raises(TypeError):
+            optimizing(
+                "dummy.sdf", "out.sdf", "AIMNET", torch.device("cpu"), self._config()
+            )
+
+    def test_padding_values_come_from_the_injected_adapter(self):
+        from tests.helpers_adapter import FakeAdapter
+
+        adapter = FakeAdapter(coord_pad=1.5, species_pad=-2)
+        opt = optimizing(
+            "dummy.sdf",
+            "out.sdf",
+            adapter=adapter,
+            device=torch.device("cpu"),
+            config=self._config(),
+        )
+        assert opt.model is adapter
+        assert opt.coord_pad == 1.5
+        assert opt.species_pad == -2
+
+    def test_optimizing_no_longer_carries_an_engine_name(self):
+        from tests.helpers_adapter import FakeAdapter
+
+        opt = optimizing(
+            "dummy.sdf",
+            "out.sdf",
+            adapter=FakeAdapter(),
+            device=torch.device("cpu"),
+            config=self._config(),
+        )
+        assert not hasattr(opt, "name")

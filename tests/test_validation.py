@@ -5,6 +5,7 @@ This module tests that check_input raises proper exceptions instead of sys.exit(
 
 import pytest
 from unittest.mock import patch, MagicMock
+from Auto3D.config import Auto3DOptions
 from Auto3D.utils.validation import check_input
 from Auto3D.exceptions import GPUError, DependencyError, ConfigurationError, ModelLoadError
 
@@ -104,17 +105,20 @@ class TestCheckInputExceptions:
             check_input(args)
 
     def test_opt_steps_too_small_raises_configuration_error(self):
-        """Should raise ConfigurationError when opt_steps < 10."""
-        args = MagicMock()
-        args.use_gpu = False
-        args.isomer_engine = "rdkit"
-        args.optimizing_engine = "AIMNET"
-        args.opt_steps = 5
-        args.input_format = "smi"
-        args.path = "/fake/path.smi"
+        """opt_steps < 10 must still raise ConfigurationError -- but now at
+        configuration *construction*, which is where the single declaration of
+        that floor lives.
 
-        with pytest.raises(ConfigurationError, match="smaller than 10"):
-            check_input(args)
+        ``check_input`` used to hand-write ``< 10`` and so did
+        ``check_valid_configuration``, while ``Auto3D.config.FIELD_BOUNDS``
+        declared ``("ge", 1)``: one option, two different minimums, and
+        ``opt_steps=5`` accepted by ``Auto3DOptions``/``CLIConfig`` only to fail
+        later. ``FIELD_BOUNDS["opt_steps"]`` is now ``("ge", 10)`` and both
+        hand-written checks are gone, so the refusal happens before any entry
+        point can act on the value. Same exception type, strictly earlier.
+        """
+        with pytest.raises(ConfigurationError, match="opt_steps"):
+            Auto3DOptions(path="/fake/path.smi", k=1, opt_steps=5)
 
     def test_only_aimnet_molecules_with_ani2x_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when molecules require AIMNET but ANI2x selected."""
@@ -184,7 +188,9 @@ class TestCheckValidConfigurationGpuIndex:
         p.write_text("CCO mol\n")
         with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True), \
              patch('Auto3D.utils.validation.torch.cuda.device_count', return_value=1):
-            errors = check_valid_configuration(path=str(p), k=1, use_gpu=True, gpu_idx=5)
+            errors = check_valid_configuration(
+                Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=5)
+            )
         assert any("GPU index 5 is invalid" in e for e in errors)
 
     def test_valid_index_not_flagged(self, tmp_path):
@@ -193,7 +199,9 @@ class TestCheckValidConfigurationGpuIndex:
         p.write_text("CCO mol\n")
         with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True), \
              patch('Auto3D.utils.validation.torch.cuda.device_count', return_value=4):
-            errors = check_valid_configuration(path=str(p), k=1, use_gpu=True, gpu_idx=0)
+            errors = check_valid_configuration(
+                Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=0)
+            )
         assert errors == []
 
 
@@ -237,7 +245,7 @@ class TestGpuPolicyIsUniform:
         p.write_text("CCO mol\n")
         with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=False):
             with pytest.raises(GPUError):
-                check_valid_configuration(path=str(p), k=1, use_gpu=True)
+                check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
     def test_check_input_and_check_valid_configuration_agree(self, tmp_path):
         """The two entry points main() and smiles2mols reach check_input and
@@ -259,7 +267,7 @@ class TestGpuPolicyIsUniform:
             with pytest.raises(GPUError) as exc_via_check_input:
                 check_input(args)
             with pytest.raises(GPUError) as exc_via_check_valid_configuration:
-                check_valid_configuration(path=str(p), k=1, use_gpu=True)
+                check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
         assert type(exc_via_check_input.value) is type(
             exc_via_check_valid_configuration.value

@@ -152,9 +152,12 @@ def calc_spe(
     # batch (AIMNet2) must be told which slots are real rather than inferring
     # it from `species == species_pad`, which deletes a legitimate atomic
     # number 0 (an R-group `*` atom) along with the padding (audit C13).
+    # One argument, one source: the adapter supplies the species convention AND
+    # both pad values. This call used to hand over `model_name` alongside the
+    # adapter's two pads, so the remap and the sentinel came from different
+    # places and could contradict each other (audit C3/C4).
     coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(
-        mols, model_name, device,
-        coord_pad=model_adapter.coord_pad, species_pad=model_adapter.species_pad
+        mols, model_adapter, device
     )
 
     es, fs = model.forward_batched(

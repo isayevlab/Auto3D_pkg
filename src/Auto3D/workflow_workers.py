@@ -24,6 +24,7 @@ from send2trash import send2trash
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import optimizer_worker_indices
 from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.model_factory import create_model
 from Auto3D.processors import TautomerProcessor
 from Auto3D.ranking import ranking
 from Auto3D.utils import create_chunk_meta_names, housekeeping
@@ -230,8 +231,20 @@ def optim_rank_wrapper(
                             _q.put({**event, "job": _job})
                         except Exception:
                             pass
+                # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
+                # worker, and must stay here. `optimizing` used to construct it
+                # itself; hoisting construction one frame out (to this function)
+                # keeps it in the same process, but hoisting it any further -- to
+                # `workflow.py`, which drives the pool, where these duplicated
+                # `create_model` calls would look like an obvious cleanup -- pushes
+                # a device-resident nn.Module, and for AIMNET a live
+                # AIMNet2Calculator, across the `spawn` boundary. That is either an
+                # unpicklable-object failure or CUDA re-initialization in the
+                # parent, and nothing in the signature says so.
+                adapter = create_model(optimizing_engine, device)
                 optimizer = optimizing(enumerated_sdf, optimized_og,
-                                       optimizing_engine, device, opt_config,
+                                       adapter=adapter, device=device,
+                                       config=opt_config,
                                        progress_cb=progress_cb)
                 optimizer.run()
 

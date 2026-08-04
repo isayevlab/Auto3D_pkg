@@ -45,14 +45,57 @@ def test_model_adapter_interface(aimnet_model):
 
 
 class TestModelAdapterProtocol:
-    """Tests for the ModelAdapter protocol."""
+    """Tests for the ModelAdapter protocol.
 
-    def test_protocol_is_defined(self):
-        """Protocol should be properly defined."""
-        from Auto3D.models.adapter import ModelAdapter
+    It lives in ``Auto3D.models.contract`` alongside ``CustomNNP`` -- the
+    interface it is constantly confused with -- so the two declarations cannot be
+    read separately. ``Auto3D.models.adapter`` holds implementations only.
+    """
 
-        # Check that ModelAdapter has forward method
-        assert hasattr(ModelAdapter, 'forward')
+    def test_protocol_declares_the_whole_contract(self):
+        from Auto3D.models.contract import ModelAdapter
+
+        for member in ("forward", "energy", "to_species"):
+            assert hasattr(ModelAdapter, member)
+        assert tuple(ModelAdapter.__annotations__) == ("coord_pad", "species_pad")
+
+    def test_protocol_does_not_live_in_the_implementation_module(self):
+        """A clean sweep: the old import path is gone, not aliased."""
+        import Auto3D.models.adapter as adapter_mod
+
+        assert not hasattr(adapter_mod, "ModelAdapter")
+
+    def test_the_package_still_re_exports_it(self):
+        from Auto3D.models import ModelAdapter as reexported
+        from Auto3D.models.contract import ModelAdapter as canonical
+
+        assert reexported is canonical
+        assert "ModelAdapter" in __import__(
+            "Auto3D.models", fromlist=["__all__"]
+        ).__all__
+
+    def test_device_is_not_part_of_the_contract(self):
+        """Dropped deliberately.
+
+        Nothing outside an adapter reads ``adapter.device``
+        (``BaseModelAdapter`` keeps ``self.device`` as an implementation detail),
+        and requiring it would make every legitimate structural implementation --
+        including test doubles that never touch a device -- non-conforming for no
+        benefit.
+        """
+        from Auto3D.models.contract import ModelAdapter
+
+        assert "device" not in ModelAdapter.__annotations__
+
+    def test_issubclass_is_never_a_valid_question(self):
+        """Pinned so nobody "improves" the EnForce_ANI gate into an issubclass:
+        a Protocol with data members raises for it."""
+        import pytest
+
+        from Auto3D.models.contract import ModelAdapter
+
+        with pytest.raises(TypeError):
+            issubclass(dict, ModelAdapter)
 
 
 class TestBaseModelAdapter:
@@ -431,3 +474,241 @@ class TestValidateOutputs:
         forces[0, 2, 1] = float("inf")
         with pytest.raises(NumericalError, match="Inf.*force"):
             _validate_outputs(energy, forces)
+
+
+class TestAni2xtNetworksAreTableDriven:
+    """The seven per-element MLPs are one factory + a width table (audit M61).
+
+    They used to be seven copy-pasted ``nn.Sequential`` blocks, 69 lines
+    differing only in three integers, which is how ``F_network`` and
+    ``S_network`` ended up declared in the opposite order from the
+    ``ModuleList`` they are placed into -- readable only by cross-checking two
+    distant lines.
+
+    The refactor is safe because ``nn.ModuleList.load_state_dict`` keys off
+    POSITION (``"0.0.weight"``, ``"1.0.weight"``, ...), never off the Python
+    variable a submodule was assigned to. That claim is not taken on trust: the
+    test below loads the real shipped checkpoint into both the old hand-written
+    structure and the new generated one and compares every tensor.
+    """
+
+    CHECKPOINT = "src/Auto3D/models/ani2xt_no_repulsion.pt"
+
+    @staticmethod
+    def _hand_written(aev_dim):
+        """Verbatim transcription of the seven blocks as they were before M61,
+        in their original ``ModuleList`` order (note F before S)."""
+        from torch import nn
+
+        def mlp(a, b, c, d):
+            return nn.Sequential(
+                nn.Linear(a, b), nn.CELU(0.1),
+                nn.Linear(b, c), nn.CELU(0.1),
+                nn.Linear(c, d), nn.CELU(0.1),
+                nn.Linear(d, 1),
+            )
+
+        H_network = mlp(aev_dim, 256, 192, 160)
+        C_network = mlp(aev_dim, 224, 192, 160)
+        N_network = mlp(aev_dim, 192, 160, 128)
+        O_network = mlp(aev_dim, 192, 160, 128)
+        S_network = mlp(aev_dim, 160, 128, 96)
+        F_network = mlp(aev_dim, 160, 128, 96)
+        Cl_network = mlp(aev_dim, 160, 128, 96)
+        return nn.ModuleList([
+            H_network, C_network, N_network, O_network,
+            F_network, S_network, Cl_network,
+        ])
+
+    def test_the_shipped_checkpoint_loads_identically_both_ways(self):
+        """The tripwire for the whole refactor: same weights, tensor for tensor.
+
+        Loading a ``state_dict`` is not running the model -- no inference, no
+        torchani, no download; the checkpoint is bundled in
+        ``src/Auto3D/models/``.
+        """
+        import torch
+        from torch import nn
+
+        from Auto3D.batch_opt.ANI2xt_no_rep import WIDTHS, _atomic_mlp
+
+        checkpoint = torch.load(self.CHECKPOINT, map_location="cpu", weights_only=True)
+        # Read the AEV width off the checkpoint rather than hardcoding it, so a
+        # retrained model with a different AEV does not silently pass.
+        aev_dim = checkpoint["0.0.weight"].shape[1]
+
+        old = self._hand_written(aev_dim)
+        new = nn.ModuleList([_atomic_mlp(aev_dim, widths) for widths in WIDTHS])
+
+        old.load_state_dict(checkpoint)
+        new.load_state_dict(checkpoint)
+
+        old_state, new_state = old.state_dict(), new.state_dict()
+        assert set(old_state) == set(new_state)
+        for key in old_state:
+            assert torch.equal(old_state[key], new_state[key]), (
+                f"{key} differs: the ModuleList order changed, so this "
+                f"checkpoint now routes an element to the wrong network"
+            )
+
+    def test_the_width_table_is_in_moduleList_order_including_f_before_s(self):
+        """Fluorine at index 4 and sulfur at index 5, matching ANI2XT_INDEX.
+
+        The old code declared ``S_network`` before ``F_network`` in the source but
+        placed F before S in the ``ModuleList``. Since F, S and Cl happen to share
+        the same widths the mix-up was harmless -- and undetectable. The table
+        makes the order the only order there is.
+        """
+        from Auto3D.batch_opt.ANI2xt_no_rep import WIDTHS
+        from Auto3D.models.species import ANI2XT_INDEX
+
+        assert len(WIDTHS) == len(ANI2XT_INDEX) == 7
+        # H, C, N, O, F, S, Cl
+        assert WIDTHS == (
+            (256, 192, 160),
+            (224, 192, 160),
+            (192, 160, 128),
+            (192, 160, 128),
+            (160, 128, 96),
+            (160, 128, 96),
+            (160, 128, 96),
+        )
+
+    def test_the_factory_builds_the_documented_shape(self):
+        from torch import nn
+
+        from Auto3D.batch_opt.ANI2xt_no_rep import _atomic_mlp
+
+        net = _atomic_mlp(11, (5, 4, 3))
+        kinds = [type(layer) for layer in net]
+        assert kinds == [
+            nn.Linear, nn.CELU, nn.Linear, nn.CELU, nn.Linear, nn.CELU, nn.Linear
+        ]
+        assert [ (l.in_features, l.out_features)
+                 for l in net if isinstance(l, nn.Linear) ] == [
+            (11, 5), (5, 4), (4, 3), (3, 1)
+        ]
+        assert all(l.alpha == 0.1 for l in net if isinstance(l, nn.CELU))
+
+
+class TestEnergyIsDtypePreserving:
+    """``energy()`` must answer in the dtype it was asked in.
+
+    This is the single most likely silent numerical regression in the whole
+    contract change, and it produces no error of any kind.
+    ``ANI2xAdapter.forward`` and ``CustomModelAdapter.forward`` both call
+    ``coords.float()`` -- correct for them, because they front float32 weights.
+    But ``energy()`` exists so a caller can DIFFERENTIATE it (an fp64 Hessian,
+    which ``ASE/thermo.py`` builds by promoting the wrapped module with
+    ``.double()``). If ``energy`` were the inherited ``forward(...)[0]`` for those
+    two adapters, an fp64 request would come back fp32 with nothing reported: the
+    Hessian would simply be less accurate than the code around it promises.
+
+    Each adapter is built by calling ``BaseModelAdapter.__init__`` on a bypassed
+    instance and handing it a toy module that RECORDS the dtype it was fed -- the
+    same technique the force-sign tests above use. Nothing is loaded, no torchani,
+    no download.
+    """
+
+    @staticmethod
+    def _bypassed(cls, model):
+        from Auto3D.models.adapter import BaseModelAdapter
+
+        adapter = cls.__new__(cls)
+        BaseModelAdapter.__init__(
+            adapter, model, torch.device("cpu"), coord_pad=0.0, species_pad=-1
+        )
+        return adapter
+
+    def test_ani2x_energy_keeps_float64(self):
+        from collections import namedtuple
+
+        from Auto3D.constants import HARTREE_TO_EV
+        from Auto3D.models.adapter import ANI2xAdapter
+
+        _SpeciesEnergies = namedtuple("SpeciesEnergies", ["species", "energies"])
+        seen: list = []
+
+        class _Recorder(torch.nn.Module):
+            def forward(self, species_coords):
+                species, coords = species_coords
+                seen.append(coords.dtype)
+                return _SpeciesEnergies(
+                    species, (coords ** 2).sum(dim=(1, 2)) / HARTREE_TO_EV
+                )
+
+        adapter = self._bypassed(ANI2xAdapter, _Recorder())
+        coords = torch.randn(2, 4, 3, dtype=torch.float64)
+        species = torch.tensor([[1, 6, 7, 8], [1, 6, 7, -1]])
+        charges = torch.zeros(2, dtype=torch.float64)
+
+        energy = adapter.energy(coords, species, charges)
+        assert seen == [torch.float64], (
+            f"energy() handed the model {seen}; an fp64 caller silently got fp32"
+        )
+        assert energy.dtype is torch.float64
+
+        # And forward() still downcasts, deliberately: that is the optimization
+        # path, where float32 weights are the point.
+        seen.clear()
+        adapter.forward(coords.clone(), species, charges)
+        assert seen == [torch.float32]
+
+    def test_custom_energy_keeps_float64_for_coords_and_charges(self):
+        from Auto3D.models.adapter import CustomModelAdapter
+
+        seen: list = []
+
+        class _Recorder(torch.nn.Module):
+            def forward(self, species, coords, charges):
+                seen.append((coords.dtype, charges.dtype))
+                return (coords ** 2).sum(dim=(1, 2))
+
+        adapter = self._bypassed(CustomModelAdapter, _Recorder())
+        coords = torch.randn(2, 4, 3, dtype=torch.float64)
+        species = torch.tensor([[1, 6, 7, 8], [1, 6, 7, -1]])
+        charges = torch.zeros(2)
+
+        energy = adapter.energy(coords, species, charges)
+        assert seen == [(torch.float64, torch.float64)], (
+            f"energy() handed the model {seen}; charges must follow coords so a "
+            "model that concatenates them does not hit a dtype mismatch"
+        )
+        assert energy.dtype is torch.float64
+
+        seen.clear()
+        adapter.forward(coords.clone(), species, charges)
+        assert seen == [(torch.float32, torch.float32)]
+
+    def test_ani2xt_energy_accepts_a_non_leaf_tensor(self):
+        """``ANI2xtAdapter.forward`` calls ``coords.requires_grad_(True)``, which
+        raises on the non-leaf tensor an autograd Hessian hands in. Its own
+        ``energy`` must not touch ``requires_grad`` at all."""
+        from Auto3D.models.adapter import ANI2xtAdapter
+
+        class _Toy(torch.nn.Module):
+            def forward(self, species, coords):
+                return (coords ** 2).sum(dim=(1, 2))
+
+        adapter = self._bypassed(ANI2xtAdapter, _Toy())
+        leaf = torch.randn(2, 4, 3, dtype=torch.float64, requires_grad=True)
+        non_leaf = leaf * 2.0
+        assert non_leaf.grad_fn is not None, "test premise: coords must be non-leaf"
+        species = torch.tensor([[0, 1, 2, 3], [0, 1, 2, -1]])
+
+        energy = adapter.energy(non_leaf, species, torch.zeros(2))
+        assert energy.dtype is torch.float64
+        # Still graph-connected: no internal no_grad, so a Hessian can be taken.
+        assert energy.requires_grad
+        (grad,) = torch.autograd.grad(energy.sum(), leaf)
+        torch.testing.assert_close(grad, 8.0 * leaf)
+
+    def test_energy_has_no_no_grad_anywhere(self):
+        """The contract promises a graph-connected result for every adapter."""
+        from tests.helpers_adapter import FakeAdapter
+
+        adapter = FakeAdapter()
+        coords = torch.randn(1, 3, 3, requires_grad=True)
+        energy = adapter.energy(coords, torch.ones(1, 3, dtype=torch.long),
+                                torch.zeros(1))
+        assert energy.requires_grad

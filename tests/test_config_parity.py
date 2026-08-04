@@ -165,7 +165,7 @@ class TestAuxiliaryEntryPointGuards:
 
         monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
 
-        def fake_pad(mols, model_name, device, coord_pad, species_pad):
+        def fake_pad(mols, adapter, device):
             n = len(mols)
             coords = torch.zeros(n, 1, 3)
             numbers = torch.zeros(n, 1, dtype=torch.long)
@@ -468,7 +468,7 @@ class TestDuplicateInchikeyInputs:
             executes exactly as it would after a genuine optimization --
             without loading an NNP."""
 
-            def __init__(self, in_f, out_f, name, device, config, *a, **k):
+            def __init__(self, in_f, out_f, *a, **k):
                 self.in_f = in_f
                 self.out_f = out_f
 

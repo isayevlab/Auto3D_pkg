@@ -1,0 +1,100 @@
+# src/Auto3D/models/species.py
+"""ANI2xt's species convention, owned by ``models/`` because it is the model's.
+
+ANI2xt is constructed with ``periodic_table_index=False`` at every site, so its
+forward expects 0-based network indices (H=0, C=1, N=2, O=3, F=4, S=5, Cl=6), not
+atomic numbers. Every other engine consumes atomic numbers unchanged.
+
+This table used to live in ``batch_opt/species.py``, which made ``batch_opt`` a
+shared-utility host for ``ASE/``, ``cli/`` and ``models/``'s own padder -- three
+layers with no business depending on the optimizer package. The species
+convention is a property of *the model*, so the model layer owns it, and the
+canonical way to reach it is
+:meth:`Auto3D.models.contract.ModelAdapter.to_species` -- asking the object that
+also supplies ``species_pad``, so the remap and the padding sentinel cannot come
+from two sources and disagree (audit findings C3/C4).
+
+Layering note: rdkit is imported lazily, inside the error branch that needs it
+for an element symbol. ``models/`` is reached from ``utils/validation.py`` and
+therefore from ``import Auto3D.utils``; a module-scope rdkit import here would
+make that import pay for rdkit (audit M44).
+"""
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from Auto3D.constants import MODEL_ANI2XT
+
+# Atomic number -> ANI2xt network index. The order matches the ModuleList in
+# batch_opt/ANI2xt_no_rep.py; changing one without the other misroutes elements.
+ANI2XT_INDEX: dict[int, int] = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
+
+__all__ = ["ANI2XT_INDEX", "to_ani2xt_species", "to_model_species"]
+
+
+def to_ani2xt_species(atomic_numbers: Sequence[int]) -> list[int]:
+    """Convert atomic numbers to ANI2xt's 0-based network indices.
+
+    The single implementation of this remap. ``ANI2xtAdapter.to_species``
+    delegates here, and so does :func:`to_model_species`.
+
+    Args:
+        atomic_numbers: Atomic numbers, one per atom.
+
+    Returns:
+        ANI2xt network indices in the same order.
+
+    Raises:
+        ValueError: An atomic number outside ANI2xt's supported set. The message
+            names the atomic number, the element symbol, and the model.
+    """
+    converted: list[int] = []
+    for atomic_num in atomic_numbers:
+        try:
+            converted.append(ANI2XT_INDEX[int(atomic_num)])
+        except KeyError:
+            # Deferred so the happy path never imports rdkit (see module
+            # docstring); only the message needs the element symbol.
+            from rdkit import Chem
+
+            symbol = Chem.GetPeriodicTable().GetElementSymbol(int(atomic_num))
+            raise ValueError(
+                f"Element Z={atomic_num} ({symbol}) is not supported by "
+                f"ANI2xt (supported: H, C, N, O, F, S, Cl)."
+            ) from None
+    return converted
+
+
+def to_model_species(atomic_numbers: Sequence[int], model_name: str) -> list[int]:
+    """Name-keyed species conversion. Prefer ``adapter.to_species``.
+
+    RESIDUAL, and deliberately marked as one. Deciding the species convention
+    from a *string* is the shape this cluster exists to remove: the caller then
+    holds a name and the padding values separately, and nothing stops the two
+    from disagreeing. Every batching caller now asks the adapter instead
+    (:func:`Auto3D.batch_opt.padding.pad_from_mols`,
+    :mod:`Auto3D.cli.commands.models`).
+
+    Two call sites remain, both in ``Auto3D.ASE.thermo``
+    (``Calculator.calculate`` and ``mol2aimnet_input``), because migrating them
+    means changing ``Calculator``'s public signature -- work that belongs with
+    the wider ``thermo.py`` restructuring, not here. Neither builds a padded
+    batch, so neither can hit the disagreement class; they are a redundant entry
+    point, not a live defect. Delete this function when they move.
+
+    Args:
+        atomic_numbers: Atomic numbers, one per atom.
+        model_name: Engine name, matched case-insensitively against ``"ANI2xt"``
+            (the same normalization ``ModelFactory.create`` applies). Only a
+            match remaps; every other value (AIMNET, any aimnet registry name,
+            ANI2x, a custom model path) passes through unchanged.
+
+    Returns:
+        Species values in the model's own convention.
+
+    Raises:
+        ValueError: ``model_name`` is ANI2xt and an atomic number is out of set.
+    """
+    if model_name.upper() != MODEL_ANI2XT.upper():
+        return list(atomic_numbers)
+    return to_ani2xt_species(atomic_numbers)

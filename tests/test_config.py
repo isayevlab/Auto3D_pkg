@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -185,39 +186,58 @@ def test_capacity_default_matches_across_layers():
     assert Auto3DOptions(path="x.smi").capacity == CLIConfig(path="x.smi").capacity
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "config.py FIELD_BOUNDS['opt_steps'] declares a floor of ('ge', 1), "
-        "but Auto3D.utils.validation.check_valid_configuration (validation.py:621) "
-        "and check_input (validation.py:354) each hand-write a floor of 10. "
-        "A value FIELD_BOUNDS calls valid is rejected by the other validator. "
-        "This test does not decide which number is right -- only that the two "
-        "must agree on ONE minimum, whichever the eventual fix picks."
-    ),
-)
-def test_opt_steps_minimum_agrees_between_config_and_validation():
-    """FIELD_BOUNDS['opt_steps'] and utils.validation's opt_steps floor must
-    be the SAME minimum -- see the xfail reason for the defect this pins.
+def test_opt_steps_has_exactly_one_declared_minimum():
+    """``opt_steps`` had TWO minimums: ``FIELD_BOUNDS`` declared ``("ge", 1)``
+    while ``utils/validation.py`` hand-wrote ``< 10`` twice (in ``check_input``
+    and again in ``check_valid_configuration``). So ``opt_steps=5`` was accepted
+    by ``Auto3DOptions``/``CLIConfig``, printed a banner, and only then failed
+    at run start.
+
+    10 won, not 1 -- see the comment on ``FIELD_BOUNDS["opt_steps"]`` for why
+    (the optimizer's own 10-step cadences, and its explicit ``n >= 10`` guard).
+    This test asserts the *consolidation*, in both directions: the floor is
+    declared once, in ``FIELD_BOUNDS``, and no validator downstream carries a
+    second copy of it.
     """
-    from Auto3D.config import FIELD_BOUNDS, check_field_bounds
-    from Auto3D.utils.validation import check_valid_configuration
+    from Auto3D.config import FIELD_BOUNDS, Auto3DOptions, check_field_bounds
+    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.utils import validation as validation_mod
 
     kind, bound_min = FIELD_BOUNDS["opt_steps"]
-    assert kind == "ge"
+    assert (kind, bound_min) == ("ge", 10)
 
-    # config.py's own gate must accept its own declared floor (premise, not
-    # the point of this test).
+    # The declared floor is accepted; one below it is refused -- and refused at
+    # construction, on the object every entry point builds, not later.
     check_field_bounds({"opt_steps": bound_min})  # must not raise
+    Auto3DOptions(path="x.smi", k=1, opt_steps=int(bound_min))
+    with pytest.raises(ConfigurationError, match="opt_steps"):
+        Auto3DOptions(path="x.smi", k=1, opt_steps=int(bound_min) - 1)
 
-    # utils.validation must not disagree with config.py's declared floor:
-    # a value config.py calls valid must not be flagged as an error there.
-    errors = check_valid_configuration(
-        path=None, k=1, opt_steps=int(bound_min), use_gpu=False,
-    )
-    assert not any("opt_steps" in e for e in errors), (
-        f"config.py says opt_steps={bound_min} is valid (FIELD_BOUNDS), but "
-        f"utils.validation.check_valid_configuration disagrees: {errors}"
+    # And utils/validation.py no longer restates the number anywhere. A source
+    # check rather than a behavioral one: a second copy that happens to agree
+    # today is exactly how the two drifted apart in the first place, and
+    # behavior cannot distinguish "one bound" from "two bounds that match".
+    #
+    # AST, not a substring scan over lines: the prose explaining why the checks
+    # were removed necessarily mentions `opt_steps` and `< 10`, so a text match
+    # flags the comment that documents the fix. A `Compare` node is the thing
+    # actually forbidden here.
+    import ast
+
+    tree = ast.parse(Path(validation_mod.__file__).read_text())
+    offenders = [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare)
+        and "opt_steps" in ast.unparse(node)
+        and any(
+            isinstance(c, ast.Constant) and isinstance(c.value, (int, float))
+            for c in node.comparators
+        )
+    ]
+    assert not offenders, (
+        f"utils/validation.py hand-writes an opt_steps bound again: {offenders}. "
+        "The bound belongs in Auto3D.config.FIELD_BOUNDS only."
     )
 
 

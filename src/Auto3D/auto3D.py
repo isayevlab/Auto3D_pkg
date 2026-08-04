@@ -22,6 +22,7 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.model_factory import create_model
 from Auto3D.models.preflight import preflight_model
 from Auto3D.ranking import ranking
 from Auto3D.utils import (
@@ -172,18 +173,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         # gpu_idx) the same way main() does via WorkflowOrchestrator --
         # check_input alone does not catch this, so it used to only surface
         # opaquely deep inside optimization.
-        config_errors = check_valid_configuration(
-            path=args.path,
-            k=args.k,
-            window=args.window,
-            use_gpu=args.use_gpu,
-            gpu_idx=args.gpu_idx,
-            optimizing_engine=args.optimizing_engine,
-            isomer_engine=args.isomer_engine,
-            opt_steps=args.opt_steps,
-            enumerate_tautomer=args.enumerate_tautomer,
-            tauto_engine=args.tauto_engine,
-        )
+        config_errors = check_valid_configuration(args)
         if config_errors:
             raise ConfigurationError(
                 "Invalid configuration:\n  - " + "\n  - ".join(config_errors)
@@ -228,8 +218,14 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         else:
             device = torch.device("cpu")
         opt_config = args.to_optimization_config()
+        # Built in this process, which is also the one that runs the
+        # optimization -- `smiles2mols` is single-process, so there is no spawn
+        # boundary here, but see `Auto3D.workflow_workers.optim_rank_wrapper`
+        # for why construction must never be hoisted past the frame that works.
+        adapter = create_model(args.optimizing_engine, device)
         opt_engine = optimizing(meta["enumerated_sdf"], meta["optimized_og"],
-                                args.optimizing_engine, device, opt_config)
+                                adapter=adapter, device=device,
+                                config=opt_config)
         opt_engine.run()
 
         # Ranking step

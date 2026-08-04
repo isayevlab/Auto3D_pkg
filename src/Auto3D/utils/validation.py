@@ -27,7 +27,7 @@ from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.stereochemistry import count_unspecified_stereo
 
 if TYPE_CHECKING:
-    pass
+    from Auto3D.config import Auto3DOptions
 
 logger = get_logger(__name__)
 
@@ -291,10 +291,13 @@ def check_input(args: Any) -> None:
             - use_gpu: Whether to use GPU acceleration
             - isomer_engine: Engine for isomer enumeration ('rdkit' or 'omega')
             - optimizing_engine: Engine for geometry optimization ('ANI2x', 'ANI2xt', 'AIMNET', or path)
-            - opt_steps: Number of optimization steps
             - input_format: Input file format ('smi' or 'sdf')
             - path: Path to input file
             - enumerate_isomer: Whether to enumerate stereoisomers
+
+            ``opt_steps`` is no longer read here: its minimum lives in
+            ``Auto3D.config.FIELD_BOUNDS`` and is enforced when the
+            configuration is constructed, not when it is used.
 
     Returns:
         None. The function prints recommendations.
@@ -302,7 +305,8 @@ def check_input(args: Any) -> None:
     Raises:
         GPUError: If GPU is requested but not available.
         DependencyError: If required dependency not available (OpenEye, TorchANI).
-        ConfigurationError: If configuration parameters are invalid (opt_steps, engine mismatch).
+        ConfigurationError: If the optimizing engine cannot represent the input
+            molecules (charged, or outside the ANI element set).
         ModelLoadError: If custom NNP cannot be loaded.
     """
     logger.info("Checking input file...")
@@ -351,10 +355,12 @@ def check_input(args: Any) -> None:
                 "https://pytorch.org/tutorials/beginner/saving_loading_models.html#save-load-entire-model"
             ) from e
 
-    if int(args.opt_steps) < 10:
-        raise ConfigurationError(
-            f"Number of optimization steps cannot be smaller than 10, but received {args.opt_steps}"
-        )
+    # No opt_steps check here any more. It hand-wrote `< 10` while
+    # Auto3D.config.FIELD_BOUNDS declared ("ge", 1) -- two minimums for one
+    # option (see that table's comment). FIELD_BOUNDS now declares 10 and is
+    # enforced by Auto3DOptions.__post_init__ and CLIConfig's _check_bounds, so
+    # every entry point rejects opt_steps=5 at construction, before this
+    # function is reached and before any banner prints.
 
     # Check the input format
     if args.input_format == "smi":
@@ -527,35 +533,36 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     return ANI, only_aimnet_ids
 
 
-def check_valid_configuration(
-    path: str | None = None,
-    k: int | bool = False,
-    window: float | bool = False,
-    use_gpu: bool = True,
-    gpu_idx: int | list[int] = 0,
-    optimizing_engine: str = "AIMNET",
-    isomer_engine: str = "rdkit",
-    opt_steps: int = 2000,
-    enumerate_tautomer: bool = False,
-    tauto_engine: str = "rdkit",
-) -> list[str]:
-    """Validate Auto3D configuration parameters.
+def check_valid_configuration(options: Auto3DOptions) -> list[str]:
+    """Validate an ``Auto3DOptions`` for things its own construction cannot check.
 
-    This function checks if the provided configuration parameters are valid
-    and compatible with each other.
+    Takes the configuration **object**, not a copy of its field names. The
+    previous signature re-declared ten option names *and their own defaults*
+    (``optimizing_engine="AIMNET"``, ``isomer_engine="rdkit"``,
+    ``tauto_engine="rdkit"``, ``opt_steps=2000`` written as a literal rather
+    than ``DEFAULT_OPT_STEPS``, ...), which made this function a third
+    configuration schema alongside ``Auto3DOptions`` and ``CLIConfig`` -- one
+    that could disagree with both about what an unspecified option means, and
+    that silently never looked at the other eighteen fields. It also forced two
+    byte-identical ten-keyword marshalling blocks at its only two call sites
+    (``auto3D.py``'s ``smiles2mols`` and ``workflow.py``'s
+    ``WorkflowOrchestrator._validate_input``), both of which read every value
+    straight off an ``Auto3DOptions`` they already had.
+
+    ``Auto3DOptions`` is the authoritative schema, so what belongs here is only
+    what a dataclass cannot decide for itself: whether the input file exists,
+    whether a selector was chosen, whether the requested GPU index exists on
+    *this* machine, whether the engine name resolves in the model registry, and
+    whether the OpenEye license the chosen engines need is present in the
+    environment. Everything checkable from the values alone -- numeric bounds
+    (``FIELD_BOUNDS``, including ``opt_steps >= 10``), the isomer/tautomer
+    engine whitelists (``ENGINE_CHOICES``), and selector mutual exclusion --
+    has already run in ``__post_init__``, so re-checking it here would be the
+    duplicate this change removes.
 
     Args:
-        path: Path to input file. Must be provided and exist.
-        k: Number of top conformers to keep. Either k or window must be specified.
-        window: Energy window in kcal/mol for conformer selection. Either k or window must be specified.
-        use_gpu: Whether to use GPU acceleration.
-        gpu_idx: GPU device index or list of indices.
-        optimizing_engine: Engine for geometry optimization. Must be one of
-            'ANI2x', 'ANI2xt', 'AIMNET' or a valid path to a custom model.
-        isomer_engine: Engine for isomer enumeration. Must be 'rdkit' or 'omega'.
-        opt_steps: Number of optimization steps. Must be >= 10.
-        enumerate_tautomer: Whether to enumerate tautomers.
-        tauto_engine: Engine for tautomer enumeration. Must be 'rdkit' or 'oechem'.
+        options: The configuration to check. Any object exposing
+            ``Auto3DOptions``'s attributes works, matching ``check_input``.
 
     Returns:
         List of error messages. Empty list if configuration is valid.
@@ -569,6 +576,11 @@ def check_valid_configuration(
             check_input already raised for this condition (M23). See
             check_gpu_requested for the full rationale.
     """
+    path = options.path
+    use_gpu = options.use_gpu
+    gpu_idx = options.gpu_idx
+    isomer_engine = options.isomer_engine
+
     errors: list[str] = []
 
     # Check path
@@ -578,7 +590,7 @@ def check_valid_configuration(
         errors.append(f"Input path does not exist: {path}")
 
     # Check k and window
-    if not k and not window:
+    if not options.k and not options.window:
         errors.append("Either 'k' or 'window' must be specified for conformer selection.")
 
     # Check GPU configuration. Raises immediately rather than appending to
@@ -604,29 +616,28 @@ def check_valid_configuration(
     # is a pure offline dict read against a bundled YAML, so validating costs
     # nothing.
     try:
-        resolve_engine_name(optimizing_engine)
+        resolve_engine_name(options.optimizing_engine)
     except ConfigurationError as exc:
         errors.append(str(exc))
 
-    # Check isomer_engine
-    valid_isomer_engines = {"rdkit", "omega"}
-    if isomer_engine.lower() not in valid_isomer_engines:
-        errors.append(f"isomer_engine must be one of {valid_isomer_engines}. Got: {isomer_engine}")
+    # No isomer_engine/tauto_engine whitelist here any more: both are in
+    # Auto3D.config.ENGINE_CHOICES and enforced by Auto3DOptions.__post_init__,
+    # so an unrecognized value cannot reach this function. The two local
+    # `valid_*_engines` sets that used to stand here were the third and fourth
+    # hand-written copies of those whitelists.
+    #
+    # The license checks below stay: they are about the *environment*, not about
+    # the value, so no amount of construction-time validation can answer them.
 
     # Check OpenEye license for omega
     if isomer_engine.lower() == "omega" and "OE_LICENSE" not in os.environ:
         errors.append("OpenEye license (OE_LICENSE) not found but omega isomer_engine is selected.")
 
-    # Check opt_steps
-    if opt_steps < 10:
-        errors.append(f"opt_steps must be >= 10. Got: {opt_steps}")
-
-    # Check tautomer configuration
-    valid_tauto_engines = {"rdkit", "oechem"}
-    if enumerate_tautomer and tauto_engine.lower() not in valid_tauto_engines:
-        errors.append(f"tauto_engine must be one of {valid_tauto_engines}. Got: {tauto_engine}")
-
-    if enumerate_tautomer and tauto_engine.lower() == "oechem" and "OE_LICENSE" not in os.environ:
+    if (
+        options.enumerate_tautomer
+        and options.tauto_engine.lower() == "oechem"
+        and "OE_LICENSE" not in os.environ
+    ):
         errors.append("OpenEye license (OE_LICENSE) not found but oechem tauto_engine is selected.")
 
     return errors

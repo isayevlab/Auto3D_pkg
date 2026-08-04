@@ -86,20 +86,18 @@ def _run_legacy_yaml(yaml_path: str) -> None:
     # `verbose` key already doubles as the logging-verbosity switch below
     # (configure_logging); reuse that same key as a coarse opt-in for a
     # traceback on failure too, rather than always/never showing one.
-    # `parameters` stays None until (and unless) the YAML actually loads, so
-    # a failure before that point (bad path, unparsable YAML) falls back to
-    # no traceback instead of raising a secondary NameError here.
+    # `verbose` stays 0 until (and unless) the configuration actually
+    # validates, so a failure before that point (bad path, unparsable YAML)
+    # falls back to no traceback instead of raising a secondary NameError here.
     #
     # `job_hint` follows the same rule for the Ctrl-C report below: None until
     # there is a configuration to derive a job directory from.
-    parameters: dict | None = None
+    verbose: int = 0
     job_hint: str | None = None
     try:
-        import yaml
-
         from Auto3D.auto3D import main
         from Auto3D.cli.commands.run import _exit_if_incomplete
-        from Auto3D.cli.config_schema import build_cli_config
+        from Auto3D.cli.config_schema import load_yaml_config
         from Auto3D.cli.results import (
             FailedMolecule,
             WorkflowResults,
@@ -112,42 +110,54 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         if not Path(yaml_path).is_file():
             raise InputValidationError(f"Config file not found: {yaml_path}")
 
-        with open(yaml_path) as f:
-            parameters = yaml.safe_load(f)
+        # `load_yaml_config` is THE YAML ingestion path -- the same function
+        # `auto3d run -c` calls (cli/commands/run.py). This entry point used to
+        # carry its own `yaml.safe_load` plus its own "None"-string loop, which
+        # shared every *value* validator with the modern path (both ended in
+        # `build_cli_config`) but none of the three *shape* guards: an empty
+        # file, a non-mapping top level, or a YAML syntax error reached
+        # `parameters.items()` here and surfaced as AttributeError/TypeError/
+        # yaml.YAMLError under the generic "Unexpected Error" panel at exit 1,
+        # while the identical file through `-c` gave a ConfigurationError at
+        # exit 2 with a hint. Two exit codes for one file is precisely what
+        # build_cli_config's docstring says it exists to prevent, so the
+        # duplicate ingestion is gone rather than patched -- see
+        # tests/test_legacy_yaml_parity.py, which asserts both entry points
+        # report the same exception class and the same exit code for each shape.
+        config = load_yaml_config(Path(yaml_path))
 
-        # Convert 'None' strings to None
-        for key, val in list(parameters.items()):
-            if val == "None":
-                parameters[key] = None
+        # Logging and the banner are derived from the VALIDATED config, not
+        # from the raw dict. They used to run before validation, reading
+        # `parameters.get(...)` with its own per-key defaults ("AIMNET",
+        # gpu_idx 0, use_gpu True) -- a fourth place option defaults were
+        # written, and one that could print a banner for a configuration about
+        # to be rejected. Nothing logs between the old and new positions, so no
+        # log line is lost; the error panel comes from `handle_error`, not from
+        # logging, so a pre-validation failure still reports normally.
+        verbose = 1 if config.verbose else 0
+        configure_logging(verbose=config.verbose)
 
-        configure_logging(verbose=parameters.get("verbose", False))
+        # Before the banner: a settings-only config file (valid for
+        # `auto3d run INPUT -c`, unrunnable here -- this form has no other
+        # source of an input path) is refused by `to_auto3d_options` with a
+        # ConfigurationError naming the missing key, and announcing a run that
+        # cannot start would be worse than not announcing it.
+        options = config.to_auto3d_options()
 
-        # Print banner
-        gpu_info = f"CUDA:{parameters.get('gpu_idx', 0)}" if parameters.get("use_gpu", True) else "CPU"
-        k = parameters.get("k")
-        window = parameters.get("window")
-        output_info = f"k={k}" if k else f"window={window}" if window else "k=1"
-
+        # Same three expressions `cli/commands/run.py` uses, on the same
+        # validated object. The old `output_info` had a third branch --
+        # `else "k=1"` -- advertising a default no entry point applies any
+        # more: every one of them now refuses a config with neither selector.
+        gpu_info = f"CUDA:{config.gpu_idx}" if config.use_gpu else "CPU"
+        output_info = f"k={config.k}" if config.k else f"window={config.window}"
         print_banner(
-            input_path=parameters.get("path", "?"),
-            engine=parameters.get("optimizing_engine", "AIMNET"),
+            input_path=str(config.path),
+            engine=config.optimizing_engine,
             gpu_info=gpu_info,
             output_info=output_info,
         )
         console.print()
 
-        # CLIConfig gives this legacy path the same validation as `auto3d run
-        # -c`: every Field bound (shared with Auto3DOptions via
-        # check_field_bounds/FIELD_BOUNDS), the engine registry check,
-        # parse_gpu_idx, and Literal validation on tauto_engine/isomer_engine.
-        # It also means extra="forbid": a YAML key CLIConfig doesn't
-        # recognize now raises -- via build_cli_config, which translates
-        # pydantic's ValidationError into Auto3D's own ConfigurationError, so
-        # the blanket `except Exception` below shows exit code 2 with a hint
-        # instead of the generic "Unexpected Error" panel at exit 1 -- instead
-        # of silently passing through to Auto3DOptions as it used to.
-        config = build_cli_config(**parameters)
-        options = config.to_auto3d_options()
         job_hint = job_directory_hint(options.path, options.job_name)
         result = main(options)
 
@@ -194,7 +204,6 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         # Ctrl-C on this path printed nothing whatsoever.
         handle_interrupt(job_hint=job_hint, elapsed_seconds=time.time() - start_time)
     except Exception as e:  # noqa: BLE001 - present every failure as a clean panel
-        verbose = 1 if isinstance(parameters, dict) and parameters.get("verbose") else 0
         handle_error(e, verbose=verbose)
 
 

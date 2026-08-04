@@ -297,8 +297,10 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
 
     pad_calls = []
 
-    def fake_pad(mols, model_name, device, coord_pad, species_pad):
-        pad_calls.append((coord_pad, species_pad))
+    def fake_pad(mols, adapter, device):
+        # The padder now reads BOTH sentinels off the adapter it was handed, so
+        # they cannot come from two places and disagree (audit C3/C4).
+        pad_calls.append((adapter.coord_pad, adapter.species_pad))
         n = len(mols)
         return (
             torch.zeros(n, 1, 3),

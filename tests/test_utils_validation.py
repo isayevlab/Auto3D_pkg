@@ -256,119 +256,115 @@ class TestFilterUnique:
         assert len(result_strict) > len(result_lenient)
 
 
+def _options(**overrides):
+    """Build the ``Auto3DOptions`` ``check_valid_configuration`` now takes.
+
+    The function used to take ten keyword arguments mirroring
+    ``Auto3DOptions``'s field names *and carrying their own defaults* -- a third
+    configuration schema. It now takes the object, so these tests hand it one.
+    ``use_gpu=False`` by default: this box's CUDA availability must not decide
+    whether an assertion about paths or engines holds.
+    """
+    from Auto3D.config import Auto3DOptions
+
+    params = {"path": path_example_smi, "k": 1, "use_gpu": False}
+    params.update(overrides)
+    return Auto3DOptions(**params)
+
+
 class TestCheckValidConfiguration:
     """Tests for check_valid_configuration function."""
 
     def test_valid_configuration(self):
         """Test that valid configuration returns no errors."""
         errors = check_valid_configuration(
-            path=path_example_smi,
-            k=1,
-            use_gpu=False,
-            optimizing_engine="AIMNET",
-            isomer_engine="rdkit",
-            opt_steps=5000,
+            _options(optimizing_engine="AIMNET", isomer_engine="rdkit", opt_steps=5000)
         )
         assert len(errors) == 0
 
     def test_missing_path(self):
         """Test that missing path returns error."""
-        errors = check_valid_configuration(
-            path=None,
-            k=1,
-            use_gpu=False,
-        )
+        errors = check_valid_configuration(_options(path=None))
         assert any("path" in e.lower() for e in errors)
 
     def test_nonexistent_path(self):
         """Test that nonexistent path returns error."""
-        errors = check_valid_configuration(
-            path="/nonexistent/path.smi",
-            k=1,
-            use_gpu=False,
-        )
+        errors = check_valid_configuration(_options(path="/nonexistent/path.smi"))
         assert any("exist" in e.lower() for e in errors)
 
     def test_missing_k_and_window(self):
         """Test that missing both k and window returns error."""
-        errors = check_valid_configuration(
-            path=path_example_smi,
-            k=False,
-            window=False,
-            use_gpu=False,
-        )
+        errors = check_valid_configuration(_options(k=False, window=False))
         assert any("k" in e.lower() or "window" in e.lower() for e in errors)
 
     def test_window_specified(self):
         """Test that window alone is sufficient."""
-        errors = check_valid_configuration(
-            path=path_example_smi,
-            k=False,
-            window=5.0,
-            use_gpu=False,
-        )
+        errors = check_valid_configuration(_options(k=False, window=5.0))
         assert not any("k" in e.lower() or "window" in e.lower() for e in errors)
 
     def test_invalid_optimizing_engine(self):
-        """Test that invalid optimizing_engine returns error."""
-        errors = check_valid_configuration(
-            path=path_example_smi,
-            k=1,
-            use_gpu=False,
-            optimizing_engine="INVALID",
-        )
+        """Test that invalid optimizing_engine returns error.
+
+        Still checked here, unlike isomer_engine/tauto_engine below: an engine
+        name may be a registry entry or a path to a custom model, so it is not
+        an enumerable choice ``Auto3DOptions`` could validate from the value
+        alone -- it needs the registry lookup.
+        """
+        errors = check_valid_configuration(_options(optimizing_engine="INVALID"))
         assert any("optimizing_engine" in e.lower() for e in errors)
 
     def test_accepts_aimnet_registry_names(self):
         """Registry engine names must validate, matching model_factory/CLI schema."""
         for name in ("aimnet2", "aimnet2-2025", "aimnet2-nse", "aimnet2-pd"):
-            errors = check_valid_configuration(
-                path=path_example_smi,
-                k=1,
-                use_gpu=False,
-                optimizing_engine=name,
-            )
+            errors = check_valid_configuration(_options(optimizing_engine=name))
             assert not any("optimizing_engine" in e.lower() for e in errors), (name, errors)
 
-    def test_invalid_isomer_engine(self):
-        """Test that invalid isomer_engine returns error."""
-        errors = check_valid_configuration(
-            path=path_example_smi,
-            k=1,
-            use_gpu=False,
-            isomer_engine="invalid",
-        )
-        assert any("isomer_engine" in e.lower() for e in errors)
+    def test_invalid_isomer_engine_refused_at_construction(self):
+        """An unrecognized isomer_engine is refused before this function runs.
 
-    def test_opt_steps_too_small(self):
-        """Test that opt_steps < 10 returns error."""
-        errors = check_valid_configuration(
-            path=path_example_smi,
-            k=1,
-            use_gpu=False,
-            opt_steps=5,
-        )
-        assert any("opt_steps" in e.lower() for e in errors)
+        The whitelist moved to ``Auto3D.config.ENGINE_CHOICES`` and is enforced
+        by ``Auto3DOptions.__post_init__``, so ``check_valid_configuration`` can
+        no longer be reached with a bad value -- which is why it no longer
+        carries its own copy of the set. The rejection did not disappear; it
+        moved earlier, and to every entry point at once.
+        """
+        from Auto3D.exceptions import ConfigurationError
 
-    def test_invalid_tauto_engine(self):
-        """Test that invalid tauto_engine with enumerate_tautomer=True returns error."""
-        errors = check_valid_configuration(
-            path=path_example_smi,
-            k=1,
-            use_gpu=False,
-            enumerate_tautomer=True,
-            tauto_engine="invalid",
-        )
-        assert any("tauto_engine" in e.lower() for e in errors)
+        with pytest.raises(ConfigurationError, match="isomer_engine"):
+            _options(isomer_engine="invalid")
+
+    def test_opt_steps_too_small_refused_at_construction(self):
+        """opt_steps < 10 is refused at construction, not at run start.
+
+        ``FIELD_BOUNDS["opt_steps"]`` is now ``("ge", 10)`` -- the single
+        declaration of that floor -- so the two hand-written ``< 10`` checks
+        that used to live in this module are gone. Same ``ConfigurationError``,
+        raised before the banner instead of after it.
+        """
+        from Auto3D.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="opt_steps"):
+            _options(opt_steps=5)
+
+    def test_invalid_tauto_engine_refused_at_construction(self):
+        """An unrecognized tauto_engine is refused at construction too.
+
+        Unconditionally, where the old check only looked when
+        ``enumerate_tautomer`` was true -- ``CLIConfig``'s
+        ``Literal["rdkit", "oechem"]`` always rejected it, so the gated check
+        was an entry-point divergence.
+        """
+        from Auto3D.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="tauto_engine"):
+            _options(enumerate_tautomer=True, tauto_engine="invalid")
+        with pytest.raises(ConfigurationError, match="tauto_engine"):
+            _options(enumerate_tautomer=False, tauto_engine="invalid")
 
     def test_valid_tauto_configuration(self):
         """Test valid tautomer configuration."""
         errors = check_valid_configuration(
-            path=path_example_smi,
-            k=1,
-            use_gpu=False,
-            enumerate_tautomer=True,
-            tauto_engine="rdkit",
+            _options(enumerate_tautomer=True, tauto_engine="rdkit")
         )
         # Should not have tauto_engine errors
         assert not any("tauto_engine" in e.lower() for e in errors)

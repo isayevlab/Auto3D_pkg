@@ -149,7 +149,11 @@ class TestCalcThermoRoutesASaddlePointToTheFailures:
         import torch
         from torch import nn
 
-        class _StubNNP(nn.Module):
+        from tests.helpers_adapter import AdapterModuleMixin
+
+        # The mixin supplies the ModelAdapter members this double does not
+        # care about (pads, to_species, energy); EnForce_ANI gates on them.
+        class _StubNNP(AdapterModuleMixin, nn.Module):
             def forward(self, coords, species, charges, atom_mask=None):
                 energy = torch.zeros(coords.shape[0], dtype=coords.dtype)
                 return energy, torch.zeros_like(coords).detach()

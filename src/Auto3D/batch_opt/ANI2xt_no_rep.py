@@ -3,7 +3,7 @@ import os
 import torch
 import torch.nn as nn
 
-from Auto3D.batch_opt.species import ANI2XT_INDEX
+from Auto3D.models.species import ANI2XT_INDEX
 from Auto3D.utils import hartree2ev
 
 # Note: Do NOT set torch.manual_seed() at module level.
@@ -16,6 +16,59 @@ https://wandb.ai/oilab/retraiin_ani_no_repulsion/runs/3u1gsp8r?workspace=user-li
 """
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ani_2xt_dict = os.path.join(root, "models/ani2xt_no_repulsion.pt")
+
+#: Hidden-layer widths of each per-element network, in ANI2xt's ModuleList
+#: order: H, C, N, O, F, S, Cl -- the same order as
+#: :data:`Auto3D.models.species.ANI2XT_INDEX`. Every network is
+#: ``aev_dim -> w0 -> w1 -> w2 -> 1`` with CELU(0.1) between the layers, so the
+#: three widths are the only thing that differs between them.
+#:
+#: This replaces seven copy-pasted ``nn.Sequential`` blocks (69 lines) that
+#: differed only in these integers -- and in which the SOURCE declared S before
+#: F while the ``ModuleList`` placed F before S. That mismatch was harmless only
+#: because F, S and Cl share widths, and it was invisible without cross-checking
+#: two distant lines. The table is now the single statement of the order.
+#:
+#: Changing the order here silently rewires which element uses which weights:
+#: ``nn.ModuleList.load_state_dict`` matches by POSITION (``"0.0.weight"``,
+#: ``"1.0.weight"``, ...), never by any Python name. That is also why collapsing
+#: the seven blocks into this table did not break the shipped checkpoint --
+#: pinned by ``tests/test_model_adapter.py::TestAni2xtNetworksAreTableDriven``,
+#: which loads ``models/ani2xt_no_repulsion.pt`` both ways and compares every
+#: tensor.
+WIDTHS: tuple[tuple[int, int, int], ...] = (
+    (256, 192, 160),   # H
+    (224, 192, 160),   # C
+    (192, 160, 128),   # N
+    (192, 160, 128),   # O
+    (160, 128, 96),    # F
+    (160, 128, 96),    # S
+    (160, 128, 96),    # Cl
+)
+
+
+def _atomic_mlp(aev_dim: int, widths: tuple[int, int, int]) -> nn.Sequential:
+    """Build one per-element energy network.
+
+    Args:
+        aev_dim: Width of the AEV feature vector produced by the AEV computer.
+        widths: The three hidden-layer widths, as one row of :data:`WIDTHS`.
+
+    Returns:
+        ``Linear -> CELU -> Linear -> CELU -> Linear -> CELU -> Linear(->1)``,
+        layer for layer identical to the hand-written blocks this replaced.
+    """
+    w0, w1, w2 = widths
+    return nn.Sequential(
+        nn.Linear(aev_dim, w0),
+        nn.CELU(0.1),
+        nn.Linear(w0, w1),
+        nn.CELU(0.1),
+        nn.Linear(w1, w2),
+        nn.CELU(0.1),
+        nn.Linear(w2, 1),
+    )
+
 
 class ANI2xt(nn.Module):
     def __init__(self, device, state_dict=ani_2xt_dict, periodic_table_index=False):
@@ -44,80 +97,14 @@ class ANI2xt(nn.Module):
         aev_computer = torchani.AEVComputer(radial, angular, num_species)
 
         aev_dim = aev_computer.out_dim
-        H_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 256),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(256, 192),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(192, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 1)
-        )
 
-        C_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 224),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(224, 192),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(192, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 1)
+        # One factory + WIDTHS (module level), in place of seven copy-pasted
+        # nn.Sequential blocks. Order is ModuleList order -- H, C, N, O, F, S, Cl
+        # -- matching Auto3D.models.species.ANI2XT_INDEX, and it is load-bearing:
+        # the checkpoint's keys are positional indices.
+        self.networks = torch.nn.ModuleList(
+            [_atomic_mlp(aev_dim, widths) for widths in WIDTHS]
         )
-
-        N_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 192),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(192, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 128),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(128, 1)
-        )
-
-        O_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 192),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(192, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 128),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(128, 1)
-        )
-
-        S_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 128),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(128, 96),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(96, 1)
-        )
-
-        F_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 128),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(128, 96),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(96, 1)
-        )
-
-        Cl_network = torch.nn.Sequential(
-            torch.nn.Linear(aev_dim, 160),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(160, 128),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(128, 96),
-            torch.nn.CELU(0.1),
-            torch.nn.Linear(96, 1)
-        )
-
-        # Create a ModuleList to hold networks (indexed by species: H=0, C=1, N=2, O=3, F=4, S=5, Cl=6)
-        self.networks = torch.nn.ModuleList([
-            H_network, C_network, N_network, O_network, F_network, S_network, Cl_network
-        ])
         checkpoint = torch.load(state_dict, map_location=device, weights_only=True)
         self.networks.load_state_dict(checkpoint)
         # Move networks to device

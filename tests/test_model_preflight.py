@@ -10,13 +10,14 @@ which applies (C8, M21, M22).
 
 Verified against production (not assumed from the plan):
 
-- ``check_valid_configuration`` (utils/validation.py:267-361) takes explicit
-  keyword parameters and returns a ``list[str]`` of error messages -- it never
-  receives an ``Auto3DOptions`` instance and never raises. The raise happens
-  one layer up, in ``WorkflowOrchestrator._validate_input``
-  (workflow.py:164-179), which is what these tests exercise directly.
-- ``check_input`` (utils/validation.py:35) never constructs any model adapter
-  -- it only checks installed dependencies, opt_steps, and input-file format.
+- ``check_valid_configuration`` takes an ``Auto3DOptions`` and returns a
+  ``list[str]`` of error messages; it does not raise for a bad value. The raise
+  happens one layer up, in ``WorkflowOrchestrator._validate_input``, which is
+  what these tests exercise directly. (It used to take ten explicit keyword
+  parameters with their own defaults -- a third configuration schema -- and
+  received no options object at all.)
+- ``check_input`` never constructs any model adapter -- it only checks
+  installed dependencies and input-file format.
   Patching ``AIMNet2Calculator`` and calling ``check_input`` (as an earlier
   draft of this suite assumed) would never intercept anything; the real
   construction site is ``optimizing.__init__`` (batch_opt/batchopt.py:175),

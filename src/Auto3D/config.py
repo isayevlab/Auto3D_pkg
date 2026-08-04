@@ -31,7 +31,23 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
     "k": ("ge", 1),
     "window": ("gt", 0),
     "mpi_np": ("ge", 1),
-    "opt_steps": ("ge", 1),
+    # 10, not 1. This table declared ("ge", 1) while utils/validation.py
+    # hand-wrote `< 10` twice -- in check_input and again in
+    # check_valid_configuration -- so one option had two different minimums and
+    # opt_steps=5 was accepted by Auto3DOptions/CLIConfig, printed a banner, and
+    # only then failed at run start. 10 is the surviving number because it is
+    # the one the optimizer is actually built around, not merely the incumbent:
+    # batch_opt/optimization_engine.py's n_steps checks "have all structures
+    # converged?" only on `istep % 10 == 0`, emits progress events on the same
+    # cadence, and guards its stats print with an explicit `n >= 10` to avoid
+    # `n // 10 == 0`. Below 10 steps none of those fire, so the loop has no
+    # early exit, no progress, and no reporting -- a regime its own code
+    # special-cases. Physically, a FIRE run needs several steps just to build
+    # up velocity and timestep, so fewer than 10 cannot converge a real
+    # geometry and would hand back an unconverged structure labeled as
+    # optimized. Loosening to 1 would have accepted exactly that; the two local
+    # checks are deleted instead and this is now the sole declaration.
+    "opt_steps": ("ge", 10),
     "convergence_threshold": ("gt", 0),
     "patience": ("ge", 1),
     "threshold": ("gt", 0),
@@ -80,6 +96,30 @@ SENTINEL_FIELDS: frozenset[str] = frozenset({"k", "window", "memory", "max_confs
 # here, to take effect on both the rejection (below) and the substitution
 # (merge_configs).
 SELECTOR_FIELDS: tuple[str, ...] = ("k", "window")
+
+# The permitted values for the two enumerable engine fields, in one table, for
+# the same reason FIELD_BOUNDS holds the numeric bounds: the alternative is the
+# same whitelist hand-written once per validator, drifting silently. It was
+# written three times before this -- CLIConfig's two ``Literal``s
+# (cli/config_schema.py) and two local ``valid_isomer_engines`` /
+# ``valid_tauto_engines`` sets inside check_valid_configuration
+# (utils/validation.py), the latter now deleted.
+#
+# Checked by Auto3DOptions.__post_init__ below, which already lowercases both
+# fields, so the check belongs there rather than in a downstream validator that
+# can only be reached by some entry points. CLIConfig keeps its ``Literal``s --
+# a Literal is a *type*, visible to mypy and to pydantic's error messages, not
+# a runtime constraint of the kind FIELD_BOUNDS's docstring forbids duplicating
+# -- and tests/test_cli_config_schema.py asserts their arguments equal this
+# table, so the one remaining hand-written copy cannot drift.
+#
+# ``mode_oe`` is deliberately absent: its documented values are omega modes
+# nothing validates today, and adding a constraint here would be a new
+# restriction rather than the consolidation of an existing one.
+ENGINE_CHOICES: dict[str, tuple[str, ...]] = {
+    "isomer_engine": ("rdkit", "omega"),
+    "tauto_engine": ("rdkit", "oechem"),
+}
 
 _BOUND_OPS: dict[str, tuple[object, str]] = {
     "ge": (operator.ge, ">="),
@@ -181,6 +221,37 @@ def check_selectors_mutually_exclusive(values: dict) -> None:
         got = ", ".join(f"{name}={value!r}" for name, value in provided.items())
         raise ConfigurationError(
             f"Only one of {' or '.join(SELECTOR_FIELDS)} may be specified, got {got}"
+        )
+
+
+def check_engine_choices(values: dict) -> None:
+    """Validate ``values`` (field name -> value) against ``ENGINE_CHOICES``.
+
+    Fields missing from ``values`` are skipped, so callers may pass a partial
+    mapping (the same convention ``check_field_bounds`` uses). Values are
+    compared case-insensitively; ``Auto3DOptions.__post_init__`` has already
+    lowercased both fields by the time it calls this, so the fold only matters
+    for a direct caller.
+
+    Unconditional, unlike the check it replaces: ``check_valid_configuration``
+    validated ``tauto_engine`` only when ``enumerate_tautomer`` was true, while
+    ``CLIConfig``'s ``Literal["rdkit", "oechem"]`` has always rejected a bad
+    value regardless. That was an entry-point divergence -- ``Auto3DOptions(
+    tauto_engine="bogus")`` was accepted from Python and refused from the CLI --
+    so the stricter of the two is what survives.
+
+    Raises:
+        ConfigurationError: naming the field, the received value, and the
+            permitted set.
+    """
+    for name, choices in ENGINE_CHOICES.items():
+        if name not in values:
+            continue
+        value = values[name]
+        if isinstance(value, str) and value.lower() in choices:
+            continue
+        raise ConfigurationError(
+            f"{name} must be one of {', '.join(choices)}, got {value!r}"
         )
 
 
@@ -344,10 +415,11 @@ class Auto3DOptions:
     survives dataclasses.replace()/pickling and stays in the dict-like API."""
 
     def __post_init__(self):
-        """Normalize string values to lowercase and validate ranges."""
+        """Normalize string values to lowercase, then validate choices and ranges."""
         self.tauto_engine = self.tauto_engine.lower()
         self.isomer_engine = self.isomer_engine.lower()
         self.mode_oe = self.mode_oe.lower()
+        check_engine_choices({name: getattr(self, name) for name in ENGINE_CHOICES})
         check_field_bounds({name: getattr(self, name) for name in FIELD_BOUNDS})
 
     def __getitem__(self, key: str):

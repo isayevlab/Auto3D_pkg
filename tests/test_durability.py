@@ -207,7 +207,7 @@ class TestOptGeometryDurability:
             unrecoverable before C14 was fixed.
             """
 
-            def __init__(self, path, outpath, model_name, device, opt_config):
+            def __init__(self, path, outpath, *, adapter, device, config):
                 self._path = path
                 self._outpath = outpath
 
@@ -404,7 +404,7 @@ class TestSameFileGuard:
 
         monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
 
-        def fake_pad(mols, model_name, device, coord_pad, species_pad):
+        def fake_pad(mols, adapter, device):
             n = len(mols)
             coords = torch.zeros(n, 1, 3)
             numbers = torch.zeros(n, 1, dtype=torch.long)
@@ -453,7 +453,7 @@ class TestSameFileGuard:
         original = sdf.read_bytes()
 
         class FakeOptimizing:
-            def __init__(self, path, outpath, model_name, device, opt_config):
+            def __init__(self, path, outpath, *, adapter, device, config):
                 self._path = path
                 self._outpath = outpath
 
@@ -865,7 +865,7 @@ class TestOutputOverwriteGuard:
                 n = coords.shape[0]
                 return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
 
-        def fake_pad(mols, model_name, device, coord_pad, species_pad):
+        def fake_pad(mols, adapter, device):
             n = len(mols)
             return (
                 torch.zeros(n, 1, 3),

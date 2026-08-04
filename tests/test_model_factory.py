@@ -13,7 +13,39 @@ from Auto3D.model_factory import (
     get_device,
     is_custom_model,
 )
-from Auto3D.models.adapter import ModelAdapter
+from Auto3D.models.contract import ModelAdapter
+
+
+def test_the_factory_promises_the_contract_not_the_base_class():
+    """Every factory signature must be annotated with the Protocol.
+
+    ``ModelAdapter`` was ``@runtime_checkable`` and published, while every
+    signature that wanted "an adapter" said ``BaseModelAdapter`` (the ABC)
+    instead -- so the contract the factory actually honors was invisible in its
+    own types, and production quietly accepted structural implementations the
+    annotation excluded. Reading ``__annotations__`` (strings, because the module
+    uses ``from __future__ import annotations``) is the only way to observe it.
+    """
+    import inspect
+
+    from Auto3D import model_factory
+
+    assert (
+        inspect.get_annotations(model_factory.create_model)["return"]
+        == "ModelAdapter"
+    )
+    assert (
+        inspect.get_annotations(ModelFactory.create.__func__)["return"]
+        == "ModelAdapter"
+    )
+    # BaseModelAdapter survives in exactly one type position: a registry of
+    # Auto3D's OWN adapter classes, which really is the concrete base.
+    assert (
+        inspect.get_annotations(ModelFactory)["_adapters"]
+        == "dict[str, type[BaseModelAdapter]]"
+    )
+    # ...and it is no longer an incidental runtime re-export of this module.
+    assert not hasattr(model_factory, "BaseModelAdapter")
 
 
 class TestModelFactory:

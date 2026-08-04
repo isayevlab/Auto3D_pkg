@@ -470,26 +470,44 @@ def test_adapter_keeps_no_padding_fallback_of_its_own(monkeypatch, tmp_path):
         CustomModelAdapter(str(tmp_path / "unused.pt"), CPU)
 
 
-def test_base_adapter_species_pad_default_agrees_with_the_padding_layer():
-    """One default, not two.
+def test_the_adapters_pad_is_what_the_padder_writes():
+    """One source, not two agreeing sources.
 
-    BaseModelAdapter used to default species_pad to 0 while
-    batch_opt.padding.pad_from_mols defaults it to -1, so a subclass that did
-    not pass the value got a different notion of padding depending on which
-    layer supplied it -- and 0 collides with ANI2xt's hydrogen index. -1 wins:
-    it can be neither an atomic number nor a 0-based species index.
+    This used to compare two independent DEFAULTS -- ``BaseModelAdapter``'s
+    ``species_pad`` against ``pad_from_mols``'s own -- because each layer had its
+    own, and they disagreed (0 vs -1, where 0 collides with ANI2xt's hydrogen
+    index). ``pad_from_mols`` now has no pad parameter at all: it reads the value
+    off the adapter it is padding for. So the assertion becomes the stronger,
+    structural one -- whatever the adapter says is what lands in the tensor -- and
+    the old comparison is not merely satisfied but meaningless.
     """
     import inspect
 
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
     from Auto3D.batch_opt.padding import pad_from_mols
     from Auto3D.models.adapter import BaseModelAdapter
+    from tests.helpers_adapter import FakeAdapter
 
-    adapter_default = inspect.signature(
+    assert "species_pad" not in inspect.signature(pad_from_mols).parameters
+    assert "coord_pad" not in inspect.signature(pad_from_mols).parameters
+
+    # -1 remains the safe default for a third-party subclass: it can be neither
+    # a real atomic number nor a 0-based species index.
+    assert inspect.signature(
         BaseModelAdapter.__init__
-    ).parameters["species_pad"].default
-    padding_default = inspect.signature(pad_from_mols).parameters["species_pad"].default
+    ).parameters["species_pad"].default == -1
 
-    assert adapter_default == padding_default == -1
+    mols = []
+    for smiles in ("C", "O"):          # 5 atoms and 3, so the batch is padded
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0
+        mols.append(mol)
+    adapter = FakeAdapter(coord_pad=7.25, species_pad=-99)
+    coords, species, _charges, _mask = pad_from_mols(mols, adapter, CPU)
+    assert species[1, 3:].tolist() == [-99, -99]
+    assert torch.all(coords[1, 3:] == 7.25)
 
 
 def test_validate_custom_nnp_is_callable_directly():
@@ -581,13 +599,11 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
             mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
             assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0
             mols.append(mol)
-        coords, species, charges, _atom_mask = pad_from_mols(
-            mols,
-            "AIMNET",
-            CPU,
-            coord_pad=model.coord_pad,
-            species_pad=model.species_pad,
-        )
+        # The example model IS the adapter here: it declares its own
+        # coord_pad/species_pad and consumes raw atomic numbers, so the identity
+        # `to_species` is what a custom NNP must get.
+        model.to_species = list
+        coords, species, charges, _atom_mask = pad_from_mols(mols, model, CPU)
         return mols, coords, species, charges
 
     @pytest.mark.parametrize("module_name", EXAMPLE_MODULES)
@@ -630,3 +646,116 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
             f"{module_name}.userNNP2 dropped the R-group (Z=0) atom, so it "
             "scored a different molecule than the one submitted"
         )
+
+
+# --- the contract is derived from the Protocol, not retyped next to it ------
+
+def test_required_attributes_tracks_the_protocol():
+    """What the validator demands must be DERIVED from ``CustomNNP`` itself.
+
+    ``REQUIRED_ATTRIBUTES`` used to be a hand-written tuple sitting a few lines
+    above the Protocol that declares the same two members, with nothing linking
+    them. This test enumerates the Protocol *here* rather than hardcoding names,
+    so adding a data member to ``CustomNNP`` without the validator learning
+    about it in the same edit goes red.
+    """
+    from Auto3D.models.contract import REQUIRED_ATTRIBUTES, CustomNNP
+
+    declared = tuple(CustomNNP.__annotations__)
+    assert REQUIRED_ATTRIBUTES == declared, (
+        f"validator demands {REQUIRED_ATTRIBUTES} but CustomNNP declares "
+        f"{declared}; the two must not be maintained separately"
+    )
+
+    class NoPadsAtAll:
+        def forward(self, species, coords, charges):
+            return coords
+
+    with pytest.raises(ModelLoadError) as excinfo:
+        validate_custom_nnp(NoPadsAtAll(), "<memory>")
+    message = str(excinfo.value)
+    for name in declared:
+        assert name in message, (
+            f"{name} is declared on CustomNNP but the rejection message does "
+            f"not name it: {message}"
+        )
+
+
+def test_customnnp_data_members_are_exactly_the_two_padding_values():
+    """A deliberate change-detector, not a restatement of the line above.
+
+    ``validate_custom_nnp`` skips the ``forward`` signature check entirely for a
+    TorchScript ``RecursiveScriptModule`` (its forward is a pybind11 builtin
+    with no Python signature), so for every archive in the wild
+    ``REQUIRED_ATTRIBUTES`` is the ONLY gate. Now that the tuple is derived from
+    ``CustomNNP.__annotations__``, adding an annotated field to the Protocol --
+    even "just for documentation" -- immediately rejects every existing archive
+    that does not carry it. That is a breaking change and must be released as
+    one; this test is what makes it impossible to do by accident.
+    """
+    from Auto3D.models.contract import CustomNNP
+
+    assert tuple(CustomNNP.__annotations__) == ("coord_pad", "species_pad")
+
+
+def test_customnnp_is_not_runtime_checkable():
+    """``isinstance(x, CustomNNP)`` must raise, not answer.
+
+    ``@runtime_checkable`` tests attribute *presence* only. Every
+    ``torch.nn.Module`` has a ``forward`` attribute (torch installs
+    ``Module.forward = _forward_unimplemented``), so the single most common real
+    failure -- a saved module that never defined its own ``forward`` -- would
+    pass an ``isinstance`` check while raising ``NotImplementedError`` deep in
+    the optimization loop. A boolean also cannot carry the diagnosis
+    ``validate_custom_nnp`` produces. So the honest answer to "can I check this
+    at runtime?" is a ``TypeError`` pointing at the validator.
+    """
+    from Auto3D.models.contract import CustomNNP
+
+    with pytest.raises(TypeError):
+        isinstance(object(), CustomNNP)  # noqa: B015 - the call IS the assertion
+
+
+def test_keyword_only_forward_message_is_not_its_own_demand():
+    """The rejection must not render the signature it is asking for.
+
+    The message used to comma-join parameter *names*, dropping ``*``, ``/`` and
+    defaults, so a keyword-only ``forward(self, *, species, coords, charges)``
+    was rejected with "has forward(species, coords, charges) ... Expected
+    forward(self, species, coords, charges)" -- text that shows the author
+    nothing wrong. Rendering the signature the way the interpreter does keeps
+    the marker that actually explains the refusal.
+    """
+    from Auto3D.models.contract import EXPECTED_SIGNATURE
+
+    class KeywordOnly:
+        coord_pad = 0.0
+        species_pad = -1
+
+        def forward(self, *, species, coords, charges):
+            return coords
+
+    with pytest.raises(ModelLoadError) as excinfo:
+        validate_custom_nnp(KeywordOnly(), "<memory>")
+    message = str(excinfo.value)
+    observed = message.split("Expected")[0]
+    assert "*" in observed, (
+        "the keyword-only marker is what explains the rejection, but the "
+        f"message renders no '*': {message}"
+    )
+    assert EXPECTED_SIGNATURE in message
+
+
+def test_positional_only_marker_survives_the_transposed_message():
+    """The order-check message renders ``/`` too, for the same reason."""
+
+    class Transposed:
+        coord_pad = 0.0
+        species_pad = -1
+
+        def forward(self, coords, species, /, charges):
+            return coords
+
+    with pytest.raises(ModelLoadError) as excinfo:
+        validate_custom_nnp(Transposed(), "<memory>")
+    assert "/" in str(excinfo.value).split("but Auto3D calls")[0]
