@@ -42,7 +42,7 @@ class TestModelFactory:
                 raise RuntimeError("unresolvable registry name")
 
         monkeypatch.setattr(model_factory, "AIMNet2Adapter", _Boom)
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="unresolvable registry name"):
             ModelFactory.create(
                 "totally-not-a-real-model-xyz",
                 device=torch.device("cpu"),

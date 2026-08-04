@@ -104,8 +104,13 @@ class TestEnForceANI:
 
         energy, forces = model.forward_batched(coords, species, charges)
 
-        # Should have called forward multiple times due to batching
-        assert mock_adapter.forward.call_count >= 1
+        # batch_size = max(1, batchsize_atoms // N) = max(1, 10 // 5) = 2
+        # molecules per sub-batch; 4 molecules split into chunks of 2 -> the
+        # adapter must be called exactly twice, not "at least once" (which a
+        # single unbatched call would also satisfy, defeating the point of a
+        # forward_batched-specific test). Mirrors test_model_wrapper.py's
+        # stronger call_count==2 sibling for the same batchsize_atoms/N ratio.
+        assert mock_adapter.forward.call_count == 2
         assert energy.shape == (4,)
         assert forces.shape == (4, 5, 3)
 
@@ -134,13 +139,19 @@ class TestConvergenceStatus:
 
         result = ensemble_opt(model, coord, numbers, charges, param, torch.device("cpu"))
 
-        # Verify new fields are present
+        # Verify new fields are present, with their actual VALUES: zero force
+        # on step 1 means fmax (0.0) is at once below opttol (0.01) for both
+        # structures, so both must be reported converged and neither must
+        # have been counted as oscillating -- checking only key
+        # presence/type/length (as before) would pass even if the values
+        # were transposed, all-False, or a stray increment leaked into
+        # oscillating_count.
         assert 'converged_mask' in result, "converged_mask missing from ensemble_opt return"
         assert 'oscillating_count' in result, "oscillating_count missing from ensemble_opt return"
         assert isinstance(result['converged_mask'], list)
         assert isinstance(result['oscillating_count'], list)
-        assert len(result['converged_mask']) == 2
-        assert len(result['oscillating_count']) == 2
+        assert result['converged_mask'] == [True, True]
+        assert result['oscillating_count'] == [0, 0]
 
 
 @pytest.mark.slow

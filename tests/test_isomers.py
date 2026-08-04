@@ -170,15 +170,23 @@ class TestCreateIsomerEngine:
             )
 
     def test_engine_type_case_insensitive(self):
-        """Test that engine type is case insensitive."""
-        # This should not raise - it will fail on actual instantiation
-        # but the case normalization should work
-        with pytest.raises(ValueError, match="Unknown isomer engine type"):
-            create_isomer_engine(
-                "UNKNOWN",
+        """A *valid* engine name in an unexpected case must resolve to the
+        correct adapter, not merely fail to crash on an already-invalid name.
+
+        The previous version passed "UNKNOWN" -- invalid in any case -- so it
+        could never have distinguished case normalization working from case
+        normalization being entirely absent.
+        """
+        for name in ("RDKit", "RDKIT", "rdkit"):
+            engine = create_isomer_engine(
+                name,
                 input_path="/input.smi",
                 output_path="/output.sdf",
+                smiles_enumerated="/enum.smi",
+                smiles_reduced="/reduced.smi",
+                smiles_hashed="/hashed.smi",
             )
+            assert isinstance(engine, RDKitIsomerAdapter), name
 
     def test_omega_engine_creates_adapter(self):
         """Test that 'omega' creates OmegaIsomerAdapter."""
@@ -257,6 +265,52 @@ class TestCreateIsomerEngineParallelEmbedding:
         assert engine.parallel_embedding_threshold == 5
         assert engine.parallel_workers == 2
 
+    def test_rdkit_engine_parallel_embedding_enabled_actually_runs_parallel_path(
+        self, tmp_path, monkeypatch
+    ):
+        """Constructor kwargs alone don't prove the parallel path executes.
+
+        Drive ``.run()`` for real (small, hermetic, no NNP) and spy on
+        ``embed_conformers_parallel`` -- the parallel path's only entry point
+        -- so a regression that silently falls back to serial embedding
+        would be caught even though every attribute above still reports
+        correctly.
+        """
+        import Auto3D.isomers.parallel_embed as parallel_embed_mod
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO ethanol\n")
+
+        calls = {"n": 0}
+
+        def spy(*args, **kwargs):
+            calls["n"] += 1
+            return iter([])  # no conformers written; only the call matters
+
+        monkeypatch.setattr(parallel_embed_mod, "embed_conformers_parallel", spy)
+
+        engine = create_isomer_engine(
+            "rdkit",
+            input_path=str(smi),
+            output_path=str(tmp_path / "output.sdf"),
+            smiles_enumerated=str(tmp_path / "enum.smi"),
+            smiles_reduced=str(tmp_path / "reduced.smi"),
+            smiles_hashed=str(tmp_path / "hashed.smi"),
+            job_dir=str(job_dir),
+            use_parallel_embedding=True,
+            parallel_embedding_threshold=1,  # even one molecule triggers it
+            parallel_workers=2,
+        )
+
+        engine.run()
+
+        assert calls["n"] == 1, (
+            "embed_conformers_parallel was never called: the parallel path "
+            "did not run despite use_parallel_embedding=True"
+        )
+
 
 class TestCreateTautomerEngine:
     """Tests for create_tautomer_engine factory function."""
@@ -271,14 +325,17 @@ class TestCreateTautomerEngine:
             )
 
     def test_engine_type_case_insensitive(self):
-        """Test that engine type is case insensitive for valid types."""
-        # Both RDKIT and rdkit should work (case normalization happens)
-        with pytest.raises(ValueError, match="Unknown tautomer engine type"):
-            create_tautomer_engine(
-                "UNKNOWN",
-                input_path="/input.smi",
-                output_path="/output.smi",
-            )
+        """A *valid* engine name ("RDKIT") must resolve to the same
+        rdkit-backed engine as lowercase "rdkit" -- not merely fail to crash
+        on an already-invalid name, which "UNKNOWN" could never distinguish.
+        """
+        from Auto3D.isomer_engine import TautomerEngine as TautEngine
+
+        engine = create_tautomer_engine(
+            "RDKIT", input_path="/input.smi", output_path="/output.smi"
+        )
+        assert isinstance(engine, TautEngine)
+        assert engine.mode == "rdkit"
 
 
 class TestIsomerEngineFactory:

@@ -5,12 +5,6 @@ import pytest
 from pathlib import Path
 
 
-def test_config_schema_exists():
-    """Config schema class should exist."""
-    from Auto3D.cli.config_schema import CLIConfig
-    assert CLIConfig is not None
-
-
 def test_config_defaults():
     """Config should have sensible defaults."""
     from Auto3D.cli.config_schema import CLIConfig

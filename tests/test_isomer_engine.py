@@ -92,8 +92,36 @@ def test_rd_isomer_conformer_func():
 
 
 def test_SDF2chunks():
+    """Chunks must partition the source records exactly: same count, same
+    identity (by name) in the same order, and same atom count each -- not
+    merely the same total count, which passes even if a chunk boundary
+    duplicated or dropped a molecule and another chunk absorbed the slack.
+    """
     chunks = SDF2chunks(example_sdf)
     assert(len(chunks) == count_sdf(example_sdf))
+
+    reference_mols = [
+        mol for mol in Chem.SDMolSupplier(example_sdf, removeHs=False)
+        if mol is not None
+    ]
+    chunk_mols = [
+        Chem.MolFromMolBlock("".join(chunk), removeHs=False) for chunk in chunks
+    ]
+    assert all(mol is not None for mol in chunk_mols), (
+        "a chunk failed to parse back into a molecule"
+    )
+
+    reference_names = [m.GetProp("_Name") for m in reference_mols]
+    chunk_names = [m.GetProp("_Name") for m in chunk_mols]
+    assert chunk_names == reference_names, (
+        "chunks do not reproduce the source records' identity/order"
+    )
+
+    reference_atom_counts = [m.GetNumAtoms() for m in reference_mols]
+    chunk_atom_counts = [m.GetNumAtoms() for m in chunk_mols]
+    assert chunk_atom_counts == reference_atom_counts, (
+        "a chunk's atom count does not match its source record"
+    )
 
 
 def test_rd_isomer_with_parallel_embedding():

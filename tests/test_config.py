@@ -125,34 +125,33 @@ class TestAuto3DOptions:
         config = Auto3DOptions(gpu_idx=[0, 1, 2])
         assert config.gpu_idx == [0, 1, 2]
 
-    def test_immutable_default_list(self):
-        """Test that default list values are not shared between instances."""
-        config1 = Auto3DOptions()
-        config2 = Auto3DOptions()
-
-        # If gpu_idx is a list, modifying one shouldn't affect the other
-        # But with default int value, this just verifies independence
-        config1["k"] = 5
-        assert config2.k is False  # Default is False, not None
-
 
 class TestChunkMeta:
     """Tests for ChunkMeta TypedDict."""
 
     def test_chunk_meta_structure(self):
-        """Test that ChunkMeta can be used as expected."""
+        """Track the TypedDict's OWN declared keys, not a hand-copied literal.
+
+        The prior version built its own 5-key dict and asserted back the
+        values it had just set -- a key added to or removed from the real
+        ChunkMeta would never move this test. A TypedDict has no runtime
+        constructor to validate against, so pin it via ``__annotations__``/
+        ``__required_keys__`` instead: a change to config.py's ChunkMeta now
+        has to be reflected here too, or this test fails.
+        """
         from Auto3D.config import ChunkMeta
 
-        meta: ChunkMeta = {
-            "output": "/path/to/output.sdf",
-            "optimized_og": "/path/to/optimized.sdf",
-            "enumerated_sdf": "/path/to/enumerated.sdf",
-            "sorted_sdf": "/path/to/sorted.sdf",
-            "housekeeping_folder": "/path/to/housekeeping",
+        expected_keys = {
+            "output", "optimized_og", "output_taut", "smiles_enumerated",
+            "smiles_reduced", "smiles_hashed", "enumerated_sdf", "sorted_sdf",
+            "housekeeping_folder", "path", "dir",
         }
-
-        assert meta["output"] == "/path/to/output.sdf"
-        assert meta["housekeeping_folder"] == "/path/to/housekeeping"
+        assert set(ChunkMeta.__annotations__) == expected_keys
+        # ChunkMeta declares no Optional/NotRequired fields, so every key is
+        # required -- a self-consistency check that would catch a field
+        # becoming optional without a matching intent.
+        assert ChunkMeta.__required_keys__ == frozenset(expected_keys)
+        assert ChunkMeta.__optional_keys__ == frozenset()
 
 
 def test_optimization_config_exposes_no_energy_criterion_knobs():
@@ -184,6 +183,42 @@ def test_capacity_default_matches_across_layers():
     from Auto3D.config import Auto3DOptions
 
     assert Auto3DOptions(path="x.smi").capacity == CLIConfig(path="x.smi").capacity
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "config.py FIELD_BOUNDS['opt_steps'] declares a floor of ('ge', 1), "
+        "but Auto3D.utils.validation.check_valid_configuration (validation.py:621) "
+        "and check_input (validation.py:354) each hand-write a floor of 10. "
+        "A value FIELD_BOUNDS calls valid is rejected by the other validator. "
+        "This test does not decide which number is right -- only that the two "
+        "must agree on ONE minimum, whichever the eventual fix picks."
+    ),
+)
+def test_opt_steps_minimum_agrees_between_config_and_validation():
+    """FIELD_BOUNDS['opt_steps'] and utils.validation's opt_steps floor must
+    be the SAME minimum -- see the xfail reason for the defect this pins.
+    """
+    from Auto3D.config import FIELD_BOUNDS, check_field_bounds
+    from Auto3D.utils.validation import check_valid_configuration
+
+    kind, bound_min = FIELD_BOUNDS["opt_steps"]
+    assert kind == "ge"
+
+    # config.py's own gate must accept its own declared floor (premise, not
+    # the point of this test).
+    check_field_bounds({"opt_steps": bound_min})  # must not raise
+
+    # utils.validation must not disagree with config.py's declared floor:
+    # a value config.py calls valid must not be flagged as an error there.
+    errors = check_valid_configuration(
+        path=None, k=1, opt_steps=int(bound_min), use_gpu=False,
+    )
+    assert not any("opt_steps" in e for e in errors), (
+        f"config.py says opt_steps={bound_min} is valid (FIELD_BOUNDS), but "
+        f"utils.validation.check_valid_configuration disagrees: {errors}"
+    )
 
 
 def test_negative_k_rejected():

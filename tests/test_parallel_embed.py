@@ -39,16 +39,34 @@ class TestEmbedSingle:
             assert "methane" in conf_id
 
     def test_embed_single_with_dynamic_conformers(self):
-        """_embed_single with n_conformers=None should use dynamic calculation."""
+        """_embed_single with n_conformers=None should use dynamic calculation.
+
+        Compare the actual conformer count against ``calculate_conformer_count``'s
+        own formula for this molecule, instead of a bare ">= 1" that would
+        pass even if the None branch silently stopped calling that formula
+        (e.g. fell back to a fixed conformer count). Hexane is flexible
+        enough that the two counts are not degenerate (unlike a rigid/small
+        molecule, where embedding + RMSD pruning collapses to 1 regardless of
+        the requested count and could hide a formula regression).
+        """
+        from Auto3D.utils.chemistry import calculate_conformer_count
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCC"))  # hexane: flexible
+        expected_upper_bound = calculate_conformer_count(mol)
+
         results = _embed_single(
-            smi="CC",
-            name="ethane",
+            smi="CCCCCC",
+            name="hexane",
             n_conformers=None,
             threshold=0.3,
             np_threads=1,
         )
 
-        assert len(results) >= 1
+        assert 1 <= len(results) <= expected_upper_bound, (
+            f"expected between 1 and {expected_upper_bound} conformers "
+            "(calculate_conformer_count's own dynamic formula for hexane), "
+            f"got {len(results)}"
+        )
 
     def test_embed_single_filters_invalid_conformers(self):
         """_embed_single should filter conformers with atom clashes."""

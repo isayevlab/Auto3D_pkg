@@ -14,9 +14,13 @@ from tests.helpers_pipeline_output import (
     write_perturbed_sdf,
 )
 
-# Mark all tests in this module as slow (thermodynamic calculations)
-pytestmark = pytest.mark.slow
-
+# Every real-model test below is marked @pytest.mark.slow individually
+# (thermodynamic calculations, each loading a real NNP). NOT a module-level
+# `pytestmark`: test_model_name2model_calculator_uses_factory below patches
+# both create_model and EnForce_ANI and loads no NNP, so it must run in the
+# fast tier -- a module-level mark would have swept it in regardless (its
+# test_SPE.py twin, test_calc_spe_uses_model_factory, had the same defect).
+#
 # Every opt_geometry/calc_thermo call below passes use_gpu=False on purpose.
 # Both default to use_gpu=True, and Auto3D 4.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
@@ -252,6 +256,7 @@ def assert_thermo_record(mol, *, reference_G=None, reference_H=None):
         )
 
 
+@pytest.mark.slow
 def test_calc_thermo_aimnet():
     """AIMNET thermochemistry for cyclooctane against a wB97m-D4/Def2-TZVPP run.
 
@@ -273,6 +278,7 @@ def test_calc_thermo_aimnet():
     except OSError:
         pass
 
+@pytest.mark.slow
 def test_vib_hessian_includes_external_dispersion():
     """Regression guard: the AIMNET vibrational Hessian must run the full energy
     pipeline (external D3 dispersion + Coulomb), not the bare aimnet nn.Module.
@@ -371,6 +377,7 @@ def _perturbed_DA(tmp_path) -> tuple[str, list]:
     return write_perturbed_sdf(source, tmp_path / "DA.sdf", DA_EXPANSION)
 
 
+@pytest.mark.slow
 def test_opt_geometry1(tmp_path):
     """ANI2x relaxes a displaced geometry and annotates it correctly."""
     path, inputs = _perturbed_DA(tmp_path)
@@ -378,6 +385,7 @@ def test_opt_geometry1(tmp_path):
     assert_opt_geometry_output(out, input_mols=inputs,
                                moved_at_least=DA_MIN_RELAXATION, label="ANI2x")
 
+@pytest.mark.slow
 def test_opt_geometry2(tmp_path):
     """ANI2xt relaxes a displaced geometry and annotates it correctly."""
     path, inputs = _perturbed_DA(tmp_path)
@@ -385,6 +393,7 @@ def test_opt_geometry2(tmp_path):
     assert_opt_geometry_output(out, input_mols=inputs,
                                moved_at_least=DA_MIN_RELAXATION, label="ANI2xt")
 
+@pytest.mark.slow
 def test_opt_geometry3(tmp_path):
     """AIMNet2 relaxes a displaced geometry and annotates it correctly."""
     path, inputs = _perturbed_DA(tmp_path)
@@ -393,6 +402,7 @@ def test_opt_geometry3(tmp_path):
                                moved_at_least=DA_MIN_RELAXATION, label="AIMNET")
 
 
+@pytest.mark.slow
 def test_opt_geometry_with_patience_and_batchsize():
     """Test opt_geometry with explicit patience and batchsize_atoms parameters."""
     path = os.path.join(folder, "tests/files/DA.sdf")
@@ -411,6 +421,7 @@ def test_opt_geometry_with_patience_and_batchsize():
     except OSError:
         pass
 
+@pytest.mark.slow
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
 def test_opt_geometry4(tmp_path):
     """A scripted custom NNP relaxes a displaced geometry through opt_geometry."""
@@ -426,6 +437,7 @@ def test_opt_geometry4(tmp_path):
                                moved_at_least=DA_MIN_RELAXATION,
                                label="scripted userNNP1")
 
+@pytest.mark.slow
 def test_opt_geometry5(tmp_path):
     """An eager AIMNet2-backed custom NNP relaxes a displaced geometry."""
     path, inputs = _perturbed_DA(tmp_path)
@@ -441,6 +453,7 @@ def test_opt_geometry5(tmp_path):
                                label="eager userNNP2")
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
 def test_calc_thermo_userNNP1():
     #load wB97m-D4/Def2-TZVPP output file
@@ -478,6 +491,7 @@ def test_calc_thermo_userNNP1():
         pass
 
 
+@pytest.mark.slow
 def test_calc_thermo_userNNP2():
     #load wB97m-D4/Def2-TZVPP output file
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")

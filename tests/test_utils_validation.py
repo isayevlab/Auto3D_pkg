@@ -223,19 +223,37 @@ class TestFilterUnique:
         )
 
     def test_filter_unique_custom_threshold(self):
-        """Test filter_unique with custom RMSD threshold."""
-        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
-        mols = [mol for mol in supp if mol is not None]
+        """A tighter RMSD threshold must keep MORE structures than a looser
+        one -- not merely "at least as many", which passes even when the two
+        thresholds produce identical results (as the fixture in
+        ``path_example_sdf`` does: two molecules of different sizes, so
+        ``species_key`` alone already keeps both regardless of ``crit``).
 
-        for mol in mols:
-            mol.SetProp("Converged", "True")
+        Constructs two conformers of ONE molecule whose RMSD sits strictly
+        between the two thresholds, so equality cannot pass silently.
+        """
+        mol1 = Chem.AddHs(Chem.MolFromSmiles("CCCCCCCC"))  # octane: flexible
+        mol2 = Chem.Mol(mol1)
+        from rdkit.Chem import AllChem, rdMolAlign
+        AllChem.EmbedMolecule(mol1, randomSeed=1)
+        AllChem.EmbedMolecule(mol2, randomSeed=99)
+        AllChem.MMFFOptimizeMolecule(mol1)
+        AllChem.MMFFOptimizeMolecule(mol2)
+        mol1.SetProp("Converged", "True")
+        mol2.SetProp("Converged", "True")
 
-        # With very small threshold, more structures should be kept
-        result_strict = filter_unique(mols, crit=0.01)
-        # With larger threshold, fewer structures should be kept
-        result_lenient = filter_unique(mols, crit=1.0)
+        rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol1), Chem.RemoveHs(mol2))
+        assert rmsd > 0.05, "test premise: conformers must be geometrically distinct"
 
-        assert len(result_strict) >= len(result_lenient)
+        crit_strict = rmsd / 2   # below the actual RMSD -> kept separate
+        crit_lenient = rmsd * 2  # above the actual RMSD -> merged
+
+        result_strict = filter_unique([mol1, mol2], crit=crit_strict)
+        result_lenient = filter_unique([mol1, mol2], crit=crit_lenient)
+
+        assert len(result_strict) == 2, "strict threshold must not merge distinct conformers"
+        assert len(result_lenient) == 1, "lenient threshold must merge near-identical conformers"
+        assert len(result_strict) > len(result_lenient)
 
 
 class TestCheckValidConfiguration:
