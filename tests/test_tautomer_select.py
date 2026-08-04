@@ -29,6 +29,19 @@ def test_select_tautomers_groups_by_id(tmp_path):
     assert names == ["molA", "molB"]  # one top tautomer per id
     assert not any(m.HasProp("E_rel(kcal/mol)") for m in mols)
 
+    # Names alone don't prove *which* tautomer survived: after selection both
+    # groups are renamed to their bare id, so a reversed sort (highest energy
+    # kept instead of lowest) would still produce ["molA", "molB"] here. E_tot
+    # is not cleared on write, so check it directly: molA must keep taut1
+    # (-1.0, the lower/more stable energy), not taut2 (-0.5).
+    by_name = {m.GetProp("_Name"): m for m in mols}
+    assert float(by_name["molA"].GetProp("E_tot")) == -1.0
+    assert float(by_name["molB"].GetProp("E_tot")) == -2.0
+    # The kept tautomer is each group's own reference, so its relative energy
+    # to itself must be exactly zero.
+    assert float(by_name["molA"].GetProp("E_tautomer_relative(kcal/mol)")) == 0.0
+    assert float(by_name["molB"].GetProp("E_tautomer_relative(kcal/mol)")) == 0.0
+
 
 def test_select_tautomers_rejects_nonpositive_k(tmp_path):
     """k < 1 used to silently drop every tautomer (out_mols0[:0]); now rejected."""

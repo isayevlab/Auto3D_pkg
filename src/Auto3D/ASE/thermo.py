@@ -7,7 +7,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Iterator
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
 import ase
@@ -23,7 +22,6 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
-from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.constants import (
     DEFAULT_OPT_STEPS,
     DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
@@ -37,10 +35,9 @@ from Auto3D.constants import (
     STANDARD_PRESSURE,
 )
 from Auto3D.model_factory import create_model, get_device
+from Auto3D.models.contract import ModelAdapter, missing_adapter_members
 from Auto3D.models.preflight import resolve_engine_name
-from Auto3D.models.species import to_model_species
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils.energy import hartree2ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.validation import (
@@ -415,7 +412,17 @@ def _devices_agree(a: torch.device, b: torch.device) -> bool:
 
 
 class Calculator(ase.calculators.calculator.Calculator):
-    """ASE calculator interface for AIMNET and ANI2xt.
+    """ASE calculator over an Auto3D model adapter.
+
+    The first argument is a :class:`Auto3D.models.contract.ModelAdapter` and it
+    is the ONLY model-dependent input: it supplies the energy/force call *and*
+    the species convention (:meth:`~Auto3D.models.contract.ModelAdapter.to_species`).
+    Until 4.0.1 it took an engine-name string alongside the model and fed that
+    name to a name-keyed species converter, so ``Calculator.model_name`` and the
+    model actually wrapped could disagree about which convention was in force --
+    the C3/C4 defect class, on a path where ANI2xt's 0-based network indices and
+    raw atomic numbers are both plausible-looking integers. Asking one object
+    makes the disagreement unrepresentable rather than merely absent.
 
     ``device`` and ``dtype`` are the caller's, not this class's to guess.
     ``calc_thermo`` resolves the device once, through
@@ -453,14 +460,42 @@ class Calculator(ase.calculators.calculator.Calculator):
     #: before the first assignment in ``__init__``.
     default_parameters = {'charge': 0}
 
-    def __init__(self, model, charge=0, *, model_name, device=None, dtype=None):
+    def __init__(self, adapter: ModelAdapter, charge=0, *, device=None, dtype=None):
+        """Wrap a model adapter as an ASE calculator.
+
+        Args:
+            adapter: The model, satisfying
+                :class:`Auto3D.models.contract.ModelAdapter`. Checked here, for
+                the same reason ``EnForce_ANI`` checks it: a category error (a
+                raw ``nn.Module``, a third-party calculator, a leftover engine
+                name) is named at construction instead of surfacing as an
+                ``AttributeError`` inside ASE's optimizer loop, several frames
+                and one relaxation later.
+            charge: Molecular charge. See the class docstring for why this is
+                ASE parameter state and not a bare attribute.
+            device: Device for the ASE-facing tensors. ``None`` reads it off the
+                model's parameters, falling back to CPU.
+            dtype: dtype for the ASE-facing tensors. ``None`` reads it off the
+                model's parameters, falling back to float32.
+
+        Raises:
+            TypeError: ``adapter`` does not structurally satisfy the contract.
+        """
         super().__init__()
-        self.model = model
-        # Engine name in Auto3D's own convention (e.g. 'ANI2xt'), used by
-        # calculate() to route species through to_model_species so ANI2xt's
-        # 0-based network indices are built correctly (audit C3).
-        self.model_name = model_name
-        params = list(self.model.parameters())
+        missing = missing_adapter_members(adapter)
+        if missing:
+            raise TypeError(
+                f"Calculator needs a model adapter satisfying "
+                f"Auto3D.models.contract.ModelAdapter; "
+                f"{type(adapter).__name__} is missing {', '.join(missing)}. "
+                f"Build one with Auto3D.model_factory.create_model."
+            )
+        self.adapter = adapter
+        # A ModelAdapter is not required to be an nn.Module -- `device` is
+        # deliberately outside the contract -- so "has no parameters to read a
+        # device off" and "is not a Module at all" are the same case here, and
+        # both fall through to the documented CPU/float32 default below.
+        params = list(adapter.parameters()) if hasattr(adapter, "parameters") else []
         for p in params:
             p.requires_grad_(False)
         param_device = params[0].device if params else None
@@ -544,10 +579,10 @@ class Calculator(ase.calculators.calculator.Calculator):
         # Atomic numbers directly from ASE (element-complete: no hardcoded
         # symbol table, so any aimnet-supported element incl. Pd works).
         # ANI2xt consumes 0-based network indices, not atomic numbers; every
-        # other engine passes through. Routing via the single owner keeps this
-        # site from drifting out of sync with batch_opt/padding.py (audit C3).
+        # other engine passes through. The ADAPTER decides which, so this site
+        # cannot drift out of sync with batch_opt/padding.py (audit C3).
         species = torch.tensor(
-            to_model_species(self.atoms.get_atomic_numbers().tolist(), self.model_name),
+            self.adapter.to_species(self.atoms.get_atomic_numbers().tolist()),
             dtype=torch.long, device=self.device,
         )
         coordinates = torch.tensor(self.atoms.get_positions()).to(self.device).to(self.dtype)
@@ -556,13 +591,27 @@ class Calculator(ase.calculators.calculator.Calculator):
         species = species.unsqueeze(0)
         coordinates = coordinates.unsqueeze(0)
         
-        energy, forces = self.model(coordinates, species, self.charge)
+        energy, forces = self.adapter.forward(coordinates, species, self.charge)
         self.results['energy'] = energy.item()
         self.results['forces'] = forces.squeeze(0).to('cpu').numpy()
 
 
-def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), *, model_name) -> dict:
-    """Converts sdf to aimnet input, assuming the sdf has only 1 conformer."""
+def mol2aimnet_input(
+    mol: Chem.Mol, device=torch.device('cpu'), *, adapter: ModelAdapter
+) -> dict:
+    """Converts sdf to model input, assuming the sdf has only 1 conformer.
+
+    Args:
+        mol: RDKit molecule with exactly one conformer.
+        device: Device the returned tensors live on.
+        adapter: The model this input is being built for. It supplies the
+            species convention (:meth:`ModelAdapter.to_species`); this used to
+            be an engine-name string, which is what allowed the convention here
+            to disagree with the one the wrapped model actually wanted.
+
+    Returns:
+        ``dict(coord=..., numbers=..., charge=...)``, batch dimension 1.
+    """
     conf = mol.GetConformer()
     # RDKit positions are float64; build the coordinate tensor as float32 to
     # match the model weights (the other thermo entry point, Calculator.calculate,
@@ -573,7 +622,7 @@ def mol2aimnet_input(mol: Chem.Mol, device=torch.device('cpu'), *, model_name) -
         conf.GetPositions(), dtype=torch.float32, device=device
     ).unsqueeze(0)
     numbers = torch.tensor(
-        to_model_species([a.GetAtomicNum() for a in mol.GetAtoms()], model_name),
+        adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()]),
         device=device,
     ).unsqueeze(0)
     charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
@@ -596,13 +645,18 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
         charge: Molecular charge for the calculator.
 
     Returns:
-        Tuple of (model_adapter, calculator).
+        Tuple of (model_adapter, calculator). Both wrap the SAME adapter, so
+        ``calc_thermo``'s fmax pre-check and its ASE relaxation cannot end up
+        talking to two different models.
     """
     model_adapter = create_model(model_name, device)
 
-    # Wrap in EnForce_ANI for compatibility with existing code
-    model = EnForce_ANI(model_adapter)
-    calculator = Calculator(model, charge, model_name=model_name, device=device)
+    # The adapter goes straight in. It used to be wrapped in an EnForce_ANI
+    # first, which only forwarded one unpadded single-molecule call through to
+    # `adapter.forward(coord, numbers, charges, atom_mask=None)` -- exactly what
+    # Calculator now does itself -- while hiding the adapter from the calculator,
+    # so the species convention had to be re-supplied as a separate name string.
+    calculator = Calculator(model_adapter, charge, device=device)
 
     return model_adapter, calculator
 
@@ -655,22 +709,35 @@ def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     ])
     return atoms
 
-def vib_hessian(mol: Chem.Mol, ase_calculator, model,
-                device=torch.device('cpu'), model_name='AIMNET',
-                *, positions=None):
-    '''return a VibrationsData object
-    model: an AIMNet2Calculator (AIMNET / aimnet registry) or an nn.Module
-    (ANI2xt / ANI2x / userNNP) that can be used to calculate the Hessian.
+def vib_hessian(mol: Chem.Mol, ase_calculator, adapter: ModelAdapter,
+                device=torch.device('cpu'), *, positions=None):
+    '''Return a VibrationsData object for one molecule.
 
-    For an AIMNet2Calculator the Hessian is computed through the calculator's
-    native analytic Hessian, which runs the FULL energy pipeline including the
-    external D3 dispersion and Coulomb modules. Differentiating the bare
-    aimnet nn.Module instead silently drops those external energy terms (D3 is
-    attractive at bonding range), stiffening every bond and shifting C-H
-    stretches up by ~4% (~130 cm-1). ANI/custom models are plain nn.Modules
-    with the full energy in the graph, so they keep the autograd path.
+    The Hessian source is a CAPABILITY of the adapter, not a type test on it and
+    not a branch on an engine name. ``adapter.analytic_hessian(...)`` returns the
+    model's own second derivative, or ``None`` meaning "differentiate
+    ``adapter.energy``". Only AIMNet2 answers with a Hessian, and it must,
+    because its native one runs the FULL energy pipeline including the external
+    D3 dispersion and Coulomb modules: differentiating the bare aimnet
+    ``nn.Module`` drops those terms (D3 is attractive at bonding range),
+    stiffening every bond and shifting C-H stretches up by ~4% (~130 cm-1).
+    ANI2xt / ANI2x / userNNP are plain modules with the whole energy in the
+    graph, so autograd of ``energy`` is exact for them.
+
+    This replaced ``isinstance(model, AIMNet2Calculator)`` plus a five-branch,
+    name-keyed ``aimnet_hessian_helper``. Two consequences worth naming: an
+    aimnet registry alias (``aimnet2-2025``, ``aimnet2-nse``, ...) no longer has
+    a branch to fall through, and ``energy`` -- not ``forward`` -- is what gets
+    differentiated, so the fp64 geometry is not silently answered in fp32 by the
+    two adapters whose ``forward`` calls ``coords.float()``.
 
     Args:
+        mol: RDKit molecule; supplies species, formal charge and isotope masses.
+        ase_calculator: Attached to the ``Atoms`` object for downstream ASE use.
+        adapter: The model, satisfying
+            :class:`Auto3D.models.contract.ModelAdapter`. Supplies the species
+            convention, the energy and the Hessian capability.
+        device: Device the Hessian is built on.
         positions: Geometry to build the Hessian from. Defaults to the mol's
             conformer, which is only correct when no relaxation has happened
             since the conformer was last synced. The caller (do_mol_thermo)
@@ -695,30 +762,26 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, model,
     # get the Hessian
     coord = torch.tensor(atoms.get_positions()).to(device).unsqueeze(0)
     num_atoms = coord.shape[1]
-    numbers = torch.tensor([[a.GetAtomicNum() for a in mol.GetAtoms()]]).to(device)
+    # The species convention comes from the adapter, so ANI2xt's 0-based network
+    # indices are built here exactly as they are for the optimization batch. This
+    # used to be raw atomic numbers, remapped (or not) further down inside a
+    # name-keyed helper -- one more place the convention could disagree.
+    numbers = torch.tensor(
+        [adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()])]
+    ).to(device)
     # aimnet's AIMNet2 model requires a 1D charge tensor (one entry per
     # molecule); a 0-dim scalar trips an internal assert.
     charge = torch.tensor([charge]).to(device)
 
-    from aimnet.calculators import AIMNet2Calculator
-    if isinstance(model, AIMNet2Calculator):
-        # Analytic Hessian through the full pipeline (D3 + Coulomb included).
-        # Returns shape (num_atoms, 3, num_atoms, 3), fp32.
-        out = model(dict(coord=coord, numbers=numbers, charge=charge),
-                    hessian=True)
-        hess = out['hessian']
-        hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
-    else:
-        # ANI2xt / ANI2x / userNNP: plain nn.Module, full energy in the graph;
-        # autograd Hessian of the bare module is correct here.
-        hess_helper = partial(aimnet_hessian_helper,
-                              numbers=numbers,
-                              charge=charge,
-                              model=model,
-                              model_name=model_name)
-        hess = torch.autograd.functional.hessian(hess_helper,
-                                                 coord)
-        hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
+    hess = adapter.analytic_hessian(coord, numbers, charge)
+    if hess is None:
+        # No native second derivative: differentiate the adapter's energy. Note
+        # `energy`, not `forward` -- forward would compute (and discard) forces,
+        # and in two adapters would downcast this fp64 geometry to fp32.
+        hess = torch.autograd.functional.hessian(
+            lambda xyz: adapter.energy(xyz, numbers, charge), coord
+        )
+    hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
 
     # get the VibrationsData object
     vib = VibrationsData(atoms, hess)
@@ -1175,17 +1238,20 @@ def _verbatim_mode_kwargs(n_passed: int, n_expected: int) -> dict:
 
 def do_mol_thermo(mol: Chem.Mol,
                   atoms: ase.Atoms,
-                  model: torch.nn.Module,
+                  adapter: ModelAdapter,
                   device=torch.device('cpu'),
-                  T=298.15, model_name='AIMNET',
+                  T=298.15,
                   *,
                   low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM):
     """For a RDKit mol object, calculate its thermochemistry properties.
 
-    model: ANI2xt or AIMNet2 or ANI2x or userNNP that can be used to calculate
-    the Hessian.
-
     Args:
+        adapter: The Hessian model, satisfying
+            :class:`Auto3D.models.contract.ModelAdapter`. Passed straight to
+            ``vib_hessian``, which asks it for the species convention and for
+            either a native or an autograd Hessian. The engine-name argument
+            this used to carry alongside is gone: the adapter answers both
+            questions, so there was nothing left for a name to select.
         low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1 (see
             ``analyze_vibrations``). 0.0 disables it and gives plain RRHO.
             Whichever value is used is recorded in the record's
@@ -1199,8 +1265,7 @@ def do_mol_thermo(mol: Chem.Mol,
     coord = atoms.get_positions()
     # atoms.get_calculator() is deprecated since ase 3.22.1; use `.calc`
     # (Minor 6, same rationale as the set_calculator() call above).
-    vib = vib_hessian(mol, atoms.calc, model, device,
-                      model_name=model_name, positions=coord)
+    vib = vib_hessian(mol, atoms.calc, adapter, device, positions=coord)
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
     symmetry = _symmetry_number(mol)
@@ -1337,136 +1402,66 @@ def do_mol_thermo(mol: Chem.Mol,
     return mol
 
 
-def _load_hessian_model(model_name: str, device):
-    """Return a Hessian/energy evaluator for vib_hessian.
+def _load_hessian_model(model_name: str, device) -> ModelAdapter:
+    """Return the Hessian model for ``vib_hessian``, as an adapter.
 
-    For AIMNET and aimnet registry names this returns the AIMNet2Calculator
-    itself (fp32 — whole-graph fp64 upcast is false precision), obtained via
-    ``create_model(...).calculator`` -- ModelFactory is the single owner of
-    name -> adapter dispatch (including alias resolution, e.g. "AIMNET" ->
-    the registry default), so this branch is routed through it rather than
-    hand-rolling that resolution and constructing a second AIMNet2Calculator
-    here. AIMNet2Adapter stores the calculator it built internally
-    (``self._calc``); the ``calculator`` property on the adapter exposes it.
-    This is required (not merely convenient) because vib_hessian dispatches
-    on ``isinstance(model, AIMNet2Calculator)`` to use the calculator's
-    native analytic Hessian, which runs the full energy pipeline including
-    the external D3 dispersion and Coulomb modules -- returning the adapter's
-    bare ``.model`` instead (or differentiating it) would silently drop those
-    external terms. ``use_cache=True`` (the default, left unset below) is
-    safe here: nothing on this path mutates the returned object's dtype in
-    place, unlike the ANI2xt/ANI2x/custom branches below. Keeping the cache
-    also means this shares the same cached AIMNet2Adapter as
-    model_name2model_calculator's call for the optimization loop earlier in
-    calc_thermo (when torch.compile is off, the normal case, both calls
-    resolve to the same (name, device, compile_model) cache key), avoiding a
-    second full AIMNet2 load per calc_thermo call.
+    ONE return type. This used to return either a bare fp64 ``nn.Module``
+    (ANI2xt / ANI2x / custom) or an ``aimnet.calculators.AIMNet2Calculator``
+    (AIMNET and the registry aliases), reached through an ``AIMNet2Adapter``
+    property published for exactly that purpose, and ``vib_hessian`` then had to
+    tell the two apart with ``isinstance``. The analytic-Hessian capability is on
+    the contract now (``ModelAdapter.analytic_hessian``), so the caller needs no
+    type test and no engine name, and a third-party calculator type no longer
+    appears in Auto3D's control flow.
 
-    ANI2xt/ANI2x and custom paths return fp64 nn.Modules, which vib_hessian
-    differentiates with torch.autograd.functional.hessian. These ARE routed
-    through ModelFactory (the single owner of name -> adapter dispatch) with
-    its cache disabled: the module handed back here is upcast to fp64 in
-    place. For ANI2xt/ANI2x, ModelFactory's cache is shared with
-    model_name2model_calculator's fp32 instance used for the optimization
-    loop immediately afterwards in calc_thermo -- reusing a cached entry here
-    would silently upcast that shared fp32 model too, so use_cache=False
-    matters there. For a custom model path, ModelFactory.create() returns a
-    fresh CustomModelAdapter before ever consulting its cache (a custom path
-    is never cached, see ModelFactory.create's step 2), so use_cache has no
-    effect on that branch specifically; it is still passed as False here for
-    a single uniform call across all three cases, not because it changes
-    behavior for the custom path.
+    ``ModelFactory`` remains the single owner of name -> adapter dispatch,
+    including alias resolution ("AIMNET" -> the registry default), so the name is
+    passed through unchanged.
+
+    Two things the branch below still decides, and both are about dtype, not
+    about how the model is called:
+
+    * **fp64 for the autograd path.** ANI2xt / ANI2x / custom models are
+      differentiated by ``torch.autograd.functional.hessian``, on the fp64
+      geometry ``vib_hessian`` builds, so the module is upcast in place.
+      AIMNet2 is not: whole-graph fp64 through it is false precision, and its
+      Hessian is analytic anyway.
+    * **``use_cache=False`` where that upcast happens.** ``.double()`` mutates
+      the wrapped module in place, and ``ModelFactory``'s cache is shared with
+      the fp32 adapter ``model_name2model_calculator`` builds for the
+      optimization half of the SAME ``calc_thermo`` call. Reusing a cached entry
+      here would silently upcast that instance too, leaving one run optimizing at
+      one precision and differentiating at another with nothing logged. The
+      AIMNET branch keeps the cache (it mutates nothing), which is also what
+      stops ``calc_thermo`` paying for two full AIMNet2 loads. For a custom model
+      path ``ModelFactory.create`` returns a fresh adapter before consulting the
+      cache at all, so ``use_cache`` has no observable effect there; it is passed
+      for one uniform call, not because that branch needs it.
     """
     # Case-folded, because every other engine-name gate in Auto3D folds case --
-    # ModelFactory.create (name.upper()), resolve_engine_name, to_model_species
-    # and check_engine_supports_molecules were all verified to -- and this one
-    # did not. `calc_thermo(path, "ani2x")` and `auto3d thermo -e ani2x` passed
-    # every one of those gates and then fell through to the registry branch
-    # below, which returns an ANI2xAdapter with no `.calculator`, so the run died
-    # with `AttributeError: 'ANI2xAdapter' object has no attribute 'calculator'`
-    # inside the generic "Unexpected Error" panel at exit 1 -- after paying for
-    # model construction. `auto3d run -e ani2x` worked, because
+    # ModelFactory.create (name.upper()), resolve_engine_name and
+    # check_engine_supports_molecules were all verified to -- and this one did
+    # not. `calc_thermo(path, "ani2x")` and `auto3d thermo -e ani2x` passed every
+    # one of those gates and then fell through to the branch below, which at the
+    # time returned `.calculator` -- an attribute an ANI2xAdapter does not have --
+    # so the run died in the generic "Unexpected Error" panel at exit 1, after
+    # paying for model construction. `auto3d run -e ani2x` worked, because
     # CLIConfig.to_auto3d_options normalizes there. A path is left unfolded:
     # filesystem paths are case-sensitive on most platforms.
     if model_name.upper() in ("ANI2XT", "ANI2X") or Path(model_name).exists():
         # compile_model=False: torch.compile guards on dtype, and nothing in
         # this autograd-Hessian path benefits from it anyway.
         adapter = create_model(model_name, device, compile_model=False, use_cache=False)
-        return adapter.model.double()
+        # In place, and on the adapter's own module, exactly as before: the
+        # adapter is what gets returned now, but the fp64 tensor it will feed the
+        # model is the same one, so no reported frequency moves.
+        adapter.model.double()
+        return adapter
     # AIMNET or any aimnet registry alias: ModelFactory resolves the "AIMNET"
     # legacy alias to the registry default internally (see
     # ModelFactory.create step 3), so model_name is passed through unchanged.
-    return create_model(model_name, device, compile_model=False).calculator
+    return create_model(model_name, device, compile_model=False)
 
-
-def aimnet_hessian_helper(
-    coord: torch.Tensor,
-    numbers: torch.Tensor | None = None,
-    charge: torch.Tensor | None = None,
-    model: torch.nn.Module | None = None,
-    model_name: str = 'AIMNET',
-) -> torch.Tensor:
-    '''coord shape: (1, num_atoms, 3)
-    numbers shape: (1, num_atoms)
-    charge shape: (1,)
-
-    Used by vib_hessian's autograd path for ANI2xt / ANI2x / userNNP models.
-    The AIMNET branch is intentionally NOT reached in the normal flow:
-    vib_hessian routes AIMNet2Calculator models through the calculator's native
-    analytic Hessian (full pipeline incl. external D3 + Coulomb). The branch is
-    kept only as a defensive fallback should a bare aimnet nn.Module ever be
-    passed here directly; note it omits the external modules and is not the
-    supported path.'''
-    # Case-folded for the same reason as _load_hessian_model above: every other
-    # engine-name gate in Auto3D folds case, and a lowercase spelling reaching
-    # here used to fall through to the ValueError below rather than dispatch.
-    model_name_upper = model_name.upper()
-    if model_name_upper == 'AIMNET':
-        dct = dict(coord=coord, numbers=numbers, charge=charge)
-        return model(dct)['energy']  # energy unit: eV
-    elif model_name_upper == 'ANI2XT':
-        device = coord.device
-        # reshape(-1), not squeeze(): squeeze() on a MONATOMIC molecule collapses
-        # the (1, 1) numbers tensor to 0-d, whose .tolist() is a bare int, and
-        # iterating an int raises TypeError. vib_hessian builds the Hessian
-        # (thermo.py, do_mol_thermo) BEFORE _detect_geometry runs three lines
-        # later, so nothing classifies the species monatomic in time to skip
-        # this -- a lone atom on the ANI2xt thermo path died inside the catch-all
-        # handler and was reported as `Thermo_failed`, not as monatomic.
-        numbers2 = torch.tensor(
-            to_model_species([int(num) for num in numbers.reshape(-1).tolist()], "ANI2xt"),
-            device=device,
-        ).unsqueeze(0)
-        e = model(numbers2, coord)
-        return e  # energy unit: eV
-    elif model_name_upper == 'ANI2X':
-        e = model((numbers, coord)).energies * hartree2ev
-        return e  # energy unit: eV
-    elif Path(model_name).exists():
-        # charge cast to coord's floating dtype. vib_hessian builds it with
-        # `torch.tensor([charge])` from a Python int, i.e. int64, while the
-        # optimization half of the same calc_thermo call feeds this same custom
-        # model a float32 charge through pad_from_mols (batch_opt/padding.py) --
-        # so a custom NNP that does arithmetic on the charge, or that is
-        # dtype-sensitive, got two different answers in one run. Matching coord
-        # keeps the one call internally consistent, which is what this branch can
-        # guarantee; it does not route through CustomModelAdapter, so the
-        # remaining float64-vs-float32 difference between the Hessian and
-        # optimization paths is deliberate (the Hessian is built in double).
-        e = model.forward(numbers, coord, charge.to(coord.dtype))
-        return e  # energy unit: eV
-    else:
-        # Every aimnet registry alias (aimnet2-2025, aimnet2-nse, ...) and the
-        # lowercase 'aimnet' reach here: none matched a branch, and without
-        # this the function fell off the end returning None, which then flowed
-        # into torch.autograd.functional.hessian and failed with an error
-        # naming neither the model nor the dispatch.
-        raise ValueError(
-            f"aimnet_hessian_helper cannot evaluate model_name={model_name!r}. "
-            "Recognized values are 'AIMNET', 'ANI2xt', 'ANI2x', or a path to a "
-            "custom NNP file. AIMNet2 registry models are evaluated through "
-            "the calculator's analytic Hessian, not this autograd path."
-        )
 
 def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> bool:
     """Relax ``atoms`` and report whether it reached a stationary point.
@@ -1684,8 +1679,11 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     device = get_device(gpu_idx, use_gpu=use_gpu)
 
-    hessian_model = _load_hessian_model(model_name, device)
-    model, calculator = model_name2model_calculator(model_name, device)
+    # Two adapters, deliberately: `hessian_adapter`'s module is fp64 for the
+    # autograd Hessian (see _load_hessian_model), `opt_adapter`'s is the fp32 one
+    # the relaxation and the fmax pre-check share with `calculator`.
+    hessian_adapter = _load_hessian_model(model_name, device)
+    opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
     for mol in tqdm(list(iter_thermo_records(mols))):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))
@@ -1707,10 +1705,10 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             idx, T = mol_info_func(mol)
 
         try:
-            EnForce_in = mol2aimnet_input(mol, device, model_name=model_name)
-            _, f_ = model(EnForce_in['coord'].requires_grad_(True),
-                          EnForce_in['numbers'],
-                          EnForce_in['charge'])
+            EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
+            _, f_ = opt_adapter.forward(EnForce_in['coord'].requires_grad_(True),
+                                        EnForce_in['numbers'],
+                                        EnForce_in['charge'])
             fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
 
             # Gate on the documented threshold, not a hardcoded 0.01.
@@ -1734,8 +1732,8 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 mols_failed.append(mol)
                 continue
 
-            mol = do_mol_thermo(mol, atoms, hessian_model,
-                                device, T, model_name=model_name,
+            mol = do_mol_thermo(mol, atoms, hessian_adapter,
+                                device, T,
                                 low_freq_cutoff_cm=low_freq_cutoff_cm)
             # do_mol_thermo writes the verdict: "" for a minimum, or
             # "transition_state" for a confirmed saddle point, whose

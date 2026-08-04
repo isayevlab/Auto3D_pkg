@@ -30,20 +30,36 @@ def test_help_works(runner):
 
 
 def test_version_works(runner):
-    """--version should show version."""
+    """--version should show version.
+
+    ``exit_code == 0`` alone comes from ``raise typer.Exit()`` in
+    ``version_callback`` independently of whatever it printed (or didn't) --
+    deleting the ``console.print`` call entirely would still exit 0. Check
+    the actual printed content.
+    """
+    import Auto3D
     from Auto3D.cli.app import app
 
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
+    assert "Auto3D version" in result.stdout
+    assert Auto3D.__version__ in result.stdout
 
 
 def test_run_help(runner):
-    """run --help should show run options."""
+    """run --help should show run options.
+
+    ``"--config" in out or "-c" in out`` is trivially satisfied by
+    ``--max-confs`` (which contains the substring ``-c``) even if ``-c``/
+    ``--config`` were deleted outright. Anchor on the full ``--config`` flag
+    name, which is not a substring of any other option.
+    """
     from Auto3D.cli.app import app
 
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    assert "--config" in result.stdout or "-c" in result.stdout
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "--config" in out
 
 
 def test_config_help(runner):
@@ -116,11 +132,21 @@ def test_models_list_shows_aimnet_registry(runner):
 
 
 def test_models_info_aimnet_element_set(runner):
+    """A bare "B" substring is satisfied by "Best for organic molecules" --
+    and every other single-letter symbol risks the same kind of accidental
+    match somewhere in the panel's prose. Parse the actual "Supported
+    Elements:" line into discrete tokens and check membership there.
+    """
     from Auto3D.cli.app import app
     result = runner.invoke(app, ["models", "info", "AIMNET"])
     assert result.exit_code == 0
-    for el in ("B", "As", "Se"):
-        assert el in result.stdout  # full 14-element AIMNet2 set
+
+    match = re.search(r"Supported Elements:\s*([A-Za-z, ]+)", result.stdout)
+    assert match, f"no 'Supported Elements:' line found in:\n{result.stdout}"
+    elements = {tok.strip() for tok in match.group(1).split(",")}
+
+    expected = {"H", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "As", "Se", "Br", "I"}
+    assert elements == expected, f"element set changed: {elements}"
 
 
 def test_validate_valid_smi(runner, tmp_path):
@@ -293,12 +319,24 @@ def test_config_init_default_path(runner, tmp_path_cwd):
 
 
 def test_config_init_invalid_preset(runner, tmp_path_cwd):
-    """config init with an invalid preset is now a Typer enum usage error (exit 2)."""
+    """config init with an invalid preset is rejected by Typer's own enum
+    validation, not merely routed to execute_config_init's fallback guard.
+
+    execute_config_init's own preset check (cli/commands/config.py) is
+    "unreachable from the CLI" by its own docstring, but it ALSO exits 2 and
+    ALSO mentions "quick" in its hint -- so if the CLI's ``Preset`` enum
+    annotation were ever weakened to a plain ``str``, this test would still
+    pass via that fallback path, silently losing the enum-level guard it
+    claims to test (the two-paths-same-integer trap). Click's own
+    choice-validation wording ("is not one of") is specific to the enum
+    rejection and cannot come from the fallback's "Unknown preset" message.
+    """
     from Auto3D.cli.app import app
 
     result = runner.invoke(app, ["config", "init", "-p", "invalid"])
 
     assert result.exit_code == 2
+    assert "is not one of" in result.output
     # Click reports the valid choices for the enum option.
     assert "quick" in result.output
 
@@ -980,11 +1018,21 @@ def test_handle_error_exits():
 
 
 def test_models_info_aimnet2_pd(runner):
-    """models info aimnet2-pd works and shows Pd in its element set."""
+    """models info aimnet2-pd works and shows Pd in its actual element set.
+
+    "Pd" also appears in three other lines of prose in this panel ("Best for
+    Pd organometallic...", "Replaces As with Pd...", "...supported is Pd"),
+    so a bare substring check passes even if the Supported Elements line
+    itself dropped it. Parse that line specifically.
+    """
     from Auto3D.cli.app import app
     result = runner.invoke(app, ["models", "info", "aimnet2-pd"])
     assert result.exit_code == 0
-    assert "Pd" in result.stdout
+
+    match = re.search(r"Supported Elements:\s*([A-Za-z, ]+)", result.stdout)
+    assert match, f"no 'Supported Elements:' line found in:\n{result.stdout}"
+    elements = {tok.strip() for tok in match.group(1).split(",")}
+    assert "Pd" in elements
 
 
 def test_models_info_aimnet2_alias(runner):

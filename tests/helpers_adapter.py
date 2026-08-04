@@ -33,6 +33,9 @@ class FakeAdapter:
             default is ``sum(coords**2)`` per molecule, whose gradient is
             analytic (``2*coords``), so a caller can check forces without any
             model.
+        hessian: What :meth:`analytic_hessian` returns. ``None`` -- the default,
+            and every in-tree adapter's answer except AIMNet2's -- means "no
+            native second derivative, differentiate ``energy`` instead".
     """
 
     def __init__(
@@ -41,11 +44,13 @@ class FakeAdapter:
         species_pad: int = -1,
         species_map: dict[int, int] | None = None,
         energy_fn=None,
+        hessian: torch.Tensor | None = None,
     ) -> None:
         self.coord_pad = coord_pad
         self.species_pad = species_pad
         self.species_map = species_map
         self._energy_fn = energy_fn
+        self._hessian = hessian
         #: Recorded ``(coords_dtype, species, charges)`` per forward/energy call.
         self.calls: list[dict] = []
 
@@ -77,6 +82,11 @@ class FakeAdapter:
         )
         return self._energies(coords, species, charges)
 
+    def analytic_hessian(self, coords, species, charges):
+        """The Hessian capability, ``None`` unless one was supplied."""
+        self.calls.append({"dtype": coords.dtype, "kind": "analytic_hessian"})
+        return self._hessian
+
 
 class AdapterModuleMixin:
     """Makes an ``nn.Module`` test double satisfy ``ModelAdapter``.
@@ -102,6 +112,10 @@ class AdapterModuleMixin:
 
     def energy(self, coords, species, charges, atom_mask=None):
         return self.forward(coords, species, charges, atom_mask)[0]
+
+    def analytic_hessian(self, coords, species, charges):
+        """No native second derivative -- ``BaseModelAdapter``'s own default."""
+        return None
 
 
 def padded_batch(n_mols: int = 2, n_atoms: int = 3):

@@ -51,6 +51,50 @@ def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
         return model
 
 
+def _raise_for_energy(energy: torch.Tensor) -> None:
+    """Raise the NaN/Inf diagnosis for a known-non-finite energy tensor.
+
+    Split out so the energy-only path
+    (:func:`validate_energies`, reached from
+    :meth:`Auto3D.batch_opt.model_wrapper.EnForce_ANI.energy_batched`) and the
+    energy-and-forces path (:func:`_validate_outputs`) emit the SAME message for
+    the same defect instead of two near-identical copies. Returns normally if
+    the energy is finite after all, leaving the caller to decide what that means.
+    """
+    if torch.isnan(energy).any():
+        nan_count = torch.isnan(energy).sum().item()
+        raise NumericalError(
+            f"NaN detected in {nan_count} energy value(s). "
+            "This may indicate problematic molecular geometries."
+        )
+    if torch.isinf(energy).any():
+        inf_count = torch.isinf(energy).sum().item()
+        raise NumericalError(
+            f"Inf detected in {inf_count} energy value(s). "
+            "This may indicate atomic clashes or numerical overflow."
+        )
+
+
+def validate_energies(energy: torch.Tensor) -> None:
+    """Reject a non-finite energy on a path that computed no forces.
+
+    ``forward``'s :func:`_validate_outputs` used to be the only NaN gate a
+    single-point energy passed through, so an energy-only path that skipped it
+    would turn ``auto3d energy``'s exit-5 diagnosis into an SDF full of ``nan``.
+
+    Args:
+        energy: Energy tensor, shape (batch,).
+
+    Raises:
+        NumericalError: If NaN or Inf values are detected.
+    """
+    # One combined reduction (one host-device sync) on the happy path, for the
+    # same reason as _validate_outputs below.
+    if bool(torch.isfinite(energy).all()):
+        return
+    _raise_for_energy(energy)
+
+
 def _validate_outputs(energy: torch.Tensor, forces: torch.Tensor) -> None:
     """Validate model outputs for numerical stability.
 
@@ -72,18 +116,7 @@ def _validate_outputs(energy: torch.Tensor, forces: torch.Tensor) -> None:
     if bool(torch.isfinite(energy).all() & torch.isfinite(forces).all()):
         return
 
-    if torch.isnan(energy).any():
-        nan_count = torch.isnan(energy).sum().item()
-        raise NumericalError(
-            f"NaN detected in {nan_count} energy value(s). "
-            "This may indicate problematic molecular geometries."
-        )
-    if torch.isinf(energy).any():
-        inf_count = torch.isinf(energy).sum().item()
-        raise NumericalError(
-            f"Inf detected in {inf_count} energy value(s). "
-            "This may indicate atomic clashes or numerical overflow."
-        )
+    _raise_for_energy(energy)
     if torch.isnan(forces).any():
         nan_count = torch.isnan(forces).sum().item()
         raise NumericalError(
@@ -202,6 +235,26 @@ class BaseModelAdapter(ABC, nn.Module):
         """
         return self.forward(coords, species, charges, atom_mask)[0]
 
+    def analytic_hessian(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+    ) -> torch.Tensor | None:
+        """No native second derivative: differentiate :meth:`energy` instead.
+
+        ``None`` is the right default for ANI2xt, ANI2x and every custom NNP --
+        all plain ``nn.Module``s with the whole energy in the autograd graph, so
+        ``torch.autograd.functional.hessian`` of :meth:`energy` is exact for
+        them. :class:`AIMNet2Adapter` is the sole override, because its energy
+        pipeline includes external D3 and Coulomb modules that differentiating
+        the bare module would drop.
+
+        See :meth:`Auto3D.models.contract.ModelAdapter.analytic_hessian`: this
+        must never be used to swallow a failed native Hessian into ``None``.
+        """
+        return None
+
     @abstractmethod
     def forward(
         self,
@@ -268,18 +321,48 @@ class AIMNet2Adapter(BaseModelAdapter):
         super().__init__(calc.model, device, coord_pad=0.0, species_pad=0, compile_model=False)
         self._calc = calc
 
-    @property
-    def calculator(self):
-        """Return the underlying AIMNet2Calculator.
+    def analytic_hessian(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+    ) -> torch.Tensor:
+        """AIMNet2's native analytic Hessian, through the FULL energy pipeline.
 
-        Exposed for callers (e.g. ``Auto3D.ASE.thermo._load_hessian_model``)
-        that need the calculator itself rather than this adapter's
-        ``(coords, species, charges) -> (energy, forces)`` forward()
-        interface -- e.g. to reach the calculator's native analytic Hessian,
-        which includes the external D3 dispersion and Coulomb terms that
-        differentiating the bare ``.model`` would drop.
+        The external D3 dispersion and Coulomb modules are part of that
+        pipeline. Differentiating this adapter's ``.model`` instead silently
+        drops them (D3 is attractive at bonding range), stiffening every bond
+        and shifting C-H stretches up by ~4%, ~130 cm-1, with nothing in the
+        output signalling it -- which is why this override exists rather than
+        letting the base class's ``None`` send AIMNet2 down the autograd path.
+
+        This method replaced the ``calculator`` property this class used to
+        publish purely so ``Auto3D.ASE.thermo._load_hessian_model`` could hand
+        the raw ``AIMNet2Calculator`` back to a caller that then dispatched on
+        ``isinstance(model, AIMNet2Calculator)``. The capability now lives on the
+        contract, so the third-party type no longer appears in Auto3D's control
+        flow and ``_load_hessian_model`` has one return type instead of two.
+
+        Args:
+            coords: (1, n_atoms, 3). fp32 in practice -- whole-graph fp64
+                through AIMNet2 would be false precision, so unlike the ANI /
+                custom autograd path this one is not upcast.
+            species: atomic numbers, (1, n_atoms). Identity-mapped by
+                :meth:`BaseModelAdapter.to_species`.
+            charges: molecular charge, (1,). Passed to the calculator exactly as
+                received (no dtype coercion): the calculator prepares its own
+                input tensors, and casting here would change the numbers this
+                path has always produced.
+
+        Returns:
+            Hessian in eV/A^2, shape ``(n_atoms, 3, n_atoms, 3)`` as aimnet
+            returns it.
         """
-        return self._calc
+        result = self._calc(
+            {"coord": coords, "numbers": species, "charge": charges},
+            hessian=True,
+        )
+        return result["hessian"]
 
     def energy(
         self,

@@ -17,6 +17,7 @@ from Auto3D.exceptions import OptimizationError
 # implementation base class rather than the interface. A runtime (not
 # TYPE_CHECKING) import because the gate below consults it; contract.py costs
 # nothing beyond torch, which this module already imports.
+from Auto3D.models.adapter import validate_energies
 from Auto3D.models.contract import ModelAdapter, missing_adapter_members
 
 
@@ -140,6 +141,78 @@ class EnForce_ANI(nn.Module):
         return self.model.forward(coord, numbers, charges, atom_mask=atom_mask)
 
 
+    def _run_in_sub_batches(
+        self, coord: torch.Tensor, compute
+    ) -> list:
+        """Split the batch by molecule count and call ``compute`` on each slice.
+
+        Shared by :meth:`forward_batched` and :meth:`energy_batched` so the
+        OOM-recovery policy exists once. Each caller concatenates the results
+        itself, because they return different numbers of tensors.
+
+        Args:
+            coord: The full padded batch, only for its ``(B, N)`` shape and
+                device. Slicing is the caller's job, inside ``compute``.
+            compute: ``(sub_indices) -> result``, called once per sub-batch.
+
+        Returns:
+            One entry per successful sub-batch, in molecule order.
+
+        Raises:
+            OptimizationError: A single molecule exhausted GPU memory.
+        """
+        B, N = coord.shape[:2]
+        results: list = []
+        # Ensure at least 1 molecule per batch to avoid empty batches
+        remaining = torch.arange(B, device=coord.device)
+        bsize = max(1, self.batchsize_atoms // N)
+
+        # Process slices of molecules; on CUDA OOM, free the cache and retry
+        # the failing slice with a halved batch. A single molecule that still
+        # OOMs cannot be split further (an NNP needs the whole molecule), so
+        # raise a clear, actionable error instead of crashing opaquely.
+        #
+        # `bsize` SHRINKS and STAYS SHRUNK for the rest of this call once an OOM
+        # is observed (audit M37): the old code recursed on just the failing
+        # slice at a halved size but kept splitting every OTHER remaining slice
+        # at the original `bsize`, repeating the same OOM-and-recurse cycle for
+        # each one. The `while` loop over `remaining` (re-queuing the failed
+        # slice at the front instead of recursing) makes the smaller size the new
+        # default for everything that has not run yet.
+        while remaining.numel() > 0:
+            sub, remaining = remaining[:bsize], remaining[bsize:]
+            oom = False
+            try:
+                out = compute(sub)
+            except torch.cuda.OutOfMemoryError:
+                oom = True
+            if oom:
+                # empty_cache() and the retry run AFTER the except block,
+                # not inside it: while an `except` clause is executing, the
+                # OOM'd exception is still `sys.exc_info()`'s "currently
+                # handled exception", and its traceback keeps every local
+                # of the failed forward -- including its activations --
+                # reachable. empty_cache() can only release already-free
+                # blocks, so calling it there could not reclaim the memory
+                # the retry needed (audit M37). CPython clears the
+                # currently-handled exception as soon as the `except`
+                # clause is left, which happens above (no `continue`/
+                # `raise` inside it), so by the time control reaches here
+                # nothing from the failed forward is still referenced.
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                if sub.numel() == 1:
+                    raise OptimizationError(
+                        f"A single molecule with {N} atoms exhausted GPU memory even "
+                        f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
+                    )
+                bsize = max(1, sub.numel() // 2)
+                remaining = torch.cat([sub, remaining])
+                continue
+            results.append(out)
+
+        return results
+
     def forward_batched(
         self,
         coord: torch.Tensor,
@@ -167,65 +240,72 @@ class EnForce_ANI(nn.Module):
             Tuple of (energies, forces) concatenated across batches.
             Energies has shape (B,), forces has shape (B, N, 3).
         """
-        B, N = coord.shape[:2]
-        e_list: list[torch.Tensor] = []
-        f_list: list[torch.Tensor] = []
-        idx = torch.arange(B, device=coord.device)
+        results = self._run_in_sub_batches(
+            coord,
+            lambda sub: self(
+                coord[sub], numbers[sub], charges[sub],
+                atom_mask=None if atom_mask is None else atom_mask[sub],
+            ),
+        )
+        return (
+            torch.cat([e for e, _f in results], dim=0),
+            torch.cat([f for _e, f in results], dim=0),
+        )
 
-        # Ensure at least 1 molecule per batch to avoid empty batches
-        batch_size = max(1, self.batchsize_atoms // N)
+    def energy_batched(
+        self,
+        coord: torch.Tensor,
+        numbers: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Energies only, in the same sub-batches, with no backward pass.
 
-        def _run(batch_idx: torch.Tensor, bsize: int) -> None:
-            # Process slices of molecules; on CUDA OOM, free the cache and retry
-            # the failing slice with a halved batch. A single molecule that still
-            # OOMs cannot be split further (an NNP needs the whole molecule), so
-            # raise a clear, actionable error instead of crashing opaquely.
-            #
-            # `bsize` is a local variable that SHRINKS and STAYS SHRUNK for the
-            # rest of this call once an OOM is observed (audit M37): the old
-            # code recursed on just the failing slice at a halved size but kept
-            # splitting every OTHER remaining slice at the original `bsize`,
-            # repeating the same OOM-and-recurse cycle for each one. A `while`
-            # loop over `remaining` (re-queuing the failed slice at the front
-            # instead of recursing) makes the smaller size the new default for
-            # everything that has not run yet.
-            remaining = batch_idx
-            while remaining.numel() > 0:
-                sub, remaining = remaining[:bsize], remaining[bsize:]
-                oom = False
-                try:
-                    _e, _f = self(
-                        coord[sub], numbers[sub], charges[sub],
-                        atom_mask=None if atom_mask is None else atom_mask[sub],
-                    )
-                except torch.cuda.OutOfMemoryError:
-                    oom = True
-                if oom:
-                    # empty_cache() and the retry run AFTER the except block,
-                    # not inside it: while an `except` clause is executing, the
-                    # OOM'd exception is still `sys.exc_info()`'s "currently
-                    # handled exception", and its traceback keeps every local
-                    # of the failed forward -- including its activations --
-                    # reachable. empty_cache() can only release already-free
-                    # blocks, so calling it there could not reclaim the memory
-                    # the retry needed (audit M37). CPython clears the
-                    # currently-handled exception as soon as the `except`
-                    # clause is left, which happens above (no `continue`/
-                    # `raise` inside it), so by the time control reaches here
-                    # nothing from the failed forward is still referenced.
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    if sub.numel() == 1:
-                        raise OptimizationError(
-                            f"A single molecule with {N} atoms exhausted GPU memory even "
-                            f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
-                        )
-                    bsize = max(1, sub.numel() // 2)
-                    remaining = torch.cat([sub, remaining])
-                    continue
-                e_list.append(_e)
-                f_list.append(_f)
+        :meth:`forward_batched` derives forces unconditionally, because every
+        adapter's ``forward`` does. A single-point energy never reads them, so
+        ``calc_spe`` used to pay for a full backward pass per sub-batch and then
+        discard the result (audit M39). This routes through
+        :meth:`Auto3D.models.contract.ModelAdapter.energy` instead, which is
+        energy-only and dtype-preserving.
 
-        _run(idx, batch_size)
+        How much that saves depends on the engine, and the honest answer is
+        engine-specific: ``ANI2xtAdapter``, ``ANI2xAdapter`` and
+        ``CustomModelAdapter`` each skip a ``torch.autograd.grad`` call, whereas
+        ``AIMNet2Adapter.energy`` is deliberately still ``forward(...)[0]`` --
+        its calculator's ``forces=True`` route is the one documented to keep the
+        energy connected to ``coord`` for a Hessian caller, and moving the
+        default engine onto the ``forces=False`` route would change which
+        external-module code path computes its energy. That is a numerical
+        equality claim requiring a real model to verify, so it is not made here.
 
-        return torch.cat(e_list, dim=0), torch.cat(f_list, dim=0)
+        No ``no_grad`` wrapper, for the same reason ``ModelAdapter.energy`` has
+        none: ``AIMNet2Adapter.energy`` computes forces internally via autograd,
+        so disabling grad here would break the default engine outright.
+
+        Args:
+            coord: Coordinates, shape (B, N, 3).
+            numbers: Species in the adapter's own convention, shape (B, N).
+            charges: Molecular charges, shape (B,).
+            atom_mask: Boolean (B, N), True for real atoms, sliced per sub-batch
+                exactly as in :meth:`forward_batched`. ``None`` means unpadded.
+
+        Returns:
+            Energies, shape (B,), in eV.
+
+        Raises:
+            NumericalError: A non-finite energy. ``forward``'s
+                ``_validate_outputs`` was this path's only NaN gate, and
+                dropping it would turn ``auto3d energy``'s exit-5 diagnosis into
+                an output file full of ``nan``.
+            OptimizationError: A single molecule exhausted GPU memory.
+        """
+        results = self._run_in_sub_batches(
+            coord,
+            lambda sub: self.model.energy(
+                coord[sub], numbers[sub], charges[sub],
+                atom_mask=None if atom_mask is None else atom_mask[sub],
+            ),
+        )
+        energies = torch.cat(results, dim=0)
+        validate_energies(energies)
+        return energies

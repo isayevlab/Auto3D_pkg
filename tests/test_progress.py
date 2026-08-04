@@ -76,9 +76,23 @@ def test_display_multi_job_aggregates():
 
 
 def test_display_empty_jobs_is_noop():
+    """An empty ``jobs`` dict must leave the prior counts untouched, not reset
+    them to zero.
+
+    Starting from an all-zero display and then checking for all-zero after
+    ``update_from_jobs({})`` cannot tell a real no-op from a reset: summing
+    over zero jobs also yields zero, so that assertion would pass even if the
+    ``if not jobs: return`` guard in ``update_from_jobs`` were deleted
+    outright. Seed nonzero state first so a reset is distinguishable from a
+    no-op.
+    """
     d = OptimizationDisplay(0)
+    d.update_from_jobs({1: {"total": 5, "converged": 2, "dropped": 1, "active": 2, "step": 7}})
+    before = (d.total, d.converged, d.dropped, d.active, d.step)
+    assert before == (5, 2, 1, 2, 7)
+
     d.update_from_jobs({})
-    assert (d.total, d.converged, d.dropped, d.active, d.step) == (0, 0, 0, 0, 0)
+    assert (d.total, d.converged, d.dropped, d.active, d.step) == before
 
 
 # --- what the numbers are measured against -----------------------------------

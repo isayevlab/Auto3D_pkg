@@ -58,7 +58,7 @@ class TestDoMolThermoMarksASaddlePoint:
         )
 
         result = thermo_mod.do_mol_thermo(
-            mol, _atoms_for(mol), model=None, model_name="AIMNET"
+            mol, _atoms_for(mol), adapter=None
         )
 
         assert result.GetProp("Is_transition_state") == "True"
@@ -80,7 +80,7 @@ class TestDoMolThermoMarksASaddlePoint:
         )
 
         result = thermo_mod.do_mol_thermo(
-            mol, _atoms_for(mol), model=None, model_name="AIMNET"
+            mol, _atoms_for(mol), adapter=None
         )
 
         assert result.GetProp("Is_transition_state") == "False"
@@ -117,7 +117,7 @@ class TestTheWriterCannotEraseTheVerdict:
             lambda *a, **k: _fake_vib(mol, SADDLE_MODES),
         )
         saddle = thermo_mod.do_mol_thermo(
-            mol, _atoms_for(mol), model=None, model_name="AIMNET"
+            mol, _atoms_for(mol), adapter=None
         )
 
         records = self._written_records(tmp_path, [saddle], [])

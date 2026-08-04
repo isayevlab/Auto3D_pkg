@@ -5,7 +5,7 @@ import uuid
 import pytest
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
-from Auto3D.isomer_engine import rd_isomer
+from Auto3D.isomer_engine import RDKitIsomer
 from Auto3D.utils.sdf_io import SDF2chunks, count_sdf
 
 # Mark all tests in this module as slow (isomer embedding)
@@ -42,7 +42,7 @@ def test_rd_isomer_class():
     # directory from a prior failed run that skipped cleanup.
     job_name = time.strftime('%Y%m%d-%H%M%S') + '_' + uuid.uuid4().hex[:8]
     os.mkdir(job_name)
-    engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
+    engine = RDKitIsomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                         sdf_enumerated, job_name, max_confs, threshold, n_process)
     out = engine.run()
     # mols = list(pybel.readfile("sdf", out))
@@ -78,7 +78,7 @@ def test_rd_isomer_conformer_func():
         # test_rd_isomer_class for why a uuid4 fragment is appended.
         job_name = time.strftime('%Y%m%d-%H%M%S') + '_' + uuid.uuid4().hex[:8]
         os.mkdir(job_name)
-        engine = rd_isomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
+        engine = RDKitIsomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
                             sdf_enumerated, job_name, max_confs, threshold, n_process)
         num_conformers_ = engine.embed_conformer(smi_name[0]).GetNumConformers()
         num_conformers.append(num_conformers_)
@@ -123,8 +123,16 @@ def test_SDF2chunks():
     )
 
 
-def test_rd_isomer_with_parallel_embedding():
-    """Test RDKitIsomer with parallel embedding enabled."""
+def test_rd_isomer_with_parallel_embedding(monkeypatch):
+    """Test RDKitIsomer with parallel embedding enabled.
+
+    Constructing the engine and calling run() proves nothing about *which*
+    embedding path executed unless something distinguishes the parallel path
+    from the serial one -- both produce valid, sufficiently-distinct
+    conformers for this single-molecule input, so a bug that silently always
+    took the serial branch would still satisfy every assertion below. Spy on
+    both private methods to pin the parallel path as the one that actually ran.
+    """
     job_name = time.strftime('%Y%m%d-%H%M%S') + '_parallel'
     os.mkdir(job_name)
 
@@ -135,7 +143,7 @@ def test_rd_isomer_with_parallel_embedding():
     sdf_enum_par = os.path.join(folder, "tests/files/single_smiles_enumerated_parallel.sdf")
 
     # Create engine with parallel embedding enabled
-    engine = rd_isomer(
+    engine = RDKitIsomer(
         path, smiles_enum_par, smiles_reduced_par, smiles_hashed_par,
         sdf_enum_par, job_name, max_confs, threshold, n_process,
         use_parallel_embedding=True,
@@ -148,7 +156,24 @@ def test_rd_isomer_with_parallel_embedding():
     assert engine.parallel_embedding_threshold == 1
     assert engine.parallel_workers == 2
 
+    parallel_calls = []
+    original_parallel = engine._run_parallel_embedding
+
+    def _spy_parallel(*args, **kwargs):
+        parallel_calls.append(True)
+        return original_parallel(*args, **kwargs)
+
+    def _explode_serial(*args, **kwargs):
+        raise AssertionError(
+            "serial embedding path was invoked despite parallel embedding "
+            "being enabled and above threshold"
+        )
+
+    monkeypatch.setattr(engine, "_run_parallel_embedding", _spy_parallel)
+    monkeypatch.setattr(engine, "_run_serial_embedding", _explode_serial)
+
     out = engine.run()
+    assert parallel_calls, "parallel embedding path never ran"
     mols = list(Chem.SDMolSupplier(out, removeHs=False))
 
     # Should produce valid conformers
@@ -167,12 +192,18 @@ def test_rd_isomer_with_parallel_embedding():
         pass
 
 
-def test_rd_isomer_parallel_embedding_default_off():
-    """Test that parallel embedding is disabled by default."""
+def test_rd_isomer_parallel_embedding_default_off(monkeypatch):
+    """Test that parallel embedding is disabled by default.
+
+    Checking the stored flag alone never drives ``run()``, so it cannot tell
+    "the flag is False" apart from "the flag is ignored and the serial path
+    always runs anyway." Actually invoke run() and confirm the serial path
+    -- and only the serial path -- executes.
+    """
     job_name = time.strftime('%Y%m%d-%H%M%S') + '_default'
     os.mkdir(job_name)
 
-    engine = rd_isomer(
+    engine = RDKitIsomer(
         path, smiles_enumerated, smiles_reduced, smiles_hashed,
         sdf_enumerated, job_name, max_confs, threshold, n_process
     )
@@ -180,19 +211,60 @@ def test_rd_isomer_parallel_embedding_default_off():
     # Default should be disabled
     assert engine.use_parallel_embedding == False
 
+    serial_calls = []
+    original_serial = engine._run_serial_embedding
+
+    def _spy_serial(*args, **kwargs):
+        serial_calls.append(True)
+        return original_serial(*args, **kwargs)
+
+    def _explode_parallel(*args, **kwargs):
+        raise AssertionError(
+            "parallel embedding path was invoked despite use_parallel_embedding "
+            "defaulting to False"
+        )
+
+    monkeypatch.setattr(engine, "_run_serial_embedding", _spy_serial)
+    monkeypatch.setattr(engine, "_run_parallel_embedding", _explode_parallel)
+
+    engine.run()
+    assert serial_calls, "serial embedding path never ran"
+
+    try:
+        os.remove(smiles_enumerated)
+    except OSError:
+        pass
+    try:
+        os.remove(smiles_reduced)
+    except OSError:
+        pass
+    try:
+        os.remove(smiles_hashed)
+    except OSError:
+        pass
+    try:
+        os.remove(sdf_enumerated)
+    except OSError:
+        pass
     try:
         shutil.rmtree(job_name)
     except OSError:
         pass
 
 
-def test_rd_isomer_parallel_embedding_threshold():
-    """Test that parallel embedding only activates above threshold."""
+def test_rd_isomer_parallel_embedding_threshold(monkeypatch):
+    """Test that parallel embedding only activates above threshold.
+
+    Constructing the engine with a high threshold and a small input file
+    proves nothing about behavior unless something checks which embedding
+    path ``run()`` actually takes. Monkeypatch ``_run_parallel_embedding`` to
+    explode if called, and ``_run_serial_embedding`` to record that it ran.
+    """
     job_name = time.strftime('%Y%m%d-%H%M%S') + '_threshold'
     os.mkdir(job_name)
 
     # Create engine with high threshold (10 molecules)
-    engine = rd_isomer(
+    engine = RDKitIsomer(
         path, smiles_enumerated, smiles_reduced, smiles_hashed,
         sdf_enumerated, job_name, max_confs, threshold, n_process,
         use_parallel_embedding=True,
@@ -203,6 +275,40 @@ def test_rd_isomer_parallel_embedding_threshold():
     assert engine.use_parallel_embedding == True
     assert engine.parallel_embedding_threshold == 10
 
+    serial_calls = []
+    original_serial = engine._run_serial_embedding
+
+    def _spy_serial(*args, **kwargs):
+        serial_calls.append(True)
+        return original_serial(*args, **kwargs)
+
+    def _explode_parallel(*args, **kwargs):
+        raise AssertionError(
+            "parallel embedding path was invoked despite being below threshold"
+        )
+
+    monkeypatch.setattr(engine, "_run_serial_embedding", _spy_serial)
+    monkeypatch.setattr(engine, "_run_parallel_embedding", _explode_parallel)
+
+    engine.run()
+    assert serial_calls, "serial embedding path never ran"
+
+    try:
+        os.remove(smiles_enumerated)
+    except OSError:
+        pass
+    try:
+        os.remove(smiles_reduced)
+    except OSError:
+        pass
+    try:
+        os.remove(smiles_hashed)
+    except OSError:
+        pass
+    try:
+        os.remove(sdf_enumerated)
+    except OSError:
+        pass
     try:
         shutil.rmtree(job_name)
     except OSError:

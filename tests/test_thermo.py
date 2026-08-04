@@ -154,36 +154,41 @@ class userNNP2(torch.nn.Module):
 
 
 def test_model_name2model_calculator_uses_factory():
-    """model_name2model_calculator should use ModelFactory."""
-    with patch('Auto3D.ASE.thermo.create_model') as mock_factory:
-        # Create a realistic mock adapter with a real parameter
-        mock_adapter = MagicMock(spec=['coord_pad', 'species_pad', 'forward'])
-        mock_adapter.coord_pad = 0.0
-        mock_adapter.species_pad = 0
-        mock_factory.return_value = mock_adapter
+    """model_name2model_calculator should use ModelFactory.
 
-        # Also patch EnForce_ANI to avoid it trying to call methods on the mock
-        with patch('Auto3D.ASE.thermo.EnForce_ANI') as mock_enforce:
-            # Create a mock EnForce_ANI instance with a real parameter
-            mock_model_instance = MagicMock()
-            mock_param = torch.nn.Parameter(torch.zeros(1))
-            # Return a fresh iterator each time parameters() is called
-            mock_model_instance.parameters.side_effect = lambda: iter([mock_param])
-            mock_enforce.return_value = mock_model_instance
+    It also hands the factory's adapter DIRECTLY to the ASE ``Calculator``, with
+    no ``EnForce_ANI`` in between. That wrapper only forwarded one unpadded
+    single-molecule call while hiding the adapter, which is why the calculator
+    then had to be told the species convention separately, as an engine-name
+    string that could disagree with the model it was wrapping. Both objects
+    returned here now wrap the same adapter, so ``calc_thermo``'s fmax pre-check
+    and its ASE relaxation cannot end up talking to two different models.
+    """
+    from tests.helpers_adapter import AdapterModuleMixin
 
-            model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
+    class _StubAdapter(AdapterModuleMixin, torch.nn.Module):
+        """Conforming, and carries a real parameter for Calculator to read."""
 
-            # Verify factory was called with correct arguments
-            mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))
-            # Verify EnForce_ANI was created with the adapter
-            mock_enforce.assert_called_once_with(mock_adapter)
+        def __init__(self):
+            super().__init__()
+            self.anchor = torch.nn.Parameter(torch.zeros(1))
 
-            # ...and that the factory's adapter is what actually comes back,
-            # rather than something constructed internally. Asserting only on
-            # the mock call records proves the factory ran, not that its result
-            # was used.
-            assert model_adapter is mock_adapter
-            assert calc is not None
+        def forward(self, coords, species, charges, atom_mask=None):
+            return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
+
+    stub = _StubAdapter()
+    with patch('Auto3D.ASE.thermo.create_model', return_value=stub) as mock_factory:
+        model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
+
+    mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))
+    # The factory's adapter is what actually comes back, rather than something
+    # constructed internally. Asserting only on the mock call record proves the
+    # factory ran, not that its result was used.
+    assert model_adapter is stub
+    # ...and it is the same object the calculator computes through, which is what
+    # makes one species convention structurally guaranteed.
+    assert calc.adapter is stub
+    assert not hasattr(calc, "model_name")
 
 
 #: Cyclooctane thermochemistry from a wB97m-D4/Def2-TZVPP calculation, in Hartree.
@@ -289,9 +294,10 @@ def test_vib_hessian_includes_external_dispersion():
     silently drops those terms; D3 is attractive at bonding range, so dropping it
     stiffens every bond and shifts C-H stretches up by ~4% (~130 cm-1 here).
 
-    The fixed vib_hessian routes the AIMNet2Calculator through its native analytic
-    Hessian (D3 + Coulomb included). This test computes BOTH paths on a real
-    molecule and asserts:
+    The fixed vib_hessian asks the adapter for its native analytic Hessian
+    (``AIMNet2Adapter.analytic_hessian``, D3 + Coulomb included) rather than
+    differentiating anything. This test computes BOTH paths on a real molecule
+    and asserts:
       1. they differ by a physically significant margin in the top frequency
          (the missing-D3 signature), and
       2. the fixed (full-pipeline) path is the LOWER one (D3 is attractive, so
@@ -306,17 +312,22 @@ def test_vib_hessian_includes_external_dispersion():
     _, calculator = model_name2model_calculator('AIMNET')
     device = torch.device('cpu')
     # This is exactly what calc_thermo loads and passes to vib_hessian: an
-    # AIMNet2Calculator, routed through the analytic (full-pipeline) Hessian.
+    # AIMNet2Adapter, whose analytic_hessian runs the full pipeline. It used to be
+    # the bare AIMNet2Calculator, reached through an adapter property that existed
+    # only for this call, with vib_hessian then dispatching on its TYPE.
+    from Auto3D.models.adapter import AIMNet2Adapter
+
     from Auto3D.ASE.thermo import _load_hessian_model
-    from aimnet.calculators import AIMNet2Calculator
-    aimnet_calc = _load_hessian_model('AIMNET', device)
-    assert isinstance(aimnet_calc, AIMNet2Calculator)
+    adapter = _load_hessian_model('AIMNET', device)
+    assert isinstance(adapter, AIMNet2Adapter)
+    assert adapter.analytic_hessian is not None
     # Sanity: this model really does externalize the terms the bug would drop.
+    aimnet_calc = adapter._calc
     assert aimnet_calc.has_external_dftd3
     assert aimnet_calc.has_external_coulomb
 
-    # --- Fixed path: calculator analytic Hessian (D3 + Coulomb included) ---
-    fixed_vib = vib_hessian(mol, calculator, aimnet_calc)
+    # --- Fixed path: the adapter's analytic Hessian (D3 + Coulomb included) ---
+    fixed_vib = vib_hessian(mol, calculator, adapter)
     fixed_freq = fixed_vib.get_frequencies().real
     fixed_max = float(np.nanmax(fixed_freq))
 

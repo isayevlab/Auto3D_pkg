@@ -289,9 +289,11 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
         def __init__(self, model_adapter):
             enforce_args.append(model_adapter)
 
-        def forward_batched(self, coords, numbers, charges, atom_mask=None):
+        def energy_batched(self, coords, numbers, charges, atom_mask=None):
+            # Energy-only: calc_spe never reads forces, so it stopped asking for
+            # them (audit M39). See tests/test_spe_energy_only.py.
             n = coords.shape[0]
-            return torch.zeros(n, dtype=torch.float64), torch.zeros_like(coords)
+            return torch.zeros(n, dtype=torch.float64)
 
     monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
 

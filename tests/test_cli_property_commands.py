@@ -206,11 +206,29 @@ def test_energy_no_gpu_still_works_without_cuda(sdf):
 def test_run_rejects_when_gpu_requested_without_cuda(smi):
     """`auto3d run` must fail the same way, before any worker is forked or any
     model is touched: check_valid_configuration (called from
-    WorkflowOrchestrator._validate_input) raises before preflight_model."""
-    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+    WorkflowOrchestrator._validate_input) raises before check_input or
+    preflight_model run.
+
+    `check_input` also calls `check_gpu_requested` (a second, redundant GPU
+    guard), and it runs later in the same `_validate_input` method -- so if
+    check_valid_configuration's own guard were ever deleted, check_input's
+    guard would raise the identical GPUError with the identical "--no-gpu"
+    hint, and exit_code/output-substring assertions alone could not tell the
+    two apart. Patching only `preflight_model` (mirroring the three sibling
+    GPU tests) does not resolve that either: preflight_model runs after BOTH
+    guards regardless of which one fires, so `not_called()` on it would stay
+    green either way. Patching `check_input` and asserting it was never
+    called is what actually pins "check_valid_configuration's guard fired
+    first" rather than "something eventually raised."
+    """
+    with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False), \
+         patch("Auto3D.workflow.check_input") as mock_check_input, \
+         patch("Auto3D.workflow.preflight_model") as mock_preflight:
         res = runner.invoke(app, ["run", str(smi), "--k", "1"])
     assert res.exit_code == 4  # GPUError -> exit 4, not 2 (ConfigurationError)
     assert "--no-gpu" in res.output
+    mock_check_input.assert_not_called()
+    mock_preflight.assert_not_called()
 
 
 def test_exit_code_mapping():
