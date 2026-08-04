@@ -36,6 +36,22 @@ with Auto3D and its minimum dependencies installed.
    conda activate auto3D
    pip install Auto3D
 
+.. note::
+
+   **Install Auto3D itself with pip, even inside a conda environment.**
+   ``conda install -c conda-forge auto3d`` installs **2.3.0**, not 3.0.0.
+
+   conda-forge requires every runtime dependency to exist as a conda package,
+   and ``aimnet`` -- a core dependency as of 3.0.0 -- is not one, nor is its own
+   dependency ``nvalchemi-toolkit-ops``. Until both are packaged there, the
+   conda-forge build cannot be updated past 2.3.x.
+
+   A conda environment with Auto3D installed by pip -- which is what the commands
+   above and ``installation.yml`` both do -- is the supported combination and
+   gets you 3.0.0. If you are packaging Auto3D rather than installing it, see
+   :doc:`howto/conda_build`, which covers the recipe, building it locally, and
+   what has to happen upstream first.
+
 Optional Dependencies Installation
 ----------------------------------
 
