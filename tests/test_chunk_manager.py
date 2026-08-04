@@ -288,6 +288,15 @@ class TestCalculateMemoryNeverTouchesCuda:
 
         monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
         monkeypatch.setattr(torch.cuda, "mem_get_info", _poison)
+        # Delete CUDA_VISIBLE_DEVICES so gpu_idx=0 is a valid visible device.
+        # Without this the test reads whatever the ambient environment happens
+        # to hold: it passes in CI (unset) and on a plain workstation, but
+        # CUDA_VISIBLE_DEVICES="" means *no* visible devices, so device 0 is
+        # outside the visible set, _gpu_free_memory_gb correctly declines to
+        # measure, and memory_gb falls back to 1 instead of the mocked 8. The
+        # subject here is "does the GPU path avoid torch.cuda", not device
+        # visibility, so the variable is pinned rather than inherited.
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
         # Exercise the real nvidia-smi code path (not the "missing binary"
         # short-circuit) without touching the real subprocess or torch.cuda.
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")

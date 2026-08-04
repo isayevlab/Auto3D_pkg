@@ -235,16 +235,26 @@ def test_forward_batched_retries_on_oom():
     assert f.shape == coord.shape
 
 
-def test_empty_cache_runs_with_exception_context_cleared():
+def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):
     """M37: empty_cache()/the retry must run AFTER the except block has been
     left, not while the OOM exception (and everything its traceback keeps
     alive, including the failed forward's activations) is still the
     currently-handled exception -- otherwise empty_cache() can only release
-    already-free blocks and cannot reclaim what the retry needs."""
+    already-free blocks and cannot reclaim what the retry needs.
+
+    ``torch.cuda.is_available`` is forced True. The call under test is guarded
+    by it -- correctly, since ``empty_cache()`` has nothing to do without CUDA
+    -- so on a CPU-only machine the spy below is never invoked and this test
+    passes for no reason, or fails on a missing key. Without the patch it
+    asserts something only on a GPU box: it passed locally on an 8-GPU host and
+    failed all three CPU-only CI jobs with ``KeyError``. Nothing here touches a
+    real device; the guard is the only thing being satisfied.
+    """
     import sys
 
     from tests.helpers_adapter import FakeAdapter
 
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     seen = {}
 
     class _OOMAdapter(FakeAdapter):
