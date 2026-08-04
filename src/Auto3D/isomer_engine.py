@@ -70,8 +70,18 @@ def _contradicts_reference_stereo(reference: Chem.Mol, tautomer: Chem.Mol) -> bo
     return Chem.MolToSmiles(tautomer) != Chem.MolToSmiles(reference)
 
 
-class TautomerEngine:
-    """Enumerate possible tautomers for input molecules.
+class RDKitOrOEChemTautomerEngine:
+    """Enumerate possible tautomers for input molecules, on either backend.
+
+    Named for its backends, like ``RDKitIsomer``/``RDKitSdfIsomer`` beside it,
+    and *not* ``TautomerEngine``: that name belongs to the role Protocol in
+    :mod:`Auto3D.isomers.base`, which this class structurally satisfies. The two
+    shared the name until 4.0, which forced :mod:`Auto3D.isomers.factory` to
+    import this one under a local alias to keep them apart within a single file
+    -- a per-file workaround for a package-wide collision, and one whose alias
+    said "Omega" although tautomers come from ``oequacpac`` and Omega is the
+    conformer generator. ``run()`` dispatches on ``mode``, so one class covers
+    both backends.
 
     Args:
         mode: Tautomer engine to use: 'rdkit' or 'oechem'.
@@ -744,7 +754,10 @@ def _oe_isomer_in_owned_cwd(
     return 0
 
 
-# Backward compatibility aliases
-tautomer_engine = TautomerEngine
+# Backward compatibility aliases. ``tautomer_engine`` (a 2.x-era alias of the
+# class now called ``RDKitOrOEChemTautomerEngine``) was removed in 4.0: it had
+# zero importers anywhere in the repo, is documented at no public path, and
+# keeping it would have preserved the ``TautomerEngine`` name collision under a
+# second spelling that no test exercised. The two below still have importers.
 rd_isomer = RDKitIsomer
 rd_isomer_sdf = RDKitSdfIsomer

@@ -15,7 +15,11 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.constants import EV_TO_HARTREE
-from Auto3D.isomer_engine import RDKitIsomer, RDKitSdfIsomer, TautomerEngine
+from Auto3D.isomer_engine import (
+    RDKitIsomer,
+    RDKitOrOEChemTautomerEngine,
+    RDKitSdfIsomer,
+)
 from Auto3D.utils.molprops import calculate_conformer_count
 
 
@@ -98,11 +102,13 @@ class TestInvalidSmilesDoesNotAbort:
         assert "bad" not in names
 
     def test_tautomer_rd_taut_skips_invalid(self, tmp_path):
-        """TautomerEngine.rd_taut must skip invalid SMILES, not abort."""
+        """RDKitOrOEChemTautomerEngine.rd_taut must skip invalid SMILES, not abort."""
         infile = tmp_path / "in.smi"
         outfile = tmp_path / "out.smi"
         infile.write_text("CCO valid_mol\nC(C invalid_mol\n")
-        eng = TautomerEngine("rdkit", str(infile), str(outfile), pKaNorm=False)
+        eng = RDKitOrOEChemTautomerEngine(
+            "rdkit", str(infile), str(outfile), pKaNorm=False
+        )
         eng.rd_taut()  # must not raise
         text = outfile.read_text()
         assert "valid_mol" in text

@@ -14,7 +14,7 @@ from Auto3D.isomers.factory import create_tautomer_engine
 
 
 def _run_rd_taut(job_dir, smiles: str) -> list[str]:
-    """Drive TautomerEngine.rd_taut() and return the output SMILES."""
+    """Drive RDKitOrOEChemTautomerEngine.rd_taut() and return the output SMILES."""
     in_smi = job_dir / "taut_in.smi"
     in_smi.write_text(f"{smiles} probe\n")
     out_smi = job_dir / "taut_out.smi"

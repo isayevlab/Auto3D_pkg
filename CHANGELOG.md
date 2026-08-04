@@ -91,7 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Build the adapter **inside** the worker process — an adapter must not cross a
   `spawn` boundary. `ModelAdapter` loses `device` and gains `to_species` and
   `energy`; `Auto3D.model_factory.BaseModelAdapter` is no longer re-exported.
-  `Auto3D.models` still re-exports `ModelAdapter`.
+  `Auto3D.models` no longer re-exports `ModelAdapter` either: import it from
+  `Auto3D.models.contract`. Re-exporting the *internal* interface one level
+  shallower than the public one is the confusion `contract.py` exists to end.
 
   `CustomNNP` — the *public* custom-NNP contract — is unchanged, and remains
   `forward(species, coords, charges) -> energies`. It does lose
@@ -739,8 +741,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   calls it. The old `Auto3D.NNPModel` was a second, never-consulted copy in
   `config.py`; it was `@runtime_checkable` and exported in `__all__`, so it
   looked authoritative while nothing in Auto3D ever checked a model against it.
-  Replace `from Auto3D import NNPModel` with `from Auto3D.models import
-  CustomNNP`.
+  Replace `from Auto3D import NNPModel` with
+  `from Auto3D.models.contract import CustomNNP`.
 
   **The signature is unchanged**: a custom NNP still implements
   `forward(species, coords, charges) -> energies`, species first, returning an

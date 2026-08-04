@@ -15,7 +15,7 @@ import pytest
 
 from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.isomers.base import IsomerEngine, TautomerEngine
-from Auto3D.isomers.factory import create_isomer_engine, create_tautomer_engine
+from Auto3D.isomers.factory import create_tautomer_engine
 
 
 @pytest.fixture
@@ -254,13 +254,20 @@ class TestCreateKwargMapping:
         assert spies["omega"]["mode"] == "classic"
 
 
-class TestCreateIsomerEngine:
-    """Tests for create_isomer_engine factory function."""
+class TestCreateEngineTypeResolution:
+    """Engine-name resolution in ``IsomerEngineFactory.create``.
+
+    These tests drove a module-level ``create_isomer_engine`` wrapper until 4.0.
+    The wrapper is gone -- zero ``src/`` callers, no documented path, and it had
+    already lost ``input_format`` -- so they now call the classmethod directly,
+    which is what production calls (``auto3D.py``, ``workflow_workers.py``) and
+    the only path api.rst documents.
+    """
 
     def test_unknown_engine_raises_error(self):
         """Test that unknown engine type raises ValueError."""
         with pytest.raises(ValueError, match="Unknown isomer engine type"):
-            create_isomer_engine(
+            IsomerEngineFactory.create(
                 "unknown_engine",
                 input_path="/input.smi",
                 output_path="/output.sdf",
@@ -276,7 +283,7 @@ class TestCreateIsomerEngine:
         """
         for name in ("RDKit", "RDKIT", "rdkit"):
             spies.clear()
-            create_isomer_engine(
+            IsomerEngineFactory.create(
                 name,
                 input_path="/input.smi",
                 output_path="/output.sdf",
@@ -288,7 +295,7 @@ class TestCreateIsomerEngine:
 
     def test_omega_engine_reaches_oe_isomer(self, spies):
         """Test that 'omega' drives oe_isomer."""
-        create_isomer_engine(
+        IsomerEngineFactory.create(
             "omega",
             input_path="/input.smi",
             output_path="/output.sdf",
@@ -302,7 +309,7 @@ class TestCreateIsomerEngine:
 
     def test_omega_engine_with_custom_mode(self, spies):
         """Test omega engine with custom mode."""
-        create_isomer_engine(
+        IsomerEngineFactory.create(
             "omega",
             input_path="/input.smi",
             output_path="/output.sdf",
@@ -315,12 +322,12 @@ class TestCreateIsomerEngine:
         assert spies["omega"]["mode"] == "macrocycle"
 
 
-class TestCreateIsomerEngineParallelEmbedding:
-    """Tests for parallel embedding support in create_isomer_engine."""
+class TestCreateParallelEmbedding:
+    """Parallel-embedding arguments reach ``RDKitIsomer`` through ``create``."""
 
     def test_rdkit_engine_parallel_embedding_default_off(self, spies):
         """Test that parallel embedding is off by default."""
-        create_isomer_engine(
+        IsomerEngineFactory.create(
             "rdkit",
             input_path="/input.smi",
             output_path="/output.sdf",
@@ -334,7 +341,7 @@ class TestCreateIsomerEngineParallelEmbedding:
 
     def test_rdkit_engine_parallel_embedding_enabled(self, spies):
         """Test that parallel embedding can be enabled."""
-        create_isomer_engine(
+        IsomerEngineFactory.create(
             "rdkit",
             input_path="/input.smi",
             output_path="/output.sdf",
@@ -377,7 +384,7 @@ class TestCreateIsomerEngineParallelEmbedding:
 
         monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
 
-        engine = create_isomer_engine(
+        engine = IsomerEngineFactory.create(
             "rdkit",
             input_path=str(smi),
             output_path=str(tmp_path / "output.sdf"),
@@ -415,17 +422,32 @@ class TestCreateTautomerEngine:
         rdkit-backed engine as lowercase "rdkit" -- not merely fail to crash
         on an already-invalid name, which "UNKNOWN" could never distinguish.
         """
-        from Auto3D.isomer_engine import TautomerEngine as TautEngine
+        from Auto3D.isomer_engine import RDKitOrOEChemTautomerEngine
 
         engine = create_tautomer_engine(
             "RDKIT", input_path="/input.smi", output_path="/output.smi"
         )
-        assert isinstance(engine, TautEngine)
+        assert isinstance(engine, RDKitOrOEChemTautomerEngine)
         assert engine.mode == "rdkit"
 
 
 class TestIsomerEngineFactory:
     """Tests for IsomerEngineFactory class."""
+
+    def test_the_module_level_wrapper_is_gone(self):
+        """``create_isomer_engine`` is deleted, not deprecated.
+
+        A clean sweep rather than a shim: it was a second spelling of
+        ``IsomerEngineFactory.create``, the one path api.rst documents, with no
+        ``src/`` caller and a signature that had already fallen behind by
+        dropping ``input_format``. ``create_tautomer_engine`` beside it is
+        deliberately kept -- it duplicates nothing and ``Auto3D.processors``
+        calls it -- so the asymmetry is asserted, not just the deletion.
+        """
+        import Auto3D.isomers.factory as factory
+
+        assert not hasattr(factory, "create_isomer_engine")
+        assert callable(factory.create_tautomer_engine)
 
     def test_available_engines(self):
         """Test that available_engines returns expected list."""

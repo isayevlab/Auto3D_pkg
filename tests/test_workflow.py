@@ -826,17 +826,54 @@ class TestFinalizeOutputReconciliation:
         orch._finalize_output(start_time=0.0)
         assert orch.failures == ["mol_c"], orch.failures
 
-    def test_workflow_uses_the_canonical_reconciliation_functions(self):
-        """Guard against a regression to a hand-rolled duplicate: workflow.py
-        must call the exact functions tested in test_utils_reconciliation.py, not a
-        reimplementation that could silently diverge from them."""
-        import Auto3D.utils.reconciliation as reconciliation
-        import Auto3D.workflow as workflow
+    def test_workflow_uses_the_canonical_reconciliation_functions(
+        self, monkeypatch, tmp_path
+    ):
+        """Guard against a regression to a hand-rolled duplicate: `_reconcile_output`
+        must actually call the imported `find_smiles_not_in_sdf`/`find_ids_not_in_sdf`
+        at its call site, not merely import them.
 
-        assert (
-            workflow.find_smiles_not_in_sdf is reconciliation.find_smiles_not_in_sdf
+        An identity check on the module attribute alone
+        (`workflow.find_smiles_not_in_sdf is reconciliation.find_smiles_not_in_sdf`)
+        cannot catch a regression to a private reimplementation: the import
+        binding survives untouched even if `_reconcile_output` is changed to
+        call a different, local function instead, since nothing then
+        references the import at all. Spying on the name actually resolved in
+        `workflow`'s module globals at call time closes that gap: it fails if
+        `_reconcile_output` stops dispatching through it, whether or not the
+        unused import is still there.
+        """
+        import Auto3D.workflow as workflow
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.workflow import WorkflowOrchestrator
+
+        smi_calls = []
+        id_calls = []
+        monkeypatch.setattr(
+            workflow,
+            "find_smiles_not_in_sdf",
+            lambda *a, **kw: smi_calls.append((a, kw)) or [],
         )
-        assert workflow.find_ids_not_in_sdf is reconciliation.find_ids_not_in_sdf
+        monkeypatch.setattr(
+            workflow,
+            "find_ids_not_in_sdf",
+            lambda *a, **kw: id_calls.append((a, kw)) or [],
+        )
+
+        config = Auto3DOptions(path=str(tmp_path / "in.smi"), k=1, use_gpu=False)
+        orch = WorkflowOrchestrator(config)
+        orch.logger = None
+
+        config.input_format = "smi"
+        orch._reconcile_output(str(tmp_path / "out.sdf"))
+        assert smi_calls, "find_smiles_not_in_sdf was not called from _reconcile_output"
+        assert not id_calls
+
+        smi_calls.clear()
+        config.input_format = "sdf"
+        orch._reconcile_output(str(tmp_path / "out.sdf"))
+        assert id_calls, "find_ids_not_in_sdf was not called from _reconcile_output"
+        assert not smi_calls
 
 
 def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch, tmp_path):

@@ -235,6 +235,82 @@ def test_forward_batched_retries_on_oom():
     assert f.shape == coord.shape
 
 
+def test_empty_cache_runs_with_exception_context_cleared():
+    """M37: empty_cache()/the retry must run AFTER the except block has been
+    left, not while the OOM exception (and everything its traceback keeps
+    alive, including the failed forward's activations) is still the
+    currently-handled exception -- otherwise empty_cache() can only release
+    already-free blocks and cannot reclaim what the retry needs."""
+    import sys
+
+    from tests.helpers_adapter import FakeAdapter
+
+    seen = {}
+
+    class _OOMAdapter(FakeAdapter):
+        def forward(self, coord, numbers, charges, atom_mask=None):
+            if coord.shape[0] > 1:
+                raise torch.cuda.OutOfMemoryError("simulated OOM")
+            return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)
+
+    wrapper = EnForce_ANI(_OOMAdapter(), batchsize_atoms=10_000)
+
+    real_empty_cache = torch.cuda.empty_cache
+
+    def spy_empty_cache():
+        seen["exc_info_at_empty_cache"] = sys.exc_info()
+        return real_empty_cache()
+
+    torch.cuda.empty_cache = spy_empty_cache
+    try:
+        coord = torch.randn(4, 3, 3)
+        numbers = torch.tensor([[1, 6, -1]] * 4)
+        charges = torch.zeros(4)
+        wrapper.forward_batched(coord, numbers, charges)
+    finally:
+        torch.cuda.empty_cache = real_empty_cache
+
+    assert seen["exc_info_at_empty_cache"] == (None, None, None), (
+        "empty_cache() ran while the OOM exception was still the currently "
+        "handled exception -- its traceback (and the failed forward's "
+        "activations) were still reachable."
+    )
+
+
+def test_bsize_shrinkage_persists_for_remainder_of_batch():
+    """M37: once a slice OOMs and is halved, LATER slices in the same
+    forward_batched call must reuse the shrunk size, not repeat the same
+    OOM-and-recurse cycle at the original (pre-OOM) size for every remaining
+    slice."""
+    from tests.helpers_adapter import FakeAdapter
+
+    calls = []
+
+    class _OOMAdapter(FakeAdapter):
+        def forward(self, coord, numbers, charges, atom_mask=None):
+            calls.append(coord.shape[0])
+            if coord.shape[0] > 2:
+                raise torch.cuda.OutOfMemoryError("simulated OOM")
+            return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)
+
+    # 8 molecules, batchsize_atoms=12 // 3 atoms/mol -> initial bsize=4,
+    # splitting the 8 molecules into two top-level size-4 slices. Both
+    # top-level slices OOM (size 4 > 2) under the *original* size.
+    wrapper = EnForce_ANI(_OOMAdapter(), batchsize_atoms=12)
+    coord = torch.randn(8, 3, 3)
+    numbers = torch.tensor([[1, 6, -1]] * 8)
+    charges = torch.zeros(8)
+
+    e, f = wrapper.forward_batched(coord, numbers, charges)
+
+    assert e.shape == (8,)
+    oom_triggering_calls = [c for c in calls if c > 2]
+    assert len(oom_triggering_calls) == 1, (
+        "the shrunk batch size must persist for the rest of the call -- "
+        f"expected exactly one OOM-triggering (>2) call, got sizes {calls}"
+    )
+
+
 def test_a_model_name_in_the_batchsize_slot_is_rejected():
     """The removed API's shape must fail loudly, not become a bad batch size.
 

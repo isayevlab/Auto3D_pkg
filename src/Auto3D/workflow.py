@@ -7,11 +7,12 @@ import shutil
 import time
 from dataclasses import replace
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import Auto3D
 from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions, optimizer_worker_indices
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
@@ -24,6 +25,7 @@ from Auto3D.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_
 from Auto3D.utils.sdf_io import reorder_sdf
 from Auto3D.utils.validation import check_input, check_valid_configuration
 from Auto3D.workflow_workers import (
+    ProgressEvent,
     isomer_wrapper,
     logger_process,
     optim_rank_wrapper,
@@ -35,6 +37,24 @@ if TYPE_CHECKING:
     from multiprocessing import Queue
 
 logger = get_logger(__name__)
+
+
+def _package_version() -> str:
+    """Read the installed ``Auto3D`` distribution version.
+
+    Used only for the run-log banner (see ``_log_banner``). This duplicates
+    ``Auto3D.__init__._detect_version`` rather than reading
+    ``Auto3D.__version__`` off the package -- the orchestrator (core layer)
+    used to do ``import Auto3D`` purely to reach that one attribute, which
+    was flagged as a needless self-import of this module's own package root
+    (review Minor #35). ``importlib.metadata`` is the single source of truth
+    either way; this just reads it directly instead of through the parent
+    package's namespace.
+    """
+    try:
+        return _dist_version("Auto3D")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 class WorkflowOrchestrator:
@@ -52,16 +72,18 @@ class WorkflowOrchestrator:
     def __init__(
         self,
         config: Auto3DOptions,
-        progress_callback: Callable[[dict], None] | None = None,
+        progress_callback: Callable[[ProgressEvent], None] | None = None,
     ) -> None:
         """Initialize the orchestrator with configuration.
 
         Args:
             config: Auto3D configuration options.
             progress_callback: Optional callable invoked (in the main process)
-                with per-step optimizer progress events for a live display. When
-                None (the default, and every library/test caller) the pipeline
-                runs exactly as before -- no progress queue, plain blocking joins.
+                with per-step optimizer progress events (see
+                ``Auto3D.workflow_workers.ProgressEvent`` for the payload
+                schema) for a live display. When None (the default, and every
+                library/test caller) the pipeline runs exactly as before -- no
+                progress queue, plain blocking joins.
         """
         self.config = config
         self.progress_callback = progress_callback
@@ -343,7 +365,7 @@ class WorkflowOrchestrator:
             f"        / \\     _   _  | |_    ___   |___ /  |  _ \\ \n"
             f"       / _ \\   | | | | | __|  / _ \\    |_ \\  | | | |\n"
             f"      / ___ \\  | |_| | | |_  | (_) |  ___) | | |_| |\n"
-            f"     /_/   \\_\\  \\__,_|  \\__|  \\___/  |____/  |____/  {Auto3D.__version__}\n"
+            f"     /_/   \\_\\  \\__,_|  \\__|  \\___/  |____/  |____/  {_package_version()}\n"
             f"              // Generating low-energy 3D structures"
         )
 
@@ -469,7 +491,7 @@ class WorkflowOrchestrator:
             (self.logger.warning if warning else self.logger.info)(msg)
 
     def _supervise_with_progress(
-        self, p1: mp.Process, p2s: list[mp.Process], progress_queue: Queue[dict]
+        self, p1: mp.Process, p2s: list[mp.Process], progress_queue: Queue[ProgressEvent]
     ) -> None:
         """Drain progress events to the callback while workers run, then join.
 
@@ -501,7 +523,7 @@ class WorkflowOrchestrator:
             p2.join()
             self._check_exit(p2, "Optimization")
 
-    def _emit_progress(self, event: dict) -> None:
+    def _emit_progress(self, event: ProgressEvent) -> None:
         """Forward one progress event to the callback; never raise."""
         if self.progress_callback is None:
             return

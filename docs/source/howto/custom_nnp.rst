@@ -111,7 +111,7 @@ Your custom model must:
    Auto3D obtains forces by differentiating that energy with respect to
    ``coords``, so your model must not return forces.
 
-   Do not confuse this with ``Auto3D.models.adapter.ModelAdapter``, Auto3D's
+   Do not confuse this with ``Auto3D.models.contract.ModelAdapter``, Auto3D's
    *internal* interface, which is ``forward(coords, species, charges) ->
    (energies, forces)`` -- the reverse argument order. Only Auto3D's own
    adapters implement that one. A model written against it is rejected at load.

@@ -15,7 +15,7 @@ import sys
 import tarfile
 from logging.handlers import QueueHandler
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import torch
 from rdkit import Chem
@@ -51,6 +51,33 @@ if TYPE_CHECKING:
 # is exact-prefix and case-sensitive), so a single log call is only ever
 # routed through one of them and nothing is ever delivered twice.
 _RUN_LOG_LOGGER_NAMES = ("auto3d", "Auto3D")
+
+
+class ProgressEvent(TypedDict):
+    """Schema of one live-progress event for the ``auto3d run`` display.
+
+    Emitted (without ``job``) by ``batch_opt.optimization_engine._emit_progress``
+    every 10 optimizer steps and once at the end; enriched with ``job`` right
+    here, in the closure built in ``optim_rank_wrapper``, before being put on
+    the cross-process progress queue that ``WorkflowOrchestrator`` drains
+    (``workflow.py``'s ``_supervise_with_progress``/``_emit_progress``) and
+    hands to the caller's ``progress_callback``.
+
+    Review Minor #40: this schema used to be restated in three separate
+    docstrings (``auto3D.py``, ``workflow.py``, ``optimization_engine.py``)
+    with nothing pinning them to agree. This TypedDict is the one place that
+    now does; ``optimization_engine.py``'s own dict literal is out of this
+    module's ownership and still untyped at the point it is constructed, but
+    every consumer downstream of this module (``workflow.py``, and this
+    module's own queue) is typed against it.
+    """
+
+    job: int
+    step: int
+    total: int
+    converged: int
+    dropped: int
+    active: int
 
 
 def _worker_stdout_to_stderr() -> contextlib.AbstractContextManager[object]:
@@ -191,7 +218,7 @@ def optim_rank_wrapper(
     queue: Queue[tuple[str, str, str, int] | str],
     logging_queue: Queue[LogRecord | None],
     gpu_idx: int,
-    progress_queue: Queue[dict] | None = None,
+    progress_queue: Queue[ProgressEvent] | None = None,
 ) -> list[list[Chem.Mol]]:
     with _worker_stdout_to_stderr():
         #prepare logging
@@ -228,7 +255,7 @@ def optim_rank_wrapper(
                 if progress_queue is not None:
                     def progress_cb(event, _q=progress_queue, _job=job):
                         try:
-                            _q.put({**event, "job": _job})
+                            _q.put(cast(ProgressEvent, {**event, "job": _job}))
                         except Exception:
                             pass
                 # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
