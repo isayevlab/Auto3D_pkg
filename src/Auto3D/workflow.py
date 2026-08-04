@@ -18,14 +18,15 @@ from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationE
 from Auto3D.model_factory import ModelFactory
 from Auto3D.models.preflight import preflight_model
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils import check_input, check_valid_configuration, reorder_sdf
 from Auto3D.utils.file_ops import (
     decode_ids,
     encode_ids,
     find_ids_not_in_sdf,
     find_smiles_not_in_sdf,
+    reorder_sdf,
 )
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.validation import check_input, check_valid_configuration
 from Auto3D.workflow_workers import (
     isomer_wrapper,
     logger_process,

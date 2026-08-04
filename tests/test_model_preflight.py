@@ -376,13 +376,18 @@ class TestNamedEngineNotHijackedByCwdFile:
 class TestRequestsImportedLazily:
     """`requests` must not be imported at module scope in preflight.py.
 
-    utils/validation.py imports preflight, and utils/__init__.py imports
-    that, so a module-scope `import requests` here made `import Auto3D.utils`
-    hard-fail without `requests` installed -- even though every other heavy
-    import in this module (aimnet.calculators.model_registry) is already
-    deferred into a function body. `requests` arrives only transitively via
-    aimnet's own dependency, so this module must not assume it is present
-    before entering a function.
+    `resolve_engine_name` is a pure offline dict read against a bundled YAML,
+    and config validation calls it on every run, so importing this module must
+    not require a network library -- even though every other heavy import here
+    (aimnet.calculators.model_registry) is already deferred into a function
+    body. `requests` arrives only transitively via aimnet's own dependency, so
+    this module must not assume it is present before entering a function.
+
+    (The original framing was narrower: `utils/validation.py` imported preflight
+    at module scope and `utils/__init__.py` imported that, so a module-scope
+    `import requests` here made `import Auto3D.utils` hard-fail. Both of those
+    edges are gone -- the barrel is empty and the preflight import is
+    function-scope -- but the requirement on this module is unchanged.)
     """
 
     def test_no_module_scope_requests_import(self):

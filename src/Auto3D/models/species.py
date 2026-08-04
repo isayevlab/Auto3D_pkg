@@ -15,9 +15,12 @@ also supplies ``species_pad``, so the remap and the padding sentinel cannot come
 from two sources and disagree (audit findings C3/C4).
 
 Layering note: rdkit is imported lazily, inside the error branch that needs it
-for an element symbol. ``models/`` is reached from ``utils/validation.py`` and
-therefore from ``import Auto3D.utils``; a module-scope rdkit import here would
-make that import pay for rdkit (audit M44).
+for an element symbol. This module is a pure lookup table plus a remap; it is
+imported by the padder, by ``ASE/`` and by ``cli/``, none of which otherwise
+need rdkit, and only the error path does. (The original reason was narrower and
+no longer applies: ``models/`` used to be reachable from ``import Auto3D.utils``
+via a module-scope import in ``utils/validation.py``, which audit M43 deferred
+into the two functions that use it.)
 """
 from __future__ import annotations
 

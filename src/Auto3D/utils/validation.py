@@ -21,8 +21,6 @@ from Auto3D.exceptions import (
     InputValidationError,
     ModelLoadError,
 )
-from Auto3D.models.loading import load_custom_nnp
-from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.stereochemistry import count_unspecified_stereo
 
@@ -346,6 +344,12 @@ def check_input(args: Any) -> None:
     if Path(args.optimizing_engine).exists():
         # Validate that a custom NNP path loads (TorchScript archive or eager
         # nn.Module); shared load contract -- see Auto3D.models.loading.
+        #
+        # Function-scope on purpose: `utils` is the bottom of the stack and must
+        # not import the `models` domain package at module level. Reached only
+        # when the engine really is a path on disk.
+        from Auto3D.models.loading import load_custom_nnp
+
         try:
             load_custom_nnp(args.optimizing_engine, torch.device("cpu"))
         except ModelLoadError as e:
@@ -615,6 +619,11 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     # optim_rank_wrapper's per-chunk handler swallowed it. The registry lookup
     # is a pure offline dict read against a bundled YAML, so validating costs
     # nothing.
+    #
+    # Function-scope for the same reason as load_custom_nnp above: it keeps
+    # `utils` from importing the `models` domain package at module level.
+    from Auto3D.models.preflight import resolve_engine_name
+
     try:
         resolve_engine_name(options.optimizing_engine)
     except ConfigurationError as exc:

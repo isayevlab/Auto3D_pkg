@@ -3,6 +3,19 @@ API Reference
 
 This section documents the public API of Auto3D.
 
+A name is public if and only if it appears below, at the dotted path given here.
+Anything absent is internal: import it from the module that defines it and expect
+it to move. ``Auto3D.__all__`` is a narrower thing again -- the top-level
+convenience barrel, and the only re-export barrel in the package. Every name it
+exports is listed here; the reverse does not hold, and is not meant to. Most of
+what follows (the exception classes, ``get_device``, ``CustomNNP``) is public at
+its module path and deliberately has no top-level alias, so there is exactly one
+supported way to import it.
+
+Both directions are enforced by ``tests/test_import_boundaries.py``: every path
+listed here must resolve, and nothing may be exported from ``Auto3D.__all__``
+without appearing here.
+
 Core Functions
 --------------
 
@@ -13,6 +26,15 @@ The main entry points for Auto3D:
 
    Auto3D.auto3D.main
    Auto3D.auto3D.smiles2mols
+
+``generate_conformers`` is the canonical, self-describing name for ``main()``.
+It exists only as a top-level alias -- ``main`` remains the function's name in
+``Auto3D.auto3D`` -- so it is documented at the path it is importable from:
+
+.. autosummary::
+   :toctree: generated
+
+   Auto3D.generate_conformers
 
 Configuration
 -------------

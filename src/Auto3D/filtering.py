@@ -10,7 +10,7 @@ from Auto3D.constants import (
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     DEFAULT_RMSD_THRESHOLD,
 )
-from Auto3D.utils import check_connectivity
+from Auto3D.utils.chemistry import check_connectivity
 from Auto3D.utils.convergence import converged_or_unfiltered
 from Auto3D.utils.energy import e_tot_ev, try_e_tot_ev
 from Auto3D.utils.stereo_check import species_key, stereo_preserved

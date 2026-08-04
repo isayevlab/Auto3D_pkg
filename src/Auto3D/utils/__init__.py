@@ -1,108 +1,43 @@
-"""Auto3D utility modules.
+"""Generic helpers shared by every Auto3D layer.
 
-This package contains utility functions split into focused modules:
-- chemistry: Energy conversions, molecular properties, geometry utilities
-- convergence: The single owner of the 'Converged' SDF property
-- stereochemistry: Functions for stereochemistry detection and manipulation
-- validation: Functions for input validation and filtering
-- file_ops: File I/O operations (SMILES files, SDF chunking, ID encoding)
-- logging_config: Logging configuration and logger factory
+This package is a **namespace, not a barrel**: it re-exports nothing, and
+``__init__.py`` deliberately contains no code at all. Import each name from the
+module that defines it -- ``from Auto3D.utils.chemistry import hartree2ev``, not
+``from Auto3D.utils import hartree2ev``. The barrel that used to live here
+listed 41 names drawn from five of the eight modules below, so the three it
+omitted (``energy``, ``convergence``, ``stereo_check``) had no way in, and the
+same function was reached by two different paths in sibling modules. See
+``docs/source/api.rst`` for the rule and the CHANGELOG for the full old-to-new
+mapping.
+
+Nothing here is public API. ``api.rst`` documents no ``Auto3D.utils`` name;
+these modules exist for Auto3D's own use and may move.
+
+What each module owns:
+
+``chemistry``
+    Energy-unit conversions and their constants, molecular properties (charge,
+    connectivity), RMSD, clash relief, conformer-count heuristics.
+``convergence``
+    The single owner of the ``Converged`` SDF property -- reading it, writing
+    it, and deciding what counts as converged.
+``energy``
+    The single owner of the ``E_tot`` SDF properties, in both eV and hartree.
+``file_ops``
+    File I/O: SMILES/SDF reading and writing, SDF chunking, ID encode/decode,
+    housekeeping, output reordering.
+``logging_config``
+    Logging setup and the logger factory every module calls.
+``stereo_check``
+    Species keys and the stereochemistry-preserved check applied after
+    optimization.
+``stereochemistry``
+    Stereocenter detection, enantiomer enumeration and removal, configuration
+    amendment.
+``validation``
+    Input and configuration validation. The one module here that is not a
+    pure leaf by nature: it needs ``Auto3D.models`` to resolve an engine name
+    and to load a custom NNP, so both imports are function-scope, keeping
+    ``utils`` free of a dependency on a domain package
+    (``tests/test_import_boundaries.py`` enforces this).
 """
-
-from Auto3D.utils.chemistry import (
-    EV_TO_KCAL_PER_MOL,
-    HARTREE_TO_EV,
-    HARTREE_TO_KCAL_PER_MOL,
-    amend_mol,
-    check_connectivity,
-    ev2kcalpermol,
-    filter_unique,
-    get_mol_charge,
-    get_mol_connectivity,
-    get_rmsd,
-    hartree2ev,
-    hartree2kcalpermol,
-    min_pairwise_distance,
-    relieve_clash,
-)
-from Auto3D.utils.file_ops import (
-    SDF2chunks,
-    combine_smi,
-    create_chunk_meta_names,
-    decode_ids,
-    encode_ids,
-    guess_file_type,
-    hash_enumerated_smi_IDs,
-    hash_taut_smi,
-    housekeeping,
-    reorder_sdf,
-)
-from Auto3D.utils.logging_config import configure_logging, get_logger
-from Auto3D.utils.stereochemistry import (
-    amend_configuration,
-    amend_configuration_w,
-    check_value,
-    count_unspecified_stereo,
-    create_enantiomer,
-    enantiomer,
-    enantiomer_helper,
-    get_stereo_info,
-    no_enantiomer,
-    no_enantiomer_helper,
-    remove_enantiomers,
-)
-from Auto3D.utils.validation import (
-    check_input,
-    check_sdf_format,
-    check_smi_format,
-    check_valid_configuration,
-)
-
-__all__ = [
-    # Logging configuration
-    "get_logger",
-    "configure_logging",
-    # Chemistry module exports
-    "HARTREE_TO_EV",
-    "HARTREE_TO_KCAL_PER_MOL",
-    "EV_TO_KCAL_PER_MOL",
-    "hartree2ev",
-    "hartree2kcalpermol",
-    "ev2kcalpermol",
-    "get_mol_charge",
-    "min_pairwise_distance",
-    "relieve_clash",
-    "get_rmsd",
-    "check_connectivity",
-    "amend_mol",
-    "get_mol_connectivity",
-    "filter_unique",
-    # Stereochemistry functions
-    "count_unspecified_stereo",
-    "enantiomer",
-    "enantiomer_helper",
-    "remove_enantiomers",
-    "no_enantiomer_helper",
-    "get_stereo_info",
-    "no_enantiomer",
-    "create_enantiomer",
-    "check_value",
-    "amend_configuration",
-    "amend_configuration_w",
-    # Validation functions
-    "check_input",
-    "check_smi_format",
-    "check_sdf_format",
-    "check_valid_configuration",
-    # File operations
-    "guess_file_type",
-    "hash_enumerated_smi_IDs",
-    "hash_taut_smi",
-    "housekeeping",
-    "create_chunk_meta_names",
-    "combine_smi",
-    "SDF2chunks",
-    "encode_ids",
-    "decode_ids",
-    "reorder_sdf",
-]

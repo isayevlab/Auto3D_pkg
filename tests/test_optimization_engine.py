@@ -608,22 +608,26 @@ class TestNStepsIntegration:
         assert (state['fmax'] < 999.0).all()
 
 
-class TestNStepsBackwardCompatibility:
-    """Tests for backward compatibility of n_steps function."""
+class TestOptimizationEngineImportPaths:
+    """This module is the home of ``n_steps`` and ``print_stats``.
 
-    def test_n_steps_importable_from_batchopt(self):
-        """n_steps should be importable from batchopt for backward compatibility."""
-        from Auto3D.batch_opt.batchopt import n_steps as n_steps_batchopt
+    Two tests here used to assert both names were also reachable through
+    ``Auto3D.batch_opt.batchopt``, which is what kept that compat barrel alive.
+    ``print_stats`` is no longer imported there at all (nothing in ``batchopt``
+    called it); ``n_steps`` still is, because ``batchopt`` uses it, but reaching
+    it that way is forbidden by ``tests/test_import_boundaries.py``.
+    """
 
-        # Should be the same function
-        assert n_steps_batchopt is n_steps
+    def test_n_steps_and_print_stats_live_here(self):
+        from Auto3D.batch_opt.optimization_engine import (
+            n_steps as n_steps_home,
+        )
+        from Auto3D.batch_opt.optimization_engine import (
+            print_stats as print_stats_home,
+        )
 
-    def test_print_stats_importable_from_batchopt(self):
-        """print_stats should be importable from batchopt for backward compatibility."""
-        from Auto3D.batch_opt.batchopt import print_stats as print_stats_batchopt
-
-        # Should be the same function
-        assert print_stats_batchopt is print_stats
+        assert n_steps_home is n_steps
+        assert print_stats_home is print_stats
 
 
 class TestPrintStatsBackwardCompatibility:

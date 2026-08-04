@@ -8,7 +8,7 @@ from rdkit import Chem
 from Auto3D.auto3D import main
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
-from Auto3D.utils import hartree2kcalpermol
+from Auto3D.utils.chemistry import hartree2kcalpermol
 from Auto3D.utils.energy import e_tot_hartree
 from Auto3D.utils.logging_config import get_logger
 

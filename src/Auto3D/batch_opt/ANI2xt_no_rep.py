@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from Auto3D.models.species import ANI2XT_INDEX
-from Auto3D.utils import hartree2ev
+from Auto3D.utils.chemistry import hartree2ev
 
 # Note: Do NOT set torch.manual_seed() at module level.
 # Random seed should be controlled by the caller, not by importing a module.

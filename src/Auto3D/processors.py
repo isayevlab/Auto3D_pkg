@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from Auto3D.config import Auto3DOptions
 from Auto3D.isomers import create_tautomer_engine
-from Auto3D.utils import hash_taut_smi
+from Auto3D.utils.file_ops import hash_taut_smi
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
