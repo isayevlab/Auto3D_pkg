@@ -76,6 +76,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module that owns them. Documented public names are unaffected and still
   resolve lazily on first access.
 
+- **One model contract, and `batch_opt` no longer imports `model_factory`.**
+  `optimizing` used to resolve a model name itself; it now takes a built adapter,
+  and everything after `out_f` is keyword-only.
+
+  | before | after |
+  |---|---|
+  | `optimizing(in_f, out_f, "AIMNET", device, config)` | `optimizing(in_f, out_f, adapter=…, device=…, config=…)` |
+  | `pad_from_mols(mols, model_name, device, coord_pad, species_pad)` | `pad_from_mols(mols, adapter, device)` |
+  | `from Auto3D.batch_opt.species import …` | `from Auto3D.models.species import …` |
+  | `to_model_species(nums, "ANI2xt")` | `to_ani2xt_species(nums)` |
+  | `Auto3D.models.adapter.ModelAdapter` | `Auto3D.models.contract.ModelAdapter` |
+
+  Build the adapter **inside** the worker process — an adapter must not cross a
+  `spawn` boundary. `ModelAdapter` loses `device` and gains `to_species` and
+  `energy`; `Auto3D.model_factory.BaseModelAdapter` is no longer re-exported.
+  `Auto3D.models` still re-exports `ModelAdapter`.
+
+  `CustomNNP` — the *public* custom-NNP contract — is unchanged, and remains
+  `forward(species, coords, charges) -> energies`. It does lose
+  `@runtime_checkable`: `isinstance` against a Protocol checks only attribute
+  presence, so it could not see `Module.forward`'s stub and never told you
+  anything the validator wasn't already checking by hand. `isinstance(x, CustomNNP)`
+  now raises `TypeError` and points at `validate_custom_nnp`.
+
+- **`opt_steps` below 10 is now refused at construction.** `FIELD_BOUNDS`
+  declared a minimum of 1 while `utils/validation.py` hand-wrote `>= 10` in two
+  other places — two different minimums for one option. 10 is the correct one:
+  `n_steps` only tests all-converged on `istep % 10 == 0`, emits progress on the
+  same cadence, and guards its statistics with an explicit `n >= 10`, so below 10
+  there is no early exit, no progress and no reporting. FIRE also needs several
+  steps to build velocity. `opt_steps < 10` was returning an unconverged
+  structure labelled as optimized; loosening the bound to 1 would have accepted
+  that, so the stricter value wins.
+
+- **`check_valid_configuration` takes an `Auto3DOptions`** instead of ten keyword
+  arguments. It carried a third set of defaults, including a literal
+  `opt_steps=2000`, which is exactly how a schema drifts from the one users
+  configure. `Auto3DOptions` is now the single source of truth, and engine
+  choices live in one `ENGINE_CHOICES` table.
+
+  Also: `tauto_engine` is validated unconditionally rather than only when
+  `enumerate_tautomer` is set (the CLI schema already did this, so the two
+  disagreed), and `check_input` no longer validates `opt_steps`.
+
+- **`auto3d <config>.yaml` now exits 2, not 1, on a malformed config file.** An
+  empty file, a non-mapping top level, or a YAML syntax error raised through the
+  generic handler as exit 1 "Unexpected Error", while the same file through
+  `auto3d run -c` gave exit 2 `ConfigurationError`. The legacy path now uses the
+  same loader, so a script gating on exit 2 gets the same answer from both. The
+  startup banner also moved after validation, so an unrunnable config is no
+  longer announced as running.
+
 - **One exit-code scheme, used by every command.** `cli/errors.py` has mapped
   exception types to differentiated exit codes since 3.x -- 0 success, 1
   generic, 2 configuration/input, 3 dependency, 4 GPU, 5 model, plus 6 for a

@@ -465,7 +465,7 @@ class OptimizationConfig:
 
     Example:
         >>> config = OptimizationConfig(opt_steps=1000, convergence_threshold=0.005)
-        >>> optimizer = optimizing(in_f, out_f, model, device, config)
+        >>> optimizer = optimizing(in_f, out_f, adapter=adapter, device=device, config=config)
     """
 
     opt_steps: int = DEFAULT_OPT_STEPS
