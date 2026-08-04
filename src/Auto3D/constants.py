@@ -5,6 +5,12 @@ from __future__ import annotations
 HARTREE_TO_EV = 27.211386245988  # 1 Hartree in eV
 EV_TO_KCAL_PER_MOL = 23.060547830619026  # 1 eV in kcal/mol (original Auto3D value)
 HARTREE_TO_KCAL_PER_MOL = 627.50947337481  # 1 Hartree in kcal/mol
+# 1 eV in Hartree. Computed from HARTREE_TO_EV (not an independent literal), so
+# the two can never drift apart. Previously defined independently -- misspelled
+# as `ev2hatree`, and via the identical expression `1 / hartree2ev` -- in both
+# ASE/thermo.py and SPE.py (M62); this is the single, correctly spelled owner
+# both now import instead of recomputing their own copy.
+EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 
 # Geometry thresholds
 MIN_ATOM_DISTANCE = 0.9  # Å, minimum allowed interatomic distance

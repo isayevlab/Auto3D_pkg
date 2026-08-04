@@ -10,7 +10,8 @@ Until 4.0.1 it was only *sometimes* true. ``batch_opt.optimizing.run`` wrote
 ``E_tot`` in eV and ``ASE/geometry.opt_geometry`` converted the same tag to
 Hartree afterwards, so the identical property name carried two units depending
 on which entry point produced the file -- and the five in-package consumers
-(``ranking``, ``filtering``, ``utils.chemistry.filter_unique``) all hard-coded
+(``ranking``, ``filtering.filter_unique_optimized``,
+``filtering.filter_unique``) all hard-coded
 eV. Feeding an ``opt_geometry`` output straight to
 ``ConformerRanker(window=2.0)`` therefore opened a window 27.2x too wide, kept
 3 conformers where 2 belong, reported ``E_rel`` 0.037 kcal/mol where the truth
@@ -29,7 +30,11 @@ from __future__ import annotations
 
 from rdkit import Chem
 
-from Auto3D.constants import HARTREE_TO_EV
+from Auto3D.constants import (
+    EV_TO_KCAL_PER_MOL,
+    HARTREE_TO_EV,
+    HARTREE_TO_KCAL_PER_MOL,
+)
 
 __all__ = [
     "E_TOT_PROP",
@@ -38,12 +43,27 @@ __all__ = [
     "e_tot_hartree",
     "e_tot_ev",
     "try_e_tot_ev",
+    # Conversion factors, and their lowercase legacy spellings
+    "HARTREE_TO_EV",
+    "HARTREE_TO_KCAL_PER_MOL",
+    "EV_TO_KCAL_PER_MOL",
+    "hartree2ev",
+    "hartree2kcalpermol",
+    "ev2kcalpermol",
 ]
 
 #: Unlabeled property name, kept for backward compatibility. Hartree.
 E_TOT_PROP = "E_tot"
 #: Unit-labeled sibling carrying the identical value.
 E_TOT_HARTREE_PROP = "E_tot(Hartree)"
+
+# Legacy lowercase spellings of the three conversion factors in
+# ``Auto3D.constants``. They are the names Auto3D 2.x used and several call
+# sites still read, so they stay -- here rather than in a "chemistry" grab bag,
+# since a unit conversion factor belongs with the module that owns the unit.
+hartree2ev: float = HARTREE_TO_EV
+hartree2kcalpermol: float = HARTREE_TO_KCAL_PER_MOL
+ev2kcalpermol: float = EV_TO_KCAL_PER_MOL
 
 
 def set_e_tot_from_ev(mol: Chem.Mol, energy_ev: float, *, labeled: bool = True) -> None:

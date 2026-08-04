@@ -15,17 +15,13 @@ import Auto3D
 from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions, optimizer_worker_indices
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
+from Auto3D.id_mapping import decode_ids, encode_ids
 from Auto3D.model_factory import ModelFactory
 from Auto3D.models.preflight import preflight_model
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils.file_ops import (
-    decode_ids,
-    encode_ids,
-    find_ids_not_in_sdf,
-    find_smiles_not_in_sdf,
-    reorder_sdf,
-)
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
+from Auto3D.utils.sdf_io import reorder_sdf
 from Auto3D.utils.validation import check_input, check_valid_configuration
 from Auto3D.workflow_workers import (
     isomer_wrapper,
@@ -458,6 +454,20 @@ class WorkflowOrchestrator:
                 label, proc.exitcode,
             )
 
+    def _log_both(self, msg: str, *, warning: bool = False) -> None:
+        """Emit ``msg`` to both the module logger and this run's Auto3D.log.
+
+        ``self.logger`` (the per-run file logger ``_setup_logging`` attaches)
+        is ``None`` until logging starts, so every call site used to guard the
+        per-run copy with its own ``if self.logger:`` right next to an
+        identical module-level call -- four times (``_finalize_output``,
+        ``_reconcile_output``, and twice in ``_log_timing``), three at
+        ``info`` and one at ``warning``.
+        """
+        (logger.warning if warning else logger.info)(msg)
+        if self.logger:
+            (self.logger.warning if warning else self.logger.info)(msg)
+
     def _supervise_with_progress(
         self, p1: mp.Process, p2s: list[mp.Process], progress_queue: Queue[dict]
     ) -> None:
@@ -511,9 +521,11 @@ class WorkflowOrchestrator:
         """
         # Combine all job outputs using pathlib glob
         output_files = list(self.job_dir.glob("job*/*_3d.sdf"))
+        # Computed once, up front: both failure messages below name it, and
+        # at most one of the two `raise`s below it can ever execute.
+        log_path = self.job_dir / "Auto3D.log"
 
         if not output_files:
-            log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
                 "No chunk produced a 3D structure output file, so no 3D "
                 "structure converged. The model was already verified "
@@ -533,7 +545,6 @@ class WorkflowOrchestrator:
             combined_data.extend(file_path.read_text().splitlines(keepends=True))
 
         if not any(line.strip() == "$$$$" for line in combined_data):
-            log_path = self.job_dir / "Auto3D.log"
             raise OptimizationError(
                 "No 3D structure converged. Every chunk produced an output "
                 "file, but none of them contain a converged structure. The "
@@ -561,9 +572,7 @@ class WorkflowOrchestrator:
         # Cleanup temporary files (input_path is unlinked in run()'s finally)
         path_combined.unlink()
 
-        logger.info(f"Output path: {path_output}")
-        if self.logger:
-            self.logger.info(f"Output path: {path_output}")
+        self._log_both(f"Output path: {path_output}")
 
         # Reconcile inputs against outputs (C7): a molecule that vanished
         # mid-pipeline must leave a trace. Compare the ORIGINAL input
@@ -611,9 +620,7 @@ class WorkflowOrchestrator:
                 f"{len(self.failures)} input molecule(s) produced no output "
                 f"and were not reported anywhere else: {sorted(self.failures)}"
             )
-            logger.warning(msg)
-            if self.logger:
-                self.logger.warning(msg)
+            self._log_both(msg, warning=True)
 
     def _log_timing(self, start_time: float) -> None:
         """Log pipeline execution time.
@@ -621,9 +628,7 @@ class WorkflowOrchestrator:
         Args:
             start_time: Pipeline start time.
         """
-        logger.info("Energy unit: Hartree if implicit.")
-        if self.logger:
-            self.logger.info("Energy unit: Hartree if implicit.")
+        self._log_both("Energy unit: Hartree if implicit.")
 
         elapsed_minutes = int((time.time() - start_time) / 60)
 
@@ -634,6 +639,4 @@ class WorkflowOrchestrator:
             remaining = elapsed_minutes - hours * 60
             msg = f"Program running time: {hours} hour(s) and {remaining} minute(s)"
 
-        logger.info(msg)
-        if self.logger:
-            self.logger.info(msg)
+        self._log_both(msg)

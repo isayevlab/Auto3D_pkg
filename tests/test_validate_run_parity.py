@@ -2,7 +2,7 @@
 """M25 parity: `auto3d validate` must reject exactly what the runner rejects.
 
 Before this fix, cli.commands.validate.validate_smiles_file did not require an
-ID column (it took parts[0] with no length check), while file_ops.encode_ids
+ID column (it took parts[0] with no length check), while id_mapping.encode_ids
 (via iter_smi_records, on_malformed="raise") always has -- so a SMILES-only
 file passed `auto3d validate` and then failed the run, whose own error hint
 told the user to run the validator that had just approved it. The two also
@@ -20,7 +20,7 @@ import pytest
 
 from Auto3D.cli.commands.validate import validate_smiles_file
 from Auto3D.exceptions import InputValidationError
-from Auto3D.utils.file_ops import encode_ids
+from Auto3D.id_mapping import encode_ids
 
 
 def _validator_accepts(path) -> bool:

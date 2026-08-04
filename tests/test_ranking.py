@@ -294,7 +294,7 @@ class TestConformerRankerTopK:
         mol_valid = _create_mol_with_energy("CC", -9.0, "mol")
 
         # Sanity: the broken one fails check_connectivity, the valid one passes.
-        from Auto3D.utils.chemistry import check_connectivity
+        from Auto3D.utils.connectivity import check_connectivity
         assert check_connectivity(mol_broken) is False
         assert check_connectivity(mol_valid) is True
 
@@ -327,7 +327,7 @@ class TestConformerRankerTopK:
         pos = conf.GetAtomPosition(0)
         conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
 
-        from Auto3D.utils.chemistry import check_connectivity
+        from Auto3D.utils.connectivity import check_connectivity
         assert check_connectivity(mol_broken) is False
 
         ranker = ConformerRanker(
@@ -719,7 +719,7 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
     def test_enumerate_isomer_false_returns_both_molecules(self, tmp_path):
         from Auto3D.isomer_engine import RDKitIsomer
         from Auto3D.ranking import ConformerRanker, species_id
-        from Auto3D.utils.file_ops import smiles2smi
+        from Auto3D.utils.smi_io import smiles2smi
 
         smi_path = str(tmp_path / "in.smi")
         smiles2smi([self.PYRIDONE, self.HYDROXYPYRIDINE], smi_path)

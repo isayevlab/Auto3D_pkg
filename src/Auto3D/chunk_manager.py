@@ -13,8 +13,8 @@ import pandas as pd
 import psutil
 import torch
 
-from Auto3D.utils.file_ops import SDF2chunks
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.sdf_io import SDF2chunks
 
 if TYPE_CHECKING:
     import logging

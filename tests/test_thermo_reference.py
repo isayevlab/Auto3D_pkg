@@ -61,8 +61,20 @@ class TestBatchRobustness:
         out = calc_thermo(str(combined), "AIMNET", use_gpu=False)
 
         results = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
-        assert any(m.HasProp("G_hartree") for m in results), (
-            "the valid molecules produced no thermo result"
+        # `any(...)` passes even if only one of the two valid records survived
+        # -- e.g. a regression that aborts the batch partway through, right
+        # after the corrupt record, would still satisfy it. Both good records
+        # must independently reach the output with a Gibbs energy, and the
+        # corrupt one must not have been counted or duplicated into a third
+        # record.
+        with_g = {
+            m.GetProp("_Name") for m in results if m.HasProp("G_hartree")
+        }
+        assert with_g == {"ethanol", "propanol"}, (
+            f"expected both valid molecules to produce a thermo result, got {with_g}"
+        )
+        assert len(results) == 2, (
+            f"expected exactly the two valid records, got {len(results)}"
         )
 
 
@@ -70,22 +82,27 @@ class TestStationaryPointGating:
     """G must not be reported for a structure the optimizer did not converge."""
 
     def test_unconverged_geometry_is_flagged_or_refused(self, job_dir):
-        """With opt_steps=1 nothing can converge, so no G may be emitted unflagged.
+        """With opt_steps=1 nothing can converge, so no G may be emitted at all.
 
-        The non-vacuity check at the end of this test previously asserted
-        `with_g` directly, which silently assumed the flag-and-emit
-        resolution (G is still reported, just marked approximate). Task 5
-        implemented the other resolution this test's own name and the
-        spec's exit criterion both allow -- refusing to emit G at all for a
-        structure that did not converge (`mol.SetProp("Thermo_failed",
-        "not_converged")`, no `G_hartree` set) -- so `with_g` is legitimately
-        empty for a single-molecule input under that resolution, and the old
-        assertion failed for a reason unrelated to M8. Non-vacuity is
-        re-established below without assuming which resolution was taken: by
-        confirming the run produced output at all, and that the input
-        molecule is accounted for either way -- emitted with a flagged G, or
-        emitted carrying a failure marker (`Thermo_failed`, the resolution
-        this codebase actually implements) instead of one.
+        This test used to check `mol.HasProp("Thermo_converged") or
+        mol.HasProp("Thermo_warning")` for the (hypothetical) case where a
+        structure that failed to converge still got a flagged G -- but
+        neither property is ever set anywhere in the source tree, so that
+        loop could only fail, never pass on its own merits; it only appeared
+        to pass because `with_g` is always empty under the resolution this
+        codebase actually implements (`calc_thermo`'s stationary-point gate
+        withholds G entirely and sets `Thermo_failed="not_converged"`
+        instead). The final non-vacuity check was equally dead: every record
+        `_write_thermo_output` writes -- success or failure -- always ends up
+        with `Thermo_failed` set (successes get `""` if not already set,
+        failures get it set explicitly before being appended), so
+        `m.HasProp("G_hartree") or m.HasProp("Thermo_failed")` was true for
+        any record calc_thermo could possibly write, regardless of what it
+        actually computed.
+
+        Replaced with an assertion of the one behavior calc_thermo
+        implements: no G_hartree anywhere, and the record explicitly marked
+        `Thermo_failed == "not_converged"`.
         """
         from Auto3D.ASE.thermo import calc_thermo
 
@@ -101,21 +118,17 @@ class TestStationaryPointGating:
         out = calc_thermo(str(path), "AIMNET", opt_steps=1, use_gpu=False)
 
         results = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
-        with_g = [m for m in results if m.HasProp("G_hartree")]
-        for mol in with_g:
-            assert mol.HasProp("Thermo_converged") or mol.HasProp("Thermo_warning"), (
-                "G was reported for a structure that could not have converged in "
-                "one step, with no flag distinguishing it"
-            )
-
-        # Non-vacuity without assuming which resolution was taken: the run
-        # must have produced output at all, and the single input molecule
-        # must be accounted for either way -- emitted with a flagged G, or
-        # emitted carrying a failure marker instead of one.
         assert results, "calc_thermo produced no output records at all"
+
+        with_g = [m for m in results if m.HasProp("G_hartree")]
+        assert not with_g, (
+            "G_hartree was reported for a structure that could not have "
+            "converged in a single BFGS step; calc_thermo's only implemented "
+            "resolution for an unconverged geometry is to withhold G entirely"
+        )
         assert all(
-            m.HasProp("G_hartree") or m.HasProp("Thermo_failed") for m in results
-        ), "a record carried neither a Gibbs energy nor a failure marker"
+            m.GetProp("Thermo_failed") == "not_converged" for m in results
+        ), "the unconverged record was not marked Thermo_failed='not_converged'"
 
 
 class TestHessianGeometry:

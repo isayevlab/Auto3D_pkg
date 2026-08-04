@@ -386,7 +386,7 @@ class optimizing:
                 # object, so no atom mapping is needed. This covers the neural
                 # network optimization step only; clash relief (a separate,
                 # earlier force-field relaxation) is guarded at its own call
-                # site in Auto3D.utils.chemistry.relieve_clash.
+                # site in Auto3D.clash_relief.relieve_clash.
                 if not apply_optimized_coords(mol, coords_out[i]):
                     n_stereo_changed += 1
                 f.write(mol)
@@ -397,7 +397,7 @@ class optimizing:
             # is attached to (see Auto3D.workflow_workers), so a warning
             # through the module logger never reaches the run log. Emit
             # through logging.getLogger("auto3d") directly instead -- the
-            # same fix Auto3D.utils.chemistry.relieve_clash already uses --
+            # same fix Auto3D.clash_relief.relieve_clash already uses --
             # because this count is documented as user-visible in the log
             # (CHANGELOG.md, docs/source/migration-4.0.rst).
             logging.getLogger("auto3d").warning(

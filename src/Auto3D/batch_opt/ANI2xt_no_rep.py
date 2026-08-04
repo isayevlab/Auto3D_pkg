@@ -1,10 +1,11 @@
 import os
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
 
 from Auto3D.models.species import ANI2XT_INDEX
-from Auto3D.utils.chemistry import hartree2ev
+from Auto3D.utils.energy import hartree2ev
 
 # Note: Do NOT set torch.manual_seed() at module level.
 # Random seed should be controlled by the caller, not by importing a module.
@@ -70,6 +71,134 @@ def _atomic_mlp(aev_dim: int, widths: tuple[int, int, int]) -> nn.Sequential:
     )
 
 
+#: Number of per-element networks, i.e. ``len(WIDTHS)``. Exposed so callers can
+#: size the per-element index list without reaching into a (possibly
+#: ``torch.compile``-wrapped) module.
+NUM_ELEMENTS: int = len(WIDTHS)
+
+
+def element_indices(species_idx: torch.Tensor, num_elements: int = NUM_ELEMENTS) -> list[torch.Tensor]:
+    """Row indices of each element's atoms on the FLATTENED ``(batch*atoms,)`` axis.
+
+    Returns exactly what ``[torch.nonzero(flat == e)[0] for e in range(n)]``
+    returns -- same indices, same ascending order -- but with **one** host
+    readback instead of ``n`` of them. On CUDA each ``nonzero`` is a
+    synchronization (its output shape is data-dependent, so ATen must copy the
+    match count to the host), and this loop ran on every ANI2xt forward.
+
+    The construction: bucket each atom (``0`` for padded/negative species,
+    ``1..n`` for elements ``0..n-1``, ``n+1`` for anything out of range), stable
+    ``argsort`` into element order, count buckets with a fixed-size
+    ``scatter_add_``, then ``split`` the sorted order by those counts. Only the
+    counts cross to the host. Out-of-range species get their own bucket and are
+    discarded rather than clamped into a neighbouring element's network, which is
+    what ``flat == e`` did.
+
+    Ordering is *not* load-bearing for energies -- each network is applied row by
+    row and ``index_copy`` targets unique rows -- but matching ``nonzero``
+    exactly makes bit-identity with the previous implementation checkable, which
+    ``tests/test_ani2xt_atom_energies.py`` asserts over 200+ species patterns.
+
+    Args:
+        species_idx: 0-based element indices, ``(batch, atoms)``. Padded slots
+            carry ``-1``; any negative value is treated as padding.
+        num_elements: Number of per-element networks.
+
+    Returns:
+        ``num_elements`` int64 index tensors, ascending, into the flattened axis.
+    """
+    flat = species_idx.reshape(-1)
+    # Bucket 0 absorbs padding (species < 0); bucket num_elements+1 absorbs
+    # out-of-range species. Both are dropped from the returned list.
+    bucket = (flat + 1).clamp(0, num_elements + 1)
+    order = torch.argsort(bucket, stable=True)
+    counts = torch.zeros(num_elements + 2, dtype=torch.long, device=flat.device)
+    counts.scatter_add_(0, bucket, torch.ones_like(bucket))
+    sizes = counts.tolist()  # the ONE host readback
+    return list(order.split(sizes))[1:num_elements + 1]
+
+
+def self_atomic_energies(
+    species_idx: torch.Tensor,
+    energy_shifts: torch.Tensor,
+    num_elements: int = NUM_ELEMENTS,
+) -> torch.Tensor:
+    """Per-molecule self-atomic energy shifts, in Hartree.
+
+    A pure function of ``species_idx``, so it is constant for a whole bucket of
+    conformers and does not belong in the hot path -- it used to be recomputed on
+    every forward, costing roughly ``4 * num_elements`` kernel launches per step
+    for a value that never changed. Precompute it once and pass it to
+    ``ANI2xt.forward``.
+
+    Summation order over elements is preserved, so the result is bit-identical to
+    the inline version it replaced.
+
+    Args:
+        species_idx: 0-based element indices, ``(batch, atoms)``.
+        energy_shifts: Per-element shift, ``(num_elements,)``, float64.
+        num_elements: Number of per-element networks.
+
+    Returns:
+        float64 tensor, ``(batch,)``.
+    """
+    out = torch.zeros(species_idx.shape[0], device=species_idx.device, dtype=torch.float64)
+    for elem_idx in range(num_elements):
+        counts = (species_idx == elem_idx).sum(dim=1).to(torch.float64)
+        out += counts * energy_shifts[elem_idx]
+    return out
+
+
+def _atom_energies(
+    networks: nn.ModuleList | Sequence[nn.Module],
+    aev_flat: torch.Tensor,
+    elem_index: list[torch.Tensor],
+    n_rows: int,
+) -> torch.Tensor:
+    """Per-atom energies over a flattened atom axis, with no data-dependent shapes.
+
+    Module-level and taking ``networks`` as a parameter so it is testable without
+    torchani (the AEV computer is the only part of ANI2xt that needs it, and it
+    runs before this).
+
+    Three things happen here, all of which matter:
+
+    * **The ``if mask.any():`` guard is gone.** It protected nothing:
+      ``network(empty)`` returns an empty tensor and ``index_copy`` with an empty
+      index is a no-op, which is why deleting it is bit-identical even for a
+      batch containing only 2 of the 7 elements. It cost 7 host-device
+      synchronizations per forward, and it made this whole frame uncompilable --
+      a data-dependent branch *inside* a ``for`` loop gives Dynamo nowhere to
+      place a resume point, so it skipped the frame entirely and
+      ``torch.compile`` produced **zero** subgraphs for ``ANI2xt.forward``.
+    * **Indices are passed in, not computed here.** ``nonzero`` and boolean-mask
+      indexing are dynamic-output-shape ops, so computing them in this loop would
+      graph-break too and the frame would still be skipped. Only a loop body with
+      no data-dependent op at all compiles: this form is **one** subgraph and
+      passes ``fullgraph=True``.
+    * **Functional ``index_copy``, not ``index_copy_``.** The out-of-place form
+      avoids input-mutation handling under ``torch.compile``, and is what was
+      measured at one subgraph.
+
+    Args:
+        networks: One energy network per element, in ``WIDTHS`` order.
+        aev_flat: AEV features, ``(n_rows, aev_dim)``.
+        elem_index: Per-element int64 row indices, from :func:`element_indices`.
+        n_rows: ``batch * atoms``; passed explicitly so the output shape never
+            depends on a tensor value.
+
+    Returns:
+        float64 per-atom energies, ``(n_rows,)``. Rows belonging to no element
+        (padded or out-of-range) stay zero.
+    """
+    out = torch.zeros(n_rows, dtype=torch.float64, device=aev_flat.device)
+    for elem_idx, network in enumerate(networks):
+        idx = elem_index[elem_idx]
+        selected = aev_flat.index_select(0, idx)
+        out = out.index_copy(0, idx, network(selected).squeeze(-1).to(torch.float64))
+    return out
+
+
 class ANI2xt(nn.Module):
     def __init__(self, device, state_dict=ani_2xt_dict, periodic_table_index=False):
         super().__init__()
@@ -121,7 +250,7 @@ class ANI2xt(nn.Module):
         # Canonical atomic-number -> ANI2xt species index map (species.ANI2XT_INDEX).
         self.periodict2idx = dict(ANI2XT_INDEX)
 
-    def forward(self, species, coords):
+    def forward(self, species, coords, elem_index=None, self_energies=None):
         """Compute molecular energies.
 
         Args:
@@ -129,9 +258,30 @@ class ANI2xt(nn.Module):
                      If periodic_table_index=True, uses atomic numbers (1=H, 6=C, etc.)
                      Otherwise, uses sequential indices (0=H, 1=C, 2=N, 3=O, 4=F, 5=S, 6=Cl)
             coords: Tensor of shape (batch, num_atoms, 3) with atomic coordinates
+            elem_index: Optional per-element row indices on the flattened atom
+                axis, as returned by :func:`element_indices`. Species are
+                constant for a bucket of conformers while coordinates are not,
+                so a caller that optimizes the same molecules for many steps
+                should compute this once and pass it in. ``None`` computes it
+                here, which keeps every existing caller working unchanged but
+                pays one host readback per forward -- and, because the
+                computation has a data-dependent output shape, reintroduces the
+                graph break that stops ``torch.compile`` from compiling this
+                method at all.
+            self_energies: Optional per-molecule self-atomic energy shifts in
+                Hartree, as returned by :func:`self_atomic_energies`. Also a
+                pure function of ``species``. ``None`` computes it here.
 
         Returns:
             Tensor of shape (batch,) with molecular energies in eV
+
+        Raises:
+            ValueError: ``elem_index`` or ``self_energies`` was supplied while
+                ``periodic_table_index=True``. The caller would have computed
+                them from atomic numbers rather than from the remapped 0-based
+                indices this model's networks are indexed by, and the mistake is
+                silent -- atomic number 6 (carbon) is a valid *index* for
+                chlorine.
 
         Note:
             The AEV/network path runs in float32 (coords dtype), but the
@@ -145,6 +295,14 @@ class ANI2xt(nn.Module):
             float32 coords), matching the AIMNet2 adapter's output contract.
         """
         if self.periodic:
+            if elem_index is not None or self_energies is not None:
+                raise ValueError(
+                    "ANI2xt.forward: elem_index/self_energies are indexed by "
+                    "0-based network index, but this instance was built with "
+                    "periodic_table_index=True and receives atomic numbers. "
+                    "Precompute them from the remapped species, or let forward "
+                    "compute them."
+                )
             # Convert atomic numbers to sequential indices
             species_idx = species.clone()
             for key, val in self.periodict2idx.items():
@@ -156,36 +314,33 @@ class ANI2xt(nn.Module):
         # padder). -1 is not in periodict2idx, so it survives unchanged here and
         # is passed to the AEV computer, which relies on TorchANI's convention
         # that a species index of -1 marks a dummy/masked atom (excluded from the
-        # AEV and the per-element energy loop below, where no elem_idx == -1).
+        # AEV and from every per-element index below, which drop negatives).
         # This correctness depends on -1 being TorchANI's masked-atom sentinel.
         # Compute AEVs (use new API: aev_computer(species, coords))
         aev = self.aev_computer(species_idx, coords)  # (batch, num_atoms, aev_dim)
 
-        # Compute per-atom energies. Accumulate in float64 so the float64
-        # energy_shifts buffer is meaningful; the network output is float32 and
-        # is cast up explicitly (an fp64-dest, fp32-source index_put would raise).
         batch_size, num_atoms = species_idx.shape
-        atom_energies = torch.zeros(batch_size, num_atoms, device=coords.device, dtype=torch.float64)
+        n_rows = batch_size * num_atoms
+        if elem_index is None:
+            elem_index = element_indices(species_idx, len(self.networks))
+        if self_energies is None:
+            self_energies = self_atomic_energies(
+                species_idx, self.energy_shifts, len(self.networks))
 
-        for elem_idx, network in enumerate(self.networks):
-            # Find atoms of this element type
-            mask = (species_idx == elem_idx)
-            if mask.any():
-                # Get AEVs for atoms of this element
-                elem_aev = aev[mask]  # (num_elem_atoms, aev_dim)
-                # Compute atomic energies
-                elem_energies = network(elem_aev).squeeze(-1)  # (num_elem_atoms,)
-                atom_energies[mask] = elem_energies.to(torch.float64)
+        # Per-atom energies, accumulated in float64 so the float64 energy_shifts
+        # buffer is meaningful; the network output is float32 and is cast up
+        # explicitly (index_copy will not cast for us, in either direction).
+        # reshape with an explicit trailing size rather than -1: inferring -1 on
+        # a zero-element tensor is ambiguous and raises.
+        atom_energies = _atom_energies(
+            self.networks,
+            aev.reshape(n_rows, aev.shape[-1]),
+            elem_index,
+            n_rows,
+        )
 
         # Sum per-atom energies to get molecular energies
-        atomic_energies = atom_energies.sum(dim=1)  # (batch,)
-
-        # Add self-energies (energy shifts)
-        self_energies = torch.zeros(batch_size, device=coords.device, dtype=torch.float64)
-        for elem_idx in range(len(self.networks)):
-            mask = (species_idx == elem_idx)
-            counts = mask.sum(dim=1).to(torch.float64)  # (batch,)
-            self_energies += counts * self.energy_shifts[elem_idx]
+        atomic_energies = atom_energies.reshape(batch_size, num_atoms).sum(dim=1)  # (batch,)
 
         # Total energy in Hartree, convert to eV
         total_energy = (atomic_energies + self_energies) * hartree2ev

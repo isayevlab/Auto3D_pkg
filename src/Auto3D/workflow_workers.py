@@ -24,10 +24,10 @@ from send2trash import send2trash
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import optimizer_worker_indices
 from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.job_layout import create_chunk_meta_names, housekeeping
 from Auto3D.model_factory import create_model
 from Auto3D.processors import TautomerProcessor
 from Auto3D.ranking import ranking
-from Auto3D.utils.file_ops import create_chunk_meta_names, housekeeping
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 # Several call sites instead log through logging.getLogger("auto3d")
 # directly -- lowercase -- to work around the fact that "Auto3D.*" is a
 # different, case-distinct tree with no ancestor relationship to "auto3d"
-# (Auto3D.workflow's self.logger, Auto3D.utils.chemistry's module logger, the
+# (Auto3D.workflow's self.logger, Auto3D.clash_relief's module logger, the
 # stereochemistry-change warning in Auto3D.batch_opt.batchopt). Attaching a
 # QueueHandler onto BOTH trees here -- writing to the very same queue -- lets
 # get_logger(__name__) warnings reach the run log too, without touching any

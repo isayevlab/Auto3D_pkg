@@ -230,8 +230,10 @@ def execute_models_test(
     ANI, a failed/blocked aimnet registry download, or a broken custom model
     file -- instead of having them surface deep inside a run.
     """
+    # handle_error is already imported at module level (used identically by
+    # execute_models_info above); this used to re-import it locally too, a
+    # dead duplicate of the same binding.
     from Auto3D.cli.console import print_success
-    from Auto3D.cli.errors import handle_error
 
     try:
         import time

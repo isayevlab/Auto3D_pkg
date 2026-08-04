@@ -172,8 +172,8 @@ class TestFIREClean:
         optimizer(coord, forces)
 
         # Clean to keep only first 2 molecules
-        mask = torch.tensor([True, True, False, False])
-        result = optimizer.clean(mask)
+        keep = torch.tensor([0, 1])
+        result = optimizer.clean(keep)
 
         assert result is True
         assert optimizer.v.shape[0] == 2
@@ -195,34 +195,70 @@ class TestFIREClean:
         original_dt1 = optimizer.dt[1].clone()
 
         # Keep only molecules 1 and 2 (indices 1, 2)
-        mask = torch.tensor([False, True, True])
-        optimizer.clean(mask)
+        optimizer.clean(torch.tensor([1, 2]))
 
         # Molecule 1's state should now be at index 0
         assert torch.allclose(optimizer.v[0], original_v1)
         assert torch.allclose(optimizer.dt[0], original_dt1)
 
-    def test_fire_clean_all_false_results_empty(self):
-        """FIRE.clean with all-false mask should result in empty tensors."""
+    def test_fire_clean_empty_index_results_empty(self):
+        """FIRE.clean with an empty index should result in empty tensors.
+
+        Reached when every remaining structure leaves the active set in the same
+        step; an empty ``index_select`` is a valid no-op-shaped result, not an
+        error.
+        """
         coord = torch.randn(3, 5, 3)
         optimizer = FIRE(coord)
 
-        mask = torch.tensor([False, False, False])
-        optimizer.clean(mask)
+        optimizer.clean(torch.zeros(0, dtype=torch.long))
 
         assert optimizer.v.shape[0] == 0
         assert optimizer.Nsteps.shape[0] == 0
 
-    def test_fire_clean_all_true_unchanged(self):
-        """FIRE.clean with all-true mask should preserve all molecules."""
+    def test_fire_clean_full_index_unchanged(self):
+        """FIRE.clean with every index should preserve all molecules."""
         coord = torch.randn(3, 5, 3)
         optimizer = FIRE(coord)
 
-        mask = torch.tensor([True, True, True])
-        optimizer.clean(mask)
+        optimizer.clean(torch.arange(3))
 
         assert optimizer.v.shape[0] == 3
         assert optimizer.Nsteps.shape[0] == 3
+
+
+    def test_fire_clean_rejects_a_boolean_mask(self):
+        """A boolean mask must fail loudly, because it would not fail otherwise.
+
+        ``clean`` used to take a boolean mask and now takes an int64 index. That
+        is the one genuinely dangerous kind of signature change: ``index_select``
+        accepts ``tensor([True, True, False, False])`` and reinterprets it as
+        indices ``[1, 1, 0, 0]``, so an out-of-tree caller that was never updated
+        would get a silently permuted, wrong-length optimizer state instead of an
+        exception. Hence the explicit dtype check.
+        """
+        optimizer = FIRE(torch.randn(4, 5, 3))
+        with pytest.raises(ValueError, match="int64"):
+            optimizer.clean(torch.tensor([True, True, False, False]))
+
+    def test_fire_clean_reindexes_in_the_order_given(self):
+        """State follows the index, position for position.
+
+        ``n_steps`` always passes an ascending index from ``torch.nonzero``, but
+        pinning the general behaviour is what makes the bit-identity argument in
+        ``test_optimization_engine_indexing.py`` checkable: ``index_select``
+        preserves order, so a converged molecule's removal never permutes the
+        survivors relative to the batch they are scattered back into.
+        """
+        optimizer = FIRE(torch.randn(4, 5, 3))
+        optimizer(torch.randn(4, 5, 3), torch.randn(4, 5, 3))
+        before_dt = optimizer.dt.clone()
+        before_v = optimizer.v.clone()
+
+        optimizer.clean(torch.tensor([2, 0]))
+
+        assert torch.equal(optimizer.dt, torch.stack([before_dt[2], before_dt[0]]))
+        assert torch.equal(optimizer.v, torch.stack([before_v[2], before_v[0]]))
 
 
 class TestFIREMultipleSteps:

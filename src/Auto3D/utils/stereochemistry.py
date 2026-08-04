@@ -10,15 +10,13 @@ in molecular structures, including:
 from __future__ import annotations
 
 import math
-import os
 import re
-import stat
-import tempfile
 from collections import OrderedDict, defaultdict
 
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcNumAtomStereoCenters
 
+from Auto3D.utils.atomic_io import atomic_write_path
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -263,7 +261,7 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
         # Strip only the trailing isomer-index component write_enumerated_smi
         # appends (rsplit, maxsplit=1), not everything after the first
         # underscore: an id like "KEY_2" -- smiles2smi's disambiguation of a
-        # duplicate InChIKey (utils/file_ops.py), kept distinct from "KEY"
+        # duplicate InChIKey (utils/smi_io.py), kept distinct from "KEY"
         # specifically so it is not dropped -- must survive this grouping
         # intact, or it silently merges back onto "KEY" here before ranking
         # ever sees it (M17).
@@ -560,42 +558,19 @@ def amend_configuration_w(smi: str) -> None:
 
     Note:
         The rewrite is staged through a sibling temp file and moved into place
-        with ``os.replace`` (atomic on POSIX and Windows). Opening ``smi`` for
-        writing directly would truncate it, so a failure partway through the
-        loop below would destroy the input this function just read and leave
-        nothing to recover from (C14).
+        with ``os.replace`` (atomic on POSIX and Windows) by
+        :func:`Auto3D.utils.atomic_io.atomic_write_path`, which owns that
+        staging for all three of Auto3D's in-place rewrites. Opening ``smi``
+        for writing directly would truncate it, so a failure partway through
+        the loop below would destroy the input this function just read and
+        leave nothing to recover from (C14).
     """
     dct = amend_configuration(smi)
 
-    # Same directory as the target: os.replace raises OSError across
-    # filesystems. mkstemp creates the file 0600, so copy the original's
-    # permission bits over rather than silently tightening the user's file.
-    # realpath, not abspath: abspath collapses ".." lexically, so a path like
-    # /scratch/link/../in.smi (link -> another mount) would stage the temp file
-    # on the wrong filesystem and os.replace would fail with EXDEV. Only the
-    # PARENT is resolved -- os.replace acts on the final component itself.
-    directory = os.path.realpath(os.path.dirname(os.path.abspath(smi)))
-    fd, tmp_path = tempfile.mkstemp(suffix=".smi", dir=directory)
-    os.close(fd)
-    try:
-        os.chmod(tmp_path, stat.S_IMODE(os.stat(smi).st_mode))
-    except OSError:  # pragma: no cover - best effort; never block the rewrite
-        pass
-
-    try:
-        with open(tmp_path, "w") as f:
-            for key in dct.keys():
-                val = dct[key]
-                for i, smi_str in enumerate(val):
-                    idx = str(key).strip() + "_" + str(i + 1)
-                    line = smi_str + " " + idx + "\n"
-                    f.write(line)
-        os.replace(tmp_path, smi)
-    except BaseException:
-        # BaseException, not Exception: a KeyboardInterrupt mid-write must not
-        # leave a stray .smi beside the file being amended.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write_path(smi, suffix=".smi") as tmp_path, open(tmp_path, "w") as f:
+        for key in dct.keys():
+            val = dct[key]
+            for i, smi_str in enumerate(val):
+                idx = str(key).strip() + "_" + str(i + 1)
+                line = smi_str + " " + idx + "\n"
+                f.write(line)

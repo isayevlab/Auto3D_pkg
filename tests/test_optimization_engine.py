@@ -275,9 +275,9 @@ class _ConstantForceNN:
     ``force_per_atom`` may be a scalar (every molecule feels the same force) or
     a ``{species: force}`` map for a heterogeneous batch. The map is keyed on
     species rather than on row index because ``n_steps`` gathers a SUBSET of
-    the batch once some molecules converge (``optimization_engine.py:168-177``
-    gathers ``coord`` and ``numbers`` with the same ``not_converged`` mask), so
-    row 1 of a later step is not molecule 1. Keying on ``numbers`` -- gathered
+    the batch once some molecules converge (``_step_active_subset`` gathers
+    ``coord`` and ``numbers`` with the same ``active_idx``), so row 1 of a later
+    step is not molecule 1. Keying on ``numbers`` -- gathered
     alongside ``coord`` -- makes each force follow its own molecule.
     """
 
@@ -392,8 +392,8 @@ def test_convergence_outcome_never_depends_on_energy_stability():
 
     # A heterogeneous batch, so the step loop actually performs a PARTIAL
     # subset gather. Every cell above uses one force for both molecules, so
-    # `not_converged` is always all-True or all-False and the gathers at
-    # optimization_engine.py:168-177 are no-ops. That leaves a reintroduction
+    # `not_converged` is always all-True or all-False and the gathers in
+    # `_step_active_subset` are no-ops. That leaves a reintroduction
     # bug invisible: a criterion whose per-molecule buffer is gathered with a
     # stale mask would let molecule 1, after molecule 0 converges and drops
     # out, read molecule 0's row and early-terminate at the wrong geometry.

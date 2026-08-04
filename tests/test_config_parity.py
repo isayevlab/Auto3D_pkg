@@ -496,7 +496,7 @@ class TestDuplicateInchikeyInputs:
             f"{[m.GetProp('_Name') for m in mols]}"
         )
         # M17: the second "CCO" is disambiguated to "<inchikey>_2" by
-        # smiles2smi's InChIKey-collision handling (utils/file_ops.py), and
+        # smiles2smi's InChIKey-collision handling (utils/smi_io.py), and
         # ranking.species_id must recover that suffix intact (rsplit on the
         # last two "_"-delimited components) rather than strip everything
         # after the FIRST underscore -- which would collapse both outputs

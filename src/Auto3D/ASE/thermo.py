@@ -28,6 +28,7 @@ from Auto3D.constants import (
     DEFAULT_OPT_STEPS,
     DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
     EV_PER_WAVENUMBER,
+    EV_TO_HARTREE,
     IMAGINARY_MODE_CUTOFF_CM,
     LINEARITY_MAX_PERP_ANGSTROM,
     LINEARITY_MOMENT_RATIO,
@@ -39,7 +40,7 @@ from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.models.species import to_model_species
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils.chemistry import hartree2ev
+from Auto3D.utils.energy import hartree2ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
@@ -52,7 +53,6 @@ __all__ = ["calc_thermo"]
 
 # TF32 settings are configured centrally via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions.
-ev2hatree = 1/hartree2ev
 
 #: SD property carrying the success/failure verdict for one thermo record.
 #: ``""`` means publishable; any non-empty value names the failure. This is the
@@ -66,6 +66,21 @@ THERMO_FAILED_PROP = "Thermo_failed"
 TRANSITION_STATE_FAILURE = "transition_state"
 
 logger = get_logger(__name__)
+
+
+def _mol_name(mol: Chem.Mol, default: str = "molecule") -> str:
+    """The molecule's ``_Name`` property, or ``default`` when it has none.
+
+    Every diagnostic/warning site in this module needs a human-readable
+    identifier for a mol that may or may not carry ``_Name``, and used to
+    repeat ``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``
+    verbatim at each site (M64). The default itself is NOT hardcoded here to
+    a single value: most callers want the generic ``"molecule"``, but
+    ``iter_thermo_records`` identifies an unnamed record by its position in
+    the file (``f"record {position}"``) instead, so that case is still
+    threaded through explicitly.
+    """
+    return mol.GetProp("_Name") if mol.HasProp("_Name") else default
 
 
 def _is_collinear(atoms: ase.Atoms) -> bool:
@@ -175,7 +190,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
             logger.warning(
                 "Molecule %s has an unparseable 'symmetry_number' property "
                 "(%r); falling back to sigma=1.",
-                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                _mol_name(mol),
                 mol.GetProp("symmetry_number"),
             )
             return 1
@@ -198,7 +213,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
                     "(%d); it must be between 1 and %d (the largest external "
                     "rotational symmetry number of any real molecule, for the "
                     "icosahedral point groups). Falling back to sigma=1.",
-                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    _mol_name(mol),
                     value,
                     _MAX_SYMMETRY_NUMBER,
                 )
@@ -213,7 +228,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
             "property (2 for water, 6 for ethane, 12 for benzene) when known. "
             "(Logged once per run; later molecules defaulting the same way are "
             "silent.)",
-            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            _mol_name(mol),
         )
         _symmetry_default_warned = True
     return 1
@@ -301,7 +316,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             logger.warning(
                 "Molecule %s has an unparseable 'multiplicity' property; "
                 "deriving it from the radical-electron count instead.",
-                mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                _mol_name(mol),
             )
         else:
             n_electrons = _electron_count(mol)
@@ -311,7 +326,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                     "Molecule %s has an invalid 'multiplicity' property (%d); "
                     "multiplicity must be >= 1 (2S+1 for spin S >= 0). "
                     "Deriving it from the radical-electron count instead.",
-                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    _mol_name(mol),
                     value,
                 )
             elif value > max_multiplicity:
@@ -320,7 +335,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                     "a %d-electron species cannot exceed multiplicity %d "
                     "(2S+1 with every electron unpaired). Deriving it from "
                     "the radical-electron count instead.",
-                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    _mol_name(mol),
                     value, n_electrons, max_multiplicity,
                 )
             elif value % 2 == n_electrons % 2:
@@ -330,7 +345,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                     "(2S+1 requires odd multiplicity for an even-electron "
                     "species, even multiplicity for an odd-electron one). "
                     "Deriving it from the radical-electron count instead.",
-                    mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+                    _mol_name(mol),
                     value, n_electrons,
                 )
             else:
@@ -358,7 +373,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             "for an odd-electron one). The drawing may hide an open shell. Set "
             "the 'multiplicity' property explicitly; the electronic entropy term "
             "is otherwise wrong by up to R*ln(3) = 0.65 kcal/mol in T*S.",
-            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            _mol_name(mol),
             multiplicity,
             n_electrons,
         )
@@ -380,7 +395,7 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             "drawing is closed-shell; multiplicity 1 is assumed and the "
             "electronic entropy term will be wrong. Set the 'multiplicity' "
             "property explicitly.",
-            mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule",
+            _mol_name(mol),
         )
     return multiplicity
 
@@ -1188,7 +1203,7 @@ def do_mol_thermo(mol: Chem.Mol,
     multiplicity = _resolve_multiplicity(mol)
     spin = (multiplicity - 1) / 2.0
 
-    name = mol.GetProp("_Name") if mol.HasProp("_Name") else "molecule"
+    name = _mol_name(mol)
     # Project translation and rotation out of the Hessian instead of taking
     # VibrationsData.get_energies()'s raw 3N spectrum and letting
     # IdealGasThermo guess which entries are vibrations. `atoms` supplies the
@@ -1282,7 +1297,7 @@ def do_mol_thermo(mol: Chem.Mol,
             "mode(s) it was meant to include.",
             name, n_used, len(vib_e), len(vib_e) - n_used,
         )
-    H = thermo.get_enthalpy(temperature=T) * ev2hatree
+    H = thermo.get_enthalpy(temperature=T) * EV_TO_HARTREE
     # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
     # Hartree. Name the property accordingly so a downstream G = H - T*S
     # reconstruction is not off by a factor of T.
@@ -1294,14 +1309,14 @@ def do_mol_thermo(mol: Chem.Mol,
     # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
     # 1 atm -- matching ORCA/Gaussian. The translational-entropy difference vs
     # 1 bar is R*T*ln(1.01325) = ~0.0078 kcal/mol at 298.15 K.
-    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * ev2hatree
-    G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * ev2hatree
+    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
+    G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
 
     mol.SetProp("H_hartree", str(H))
     mol.SetProp("S_hartree_per_K", str(S))
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
-    mol.SetProp("E_hartree", str(e * ev2hatree))
+    mol.SetProp("E_hartree", str(e * EV_TO_HARTREE))
 
     # Only now, with every thermo property computed and set, overwrite mol's
     # conformer with the relaxed geometry. Deliberately deferred from the top
@@ -1498,8 +1513,7 @@ def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
             logger.warning(
                 "Skipping %s: no 3D conformer, so there is no geometry to "
                 "evaluate.",
-                mol.GetProp("_Name") if mol.HasProp("_Name") else
-                f"record {position}",
+                _mol_name(mol, default=f"record {position}"),
             )
             continue
         yield mol

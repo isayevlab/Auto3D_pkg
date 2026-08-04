@@ -22,7 +22,7 @@ def get_logger(name: str) -> logging.Logger:
     A run's on-disk log (Auto3D.log) is fed separately, through a
     multiprocessing queue: ``Auto3D.workflow_workers`` attaches a
     ``QueueHandler`` onto BOTH this "Auto3D" tree and the lowercase "auto3d"
-    tree that ``Auto3D.workflow``, ``Auto3D.utils.chemistry`` and one warning
+    tree that ``Auto3D.workflow``, ``Auto3D.clash_relief`` and one warning
     in ``Auto3D.batch_opt.batchopt`` log through directly -- "auto3d" and
     "Auto3D" are case-distinct, unrelated sibling trees under root, so a
     warning from a logger returned here now reaches the run log too, without

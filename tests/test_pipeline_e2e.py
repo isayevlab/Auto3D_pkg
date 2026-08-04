@@ -263,7 +263,7 @@ class TestClashReliefWarning:
     vanishes from the output with no other trace. Before this test,
     ``grep -rn "produced no conformers after clash relief" tests/`` returned
     nothing: this is distinct from (and untested by) the parallel-embedding
-    path's own version of the same warning in ``isomers/parallel_embed.py``,
+    path's own version of the same warning in ``embedding.py``,
     which ``test_workflow.py`` already covers.
 
     Hermetic: no NNP, no network. ``relieve_clash`` itself is monkeypatched,

@@ -826,15 +826,17 @@ class TestFinalizeOutputReconciliation:
         orch._finalize_output(start_time=0.0)
         assert orch.failures == ["mol_c"], orch.failures
 
-    def test_workflow_uses_the_canonical_file_ops_reconciliation_functions(self):
+    def test_workflow_uses_the_canonical_reconciliation_functions(self):
         """Guard against a regression to a hand-rolled duplicate: workflow.py
-        must call the exact functions tested in test_utils_file_ops.py, not a
+        must call the exact functions tested in test_utils_reconciliation.py, not a
         reimplementation that could silently diverge from them."""
-        import Auto3D.utils.file_ops as file_ops
+        import Auto3D.utils.reconciliation as reconciliation
         import Auto3D.workflow as workflow
 
-        assert workflow.find_smiles_not_in_sdf is file_ops.find_smiles_not_in_sdf
-        assert workflow.find_ids_not_in_sdf is file_ops.find_ids_not_in_sdf
+        assert (
+            workflow.find_smiles_not_in_sdf is reconciliation.find_smiles_not_in_sdf
+        )
+        assert workflow.find_ids_not_in_sdf is reconciliation.find_ids_not_in_sdf
 
 
 def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch, tmp_path):
@@ -1015,7 +1017,7 @@ class TestQuietPathsNameWhatTheyDropped:
         signal: a message logged inside a ProcessPoolExecutor worker depends on
         that child's logging configuration, and this one does not.
         """
-        from Auto3D.isomers.parallel_embed import embed_conformers_parallel
+        from Auto3D.embedding import embed_conformers_parallel
 
         with caplog.at_level(logging.WARNING):
             results = list(
@@ -1034,7 +1036,7 @@ class TestQuietPathsNameWhatTheyDropped:
 
     def test_a_species_that_embeds_normally_is_not_warned_about(self, caplog):
         """The new branch must not fire for a molecule that worked."""
-        from Auto3D.isomers.parallel_embed import embed_conformers_parallel
+        from Auto3D.embedding import embed_conformers_parallel
 
         with caplog.at_level(logging.WARNING):
             results = list(

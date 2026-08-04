@@ -10,69 +10,33 @@ tmp+os.replace pattern in reorder_sdf already works. TestOptGeometryDurability
 and TestAmendConfigurationDurability must now also PASS -- Phase 6 gave both
 call sites the same tmp+os.replace staging. TestSameFileGuard was the tripwire
 for the other half of C14 (no out_path == path guard) and must now also PASS:
-`Auto3D.utils.validation.check_output_not_input` refuses that case in all three
-entry points, so the xfail(strict=True) marker it carried was removed with the
-fix. Every class in this file is now a plain regression test -- this file
-carries no xfail.
+`Auto3D.utils.output_guard.check_output_not_input` refuses that case in all
+three entry points, so the xfail(strict=True) marker it carried was removed
+with the fix. Every class in this file is now a plain regression test -- this
+file carries no xfail.
+
+All three call sites now stage through the one shared
+`Auto3D.utils.atomic_io.atomic_write_path`, which is where the staging
+*mechanism* -- sibling temp file, preserved permission bits, cleanup on any
+exception -- is now asserted (`tests/test_atomic_io.py`). What stays here is the
+end-to-end half: that an injected failure inside each real rewrite leaves the
+real file intact. A `TestStagingLocation` class used to pin the sibling-and-mode
+properties against `ASE.geometry._stage_beside`, which the shared helper
+replaced.
 """
 from __future__ import annotations
 
 from pathlib import Path
+
+import os
 
 import pytest
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-import os
-import stat
+from Auto3D.utils.sdf_io import reorder_sdf
 
-from Auto3D.utils.file_ops import reorder_sdf
-
-
-class TestStagingLocation:
-    """The staged temp file must be a SIBLING of its target.
-
-    `os.replace` is only atomic within one filesystem and raises
-    `OSError: [Errno 18] EXDEV` across them, so staging beside the target is
-    the property that makes the whole durability fix work. The end-to-end
-    durability tests below do NOT pin it: they patch `Chem.SDWriter` module-
-    globally, so the injected failure fires wherever the temp file happens to
-    live, and their leftover scans only read `job_dir`. Dropping `dir=` from
-    `_stage_beside` would leave every one of them green while breaking
-    `opt_geometry` on any box where the temp dir is a different mount from the
-    output directory -- a separate `/tmp` tmpfs being the common case.
-    """
-
-    def test_temp_file_is_created_beside_its_target(self, job_dir):
-        from Auto3D.ASE.geometry import _stage_beside
-
-        target = job_dir / "out.sdf"
-        target.write_text("placeholder\n")
-
-        tmp_path = _stage_beside(str(target))
-        try:
-            assert Path(tmp_path).parent == Path(os.path.realpath(str(job_dir))), (
-                f"temp file {tmp_path} is not beside its target {target}; "
-                "os.replace would raise EXDEV whenever the two differ"
-            )
-        finally:
-            os.unlink(tmp_path)
-
-    def test_temp_file_inherits_the_target_mode(self, job_dir):
-        """mkstemp creates 0600 and os.replace carries the SOURCE mode, so
-        without this the rewrite would silently tighten every output file."""
-        from Auto3D.ASE.geometry import _stage_beside
-
-        target = job_dir / "out.sdf"
-        target.write_text("placeholder\n")
-        os.chmod(target, 0o644)
-
-        tmp_path = _stage_beside(str(target))
-        try:
-            assert stat.S_IMODE(os.stat(tmp_path).st_mode) == 0o644
-        finally:
-            os.unlink(tmp_path)
 
 # Captured once, at import time, before any test monkeypatches Chem.SDWriter.
 # Constructing a real Chem.SDWriter on an existing path truncates it
@@ -140,14 +104,22 @@ class TestReorderSdfDurability:
         assert sdf.read_bytes() == original, "the original SDF was corrupted"
 
     def test_no_temp_file_is_left_behind(self, job_dir, monkeypatch):
-        """A failed reorder must not leave a .tmp artifact next to the output.
+        """A failed reorder must leave no staged artifact next to the output.
 
         ``boom`` actually opens (and closes) the real writer at whatever path
         it is given before raising, so a genuine tmp file exists on disk
         ahead of the simulated crash -- otherwise there would be nothing for
-        the cleanup code (``file_ops.py``'s ``tmp_path.unlink()``) to ever
+        the cleanup code (``atomic_write_path``'s ``os.unlink``) to ever
         leave behind if that cleanup were removed, and this test would pass
         vacuously.
+
+        The scan is by *exclusion* -- anything in the directory that is not one
+        of the two files this test created. It used to look for ``".tmp" in
+        name``, which stopped meaning anything once the staging moved to
+        ``atomic_write_path``: ``mkstemp`` names the file ``tmpXXXXXXXX.sdf``,
+        which contains no ``.tmp`` substring, so the old form would have gone
+        green whether or not the cleanup ran. Naming the expected files instead
+        cannot be defeated by a change of temp-file naming convention.
         """
         sdf = job_dir / "out.sdf"
         smi = job_dir / "in.smi"
@@ -163,7 +135,9 @@ class TestReorderSdfDurability:
         with pytest.raises(Exception):
             reorder_sdf(str(sdf), str(smi))
 
-        leftovers = [p.name for p in job_dir.iterdir() if ".tmp" in p.name]
+        leftovers = sorted(
+            p.name for p in job_dir.iterdir() if p.name not in {"out.sdf", "in.smi"}
+        )
         assert not leftovers, f"temp files left behind: {leftovers}"
 
 
@@ -1087,7 +1061,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
         satisfied by a sweep that moved the file and happened to be
         interrupted before the deletion.
         """
-        from Auto3D.utils.file_ops import housekeeping
+        from Auto3D.job_layout import housekeeping
 
         # The user's shell directory: `cd ~/project && auto3d run mols.smi`.
         project = job_dir / "project"
