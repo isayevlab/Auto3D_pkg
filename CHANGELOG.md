@@ -50,6 +50,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mass of the isotope it names; the change applies only where no isotope was
   specified.
 
+- **`import Auto3D` no longer imports torch or RDKit, and four attributes are
+  gone from the package namespace.** `Auto3D.ANI2xt`, `Auto3D.warnings`,
+  `Auto3D.version` and `Auto3D.PackageNotFoundError` were never public API —
+  they were leaked into the namespace by three eager optional-dependency probes
+  and by module-level imports. All four are removed.
+
+  The probes existed to detect whether an optional engine was installed, but
+  probing for ANI2xt reached `batch_opt`, which reached the `utils` barrel,
+  which reached `validation`, which imported torch and `models.loading`. So
+  importing the package paid for the whole package, plus torch and RDKit,
+  before the caller had asked for anything. Every real probe already exists at
+  its use site, so nothing was lost by deleting them.
+
+  | | before | after |
+  |---|---|---|
+  | `import Auto3D` | 1.35 s | 0.031 s |
+  | `len(sys.modules)` | 1175 | 154 |
+  | torch / RDKit loaded | yes | no |
+  | `Auto3D.*` submodules loaded | 20 | 0 |
+
+  **What stops working:** referencing any of those four names through the
+  `Auto3D` package object. **What to do instead:** `import warnings` yourself;
+  read the version from `Auto3D.__version__`; import optional engines from the
+  module that owns them. Documented public names are unaffected and still
+  resolve lazily on first access.
+
 - **One exit-code scheme, used by every command.** `cli/errors.py` has mapped
   exception types to differentiated exit codes since 3.x -- 0 success, 1
   generic, 2 configuration/input, 3 dependency, 4 GPU, 5 model, plus 6 for a
