@@ -1,18 +1,57 @@
-"""Unit tests for the isomers module."""
+"""Unit tests for the isomers package.
+
+The three adapter classes and the ``BaseIsomerEngine`` ABC these tests used to
+exercise are gone: they existed only to copy ``IsomerEngineFactory.create``'s
+keyword arguments into an attribute and then back out again into the real
+engine, so their attribute assertions checked the copy rather than the mapping.
+What replaced them is a single kwarg-mapping site inside ``create``, and the
+tests below check it the way that actually pins the behavior -- by driving
+``run()`` and asserting on the arguments the concrete engine
+(``RDKitIsomer``/``RDKitSdfIsomer``/``oe_isomer``) is handed.
+"""
 from __future__ import annotations
 
 import pytest
 
-from Auto3D.isomers import (
-    IsomerEngine,
-    IsomerEngineFactory,
-    TautomerEngine,
-    create_isomer_engine,
-    create_tautomer_engine,
-)
-from Auto3D.isomers.base import BaseIsomerEngine
-from Auto3D.isomers.omega_adapter import OmegaIsomerAdapter
-from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter, RDKitSdfIsomerAdapter
+from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.isomers.base import IsomerEngine, TautomerEngine
+from Auto3D.isomers.factory import create_isomer_engine, create_tautomer_engine
+
+
+@pytest.fixture
+def spies(monkeypatch):
+    """Record the kwargs ``create(...).run()`` hands each concrete engine.
+
+    Patched on ``Auto3D.isomers.factory``, the module that names them, so the
+    mapping under test is the one that runs.
+    """
+    import Auto3D.isomers.factory as factory
+
+    recorded: dict[str, dict] = {}
+
+    class _FakeEngine:
+        def __init__(self, name, kwargs):
+            self._name = name
+            self._kwargs = kwargs
+
+        def run(self):
+            recorded[self._name] = self._kwargs
+            return f"/{self._name}-output.sdf"
+
+    def fake_rdkit(**kwargs):
+        return _FakeEngine("rdkit", kwargs)
+
+    def fake_rdkit_sdf(**kwargs):
+        return _FakeEngine("rdkit_sdf", kwargs)
+
+    def fake_oe_isomer(**kwargs):
+        recorded["omega"] = kwargs
+        return 0
+
+    monkeypatch.setattr(factory, "RDKitIsomer", fake_rdkit)
+    monkeypatch.setattr(factory, "RDKitSdfIsomer", fake_rdkit_sdf)
+    monkeypatch.setattr(factory, "oe_isomer", fake_oe_isomer)
+    return recorded
 
 
 class TestIsomerEngineProtocol:
@@ -37,6 +76,15 @@ class TestIsomerEngineProtocol:
         obj = NotAnEngine()
         assert not isinstance(obj, IsomerEngine)
 
+    def test_what_create_returns_satisfies_the_protocol(self):
+        """The factory's return value is what callers type-check against."""
+        engine = IsomerEngineFactory.create(
+            engine_type="rdkit_sdf",
+            input_path="/input.sdf",
+            output_path="/output.sdf",
+        )
+        assert isinstance(engine, IsomerEngine)
+
 
 class TestTautomerEngineProtocol:
     """Tests for TautomerEngine protocol."""
@@ -52,109 +100,158 @@ class TestTautomerEngineProtocol:
         assert isinstance(engine, TautomerEngine)
 
 
-class TestBaseIsomerEngine:
-    """Tests for BaseIsomerEngine abstract class."""
+class TestConstructionIsDeferredToRun:
+    """``create()`` must build nothing; ``run()`` builds and drives.
 
-    def test_cannot_instantiate_directly(self):
-        """Test that BaseIsomerEngine cannot be instantiated directly."""
-        with pytest.raises(TypeError):
-            BaseIsomerEngine(
-                input_path="/input.smi",
-                output_path="/output.sdf",
-            )
+    Not a style point. ``RDKitIsomer.__init__`` calls ``self.rdk_tmp.mkdir()``,
+    so constructing the engine inside ``create()`` would move a filesystem side
+    effect -- and its ``FileExistsError`` on a second call with the same
+    ``job_dir`` -- from ``run()`` to ``create()``, where no caller expects it.
+    """
 
-    def test_subclass_stores_attributes(self):
-        """Test that subclass properly stores attributes."""
-
-        class ConcreteEngine(BaseIsomerEngine):
-            def run(self) -> str:
-                return self.output_path
-
-        engine = ConcreteEngine(
+    def test_create_builds_no_engine(self, spies):
+        IsomerEngineFactory.create(
+            engine_type="rdkit",
             input_path="/input.smi",
             output_path="/output.sdf",
-            max_confs=100,
-            threshold=0.5,
-            n_jobs=8,
+            job_dir="/job",
+        )
+        assert spies == {}, f"create() already built an engine: {sorted(spies)}"
+
+    def test_create_does_not_touch_the_filesystem(self, tmp_path):
+        """The real ``RDKitIsomer``, unpatched: no ``rdk_tmp`` until ``run()``."""
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        IsomerEngineFactory.create(
+            engine_type="rdkit",
+            input_path=str(tmp_path / "in.smi"),
+            output_path=str(tmp_path / "out.sdf"),
+            job_dir=str(job_dir),
         )
 
-        assert engine.input_path == "/input.smi"
-        assert engine.output_path == "/output.sdf"
-        assert engine.max_confs == 100
-        assert engine.threshold == 0.5
-        assert engine.n_jobs == 8
+        assert not (job_dir / "rdk_tmp").exists(), (
+            "create() created RDKitIsomer's working directory; construction "
+            "must stay deferred to run()"
+        )
 
-    def test_default_values(self):
-        """Test default parameter values."""
-
-        class ConcreteEngine(BaseIsomerEngine):
-            def run(self) -> str:
-                return self.output_path
-
-        engine = ConcreteEngine(
-            input_path="/input.smi",
+    def test_run_returns_the_engines_output_path(self, spies):
+        engine = IsomerEngineFactory.create(
+            engine_type="rdkit_sdf",
+            input_path="/input.sdf",
             output_path="/output.sdf",
         )
-
-        assert engine.max_confs is None
-        assert engine.threshold == 0.3
-        assert engine.n_jobs == 4
+        assert engine.run() == "/rdkit_sdf-output.sdf"
 
 
-class TestOmegaIsomerAdapter:
-    """Tests for OmegaIsomerAdapter class."""
+class TestCreateKwargMapping:
+    """Every argument ``create()`` accepts must reach the right engine argument."""
 
-    def test_initialization(self):
-        """Test adapter initialization stores all parameters."""
-        adapter = OmegaIsomerAdapter(
-            mode="classic",
+    def test_rdkit_mapping(self, spies):
+        IsomerEngineFactory.create(
+            engine_type="rdkit",
             input_path="/input.smi",
+            output_path="/output.sdf",
             smiles_enumerated="/enum.smi",
             smiles_reduced="/reduced.smi",
             smiles_hashed="/hashed.smi",
+            job_dir="/job",
+            max_confs=50,
+            threshold=0.25,
+            n_jobs=8,
+            enumerate_isomers=False,
+            use_parallel_embedding=True,
+            parallel_embedding_threshold=5,
+            parallel_workers=2,
+        ).run()
+
+        assert spies["rdkit"] == {
+            "smi": "/input.smi",
+            "smiles_enumerated": "/enum.smi",
+            "smiles_enumerated_reduced": "/reduced.smi",
+            "smiles_hashed": "/hashed.smi",
+            "enumerated_sdf": "/output.sdf",
+            "job_name": "/job",
+            "max_confs": 50,
+            "threshold": 0.25,
+            "np": 8,
+            "flipper": False,
+            "use_parallel_embedding": True,
+            "parallel_embedding_threshold": 5,
+            "parallel_workers": 2,
+        }
+
+    def test_rdkit_defaults(self, spies):
+        IsomerEngineFactory.create(
+            engine_type="rdkit",
+            input_path="/input.smi",
             output_path="/output.sdf",
+        ).run()
+
+        kwargs = spies["rdkit"]
+        assert kwargs["max_confs"] is None
+        assert kwargs["threshold"] == 0.3
+        assert kwargs["np"] == 4
+        assert kwargs["flipper"] is True
+        assert kwargs["use_parallel_embedding"] is False
+        assert kwargs["parallel_embedding_threshold"] == 10
+        assert kwargs["parallel_workers"] == 4
+
+    def test_rdkit_sdf_mapping(self, spies):
+        IsomerEngineFactory.create(
+            engine_type="rdkit_sdf",
+            input_path="/input.sdf",
+            output_path="/output.sdf",
+            max_confs=7,
+            threshold=0.5,
+            n_jobs=3,
+            enumerate_isomers=False,
+        ).run()
+
+        assert spies["rdkit_sdf"] == {
+            "sdf": "/input.sdf",
+            "enumerated_sdf": "/output.sdf",
+            "max_confs": 7,
+            "threshold": 0.5,
+            "np": 3,
+            "flipper": False,
+        }
+
+    def test_omega_mapping(self, spies):
+        engine = IsomerEngineFactory.create(
+            engine_type="omega",
+            input_path="/input.smi",
+            output_path="/output.sdf",
+            smiles_enumerated="/enum.smi",
+            smiles_reduced="/reduced.smi",
+            smiles_hashed="/hashed.smi",
             max_confs=50,
             threshold=0.25,
             enumerate_isomers=False,
+            mode="macrocycle",
         )
+        # oe_isomer is a function returning 0; the factory reports the path.
+        assert engine.run() == "/output.sdf"
 
-        assert adapter.mode == "classic"
-        assert adapter.input_path == "/input.smi"
-        assert adapter.smiles_enumerated == "/enum.smi"
-        assert adapter.smiles_reduced == "/reduced.smi"
-        assert adapter.smiles_hashed == "/hashed.smi"
-        assert adapter.output_path == "/output.sdf"
-        assert adapter.max_confs == 50
-        assert adapter.threshold == 0.25
-        assert adapter.enumerate_isomers is False
+        assert spies["omega"] == {
+            "mode": "macrocycle",
+            "input_f": "/input.smi",
+            "smiles_enumerated": "/enum.smi",
+            "smiles_reduced": "/reduced.smi",
+            "smiles_hashed": "/hashed.smi",
+            "output": "/output.sdf",
+            "max_confs": 50,
+            "threshold": 0.25,
+            "flipper": False,
+        }
 
-    def test_default_values(self):
-        """Test adapter default parameter values."""
-        adapter = OmegaIsomerAdapter(
-            mode="classic",
+    def test_omega_default_mode_is_classic(self, spies):
+        IsomerEngineFactory.create(
+            engine_type="omega",
             input_path="/input.smi",
-            smiles_enumerated="/enum.smi",
-            smiles_reduced="/reduced.smi",
-            smiles_hashed="/hashed.smi",
             output_path="/output.sdf",
-        )
-
-        assert adapter.max_confs is None
-        assert adapter.threshold == 0.3
-        assert adapter.enumerate_isomers is True
-
-    def test_implements_protocol(self):
-        """Test that adapter implements IsomerEngine protocol."""
-        adapter = OmegaIsomerAdapter(
-            mode="classic",
-            input_path="/input.smi",
-            smiles_enumerated="/enum.smi",
-            smiles_reduced="/reduced.smi",
-            smiles_hashed="/hashed.smi",
-            output_path="/output.sdf",
-        )
-
-        assert isinstance(adapter, IsomerEngine)
+        ).run()
+        assert spies["omega"]["mode"] == "classic"
 
 
 class TestCreateIsomerEngine:
@@ -169,42 +266,43 @@ class TestCreateIsomerEngine:
                 output_path="/output.sdf",
             )
 
-    def test_engine_type_case_insensitive(self):
+    def test_engine_type_case_insensitive(self, spies):
         """A *valid* engine name in an unexpected case must resolve to the
-        correct adapter, not merely fail to crash on an already-invalid name.
+        correct engine, not merely fail to crash on an already-invalid name.
 
         The previous version passed "UNKNOWN" -- invalid in any case -- so it
         could never have distinguished case normalization working from case
         normalization being entirely absent.
         """
         for name in ("RDKit", "RDKIT", "rdkit"):
-            engine = create_isomer_engine(
+            spies.clear()
+            create_isomer_engine(
                 name,
                 input_path="/input.smi",
                 output_path="/output.sdf",
                 smiles_enumerated="/enum.smi",
                 smiles_reduced="/reduced.smi",
                 smiles_hashed="/hashed.smi",
-            )
-            assert isinstance(engine, RDKitIsomerAdapter), name
+            ).run()
+            assert list(spies) == ["rdkit"], name
 
-    def test_omega_engine_creates_adapter(self):
-        """Test that 'omega' creates OmegaIsomerAdapter."""
-        engine = create_isomer_engine(
+    def test_omega_engine_reaches_oe_isomer(self, spies):
+        """Test that 'omega' drives oe_isomer."""
+        create_isomer_engine(
             "omega",
             input_path="/input.smi",
             output_path="/output.sdf",
             smiles_enumerated="/enum.smi",
             smiles_reduced="/reduced.smi",
             smiles_hashed="/hashed.smi",
-        )
+        ).run()
 
-        assert isinstance(engine, OmegaIsomerAdapter)
-        assert engine.mode == "classic"
+        assert list(spies) == ["omega"]
+        assert spies["omega"]["mode"] == "classic"
 
-    def test_omega_engine_with_custom_mode(self):
+    def test_omega_engine_with_custom_mode(self, spies):
         """Test omega engine with custom mode."""
-        engine = create_isomer_engine(
+        create_isomer_engine(
             "omega",
             input_path="/input.smi",
             output_path="/output.sdf",
@@ -212,58 +310,46 @@ class TestCreateIsomerEngine:
             smiles_reduced="/reduced.smi",
             smiles_hashed="/hashed.smi",
             mode="macrocycle",
-        )
+        ).run()
 
-        assert engine.mode == "macrocycle"
+        assert spies["omega"]["mode"] == "macrocycle"
 
 
 class TestCreateIsomerEngineParallelEmbedding:
     """Tests for parallel embedding support in create_isomer_engine."""
 
-    def test_rdkit_engine_parallel_embedding_default_off(self, tmp_path):
+    def test_rdkit_engine_parallel_embedding_default_off(self, spies):
         """Test that parallel embedding is off by default."""
-        job_dir = tmp_path / "job"
-        job_dir.mkdir()
-
-        engine = create_isomer_engine(
+        create_isomer_engine(
             "rdkit",
             input_path="/input.smi",
             output_path="/output.sdf",
             smiles_enumerated="/enum.smi",
             smiles_reduced="/reduced.smi",
             smiles_hashed="/hashed.smi",
-            job_dir=str(job_dir),
-        )
+            job_dir="/job",
+        ).run()
 
-        # Now returns RDKitIsomerAdapter which wraps RDKitIsomer
-        from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter
-        assert isinstance(engine, RDKitIsomerAdapter)
-        assert engine.use_parallel_embedding is False
+        assert spies["rdkit"]["use_parallel_embedding"] is False
 
-    def test_rdkit_engine_parallel_embedding_enabled(self, tmp_path):
+    def test_rdkit_engine_parallel_embedding_enabled(self, spies):
         """Test that parallel embedding can be enabled."""
-        from Auto3D.isomers.rdkit_adapters import RDKitIsomerAdapter
-
-        job_dir = tmp_path / "job"
-        job_dir.mkdir()
-
-        engine = create_isomer_engine(
+        create_isomer_engine(
             "rdkit",
             input_path="/input.smi",
             output_path="/output.sdf",
             smiles_enumerated="/enum.smi",
             smiles_reduced="/reduced.smi",
             smiles_hashed="/hashed.smi",
-            job_dir=str(job_dir),
+            job_dir="/job",
             use_parallel_embedding=True,
             parallel_embedding_threshold=5,
             parallel_workers=2,
-        )
+        ).run()
 
-        assert isinstance(engine, RDKitIsomerAdapter)
-        assert engine.use_parallel_embedding is True
-        assert engine.parallel_embedding_threshold == 5
-        assert engine.parallel_workers == 2
+        assert spies["rdkit"]["use_parallel_embedding"] is True
+        assert spies["rdkit"]["parallel_embedding_threshold"] == 5
+        assert spies["rdkit"]["parallel_workers"] == 2
 
     def test_rdkit_engine_parallel_embedding_enabled_actually_runs_parallel_path(
         self, tmp_path, monkeypatch
@@ -276,7 +362,7 @@ class TestCreateIsomerEngineParallelEmbedding:
         would be caught even though every attribute above still reports
         correctly.
         """
-        import Auto3D.isomers.parallel_embed as parallel_embed_mod
+        import Auto3D.embedding as embedding_mod
 
         job_dir = tmp_path / "job"
         job_dir.mkdir()
@@ -289,7 +375,7 @@ class TestCreateIsomerEngineParallelEmbedding:
             calls["n"] += 1
             return iter([])  # no conformers written; only the call matters
 
-        monkeypatch.setattr(parallel_embed_mod, "embed_conformers_parallel", spy)
+        monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
 
         engine = create_isomer_engine(
             "rdkit",
@@ -348,61 +434,17 @@ class TestIsomerEngineFactory:
         assert "rdkit_sdf" in engines
         assert "omega" in engines
 
-    def test_create_rdkit_engine(self, tmp_path):
-        """Test creating RDKit engine via factory."""
-        job_dir = tmp_path / "job"
-        job_dir.mkdir()
-
-        engine = IsomerEngineFactory.create(
-            engine_type="rdkit",
-            input_path="/input.smi",
-            output_path="/output.sdf",
-            smiles_enumerated="/enum.smi",
-            smiles_reduced="/reduced.smi",
-            smiles_hashed="/hashed.smi",
-            job_dir=str(job_dir),
-        )
-
-        assert isinstance(engine, RDKitIsomerAdapter)
-        assert isinstance(engine, BaseIsomerEngine)
-
-    def test_create_rdkit_sdf_engine(self):
-        """Test creating RDKit SDF engine via factory."""
-        engine = IsomerEngineFactory.create(
-            engine_type="rdkit_sdf",
-            input_path="/input.sdf",
-            output_path="/output.sdf",
-        )
-
-        assert isinstance(engine, RDKitSdfIsomerAdapter)
-        assert isinstance(engine, BaseIsomerEngine)
-
-    def test_auto_select_rdkit_sdf_for_sdf_input(self):
+    def test_auto_select_rdkit_sdf_for_sdf_input(self, spies):
         """Test that rdkit auto-selects rdkit_sdf when input_format is sdf."""
-        engine = IsomerEngineFactory.create(
+        IsomerEngineFactory.create(
             engine_type="rdkit",
             input_path="/input.sdf",
             output_path="/output.sdf",
             input_format="sdf",  # This should trigger auto-selection
-        )
+        ).run()
 
-        # Should get RDKitSdfIsomerAdapter, not RDKitIsomerAdapter
-        assert isinstance(engine, RDKitSdfIsomerAdapter)
-
-    def test_create_omega_engine(self):
-        """Test creating Omega engine via factory."""
-        engine = IsomerEngineFactory.create(
-            engine_type="omega",
-            input_path="/input.smi",
-            output_path="/output.sdf",
-            smiles_enumerated="/enum.smi",
-            smiles_reduced="/reduced.smi",
-            smiles_hashed="/hashed.smi",
-            mode="dense",
-        )
-
-        assert isinstance(engine, OmegaIsomerAdapter)
-        assert engine.mode == "dense"
+        # Should reach RDKitSdfIsomer, not RDKitIsomer
+        assert list(spies) == ["rdkit_sdf"]
 
     def test_unknown_engine_raises_error(self):
         """Test that unknown engine type raises ValueError."""

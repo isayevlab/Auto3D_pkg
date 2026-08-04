@@ -5,7 +5,7 @@
 it optimizes -- ``"True"`` or ``"False"`` -- and read by the three filters that
 decide which conformers survive (:class:`Auto3D.ranking.ConformerRanker`,
 :func:`Auto3D.filtering.filter_unique_optimized`,
-:func:`Auto3D.utils.chemistry.filter_unique`).
+:func:`Auto3D.filtering.filter_unique`).
 
 All three used to read it as::
 

@@ -36,13 +36,14 @@ from ase.thermochemistry import IdealGasThermo
 from ase.vibrations import VibrationsData
 
 import Auto3D.ASE.thermo as thermo_mod
-from Auto3D.ASE.thermo import analyze_vibrations, ev2hatree, projected_vibrations
+from Auto3D.ASE.thermo import analyze_vibrations, projected_vibrations
 from Auto3D.constants import (
     EV_PER_WAVENUMBER,
+    EV_TO_HARTREE,
     IMAGINARY_MODE_CUTOFF_CM,
     LOW_FREQUENCY_CUTOFF_CM,
 )
-from Auto3D.utils.chemistry import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
+from Auto3D.utils.energy import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,
@@ -116,7 +117,7 @@ def _gibbs_kcal(atoms, modes, potential_energy=0.0) -> float:
         thermo.get_gibbs_energy(
             temperature=T_REFERENCE, pressure=PRESSURE_PA, verbose=False
         )
-        * ev2hatree
+        * EV_TO_HARTREE
         * HARTREE_TO_KCAL_PER_MOL
     )
 

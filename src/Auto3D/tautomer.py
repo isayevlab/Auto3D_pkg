@@ -8,8 +8,7 @@ from rdkit import Chem
 from Auto3D.auto3D import main
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
-from Auto3D.utils.chemistry import hartree2kcalpermol
-from Auto3D.utils.energy import e_tot_hartree
+from Auto3D.utils.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -35,7 +34,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
         ``auto3d tautomers`` additionally gates its ``-o`` with
         ``check_output_overwrite`` -- so this is a hazard for direct API
         callers only, the same residual class as
-        ``Auto3D.utils.file_ops.smiles2smi`` and ``decode_ids``. See
+        ``Auto3D.utils.smi_io.smiles2smi`` and ``Auto3D.id_mapping.decode_ids``. See
         ``docs/superpowers/follow-ups-after-4.0.0-remediation.md``.
 
     Note:

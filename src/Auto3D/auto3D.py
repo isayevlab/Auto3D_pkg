@@ -10,7 +10,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import torch
 from rdkit import Chem
 
 if TYPE_CHECKING:
@@ -22,16 +21,14 @@ from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomers import IsomerEngineFactory
-from Auto3D.model_factory import create_model
+from Auto3D.job_layout import create_chunk_meta_names
+from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import preflight_model
 from Auto3D.ranking import ranking
-from Auto3D.utils.file_ops import (
-    create_chunk_meta_names,
-    find_smiles_not_in_sdf,
-    reorder_sdf,
-    smiles2smi,
-)
 from Auto3D.utils.logging_config import configure_logging, get_logger
+from Auto3D.utils.reconciliation import find_smiles_not_in_sdf
+from Auto3D.utils.sdf_io import reorder_sdf
+from Auto3D.utils.smi_io import smiles2smi
 from Auto3D.utils.validation import check_input, check_valid_configuration
 
 # Pipeline workers live in workflow_workers to break the auto3D<->workflow import
@@ -70,7 +67,21 @@ def main(
         see ``WorkflowOrchestrator._finalize_output``).
 
     Raises:
-        SystemExit: If input validation fails or no structures converge.
+        ConfigurationError: If path is None, k/window not specified, or the
+            configuration (including the optimizing engine name) is
+            otherwise invalid.
+        FileFormatError: If the input file format is not supported.
+        OptimizationError: If no structure converged.
+        ModelLoadError: If the optimizing model could not be obtained or
+            loaded.
+        DependencyError: If a required optional dependency is missing.
+
+        None of the above is a ``SystemExit``: ``main()`` itself catches
+        nothing and lets ``WorkflowOrchestrator.run()``'s exceptions (see
+        ``WorkflowOrchestrator._validate_input``/``_finalize_output``)
+        propagate as-is. Only the CLI layer (``cli/errors.handle_error``)
+        converts them to a process exit code; a direct Python-API caller
+        gets the exception object.
     """
     # Configure logging based on verbose setting
     configure_logging(verbose=args.verbose)
@@ -208,15 +219,18 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         )
         isomer_engine.run()
 
-        # optimize conformers
-        if args.use_gpu:
-            if isinstance(args.gpu_idx, int):
-                idx = args.gpu_idx
-            else:
-                idx = args.gpu_idx[0]
-            device = torch.device(f"cuda:{idx}")
-        else:
-            device = torch.device("cpu")
+        # optimize conformers. gpu_idx may be a single int or a list (one
+        # entry per GPU, for main()'s multi-process path); smiles2mols is
+        # single-process, so only the first index is ever used. Resolved
+        # through model_factory.get_device -- the single owner of gpu_idx ->
+        # torch.device -- rather than re-building the `cuda:{idx}` string
+        # here, which used to bypass get_device's own out-of-range GPUError
+        # entirely (defense in depth: check_valid_configuration above already
+        # range-checks gpu_idx for this entry point, but get_device is where
+        # every other caller, incl. calc_spe/opt_geometry/calc_thermo, gets
+        # that check).
+        idx = args.gpu_idx if isinstance(args.gpu_idx, int) else args.gpu_idx[0]
+        device = get_device(idx, use_gpu=args.use_gpu)
         opt_config = args.to_optimization_config()
         # Built in this process, which is also the one that runs the
         # optimization -- `smiles2mols` is single-process, so there is no spawn

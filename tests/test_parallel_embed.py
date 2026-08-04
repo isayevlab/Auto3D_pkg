@@ -1,5 +1,5 @@
 # tests/test_parallel_embed.py
-"""Tests for parallel conformer embedding module."""
+"""Tests for Auto3D.embedding (parallel conformer embedding)."""
 import multiprocessing as mp
 import os
 from concurrent.futures.process import BrokenProcessPool
@@ -7,7 +7,7 @@ from concurrent.futures.process import BrokenProcessPool
 import pytest
 from rdkit import Chem
 
-from Auto3D.isomers.parallel_embed import _embed_single, embed_conformers_parallel
+from Auto3D.embedding import _embed_single, embed_conformers_parallel
 
 
 def _suicide_embed(smi, name, n_conformers, threshold, np_threads):
@@ -49,7 +49,7 @@ class TestEmbedSingle:
         molecule, where embedding + RMSD pruning collapses to 1 regardless of
         the requested count and could hide a formula regression).
         """
-        from Auto3D.utils.chemistry import calculate_conformer_count
+        from Auto3D.utils.molprops import calculate_conformer_count
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCC"))  # hexane: flexible
         expected_upper_bound = calculate_conformer_count(mol)
@@ -242,7 +242,7 @@ class TestEmbedConformersParallel:
 
         # Replace the worker with one that kills its process mid-task.
         monkeypatch.setattr(
-            "Auto3D.isomers.parallel_embed._embed_single", _suicide_embed
+            "Auto3D.embedding._embed_single", _suicide_embed
         )
 
         with pytest.raises(BrokenProcessPool):

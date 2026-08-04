@@ -162,21 +162,41 @@ class FIRE:
 
         return coord + dr
 
-    def clean(self, mask: torch.Tensor) -> bool:
-        """Subset optimizer state to keep only specified molecules.
+    def clean(self, idx: torch.Tensor) -> bool:
+        """Subset optimizer state to keep only the molecules at ``idx``.
 
-        This method is used to remove converged molecules from the optimization
-        batch, reducing computation in subsequent steps.
+        Used to drop molecules that have left the active set, so subsequent
+        steps do less work.
+
+        Takes an **int64 index**, not a boolean mask. Four boolean-mask reads
+        here were four host-device synchronizations per optimization step on
+        CUDA (ATen expands each mask via ``nonzero()`` and copies the element
+        count to the host to size the output). ``index_select`` with an index
+        the caller already computed is sync-free, so the caller pays one
+        ``nonzero`` and this method pays none. Over 2000 steps per bucket that
+        is 8000 serialization points removed from a loop that does no host work.
 
         Args:
-            mask: Boolean tensor of shape (batch,). True values indicate
-                  molecules to keep in the optimization.
+            idx: int64 tensor of row indices to keep, shape ``(kept,)``. Must be
+                int64: a boolean mask would *not* fail loudly here -- ``index_select``
+                would reinterpret ``tensor([True, False])`` as indices ``[1, 0]``
+                and silently permute the optimizer state -- so the dtype is
+                checked instead.
 
         Returns:
             Always returns True to indicate success.
+
+        Raises:
+            ValueError: ``idx`` is not int64.
         """
-        self.v = self.v[mask]
-        self.Nsteps = self.Nsteps[mask]
-        self.dt = self.dt[mask]
-        self.a = self.a[mask]
+        if idx.dtype != torch.long:
+            raise ValueError(
+                "FIRE.clean expects an int64 tensor of row indices to keep, not "
+                "a boolean mask. Pass torch.nonzero(mask, as_tuple=True)[0]. "
+                "A bool tensor would be silently reinterpreted as indices."
+            )
+        self.v = self.v.index_select(0, idx)
+        self.Nsteps = self.Nsteps.index_select(0, idx)
+        self.dt = self.dt.index_select(0, idx)
+        self.a = self.a.index_select(0, idx)
         return True

@@ -6,7 +6,8 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.utils.chemistry import check_connectivity, filter_unique
+from Auto3D.filtering import filter_unique
+from Auto3D.utils.connectivity import check_connectivity
 from Auto3D.utils.validation import (
     check_input,
     check_sdf_format,

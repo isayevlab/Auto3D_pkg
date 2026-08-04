@@ -398,7 +398,7 @@ def test_every_exported_name_is_documented_in_api_rst():
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parents[1] / "src" / "Auto3D"
 
-# ``from Auto3D.utils import chemistry`` -- naming a submodule -- stays legal;
+# ``from Auto3D.utils import energy`` -- naming a submodule -- stays legal;
 # it is a module reference, not a re-export. ``from Auto3D.utils import
 # hartree2ev`` does not.
 UTILS_SUBMODULES = frozenset(
@@ -441,7 +441,8 @@ def test_no_src_module_imports_through_the_utils_barrel():
     The barrel was never a coherent surface -- three of its eight submodules
     (``energy``, ``convergence``, ``stereo_check``) had no presence in it at all
     -- and ``check_connectivity`` was reached through the barrel in
-    ``filtering.py`` and through ``utils.chemistry`` in ``ranking.py``, two
+    ``filtering.py`` and through ``utils.chemistry`` in ``ranking.py`` (both now
+    name ``utils.connectivity``), two
     sibling modules disagreeing about the same function with nothing saying
     which was right.
     """
@@ -466,7 +467,7 @@ def test_utils_init_imports_nothing():
     """``utils/__init__.py`` is docstring-only.
 
     Frozen deliberately, and not merely as the tail of the demolition: a later
-    cluster splits ``utils/file_ops.py`` and moves modules underneath this
+    cluster split ``utils/file_ops.py`` and moved modules underneath this
     package. Its own proposal was to "keep ``file_ops.py`` as a re-export shim
     so ``utils/__init__.py`` is untouched", which would rebuild the barrel one
     directory down. This test makes that fail here instead of being noticed
@@ -514,16 +515,54 @@ def test_utils_package_exposes_no_names():
 
 
 def test_utils_submodule_imports_still_work():
-    """Emptying the barrel must not break ``from Auto3D.utils import chemistry``.
+    """Emptying the barrel must not break ``from Auto3D.utils import energy``.
 
     A submodule reference is not a re-export, several tests use this form, and
     ``__init__.py`` importing nothing is exactly the condition under which it is
     easy to assume otherwise.
     """
-    from Auto3D.utils import chemistry, validation
+    from Auto3D.utils import energy, validation
 
-    assert chemistry.hartree2ev > 0  # a float constant, not a function
+    assert energy.hartree2ev > 0  # a float constant, not a function
     assert callable(validation.check_input)
+
+
+def test_isomer_engine_does_not_import_the_isomers_package():
+    """``Auto3D.isomers`` wraps ``isomer_engine``; the arrow may not point back.
+
+    ``isomers.factory`` imports ``Auto3D.isomer_engine`` at module scope, so a
+    single import in the other direction closes a cycle. Until 4.0 that cycle
+    existed: the two adapter modules and ``factory.create_tautomer_engine``
+    reached into ``isomer_engine``, and ``isomer_engine._run_parallel_embedding``
+    reached back into ``isomers.parallel_embed``. It stayed latent only because
+    every edge was a function-scope import -- which is exactly the shape that
+    surfaces as an ``ImportError`` inside a ``spawn``ed worker and nowhere else,
+    since a spawned child re-imports from scratch in an order the parent never
+    exercised.
+
+    Checked at **any** scope (``ast.walk``, not ``tree.body``) for that reason:
+    a function-scope import here would satisfy a module-scope-only check while
+    reintroducing precisely the latent cycle that was removed. ``parallel_embed``
+    is now ``Auto3D.embedding``, which imports nothing from either side.
+    """
+    path = SRC_ROOT / "isomer_engine.py"
+    tree = ast.parse(path.read_text(), filename=str(path))
+    offenders = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = _absolute_module(node, path) or ""
+            if module == "Auto3D.isomers" or module.startswith("Auto3D.isomers."):
+                offenders.append(f"line {node.lineno}: from {module} import ...")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "Auto3D.isomers" or alias.name.startswith(
+                    "Auto3D.isomers."
+                ):
+                    offenders.append(f"line {node.lineno}: import {alias.name}")
+    assert not offenders, (
+        "isomer_engine.py imports from the Auto3D.isomers package it is wrapped "
+        "by, closing an import cycle:\n" + "\n".join(offenders)
+    )
 
 
 def test_only_documented_subpackages_define_all():
@@ -620,6 +659,54 @@ def test_importing_utils_validation_does_not_load_models():
     loaded = json.loads(proc.stdout.strip().splitlines()[-1])
     assert not loaded, (
         f"importing Auto3D.utils.validation pulled in the models package: {loaded}"
+    )
+
+
+# Subprocess probe: what the split-out file-I/O modules cost to import.
+_FILE_IO_PROBE_SOURCE = """
+import json, sys
+import Auto3D.id_mapping            # noqa: F401
+import Auto3D.job_layout            # noqa: F401
+import Auto3D.utils.output_guard    # noqa: F401
+import Auto3D.utils.reconciliation  # noqa: F401
+import Auto3D.utils.sdf_io          # noqa: F401
+import Auto3D.utils.smi_io          # noqa: F401
+print(json.dumps({
+    "torch": any(m == "torch" or m.startswith("torch.") for m in sys.modules),
+    "models": sorted(
+        m for m in sys.modules if m == "Auto3D.models" or m.startswith("Auto3D.models.")
+    ),
+}))
+"""
+
+
+def test_file_io_modules_do_not_load_torch_or_the_model_tree():
+    """Writing a ``.smi``/``.sdf`` file must not cost the neural-network stack.
+
+    The six modules probed here are what ``utils/file_ops.py`` split into, and
+    the reason ``check_output_overwrite``/``check_output_not_input`` were lifted
+    out of ``utils/validation.py`` into the leaf ``utils/output_guard.py``
+    first: the overwrite gate belongs on every one of these writers, and
+    reaching it through ``validation`` would have pulled in that module's
+    module-scope ``torch`` -- and, through the engine-name resolution it does
+    at function scope, the whole ``Auto3D.models`` tree -- for a caller that
+    only wanted to refuse clobbering a file.
+
+    Subprocess, for the same reason as the probes above: ``conftest`` imports
+    every ``Auto3D`` submodule before any test runs, so in-process this would
+    pass unconditionally.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _FILE_IO_PROBE_SOURCE],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
+    result = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert not result["torch"], "importing the .smi/.sdf writers pulled in torch"
+    assert not result["models"], (
+        "importing the .smi/.sdf writers pulled in the models package: "
+        f"{result['models']}"
     )
 
 

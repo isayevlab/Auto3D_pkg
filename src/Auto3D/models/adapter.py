@@ -369,7 +369,15 @@ class ANI2xtAdapter(BaseModelAdapter):
     ANI2xt is a retrained version of ANI with improved performance.
     Uses indexed species (H=0, C=1, N=2, O=3, F=4, S=5, Cl=6).
 
-    This model benefits significantly from torch.compile() optimization.
+    ``compile_model=True`` compiles ``ANI2xt.forward``. Until this change it compiled
+    *nothing*: ``forward``'s per-element loop contained a data-dependent branch
+    (``if mask.any():``), and a graph break inside a loop gives Dynamo nowhere to
+    place a resume point, so it skipped the frame -- measured as **zero**
+    compiled subgraphs. The loop is now free of data-dependent ops and compiles
+    to one subgraph (``tests/test_ani2xt_atom_energies.py``). Whether that is a
+    wall-clock win, and by how much, is a GPU measurement this repository does
+    not make; see ``benchmarks/bench_optimization_perf.py``. No speedup figure
+    is claimed here because none has been measured.
     """
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
@@ -384,9 +392,28 @@ class ANI2xtAdapter(BaseModelAdapter):
         # module scope creates models -> batch_opt -> models, and because
         # Auto3D/__init__.py eagerly imports Auto3D.batch_opt.ANI2xt_no_rep that
         # becomes an import cycle at package-import time.
-        from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
+        from Auto3D.batch_opt.ANI2xt_no_rep import (
+            ANI2xt,
+            element_indices,
+            self_atomic_energies,
+        )
         model = ANI2xt(device)
+        num_elements = len(model.networks)
+        energy_shifts = model.energy_shifts
         super().__init__(model, device, coord_pad=0.0, species_pad=-1, compile_model=compile_model)
+        # Precompute-and-pass plumbing for ANI2xt.forward. Both helpers are pure
+        # functions of `species`, and both have to be called from *outside*
+        # ANI2xt.forward for it to be compilable at all: element_indices has a
+        # data-dependent output shape, and a graph break inside forward's
+        # per-element loop makes Dynamo skip the whole frame rather than split
+        # it, which is why compile_model=True used to produce zero subgraphs for
+        # this model. Bound here rather than imported at module scope because
+        # models -> batch_opt is the one deliberate back-edge and must stay
+        # inside a method (see the deferred ANI2xt import above).
+        self._element_indices = element_indices
+        self._self_atomic_energies = self_atomic_energies
+        self._num_elements = num_elements
+        self._energy_shifts = energy_shifts
 
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
         """Remap atomic numbers to ANI2xt's 0-based network indices.
@@ -419,7 +446,39 @@ class ANI2xtAdapter(BaseModelAdapter):
         raises. Energies come out float64 (see ``ANI2xt.forward``); coords are
         consumed at whatever dtype they arrive in.
         """
-        return self.model(species, coords)
+        return self._call_model(species, coords)
+
+    def _call_model(self, species: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
+        """Invoke ``ANI2xt.forward`` with the species-only terms precomputed.
+
+        ``element_indices`` collapses seven ``nonzero`` calls -- seven
+        host-device synchronizations per forward on CUDA -- into a single host
+        readback of a fixed-size count vector, and ``self_atomic_energies``
+        removes a seven-iteration Python loop that recomputed a constant. Doing
+        both out here rather than inside ``forward`` is also what leaves
+        ``forward`` free of data-dependent ops, so ``compile_model=True`` has a
+        frame it can actually compile.
+
+        Not cached across calls: the optimization loop gathers a fresh
+        ``species`` tensor for the still-active subset on every step, so there is
+        no object whose identity could key a cache, and a content-keyed cache
+        would cost the comparison it saves.
+
+        Falls back to the plain two-argument call when the helpers are absent,
+        which happens whenever ``self.model`` is not a real ``ANI2xt`` -- several
+        tests bypass ``__init__`` and substitute a toy quadratic model so they
+        can exercise the *real* ``forward``/``energy`` without loading weights or
+        importing torchani. The precompute is an optimization, not part of the
+        model contract, so it degrades rather than breaking.
+        """
+        helper = getattr(self, "_element_indices", None)
+        if helper is None:
+            return self.model(species, coords)
+        elem_index = helper(species, self._num_elements)
+        self_energies = self._self_atomic_energies(
+            species, self._energy_shifts, self._num_elements)
+        return self.model(species, coords, elem_index=elem_index,
+                          self_energies=self_energies)
 
     def forward(
         self,
@@ -444,7 +503,7 @@ class ANI2xtAdapter(BaseModelAdapter):
             Tuple of (energies, forces) in eV units.
         """
         coords = coords.requires_grad_(True)
-        energy = self.model(species, coords)
+        energy = self._call_model(species, coords)
         # create_graph=False (default) avoids building second-order gradient graph
         grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
         forces = -grad
@@ -458,7 +517,10 @@ class ANI2xAdapter(BaseModelAdapter):
     ANI2x uses periodic table indexing for species.
     Requires torchani to be installed.
 
-    This model benefits significantly from torch.compile() optimization.
+    ``compile_model=True`` compiles the torchani model. No speedup figure is
+    claimed: none has been measured for this path, and the ~1.25x these
+    docstrings used to assert had no measurement behind it.
+    ``benchmarks/bench_optimization_perf.py`` is what produces one.
     """
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:

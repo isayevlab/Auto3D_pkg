@@ -6,8 +6,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 from Auto3D.isomer_engine import rd_isomer
-from Auto3D.utils.file_ops import SDF2chunks
-from Auto3D.utils.file_ops import count_sdf
+from Auto3D.utils.sdf_io import SDF2chunks, count_sdf
 
 # Mark all tests in this module as slow (isomer embedding)
 pytestmark = pytest.mark.slow

@@ -333,7 +333,7 @@ class TestFilterUniqueOptimized:
 
 class TestMissingEnergyPropertyMustNotCrash:
     """filter_unique_optimized must tolerate a record with no 'E_tot', the
-    way the legacy ``utils.chemistry.filter_unique`` already does.
+    way the legacy ``filtering.filter_unique`` already does.
 
     KNOWN DEFECT (found during cluster E brainstorming, not fixed by this
     lane): ``filtering.py:75`` sorts the valid-mols list by
@@ -341,7 +341,7 @@ class TestMissingEnergyPropertyMustNotCrash:
     a molecule with no usable 'E_tot' property. ``_filter_within_cluster``'s
     own energy guard, two dozen lines later in the same module, instead uses
     the tolerant ``try_e_tot_ev`` and treats a missing energy as "fall back
-    to RMSD only". ``utils.chemistry.filter_unique`` (the OTHER conformer
+    to RMSD only". ``filtering.filter_unique`` (the OTHER conformer
     filter, sharing the same duplicate criterion since 4.0.1) also uses
     ``try_e_tot_ev`` throughout and does not crash on this input. So the two
     filters diverge on malformed input: the same list of mols that
@@ -359,7 +359,7 @@ class TestMissingEnergyPropertyMustNotCrash:
             "filtering.py:75 sorts by e_tot_ev (raises KeyError for a mol "
             "with no 'E_tot' property) instead of the tolerant try_e_tot_ev "
             "that _filter_within_cluster's own energy guard and the legacy "
-            "utils.chemistry.filter_unique both use -- the two conformer "
+            "filtering.filter_unique both use -- the two conformer "
             "filters disagree on malformed input (cluster E brainstorm defect)."
         ),
     )
@@ -391,7 +391,7 @@ class TestFilterUniqueBehavior:
         real Auto3D contract). Use genuinely distinct conformers of one molecule
         so RMSD is well-defined and comparable across both implementations.
         """
-        from Auto3D.utils.chemistry import filter_unique
+        from Auto3D.filtering import filter_unique
 
         def conformer(seed: float, energy_ev: float) -> Chem.Mol:
             m = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))  # flexible chain

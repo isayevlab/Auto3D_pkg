@@ -408,7 +408,7 @@ class TestParallelEmbeddingIsReachable:
 
     Until 3.0.0 `use_parallel_embedding` was a constructor argument on the isomer
     engine with no route from `Auto3DOptions`, so no `main()` or `smiles2mols` run
-    could reach it and `isomers/parallel_embed.py` was reachable only from tests --
+    could reach it and the parallel embedder was reachable only from tests --
     which is why an audit listed that module as dead code.
 
     Asserting `Auto3DOptions(use_parallel_embedding=True).use_parallel_embedding

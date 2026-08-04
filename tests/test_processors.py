@@ -79,7 +79,14 @@ class TestTautomerProcessorConfigOptions:
         processor = TautomerProcessor(config)
 
         result = processor.process(str(input_file), str(output_file))
-        assert Path(result).exists()
+        # `.exists()` alone is satisfied by an empty file, which is also what
+        # the *disabled* branch's contract looks like from the outside if
+        # `result` were accidentally the input path. Pin both: the enabled
+        # branch must return the OUTPUT path specifically, and that file must
+        # actually carry the tautomer engine's records, not be empty.
+        assert result == str(output_file)
+        written = Path(result).read_text().strip()
+        assert written, "tautomer engine produced no records in the output file"
 
 
 def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
@@ -95,11 +102,22 @@ def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
     monkeypatch.setattr(proc, "create_tautomer_engine", fake_create)
     monkeypatch.setattr(proc, "hash_taut_smi", lambda a, b: None)
 
-    cfg = Auto3DOptions(path="x.smi", k=1, enumerate_tautomer=True, tauto_engine="rdkit")
+    # pKaNorm=False is deliberately non-default (Auto3DOptions defaults it to
+    # True): a mutation that hardcodes the forwarded value instead of reading
+    # self.config.pKaNorm would otherwise still match a default-valued cfg.
+    cfg = Auto3DOptions(
+        path="x.smi", k=1, enumerate_tautomer=True, tauto_engine="rdkit",
+        pKaNorm=False,
+    )
     out = proc.TautomerProcessor(cfg).process("in.smi", "out.smi")
     assert out == "out.smi"
     assert calls["ran"] is True
-    assert calls["args"][0] == "rdkit"
+    # Pin the full argument tuple `create_tautomer_engine` was called with, not
+    # just the engine name: `args[1]`/`args[2]` catch input_path/output_path
+    # being swapped or dropped, and `args[3]` catches the wrong (or a missing)
+    # pKaNorm being forwarded -- none of which the old, name-only assertion
+    # could have caught.
+    assert calls["args"] == ("rdkit", "in.smi", "out.smi", False)
 
 
 def test_tautomer_processor_skips_when_disabled():

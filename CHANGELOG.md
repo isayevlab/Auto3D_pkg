@@ -826,7 +826,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `Auto3D.ranking.species_id`. Runs made with `enumerate_isomer=False`
   and two inputs sharing an InChIKey lost a molecule and should be re-run.
 
+### Performance
+
+- **The optimization loop no longer subsets the batch with boolean masks: 18
+  host-device synchronizations per step become 2.** `n_steps` gathered the
+  still-active structures with `state['coord'][not_converged]` and friends --
+  six masked reads, six masked writes, and four more inside `FIRE.clean`. On
+  CUDA every one of those is a GPU->CPU synchronization, because ATen has to
+  `nonzero()` the mask and copy the match count to the host to size the output.
+  Measured with a dispatch-mode counter: exactly 18 per step, on every step of
+  a loop that runs up to 2000 steps per bucket.
+
+  The loop now computes `torch.nonzero(not_converged)` **once** and feeds the
+  resulting int64 index to `index_select` (reads) and `index_copy_` (writes),
+  neither of which synchronizes. The `smallest_fmax` and oscillation-counter
+  updates need no index at all and became `torch.where`.
+
+  **This is 18 -> 2, not 18 -> 0.** `nonzero` *is* the synchronization -- it is
+  the mechanism by which boolean-mask indexing synced in the first place. The
+  win is that one `nonzero` result is reused by twelve gathers and scatters
+  instead of each computing its own, plus a second `nonzero` for `FIRE.clean`,
+  whose mask is indexed within the active subset rather than the full batch.
+
+  **Results are bit-identical.** `index_select(0, nonzero(m))` and `x[m]` gather
+  the same rows in the same order (`nonzero` returns ascending indices), and
+  `index_copy_` writes the same rows as `x[m] = v`. No arithmetic, dtype or
+  reduction order changed. `tests/test_optimization_engine_indexing.py` runs a
+  test-local reimplementation of the old boolean-mask loop against the new one in
+  the same process and asserts `torch.equal` on coordinates, energies, fmax,
+  convergence mask and oscillation counters across 17 scenarios -- staggered
+  convergence, oscillation drops, a single molecule, `n=0`, batch 64, a padded
+  batch, and ten random seeds. `torch.where` rather than `torch.minimum` for
+  `smallest_fmax`, because `<` is False for NaN and the masked assignment it
+  replaced therefore *kept* the previous value; `minimum` would propagate the
+  NaN.
+
+  **No speedup is claimed here.** The sync count is a fact this repository can
+  prove and CI enforces; the wall-clock value of removing a synchronization is
+  not, because it depends on the ratio of CPU launch time to GPU work at a given
+  batch size. `benchmarks/run_perf_ab.sh <base-ref>` is one command that
+  measures it on a real GPU, sweeping batch 8/64/256/1024 across three molecule
+  sizes, and prints a block for this file. It aborts rather than reporting a
+  ratio if the two sides converge differently.
+
+- **ANI2xt's per-element energy loop: 22 host-device synchronizations per
+  forward become 2, and it compiles for the first time.** `ANI2xt.forward`
+  looped over its seven networks doing
+  `if mask.any(): atom_energies[mask] = network(aev[mask])` -- 7 guard
+  readbacks, 7 masked reads and 7 masked writes, plus 1 in `_validate_outputs`.
+  The guard protected nothing: `network(empty)` returns an empty tensor and the
+  write is a no-op, which is why deleting it is bit-identical even for a batch
+  containing 2 of the 7 elements.
+
+  The loop is now `index_select`/`index_copy` over a flattened atom axis with
+  per-element indices computed by `element_indices()`, which reproduces seven
+  `nonzero` calls exactly (same indices, same order, verified over 200+ species
+  patterns including padding and out-of-range values) using a single host
+  readback of a fixed-size count vector. Self-atomic energies, a pure function
+  of species that was recomputed on every forward, moved to
+  `self_atomic_energies()`.
+
+  **`compile_model=True` / `AUTO3D_COMPILE_MODEL=1` compiled *zero* subgraphs
+  for this model.** `if mask.any():` is a data-dependent branch, and a graph
+  break inside a `for` loop gives Dynamo nowhere to place a resume point, so it
+  skipped the entire frame. Deleting the guard alone does not fix that --
+  `nonzero` and boolean-mask indexing are dynamic-output-shape ops and break the
+  same way -- which is why the indices are computed outside `forward` and passed
+  in. The per-element loop now compiles to one subgraph and passes
+  `fullgraph=True` (`tests/test_ani2xt_atom_energies.py`, which needs neither a
+  GPU nor torchani). Whether the *whole* `forward`, with torchani's AEVComputer
+  in the frame, also reaches one subgraph is a torchani-only measurement that
+  `benchmarks/bench_optimization_perf.py` reports.
+
+- **A custom NNP returning float64 forces no longer crashes the optimizer.**
+  `smallest_fmax` is allocated float32 and `fmax` inherited float64 from the
+  forces, so `smallest_fmax[reduced] = fmax[reduced]` raised `"Index put
+  requires the source and destination dtypes match"` -- but only when two or
+  more structures reduced their force in the same step, since a single-element
+  value took ATen's `masked_fill_` fast path and silently cast. The failure was
+  therefore batch-size dependent and invisible to a single-molecule test. Every
+  state write now casts explicitly to the destination dtype.
+
+### Changed
+
+- **The documented "~1.25x" `torch.compile` speedup for ANI models has been
+  removed from the docs, because no measurement supports it.** It appeared in
+  `docs/source/advanced_usage.rst`, `docs/source/migration.rst`,
+  `docs/source/howto/hpc.rst` and two adapter docstrings. For ANI2xt it cannot
+  have originated in the model at all: as described above, that path compiled
+  zero subgraphs. The docs now state that the setting is off by default, that no
+  figure has been measured, and how to measure one.
+
 ### Added
+
+- **`benchmarks/bench_optimization_perf.py` and `benchmarks/run_perf_ab.sh`.**
+  One command -- `bash benchmarks/run_perf_ab.sh v4.0.0` -- creates a read-only
+  git worktree of the base ref, benchmarks it and the current tree on the same
+  GPU with identical instrumentation, and prints a CHANGELOG-ready block. Fixed
+  work (`opttol=0`, `patience=1e9`) so both sides execute the same number of
+  full-width steps; 3x20-step warmup discarded; 7 reps reported as median with
+  IQR; rows whose IQR exceeds 10% of the median are flagged noisy and excluded
+  from the summary; sync counts come from a separate `set_sync_debug_mode` pass
+  because the instrumentation perturbs timing. It aborts if both runs import
+  Auto3D from the same tree, if the hardware differs, if there is no GPU, or if
+  converged counts or energies moved -- and the summary quotes a range across
+  batch sizes rather than a best case.
 
 - **`auto3d validate` accepts `--json`**, the one result-producing command
   that did not have it while `run`, `energy`, `optimize`, `thermo` and

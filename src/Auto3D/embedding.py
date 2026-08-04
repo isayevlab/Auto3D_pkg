@@ -1,5 +1,15 @@
-# src/Auto3D/isomers/parallel_embed.py
-"""Parallel conformer embedding using multiprocessing."""
+# src/Auto3D/embedding.py
+"""Parallel conformer embedding using multiprocessing.
+
+Lives at the top level rather than under ``Auto3D.isomers`` because
+``isomer_engine`` is its only caller and ``isomers`` is the package that
+*wraps* ``isomer_engine``: with this module inside ``isomers``, the two
+packages imported each other (``isomers.factory``/the adapters reached into
+``isomer_engine``, and ``isomer_engine._run_parallel_embedding`` reached back
+into ``isomers.parallel_embed``), a cycle that only stayed latent because
+every edge of it was a function-scope import. Moving this module out is what
+removes the cycle rather than deferring it.
+"""
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -9,9 +19,10 @@ from concurrent.futures.process import BrokenProcessPool
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.clash_relief import relieve_clash
 from Auto3D.constants import CONFORMER_RANDOM_SEED
-from Auto3D.utils.chemistry import calculate_conformer_count, relieve_clash
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.molprops import calculate_conformer_count
 
 logger = get_logger(__name__)
 

@@ -1,12 +1,50 @@
 """Factory classes and functions for creating isomer engines."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
-from Auto3D.isomers.base import BaseIsomerEngine, IsomerEngine, TautomerEngine
+from Auto3D.isomer_engine import (
+    RDKitIsomer,
+    RDKitSdfIsomer,
+    oe_isomer,
+)
+from Auto3D.isomer_engine import (
+    TautomerEngine as _RDKitOrOmegaTautomerEngine,
+)
+from Auto3D.isomers.base import IsomerEngine, TautomerEngine
 
-if TYPE_CHECKING:
-    pass
+#: Engine names :meth:`IsomerEngineFactory.create` accepts. ``rdkit`` is also
+#: reachable as ``rdkit_sdf`` via the ``input_format="sdf"`` auto-selection
+#: below.
+_ENGINE_TYPES = ("rdkit", "rdkit_sdf", "omega")
+
+
+class _DeferredIsomerEngine:
+    """The ``.run() -> str`` object :meth:`IsomerEngineFactory.create` returns.
+
+    Holds nothing but the zero-argument callable that builds the concrete
+    engine and runs it. Construction stays deferred to ``run()`` on purpose and
+    is not an implementation detail: ``RDKitIsomer.__init__`` creates its
+    ``rdk_tmp`` working directory, so building the engine at ``create()`` time
+    would move a filesystem side effect (and its ``FileExistsError``) earlier
+    than every caller was written for.
+
+    This one class replaces three adapter classes and an abstract base that
+    existed only to copy the same eight-to-thirteen keyword arguments twice --
+    once into an adapter's ``__init__``, once out of it into the real engine.
+    ``create`` below now maps them once, at the single site that knows what
+    each engine takes.
+    """
+
+    __slots__ = ("_build_and_run", "output_path")
+
+    def __init__(self, build_and_run: Callable[[], str], output_path: str) -> None:
+        self._build_and_run = build_and_run
+        self.output_path = output_path
+
+    def run(self) -> str:
+        """Build the concrete engine, run it, and return its output path."""
+        return self._build_and_run()
 
 
 class IsomerEngineFactory:
@@ -26,27 +64,6 @@ class IsomerEngineFactory:
         >>> output = engine.run()
     """
 
-    # Registry of available adapters
-    _adapters: dict[str, type[BaseIsomerEngine]] = {}
-
-    @classmethod
-    def _ensure_registered(cls) -> None:
-        """Lazily register adapters on first use."""
-        if cls._adapters:
-            return
-
-        from Auto3D.isomers.omega_adapter import OmegaIsomerAdapter
-        from Auto3D.isomers.rdkit_adapters import (
-            RDKitIsomerAdapter,
-            RDKitSdfIsomerAdapter,
-        )
-
-        cls._adapters = {
-            "rdkit": RDKitIsomerAdapter,
-            "rdkit_sdf": RDKitSdfIsomerAdapter,
-            "omega": OmegaIsomerAdapter,
-        }
-
     @classmethod
     def available_engines(cls) -> list[str]:
         """Return list of available engine types.
@@ -54,8 +71,7 @@ class IsomerEngineFactory:
         Returns:
             List of supported engine type names.
         """
-        cls._ensure_registered()
-        return list(cls._adapters.keys())
+        return list(_ENGINE_TYPES)
 
     @classmethod
     def create(
@@ -77,7 +93,7 @@ class IsomerEngineFactory:
         use_parallel_embedding: bool = False,
         parallel_embedding_threshold: int = 10,
         parallel_workers: int = 4,
-    ) -> BaseIsomerEngine:
+    ) -> IsomerEngine:
         """Create an isomer engine adapter.
 
         Args:
@@ -100,68 +116,77 @@ class IsomerEngineFactory:
             parallel_workers: Number of worker processes for parallel embedding.
 
         Returns:
-            Configured isomer engine adapter instance.
+            Configured isomer engine, whose ``run()`` builds and drives the
+            concrete engine and returns the output path.
 
         Raises:
             ValueError: If engine_type is not recognized.
         """
-        cls._ensure_registered()
         engine_type = engine_type.lower()
 
         # Auto-select rdkit_sdf for SDF input when rdkit is requested
         if engine_type == "rdkit" and input_format.lower() == "sdf":
             engine_type = "rdkit_sdf"
 
-        if engine_type not in cls._adapters:
-            available = ", ".join(f"'{e}'" for e in cls._adapters.keys())
+        if engine_type not in _ENGINE_TYPES:
+            available = ", ".join(f"'{e}'" for e in _ENGINE_TYPES)
             raise ValueError(
                 f"Unknown isomer engine type: '{engine_type}'. "
                 f"Supported types: {available}"
             )
 
-        adapter_class = cls._adapters[engine_type]
-
-        # Create adapter with appropriate parameters
+        # The one kwarg-mapping site. Each branch names exactly the arguments
+        # its engine takes, so an argument no engine reads cannot survive here
+        # unnoticed the way it could when three adapters each held a partial
+        # copy of the same signature.
         if engine_type == "rdkit":
-            return adapter_class(
-                input_path=input_path,
-                output_path=output_path,
-                smiles_enumerated=smiles_enumerated,
-                smiles_reduced=smiles_reduced,
-                smiles_hashed=smiles_hashed,
-                job_dir=job_dir,
-                max_confs=max_confs,
-                threshold=threshold,
-                n_jobs=n_jobs,
-                enumerate_isomers=enumerate_isomers,
-                use_parallel_embedding=use_parallel_embedding,
-                parallel_embedding_threshold=parallel_embedding_threshold,
-                parallel_workers=parallel_workers,
-            )
-        elif engine_type == "rdkit_sdf":
-            return adapter_class(
-                input_path=input_path,
-                output_path=output_path,
-                max_confs=max_confs,
-                threshold=threshold,
-                n_jobs=n_jobs,
-                enumerate_isomers=enumerate_isomers,
-            )
-        elif engine_type == "omega":
-            return adapter_class(
-                mode=mode,
-                input_path=input_path,
-                smiles_enumerated=smiles_enumerated,
-                smiles_reduced=smiles_reduced,
-                smiles_hashed=smiles_hashed,
-                output_path=output_path,
-                max_confs=max_confs,
-                threshold=threshold,
-                enumerate_isomers=enumerate_isomers,
-            )
+            def build_and_run() -> str:
+                return RDKitIsomer(
+                    smi=input_path,
+                    smiles_enumerated=smiles_enumerated,
+                    smiles_enumerated_reduced=smiles_reduced,
+                    smiles_hashed=smiles_hashed,
+                    enumerated_sdf=output_path,
+                    job_name=job_dir,
+                    max_confs=max_confs,
+                    threshold=threshold,
+                    np=n_jobs,
+                    flipper=enumerate_isomers,
+                    use_parallel_embedding=use_parallel_embedding,
+                    parallel_embedding_threshold=parallel_embedding_threshold,
+                    parallel_workers=parallel_workers,
+                ).run()
 
-        # Should not reach here, but for type safety
-        raise ValueError(f"Unknown engine type: {engine_type}")
+        elif engine_type == "rdkit_sdf":
+            def build_and_run() -> str:
+                return RDKitSdfIsomer(
+                    sdf=input_path,
+                    enumerated_sdf=output_path,
+                    max_confs=max_confs,
+                    threshold=threshold,
+                    np=n_jobs,
+                    flipper=enumerate_isomers,
+                ).run()
+
+        else:  # "omega" -- the only remaining possibility, checked above
+            def build_and_run() -> str:
+                # oe_isomer is a function returning 0, not an engine object, so
+                # this is the one branch that still has an adapting step: run it
+                # and report the path it wrote.
+                oe_isomer(
+                    mode=mode,
+                    input_f=input_path,
+                    smiles_enumerated=smiles_enumerated,
+                    smiles_reduced=smiles_reduced,
+                    smiles_hashed=smiles_hashed,
+                    output=output_path,
+                    max_confs=max_confs,
+                    threshold=threshold,
+                    flipper=enumerate_isomers,
+                )
+                return output_path
+
+        return _DeferredIsomerEngine(build_and_run, output_path)
 
 
 def create_isomer_engine(
@@ -270,9 +295,7 @@ def create_tautomer_engine(
     engine_type = engine_type.lower()
 
     if engine_type in ("rdkit", "oechem"):
-        from Auto3D.isomer_engine import TautomerEngine as TautEngine
-
-        return TautEngine(
+        return _RDKitOrOmegaTautomerEngine(
             mode=engine_type,
             input_f=input_path,
             out=output_path,

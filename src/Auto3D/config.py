@@ -332,7 +332,7 @@ class Auto3DOptions:
     """Maximum conformers per SMILES.
 
     ``None`` derives the count per molecule via
-    :func:`Auto3D.utils.chemistry.calculate_conformer_count`, which is
+    :func:`Auto3D.utils.molprops.calculate_conformer_count`, which is
     ``min(max(1, num_heavy, 2 * 8.481 * num_rotatable ** 1.642), 1000)``
     (https://doi.org/10.1021/acs.jctc.0c01213). The rotatable-bond term dominates
     for anything flexible: glycerol gets **238**, not 5. This docstring used to

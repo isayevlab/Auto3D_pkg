@@ -5,8 +5,6 @@ Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 from __future__ import annotations
 
 import os
-import stat
-import tempfile
 
 from rdkit import Chem
 
@@ -20,6 +18,7 @@ from Auto3D.constants import (
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
+from Auto3D.utils.atomic_io import atomic_write_path
 from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
@@ -29,44 +28,6 @@ from Auto3D.utils.validation import (
 )
 
 __all__ = ["opt_geometry"]
-
-
-def _stage_beside(target: str) -> str:
-    """Create an empty temp file in the same directory as ``target``.
-
-    Same directory, because ``os.replace`` raises ``OSError`` across
-    filesystems. The temp file inherits ``target``'s permission bits so the
-    replaced file keeps the mode it had -- ``tempfile.mkstemp`` creates 0600,
-    which would otherwise silently tighten the user's output file. Setting the
-    mode before anything is written also preserves a read-only (0444) target's
-    protection, which ``rename(2)`` would otherwise bypass.
-
-    The parent directory is resolved with ``realpath``, not ``abspath``:
-    ``abspath`` collapses ``..`` lexically, so a target like
-    ``/scratch/link/../out.sdf`` (where ``link`` points at another mount)
-    would stage the temp file in ``/scratch`` while the replace destination
-    really lives elsewhere -- and ``os.replace`` would fail with
-    ``EXDEV: Invalid cross-device link`` after a completed run. Only the
-    PARENT is resolved: ``os.replace`` acts on the final path component
-    itself, so following a symlinked ``target`` would pick the wrong
-    directory.
-    """
-    directory = os.path.realpath(os.path.dirname(os.path.abspath(target)))
-    fd, tmp_path = tempfile.mkstemp(suffix=".sdf", dir=directory)
-    os.close(fd)
-    try:
-        os.chmod(tmp_path, stat.S_IMODE(os.stat(target).st_mode))
-    except OSError:
-        # Best effort: a mode we cannot read is not a reason to abandon a
-        # completed optimization. Defensive rather than exercised -- the sole
-        # caller, `_annotate_and_rewrite`, only reaches here after
-        # `Chem.SDMolSupplier(target)` has already read the file, so `target`
-        # exists and is stat-able on every path that gets here today. An
-        # earlier version of this comment claimed the branch fires "in normal
-        # runs whenever `target` does not exist yet", which is not true of any
-        # current caller.
-        pass
-    return tmp_path
 
 
 def _annotate_and_rewrite(outpath: str) -> None:
@@ -89,9 +50,11 @@ def _annotate_and_rewrite(outpath: str) -> None:
     geometries to ``outpath``. Opening ``Chem.SDWriter(outpath)`` directly
     would truncate that file, so a failure partway through the rewrite would
     destroy a completed optimization run (C14). Stage into a sibling temp file
-    and ``os.replace`` it into position instead: ``os.replace`` is atomic on
-    POSIX and on Windows, so ``outpath`` is only ever the old complete file or
-    the new complete file, never a partial one.
+    and ``os.replace`` it into position instead -- which is what
+    :func:`Auto3D.utils.atomic_io.atomic_write_path` does, for this and the
+    other two in-place rewrites in Auto3D. ``os.replace`` is atomic on POSIX
+    and on Windows, so ``outpath`` is only ever the old complete file or the
+    new complete file, never a partial one.
 
     Staging does NOT by itself remove the Windows hazard from 74474ed, and an
     earlier version of this docstring wrongly claimed it did. ``reorder_sdf``
@@ -99,39 +62,29 @@ def _annotate_and_rewrite(outpath: str) -> None:
     was an open ``SDMolSupplier`` on the ``os.replace`` DESTINATION, which
     Windows refuses to overwrite (``PermissionError``/``WinError 5``) while a
     handle is held. This function reads ``outpath`` and then replaces it, so it
-    has the same exposure -- see the explicit release below.
+    has the same exposure -- see the explicit release below. Releasing the
+    handle stays the caller's duty; ``atomic_write_path`` cannot do it.
     """
     supp = Chem.SDMolSupplier(outpath, removeHs=False)
     mols = list(supp)
     # Release the handle on `outpath` BEFORE os.replace targets it, exactly as
-    # utils/file_ops.py:743 does for reorder_sdf. Writing this as the anonymous
+    # utils/sdf_io.py does for reorder_sdf. Writing this as the anonymous
     # `list(Chem.SDMolSupplier(...))` would also work today -- the temporary's
     # refcount drops at the end of the statement -- but only under CPython's
     # refcounting, and it leaves the requirement invisible to the next person
     # who refactors this into a named variable.
     del supp
-    tmp_path = _stage_beside(outpath)
-    try:
-        with Chem.SDWriter(tmp_path) as f:
-            for mol in mols:
-                # Skip records that failed to re-parse or lack E_tot rather
-                # than crashing, which would discard the entire (already
-                # completed) optimization run on a single bad record.
-                if mol is None or not mol.HasProp(E_TOT_PROP):
-                    continue
-                # Same number, stated in a name that carries its unit. No
-                # arithmetic: E_tot is already Hartree when it gets here.
-                mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
-                f.write(mol)
-        os.replace(tmp_path, outpath)
-    except BaseException:
-        # BaseException, not Exception: a KeyboardInterrupt mid-write must not
-        # leave a stray .sdf beside the user's output.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    with atomic_write_path(outpath, suffix=".sdf") as tmp_path, Chem.SDWriter(tmp_path) as f:
+        for mol in mols:
+            # Skip records that failed to re-parse or lack E_tot rather
+            # than crashing, which would discard the entire (already
+            # completed) optimization run on a single bad record.
+            if mol is None or not mol.HasProp(E_TOT_PROP):
+                continue
+            # Same number, stated in a name that carries its unit. No
+            # arithmetic: E_tot is already Hartree when it gets here.
+            mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
+            f.write(mol)
 
 
 def opt_geometry(

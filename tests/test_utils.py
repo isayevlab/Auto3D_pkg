@@ -3,9 +3,9 @@ import warnings
 from rdkit import Chem
 import Auto3D
 from Auto3D.config import Auto3DOptions
-from Auto3D.utils.chemistry import check_connectivity
+from Auto3D.utils.connectivity import check_connectivity
 from Auto3D.utils.validation import check_input
-from Auto3D.utils.file_ops import find_smiles_not_in_sdf
+from Auto3D.utils.reconciliation import find_smiles_not_in_sdf
 
 
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

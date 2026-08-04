@@ -106,7 +106,7 @@ Python API:
 torch.compile() Optimization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Enable PyTorch 2.0 compilation for ANI models (~1.25x speedup):
+Enable PyTorch 2.0 compilation for ANI models (off by default):
 
 .. code:: console
 
@@ -128,8 +128,18 @@ Python API:
    model = create_model("ANI2xt", device=device, compile_model=True)
 
 .. note::
-   ``torch.compile()`` works best with ANI2x/ANI2xt. AIMNET uses optimized
-   JIT compilation internally.
+   ``torch.compile()`` applies only to ANI2x/ANI2xt. AIMNET uses its own
+   compilation internally and ignores this setting.
+
+   No speedup figure is documented here because none has been measured on this
+   codebase. Earlier versions of these docs quoted "~1.25x"; that number had no
+   measurement behind it, and for ANI2xt it could not have come from the model
+   at all -- ``ANI2xt.forward`` used to contain a data-dependent branch
+   inside its per-element loop, which made Dynamo skip the entire frame and
+   compile **zero** subgraphs. That loop is now compilable (one subgraph), so a
+   gain is at least possible; whether there is one, and how large, is a GPU
+   measurement. Run ``benchmarks/run_perf_ab.sh`` to get a number for your
+   hardware -- it reports eager and compiled ANI2xt side by side.
 
 Batch Size Tuning
 ~~~~~~~~~~~~~~~~~

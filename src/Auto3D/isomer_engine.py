@@ -19,9 +19,10 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from tqdm import tqdm
 
+from Auto3D.clash_relief import relieve_clash
 from Auto3D.constants import CONFORMER_RANDOM_SEED, MAX_STEREOISOMERS
-from Auto3D.utils.chemistry import calculate_conformer_count, relieve_clash
-from Auto3D.utils.file_ops import (
+from Auto3D.utils.molprops import calculate_conformer_count
+from Auto3D.utils.smi_io import (
     combine_smi,
     hash_enumerated_smi_IDs,
     iter_smi_records,
@@ -399,7 +400,9 @@ class RDKitIsomer:
         self, smi_name_tuples: list[tuple[str, str]]
     ) -> None:
         """Run parallel conformer embedding using ProcessPoolExecutor."""
-        from Auto3D.isomers.parallel_embed import embed_conformers_parallel
+        # Function-scope on purpose: tests patch the attribute on
+        # ``Auto3D.embedding`` and rely on this lookup re-reading it.
+        from Auto3D.embedding import embed_conformers_parallel
 
         logger.info(f"Using parallel embedding with {self.parallel_workers} workers...")
 
@@ -428,7 +431,7 @@ class RDKitSdfIsomer:
     isomer, so this path's own output has one consistent shape to parse -- the
     same shape the SMILES path emits, with or without ``enumerate_isomers``.
     The isomer component is what
-    :func:`Auto3D.utils.file_ops.decode_ids` relies on to rebuild
+    :func:`Auto3D.id_mapping.decode_ids` relies on to rebuild
     ``<original>_<isomer>_<conformer>`` IDs after the pipeline's numeric-ID
     encoding step; :class:`~Auto3D.ranking.ConformerRanker` groups on the
     leading component only, so it is unaffected by the isomer index.
@@ -601,7 +604,7 @@ def oe_isomer(
     The OpenEye toolkit's application-options machinery writes ``oeomega_*``
     and ``flipper_*`` logfiles into the **process working directory**, which
     for an ordinary ``cd ~/project && auto3d run mols.smi`` is the user's own
-    directory. ``utils.file_ops.housekeeping`` used to sweep those names out
+    directory. ``job_layout.housekeeping`` used to sweep those names out
     of the cwd and into the run's ``verbose`` folder, which is tarred and then
     deleted -- so a user file named ``oeomega_settings.txt`` in the cwd was
     destroyed by an ordinary run. The fix is on this side rather than on the

@@ -7,13 +7,18 @@ from rdkit import Chem
 
 from Auto3D.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.exceptions import ConfigurationError, InputValidationError
-from Auto3D.filtering import filter_unique_optimized
-from Auto3D.utils.chemistry import check_connectivity, ev2kcalpermol, filter_unique
+from Auto3D.filtering import filter_unique, filter_unique_optimized
+from Auto3D.utils.connectivity import check_connectivity
 from Auto3D.utils.convergence import converged_or_unfiltered, has_convergence_flag
-from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
+from Auto3D.utils.energy import (
+    E_TOT_HARTREE_PROP,
+    E_TOT_PROP,
+    e_tot_ev,
+    ev2kcalpermol,
+)
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.stereo_check import stereo_preserved
-from Auto3D.utils.validation import check_output_not_input, check_output_overwrite
 
 logger = get_logger(__name__)
 
@@ -32,7 +37,7 @@ def species_id(name: str) -> str:
 
     Stripping on the FIRST underscore is wrong whenever ``species_id`` itself
     contains an underscore -- notably ``smiles2smi``'s InChIKey-collision
-    disambiguation (``utils/file_ops.py``), which renames a duplicate input's
+    disambiguation (``utils/smi_io.py``), which renames a duplicate input's
     id to ``f"{inchikey}_{count}"`` (e.g. ``KEY_2``) specifically so it is not
     dropped. Stripping the trailing two components with ``rsplit(..., 2)``
     instead recovers ``species_id`` intact (embedded underscores and all), so

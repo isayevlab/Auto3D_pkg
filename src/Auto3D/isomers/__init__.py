@@ -1,34 +1,24 @@
 """Isomer enumeration engines with Strategy Pattern.
 
-This module provides a unified interface for different isomer enumeration
+This package provides a unified interface for different isomer enumeration
 backends (RDKit, OpenEye Omega) through the Strategy Pattern.
+
+``IsomerEngineFactory`` is the one name re-exported here, because
+``docs/source/api.rst`` documents it at this package path
+(``Auto3D.isomers.IsomerEngineFactory``) and that path is the public one. Every
+other name in this package -- ``create_isomer_engine``,
+``create_tautomer_engine``, and the ``IsomerEngine``/``TautomerEngine``
+protocols -- is imported from the module that defines it
+(``Auto3D.isomers.factory``, ``Auto3D.isomers.base``), so that no name here has
+two supported spellings.
 
 Example:
     >>> from Auto3D.isomers import IsomerEngineFactory
     >>> engine = IsomerEngineFactory.create("rdkit", input_path="input.smi", ...)
     >>> engine.run()
-
-    # Or using the convenience function
-    >>> from Auto3D.isomers import create_isomer_engine
-    >>> engine = create_isomer_engine("rdkit", input_path="input.smi", ...)
 """
 from __future__ import annotations
 
-from Auto3D.isomers.base import BaseIsomerEngine, IsomerEngine, TautomerEngine
-from Auto3D.isomers.factory import (
-    IsomerEngineFactory,
-    create_isomer_engine,
-    create_tautomer_engine,
-)
+from Auto3D.isomers.factory import IsomerEngineFactory
 
-__all__ = [
-    # Protocols and base classes
-    "IsomerEngine",
-    "TautomerEngine",
-    "BaseIsomerEngine",
-    # Factory
-    "IsomerEngineFactory",
-    # Convenience functions
-    "create_isomer_engine",
-    "create_tautomer_engine",
-]
+__all__ = ["IsomerEngineFactory"]

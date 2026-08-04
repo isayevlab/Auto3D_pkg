@@ -12,7 +12,7 @@ passed" was therefore worth much less than it was repeatedly claimed to be.
 Why bounds and invariants, not expected numbers
 -----------------------------------------------
 These checks are derived from the code paths they guard -- ``ranking``,
-``batch_opt.batchopt``, ``ASE.geometry``, ``utils.file_ops`` and
+``batch_opt.batchopt``, ``ASE.geometry``, ``utils.sdf_io`` and
 ``utils.energy`` -- not from observed output. Pinning an NNP's numerics to
 several decimals would make the tier fail on a model-version bump or a
 different BLAS, and a slow tier that fails on correct code is one people learn
@@ -124,7 +124,7 @@ def formulas_from_smi_file(path: str | Path) -> dict[str, str]:
     """Map ``{molecule id: formula}`` for a whitespace-delimited .smi file.
 
     Deliberately a plain parse rather than a call to
-    ``Auto3D.utils.file_ops.iter_smi_records``: this is the *expectation* side
+    ``Auto3D.utils.smi_io.iter_smi_records``: this is the *expectation* side
     of the comparison, so reusing the production reader would let a bug in that
     reader cancel itself out.
 
@@ -170,7 +170,7 @@ def base_molecule_id(name: str) -> str:
     ``decode_ids`` restored the user-facing id, so the only decoration that can
     remain is a ``@tautN`` tautomer suffix. Stripped exactly the way the
     pipeline's own reconciliation does it (``find_smiles_not_in_sdf`` /
-    ``find_ids_not_in_sdf`` in ``utils/file_ops.py``) so that the accounting
+    ``find_ids_not_in_sdf`` in ``utils/reconciliation.py``) so that the accounting
     assertion compares like with like.
     """
     return name.split("@taut")[0].strip()

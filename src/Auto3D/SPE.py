@@ -8,10 +8,10 @@ from rdkit import Chem
 
 from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.batch_opt.padding import pad_from_mols
+from Auto3D.constants import EV_TO_HARTREE
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils.chemistry import hartree2ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
@@ -23,8 +23,6 @@ from Auto3D.utils.validation import (
 logger = get_logger(__name__)
 
 __all__ = ["calc_spe"]
-
-ev2hatree = 1/hartree2ev
 
 
 def calc_spe(
@@ -167,7 +165,7 @@ def calc_spe(
 
     with Chem.SDWriter(str(outpath)) as f:
         for i, mol in enumerate(mols):
-            mol.SetProp('E_hartree', str(es[i] * ev2hatree))
+            mol.SetProp('E_hartree', str(es[i] * EV_TO_HARTREE))
             f.write(mol)
     return str(outpath)
 

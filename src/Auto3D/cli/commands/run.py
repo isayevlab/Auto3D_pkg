@@ -21,7 +21,7 @@ from Auto3D.cli.results import (
     print_failures,
     print_results_summary,
 )
-from Auto3D.exceptions import Auto3DError, ConfigurationError
+from Auto3D.exceptions import ConfigurationError
 from Auto3D.utils.logging_config import configure_logging
 
 # A partial run (the process completed, but some input molecules produced no
@@ -303,10 +303,10 @@ def execute_run(
             _exit_if_incomplete(results)
 
         except KeyboardInterrupt:
-            # KeyboardInterrupt is a BaseException, so neither `except
-            # Auto3DError` nor `except Exception` below ever saw it: Ctrl-C
-            # printed nothing at all and left the user with no idea how far the
-            # run had got or whether anything reached disk.
+            # KeyboardInterrupt is a BaseException, so `except Exception`
+            # below never saw it: Ctrl-C printed nothing at all and left the
+            # user with no idea how far the run had got or whether anything
+            # reached disk.
             #
             # Note what this clause is NOT for: typer/core.py already converts
             # an escaping KeyboardInterrupt into click's Exit(130), so the exit
@@ -322,7 +322,11 @@ def execute_run(
                 batch=display.as_batch_counts() if display is not None else None,
                 elapsed_seconds=time.time() - start_time,
             )
-        except Auto3DError as e:
-            handle_error(e, verbose=verbose, json_output=json_output)
         except Exception as e:
+            # A single clause, not one for Auto3DError and an identical one
+            # for Exception: handle_error already branches on
+            # isinstance(error, Auto3DError) internally (cli/errors.py), so a
+            # separate `except Auto3DError as e: handle_error(...)` ahead of
+            # this called the exact same function with the exact same
+            # arguments -- dead structure, not a behavioral distinction.
             handle_error(e, verbose=verbose, json_output=json_output)

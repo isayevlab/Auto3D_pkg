@@ -2,7 +2,7 @@
 
 Before this, ``batch_opt.optimizing.run`` wrote ``E_tot`` in **eV** and
 ``ASE/geometry.opt_geometry`` rewrote the same tag in **Hartree**, while the
-in-package consumers (``ranking``, ``filtering``, ``utils.chemistry``) all
+in-package consumers (``ranking`` and both filters in ``filtering``) all
 hard-coded eV. The property name meant two different things depending on which
 entry point produced the file, and nothing in the file said which.
 

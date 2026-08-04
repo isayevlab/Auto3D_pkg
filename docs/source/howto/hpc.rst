@@ -234,7 +234,13 @@ For PyTorch 2.0+, enable compilation:
    export AUTO3D_COMPILE_MODEL=1
    auto3d run input.smi --k=1 --gpu --engine=ANI2x
 
-Provides ~1.25x speedup after warmup.
+Off by default, and no speedup figure is documented because none has been
+measured on this codebase. The "~1.25x" these docs used to quote was
+unsubstantiated, and for ANI2xt it could not have originated in the model:
+its per-element loop used to graph-break in a way that made Dynamo skip the
+whole frame, compiling zero subgraphs. To measure it on your own hardware, run
+``benchmarks/run_perf_ab.sh``, which times ANI2xt eager against ANI2xt
+compiled.
 
 Engine Selection for Speed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

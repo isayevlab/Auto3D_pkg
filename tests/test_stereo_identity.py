@@ -101,8 +101,8 @@ class TestSdfInputStereo:
 
         This writes a genuine flat (2D, no wedge bonds, no parity flags) SDF
         record for alanine to disk and feeds it through the production
-        ``rdkit_sdf`` engine -- the same ``RDKitSdfIsomerAdapter`` /
-        ``RDKitSdfIsomer.run()`` the pipeline dispatches to for SDF input --
+        ``rdkit_sdf`` engine -- the same ``RDKitSdfIsomer.run()`` the pipeline
+        dispatches to for SDF input --
         via ``Auto3D.isomers.factory.create_isomer_engine``. It then inspects
         the SDF file Auto3D actually writes, grouped by species name (the
         conformer-index suffix stripped). Either the two configurations must

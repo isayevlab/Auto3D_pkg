@@ -14,8 +14,9 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.constants import EV_TO_HARTREE
 from Auto3D.isomer_engine import RDKitIsomer, RDKitSdfIsomer, TautomerEngine
-from Auto3D.utils.chemistry import calculate_conformer_count
+from Auto3D.utils.molprops import calculate_conformer_count
 
 
 def _make_engine(tmp_path, smi_path, flipper=True, max_confs=None):
@@ -315,8 +316,8 @@ class TestSpeFiltersAndAligns:
         monkeypatch.undo()
         written = list(Chem.SDMolSupplier(out, removeHs=False))
         assert [m.GetProp("_Name") for m in written] == ["A", "B"]
-        assert float(written[0].GetProp("E_hartree")) == 10.0 * spe_mod.ev2hatree
-        assert float(written[1].GetProp("E_hartree")) == 20.0 * spe_mod.ev2hatree
+        assert float(written[0].GetProp("E_hartree")) == 10.0 * EV_TO_HARTREE
+        assert float(written[1].GetProp("E_hartree")) == 20.0 * EV_TO_HARTREE
 
     def test_calc_spe_all_filtered_does_not_crash(self, tmp_path, monkeypatch):
         """FIX B: an SDF whose only record is None must not raise the cryptic
