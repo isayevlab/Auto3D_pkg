@@ -35,15 +35,23 @@ class TestBatchRobustness:
     def test_malformed_record_does_not_abort_the_batch(self, job_dir):
         """A None record between two valid ones must be skipped, not crash.
 
-        The corrupt block must sit BETWEEN two valid records, not after the
-        last one: verified against this repo's RDKit (2025.09.6), a forward
-        ``SDMolSupplier`` iterator (what ``list(...)`` and ``calc_thermo``
-        itself use) only ever surfaces an explicit ``None`` for a corrupt
-        record when a further valid record follows it in the file. A corrupt
-        trailing record with nothing after it is silently dropped without
-        producing a ``None`` at all, so the code path under test (an
-        unguarded ``None.GetConformer()``) would never fire and the test
-        would pass today for the wrong reason.
+        Two properties of RDKit's ``SDMolSupplier`` shape this input, both
+        measured against this repo's version (2025.09.6) rather than assumed:
+
+        1. The corrupt block must sit BETWEEN two valid records, not after the
+           last one. A forward iterator (what ``list(...)`` and ``calc_thermo``
+           both use) only surfaces an explicit ``None`` for a corrupt record
+           when a further valid record follows it; a corrupt trailing record is
+           dropped silently, so the guarded path would never fire.
+
+        2. The corrupt block must be a **well-delimited record** -- header,
+           counts line, garbage where coordinates belong, ``M  END``, ``$$$$``.
+           Loose garbage does not work: on ``"this is not a molecule\\n$$$$\\n"``
+           the supplier logs "moving to the beginning of the next molecule" and
+           **consumes the following record while resynchronizing**, yielding
+           ``[ethanol, None]`` with propanol never handed over at all. The
+           assertion below would then be impossible to satisfy for a reason that
+           has nothing to do with the code under test.
         """
         from Auto3D.ASE.thermo import calc_thermo
 
@@ -52,11 +60,21 @@ class TestBatchRobustness:
         _write_mol(good1, smiles="CCO", name="ethanol")
         _write_mol(good2, smiles="CCCO", name="propanol")
 
-        # Sandwich a deliberately corrupt record between two valid ones.
-        combined = job_dir / "mixed.sdf"
-        combined.write_text(
-            good1.read_text() + "this is not a molecule\n$$$$\n" + good2.read_text()
+        # A corrupt record that ends cleanly at its own $$$$, so the supplier
+        # yields exactly [ethanol, None, propanol]. Verified: the counts line
+        # promises two atoms and the atom block does not deliver them.
+        corrupt = (
+            "corrupt\n"
+            "     RDKit          3D\n"
+            "\n"
+            "  2  1  0  0  0  0  0  0  0  0999 V2000\n"
+            "NOT_A_COORD_LINE\n"
+            "  1  2  1  0\n"
+            "M  END\n"
+            "$$$$\n"
         )
+        combined = job_dir / "mixed.sdf"
+        combined.write_text(good1.read_text() + corrupt + good2.read_text())
 
         out = calc_thermo(str(combined), "AIMNET", use_gpu=False)
 
