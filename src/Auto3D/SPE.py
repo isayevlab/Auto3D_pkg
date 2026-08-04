@@ -13,11 +13,10 @@ from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.validation import (
     check_engine_supports_molecules,
     check_gpu_requested,
-    check_output_not_input,
-    check_output_overwrite,
 )
 
 logger = get_logger(__name__)

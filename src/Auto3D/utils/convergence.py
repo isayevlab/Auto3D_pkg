@@ -4,8 +4,7 @@
 ``Converged`` is written by :mod:`Auto3D.batch_opt.batchopt` for every record
 it optimizes -- ``"True"`` or ``"False"`` -- and read by the three filters that
 decide which conformers survive (:class:`Auto3D.ranking.ConformerRanker`,
-:func:`Auto3D.filtering.filter_unique_optimized`,
-:func:`Auto3D.filtering.filter_unique`).
+:func:`Auto3D.filtering.filter_conformers`).
 
 All three used to read it as::
 

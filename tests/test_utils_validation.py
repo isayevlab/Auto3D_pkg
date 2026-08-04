@@ -6,7 +6,6 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.filtering import filter_unique
 from Auto3D.utils.connectivity import check_connectivity
 from Auto3D.utils.validation import (
     check_input,
@@ -148,113 +147,6 @@ class TestCheckConnectivity:
             if mol is not None:
                 # All molecules in example.sdf should have valid connectivity
                 assert check_connectivity(mol) is True
-
-
-class TestFilterUnique:
-    """Tests for filter_unique function."""
-
-    def test_filter_unique_removes_unconverged(self):
-        """Test that filter_unique removes unconverged structures."""
-        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
-        mols = [mol for mol in supp if mol is not None]
-
-        # Set all mols as unconverged
-        for mol in mols:
-            mol.SetProp("Converged", "False")
-
-        result = filter_unique(mols)
-        assert len(result) == 0
-
-    def test_filter_unique_keeps_converged(self):
-        """Test that filter_unique keeps converged structures."""
-        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
-        mols = [mol for mol in supp if mol is not None]
-
-        # Set all mols as converged
-        for mol in mols:
-            mol.SetProp("Converged", "True")
-
-        result = filter_unique(mols)
-        # Should keep at least one unique structure
-        assert len(result) >= 1
-
-    def test_filter_unique_removes_duplicates(self):
-        """Test that filter_unique removes similar structures."""
-        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
-        mols = [mol for mol in supp if mol is not None]
-
-        if len(mols) > 0:
-            # Duplicate the first molecule
-            mol = mols[0]
-            mol.SetProp("Converged", "True")
-            duplicate = Chem.RWMol(mol)
-            duplicate.SetProp("Converged", "True")
-
-            result = filter_unique([mol, duplicate], crit=0.3)
-            # Only one should remain
-            assert len(result) == 1
-
-    def test_filter_unique_keeps_records_with_no_converged_property(self):
-        """Absence of the property is not a failed optimization.
-
-        Only ``batchopt`` writes ``Converged``; an ``opt_geometry`` output, an
-        ORCA/Gaussian export or a hand-built conformer set carries none.
-        Treating that as "did not converge" deleted every record. The
-        consequence asserted here is that such a file filters exactly the same
-        as one whose records all say Converged=True.
-        """
-        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
-        flagged = [mol for mol in supp if mol is not None]
-        for mol in flagged:
-            mol.SetProp("Converged", "True")
-        expected = len(filter_unique(flagged))
-        assert expected >= 1, "test premise: the flagged file must keep something"
-
-        supp = Chem.SDMolSupplier(path_example_sdf, removeHs=False)
-        unflagged = [mol for mol in supp if mol is not None]
-        for mol in unflagged:
-            mol.ClearProp("Converged")
-            assert not mol.HasProp("Converged")
-
-        result = filter_unique(unflagged)
-        assert len(result) == expected, (
-            f"{len(unflagged)} record(s) with no 'Converged' property kept "
-            f"{len(result)}, but the same records marked Converged=True keep "
-            f"{expected}"
-        )
-
-    def test_filter_unique_custom_threshold(self):
-        """A tighter RMSD threshold must keep MORE structures than a looser
-        one -- not merely "at least as many", which passes even when the two
-        thresholds produce identical results (as the fixture in
-        ``path_example_sdf`` does: two molecules of different sizes, so
-        ``species_key`` alone already keeps both regardless of ``crit``).
-
-        Constructs two conformers of ONE molecule whose RMSD sits strictly
-        between the two thresholds, so equality cannot pass silently.
-        """
-        mol1 = Chem.AddHs(Chem.MolFromSmiles("CCCCCCCC"))  # octane: flexible
-        mol2 = Chem.Mol(mol1)
-        from rdkit.Chem import AllChem, rdMolAlign
-        AllChem.EmbedMolecule(mol1, randomSeed=1)
-        AllChem.EmbedMolecule(mol2, randomSeed=99)
-        AllChem.MMFFOptimizeMolecule(mol1)
-        AllChem.MMFFOptimizeMolecule(mol2)
-        mol1.SetProp("Converged", "True")
-        mol2.SetProp("Converged", "True")
-
-        rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(mol1), Chem.RemoveHs(mol2))
-        assert rmsd > 0.05, "test premise: conformers must be geometrically distinct"
-
-        crit_strict = rmsd / 2   # below the actual RMSD -> kept separate
-        crit_lenient = rmsd * 2  # above the actual RMSD -> merged
-
-        result_strict = filter_unique([mol1, mol2], crit=crit_strict)
-        result_lenient = filter_unique([mol1, mol2], crit=crit_lenient)
-
-        assert len(result_strict) == 2, "strict threshold must not merge distinct conformers"
-        assert len(result_lenient) == 1, "lenient threshold must merge near-identical conformers"
-        assert len(result_strict) > len(result_lenient)
 
 
 def _options(**overrides):

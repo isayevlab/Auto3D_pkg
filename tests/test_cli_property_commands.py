@@ -481,7 +481,7 @@ def test_tautomers_refuses_output_equal_to_input(smi):
 # `auto3d energy junk.sdf --no-gpu -o precious.sdf` used to exit 0, print
 # "Wrote precious.sdf", and leave precious.sdf at 0 bytes. `config init` has
 # had -f/--force since it shipped; these four commands did not. The guard
-# itself (`Auto3D.utils.validation.check_output_overwrite`) is exercised per
+# itself (`Auto3D.utils.output_guard.check_output_overwrite`) is exercised per
 # API function in tests/test_durability.py; what is pinned here is the CLI
 # half -- that each command actually *passes* its flag down, which is the part
 # a refactor drops silently.

@@ -395,6 +395,147 @@ class TestRaggedSmiAndChunkSizeClamp:
         assert 1 <= len(chunk_info) <= 4
 
 
+class TestSmiParserCrossAgreement:
+    """M59: chunk_manager's pandas-based `.smi` reader stays separate from
+    ``iter_smi_records`` for performance (avoiding a pure-Python per-line loop
+    over what can be a very large file), but the two must not silently drift
+    apart on the input they both exist to read: an already-ID-encoded
+    intermediate `.smi` file with no blank lines and no comments (chunk_manager
+    calls this "encode_ids semantics" in prepare_chunks' docstring). If either
+    parser's tokenizing/whitespace-splitting rule changes, this test should
+    catch the divergence.
+    """
+
+    def test_prepare_chunks_agrees_with_iter_smi_records_on_well_formed_input(
+        self, tmp_path
+    ):
+        """Both parsers must extract the same (smiles, id) pairs, in the same
+        order, from a well-formed encoded .smi file."""
+        from Auto3D.utils.smi_io import iter_smi_records
+
+        rows = [
+            ("CCO", "0"),
+            ("CCCO", "1"),
+            ("c1ccccc1", "2"),
+            ("C[C@H](O)F", "3"),
+            ("CCN", "4"),
+        ]
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("".join(f"{smi} {mol_id}\n" for smi, mol_id in rows))
+
+        # memory * capacity is chosen well above len(rows) so chunk_size never
+        # forces a split: exactly one chunk, holding every row in original
+        # order, so the chunk file's content is directly comparable to
+        # iter_smi_records' output order (round-robin distribution across
+        # multiple chunks would otherwise reorder rows relative to the input).
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        chunk_info = manager.prepare_chunks()
+        assert len(chunk_info) == 1, "test assumes no chunk splitting"
+
+        chunk_path, _ = chunk_info[0]
+        pandas_rows = [
+            tuple(line.split())
+            for line in Path(chunk_path).read_text().splitlines()
+            if line.strip()
+        ]
+        iter_rows = [
+            (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))
+        ]
+
+        assert pandas_rows == rows
+        assert iter_rows == rows
+        assert pandas_rows == iter_rows
+
+    def test_ragged_extra_column_agreement(self, tmp_path):
+        """A trailing whitespace-separated column beyond SMILES+ID must be
+        dropped identically by both readers (chunk_manager's usecols=[0, 1]
+        vs. iter_smi_records taking only parts[0]/parts[1])."""
+        from Auto3D.utils.smi_io import iter_smi_records
+
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO 0 inline_comment_column\nCCCO 1\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        chunk_info = manager.prepare_chunks()
+        assert len(chunk_info) == 1
+
+        chunk_path, _ = chunk_info[0]
+        pandas_rows = [
+            tuple(line.split())
+            for line in Path(chunk_path).read_text().splitlines()
+            if line.strip()
+        ]
+        iter_rows = [
+            (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))
+        ]
+
+        assert pandas_rows == iter_rows == [("CCO", "0"), ("CCCO", "1")]
+
+    def test_documented_divergence_comment_lines(self, tmp_path):
+        """Documents a real, deliberate divergence rather than papering over
+        it: iter_smi_records treats a '#'-prefixed line as a comment and
+        skips it (matching cli.commands.validate, per M25); chunk_manager's
+        pd.read_csv has no `comment=` parameter and reads it as a data row.
+
+        This is not a bug this task fixes (chunk_manager stays a separate,
+        faster reader by design) -- it is recorded here so that a future
+        change to either parser's comment handling is a deliberate,
+        visible decision rather than a silent behavior change caught only in
+        production. If this test starts failing because someone taught
+        pd.read_csv to skip '#' lines, that is progress: update the
+        assertion, don't just delete the test.
+        """
+        from Auto3D.utils.smi_io import iter_smi_records
+
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO 0\n# 1 2\nCCCO 3\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        chunk_info = manager.prepare_chunks()
+        chunk_path, _ = chunk_info[0]
+        pandas_rows = [
+            tuple(line.split())
+            for line in Path(chunk_path).read_text().splitlines()
+            if line.strip()
+        ]
+        iter_rows = [
+            (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))
+        ]
+
+        # pandas reads the '#' line as data; iter_smi_records skips it.
+        assert pandas_rows == [("CCO", "0"), ("#", "1"), ("CCCO", "3")]
+        assert iter_rows == [("CCO", "0"), ("CCCO", "3")]
+        assert pandas_rows != iter_rows
+
+
 class TestLogging:
     """Tests for ChunkManager logging."""
 

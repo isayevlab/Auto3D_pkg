@@ -288,7 +288,7 @@ def _flat(text: str) -> str:
 def test_overwrite_refusal_does_not_suggest_config_init(capsys, tmp_path):
     """Raised by the real guard, not hand-built: this pins the raise site's
     choice of hint together with handle_error's presentation of it."""
-    from Auto3D.utils.validation import check_output_overwrite
+    from Auto3D.utils.output_guard import check_output_overwrite
 
     existing = tmp_path / "precious.sdf"
     existing.write_text("x")

@@ -71,7 +71,7 @@ DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
 DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
 DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
-# DEFAULT_ENERGY_TOL / DEFAULT_ENERGY_PATIENCE were removed in 4.0.0 along with
+# DEFAULT_ENERGY_TOL / DEFAULT_ENERGY_PATIENCE were removed in 3.0.0 along with
 # the optimizer's energy-stability criterion, which could never fire (audit M1).
 # Tuning the tolerance -- for fp32 noise or anything else -- changed nothing.
 DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility

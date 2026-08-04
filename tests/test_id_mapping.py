@@ -133,6 +133,14 @@ class TestEncodeDecodeIds:
         `out_dir` below), but this check keeps the guarantee attached to the
         function itself, so a caller taking the default location cannot
         reintroduce the defect.
+
+        The refusal now comes from the shared
+        `Auto3D.utils.output_guard.check_output_overwrite` (hence the
+        "already exists" wording) rather than a bespoke message here, so
+        `encode_ids`, `decode_ids` and `tautomer.select_tautomers` state the
+        same policy the same way -- and `overwrite=True` can lift it, which the
+        unconditional refusal this replaced offered no way to do.
+        `tests/test_output_overwrite_gates.py` covers both directions.
         """
         from Auto3D.exceptions import ConfigurationError
 
@@ -141,7 +149,7 @@ class TestEncodeDecodeIds:
         users_file = tmp_path / "mols_encoded.smi"
         users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
 
-        with pytest.raises(ConfigurationError, match="would overwrite"):
+        with pytest.raises(ConfigurationError, match="already exists"):
             encode_ids(str(p))
 
         assert users_file.read_bytes() == b"IRREPLACEABLE USER DATA\n"

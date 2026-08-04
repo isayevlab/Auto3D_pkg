@@ -484,7 +484,7 @@ class OptimizationConfig:
     memory but may be faster."""
 
     # There is deliberately no energy_tol/energy_patience here. Both existed
-    # until 4.0.0 and reached an optimizer criterion that could never fire
+    # until 3.0.0 and reached an optimizer criterion that could never fire
     # (audit M1), so they were knobs that changed nothing. Removed rather than
     # kept as inert configuration.
 

@@ -82,7 +82,7 @@ def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
         The RMSD value in Angstroms. Returns ``float("inf")`` if alignment
         fails (e.g., due to atom mismatch). An incomparable pair is treated as
         "distinct" rather than "identical", which is the same convention used
-        by ``filter_unique``; a downstream ``rmsd < threshold`` check therefore
+        by the duplicate filter; a downstream ``rmsd < threshold`` check therefore
         keeps the structure instead of dropping it as a false duplicate.
 
     Example:
@@ -106,6 +106,6 @@ def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
         # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
         rmsd = rdMolAlign.GetBestRMS(mol1_proc, mol2_proc)
     except RuntimeError:
-        # Incomparable pair: treat as distinct (inf), matching filter_unique.
+        # Incomparable pair: treat as distinct (inf), as the filter requires.
         rmsd = float("inf")
     return float(rmsd)

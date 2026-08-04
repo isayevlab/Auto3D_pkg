@@ -47,10 +47,10 @@ def _write_mols_to_sdf(mols: list[Chem.Mol], filepath: str) -> None:
 
 
 class TestConformerRankerWithOptimizedFiltering:
-    """Tests for ConformerRanker with optimized filtering."""
+    """Tests for ConformerRanker's conformer filtering."""
 
-    def test_ranker_with_optimized_filtering_default(self, tmp_path):
-        """ConformerRanker should use optimized filtering by default."""
+    def test_ranker_deduplicates_identical_conformers(self, tmp_path):
+        """ConformerRanker dedups through the single conformer filter."""
         from Auto3D.ranking import ConformerRanker
 
         # Create test molecules - all with same SMILES root name.
@@ -72,82 +72,66 @@ class TestConformerRankerWithOptimizedFiltering:
             k=5,
         )
 
-        # Default should use optimized filtering
-        assert ranker.use_optimized_filtering is True
-
         results = ranker.run()
         # With close energies, all in same cluster, should deduplicate to 1
         assert len(results) == 1
 
-    def test_ranker_with_legacy_filtering_fallback(self, tmp_path):
-        """ConformerRanker should support legacy filtering when explicitly requested."""
+    def test_use_optimized_filtering_is_gone_not_silently_ignored(self, tmp_path):
+        """The flag that selected between two filter implementations is removed.
+
+        There were two conformer filters with the same duplicate criterion,
+        chosen by ``use_optimized_filtering``, and they had drifted on malformed
+        input. One filter now, and the flag must raise rather than be swallowed
+        by ``**kwargs`` -- a caller passing ``False`` deserves to learn the
+        legacy path is gone instead of silently getting the other one.
+        """
         from Auto3D.ranking import ConformerRanker
 
-        # Same structure and near-identical energy (within the duplicate energy
-        # tolerance) -> one unique structure.
-        mol1 = _create_mol_with_energy("C", -10.0, "mol_1")
-        mol2 = _create_mol_with_energy("C", -10.005, "mol_2")
-
         input_path = str(tmp_path / "input.sdf")
-        output_path = str(tmp_path / "output.sdf")
-        _write_mols_to_sdf([mol1, mol2], input_path)
+        _write_mols_to_sdf([_create_mol_with_energy("C", -10.0, "mol_1")], input_path)
 
-        ranker = ConformerRanker(
-            input_path=input_path,
-            out_path=output_path,
-            threshold=0.3,
-            k=5,
-            use_optimized_filtering=False,
-        )
+        with pytest.raises(TypeError, match="use_optimized_filtering"):
+            ConformerRanker(
+                input_path=input_path,
+                out_path=str(tmp_path / "output.sdf"),
+                threshold=0.3,
+                k=5,
+                use_optimized_filtering=False,
+            )
 
-        assert ranker.use_optimized_filtering is False
+    def test_a_single_cluster_gives_the_same_answer(self, tmp_path):
+        """A window wide enough to make one cluster must not change the result.
 
-        results = ranker.run()
-        # Same behavior, one unique structure
-        assert len(results) == 1
-
-    def test_ranker_optimized_vs_legacy_produce_same_results(self, tmp_path):
-        """Optimized and legacy filtering should produce equivalent results.
-
-        With a large energy_cluster_window, optimized should behave like legacy.
+        That equivalence is the entire justification for partitioning the energy
+        axis at all, and it used to be asserted by comparing against the legacy
+        all-pairs filter (deleted in 4.1.0). Asserted directly now.
         """
         from Auto3D.ranking import ConformerRanker
 
         # Identical molecules (same structure AND near-identical energy, within
         # the duplicate energy tolerance) - these should be deduplicated.
-        mol1 = _create_mol_with_energy("CCCC", -10.0, "a_1")
-        mol2 = _create_mol_with_energy("CCCC", -10.005, "a_2")  # same structure & energy
-        mol3 = _create_mol_with_energy("CCCC", -10.008, "a_3")  # same structure & energy
+        mols = [
+            _create_mol_with_energy("CCCC", -10.0, "a_1"),
+            _create_mol_with_energy("CCCC", -10.005, "a_2"),
+            _create_mol_with_energy("CCCC", -10.008, "a_3"),
+        ]
 
         input_path = str(tmp_path / "input.sdf")
-        output_optimized = str(tmp_path / "output_optimized.sdf")
-        output_legacy = str(tmp_path / "output_legacy.sdf")
-        _write_mols_to_sdf([mol1, mol2, mol3], input_path)
+        _write_mols_to_sdf(mols, input_path)
 
-        # Test with optimized filtering - use large energy window to match legacy behavior
-        ranker_optimized = ConformerRanker(
-            input_path=input_path,
-            out_path=output_optimized,
-            threshold=0.3,
-            k=5,
-            use_optimized_filtering=True,
-            energy_cluster_window=100.0,  # Large window = single cluster = legacy behavior
-        )
-        results_optimized = ranker_optimized.run()
+        counts = []
+        for name, window in (("default", None), ("single_cluster", 100.0)):
+            kwargs = {} if window is None else {"energy_cluster_window": window}
+            counts.append(len(ConformerRanker(
+                input_path=input_path,
+                out_path=str(tmp_path / f"output_{name}.sdf"),
+                threshold=0.3,
+                k=5,
+                **kwargs,
+            ).run()))
 
-        # Test with legacy filtering
-        ranker_legacy = ConformerRanker(
-            input_path=input_path,
-            out_path=output_legacy,
-            threshold=0.3,
-            k=5,
-            use_optimized_filtering=False,
-        )
-        results_legacy = ranker_legacy.run()
-
-        # Should have same number of results - all identical molecules deduplicated to 1
-        assert len(results_optimized) == len(results_legacy)
-        assert len(results_optimized) == 1  # All identical molecules should be deduplicated
+        assert counts[0] == counts[1]
+        assert counts[0] == 1  # all identical molecules deduplicate to one
 
     def test_energy_cluster_window_parameter(self, tmp_path):
         """Ranker should accept energy_cluster_window parameter for optimized filtering."""
@@ -198,7 +182,6 @@ class TestConformerRankerTopK:
             out_path=output_path,
             threshold=0.3,
             k=2,
-            use_optimized_filtering=True,
         )
 
         df = pd.DataFrame({
@@ -367,7 +350,6 @@ class TestConformerRankerTopWindow:
             out_path=output_path,
             threshold=0.3,
             window=1.0,  # 1 kcal/mol window
-            use_optimized_filtering=True,
         )
 
         df = pd.DataFrame({
@@ -789,3 +771,453 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
         ]
         assert {m.GetProp("_Name") for m in written} == {key, key_2}
         assert os.path.getsize(output) > 0
+
+
+class TestNothingSelectedSaysWhy:
+    """"No structure converged" used to be the message for every empty group.
+
+    ``ranking`` logged it whether the conformers were dropped for convergence,
+    for stereochemistry (an optimization that inverted a center, so the geometry
+    no longer matches the title) or for connectivity (a structure that fell
+    apart). Two of those three point at the input or the chemistry, and both
+    were reported as an optimizer convergence problem -- sending the reader to
+    ``--opt-steps`` and ``--convergence-threshold`` for something neither can
+    fix.
+    """
+
+    @staticmethod
+    def _group(mols: list[Chem.Mol], name: str = "probe"):
+        """A one-species ranking group, shaped the way ``run`` builds them."""
+        import pandas as pd
+
+        return pd.DataFrame({
+            "names": [name] * len(mols),
+            "energies": [e_tot_ev(m) for m in mols],
+            "mols": mols,
+        })
+
+    @staticmethod
+    def _ranker(tmp_path, **kwargs):
+        from Auto3D.ranking import ConformerRanker
+
+        return ConformerRanker(
+            input_path=str(tmp_path / "in.sdf"),
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _stereo_changed(energy: float, name: str) -> Chem.Mol:
+        from Auto3D.utils.stereo_check import STEREO_CHANGED_PROP
+
+        mol = _create_mol_with_energy("C/C=C/CCO", energy, name)
+        mol.SetProp(STEREO_CHANGED_PROP, "true")
+        return mol
+
+    @staticmethod
+    def _messages(caplog) -> list[str]:
+        return [r.getMessage() for r in caplog.records]
+
+    def test_a_stereo_dropped_species_is_not_called_unconverged(self, tmp_path, caplog):
+        import logging
+
+        mols = [self._stereo_changed(-10.0, "probe_0_0"),
+                self._stereo_changed(-9.0, "probe_0_1")]
+        ranker = self._ranker(tmp_path, k=5)
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+            assert ranker.top_k(self._group(mols), k=5) == []
+
+        messages = self._messages(caplog)
+        assert not any("No structure converged" in m for m in messages), (
+            f"conformers dropped for stereochemistry were reported as an "
+            f"optimizer convergence failure: {messages}"
+        )
+        assert any(
+            "probe" in m and "stereochemistry" in m for m in messages
+        ), f"the real reason was never named: {messages}"
+
+    def test_the_k1_fast_path_reports_the_same_reason(self, tmp_path, caplog):
+        """k=1 bypasses the RMSD dedup entirely; the diagnostic must not
+        depend on which k the user asked for."""
+        import logging
+
+        mols = [self._stereo_changed(-10.0, "probe_0_0")]
+        ranker = self._ranker(tmp_path, k=1)
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+            assert ranker.top_k(self._group(mols), k=1) == []
+
+        messages = self._messages(caplog)
+        assert not any("No structure converged" in m for m in messages), messages
+        assert any("stereochemistry" in m for m in messages), messages
+
+    def test_a_connectivity_dropped_species_names_connectivity(self, tmp_path, caplog):
+        import logging
+
+        from Auto3D.utils.connectivity import check_connectivity
+
+        def broken(energy: float, name: str) -> Chem.Mol:
+            mol = _create_mol_with_energy("CC", energy, name)
+            conf = mol.GetConformer()
+            pos = conf.GetAtomPosition(0)
+            conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
+            assert check_connectivity(mol) is False, "test premise"
+            return mol
+
+        mols = [broken(-10.0, "probe_0_0"), broken(-9.0, "probe_0_1")]
+        ranker = self._ranker(tmp_path, k=5)
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+            assert ranker.top_k(self._group(mols), k=5) == []
+
+        messages = self._messages(caplog)
+        assert not any("No structure converged" in m for m in messages), messages
+        assert any("broken or newly formed bonds" in m for m in messages), messages
+
+    def test_the_literal_survives_when_convergence_is_the_sole_reason(
+        self, tmp_path, caplog
+    ):
+        """The inverse, and the reason the assertions above are safe.
+
+        A change that simply stopped emitting "No structure converged" would
+        satisfy every test above while destroying the message users and their
+        log-scraping scripts have matched on since Auto3D 1.x. When convergence
+        IS the sole reason, the exact wording must still appear.
+        """
+        import logging
+
+        mols = [
+            _create_mol_with_energy("CCO", -10.0, "probe_0_0", converged=False),
+            _create_mol_with_energy("CCO", -9.0, "probe_0_1", converged=False),
+        ]
+        ranker = self._ranker(tmp_path, k=5)
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+            assert ranker.top_k(self._group(mols), k=5) == []
+
+        assert any(
+            m == "No structure converged for probe." for m in self._messages(caplog)
+        ), self._messages(caplog)
+
+    def test_the_literal_is_not_emitted_alongside_another_reason(
+        self, tmp_path, caplog
+    ):
+        """"Only when that is the sole reason": a mixed group must not claim
+        convergence."""
+        import logging
+
+        mols = [
+            _create_mol_with_energy("C/C=C/CCO", -10.0, "probe_0_0", converged=False),
+            self._stereo_changed(-9.0, "probe_0_1"),
+        ]
+        ranker = self._ranker(tmp_path, k=5)
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+            assert ranker.top_k(self._group(mols), k=5) == []
+
+        messages = self._messages(caplog)
+        assert not any("No structure converged" in m for m in messages), messages
+        # Both reasons are named, so the reader sees the whole accounting.
+        assert any(
+            "Converged=false" in m and "stereochemistry" in m for m in messages
+        ), messages
+
+    def test_a_successful_selection_logs_no_complaint(self, tmp_path, caplog):
+        """The other inverse: a group that DOES select must stay silent.
+
+        A message emitted unconditionally would pass the "names the reason"
+        tests above and spam every ordinary run.
+        """
+        import logging
+
+        mols = [_create_mol_with_energy("CCO", -10.0, "probe_0_0")]
+        ranker = self._ranker(tmp_path, k=5)
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+            assert len(ranker.top_k(self._group(mols), k=5)) == 1
+
+        messages = self._messages(caplog)
+        assert not any("No structure" in m for m in messages), messages
+
+    def test_top_window_merges_the_window_into_the_same_accounting(self, tmp_path):
+        """The energy window is the one drop reason ``top_window`` owns.
+
+        It goes into the same run-level tally as the filter's own counts, so
+        ``run``'s summary is one accounting of the whole selection rather than
+        two partial ones.
+        """
+        ranker = self._ranker(tmp_path, window=1.0)
+
+        # Two distinct compounds, 5 eV apart: far outside a 1 kcal/mol window.
+        mols = [
+            _create_mol_with_energy("CCO", -10.0, "probe_0_0"),
+            _create_mol_with_energy("CCCCCCO", -5.0, "probe_0_1"),
+        ]
+        kept = ranker.top_window(self._group(mols), window=1.0)
+
+        assert len(kept) == 1, "the second conformer is outside the window"
+        assert ranker._drop_totals == {"energy_window": 1}
+
+    def test_a_wide_window_records_no_window_drop(self, tmp_path):
+        """The inverse: a window nothing falls outside of must not report one."""
+        ranker = self._ranker(tmp_path, window=1000.0)
+        mols = [
+            _create_mol_with_energy("CCO", -10.0, "probe_0_0"),
+            _create_mol_with_energy("CCCCCCO", -5.0, "probe_0_1"),
+        ]
+        assert len(ranker.top_window(self._group(mols), window=1000.0)) == 2
+        assert ranker._drop_totals == {}
+
+    def test_the_run_level_warning_names_the_reasons_that_fired(
+        self, tmp_path, caplog
+    ):
+        """``run``'s "selected 0 structures" warning used to list every reason
+        it MIGHT have been.
+
+        The text was "N record(s) are marked Converged=false and the rest were
+        dropped by the connectivity, stereochemistry or energy-window filters"
+        -- a hand-maintained disjunction that left the reader to work out which
+        of the three actually happened, on the one message that reaches a direct
+        API caller's stderr. Here nothing is unconverged and everything is
+        stereo-changed, so naming convergence would be wrong.
+        """
+        import logging
+
+        from Auto3D.ranking import ConformerRanker
+
+        mols = [self._stereo_changed(-10.0, "probe_0_0"),
+                self._stereo_changed(-9.0, "probe_0_1")]
+        input_path = str(tmp_path / "in.sdf")
+        _write_mols_to_sdf(mols, input_path)
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=5,
+        )
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
+            assert ranker.run() == []
+
+        warnings = [
+            r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        assert any("Selected 0 structures from 2 record(s)" in m for m in warnings), (
+            warnings
+        )
+        assert any(
+            "changed stereochemistry during optimization" in m for m in warnings
+        ), warnings
+        assert not any("Converged=false" in m for m in warnings), (
+            f"nothing was unconverged, yet convergence was named: {warnings}"
+        )
+
+    def test_the_run_level_warning_still_names_convergence_when_it_applies(
+        self, tmp_path, caplog
+    ):
+        """The inverse: records dropped before grouping (for convergence, or
+        because RDKit could not parse them) are counted in the same tally."""
+        import logging
+
+        from Auto3D.ranking import ConformerRanker
+
+        mols = [
+            _create_mol_with_energy("CCO", -10.0, "probe_0_0", converged=False),
+            _create_mol_with_energy("CCO", -9.0, "probe_0_1", converged=False),
+        ]
+        input_path = str(tmp_path / "in.sdf")
+        _write_mols_to_sdf(mols, input_path)
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=5,
+        )
+        with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
+            assert ranker.run() == []
+
+        warnings = [
+            r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        assert any("2 marked Converged=false" in m for m in warnings), warnings
+
+    def test_the_tally_is_reset_between_runs(self, tmp_path):
+        """A ranker reused for a second file must not report the first's drops."""
+        from Auto3D.ranking import ConformerRanker
+
+        # Stereo-changed records pass run()'s own convergence check and are
+        # dropped by the FILTER, so they land in the tally -- unlike an
+        # unconverged record, which run() drops before grouping and counts
+        # separately. Getting that wrong makes this test vacuous.
+        dirty = str(tmp_path / "dirty.sdf")
+        _write_mols_to_sdf(
+            [self._stereo_changed(-10.0, "a_0_0"),
+             self._stereo_changed(-9.0, "a_0_1")],
+            dirty,
+        )
+        clean = str(tmp_path / "clean.sdf")
+        _write_mols_to_sdf([_create_mol_with_energy("CCO", -10.0, "b_0_0")], clean)
+
+        ranker = ConformerRanker(
+            input_path=dirty, out_path=str(tmp_path / "out.sdf"), threshold=0.3, k=5,
+        )
+        assert ranker.run() == []
+        assert ranker._drop_totals == {"stereochemistry": 2}, "test premise"
+
+        ranker.input_path = clean
+        assert len(ranker.run()) == 1
+        assert ranker._drop_totals == {}, (
+            "the second run reported the first run's drops"
+        )
+
+
+class TestSelectorDispatchRegistry:
+    """``run`` dispatches through a registry checked against ``config.py``.
+
+    It used to be a hand-written ``if self.k: ... elif self.window: ...``. A
+    third selector added to ``Auto3D.config.SELECTOR_FIELDS`` would then be
+    accepted by ``Auto3DOptions``, accepted by ``CLIConfig``, accepted by
+    ``check_selectors_mutually_exclusive`` -- and silently ignored here, falling
+    through to "Parameter k or window needs to be specified" even though the
+    user had specified one.
+    """
+
+    def test_the_registry_matches_the_authoritative_field_list(self):
+        from Auto3D.config import SELECTOR_FIELDS
+        from Auto3D.ranking import _SELECTORS
+
+        assert set(_SELECTORS) == set(SELECTOR_FIELDS)
+
+    def test_every_mapped_method_exists(self):
+        from Auto3D.ranking import _SELECTORS, ConformerRanker
+
+        for field, method in _SELECTORS.items():
+            assert callable(getattr(ConformerRanker, method, None)), field
+
+    def test_a_selector_in_config_with_nothing_wired_to_it_is_refused(self):
+        """The point of the check: adding a field to config without wiring a
+        method here must be impossible to miss.
+
+        This is the exact call ``Auto3D.ranking`` makes at import, with the
+        field list a developer would have just extended.
+        """
+        from Auto3D.ranking import (
+            _SELECTORS,
+            ConformerRanker,
+            _verify_selector_registry,
+        )
+
+        with pytest.raises(ImportError, match="out of step with"):
+            _verify_selector_registry(
+                _SELECTORS, ("k", "window", "percentile"), ConformerRanker
+            )
+
+    def test_a_registry_entry_this_module_does_not_implement_is_refused(self):
+        """A typo in a method name passes the set comparison, then raises
+        AttributeError from inside ``run`` -- after the whole input has been
+        read and grouped."""
+        from Auto3D.ranking import ConformerRanker, _verify_selector_registry
+
+        with pytest.raises(ImportError, match="not a method of ConformerRanker"):
+            _verify_selector_registry(
+                {"k": "top_k", "window": "top_windwo"},
+                ("k", "window"),
+                ConformerRanker,
+            )
+
+    def test_the_real_registry_passes_its_own_check(self):
+        """The inverse: a check that refused everything would satisfy both
+        tests above and make ``import Auto3D.ranking`` impossible -- so assert
+        the shipped configuration is accepted."""
+        from Auto3D.config import SELECTOR_FIELDS
+        from Auto3D.ranking import (
+            _SELECTORS,
+            ConformerRanker,
+            _verify_selector_registry,
+        )
+
+        _verify_selector_registry(_SELECTORS, SELECTOR_FIELDS, ConformerRanker)
+
+    def test_a_third_selector_is_dispatched_not_ignored(self, tmp_path, monkeypatch):
+        """The defect the registry exists to prevent, exercised end to end.
+
+        With the old hand-written ``if self.k: ... elif self.window: ...``, a
+        selector added to ``SELECTOR_FIELDS`` and wired here was still ignored:
+        ``run`` consulted only the two names baked into the chain, so a user who
+        specified the new selector got "Parameter k or window needs to be
+        specified" for a parameter they had specified. Reverting ``run`` to that
+        chain must fail this test.
+        """
+        import Auto3D.ranking as ranking
+        from Auto3D.ranking import ConformerRanker
+
+        calls = []
+
+        def top_percentile(self, df_group, percentile):
+            calls.append(percentile)
+            selected = list(df_group["mols"])[:1]
+            for mol in selected:
+                # Every real selector sets this; run() converts it on the way out.
+                mol.SetProp("E_rel(eV)", "0.0")
+            return selected
+
+        monkeypatch.setattr(
+            ranking, "SELECTOR_FIELDS", ("k", "window", "percentile"), raising=True
+        )
+        monkeypatch.setattr(
+            ranking,
+            "_SELECTORS",
+            {"k": "top_k", "window": "top_window", "percentile": "top_percentile"},
+        )
+        monkeypatch.setattr(
+            ConformerRanker, "top_percentile", top_percentile, raising=False
+        )
+
+        mols = [_create_mol_with_energy("CCO", -10.0, "probe_0_0")]
+        input_path = str(tmp_path / "in.sdf")
+        _write_mols_to_sdf(mols, input_path)
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+        )
+        ranker.percentile = 90.0
+
+        results = ranker.run()
+
+        assert calls == [90.0], (
+            "the third selector was never dispatched to; run() consulted a "
+            "hard-coded list of selector names instead of the registry"
+        )
+        assert len(results) == 1
+
+    def test_k_routes_to_top_k_and_window_to_top_window(self, tmp_path):
+        """The registry must actually be what dispatch consults."""
+        from Auto3D.ranking import ConformerRanker
+
+        mols = [_create_mol_with_energy("CCO", -10.0, "probe_0_0")]
+        input_path = str(tmp_path / "in.sdf")
+        _write_mols_to_sdf(mols, input_path)
+
+        for field, expected, value in (("k", "top_k", 1), ("window", "top_window", 5.0)):
+            called = []
+            ranker = ConformerRanker(
+                input_path=input_path,
+                out_path=str(tmp_path / f"out_{field}.sdf"),
+                threshold=0.3,
+                **{field: value},
+            )
+            for method in ("top_k", "top_window"):
+                original = getattr(ranker, method)
+
+                def spy(*args, _m=method, _o=original, _log=called, **kwargs):
+                    _log.append(_m)
+                    return _o(*args, **kwargs)
+
+                setattr(ranker, method, spy)
+            ranker.run()
+            assert called == [expected], f"{field} dispatched to {called}"

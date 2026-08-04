@@ -1,12 +1,20 @@
 #!/usr/bin/env python
-"""Tests for optimized RMSD filtering with energy clustering."""
+"""Tests for the single conformer filter (RMSD dedup with energy clustering)."""
 from __future__ import annotations
+
+import os
 
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.filtering import filter_unique_optimized, _filter_within_cluster
+from Auto3D.filtering import (
+    DROP_REASONS,
+    FilterResult,
+    _filter_within_cluster,
+    filter_conformers,
+    filter_unique_optimized,
+)
 from Auto3D.utils.energy import set_e_tot_from_ev
 
 
@@ -331,38 +339,43 @@ class TestFilterUniqueOptimized:
         assert len(result) == 2
 
 
+def _energyless(smiles: str, seed: int = 42, name: str = "") -> Chem.Mol:
+    """An embedded, converged conformer carrying NO 'E_tot' property.
+
+    This is what an SDF Auto3D's optimizer did not write can look like: a
+    hand-built conformer set, or an export that names its energy field
+    something else. ``ConformerRanker`` refuses such a record up front
+    (``InputValidationError``), so this shape only reaches the filter through
+    a direct API call -- which is exactly the caller the two filters used to
+    disagree for.
+    """
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    AllChem.EmbedMolecule(mol, randomSeed=seed)
+    AllChem.MMFFOptimizeMolecule(mol)
+    mol.SetProp("Converged", "true")
+    if name:
+        mol.SetProp("_Name", name)
+    assert not mol.HasProp("E_tot"), "helper premise: no energy property"
+    return mol
+
+
 class TestMissingEnergyPropertyMustNotCrash:
-    """filter_unique_optimized must tolerate a record with no 'E_tot', the
-    way the legacy ``filtering.filter_unique`` already does.
+    """The one conformer filter must tolerate a record with no 'E_tot'.
 
-    KNOWN DEFECT (found during cluster E brainstorming, not fixed by this
-    lane): ``filtering.py:75`` sorts the valid-mols list by
-    ``Auto3D.utils.energy.e_tot_ev``, which RAISES (KeyError/ValueError) for
-    a molecule with no usable 'E_tot' property. ``_filter_within_cluster``'s
-    own energy guard, two dozen lines later in the same module, instead uses
-    the tolerant ``try_e_tot_ev`` and treats a missing energy as "fall back
-    to RMSD only". ``filtering.filter_unique`` (the OTHER conformer
-    filter, sharing the same duplicate criterion since 4.0.1) also uses
-    ``try_e_tot_ev`` throughout and does not crash on this input. So the two
-    filters diverge on malformed input: the same list of mols that
-    ``filter_unique`` happily filters crashes ``filter_unique_optimized``.
+    ``filtering.py`` used to sort the valid-mols list by
+    ``Auto3D.utils.energy.e_tot_ev``, which RAISES (KeyError/ValueError) for a
+    molecule with no usable 'E_tot'. ``_filter_within_cluster``'s own energy
+    guard, two dozen lines later in the same module, instead used the tolerant
+    ``try_e_tot_ev`` and treated a missing energy as "fall back to RMSD only",
+    as did the legacy all-pairs ``filter_unique`` throughout. So the same list
+    of mols one filter happily filtered crashed the other -- and the survivor
+    of the two was the crashing one.
 
-    This matters here specifically because cluster B5 is about to delete one
-    of the two filters, and the survivor is the stricter (crashing) one --
-    fixing filtering.py's sort key to use ``try_e_tot_ev``, matching its own
-    energy guard and the legacy filter, is what should make this pass.
+    Tolerating the record must not mean *inventing* an energy for it: a
+    missing 'E_tot' read as 0.0 would sort a garbage record to the front of a
+    list of negative energies and hand it to ``top_k`` as the global minimum.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "filtering.py:75 sorts by e_tot_ev (raises KeyError for a mol "
-            "with no 'E_tot' property) instead of the tolerant try_e_tot_ev "
-            "that _filter_within_cluster's own energy guard and the legacy "
-            "filtering.filter_unique both use -- the two conformer "
-            "filters disagree on malformed input (cluster E brainstorm defect)."
-        ),
-    )
     def test_missing_e_tot_property_does_not_crash(self):
         mol_no_energy = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol_no_energy, randomSeed=42)
@@ -380,20 +393,116 @@ class TestMissingEnergyPropertyMustNotCrash:
         # cannot be deduped by energy -- it must survive alongside the other.
         assert len(result) == 2
 
+    def test_a_garbled_e_tot_is_tolerated_the_same_way(self):
+        """``try_e_tot_ev`` swallows ValueError too, so a non-numeric property
+        must take the same path as an absent one rather than crash."""
+        mol_garbled = _energyless("CCO", seed=42)
+        mol_garbled.SetProp("E_tot", "not-a-number")
 
-class TestFilterUniqueBehavior:
-    """Tests verifying behavior matches original filter_unique."""
+        mol_with_energy = _create_mol_with_energy("CC", -10.0)
 
-    def test_matches_original_for_simple_case(self):
-        """Should produce same results as original filter_unique for basic cases.
+        result = filter_unique_optimized(
+            [mol_garbled, mol_with_energy], rmsd_threshold=0.3
+        )
+        assert len(result) == 2
 
-        Both filters operate on conformers of the *same* molecule (that is the
-        real Auto3D contract). Use genuinely distinct conformers of one molecule
-        so RMSD is well-defined and comparable across both implementations.
+    def test_an_energyless_record_sorts_last_whatever_the_real_energies_are(self):
+        """A tolerated missing energy must not be *compared* as an energy.
+
+        The tolerant path needs some placeholder to sort on; the danger is that
+        the placeholder takes part in the comparison. A record with no ``E_tot``
+        that sorts as if its energy were 0.0 lands ahead of every genuine
+        structure whose energy is above 0.0 -- and the first element of the
+        filter's output is what ``top_k``/``top_window`` treat as the global
+        minimum: the reference ``E_rel`` is measured from, and the single
+        structure a ``k=1`` request returns.
+
+        ``E_tot`` is a user-supplied SD property, so "every real energy is a
+        large negative number" is a convention, not a guarantee -- hence the
+        deliberately positive energy below. The record with no energy must sort
+        last regardless of where the real energies fall relative to the
+        placeholder.
         """
-        from Auto3D.filtering import filter_unique
+        low = _create_mol_with_energy("CCO", -100.0)
+        high = _create_mol_with_energy("CCCO", -50.0)
+        positive = _create_mol_with_energy("CCCCCCO", +25.0)
+        unknown = _energyless("CCCCO", seed=7)
 
-        def conformer(seed: float, energy_ev: float) -> Chem.Mol:
+        result = filter_unique_optimized(
+            [unknown, positive, high, low], rmsd_threshold=0.3
+        )
+
+        assert len(result) == 4
+        assert [Chem.MolToSmiles(Chem.RemoveHs(m)) for m in result] == [
+            Chem.MolToSmiles(Chem.RemoveHs(low)),
+            Chem.MolToSmiles(Chem.RemoveHs(high)),
+            Chem.MolToSmiles(Chem.RemoveHs(positive)),
+            Chem.MolToSmiles(Chem.RemoveHs(unknown)),
+        ], "the record with no energy must sort after every record that has one"
+
+    def test_two_energyless_duplicates_still_collapse(self):
+        """The inverse assertion, and the reason the two above are safe.
+
+        A filter that declared every energy-less record distinct would pass
+        both tests above while silently switching duplicate removal off for
+        this whole class of input. Two identical geometries with no energy at
+        all must still collapse to one: the energy guard cannot apply, so RMSD
+        alone decides -- which is precisely what the legacy all-pairs filter
+        did.
+        """
+        first = _energyless("CCO", seed=42)
+        second = _energyless("CCO", seed=42)
+
+        result = filter_unique_optimized([first, second], rmsd_threshold=0.3)
+
+        assert len(result) == 1, (
+            "two bit-identical energy-less conformers both survived, so "
+            "tolerating a missing energy has disabled dedup for this input "
+            "rather than falling back to RMSD only"
+        )
+
+    def test_an_energyless_record_is_compared_against_one_that_has_energy(self):
+        """Energy-less records are compared against EVERYTHING, not just each
+        other.
+
+        No energy gap can prove a pair is not a duplicate when one side has no
+        energy, so the partitioning that makes the filter sub-quadratic has no
+        licence to separate such a record from anything. The legacy all-pairs
+        filter compared it to every survivor; so must this one.
+        """
+        with_energy = _create_mol_with_energy("CCO", -100.0)
+        without = _energyless("CCO", seed=42)
+        # Same compound, same embedding seed and force field -> RMSD ~= 0.
+        assert Chem.MolToSmiles(Chem.RemoveHs(with_energy)) == Chem.MolToSmiles(
+            Chem.RemoveHs(without)
+        ), "test premise: same compound"
+
+        result = filter_unique_optimized(
+            [with_energy, without], rmsd_threshold=0.3, energy_cluster_window=0.01
+        )
+
+        assert len(result) == 1, (
+            "a record with no energy escaped comparison against a duplicate "
+            "that has one, because the energy partitioning separated them"
+        )
+
+
+class TestTheSurvivingFilterKeepsTheLegacyVerdicts:
+    """Values recorded from the legacy all-pairs ``filter_unique`` before it was
+    deleted (cluster B5 phase 4a).
+
+    Auto3D carried two conformer filters with the same duplicate criterion, each
+    acting as the other's oracle, until 4.1.0. These cases were run against BOTH
+    and are asserted here as literals so the surviving filter's verdicts stay
+    pinned now that there is nothing left to compare against.
+    """
+
+    def test_distinct_conformers_of_one_molecule_all_survive(self):
+        """Three genuinely different conformers of a flexible chain: 3 kept.
+
+        Both filters returned 3 for this input.
+        """
+        def conformer(seed: int, energy_ev: float) -> Chem.Mol:
             m = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))  # flexible chain
             AllChem.EmbedMolecule(m, randomSeed=seed)
             AllChem.MMFFOptimizeMolecule(m)
@@ -403,15 +512,121 @@ class TestFilterUniqueBehavior:
 
         mols = [conformer(42, -12.0), conformer(7, -11.0), conformer(123, -10.0)]
 
-        original_result = filter_unique(mols, crit=0.3)
-        optimized_result = filter_unique_optimized(
-            mols,
-            rmsd_threshold=0.3,
-            energy_cluster_window=100.0  # Large window = single cluster = same behavior
+        assert len(filter_unique_optimized(mols, rmsd_threshold=0.3)) == 3
+        # A single cluster (huge window) must give the same answer -- that
+        # equivalence is the whole justification for the energy partitioning.
+        assert len(
+            filter_unique_optimized(
+                mols, rmsd_threshold=0.3, energy_cluster_window=100.0
+            )
+        ) == 3
+
+    def test_a_malformed_mixed_list_keeps_the_recorded_three(self):
+        """The input the two filters used to DISAGREE about.
+
+        An energy-bearing conformer, an energy-less duplicate of it, an
+        energy-less record of a different compound, and a distinct third
+        compound. The legacy filter kept three of the four -- merging the
+        energy-less ethanol into the one that has an energy -- and so must this
+        one.
+        """
+        a = _create_mol_with_energy("CCO", -100.0)
+        a.SetProp("_Name", "ethanol_with_energy")
+        b = _energyless("CCO", seed=42, name="ethanol_no_energy")
+        c = _energyless("CCCCO", seed=11, name="butanol_no_energy")
+        d = _create_mol_with_energy("CCCCCCO", -80.0)
+        d.SetProp("_Name", "heptanol_with_energy")
+
+        kept = filter_unique_optimized([a, b, c, d], rmsd_threshold=0.3)
+
+        assert {m.GetProp("_Name") for m in kept} == {
+            "ethanol_with_energy",
+            "butanol_no_energy",
+            "heptanol_with_energy",
+        }
+
+    def test_an_rmsd_threshold_sweep_straddling_a_measured_pair(self):
+        """A threshold below the pair's actual RMSD keeps both; above, merges.
+
+        Recorded from both filters. Sweeping across the *measured* RMSD -- not
+        a fixed number -- is what makes this fail for a filter that ignores
+        ``rmsd_threshold`` altogether, which an equal-length comparison at a
+        single threshold would not.
+        """
+        from rdkit.Chem import rdMolAlign
+
+        first = _create_mol_with_energy("CCCCCCCC", -100.0)   # octane
+        second = Chem.Mol(first)
+        AllChem.EmbedMolecule(second, randomSeed=99)
+        AllChem.MMFFOptimizeMolecule(second)
+        set_e_tot_from_ev(second, -100.0)  # energies agree -> RMSD decides
+        second.SetProp("Converged", "true")
+
+        rmsd = rdMolAlign.GetBestRMS(Chem.RemoveHs(first), Chem.RemoveHs(second))
+        assert rmsd > 0.05, "test premise: the conformers must be distinct"
+
+        for crit, expected in ((rmsd / 2, 2), (rmsd * 2, 1)):
+            kept = filter_unique_optimized([first, second], rmsd_threshold=crit)
+            assert len(kept) == expected, f"at rmsd_threshold={crit}"
+
+    def test_two_energyless_conformers_dedup_by_rmsd_alone(self):
+        """Ported from the legacy filter's own suite.
+
+        Neither record carries ``E_tot``, so the energy half of the duplicate
+        criterion cannot apply and RMSD alone decides. The legacy filter kept
+        one; so must this one.
+        """
+        mol = _energyless("CCO", seed=42)
+        duplicate = Chem.Mol(mol)
+        duplicate.SetProp("Converged", "true")
+
+        assert len(filter_unique_optimized([mol, duplicate], rmsd_threshold=0.3)) == 1
+
+
+class TestConvergencePropertyAbsenceFiltersLikeTrue:
+    """A whole SDF that carries no 'Converged' property must filter exactly as
+    the same records marked Converged=True do.
+
+    Ported from the legacy filter's suite (it lived beside the validation tests
+    because ``filter_unique`` used to live in ``utils/validation.py``). Only
+    ``batchopt`` writes ``Converged``; an ``opt_geometry`` output, an
+    ORCA/Gaussian export or a hand-built conformer set carries none, and
+    treating that as "did not converge" deleted every record.
+    """
+
+    _SDF = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "files", "example.sdf"
+    )
+
+    def _mols(self) -> list[Chem.Mol]:
+        supp = Chem.SDMolSupplier(self._SDF, removeHs=False)
+        return [mol for mol in supp if mol is not None]
+
+    def test_an_unflagged_file_keeps_what_a_flagged_one_keeps(self):
+        flagged = self._mols()
+        for mol in flagged:
+            mol.SetProp("Converged", "True")
+        expected = len(filter_unique_optimized(flagged, rmsd_threshold=0.3))
+        assert expected >= 1, "test premise: the flagged file must keep something"
+
+        unflagged = self._mols()
+        for mol in unflagged:
+            mol.ClearProp("Converged")
+            assert not mol.HasProp("Converged")
+
+        result = filter_unique_optimized(unflagged, rmsd_threshold=0.3)
+        assert len(result) == expected, (
+            f"{len(unflagged)} record(s) with no 'Converged' property kept "
+            f"{len(result)}, but the same records marked Converged=True keep "
+            f"{expected}"
         )
 
-        # Same molecule, well-defined RMSD: both implementations must agree.
-        assert len(original_result) == len(optimized_result)
+    def test_an_explicit_false_still_empties_the_selection(self):
+        """The inverse: absence is not failure, but a stated failure is."""
+        mols = self._mols()
+        for mol in mols:
+            mol.SetProp("Converged", "False")
+        assert filter_unique_optimized(mols, rmsd_threshold=0.3) == []
 
 
 def test_filter_within_cluster_removehs_is_linear_and_nondestructive(monkeypatch):
@@ -482,3 +697,101 @@ def test_rmsd_failure_keeps_both(monkeypatch):
     cluster = [make("a", -1.0), make("b", -0.9)]
     kept = _filter_within_cluster(cluster, rmsd_threshold=0.3)
     assert len(kept) == 2  # incomparable pair must NOT be dropped
+
+
+class TestTheFilterSaysWhyItDroppedThings:
+    """``filter_conformers`` reports a count per reason, not just a survivor list.
+
+    Returning a bare list is what let ``ranking`` tell a user "No structure
+    converged" for a species whose conformers were every one of them dropped
+    for *stereochemistry* -- a message that points at ``--opt-steps`` and
+    ``--convergence-threshold`` for a problem neither can fix.
+    """
+
+    def test_each_reason_is_counted_under_its_own_name(self):
+        good = _create_mol_with_energy("CCO", -100.0)
+        unconverged = _create_mol_with_energy("CCO", -99.0, converged=False)
+        stereo_changed = _create_mol_with_energy("CCO", -98.0)
+        stereo_changed.SetProp("Stereo_changed", "true")
+        broken = _create_mol_with_energy("CC", -97.0)
+        conf = broken.GetConformer()
+        pos = conf.GetAtomPosition(0)
+        conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
+        duplicate = _create_mol_with_energy("CCO", -100.0)  # same as `good`
+
+        result = filter_conformers(
+            [None, good, unconverged, stereo_changed, broken, duplicate],
+            rmsd_threshold=0.3,
+        )
+
+        assert [m is good for m in result.kept] == [True]
+        assert result.dropped == {
+            "unparsed": 1,
+            "unconverged": 1,
+            "stereochemistry": 1,
+            "connectivity": 1,
+            "duplicate": 1,
+        }
+
+    def test_nothing_dropped_reports_nothing(self):
+        """The inverse: a clean input must not manufacture a reason.
+
+        A result object that always carried a non-empty ``dropped`` would make
+        every ranking message name a cause that did not happen.
+        """
+        result = filter_conformers(
+            [_create_mol_with_energy("CCO", -100.0)], rmsd_threshold=0.3
+        )
+        assert result.dropped == {}
+        assert result.reasons == ()
+        assert result.summary() == ""
+
+    def test_summary_names_every_reason_that_fired_in_declared_order(self):
+        result = FilterResult(
+            kept=[],
+            dropped={"duplicate": 3, "unconverged": 2, "stereochemistry": 1},
+        )
+        assert result.reasons == ("unconverged", "stereochemistry", "duplicate")
+        assert result.summary() == (
+            "2 marked Converged=false, "
+            "1 changed stereochemistry during optimization, "
+            "3 duplicates of a kept conformer"
+        )
+
+    def test_zero_counts_are_not_reported_as_reasons(self):
+        result = FilterResult(kept=[], dropped={"unconverged": 0, "duplicate": 2})
+        assert result.reasons == ("duplicate",)
+        assert result.summary() == "2 duplicates of a kept conformer"
+
+    def test_an_unknown_reason_is_refused_at_construction(self):
+        """DROP_REASONS is the vocabulary, enforced.
+
+        Without this, a producer misspelling a reason contributes a drop that
+        ``summary()`` silently omits, so a user is told fewer conformers went
+        missing than actually did.
+        """
+        with pytest.raises(ValueError, match="unknown filter drop reason"):
+            FilterResult(kept=[], dropped={"unconvrged": 1})
+
+    def test_every_declared_reason_has_a_phrase(self):
+        """A reason with no phrase would raise KeyError from inside summary()
+        -- while reporting a diagnostic, which is the worst place to fail."""
+        for reason in DROP_REASONS:
+            assert FilterResult(kept=[], dropped={reason: 1}).summary()
+
+    def test_truncation_is_not_a_drop_reason(self):
+        """`k` cutting the list short is selection, not a filter drop.
+
+        Nothing is missing to explain: those conformers are valid and unique,
+        they lost the ranking. Counting them would make every ``k=1`` run report
+        drops it should not.
+        """
+        assert "truncated" not in DROP_REASONS
+        distinct = [
+            _create_mol_with_energy("CCO", -100.0),
+            _create_mol_with_energy("CCCO", -90.0),
+            _create_mol_with_energy("CCCCO", -80.0),
+        ]
+        result = filter_conformers(distinct, rmsd_threshold=0.3)
+        assert len(result.kept) == 3
+        assert result.dropped == {}

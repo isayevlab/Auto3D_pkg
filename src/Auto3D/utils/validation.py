@@ -22,16 +22,7 @@ from Auto3D.exceptions import (
     ModelLoadError,
 )
 from Auto3D.utils.logging_config import get_logger
-
-# The two output guards moved to the leaf module ``utils/output_guard.py`` so
-# that a writer needing only them does not import this module's torch. They are
-# re-exported here because ``SPE``, ``ASE.thermo`` and
-# ``cli.commands.properties`` import them from this path; new call sites should
-# name ``Auto3D.utils.output_guard`` directly.
-from Auto3D.utils.output_guard import (  # noqa: F401
-    check_output_not_input,
-    check_output_overwrite,
-)
+from Auto3D.utils.smi_io import iter_smi_records
 from Auto3D.utils.stereochemistry import count_unspecified_stereo
 
 if TYPE_CHECKING:
@@ -291,31 +282,15 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     """
     ANI = True
 
-    smiles_all = []
-    with open(args.path) as f:
-        data = f.readlines()
-    for line in data:
-        if line.isspace():
-            continue
-        # Skip '#'-prefixed comment lines, matching cli.commands.validate.
-        # validate_smiles_file and file_ops.iter_smi_records -- all three must
-        # agree on what counts as a comment vs. data, or `auto3d validate`
-        # would approve a file this function then rejects (M25).
-        if line.lstrip().startswith("#"):
-            continue
-        # Tolerate ragged rows the way the rest of the pipeline does: the chunk
-        # loader reads only the first two whitespace columns (usecols=[0, 1]), so
-        # trailing tokens (e.g. an inline comment column) must not be rejected
-        # here. split() never yields empty tokens, so a present SMILES/ID is
-        # guaranteed non-empty.
-        parts = line.split()
-        if len(parts) < 2:
-            raise InputValidationError(
-                "Each non-blank line must contain a SMILES and an ID separated by "
-                f"whitespace, but got: {line.strip()!r}"
-            )
-        smiles = parts[0]  # parts[1] is the ID; its presence is enforced above
-        smiles_all.append(smiles)
+    # iter_smi_records is the single parser for this format (M59): it already
+    # skips blank lines and '#'-prefixed comments the same way
+    # cli.commands.validate.validate_smiles_file does, and its on_malformed
+    # ("raise") gives the same InputValidationError this loop used to raise by
+    # hand for a line missing an ID, so `auto3d validate` and this check
+    # cannot silently disagree about what a well-formed line looks like
+    # (M25). The parser also tolerates ragged rows (extra whitespace columns
+    # beyond SMILES+ID), matching the chunk loader's usecols=[0, 1].
+    smiles_all = [smiles for _line_no, smiles, _id in iter_smi_records(args.path, on_malformed="raise")]
 
     logger.info(f"\tThere are {len(smiles_all)} SMILES in the input file {args.path}.")
     logger.info("\tAll SMILES and IDs are valid.")

@@ -10,13 +10,20 @@ from Auto3D.config import Auto3DOptions
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.utils.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.utils.logging_config import get_logger
+from Auto3D.utils.output_guard import check_output_overwrite
 
 logger = get_logger(__name__)
 
 __all__ = ["select_tautomers", "get_stable_tautomers"]
 
 
-def select_tautomers(sdf: str, k: int | None = None, window: float | None = None) -> str:
+def select_tautomers(
+    sdf: str,
+    k: int | None = None,
+    window: float | None = None,
+    *,
+    overwrite: bool = False,
+) -> str:
     """Select and Write the top-k or E <= window tautomers for each input SMILES
     Only k or window needs to be specified, NOT both.
 
@@ -24,18 +31,23 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
 
     Output: the path of the low-energy tautomer 3D conformers
 
-    Warning:
-        This function writes ``<dir(sdf)>/<stem>_top_tautomers.sdf`` with no
-        overwrite gate: ``Chem.SDWriter`` truncates on open, so a direct call
-        such as ``select_tautomers("/data/results.sdf", k=1)`` replaces any
-        existing ``/data/results_top_tautomers.sdf``. Every route Auto3D
-        itself takes is safe -- ``get_stable_tautomers`` passes ``main()``'s
-        output, which lives in a job directory created fresh for that run, and
-        ``auto3d tautomers`` additionally gates its ``-o`` with
-        ``check_output_overwrite`` -- so this is a hazard for direct API
-        callers only, the same residual class as
-        ``Auto3D.utils.smi_io.smiles2smi`` and ``Auto3D.id_mapping.decode_ids``. See
-        ``docs/superpowers/follow-ups-after-4.0.0-remediation.md``.
+    Args:
+        sdf: Path to the SDF this function reads, normally ``main()``'s output.
+        k: Keep the top-k tautomers per input molecule.
+        window: Keep tautomers within this kcal/mol window of the most stable
+            one. Mutually exclusive with `k`.
+        overwrite: Allow replacing an existing
+            ``<dir(sdf)>/<stem>_top_tautomers.sdf``. Keyword-only, and
+            defaults to False because that name is one Auto3D *derives* rather
+            than one the caller chose: ``Chem.SDWriter`` truncates on open, so
+            ``select_tautomers("/data/results.sdf", k=1)`` used to replace an
+            existing ``/data/results_top_tautomers.sdf`` with this call's
+            selection, silently. Auto3D's own routes are unaffected --
+            ``get_stable_tautomers`` passes ``main()``'s output, which lives in
+            a job directory created fresh for that run, and ``auto3d
+            tautomers`` additionally gates its ``-o`` with
+            ``check_output_overwrite`` -- so the default only ever fires for a
+            direct API caller pointing at an occupied path.
 
     Note:
         Tautomers are ranked by the optimized NNP *electronic* energy (``E_tot``)
@@ -48,7 +60,8 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
 
     Raises:
         ConfigurationError: If both k and window are given, if neither is
-            given, or if k < 1. ``auto3d tautomers`` already rejects the
+            given, if k < 1, or if the derived output path exists and
+            `overwrite` is False. ``auto3d tautomers`` already rejects the
             both-given case in ``execute_tautomers`` before calling this
             function, but ``select_tautomers``/``get_stable_tautomers`` are
             also public Python API entry points that can be called directly,
@@ -59,6 +72,16 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
         raise ConfigurationError("Only k OR window needs to be specified")
     if (k is not None) and (k < 1):
         raise ConfigurationError(f"tauto_k must be >= 1, got {k}")
+
+    # Resolved and gated up front, before the input is read and grouped:
+    # refusing after all the work is done costs the user the run for nothing,
+    # and the writer at the bottom truncates the moment it opens.
+    folder = os.path.dirname(sdf)
+    # splitext (not split(".")) so an input like 'mol.v2.sdf' keeps 'mol.v2'
+    # instead of collapsing to 'mol' and risking output collisions.
+    stem = os.path.splitext(os.path.basename(sdf))[0].strip()
+    output_path = os.path.join(folder, stem + "_top_tautomers.sdf")
+    check_output_overwrite(output_path, overwrite)
 
     supplier = Chem.SDMolSupplier(sdf, removeHs=False)
     mols = [m for m in supplier if m is not None]
@@ -101,14 +124,7 @@ def select_tautomers(sdf: str, k: int | None = None, window: float | None = None
         else:
             raise ConfigurationError("Either k OR window needs to be specified")
         results += out_mols
-        
 
-    folder = os.path.dirname(sdf)
-    # splitext (not split(".")) so an input like 'mol.v2.sdf' keeps 'mol.v2'
-    # instead of collapsing to 'mol' and risking output collisions.
-    stem = os.path.splitext(os.path.basename(sdf))[0].strip()
-    basename = stem + "_top_tautomers.sdf"
-    output_path = os.path.join(folder, basename)
     with Chem.SDWriter(output_path) as w:
         for mol in results:
             w.write(mol)

@@ -510,7 +510,7 @@ class TestSameFileGuard:
         a guard that always raised would satisfy every test above.
         """
         from Auto3D.exceptions import ConfigurationError
-        from Auto3D.utils.validation import check_output_not_input
+        from Auto3D.utils.output_guard import check_output_not_input
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -555,7 +555,7 @@ class TestSameFileGuard:
         directly on this ext4 box, but it takes the identical samefile path.
         """
         from Auto3D.exceptions import ConfigurationError
-        from Auto3D.utils.validation import check_output_not_input
+        from Auto3D.utils.output_guard import check_output_not_input
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["a"])
@@ -572,7 +572,7 @@ class TestSameFileGuard:
     def test_a_genuinely_different_output_is_still_allowed(self, job_dir):
         """Negative control: without this, a guard that always raised would
         satisfy every other test in this class."""
-        from Auto3D.utils.validation import check_output_not_input
+        from Auto3D.utils.output_guard import check_output_not_input
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["a"])
@@ -976,7 +976,7 @@ class TestOutputOverwriteGuard:
 
     def test_the_guard_permits_everything_it_should(self, job_dir):
         """Negative controls for the shared function itself."""
-        from Auto3D.utils.validation import check_output_overwrite
+        from Auto3D.utils.output_guard import check_output_overwrite
 
         existing = job_dir / "there.sdf"
         existing.write_text("x")
@@ -992,7 +992,7 @@ class TestOutputOverwriteGuard:
         an `os.path.join` string. A guard that only handled one would silently
         no-op for the other."""
         from Auto3D.exceptions import ConfigurationError
-        from Auto3D.utils.validation import check_output_overwrite
+        from Auto3D.utils.output_guard import check_output_overwrite
 
         existing = job_dir / "there.sdf"
         existing.write_text("x")
