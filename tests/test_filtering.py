@@ -492,7 +492,7 @@ class TestTheSurvivingFilterKeepsTheLegacyVerdicts:
     deleted (cluster B5 phase 4a).
 
     Auto3D carried two conformer filters with the same duplicate criterion, each
-    acting as the other's oracle, until 4.1.0. These cases were run against BOTH
+    acting as the other's oracle, until 3.0.0. These cases were run against BOTH
     and are asserted here as literals so the surviving filter's verdicts stay
     pinned now that there is nothing left to compare against.
     """

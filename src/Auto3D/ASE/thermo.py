@@ -55,7 +55,7 @@ __all__ = ["calc_thermo"]
 
 #: SD property carrying the success/failure verdict for one thermo record.
 #: ``""`` means publishable; any non-empty value names the failure. This is the
-#: filter CHANGELOG.md and docs/source/migration-4.0.rst document.
+#: filter CHANGELOG.md and docs/source/migration-3.0.rst document.
 THERMO_FAILED_PROP = "Thermo_failed"
 
 #: ``Thermo_failed`` value for a geometry confirmed to be a first-order saddle

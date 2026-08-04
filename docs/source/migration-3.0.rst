@@ -1,8 +1,24 @@
-Migrating to Auto3D 4.0
+Migrating to Auto3D 3.0
 =======================
 
 This release corrects defects that produced silently wrong results. Read the
 "Results that change" section even if you use no removed API.
+
+.. note::
+
+   **If you installed Auto3D from PyPI or conda-forge, every change on this
+   page applies to you.** The latest published release was 2.3.1; the ``v3.0.0``
+   and ``v3.5.0`` git tags were never published to either index, so no
+   ``pip install`` or ``conda install`` has ever produced them.
+
+   Code examples below are labelled ``# before`` and ``# 3.0`` rather than by
+   version number, because "before" covers both 2.3.1 and those unpublished
+   tags. Where a change applies *only* to someone who installed from an
+   unpublished tag, it says so.
+
+   ``utils.chemistry`` and ``utils.file_ops`` are named throughout this guide as
+   the modules a name used to live in. Both were split up in this release; see
+   the CHANGELOG's mapping table for where each name now lives.
 
 Results that change
 --------------------
@@ -289,10 +305,10 @@ property:
 
 .. code:: python
 
-   # 3.x -- raised if any record in the file had failed
+   # before -- raised if any record in the file had failed
    g = mol.GetProp("G_hartree")
 
-   # 4.0
+   # 3.0
    if mol.GetProp("Thermo_failed") == "":
        g = mol.GetProp("G_hartree")
 
@@ -572,10 +588,10 @@ API changes
 
 .. code:: python
 
-   # 3.x
+   # before
    coords, species, charges = pad_from_mols(mols, model_name, device)
 
-   # 4.0
+   # 3.0
    coords, species, charges, atom_mask = pad_from_mols(mols, adapter, device)
 
 ``atom_mask`` is ``(batch, max_atoms)`` bool, ``True`` for real atoms. Use it
@@ -591,10 +607,10 @@ Use ``pad_from_mols``.
 
 .. code:: python
 
-   # 3.x
+   # before
    from Auto3D import NNPModel
 
-   # 4.0
+   # 3.0
    from Auto3D.models import CustomNNP
 
 There were two descriptions of the custom-NNP interface in 3.x. ``NNPModel``
@@ -669,11 +685,11 @@ Species conversion moved
 
 .. code:: python
 
-   # 3.x
+   # before
    from Auto3D.utils import getidx, ANI2XT_INDEX
    index = getidx(atomic_number, model="ANI2xt")
 
-   # 4.0
+   # 3.0
    from Auto3D.models.species import to_ani2xt_species, ANI2XT_INDEX
    indices = to_ani2xt_species(atomic_numbers)            # whole molecule at once
 
@@ -682,11 +698,11 @@ Species conversion moved
 
 .. code:: python
 
-   # 3.x
+   # before
    n_steps(state, n, opttol, patience, energy_tol=1e-3, energy_patience=3)
    config = OptimizationConfig(opt_steps=1000, energy_tol=1e-3)
 
-   # 4.0
+   # 3.0
    n_steps(state, n, opttol, patience)
    config = OptimizationConfig(opt_steps=1000)
 
@@ -717,10 +733,10 @@ tolerance) is a different parameter and is unchanged.
 
 .. code:: python
 
-   # 3.x -- both silently ignored
+   # before -- both silently ignored
    model = create_model("AIMNET", device, use_ensemble=True)
 
-   # 4.0
+   # 3.0
    model = create_model("AIMNET", device)
 
 ``AUTO3D_USE_ENSEMBLE`` is no longer read. Passing either argument now raises
@@ -731,10 +747,10 @@ tolerance) is a different parameter and is unchanged.
 
 .. code:: python
 
-   # 3.x
+   # before
    opt = optimizing(in_f, out_f, "AIMNET", device, config)
 
-   # 4.0
+   # 3.0
    from Auto3D.model_factory import create_model
    opt = optimizing(in_f, out_f, adapter=create_model("AIMNET", device),
                     device=device, config=config)
@@ -762,11 +778,11 @@ error. ``model_name`` is now a required keyword-only argument on both.
 
 .. code:: python
 
-   # 3.x -- silently wrong for ANI2xt if omitted
+   # before -- silently wrong for ANI2xt if omitted
    calc = Calculator(model, charge=0)
    inp = mol2aimnet_input(mol, device)
 
-   # 4.0 -- required
+   # 3.0 -- required
    calc = Calculator(model, charge=0, model_name="ANI2xt")
    inp = mol2aimnet_input(mol, device, model_name="ANI2xt")
 
@@ -1114,9 +1130,9 @@ gave ``auto3d config validate`` exit ``1`` and ``auto3d run -c`` exit ``2``:
 
 .. code:: console
 
-   $ auto3d config validate cfg.yaml; echo $?     # 3.x
+   $ auto3d config validate cfg.yaml; echo $?     # before
    1
-   $ auto3d run mols.smi -c cfg.yaml; echo $?     # 3.x
+   $ auto3d run mols.smi -c cfg.yaml; echo $?     # before
    2
 
 Both are ``2`` in 4.0. The full scheme, with one table now in
@@ -1294,7 +1310,7 @@ configuration disagreed about whether the run had succeeded:
 
 .. code:: console
 
-   $ auto3d params.yaml; echo $?                       # 3.x and early 4.0
+   $ auto3d params.yaml; echo $?                       # before and early 4.0
    OK Output: /data/mols_20260801-101500-123456/mols_out.sdf
    0
    $ auto3d run mols.smi -c params.yaml; echo $?       # same run, same result

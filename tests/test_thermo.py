@@ -22,7 +22,7 @@ from tests.helpers_pipeline_output import (
 # test_SPE.py twin, test_calc_spe_uses_model_factory, had the same defect).
 #
 # Every opt_geometry/calc_thermo call below passes use_gpu=False on purpose.
-# Both default to use_gpu=True, and Auto3D 4.0 made "GPU requested but no CUDA
+# Both default to use_gpu=True, and Auto3D 3.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
 # (Auto3D.utils.validation.check_gpu_requested, called first thing inside each
 # function). The slow CI job runs on ubuntu-latest -- CPU-only, like every

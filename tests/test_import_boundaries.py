@@ -287,7 +287,7 @@ def test_unknown_attribute_raises_attribute_error():
 # (``Auto3D.exceptions.*``); none of those is in ``__all__`` and none should be.
 # api.rst documents *dotted paths*, and the rest of the docs consistently
 # reference these names that way -- ``Auto3D.model_factory.get_device``,
-# ``Auto3D.models.contract.CustomNNP`` (migration-4.0.rst calls that "the
+# ``Auto3D.models.contract.CustomNNP`` (migration-3.0.rst calls that "the
 # surviving one", against the removed ``from Auto3D.models import CustomNNP``),
 # ``Auto3D.isomers.IsomerEngineFactory``. Promoting those into ``__all__`` would
 # mint a *second* supported path for each and contradict the migration guide, so
@@ -391,7 +391,7 @@ def test_every_exported_name_is_documented_in_api_rst():
 #
 # Static, and specifically AST rather than a regex over the text. A regex
 # matches the historical ``from Auto3D.utils import ...`` snippets that live on
-# purpose in ``docs/plans/**`` and in ``docs/source/migration-4.0.rst`` (where
+# purpose in ``docs/plans/**`` and in ``docs/source/migration-3.0.rst`` (where
 # the barrel import is the deliberate *before* half of a before/after pair), so
 # a regex-based check could be "satisfied" by falsifying the migration guide.
 # Everything below is scoped to ``src/Auto3D/**`` only.

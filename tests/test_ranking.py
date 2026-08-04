@@ -104,7 +104,7 @@ class TestConformerRankerWithOptimizedFiltering:
 
         That equivalence is the entire justification for partitioning the energy
         axis at all, and it used to be asserted by comparing against the legacy
-        all-pairs filter (deleted in 4.1.0). Asserted directly now.
+        all-pairs filter (deleted in 3.0.0). Asserted directly now.
         """
         from Auto3D.ranking import ConformerRanker
 

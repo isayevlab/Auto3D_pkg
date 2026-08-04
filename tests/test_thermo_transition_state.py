@@ -3,7 +3,7 @@
 ``analyze_vibrations`` already identifies a first-order saddle point and records
 ``Is_transition_state``, but the record still received ``G_hartree``, was
 appended to ``out_mols``, and was stamped ``Thermo_failed = ""`` -- the property
-CHANGELOG.md and docs/source/migration-4.0.rst document as *the* success filter.
+CHANGELOG.md and docs/source/migration-3.0.rst document as *the* success filter.
 A saddle point was therefore indistinguishable from a minimum to every
 documented way of reading the output.
 

@@ -339,7 +339,7 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
 def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
     """``docs/legacy-v2/tauto.yaml`` carries keys from a removed feature and
     must be rejected as an ``Auto3D.exceptions.ConfigurationError``, naming
-    them -- exactly what CHANGELOG.md and docs/source/migration-4.0.rst now
+    them -- exactly what CHANGELOG.md and docs/source/migration-3.0.rst now
     tell 4.0 users to catch.
 
     Both documents previously said this raised a field-named
