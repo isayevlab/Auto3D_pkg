@@ -1,6 +1,8 @@
 """Tests for Auto3D.chunk_manager module."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -54,7 +56,13 @@ class TestCalculateMemoryAndChunks:
         assert num_jobs == 1  # Single job when memory is manually set
 
     def test_single_gpu_returns_one_job(self, tmp_path):
-        """Should return num_jobs=1 for single GPU index."""
+        """Should return num_jobs=1 for single GPU index.
+
+        Mocks Auto3D.chunk_manager._gpu_free_memory_gb (the nvidia-smi-backed
+        query), not torch.cuda.get_device_properties -- that call was removed
+        by the M36 fix specifically so this orchestrator never initializes a
+        CUDA context (audit M36).
+        """
         config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=0)
         manager = ChunkManager(
             config=config,
@@ -64,14 +72,19 @@ class TestCalculateMemoryAndChunks:
             workflow_logger=None,
         )
 
-        with patch("torch.cuda.get_device_properties") as mock_props:
-            mock_props.return_value = MagicMock(total_memory=8 * 1024**3)
+        with patch("Auto3D.chunk_manager._gpu_free_memory_gb", return_value=8):
             memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert num_jobs == 1
+        assert memory_gb == 8
 
     def test_multiple_gpus_returns_gpu_count(self, tmp_path):
-        """Should return num_jobs equal to GPU count for multiple GPUs."""
+        """Should return num_jobs equal to GPU count for multiple GPUs.
+
+        Mocks Auto3D.chunk_manager._gpu_free_memory_gb rather than
+        torch.cuda.get_device_properties for the same reason as
+        test_single_gpu_returns_one_job above (audit M36).
+        """
         config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=[0, 1, 2])
         manager = ChunkManager(
             config=config,
@@ -81,11 +94,11 @@ class TestCalculateMemoryAndChunks:
             workflow_logger=None,
         )
 
-        with patch("torch.cuda.get_device_properties") as mock_props:
-            mock_props.return_value = MagicMock(total_memory=8 * 1024**3)
+        with patch("Auto3D.chunk_manager._gpu_free_memory_gb", return_value=8):
             memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert num_jobs == 3
+        assert memory_gb == 8
 
     def test_cpu_uses_system_memory(self, tmp_path):
         """Should use system memory when use_gpu=False."""
@@ -119,6 +132,264 @@ class TestCalculateMemoryAndChunks:
         memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert chunk_size == 4 * 100  # 400
+
+
+class TestGpuFreeMemoryGb:
+    """Tests for chunk_manager._gpu_free_memory_gb (audit M36).
+
+    This helper exists specifically so ChunkManager never has to call
+    torch.cuda.get_device_properties/mem_get_info from the parent process --
+    both initialize a CUDA context (the former directly via
+    torch.cuda._lazy_init, the latter via the CUDA runtime's implicit primary
+    context creation). Every test here mocks shutil.which/subprocess.run so
+    the real nvidia-smi binary is never invoked and no real GPU state is
+    touched, on this box or any other.
+    """
+
+    def test_parses_nvidia_smi_output(self, monkeypatch):
+        """A well-formed nvidia-smi CSV line is parsed to whole GB (floored).
+
+        ``CUDA_VISIBLE_DEVICES`` is deleted rather than left alone: with it set,
+        the index is translated (see the remapping tests below), so a test that
+        inherited the developer's or CI runner's value would assert a different
+        thing depending on where it ran.
+        """
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            recorded["cmd"] = cmd
+            return MagicMock(stdout="8191\n", returncode=0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = _gpu_free_memory_gb(2)
+
+        assert result == 7  # floor(8191 MiB / 1024)
+        assert "-i" in recorded["cmd"] and "2" in recorded["cmd"]
+
+    def test_cuda_visible_devices_index_is_translated(self, monkeypatch):
+        """``gpu_idx`` is a CUDA-visible index; ``nvidia-smi -i`` is physical.
+
+        Without the translation this reports a *different card's* free memory
+        and sizes every chunk from it. Under ``CUDA_VISIBLE_DEVICES=4,5``,
+        ``gpu_idx=1`` is physical GPU 5, so ``-i 5`` must be queried -- not
+        ``-i 1``, which is a card CUDA cannot even see from this process.
+
+        Shared multi-GPU machines are both where this variable is set and the
+        only place the memory scaling matters, so the wrong-card case is the
+        common case, not the exotic one.
+        """
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5")
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            recorded["cmd"] = cmd
+            return MagicMock(stdout="16384\n", returncode=0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        assert _gpu_free_memory_gb(1) == 16
+        assert recorded["cmd"][recorded["cmd"].index("-i") + 1] == "5"
+
+    def test_uuid_entries_are_passed_through(self, monkeypatch):
+        """``CUDA_VISIBLE_DEVICES`` may hold UUIDs, which ``-i`` also accepts."""
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-aaa,GPU-bbb")
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        recorded = {}
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda cmd, **kw: (recorded.__setitem__("cmd", cmd),
+                               MagicMock(stdout="4096\n", returncode=0))[1],
+        )
+
+        assert _gpu_free_memory_gb(1) == 4
+        assert recorded["cmd"][recorded["cmd"].index("-i") + 1] == "GPU-bbb"
+
+    def test_index_outside_cuda_visible_devices_declines_to_guess(self, monkeypatch):
+        """A device CUDA cannot see returns None instead of another card's memory.
+
+        Reporting some other GPU's free memory would be worse than falling back
+        to the conservative default, because it looks like a successful
+        measurement.
+        """
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5")
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        called = []
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: called.append(1))
+
+        assert _gpu_free_memory_gb(7) is None
+        assert not called, "nvidia-smi must not be invoked for an invisible device"
+
+    def test_returns_none_when_nvidia_smi_missing(self, monkeypatch):
+        """No nvidia-smi on PATH -> None, and subprocess.run is never called."""
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+
+        def fail_run(*a, **k):
+            raise AssertionError("subprocess.run must not be called when "
+                                  "nvidia-smi is not on PATH")
+
+        monkeypatch.setattr(subprocess, "run", fail_run)
+
+        assert _gpu_free_memory_gb(0) is None
+
+    def test_returns_none_on_unparsable_output(self, monkeypatch):
+        """Garbage/empty stdout is swallowed, not raised."""
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(
+            subprocess, "run", lambda *a, **k: MagicMock(stdout="not-a-number\n")
+        )
+
+        assert _gpu_free_memory_gb(0) is None
+
+    def test_returns_none_when_subprocess_raises(self, monkeypatch):
+        """A nonzero exit / timeout is swallowed, not propagated."""
+        from Auto3D.chunk_manager import _gpu_free_memory_gb
+
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+
+        def raising_run(*a, **k):
+            raise subprocess.CalledProcessError(1, "nvidia-smi")
+
+        monkeypatch.setattr(subprocess, "run", raising_run)
+
+        assert _gpu_free_memory_gb(0) is None
+
+
+class TestCalculateMemoryNeverTouchesCuda:
+    """M36: the parent process must never initialize a CUDA context just to
+    size a chunk. torch.cuda.get_device_properties and torch.cuda.mem_get_info
+    are poisoned to fail loudly if called at all, rather than silently
+    succeeding against whatever real GPU state this box happens to have.
+    """
+
+    def test_gpu_path_never_calls_torch_cuda_query_functions(self, tmp_path, monkeypatch):
+        import torch
+
+        def _poison(*a, **k):
+            raise AssertionError(
+                "calculate_memory_and_chunks must not touch torch.cuda for a "
+                "memory query (audit M36)"
+            )
+
+        monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
+        monkeypatch.setattr(torch.cuda, "mem_get_info", _poison)
+        # Delete CUDA_VISIBLE_DEVICES so gpu_idx=0 is a valid visible device.
+        # Without this the test reads whatever the ambient environment happens
+        # to hold: it passes in CI (unset) and on a plain workstation, but
+        # CUDA_VISIBLE_DEVICES="" means *no* visible devices, so device 0 is
+        # outside the visible set, _gpu_free_memory_gb correctly declines to
+        # measure, and memory_gb falls back to 1 instead of the mocked 8. The
+        # subject here is "does the GPU path avoid torch.cuda", not device
+        # visibility, so the variable is pinned rather than inherited.
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+        # Exercise the real nvidia-smi code path (not the "missing binary"
+        # short-circuit) without touching the real subprocess or torch.cuda.
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(
+            subprocess, "run", lambda *a, **k: MagicMock(stdout="8192\n")
+        )
+
+        config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=0)
+        manager = ChunkManager(
+            config=config,
+            input_path=Path(tmp_path / "input.smi"),
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
+        assert memory_gb == 8
+
+    def test_gpu_path_falls_back_without_cuda_when_nvidia_smi_absent(
+        self, tmp_path, monkeypatch
+    ):
+        """No nvidia-smi -> a conservative default, still with no CUDA touch."""
+        import torch
+
+        def _poison(*a, **k):
+            raise AssertionError("must not touch torch.cuda (audit M36)")
+
+        monkeypatch.setattr(torch.cuda, "get_device_properties", _poison)
+        monkeypatch.setattr(torch.cuda, "mem_get_info", _poison)
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+
+        config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=0)
+        manager = ChunkManager(
+            config=config,
+            input_path=Path(tmp_path / "input.smi"),
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
+        assert memory_gb == 1  # conservative fallback, not a crash
+
+
+class TestScaledBatchsizeAtomsClamp:
+    """M36: the memory multiplier must not scale batchsize_atoms without
+    bound (a bare `batchsize_atoms * memory_gb` reaches 81,920 atoms/call on
+    an 80 GB GPU at the documented default)."""
+
+    def test_large_memory_is_clamped(self, tmp_path, monkeypatch):
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO ethanol\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"), k=1, use_gpu=True, gpu_idx=0,
+            batchsize_atoms=1024,
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        with patch("Auto3D.chunk_manager._gpu_free_memory_gb", return_value=80):
+            manager.prepare_chunks()
+
+        # Unclamped this would be 1024 * 80 = 81920.
+        assert manager.scaled_batchsize_atoms == 1024 * 16
+
+    def test_clamp_never_reduces_an_explicit_large_setting(self, tmp_path):
+        """The clamp bounds the SCALING, not an explicit user choice already
+        above the ceiling with no scaling in play (memory=1)."""
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("CCO ethanol\n")
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"), k=1, memory=1,
+            batchsize_atoms=20_000,
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        manager.prepare_chunks()
+
+        assert manager.scaled_batchsize_atoms == 20_000
 
 
 class TestCreateChunkFiles:

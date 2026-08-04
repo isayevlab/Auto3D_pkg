@@ -160,12 +160,18 @@ def test_validate_subcommand_help():
 
 # =============================================================================
 # Tests for CLI module imports
+#
+# Each name is imported from the module that defines it. `Auto3D.cli` used to
+# re-export all five; it re-exports nothing now, and `app`/`console` there are
+# the *modules*, not the Typer application and the Rich console. See
+# tests/test_import_boundaries.py::test_cli_app_and_console_names_resolve_to_their_modules.
 # =============================================================================
 
 
 def test_cli_module_imports():
-    """CLI module should export key components."""
-    from Auto3D.cli import app, console, print_success, print_error, print_warning
+    """The CLI's key components exist at their defining module paths."""
+    from Auto3D.cli.app import app
+    from Auto3D.cli.console import console, print_error, print_success, print_warning
 
     assert app is not None
     assert console is not None
@@ -176,16 +182,18 @@ def test_cli_module_imports():
 
 def test_cli_module_app_is_typer():
     """CLI app should be a Typer instance."""
-    from Auto3D.cli import app
     import typer
+
+    from Auto3D.cli.app import app
 
     assert isinstance(app, typer.Typer)
 
 
 def test_cli_module_console_is_rich():
     """CLI console should be a Rich Console instance."""
-    from Auto3D.cli import console
     from rich.console import Console
+
+    from Auto3D.cli.console import console
 
     assert isinstance(console, Console)
 

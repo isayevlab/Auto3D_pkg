@@ -1,15 +1,34 @@
-"""Factory classes and functions for creating isomer engines."""
+"""Factory for isomer engines, and the one free function that has no factory.
+
+Two constructors, deliberately asymmetric:
+
+* :meth:`IsomerEngineFactory.create` is the only supported way to build an
+  isomer engine. A module-level ``create_isomer_engine`` wrapper existed
+  alongside it until 4.0 and was deleted: it had zero ``src/`` callers (both
+  production sites -- ``auto3D.py`` and ``workflow_workers.py`` -- call the
+  classmethod), was documented at no public path, and had already *diverged*
+  from what it wrapped by omitting ``input_format``, so it could not express the
+  ``rdkit`` -> ``rdkit_sdf`` auto-selection below. A second spelling of the one
+  documented public path (``Auto3D.isomers.IsomerEngineFactory``) that no
+  production code used and could no longer reach the full surface was maintenance
+  with no consumer.
+
+* :func:`create_tautomer_engine` stays, because it is not a duplicate of
+  anything. It is the *only* constructor for a tautomer engine -- there is no
+  ``IsomerEngineFactory`` classmethod for tautomers -- and
+  ``Auto3D.processors.TautomerProcessor`` calls it. It is also the boundary that
+  keeps ``processors.py`` from importing ``Auto3D.isomer_engine`` directly, which
+  is what its own tests monkeypatch.
+"""
 from __future__ import annotations
 
 from collections.abc import Callable
 
 from Auto3D.isomer_engine import (
     RDKitIsomer,
+    RDKitOrOEChemTautomerEngine,
     RDKitSdfIsomer,
     oe_isomer,
-)
-from Auto3D.isomer_engine import (
-    TautomerEngine as _RDKitOrOmegaTautomerEngine,
 )
 from Auto3D.isomers.base import IsomerEngine, TautomerEngine
 
@@ -189,85 +208,6 @@ class IsomerEngineFactory:
         return _DeferredIsomerEngine(build_and_run, output_path)
 
 
-def create_isomer_engine(
-    engine_type: str,
-    input_path: str,
-    output_path: str,
-    *,
-    smiles_enumerated: str = "",
-    smiles_reduced: str = "",
-    smiles_hashed: str = "",
-    job_dir: str = "",
-    max_confs: int | None = None,
-    threshold: float = 0.3,
-    n_jobs: int = 4,
-    enumerate_isomers: bool = True,
-    mode: str = "classic",
-    use_parallel_embedding: bool = False,
-    parallel_embedding_threshold: int = 10,
-    parallel_workers: int = 4,
-) -> IsomerEngine:
-    """Create an isomer engine based on the specified type.
-
-    This is a convenience wrapper around IsomerEngineFactory.create().
-
-    Args:
-        engine_type: Engine type ('rdkit', 'rdkit_sdf', or 'omega').
-        input_path: Path to input file.
-        output_path: Path for output SDF file.
-        smiles_enumerated: Path for enumerated SMILES (rdkit only).
-        smiles_reduced: Path for reduced SMILES (rdkit only).
-        smiles_hashed: Path for hashed SMILES (rdkit only).
-        job_dir: Working directory (rdkit only).
-        max_confs: Maximum conformers per molecule.
-        threshold: RMSD threshold for duplicate removal.
-        n_jobs: Number of parallel jobs.
-        enumerate_isomers: Whether to enumerate stereoisomers.
-        mode: Omega mode ('classic', 'macrocycle', etc.) for omega engine.
-        use_parallel_embedding: Whether to use parallel conformer embedding
-            (rdkit only). Default False.
-        parallel_embedding_threshold: Minimum molecules for parallel embedding
-            (rdkit only). Default 10.
-        parallel_workers: Number of worker processes for parallel embedding
-            (rdkit only). Default 4.
-
-    Returns:
-        Configured isomer engine instance.
-
-    Raises:
-        ValueError: If engine_type is not recognized.
-
-    Example:
-        >>> engine = create_isomer_engine(
-        ...     "rdkit",
-        ...     input_path="input.smi",
-        ...     output_path="output.sdf",
-        ...     smiles_enumerated="enum.smi",
-        ...     smiles_reduced="reduced.smi",
-        ...     smiles_hashed="hashed.smi",
-        ...     job_dir="/path/to/job",
-        ... )
-        >>> output = engine.run()
-    """
-    return IsomerEngineFactory.create(
-        engine_type=engine_type,
-        input_path=input_path,
-        output_path=output_path,
-        smiles_enumerated=smiles_enumerated,
-        smiles_reduced=smiles_reduced,
-        smiles_hashed=smiles_hashed,
-        job_dir=job_dir,
-        max_confs=max_confs,
-        threshold=threshold,
-        n_jobs=n_jobs,
-        enumerate_isomers=enumerate_isomers,
-        mode=mode,
-        use_parallel_embedding=use_parallel_embedding,
-        parallel_embedding_threshold=parallel_embedding_threshold,
-        parallel_workers=parallel_workers,
-    )
-
-
 def create_tautomer_engine(
     engine_type: str,
     input_path: str,
@@ -295,7 +235,7 @@ def create_tautomer_engine(
     engine_type = engine_type.lower()
 
     if engine_type in ("rdkit", "oechem"):
-        return _RDKitOrOmegaTautomerEngine(
+        return RDKitOrOEChemTautomerEngine(
             mode=engine_type,
             input_f=input_path,
             out=output_path,

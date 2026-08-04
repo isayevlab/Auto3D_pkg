@@ -28,7 +28,8 @@ if TYPE_CHECKING:
     # `_adapters` is the sole exception, because it really is a registry of
     # Auto3D's own classes. Kept behind TYPE_CHECKING so
     # `Auto3D.model_factory.BaseModelAdapter` is no longer an incidental
-    # re-export -- import it from Auto3D.models.
+    # re-export -- import it from Auto3D.models.adapter, which defines it
+    # (`Auto3D.models` re-exports nothing).
     from Auto3D.models.adapter import BaseModelAdapter
     from Auto3D.models.contract import ModelAdapter
 

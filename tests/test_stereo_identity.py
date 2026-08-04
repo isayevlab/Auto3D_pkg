@@ -60,7 +60,8 @@ class TestTautomerStereoPreservation:
         """At least one output tautomer must retain the input's specified center.
 
         This drives Auto3D's real ``rdkit`` tautomer engine -- the same
-        ``TautomerEngine.rd_taut()`` the pipeline dispatches to, reached via
+        ``RDKitOrOEChemTautomerEngine.rd_taut()`` the pipeline dispatches to,
+        reached via
         ``Auto3D.isomers.factory.create_tautomer_engine`` -- rather than a
         bare RDKit ``TautomerEnumerator``, so the defect is attributed to
         Auto3D's tautomer path and not to RDKit in isolation.
@@ -103,7 +104,7 @@ class TestSdfInputStereo:
         record for alanine to disk and feeds it through the production
         ``rdkit_sdf`` engine -- the same ``RDKitSdfIsomer.run()`` the pipeline
         dispatches to for SDF input --
-        via ``Auto3D.isomers.factory.create_isomer_engine``. It then inspects
+        via ``Auto3D.isomers.IsomerEngineFactory.create``. It then inspects
         the SDF file Auto3D actually writes, grouped by species name (the
         conformer-index suffix stripped). Either the two configurations must
         come out as distinct, internally consistent species, or ambiguous
@@ -113,7 +114,7 @@ class TestSdfInputStereo:
         """
         from rdkit.Chem import AllChem
 
-        from Auto3D.isomers.factory import create_isomer_engine
+        from Auto3D.isomers import IsomerEngineFactory
 
         # Alanine drawn flat (2D), with no stereo specified anywhere: no
         # wedge/hash bonds, no parity flags in the mol block.
@@ -126,7 +127,7 @@ class TestSdfInputStereo:
             writer.write(mol)
 
         output_sdf = job_dir / "alanine_enumerated.sdf"
-        engine = create_isomer_engine(
+        engine = IsomerEngineFactory.create(
             "rdkit_sdf",
             input_path=str(input_sdf),
             output_path=str(output_sdf),

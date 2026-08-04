@@ -176,17 +176,43 @@ class EnForce_ANI(nn.Module):
         batch_size = max(1, self.batchsize_atoms // N)
 
         def _run(batch_idx: torch.Tensor, bsize: int) -> None:
-            # Process a slice of molecules; on CUDA OOM, free the cache and retry
+            # Process slices of molecules; on CUDA OOM, free the cache and retry
             # the failing slice with a halved batch. A single molecule that still
             # OOMs cannot be split further (an NNP needs the whole molecule), so
             # raise a clear, actionable error instead of crashing opaquely.
-            for sub in batch_idx.split(bsize):
+            #
+            # `bsize` is a local variable that SHRINKS and STAYS SHRUNK for the
+            # rest of this call once an OOM is observed (audit M37): the old
+            # code recursed on just the failing slice at a halved size but kept
+            # splitting every OTHER remaining slice at the original `bsize`,
+            # repeating the same OOM-and-recurse cycle for each one. A `while`
+            # loop over `remaining` (re-queuing the failed slice at the front
+            # instead of recursing) makes the smaller size the new default for
+            # everything that has not run yet.
+            remaining = batch_idx
+            while remaining.numel() > 0:
+                sub, remaining = remaining[:bsize], remaining[bsize:]
+                oom = False
                 try:
                     _e, _f = self(
                         coord[sub], numbers[sub], charges[sub],
                         atom_mask=None if atom_mask is None else atom_mask[sub],
                     )
                 except torch.cuda.OutOfMemoryError:
+                    oom = True
+                if oom:
+                    # empty_cache() and the retry run AFTER the except block,
+                    # not inside it: while an `except` clause is executing, the
+                    # OOM'd exception is still `sys.exc_info()`'s "currently
+                    # handled exception", and its traceback keeps every local
+                    # of the failed forward -- including its activations --
+                    # reachable. empty_cache() can only release already-free
+                    # blocks, so calling it there could not reclaim the memory
+                    # the retry needed (audit M37). CPython clears the
+                    # currently-handled exception as soon as the `except`
+                    # clause is left, which happens above (no `continue`/
+                    # `raise` inside it), so by the time control reaches here
+                    # nothing from the failed forward is still referenced.
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     if sub.numel() == 1:
@@ -194,7 +220,8 @@ class EnForce_ANI(nn.Module):
                             f"A single molecule with {N} atoms exhausted GPU memory even "
                             f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
                         )
-                    _run(sub, max(1, sub.numel() // 2))
+                    bsize = max(1, sub.numel() // 2)
+                    remaining = torch.cat([sub, remaining])
                     continue
                 e_list.append(_e)
                 f_list.append(_f)

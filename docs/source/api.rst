@@ -16,6 +16,15 @@ Both directions are enforced by ``tests/test_import_boundaries.py``: every path
 listed here must resolve, and nothing may be exported from ``Auto3D.__all__``
 without appearing here.
 
+No package ``__init__.py`` re-exports a name, and that is enforced too. The one
+exception is ``Auto3D.isomers.IsomerEngineFactory`` below, whose documented
+dotted path *is* the package path -- so the re-export is the public surface
+rather than a convenience alias for it. ``Auto3D.cli`` (six names) and
+``Auto3D.models`` (seven) were the last two package barrels; both are empty as of
+4.0, and none of their thirteen names was documented here. Import from the module
+that defines each one: ``Auto3D.cli.app``, ``Auto3D.cli.console``,
+``Auto3D.models.adapter``, ``Auto3D.models.contract``.
+
 Core Functions
 --------------
 
@@ -70,6 +79,13 @@ rejected before any conformer work starts:
    :toctree: generated
 
    Auto3D.models.contract.CustomNNP
+
+This is the only public name in the ``Auto3D.models`` package, and the path above
+is the only way to import it. ``from Auto3D.models import CustomNNP`` worked
+through a package barrel until 4.0 and no longer resolves. The barrel also placed
+the *internal* adapter interface (``Auto3D.models.contract.ModelAdapter``, which
+only Auto3D's own adapters implement) at a shallower path than this one; both now
+sit in ``contract``, and neither is reachable from ``Auto3D.models`` itself.
 
 Isomer Generation
 -----------------

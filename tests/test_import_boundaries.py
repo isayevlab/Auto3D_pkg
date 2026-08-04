@@ -398,12 +398,44 @@ def test_every_exported_name_is_documented_in_api_rst():
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parents[1] / "src" / "Auto3D"
 
+def _submodules(package: str) -> frozenset[str]:
+    """Names that are *modules* inside ``package``, not re-exports.
+
+    Both halves matter: ``from Auto3D.models import adapter`` names a module and
+    ``from Auto3D.cli import commands`` names a subpackage, and neither is a
+    barrel import. Computed rather than listed so a new submodule cannot be
+    mistaken for a re-export the day it is added.
+    """
+    root = SRC_ROOT.joinpath(*package.split("."))
+    return frozenset(
+        {p.stem for p in root.glob("*.py") if p.stem != "__init__"}
+        | {d.name for d in root.iterdir() if (d / "__init__.py").exists()}
+    )
+
+
 # ``from Auto3D.utils import energy`` -- naming a submodule -- stays legal;
 # it is a module reference, not a re-export. ``from Auto3D.utils import
 # hartree2ev`` does not.
-UTILS_SUBMODULES = frozenset(
-    p.stem for p in (SRC_ROOT / "utils").glob("*.py") if p.stem != "__init__"
-)
+UTILS_SUBMODULES = _submodules("utils")
+
+# Every package that must not re-export a name, and the submodule names that are
+# therefore the *only* legal thing to pull out of it. ``cli`` and ``models``
+# joined ``utils`` here when their barrels were emptied; ``isomers`` is absent
+# because api.rst documents ``Auto3D.isomers.IsomerEngineFactory`` at the package
+# path, which makes that one re-export the public surface rather than a barrel.
+#
+# ``cli`` is the sharp case. Its barrel bound ``app`` (the Typer object) *over*
+# ``Auto3D.cli.app`` (the module of the same name) and ``console`` over
+# ``Auto3D.cli.console``, so ``from Auto3D.cli import app`` returned different
+# kinds of object depending on whether ``__init__`` had run its imports yet.
+# Emptying the barrel makes both names resolve to the module, unambiguously --
+# which is why the two are pinned as modules below rather than merely asserted
+# absent.
+CLOSED_BARRELS = {
+    "Auto3D.utils": UTILS_SUBMODULES,
+    "Auto3D.cli": _submodules("cli"),
+    "Auto3D.models": _submodules("models"),
+}
 
 # Names ``batch_opt/batchopt.py`` re-exported for backward compatibility. Two
 # of them (``EnForce_ANI``, ``n_steps``) the module genuinely uses, so they
@@ -412,13 +444,17 @@ UTILS_SUBMODULES = frozenset(
 BATCHOPT_REEXPORTS = frozenset({"EnForce_ANI", "n_steps", "print_stats"})
 
 # The only subpackage whose api.rst-documented dotted path *is* the package
-# path, and therefore the only one allowed to re-export. ``cli`` and ``models``
-# still carry an ``__all__`` and are known remaining barrels: neither is
-# documented at its package path (api.rst documents
-# ``Auto3D.models.contract.CustomNNP``, and no ``Auto3D.cli`` name at all), so
-# both are debt this set records rather than blesses. Removing one means
-# deleting it from here, not adding it.
-SUBPACKAGES_WITH_ALL = frozenset({"isomers", "cli", "models"})
+# path, and therefore the only one allowed to re-export:
+# ``Auto3D.isomers.IsomerEngineFactory``.
+#
+# This set previously also held ``cli`` (6 names) and ``models`` (7 names),
+# recorded as debt rather than blessed. Both barrels are now empty, so both are
+# gone from here. Neither was documented at its package path -- api.rst
+# documents ``Auto3D.models.contract.CustomNNP`` and no ``Auto3D.cli`` name at
+# all -- and every consumer of the thirteen names now imports from the module
+# that defines it. Adding a name back means documenting it at the package path
+# in api.rst first; growing this set is how that shows up in review.
+SUBPACKAGES_WITH_ALL = frozenset({"isomers"})
 
 
 def _source_files() -> list[pathlib.Path]:
@@ -725,3 +761,176 @@ def test_validation_imports_torch_at_module_scope():
         "monkeypatches targeting Auto3D.utils.validation.torch.* will silently "
         "target nothing"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The cli/ and models/ barrels: both halves
+# --------------------------------------------------------------------------- #
+#
+# Same two-part shape as the ``utils`` demolition above -- the names are gone,
+# *and* nobody imports through the package -- for the same reason: removing only
+# the consumers leaves a live barrel for the next contributor, and removing only
+# the barrel is caught by the type checker at best.
+
+CLI_REEXPORTS = ("print_banner", "print_error", "print_success", "print_warning")
+
+MODELS_REEXPORTS = (
+    "CustomNNP",
+    "ModelAdapter",
+    "BaseModelAdapter",
+    "AIMNet2Adapter",
+    "ANI2xAdapter",
+    "ANI2xtAdapter",
+    "CustomModelAdapter",
+)
+
+
+def test_no_src_module_imports_through_a_closed_barrel():
+    """No first-party module pulls a *name* out of ``utils``/``cli``/``models``.
+
+    One AST scan over all three, because they fail the same way and a
+    per-package copy of this loop is how the third one gets forgotten. A
+    submodule reference (``from Auto3D.models import adapter``) is a module
+    reference and stays legal; a name reference does not.
+    """
+    offenders = []
+    for path in _source_files():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = _absolute_module(node, path)
+            allowed = CLOSED_BARRELS.get(module)
+            if allowed is None:
+                continue
+            names = [a.name for a in node.names if a.name not in allowed]
+            if names:
+                offenders.append(
+                    f"{path.relative_to(SRC_ROOT.parent)}:{node.lineno}: "
+                    f"from {module} import {names}"
+                )
+    assert not offenders, (
+        "imports through a closed package barrel (import from the defining "
+        "module instead):\n" + "\n".join(offenders)
+    )
+
+
+def test_cli_package_exposes_no_names():
+    """``Auto3D.cli`` re-exports nothing.
+
+    The four print helpers are checked with the ``from ... import name`` form
+    because that is what consumers wrote and it is the form that raises
+    ``ImportError``. ``app`` and ``console`` are deliberately *not* in that list:
+    each is also a submodule name, so the import always succeeds -- what changed
+    is *what it binds*, which the next test pins.
+    """
+    cli = importlib.import_module("Auto3D.cli")
+    assert not hasattr(cli, "__all__"), (
+        f"Auto3D.cli still declares __all__: {getattr(cli, '__all__', None)}"
+    )
+    for name in CLI_REEXPORTS:
+        with pytest.raises(ImportError):
+            exec(f"from Auto3D.cli import {name}", {})  # noqa: S102
+
+
+def test_cli_app_and_console_names_resolve_to_their_modules():
+    """The collision the barrel created, pinned in the resolved direction.
+
+    ``cli/__init__.py`` bound the Typer instance ``app`` and the Rich
+    ``console`` object over the ``Auto3D.cli.app`` and ``Auto3D.cli.console``
+    *modules*, so one dotted path named two different kinds of object and which
+    one a caller got depended on import order. With the barrel gone the module
+    wins, always. A future re-export of either name would shadow a module again
+    and is what this catches.
+    """
+    import inspect
+
+    namespace: dict[str, object] = {}
+    exec("from Auto3D.cli import app, console", namespace)  # noqa: S102
+    assert inspect.ismodule(namespace["app"]), (
+        "Auto3D.cli.app is shadowed by a re-exported object; the Typer app is "
+        "Auto3D.cli.app.app"
+    )
+    assert inspect.ismodule(namespace["console"]), (
+        "Auto3D.cli.console is shadowed by a re-exported object; the Rich "
+        "console is Auto3D.cli.console.console"
+    )
+
+
+def test_models_package_exposes_no_names():
+    """``Auto3D.models`` re-exports nothing, including ``ModelAdapter``.
+
+    ``ModelAdapter`` is the load-bearing one. It is the *internal* adapter
+    interface -- ``Auto3D.models.contract``'s own docstring says users never
+    implement it -- and api.rst documents only ``CustomNNP``, the user-facing
+    contract, out of that module. Re-exporting the internal interface one level
+    up from the public one put the two confusable names at sibling depth, which
+    is the exact confusion ``contract.py`` exists to prevent.
+    """
+    models = importlib.import_module("Auto3D.models")
+    assert not hasattr(models, "__all__"), (
+        f"Auto3D.models still declares __all__: {getattr(models, '__all__', None)}"
+    )
+    for name in MODELS_REEXPORTS:
+        with pytest.raises(ImportError):
+            exec(f"from Auto3D.models import {name}", {})  # noqa: S102
+
+
+def test_models_submodule_imports_still_work():
+    """Emptying the barrel must not break ``from Auto3D.models import adapter``.
+
+    ``tests/test_species_module.py`` uses exactly this form, and an
+    ``__init__.py`` that imports nothing is the condition under which it is easy
+    to assume otherwise.
+    """
+    from Auto3D.models import adapter, contract
+
+    assert adapter.BaseModelAdapter is not None
+    assert contract.CustomNNP is not None
+
+
+# --------------------------------------------------------------------------- #
+# One name, one meaning: the TautomerEngine collision
+# --------------------------------------------------------------------------- #
+
+def test_only_one_class_in_the_package_is_named_tautomer_engine():
+    """``TautomerEngine`` names the Protocol in ``isomers/base.py``, nothing else.
+
+    Two unrelated things carried this name: the role Protocol in
+    ``Auto3D.isomers.base`` and a concrete two-backend implementation in
+    ``Auto3D.isomer_engine``. ``isomers/factory.py`` imported the concrete one
+    ``as _RDKitOrOmegaTautomerEngine`` to keep them apart *within one file* --
+    a local workaround for a package-wide collision, and one that also named the
+    wrong OpenEye tool (tautomers come from ``oequacpac``, not Omega). The
+    implementation is now ``RDKitOrOEChemTautomerEngine``, matching the
+    backend-named convention its siblings ``RDKitIsomer``/``RDKitSdfIsomer``
+    already follow, and the Protocol keeps the role name so it stays symmetric
+    with ``IsomerEngine`` beside it.
+
+    Static, so it holds for a class nobody imports yet.
+    """
+    definitions = []
+    for path in _source_files():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "TautomerEngine":
+                definitions.append(f"{path.relative_to(SRC_ROOT.parent)}:{node.lineno}")
+    assert definitions == ["Auto3D/isomers/base.py:33"], (
+        f"TautomerEngine is defined at: {definitions}"
+    )
+
+
+def test_isomer_engine_no_longer_binds_either_tautomer_engine_spelling():
+    """The runtime half: the colliding name and its 2.x alias are both gone.
+
+    ``tautomer_engine`` was a 2.x-era lowercase alias of the same class with
+    zero importers anywhere in the repo, so keeping it would have preserved the
+    collision under a second spelling that no test would have exercised.
+    """
+    isomer_engine = importlib.import_module("Auto3D.isomer_engine")
+    for name in ("TautomerEngine", "tautomer_engine"):
+        assert not hasattr(isomer_engine, name), (
+            f"Auto3D.isomer_engine still binds {name}; the implementation is "
+            "RDKitOrOEChemTautomerEngine and the Protocol is "
+            "Auto3D.isomers.base.TautomerEngine"
+        )

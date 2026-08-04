@@ -611,7 +611,7 @@ Use ``pad_from_mols``.
    from Auto3D import NNPModel
 
    # 3.0
-   from Auto3D.models import CustomNNP
+   from Auto3D.models.contract import CustomNNP
 
 There were two descriptions of the custom-NNP interface in 3.x. ``NNPModel``
 lived in ``config.py``, was ``@runtime_checkable``, and was exported in

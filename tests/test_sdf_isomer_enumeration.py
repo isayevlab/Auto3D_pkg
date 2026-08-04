@@ -1,7 +1,8 @@
 """The SDF input path enumerates stereoisomers like the SMILES path.
 
 Every test drives the production ``rdkit_sdf`` engine through
-``create_isomer_engine``, not RDKit in isolation, and inspects the SDF file
+``IsomerEngineFactory.create`` -- the same path ``auto3D.py`` and
+``workflow_workers.py`` use -- not RDKit in isolation, and inspects the SDF file
 Auto3D actually writes.
 """
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.isomers.factory import create_isomer_engine
+from Auto3D.isomers import IsomerEngineFactory
 
 
 def _write_sdf(path, smiles: str, name: str, three_d: bool) -> None:
@@ -30,7 +31,7 @@ def _run_engine(job_dir, smiles, name, three_d, **kwargs):
     output_sdf = job_dir / f"{name}_out.sdf"
     _write_sdf(input_sdf, smiles, name, three_d)
 
-    engine = create_isomer_engine(
+    engine = IsomerEngineFactory.create(
         "rdkit_sdf",
         input_path=str(input_sdf),
         output_path=str(output_sdf),
@@ -71,7 +72,7 @@ class TestUnspecifiedCentersEnumerate:
         input_sdf = job_dir / "threonine_in.sdf"
         output_sdf = job_dir / "threonine_out.sdf"
         _write_sdf(input_sdf, "CC(O)C(N)C(=O)O", "threonine", three_d=False)
-        create_isomer_engine(
+        IsomerEngineFactory.create(
             "rdkit_sdf",
             input_path=str(input_sdf),
             output_path=str(output_sdf),
@@ -109,7 +110,7 @@ class TestUnspecifiedCentersEnumerate:
         input_sdf = job_dir / "threonine3_in.sdf"
         output_sdf = job_dir / "threonine3_out.sdf"
         _write_sdf(input_sdf, "CC(O)C(N)C(=O)O", "threonine", three_d=False)
-        create_isomer_engine(
+        IsomerEngineFactory.create(
             "rdkit_sdf",
             input_path=str(input_sdf),
             output_path=str(output_sdf),

@@ -65,14 +65,26 @@ class TestModelAdapterProtocol:
 
         assert not hasattr(adapter_mod, "ModelAdapter")
 
-    def test_the_package_still_re_exports_it(self):
-        from Auto3D.models import ModelAdapter as reexported
-        from Auto3D.models.contract import ModelAdapter as canonical
+    def test_the_package_does_not_re_export_it(self):
+        """``Auto3D.models.contract`` is the only path, in both directions.
 
-        assert reexported is canonical
-        assert "ModelAdapter" in __import__(
-            "Auto3D.models", fromlist=["__all__"]
-        ).__all__
+        This test previously asserted the opposite -- that ``Auto3D.models``
+        re-exported the name. That re-export put the *internal* adapter
+        interface at a shallower path than the *public* custom-NNP contract
+        (``Auto3D.models.contract.CustomNNP``, api.rst's only entry from this
+        package), which is the precise confusion ``contract.py`` was created to
+        end. ``Auto3D.models`` re-exports nothing now; see
+        ``tests/test_import_boundaries.py::test_models_package_exposes_no_names``
+        for the other six names that went with it.
+        """
+        import importlib
+
+        import pytest
+
+        models = importlib.import_module("Auto3D.models")
+        assert not hasattr(models, "__all__")
+        with pytest.raises(ImportError):
+            exec("from Auto3D.models import ModelAdapter", {})  # noqa: S102
 
     def test_device_is_not_part_of_the_contract(self):
         """Dropped deliberately.
