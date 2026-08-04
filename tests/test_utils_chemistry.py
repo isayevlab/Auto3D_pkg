@@ -370,27 +370,44 @@ class TestAmendMol:
         # (either returns None or attempts to fix)
 
     def test_amend_mol_with_sanitize(self):
-        """Test that amend_mol can sanitize molecules."""
+        """amend_mol(sanitize=True) must actually run RDKit's sanitization,
+        not just return a non-None object.
+
+        A molecule parsed with ``sanitize=False`` has no ring-perception /
+        implicit-valence pass yet, so querying ring info raises a
+        precondition violation -- it genuinely needs sanitizing to become
+        usable. If ``amend_mol``'s sanitize branch were a no-op, this
+        molecule would still raise after the call.
+        """
         from Auto3D.utils.chemistry import amend_mol
-        mol = Chem.MolFromSmiles("CCO")
-        mol = Chem.AddHs(mol)
-        AllChem.EmbedMolecule(mol, randomSeed=42)
+
+        mol = Chem.MolFromSmiles("c1ccccc1", sanitize=False)  # benzene, unsanitized
+        with pytest.raises(RuntimeError):
+            mol.GetRingInfo().NumRings()  # ring perception never ran
 
         amended_mol = amend_mol(mol, sanitize=True)
+
         assert amended_mol is not None
+        # Sanitizing actually ran: ring perception now works and finds the ring.
+        assert amended_mol.GetRingInfo().NumRings() == 1
 
 
 class TestGetMolConnectivity:
     """Test the get_mol_connectivity function."""
 
     def test_ethane_connectivity(self):
-        """Test connectivity for ethane (C-C single bond)."""
+        """Test connectivity for ethane (C-C single bond).
+
+        Pins the exact canonical ordering (atom1_idx < atom2_idx, per the
+        function's own docstring/example), not "either order" -- which would
+        equally accept a broken ``get_mol_connectivity`` that stopped sorting
+        its tuples.
+        """
         from Auto3D.utils.chemistry import get_mol_connectivity
         mol = Chem.MolFromSmiles("CC")
         connectivity = get_mol_connectivity(mol)
 
-        # Should have C-C bond
-        assert (0, 1) in connectivity or (1, 0) in connectivity
+        assert connectivity == {(0, 1)}
 
     def test_ethanol_connectivity(self):
         """Test connectivity for ethanol."""
@@ -425,18 +442,22 @@ class TestGetMolConnectivity:
         assert len(connectivity_with_h) == 4  # 4 C-H bonds
 
     def test_include_bond_order(self):
-        """Test that bond order can be included."""
+        """Test that bond order can be included.
+
+        The previous version's real assertion sat inside ``if len(bond_info)
+        == 3:``, which is false exactly when ``include_bond_order`` silently
+        stops adding the third element -- the one failure mode this test
+        exists to catch. Assert the 3-tuple shape unconditionally, then the
+        bond order value.
+        """
         from Auto3D.utils.chemistry import get_mol_connectivity
         mol = Chem.MolFromSmiles("C=C")  # Ethene
         connectivity = get_mol_connectivity(mol, include_bond_order=True)
 
-        # Should contain tuple with bond order info
-        # Format: (atom1_idx, atom2_idx, bond_order)
-        assert len(connectivity) >= 1
+        assert connectivity == {(0, 1, 2.0)}
         for bond_info in connectivity:
-            if len(bond_info) == 3:
-                # Has bond order
-                assert bond_info[2] == 2.0  # Double bond
+            assert len(bond_info) == 3  # (atom1_idx, atom2_idx, bond_order)
+            assert bond_info[2] == 2.0  # Double bond
 
 
 class TestFilterUnique:
@@ -633,6 +654,9 @@ class TestFilterUnique:
 
         # Large threshold should definitely merge identical mols
         assert len(unique_mols_large) == 1
+        # A tighter threshold can never merge MORE than a looser one -- the
+        # discarded half of this test's own computation, now actually checked.
+        assert len(unique_mols_small) >= len(unique_mols_large)
 
     def test_filter_unique_removehs_is_linear_and_nondestructive(self, monkeypatch):
         """Legacy filter_unique strips Hs once per molecule (not per comparison) and

@@ -107,15 +107,22 @@ class TestMalformedFilesFailCleanly:
             load_yaml_config(cfg)
 
     def test_a_top_level_list_is_refused(self, tmp_path):
+        """``match=`` anchors on the phrase unique to THIS guard's message
+        ("...its top level is a {type}.") -- "must contain a YAML mapping" is
+        also a substring of the empty-file message (config_schema.py:341), so
+        that alone cannot tell this test apart from the empty-file guard
+        firing by mistake (e.g. if the not-a-mapping check were deleted and
+        the empty-file check's message merely happened to also match).
+        """
         cfg = _write(tmp_path, "- k\n- window\n")
 
-        with pytest.raises(ConfigurationError, match="must contain a YAML mapping"):
+        with pytest.raises(ConfigurationError, match="top level is a list"):
             load_yaml_config(cfg)
 
     def test_a_top_level_scalar_is_refused(self, tmp_path):
         cfg = _write(tmp_path, "just a bare string\n")
 
-        with pytest.raises(ConfigurationError, match="must contain a YAML mapping"):
+        with pytest.raises(ConfigurationError, match="top level is a str"):
             load_yaml_config(cfg)
 
     def test_unparseable_yaml_is_refused(self, tmp_path):

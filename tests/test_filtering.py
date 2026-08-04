@@ -61,10 +61,24 @@ class TestFilterWithinCluster:
         assert result == []
 
     def test_single_mol_returns_itself(self):
-        """Single molecule should be returned as-is."""
+        """Single molecule should be returned as-is, explicit Hs and all.
+
+        The RMSD comparison strips Hs from a throwaway copy for speed; the
+        returned molecule must be the caller's original (H-explicit) object,
+        not the no-H comparison copy -- the MLIP downstream requires explicit
+        H, and this is the len(mols) <= 1 short-circuit that never even
+        reaches the strip/compare loop.
+        """
         mol = _create_mol_with_energy("C", -10.0)
+        n_atoms_before = mol.GetNumAtoms()
+        assert any(a.GetAtomicNum() == 1 for a in mol.GetAtoms()), "test premise: has explicit Hs"
+
         result = _filter_within_cluster([mol], rmsd_threshold=0.5)
+
         assert len(result) == 1
+        assert result[0] is mol, "the single-mol short-circuit must return the original object"
+        assert result[0].GetNumAtoms() == n_atoms_before
+        assert any(a.GetAtomicNum() == 1 for a in result[0].GetAtoms())
 
     def test_identical_mols_returns_one(self):
         """Identical molecules should be deduplicated to one."""
@@ -217,11 +231,17 @@ class TestFilterUniqueOptimized:
         assert result == []
 
     def test_filters_unconverged_structures(self):
-        """Unconverged structures should be filtered out."""
+        """Unconverged structures should be filtered out -- and it must be
+        specifically the unconverged one that is gone, not just any one of
+        the two (e.g. a dedup bug that merged them for an unrelated reason
+        would also leave len(result) == 1).
+        """
         mol1 = _create_mol_with_energy("C", -10.0, converged=True)
         mol2 = _create_mol_with_energy("CC", -11.0, converged=False)
         result = filter_unique_optimized([mol1, mol2], rmsd_threshold=0.5)
         assert len(result) == 1
+        assert result[0] is mol1, "the converged structure must be the survivor"
+        assert result[0].GetProp("Converged").lower() == "true"
 
     def test_removes_duplicates(self):
         """Optimized filter should remove similar structures."""
@@ -308,6 +328,56 @@ class TestFilterUniqueOptimized:
 
         # Same molecule but in different energy clusters - both kept
         # (RMSD comparison only happens within clusters)
+        assert len(result) == 2
+
+
+class TestMissingEnergyPropertyMustNotCrash:
+    """filter_unique_optimized must tolerate a record with no 'E_tot', the
+    way the legacy ``utils.chemistry.filter_unique`` already does.
+
+    KNOWN DEFECT (found during cluster E brainstorming, not fixed by this
+    lane): ``filtering.py:75`` sorts the valid-mols list by
+    ``Auto3D.utils.energy.e_tot_ev``, which RAISES (KeyError/ValueError) for
+    a molecule with no usable 'E_tot' property. ``_filter_within_cluster``'s
+    own energy guard, two dozen lines later in the same module, instead uses
+    the tolerant ``try_e_tot_ev`` and treats a missing energy as "fall back
+    to RMSD only". ``utils.chemistry.filter_unique`` (the OTHER conformer
+    filter, sharing the same duplicate criterion since 4.0.1) also uses
+    ``try_e_tot_ev`` throughout and does not crash on this input. So the two
+    filters diverge on malformed input: the same list of mols that
+    ``filter_unique`` happily filters crashes ``filter_unique_optimized``.
+
+    This matters here specifically because cluster B5 is about to delete one
+    of the two filters, and the survivor is the stricter (crashing) one --
+    fixing filtering.py's sort key to use ``try_e_tot_ev``, matching its own
+    energy guard and the legacy filter, is what should make this pass.
+    """
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "filtering.py:75 sorts by e_tot_ev (raises KeyError for a mol "
+            "with no 'E_tot' property) instead of the tolerant try_e_tot_ev "
+            "that _filter_within_cluster's own energy guard and the legacy "
+            "utils.chemistry.filter_unique both use -- the two conformer "
+            "filters disagree on malformed input (cluster E brainstorm defect)."
+        ),
+    )
+    def test_missing_e_tot_property_does_not_crash(self):
+        mol_no_energy = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol_no_energy, randomSeed=42)
+        mol_no_energy.SetProp("Converged", "true")
+        # Deliberately no set_e_tot_from_ev call: this record has no 'E_tot'.
+        assert not mol_no_energy.HasProp("E_tot"), "test premise"
+
+        mol_with_energy = _create_mol_with_energy("CC", -10.0)
+
+        result = filter_unique_optimized(
+            [mol_no_energy, mol_with_energy], rmsd_threshold=0.3
+        )
+
+        # Correct behavior: no crash, and a mol with no usable energy simply
+        # cannot be deduped by energy -- it must survive alongside the other.
         assert len(result) == 2
 
 
