@@ -162,3 +162,88 @@ class TestSdfInputStereo:
             f"ambiguous input instead of silently mixing configurations as "
             f"conformers of one species"
         )
+
+    def test_two_stereocenters_one_unspecified_yields_two_distinct_species(self, job_dir):
+        """A second fixture for the same defect that alanine cannot exercise.
+
+        Alanine has exactly one stereocenter, so ``RDKitSdfIsomer.stereoisomers``'s
+        own enantiomer-pair removal collapses its two configurations down to
+        ONE before the naming defect above ever has a second configuration to
+        mix -- ``assert not mixed`` in the test above is structurally
+        unfalsifiable for a single-stereocenter input: it would pass even if
+        stereoisomer enumeration were disabled entirely (a mutation that
+        truncates ``stereoisomers()`` to its first element is byte-identical
+        for alanine). This fixture specifies one stereocenter and leaves a
+        second one unspecified, so the two surviving configurations are
+        diastereomers, not mirror images of each other, and enantiomer dedup
+        keeps both -- giving the "mixed under one name" check something to
+        actually falsify.
+
+        Tracking is also different from the test above on purpose: pooling
+        R/S codes across a molecule's own multiple stereocenters into one set
+        (as the alanine test does) reads a single genuine two-center
+        configuration as "mixed" against itself the moment its two centers
+        happen to carry different labels. Track the full (atom_idx, code)
+        configuration per conformer instead.
+        """
+        from rdkit.Chem import AllChem
+
+        from Auto3D.isomers import IsomerEngineFactory
+
+        # C2 (attached to OH) is specified via @; C3 (attached to NH2) is left
+        # unspecified. EnumerateStereoisomers(onlyUnassigned=True) then varies
+        # only C3, producing two diastereomers (not enantiomers of each other,
+        # since C2 is fixed), so enantiomer_key dedup does not collapse them.
+        mol = Chem.MolFromSmiles("C[C@H](O)C(N)C(=O)O")
+        mol.SetProp("_Name", "aminobutanol_flat")
+        AllChem.Compute2DCoords(mol)
+
+        input_sdf = job_dir / "aminobutanol_flat.sdf"
+        with Chem.SDWriter(str(input_sdf)) as writer:
+            writer.write(mol)
+
+        output_sdf = job_dir / "aminobutanol_enumerated.sdf"
+        engine = IsomerEngineFactory.create(
+            "rdkit_sdf",
+            input_path=str(input_sdf),
+            output_path=str(output_sdf),
+            max_confs=12,
+            threshold=0.3,
+            n_jobs=1,
+        )
+
+        try:
+            engine.run()
+        except ValueError:
+            # Explicit refusal of ambiguous stereochemistry is an acceptable
+            # resolution; there is nothing further to check.
+            return
+
+        per_species: dict[str, set[frozenset]] = {}
+        for out_mol in Chem.SDMolSupplier(str(output_sdf), removeHs=False):
+            if out_mol is None:
+                continue
+            name = out_mol.GetProp("_Name")
+            species = name.rsplit("_", 1)[0]
+            Chem.AssignStereochemistryFrom3D(out_mol)
+            found = frozenset(
+                Chem.FindMolChiralCenters(out_mol, useLegacyImplementation=False)
+            )
+            per_species.setdefault(species, set()).add(found)
+
+        # Unlike the alanine case, both diastereomers must actually survive --
+        # if stereoisomer enumeration silently truncated to one (the mutation
+        # the alanine test above cannot catch), there would be nothing left
+        # to check for mixing either.
+        assert len(per_species) == 2, (
+            f"expected the two diastereomers to survive as two distinct "
+            f"species, got {sorted(per_species)}"
+        )
+
+        mixed = {
+            name: sorted(configs) for name, configs in per_species.items() if len(configs) > 1
+        }
+        assert not mixed, (
+            f"RDKitSdfIsomer wrote more than one stereochemical configuration "
+            f"under a single species name: {mixed}"
+        )

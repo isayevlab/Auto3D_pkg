@@ -5,10 +5,18 @@ neural-network potential or thermodynamic calculation, so they stay in the
 fast test suite (the main tests/test_thermo.py module is marked slow).
 
 The two AIMNET Hessian-model checks below are marked ``slow``: each requires a
-real ~9s NNP load (a separate model from the conftest ``aimnet_model`` adapter,
-since ``_load_hessian_model`` returns the bare AIMNet2Calculator). They share a
-module-scoped ``aimnet_hessian_model`` fixture so that, in the slow suite, the
-model still loads only once instead of twice.
+real ~9s NNP load. They share a module-scoped ``aimnet_hessian_model`` fixture so
+that, in the slow suite, the model still loads only once instead of twice.
+
+Test doubles handed to ``Calculator`` mix in
+:class:`tests.helpers_adapter.AdapterModuleMixin`. That is not incidental
+boilerplate: ``Calculator``'s first argument is a
+:class:`Auto3D.models.contract.ModelAdapter` and it asks that object for the
+species convention, so a bare ``nn.Module`` with only a ``forward`` is exactly
+the category error the constructor now rejects by name. The mixin supplies the
+members these doubles do not care about (the two pads, ``to_species``,
+``energy``, ``analytic_hessian``) with ``BaseModelAdapter``'s own defaults, so
+the double satisfies the contract without any of them weakening it.
 """
 from __future__ import annotations
 
@@ -292,25 +300,36 @@ def test_do_mol_thermo_default_temperature_is_298_15():
 
 @pytest.mark.slow
 def test_load_hessian_model_aimnet(aimnet_hessian_model):
-    from aimnet.calculators import AIMNet2Calculator
+    """AIMNET yields an adapter that answers the analytic-Hessian capability.
+
+    The value under test is that ``analytic_hessian`` returns a Hessian rather
+    than ``None``: ``None`` would send AIMNet2 down the autograd path, which
+    differentiates only the core module and silently drops the external D3 and
+    Coulomb terms -- shifting C-H stretches by ~4% with nothing in the output
+    saying so. "Something adapter-shaped" is not enough to establish that, which
+    is why the capability itself is exercised.
+    """
+    import torch
+
+    from Auto3D.models.adapter import AIMNet2Adapter
 
     m = aimnet_hessian_model
-    # An AIMNet2Calculator from the aimnet registry (not a bundled .jpt);
-    # vib_hessian routes it through the calculator's full-pipeline analytic Hessian.
-    assert m is not None
-    assert hasattr(m, "model")  # the calculator wraps the underlying nn.Module
-    # AIMNet2Adapter also has an fp32 .model, so the hasattr check above would
-    # pass just as well if AIMNET were wrongly routed to return the adapter
-    # instead of the calculator -- silently dropping the external D3 and
-    # Coulomb terms and shifting C-H stretches by ~4%. This isinstance check
-    # is what actually pins the calculator, not just "something with .model".
-    assert isinstance(m, AIMNet2Calculator)
+    assert isinstance(m, AIMNet2Adapter)
+
+    hess = m.analytic_hessian(
+        torch.tensor([[[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]]]),
+        torch.tensor([[1, 1]]),
+        torch.tensor([0]),
+    )
+    assert hess is not None
+    assert hess.numel() == 36  # (2 atoms * 3)**2
 
 
 @pytest.mark.slow
 def test_load_hessian_model_aimnet_is_fp32(aimnet_hessian_model):
     import torch
-    # The underlying aimnet module stays fp32 (no whole-graph fp64 upcast).
+    # The underlying aimnet module stays fp32 (no whole-graph fp64 upcast, which
+    # would be false precision here -- unlike the ANI/custom autograd branch).
     p = next(aimnet_hessian_model.model.parameters())
     assert p.dtype == torch.float32
 
@@ -698,14 +717,17 @@ class TestHessianGeometrySourcing:
         class _FakeCalculator:
             pass
 
-        # A bare object is enough: the AIMNet2Calculator isinstance check fails
-        # for it, so the autograd branch is taken and we stop once the model
-        # call raises (model=None is not callable) -- well after both the
-        # Atoms object and the Hessian's coordinate tensor were built.
+        from tests.helpers_adapter import FakeAdapter
+
+        # A conforming adapter with no native Hessian, so `analytic_hessian`
+        # returns None and the autograd branch is taken. The call is expected to
+        # blow up inside the (monkeypatched) tensor machinery; that happens well
+        # after both the Atoms object and the Hessian's coordinate tensor exist,
+        # which is all this test reads.
         try:
             thermo_mod.vib_hessian(
-                mol, _FakeCalculator(), model=None,
-                model_name="AIMNET", positions=relaxed,
+                mol, _FakeCalculator(), FakeAdapter(),
+                positions=relaxed,
             )
         except Exception:
             # Reaching the model call is fine; we only need the geometry
@@ -969,7 +991,7 @@ class TestFailedRecordKeepsInputGeometry:
         monkeypatch.setattr(thermo_mod, "IdealGasThermo", _Boom)
 
         with pytest.raises(ValueError):
-            thermo_mod.do_mol_thermo(mol, atoms, model=None, model_name="AIMNET")
+            thermo_mod.do_mol_thermo(mol, atoms, adapter=None)
 
         after = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
         np.testing.assert_allclose(after, original)
@@ -998,7 +1020,7 @@ class TestFailedRecordKeepsInputGeometry:
         )
         monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: fake)
 
-        result = thermo_mod.do_mol_thermo(mol, atoms, model=None, model_name="AIMNET")
+        result = thermo_mod.do_mol_thermo(mol, atoms, adapter=None)
 
         assert result is mol
         assert mol.HasProp("G_hartree")
@@ -1010,41 +1032,44 @@ class TestFailedRecordKeepsInputGeometry:
         )
 
 
-class TestHessianHelperDispatch:
-    """An unrecognized model name must raise, not return None."""
+class TestTheNameKeyedHessianEvaluatorIsGone:
+    """``aimnet_hessian_helper`` and its unknown-name ``ValueError``, retired.
 
-    def test_an_unknown_name_raises(self):
-        import torch
+    That function was a fifth way to call a model: five name-keyed branches,
+    a per-engine argument order, its own Hartree->eV factor, and a final ``else``
+    that existed only because the four branches could not cover every engine name
+    -- every aimnet registry alias (``aimnet2-2025``, ``aimnet2-nse``, ...) and
+    the lowercase ``aimnet`` landed there and raised. ``vib_hessian`` now asks the
+    adapter (``analytic_hessian``, else autograd of ``energy``), so there is no
+    name to fail to recognize and the alias case is *supported* rather than
+    diagnosed. See ``tests/test_hessian_invocation_contract.py``.
+    """
 
-        from Auto3D.ASE.thermo import aimnet_hessian_helper
+    def test_the_helper_does_not_exist(self):
+        from Auto3D.ASE import thermo as thermo_mod
 
-        with pytest.raises(ValueError, match="not-a-real-model"):
-            aimnet_hessian_helper(
-                torch.zeros(1, 1, 3),
-                numbers=torch.ones(1, 1, dtype=torch.long),
-                charge=torch.zeros(1),
-                model=None,
-                model_name="not-a-real-model",
-            )
+        assert not hasattr(thermo_mod, "aimnet_hessian_helper")
 
-    def test_a_registry_alias_raises_rather_than_returning_none(self):
-        """aimnet2-2025 matched no branch and fell off the end as None.
+    def test_a_registry_alias_is_now_evaluable_rather_than_a_valueerror(self):
+        """The old dispatch's own test asserted this raised; it must not now.
 
-        None then flowed into torch.autograd.functional.hessian, whose error
-        names neither the model nor the dispatch.
+        Driven with a conforming adapter and no engine name at all, which is the
+        point: an alias cannot fall through a dispatch that has no branches.
         """
         import torch
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo import aimnet_hessian_helper
+        from Auto3D.ASE import thermo as thermo_mod
+        from tests.helpers_adapter import FakeAdapter
 
-        with pytest.raises(ValueError, match="aimnet2-2025"):
-            aimnet_hessian_helper(
-                torch.zeros(1, 1, 3),
-                numbers=torch.ones(1, 1, dtype=torch.long),
-                charge=torch.zeros(1),
-                model=None,
-                model_name="aimnet2-2025",
-            )
+        mol = Chem.AddHs(Chem.MolFromSmiles("O"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+
+        vib = thermo_mod.vib_hessian(
+            mol, object(), FakeAdapter(), torch.device("cpu")
+        )
+        assert vib.get_hessian_2d().shape == (3 * mol.GetNumAtoms(),) * 2
 
 
 class TestLoadHessianModelRouting:
@@ -1053,17 +1078,23 @@ class TestLoadHessianModelRouting:
 
     These monkeypatch ``create_model`` itself, so no real NNP is loaded and
     torchani need not be installed -- only the wiring (which arguments reach
-    ModelFactory, and that the returned module is the adapter's raw
-    ``.model``, upcast to fp64) is under test. The AIMNET/registry branch is
-    deliberately NOT exercised here: constructing it for real would load an
-    actual NNP (forbidden in this environment), and its contract is already
-    pinned by the slow ``test_load_hessian_model_aimnet*`` tests above.
+    ModelFactory, and that the adapter handed back owns a module upcast to fp64)
+    is under test. The AIMNET/registry branch is deliberately NOT exercised here:
+    constructing it for real would load an actual NNP (forbidden in this
+    environment), and its contract is already pinned by the slow
+    ``test_load_hessian_model_aimnet*`` tests above.
+
+    ``_load_hessian_model`` returns the ADAPTER now, not its raw ``.model``:
+    ``vib_hessian`` asks the adapter for the species convention and for either a
+    native or an autograd Hessian, so handing back the bare module would put the
+    fp64 upcast and the species remap in two different places again.
     """
 
     def _install_fake_factory(self, monkeypatch):
         import torch
 
         from Auto3D.ASE import thermo as thermo_mod
+        from tests.helpers_adapter import AdapterModuleMixin
 
         calls = {}
 
@@ -1072,9 +1103,14 @@ class TestLoadHessianModelRouting:
                 super().__init__()
                 self.weight = torch.nn.Parameter(torch.zeros(1))
 
-        class _FakeAdapter:
+        class _FakeAdapter(AdapterModuleMixin, torch.nn.Module):
             def __init__(self):
+                super().__init__()
                 self.model = _FakeModule()
+
+            def forward(self, coords, species, charges, atom_mask=None):
+                energy = coords.pow(2).sum(dim=(1, 2))
+                return energy, torch.zeros_like(coords)
 
         def _fake_create_model(name, device, compile_model=None, use_cache=True):
             calls["args"] = (name, device, compile_model, use_cache)
@@ -1095,7 +1131,7 @@ class TestLoadHessianModelRouting:
         # model_name2model_calculator loads right after in calc_thermo.
         # compile_model=False: nothing here benefits from torch.compile.
         assert calls["args"] == ("ANI2xt", device, False, False)
-        assert result.weight.dtype == torch.float64
+        assert result.model.weight.dtype == torch.float64
 
     def test_custom_path_routes_through_model_factory(self, monkeypatch, tmp_path):
         import torch
@@ -1114,7 +1150,7 @@ class TestLoadHessianModelRouting:
         # value here would be asserting a no-op. (It does matter for the
         # ANI2xt/ANI2x branch above, which the previous test covers.)
         assert (name, device_arg, compile_model) == (str(fake_path), device, False)
-        assert result.weight.dtype == torch.float64
+        assert result.model.weight.dtype == torch.float64
 
 
 class TestCalculatorChargeInvalidatesCache:
@@ -1149,15 +1185,16 @@ class TestCalculatorChargeInvalidatesCache:
         from torch import nn
 
         from Auto3D.ASE.thermo import Calculator
+        from tests.helpers_adapter import AdapterModuleMixin
 
-        class _ChargeDependentModel(nn.Module):
+        class _ChargeDependentModel(AdapterModuleMixin, nn.Module):
             def __init__(self):
                 super().__init__()
                 # Anchors device=cpu / dtype=float32 for the ASE-facing tensors.
                 self.anchor = nn.Parameter(torch.zeros(1))
                 self.calls = 0
 
-            def forward(self, coords, species, charges):
+            def forward(self, coords, species, charges, atom_mask=None):
                 self.calls += 1
                 q = float(charges.reshape(-1)[0].item())
                 # E = -1 eV per unit charge; F = +0.5 q eV/A along x on atom 0.
@@ -1167,7 +1204,7 @@ class TestCalculatorChargeInvalidatesCache:
                 return energy, forces
 
         model = _ChargeDependentModel()
-        return Calculator(model, charge, model_name="AIMNET"), model
+        return Calculator(model, charge), model
 
     @staticmethod
     def _atoms():
@@ -1323,7 +1360,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
 
         self._pretend_cuda_is_available(monkeypatch)
         model = self._paramless_model()
-        calc = Calculator(model, 0, model_name="AIMNET", device=torch.device("cpu"))
+        calc = Calculator(model, 0, device=torch.device("cpu"))
 
         assert calc.device == torch.device("cpu")
         assert calc.dtype is torch.float32
@@ -1356,7 +1393,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         from Auto3D.ASE.thermo import Calculator
 
         self._pretend_cuda_is_available(monkeypatch)
-        calc = Calculator(self._paramless_model(), 0, model_name="AIMNET")
+        calc = Calculator(self._paramless_model(), 0)
 
         assert calc.device == torch.device("cpu")
         assert calc.dtype is torch.float32
@@ -1368,7 +1405,9 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
 
         from Auto3D.ASE.thermo import Calculator
 
-        class _WithParam(nn.Module):
+        from tests.helpers_adapter import AdapterModuleMixin
+
+        class _WithParam(AdapterModuleMixin, nn.Module):
             def __init__(self):
                 super().__init__()
                 self.anchor = nn.Parameter(torch.zeros(1, dtype=torch.float64))
@@ -1376,7 +1415,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
             def forward(self, coords, species, charges, atom_mask=None):
                 return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
 
-        calc = Calculator(_WithParam(), 0, model_name="AIMNET")
+        calc = Calculator(_WithParam(), 0)
         assert calc.device == torch.device("cpu")
         assert calc.dtype is torch.float64
 
@@ -1473,158 +1512,161 @@ class TestSymmetryNumberIsValidatedNotClamped:
         )
 
 
-class TestAimnetHessianHelperBoundaries:
-    """Two boundary defects in the autograd-Hessian dispatch.
+class TestTheHessianPathBoundaryCasesAfterUnification:
+    """The two boundary defects the deleted name-keyed dispatch used to own.
 
-    ``aimnet_hessian_helper`` is what ``vib_hessian`` differentiates for
-    ANI2xt / ANI2x / custom NNPs. Stubs stand in for the models: what is under
-    test is the dispatch and the tensors it builds, not any potential.
+    ``aimnet_hessian_helper`` had to convert species itself for its ANI2xt branch
+    (``reshape(-1)``, not ``squeeze()``, so a MONATOMIC molecule's ``(1, 1)``
+    numbers tensor did not collapse to 0-d and make ``.tolist()`` a bare int) and
+    had to cast the charge to the coordinates' dtype for its custom-NNP branch
+    (``vib_hessian`` builds ``torch.tensor([charge])``, i.e. int64, while the
+    optimization half of the same call feeds float32 through ``pad_from_mols``).
+
+    Both are still properties of the path, but neither is now that function's
+    problem, and that is the point of keeping these tests:
+
+    * species conversion happens ONCE, in ``vib_hessian``, over a Python list of
+      atomic numbers taken from the mol -- no tensor to collapse, and the shape
+      is checked below for a lone atom;
+    * the charge cast lives in ``CustomModelAdapter.energy``
+      (``charges.to(coords.dtype)``), which is the same code the optimization
+      path uses, so the two cannot drift apart. Pinned in
+      ``tests/test_model_adapter.py::TestEnergyIsDtypePreserving``; asserted here
+      end-to-end through ``vib_hessian``.
     """
 
     @staticmethod
-    def _one_atom_inputs(device="cpu"):
-        import torch
+    def _monatomic():
+        from rdkit import Chem
 
-        coord = torch.zeros(1, 1, 3, dtype=torch.double, requires_grad=False)
-        numbers = torch.tensor([[6]])          # monatomic carbon -- shape (1, 1)
-        charge = torch.tensor([0])             # int64, exactly as vib_hessian builds it
-        return coord, numbers, charge
+        mol = Chem.MolFromSmiles("[C]")
+        mol = Chem.AddHs(mol)
+        conf = Chem.Conformer(mol.GetNumAtoms())
+        conf.SetAtomPosition(0, (0.0, 0.0, 0.0))
+        mol.AddConformer(conf, assignId=True)
+        assert mol.GetNumAtoms() == 1, "test premise: exactly one atom"
+        return mol
 
-    def test_a_monatomic_species_does_not_crash_the_ani2xt_branch(self):
-        """squeeze() collapsed a (1, 1) numbers tensor to 0-d.
+    def test_a_monatomic_species_gets_one_species_index_not_a_scalar(self):
+        """``squeeze()`` collapsed a (1, 1) numbers tensor to 0-d.
 
         ``.tolist()`` on a 0-d tensor is a bare ``int``, and iterating an int
-        raises ``TypeError: 'int' object is not iterable``. Reachable: ``vib_hessian``
-        builds the Hessian before ``_detect_geometry`` runs three lines later, so
-        nothing classifies the species monatomic in time to skip this, and the
-        lone atom was reported as ``Thermo_failed`` rather than as monatomic.
+        raises ``TypeError``. Reachable: ``vib_hessian`` builds the Hessian before
+        ``_detect_geometry`` runs three lines later, so nothing classifies the
+        species monatomic in time to skip it, and the lone atom was reported as
+        ``Thermo_failed`` rather than as monatomic.
         """
         import torch
 
-        from Auto3D.ASE.thermo import aimnet_hessian_helper
+        from Auto3D.ASE import thermo as thermo_mod
+        from tests.helpers_adapter import FakeAdapter
 
-        coord, numbers, charge = self._one_atom_inputs()
+        adapter = FakeAdapter()
         seen = {}
+        real_to_species = adapter.to_species
 
-        class _FakeANI2xt:
-            def __call__(self, species, positions):
-                seen["species"] = species
-                return torch.zeros(1, dtype=torch.double)
+        def _record(atomic_numbers):
+            seen["numbers"] = list(atomic_numbers)
+            return real_to_species(atomic_numbers)
 
-        aimnet_hessian_helper(
-            coord, numbers=numbers, charge=charge,
-            model=_FakeANI2xt(), model_name="ANI2xt",
+        adapter.to_species = _record
+
+        thermo_mod.vib_hessian(
+            self._monatomic(), object(), adapter, torch.device("cpu")
         )
 
-        assert seen["species"].shape == (1, 1), (
-            f"expected one species index for one atom, got {seen['species'].shape}"
+        assert seen["numbers"] == [6], (
+            f"one atom must yield one species value, got {seen['numbers']}"
         )
 
-    def test_a_custom_model_sees_a_float_charge_matching_its_coordinates(self, tmp_path):
+    def test_a_custom_model_sees_a_float_charge_matching_its_coordinates(self):
         """The optimization half of the same run passes float32 (padding.py).
 
-        This branch passed the int64 tensor ``vib_hessian`` built from a Python
-        int, so a custom NNP that does arithmetic on the charge, or that is
-        dtype-sensitive, got two different answers within one ``calc_thermo``
-        call.
+        ``vib_hessian`` builds the charge from a Python int (int64), so a custom
+        NNP that does arithmetic on it, or that is dtype-sensitive, used to get
+        two different answers within one ``calc_thermo`` call. The cast now lives
+        in ``CustomModelAdapter.energy``, i.e. in the same object the
+        optimization path calls.
         """
         import torch
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        from torch import nn
 
-        from Auto3D.ASE.thermo import aimnet_hessian_helper
+        from Auto3D.ASE import thermo as thermo_mod
+        from Auto3D.models.adapter import CustomModelAdapter
 
-        model_file = tmp_path / "custom_nnp.pt"
-        model_file.write_bytes(b"not a real model; only its existence is checked")
-        coord, numbers, charge = self._one_atom_inputs()
-        assert charge.dtype == torch.int64, "test premise: vib_hessian builds int64"
         seen = {}
 
-        class _FakeCustom:
-            def forward(self, species, positions, charges):
+        class _Toy(nn.Module):
+            def forward(self, species, coords, charges):
                 seen["charge_dtype"] = charges.dtype
-                return torch.zeros(1, dtype=torch.double)
+                return coords.pow(2).sum(dim=(1, 2))
 
-        aimnet_hessian_helper(
-            coord, numbers=numbers, charge=charge,
-            model=_FakeCustom(), model_name=str(model_file),
-        )
+        adapter = CustomModelAdapter.__new__(CustomModelAdapter)
+        nn.Module.__init__(adapter)
+        adapter.model = _Toy()
+        adapter.coord_pad, adapter.species_pad = 0.0, -1
 
-        assert seen["charge_dtype"] == coord.dtype, (
+        mol = Chem.AddHs(Chem.MolFromSmiles("O"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        thermo_mod.vib_hessian(mol, object(), adapter, torch.device("cpu"))
+
+        # torch.float64: vib_hessian builds fp64 coordinates, and `energy` is
+        # dtype-preserving, so the charge follows the coordinates rather than
+        # arriving as the int64 tensor the formal charge started as.
+        assert seen["charge_dtype"] is torch.float64, (
             f"custom NNP received charge as {seen['charge_dtype']} beside "
-            f"{coord.dtype} coordinates"
+            "float64 coordinates"
         )
-
-    @pytest.mark.parametrize("spelling", ["ANI2xt", "ani2xt", "ANI2XT"])
-    def test_the_engine_name_is_matched_case_insensitively(self, spelling):
-        """Every other engine-name gate in Auto3D folds case; this one did not.
-
-        `calc_thermo(path, "ani2x")` passed `resolve_engine_name`,
-        `to_model_species` and `check_engine_supports_molecules` -- all verified
-        to fold case -- and then failed here, after paying for model
-        construction. `auto3d run -e ani2x` worked, so the two entry points
-        disagreed on the same string.
-        """
-        import torch
-
-        from Auto3D.ASE.thermo import aimnet_hessian_helper
-
-        coord, numbers, charge = self._one_atom_inputs()
-
-        class _FakeANI2xt:
-            def __call__(self, species, positions):
-                return torch.zeros(1, dtype=torch.double)
-
-        # No ValueError: the name dispatched instead of falling through.
-        aimnet_hessian_helper(
-            coord, numbers=numbers, charge=charge,
-            model=_FakeANI2xt(), model_name=spelling,
-        )
-
-    def test_an_unrecognized_name_still_raises(self):
-        """Case folding must not turn the unknown-name guard into a catch-all."""
-        import torch
-
-        from Auto3D.ASE.thermo import aimnet_hessian_helper
-
-        coord, numbers, charge = self._one_atom_inputs()
-        with pytest.raises(ValueError, match="cannot evaluate model_name"):
-            aimnet_hessian_helper(
-                coord, numbers=numbers, charge=charge,
-                model=object(), model_name="aimnet2-2025x",
-            )
 
 
 class TestLoadHessianModelDispatchFoldsCase:
-    """The other half of the case-sensitivity defect, one function up.
+    """The dtype half of the dispatch still folds case, one function up.
 
-    `_load_hessian_model("ani2x", device)` used to miss the ANI branch and fall
-    through to the aimnet-registry branch, which returns an ANI2xAdapter that has
-    no `.calculator` -- so the run died with `AttributeError: 'ANI2xAdapter'
-    object has no attribute 'calculator'` in the generic "Unexpected Error" panel
-    at exit 1, after model construction had already been paid for.
+    ``_load_hessian_model("ani2x", device)`` used to miss the ANI branch and fall
+    through to the aimnet-registry branch, which then reached for a
+    ``.calculator`` attribute an ANI2xAdapter does not have -- so the run died in
+    the generic "Unexpected Error" panel at exit 1, after model construction had
+    already been paid for. The reach-through is gone, but the branch still exists
+    and still decides fp64-vs-fp32, so the case folding still matters: an ANI
+    engine that missed it would be differentiated in fp32.
     """
 
     @pytest.mark.parametrize("spelling", ["ANI2x", "ani2x", "ANI2xt", "ani2xt"])
     def test_an_ani_name_takes_the_ani_branch_in_any_case(self, spelling, monkeypatch):
+        import torch
+
         from Auto3D.ASE import thermo as thermo_mod
+        from tests.helpers_adapter import AdapterModuleMixin
 
-        class _FakeModel:
-            def double(self):
-                return "the-ani-module"
+        class _FakeModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.zeros(1))
 
-        class _FakeAdapter:
-            model = _FakeModel()
+        class _FakeAdapter(AdapterModuleMixin, torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = _FakeModel()
 
-            @property
-            def calculator(self):  # pragma: no cover - reaching this is the bug
-                raise AssertionError(
-                    "took the aimnet-registry branch for an ANI engine name"
-                )
+            def forward(self, coords, species, charges, atom_mask=None):
+                raise AssertionError("not called by _load_hessian_model")
 
-        monkeypatch.setattr(
-            thermo_mod, "create_model", lambda *a, **k: _FakeAdapter()
-        )
+        seen = {}
 
-        assert thermo_mod._load_hessian_model(spelling, "cpu") == "the-ani-module"
+        def _create(name, device, compile_model=None, use_cache=True):
+            seen["use_cache"] = use_cache
+            return _FakeAdapter()
+
+        monkeypatch.setattr(thermo_mod, "create_model", _create)
+
+        result = thermo_mod._load_hessian_model(spelling, torch.device("cpu"))
+
+        # The ANI branch, identified by what only it does: fp64 in place, and the
+        # factory cache disabled so the shared fp32 instance is not upcast too.
+        assert result.model.weight.dtype == torch.float64
+        assert seen["use_cache"] is False
 
 
 class TestDerivedMultiplicityIsAlsoChecked:

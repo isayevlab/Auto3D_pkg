@@ -272,14 +272,20 @@ class TestRemoveEnantiomers:
         try:
             result = remove_enantiomers(inpath, outpath)
 
-            # Check result dictionary
-            assert "mol" in result
+            # "mol_1"/"mol_2" collapse to the single group "mol" (the
+            # trailing isomer index is stripped), and the two input SMILES
+            # are a genuine enantiomer pair, so exactly one must survive.
+            # `"mol" in result` alone, or `len(lines) >= 1`, would still pass
+            # if the enantiomer filter never removed anything at all.
+            assert set(result.keys()) == {"mol"}
+            assert len(result["mol"]) == 1, (
+                f"a genuine enantiomer pair survived: {result['mol']}"
+            )
 
             # Check output file
             with open(outpath) as f:
                 lines = f.readlines()
-            # Should have fewer or equal lines if enantiomers were removed
-            assert len(lines) >= 1
+            assert len(lines) == 1
         finally:
             os.unlink(inpath)
             os.unlink(outpath)
@@ -348,7 +354,14 @@ class TestAmendConfiguration:
 
         try:
             result = amend_configuration(path)
-            assert "mol" in result
+            # A single stereocenter (2 possible configurations) with both
+            # already present (mol_1, mol_2 -> group "mol") is already
+            # complete: amend_configuration must leave it as the same two
+            # SMILES, not add a spurious enantiomer or drop one. `"mol" in
+            # result` alone would pass even if the value were empty, doubled,
+            # or garbage.
+            assert set(result.keys()) == {"mol"}
+            assert result["mol"] == ["C[C@H](O)F", "C[C@@H](O)F"]
         finally:
             os.unlink(path)
 

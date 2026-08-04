@@ -169,6 +169,34 @@ class TestStereoisomerTruncation:
             # Otherwise we must have gone well past the old silent cap.
             assert len(isomers) > 1024
 
+    def test_truncation_warning_fires_when_cap_is_hit(self, caplog, monkeypatch):
+        """When enumeration actually hits the cap, a warning must fire.
+
+        ``MAX_STEREOISOMERS`` is 65536 in production, so the 4096-isomer probe
+        above never comes close to it: the ``if len(isomers) == 1024`` branch
+        in that test is dead code today (it was live only against the old
+        RDKit default cap of 1024), and ``len(isomers) > 1024`` alone would
+        keep passing even if the truncation-warning block were deleted
+        entirely. Monkeypatch the cap down to something the same molecule
+        actually reaches, so the warning path is genuinely exercised.
+        """
+        import Auto3D.isomer_engine as isomer_engine_mod
+
+        monkeypatch.setattr(isomer_engine_mod, "MAX_STEREOISOMERS", 1024)
+
+        smiles = "NC(O)" + "C(O)" * 11 + "C(=O)O"  # 4096 possible isomers
+        mol = Chem.MolFromSmiles(smiles)
+        assert mol is not None
+        with caplog.at_level(logging.WARNING):
+            isomers = RDKitIsomer.enumerate_func(mol)
+
+        assert len(isomers) == 1024, (
+            f"expected the patched cap to bind, got {len(isomers)}"
+        )
+        assert any("truncat" in r.message.lower() for r in caplog.records), (
+            "hitting the isomer cap must log a truncation warning"
+        )
+
 
 # ---------------------------------------------------------------------------
 # FIX 3 — clash dead-band + MMFF->UFF fallback for unparameterizable elements
@@ -206,25 +234,72 @@ class TestConformerCount:
         assert calculate_conformer_count(proton) >= 1
 
     def test_floored_at_one_for_lone_heavy_atom(self):
-        """A bare single heavy atom also floors at >= 1."""
-        # A bare carbon atom (no H) -> 0 rotatable bonds, 1 heavy atom.
-        atom = Chem.MolFromSmiles("[C]")
-        assert calculate_conformer_count(atom) >= 1
+        """A bare single heavy atom floors at exactly 1, not merely >= 1.
 
-    def test_smiles_and_sdf_paths_agree(self):
+        ``[C]`` has num_heavy=1 and 0 rotatable bonds, so
+        ``max(1, num_heavy, formula) == max(1, 1, 0) == 1`` -- the literal
+        ``1`` floor is redundant here (num_heavy alone already gives 1), so
+        this test cannot exercise that constant distinctly from the
+        num_heavy floor (the ``[H+]`` sibling above, with num_heavy=0, is what
+        actually does). What this test CAN pin is the exact value, not just a
+        lower bound: ``>= 1`` would keep passing even if the function
+        returned, say, 1000 for a lone atom.
+        """
+        atom = Chem.MolFromSmiles("[C]")
+        assert calculate_conformer_count(atom) == 1
+
+    def test_smiles_and_sdf_paths_agree(self, tmp_path, monkeypatch):
         """SMILES and SDF paths must compute the SAME conformer budget.
 
-        Both embed paths now call calculate_conformer_count on the H-complete
-        (AddHs) mol, so the count is identical for glycerol regardless of input
-        format -- and it equals the richer with-H count, not the no-H count.
+        The previous version of this test called
+        ``calculate_conformer_count(Chem.AddHs(glycerol))`` on both sides of
+        its own comparison -- the literal same expression twice -- which
+        invoked neither embed path at all and could not fail short of a
+        typo. Drive the two REAL production call sites instead
+        (``RDKitIsomer.embed_conformer`` and ``RDKitSdfIsomer.run``) and spy
+        on ``AllChem.EmbedMultipleConfs`` to capture the ``numConfs`` each one
+        actually computed.
         """
-        glycerol = Chem.MolFromSmiles("OCC(O)CO")
-        # SMILES path budget: count on AddHs(mol).
-        smiles_path_count = calculate_conformer_count(Chem.AddHs(glycerol))
-        # SDF path reads removeHs=False and then AddHs's; for a mol already
-        # carrying explicit Hs, AddHs is idempotent, so the budget matches.
-        sdf_mol_with_explicit_h = Chem.AddHs(glycerol)
-        sdf_path_count = calculate_conformer_count(Chem.AddHs(sdf_mol_with_explicit_h))
+        glycerol_smiles = "OCC(O)CO"
+
+        captured: list[int] = []
+        real_embed = AllChem.EmbedMultipleConfs
+
+        def spy_embed(mol, numConfs, **kwargs):
+            captured.append(numConfs)
+            return real_embed(mol, numConfs=numConfs, **kwargs)
+
+        monkeypatch.setattr(AllChem, "EmbedMultipleConfs", spy_embed)
+
+        # SMILES path: RDKitIsomer.embed_conformer computes its own budget.
+        engine = _make_engine(str(tmp_path), tmp_path / "unused.smi", flipper=False)
+        embedded = engine.embed_conformer(glycerol_smiles)
+        assert embedded is not None
+        assert len(captured) == 1, "embed_conformer should embed exactly once"
+        smiles_path_count = captured[-1]
+
+        # SDF path: write glycerol to a flat SDF and run it through
+        # RDKitSdfIsomer.run, which computes the budget on the same
+        # H-complete molecule via the SDF-input code path.
+        sdf_mol = Chem.AddHs(Chem.MolFromSmiles(glycerol_smiles))
+        AllChem.Compute2DCoords(sdf_mol)
+        sdf_mol.SetProp("_Name", "glycerol")
+        input_sdf = tmp_path / "glycerol_in.sdf"
+        with Chem.SDWriter(str(input_sdf)) as writer:
+            writer.write(sdf_mol)
+
+        sdf_engine = RDKitSdfIsomer(
+            sdf=str(input_sdf),
+            enumerated_sdf=str(tmp_path / "glycerol_out.sdf"),
+            max_confs=None,
+            threshold=0.3,
+            np=1,
+            flipper=False,
+        )
+        sdf_engine.run()
+        assert len(captured) == 2, "RDKitSdfIsomer.run should embed exactly once more"
+        sdf_path_count = captured[-1]
+
         assert smiles_path_count == sdf_path_count
 
     def test_conformer_count_uses_with_h_and_paths_agree(self):
@@ -288,11 +363,12 @@ class TestSpeFiltersAndAligns:
             def __init__(self, adapter):
                 self.adapter = adapter
 
-            def forward_batched(self, coords, numbers, charges, atom_mask=None):
+            def energy_batched(self, coords, numbers, charges, atom_mask=None):
+                # Energy-only: calc_spe stopped asking for forces it discards
+                # (audit M39, tests/test_spe_energy_only.py).
                 n = coords.shape[0]
                 captured["n"] = n
-                es = torch.arange(1, n + 1, dtype=torch.float64) * 10.0
-                return es, torch.zeros_like(coords)
+                return torch.arange(1, n + 1, dtype=torch.float64) * 10.0
 
         monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
 

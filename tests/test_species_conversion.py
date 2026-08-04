@@ -5,11 +5,11 @@ ANI2xt is built with periodic_table_index=False at every construction site
 `ASE/thermo.py` and `cli/commands/models.py` previously passed raw atomic
 numbers instead of converting them, evaluating hydrogen with the carbon
 network and carbon with the chlorine network (audit C3, C4). Both call sites
-now convert through the MODEL: the batch path asks
-`ModelAdapter.to_species` (so the remap cannot disagree with the padding
-sentinel that comes from the same object), and the thermo path still goes through
-the name-keyed `Auto3D.models.species.to_model_species` residual. The tests below
-guard against either regressing.
+now convert through the MODEL: both ask `ModelAdapter.to_species`, so the remap
+cannot disagree with the padding sentinel that comes from the same object. The
+thermo path was the last holdout -- it took an engine-name string and fed it to a
+name-keyed converter until 4.0.1 -- and that function is now deleted. The tests
+below guard against either regressing.
 
 The decisive asymmetry: ANI2x gets periodic_table_index=True at both of its
 sites (thermo.py:338, models/adapter.py:346), so it was always correct and
@@ -76,7 +76,7 @@ class TestThermoPathConverts:
         coords_b, species_b, charges_b, _ = pad_from_mols([mol], model, device)
         e_batch = float(model.forward(coords_b, species_b, charges_b)[0][0])
 
-        thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
+        thermo_in = mol2aimnet_input(mol, device, adapter=model)
         e_thermo = float(
             model.forward(
                 thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]
@@ -101,7 +101,7 @@ class TestThermoPathConverts:
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
         model = create_model("ANI2xt", device)
-        thermo_in = mol2aimnet_input(mol, device, model_name="ANI2xt")
+        thermo_in = mol2aimnet_input(mol, device, adapter=model)
 
         energy, _ = model.forward(
             thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]

@@ -201,7 +201,7 @@ class TestHessianGeometry:
         mol = next(m for m in Chem.SDMolSupplier(path, removeHs=False) if m)
 
         device = get_device(0, use_gpu=False)
-        hessian_model = _load_hessian_model("AIMNET", device)
+        hessian_adapter = _load_hessian_model("AIMNET", device)
         _, calculator = model_name2model_calculator("AIMNET", device)
         calculator.set_charge(Chem.GetFormalCharge(mol))
 
@@ -236,7 +236,7 @@ class TestHessianGeometry:
 
         monkeypatch.setattr(thermo_mod, "vib_hessian", _spy)
 
-        thermo_mod.do_mol_thermo(mol, atoms, hessian_model, device, model_name="AIMNET")
+        thermo_mod.do_mol_thermo(mol, atoms, hessian_adapter, device)
 
         assert "positions" in captured, "do_mol_thermo never called vib_hessian"
         # The geometry the Hessian was computed at must be the geometry the

@@ -73,31 +73,49 @@ def test_is_yaml_file_with_path():
 
 
 def test_new_cli_help():
-    """New CLI should show help."""
+    """New CLI should show help.
+
+    A bare ``"run" in result.stdout`` also matches "running" inside
+    ``validate``'s own description ("...without running optimization."), so
+    deleting the entire ``run`` command would still leave this green. Anchor
+    on the word boundary so only the standalone command name counts.
+    """
+    import re
+
     from typer.testing import CliRunner
     from Auto3D.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["--help"])
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
 
     assert result.exit_code == 0
-    assert "run" in result.stdout
-    assert "config" in result.stdout
-    assert "models" in result.stdout
-    assert "validate" in result.stdout
+    assert re.search(r"\brun\b", out), "the 'run' command must be listed"
+    assert "config" in out
+    assert "models" in out
+    assert "validate" in out
 
 
 def test_new_cli_version():
-    """New CLI should show version."""
+    """New CLI should show the actual installed package version.
+
+    Comparing against ``Auto3D.__version__`` -- the very attribute the CLI's
+    own ``version_callback`` prints -- is tautological: hardcoding that
+    attribute to anything would still make the CLI and this test agree.
+    ``importlib.metadata.version("Auto3D")`` reads the installed
+    distribution's metadata directly, independent of whatever
+    ``Auto3D/__init__.py`` happens to expose.
+    """
+    from importlib.metadata import version as installed_version
+
     from typer.testing import CliRunner
     from Auto3D.cli.app import app
-    import Auto3D
 
     runner = CliRunner()
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert Auto3D.__version__ in result.stdout
+    assert installed_version("Auto3D") in result.stdout
 
 
 def test_run_subcommand_help():
@@ -114,7 +132,10 @@ def test_run_subcommand_help():
     # '--engine' across escape codes. Stripping rejoins the text.
     import re
     out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
-    assert "--config" in out or "-c" in out
+    # "-c" alone is trivially satisfied by "--max-confs" (which contains the
+    # substring "-c") even if the -c/--config option were deleted outright.
+    # "--config" is not a substring of any other option, so anchor on it.
+    assert "--config" in out
     assert "--engine" in out
     assert "--gpu" in out
     assert "--json" in out
@@ -135,27 +156,43 @@ def test_config_subcommand_help():
 
 
 def test_models_subcommand_help():
-    """models --help should show subcommands."""
+    """models --help should show subcommands, and each one must be real.
+
+    ``"info" in result.stdout`` is also satisfied by the group's own help
+    text ("Neural network model **info**rmation."), so deleting the ``info``
+    subcommand entirely would still leave this green. Actually invoking each
+    subcommand's own ``--help`` proves it exists as a real command, not just
+    that its name appears somewhere in the parent's help text.
+    """
     from typer.testing import CliRunner
     from Auto3D.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["models", "--help"])
-
     assert result.exit_code == 0
-    assert "list" in result.stdout
-    assert "info" in result.stdout
+
+    for sub in ("list", "info", "test"):
+        sub_result = runner.invoke(app, ["models", sub, "--help"])
+        assert sub_result.exit_code == 0, (
+            f"'models {sub} --help' exited {sub_result.exit_code}; the "
+            f"group's --help text alone cannot prove the subcommand exists"
+        )
 
 
 def test_validate_subcommand_help():
-    """validate --help should show options."""
+    """validate --help should show its actual options, not just exit 0."""
+    import re
+
     from typer.testing import CliRunner
     from Auto3D.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["validate", "--help"])
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
 
     assert result.exit_code == 0
+    assert "--json" in out
+    assert "--verbose" in out
 
 
 # =============================================================================

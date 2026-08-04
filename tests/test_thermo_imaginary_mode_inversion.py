@@ -138,7 +138,7 @@ def _run(mode_cm: float, *, low_freq_cutoff_cm=LOW_FREQUENCY_CUTOFF_CM,
     monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: vib)
     monkeypatch.setattr(thermo_mod, "IdealGasThermo", recording)
     produced = thermo_mod.do_mol_thermo(
-        mol, atoms, model=None, model_name="AIMNET", T=T_REFERENCE,
+        mol, atoms, adapter=None, T=T_REFERENCE,
         low_freq_cutoff_cm=low_freq_cutoff_cm,
     )
     assert len(captured) == 1, "do_mol_thermo built more than one IdealGasThermo"

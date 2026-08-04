@@ -22,6 +22,16 @@ cannot be read separately.
   :func:`missing_adapter_members`, which
   :class:`Auto3D.batch_opt.model_wrapper.EnForce_ANI` consults on construction.
 
+Contract B is what every model *invocation* inside Auto3D goes through, and that
+is deliberate. ``Auto3D.ASE.thermo`` used to reach a model four different ways
+on the thermochemistry path -- three of them keyed on an engine-name string, one
+of them (``aimnet_hessian_helper``) a fifth calling convention with a per-engine
+argument order and its own Hartree->eV factor. Each duplicated knowledge an
+adapter already owns, and an aimnet registry alias such as ``aimnet2-2025``
+matched none of the branches. The members below are what those call sites ask
+for instead, which is why ``to_species``, ``energy`` and ``analytic_hessian``
+are here and not just ``forward``.
+
 Note that the two take ``species`` and ``coords`` in *opposite* order, and that
 this is deliberate rather than an accident awaiting cleanup: Contract A's order
 is published (``CHANGELOG.md``, ``docs/source/howto/custom_nnp.rst``) and
@@ -282,6 +292,49 @@ class ModelAdapter(Protocol):
 
         Returns:
             Energies, shape (batch,), in eV.
+        """
+        ...
+
+    def analytic_hessian(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+    ) -> torch.Tensor | None:
+        """This model's own analytic Hessian, or ``None``.
+
+        A **capability query**, and the one place the analytic-vs-autograd
+        decision is made. ``None`` means "no native second derivative --
+        differentiate :meth:`energy` instead", which is
+        :class:`~Auto3D.models.adapter.BaseModelAdapter`'s default and therefore
+        every adapter's answer except AIMNet2's.
+
+        This member replaced an ``isinstance(model, AIMNet2Calculator)`` test in
+        ``Auto3D.ASE.thermo.vib_hessian``: a third-party type deciding Auto3D's
+        control flow, which also forced ``AIMNet2Adapter`` to publish a
+        ``calculator`` property so a caller could reach *past* the adapter for
+        the native Hessian. Both are gone. The distinction is not cosmetic --
+        AIMNet2's native Hessian runs the full energy pipeline including the
+        external D3 dispersion and Coulomb modules, and differentiating the bare
+        ``nn.Module`` instead drops them, stiffening every bond and shifting C-H
+        stretches up by ~4% (~130 cm-1) with nothing in the output saying so.
+
+        Implementations must not swallow errors into ``None``: ``None`` means
+        "not supported", so a model whose native Hessian *failed* has to raise.
+        Returning ``None`` there would silently substitute a different (and for
+        AIMNet2, wrong) Hessian.
+
+        Args:
+            coords: Atomic coordinates (1, n_atoms, 3). Single molecule: a
+                Hessian is not batched.
+            species: Species in this adapter's own convention (1, n_atoms).
+            charges: Molecular charge, shape (1,).
+
+        Returns:
+            ``None``, or a Hessian in eV/A^2 holding ``(3*n_atoms)**2``
+            elements in row-major ``(atom, xyz, atom, xyz)`` order -- the
+            caller reshapes, so either a flat ``(3N, 3N)`` or a nested
+            ``(N, 3, N, 3)`` layout is acceptable.
         """
         ...
 

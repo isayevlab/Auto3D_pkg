@@ -191,10 +191,13 @@ class TestCheckSdfFormatErrors:
             args.path = f.name
             args.enumerate_isomer = False
 
-            # Should not raise
+            # Should not raise, and both molecules (ethanol, propane -- H/C/O
+            # only, uncharged) fit the ANI element set, so neither requires
+            # AIMNET: isinstance checks alone would pass even if
+            # `_requires_aimnet` were flipped and flagged every molecule.
             ani, only_aimnet = check_sdf_format(args)
-            assert isinstance(ani, bool)
-            assert isinstance(only_aimnet, list)
+            assert ani is True
+            assert only_aimnet == []
 
         Path(f.name).unlink()
 

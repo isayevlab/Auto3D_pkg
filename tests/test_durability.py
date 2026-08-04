@@ -835,9 +835,11 @@ class TestOutputOverwriteGuard:
             def __init__(self, adapter):
                 pass
 
-            def forward_batched(self, coords, numbers, charges, atom_mask=None):
+            def energy_batched(self, coords, numbers, charges, atom_mask=None):
+                # Energy-only: calc_spe stopped asking for forces it discards
+                # (audit M39, tests/test_spe_energy_only.py).
                 n = coords.shape[0]
-                return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
+                return torch.ones(n, dtype=torch.float64)
 
         def fake_pad(mols, adapter, device):
             n = len(mols)

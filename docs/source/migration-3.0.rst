@@ -786,6 +786,26 @@ error. ``model_name`` is now a required keyword-only argument on both.
    calc = Calculator(model, charge=0, model_name="ANI2xt")
    inp = mol2aimnet_input(mol, device, model_name="ANI2xt")
 
+.. note::
+
+   **Changed again after 3.0.** ``model_name`` is gone from both; they take a
+   :class:`~Auto3D.models.contract.ModelAdapter` instead, which carries the
+   species convention as a member rather than as a name to dispatch on. If you
+   are moving straight from 2.x to a release later than 3.0, write the second
+   form below and skip the one above:
+
+   .. code:: python
+
+      from Auto3D.model_factory import create_model
+
+      adapter = create_model("ANI2xt", device)
+      calc = Calculator(adapter, charge=0)
+      inp = mol2aimnet_input(mol, device, adapter=adapter)
+
+   The requirement this section describes was a step toward that: making the
+   name explicit removed the silent-wrong-result failure, and passing the
+   adapter removes the name.
+
 ``Calculator`` also accepts optional ``device`` and ``dtype`` keywords. Pass
 the device you resolved (Auto3D's own callers pass
 ``get_device(gpu_idx, use_gpu)``) rather than letting the calculator infer

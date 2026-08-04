@@ -69,11 +69,19 @@ class TestCalculateConformerCount:
         assert count == MAX_CONFORMERS_CAP  # Should hit cap
 
     def test_calculate_conformer_count_minimum_is_heavy_atoms(self):
-        """Conformer count should be at least the number of heavy atoms."""
+        """Conformer count should be at least the number of heavy atoms.
+
+        The exact value is derivable, not just a lower bound: methane has 0
+        rotatable bonds, so the rotatable-bond formula term is
+        ``0 ** CONFORMER_ROTATABLE_EXP == 0`` regardless of the tuned
+        constants, and ``max(1, num_heavy=1, 0) == 1``. ``>= 1`` would still
+        pass even if the floor-at-1 protection were dropped and the formula
+        term alone (inflated by a bug) drove the count above 1.
+        """
 
         mol = Chem.MolFromSmiles("C")  # methane - single heavy atom
         count = calculate_conformer_count(mol)
-        assert count >= 1  # At least 1 heavy atom
+        assert count == 1
 
     def test_calculate_conformer_count_returns_int(self):
         """Result should always be an integer."""

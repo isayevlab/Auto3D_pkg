@@ -236,7 +236,17 @@ class TestEnergyAndRankingSanity:
 
     @pytest.mark.slow
     def test_top_k_returns_distinct_conformers(self, isolated_input):
-        """k=3 must yield at most 3 per molecule, and the first is the minimum."""
+        """k=3 must yield at most 3 per molecule, energy-ordered and distinct.
+
+        ``len(energies) <= 3`` and ``energies[0] == min(energies)`` are both
+        satisfied even if ``top_k`` returned the SAME conformer three times
+        (e.g. dedup silently disabled) -- neither checks that the selection
+        is actually made of distinct structures, which is what the test's own
+        name promises. ``ConformerRanker.top_k`` RMSD-dedups before
+        truncating to k, so three genuinely distinct, independently-optimized
+        conformers should not coincide to the same energy; a duplicate
+        conformer would.
+        """
         from Auto3D.auto3D import main
 
         args = Auto3DOptions(
@@ -253,7 +263,13 @@ class TestEnergyAndRankingSanity:
 
         for base, energies in groups.items():
             assert len(energies) <= 3, f"{base}: k=3 but got {len(energies)}"
-            assert energies[0] == min(energies), f"{base}: first is not the minimum"
+            assert energies == sorted(energies), (
+                f"{base}: conformers are not energy-ordered: {energies}"
+            )
+            assert len(energies) == len({round(e, 6) for e in energies}), (
+                f"{base}: top-k returned conformers with duplicate energies "
+                f"(not distinct structures): {energies}"
+            )
 
 
 class TestClashReliefWarning:

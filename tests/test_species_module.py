@@ -8,15 +8,21 @@ existed the conversion was duplicated in three places and omitted in two more
 The table now lives in ``Auto3D.models.species``, not ``Auto3D.batch_opt.species``:
 the species convention is a property of the MODEL, and hosting it under
 ``batch_opt`` made the optimizer package a shared-utility provider for ``ASE/``,
-``cli/`` and ``models/``'s own padder. The canonical way to reach it is
+``cli/`` and ``models/``'s own padder. The ONLY way to reach it is
 ``ModelAdapter.to_species`` -- asking the object that also supplies
 ``species_pad``, so the two cannot disagree.
+
+The name-keyed ``to_model_species(atomic_numbers, model_name)`` that used to sit
+beside the table is gone as of 4.0.1, once the last two callers
+(``ASE.thermo``'s ``Calculator`` and ``mol2aimnet_input``) came to hold an
+adapter instead of a name. Its tests moved with it: a case-folding test, for
+instance, has nothing left to protect, because there is no string to fold.
 """
 from __future__ import annotations
 
 import pytest
 
-from Auto3D.models.species import ANI2XT_INDEX, to_model_species
+from Auto3D.models.species import ANI2XT_INDEX
 
 
 class TestAni2xtMapping:
@@ -24,47 +30,102 @@ class TestAni2xtMapping:
 
     def test_methane_maps_to_indices(self):
         """Carbon and four hydrogens become [1, 0, 0, 0, 0]."""
-        assert to_model_species([6, 1, 1, 1, 1], "ANI2xt") == [1, 0, 0, 0, 0]
+        from Auto3D.models.species import to_ani2xt_species
+
+        assert to_ani2xt_species([6, 1, 1, 1, 1]) == [1, 0, 0, 0, 0]
 
     def test_all_seven_supported_elements(self):
         """H, C, N, O, F, S, Cl map to 0..6 in that order."""
-        assert to_model_species([1, 6, 7, 8, 9, 16, 17], "ANI2xt") == [0, 1, 2, 3, 4, 5, 6]
+        from Auto3D.models.species import to_ani2xt_species
+
+        assert to_ani2xt_species([1, 6, 7, 8, 9, 16, 17]) == [0, 1, 2, 3, 4, 5, 6]
 
     def test_unsupported_element_names_itself_and_the_model(self):
         """Sodium is outside ANI2xt's set; the error must be actionable."""
+        from Auto3D.models.species import to_ani2xt_species
+
         with pytest.raises(ValueError) as exc:
-            to_model_species([11], "ANI2xt")
+            to_ani2xt_species([11])
         message = str(exc.value)
         assert "11" in message, "error must name the atomic number"
         assert "Na" in message, "error must name the element symbol"
         assert "ANI2xt" in message, "error must name the model"
 
 
-class TestCaseInsensitiveMatch:
-    """create_model dispatches case-insensitively (model_factory.py: name.upper()
-    in cls._adapters), so to_model_species must match that convention -- otherwise
-    `auto3d models test ani2xt` loads the correct adapter via create_model and then
-    silently evaluates raw atomic numbers through it (a C4-shaped regression hiding
-    behind incidental case-matching)."""
+class TestTheNameKeyedConverterIsGone:
+    """A change detector, and deliberately one.
 
-    @pytest.mark.parametrize("model_name", ["ani2xt", "ANI2XT", "Ani2xt"])
-    def test_ani2xt_matches_regardless_of_case(self, model_name):
-        """Any casing of the engine name must still convert to indices."""
-        assert to_model_species([6, 1, 1, 1, 1], model_name) == [1, 0, 0, 0, 0]
+    ``to_model_species(atomic_numbers, model_name)`` decided the species
+    convention from a *string*, which is what let a caller hold a name and the
+    padding sentinels separately and have the two disagree (audit C3/C4). It also
+    needed its own case-folding heuristic to stay in step with
+    ``ModelFactory.create``'s ``name.upper()``, i.e. a second copy of a dispatch
+    rule. Re-adding it would reopen both, so its absence is asserted rather than
+    assumed.
+    """
+
+    def test_the_function_does_not_exist(self):
+        from Auto3D.models import species as species_mod
+
+        assert not hasattr(species_mod, "to_model_species")
+
+    def test_it_is_not_in_the_public_surface(self):
+        from Auto3D.models import species as species_mod
+
+        assert "to_model_species" not in species_mod.__all__
+
+    def test_no_module_in_the_package_calls_or_imports_it(self):
+        """No caller may reintroduce it privately either.
+
+        Scoped to uses, not definitions: a redefinition is caught by
+        ``test_the_function_does_not_exist`` above.
+
+        Parsed, not grepped. ``models/species.py``'s own module docstring names
+        the deleted function on purpose -- to record why deciding the species
+        convention from a string was the defect rather than the fix -- so a text
+        search would flag the very comment that documents the removal.
+        """
+        import ast
+        import pathlib
+
+        import Auto3D
+
+        def _referenced(source: str) -> bool:
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name) and node.id == "to_model_species":
+                    return True
+                if isinstance(node, ast.Attribute) and node.attr == "to_model_species":
+                    return True
+                if isinstance(node, ast.ImportFrom) and any(
+                    a.name == "to_model_species" for a in node.names
+                ):
+                    return True
+            return False
+
+        root = pathlib.Path(Auto3D.__file__).parent
+        offenders = [
+            str(path.relative_to(root))
+            for path in root.rglob("*.py")
+            if _referenced(path.read_text())
+        ]
+        assert offenders == [], f"to_model_species is referenced in {offenders}"
 
 
-class TestPassthroughModels:
-    """Every other engine consumes atomic numbers unchanged."""
+class TestEveryOtherEngineConsumesAtomicNumbers:
+    """Passthrough is now a property of the adapter, not of a name match."""
 
-    @pytest.mark.parametrize("model_name", ["AIMNET", "ANI2x", "aimnet2", "userNNP"])
-    def test_atomic_numbers_pass_through(self, model_name):
-        """Only ANI2xt remaps; everything else is identity."""
+    def test_the_base_adapter_is_the_identity(self):
+        from Auto3D.models.adapter import BaseModelAdapter
+
         numbers = [1, 6, 7, 8, 11, 26]
-        assert to_model_species(numbers, model_name) == numbers
+        assert BaseModelAdapter.to_species(object(), numbers) == numbers
 
     def test_passthrough_does_not_reject_exotic_elements(self):
-        """Iron is meaningless to ANI2xt but fine for a custom model."""
-        assert to_model_species([26], "AIMNET") == [26]
+        """Iron is meaningless to ANI2xt but fine for AIMNet2 or a custom model."""
+        from Auto3D.models.adapter import BaseModelAdapter
+
+        assert BaseModelAdapter.to_species(object(), [26]) == [26]
 
 
 class TestIndexMapIsCanonical:

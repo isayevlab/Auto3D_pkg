@@ -131,9 +131,11 @@ class ModelFactory:
         #    name (e.g. "ANI2xt") must always resolve to its built-in adapter,
         #    even if the working directory happens to contain a same-named
         #    file: name resolution cannot be hijacked by cwd contents, while a
-        #    Path.exists() check can. (Name-first also keeps this in
-        #    agreement with Auto3D.ASE.thermo.aimnet_hessian_helper, which
-        #    resolves by name first.)
+        #    Path.exists() check can. (This used to be justified by agreement
+        #    with Auto3D.ASE.thermo.aimnet_hessian_helper, which resolved by
+        #    name first; that helper is gone -- the Hessian path takes a
+        #    ModelAdapter now -- so this factory is the only name resolver
+        #    left, and the reason above stands on its own.)
         if name_upper in cls._adapters:
             cache_key = (name_upper, str(device), compile_model)
             if use_cache and cache_key in cls._cache:

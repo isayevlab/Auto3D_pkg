@@ -157,7 +157,23 @@ def calc_spe(
         mols, model_adapter, device
     )
 
-    es, fs = model.forward_batched(
+    # Energies only. This used to call `forward_batched` and discard the forces
+    # it returned, so every single-point energy ran a full backward pass for a
+    # tensor nobody read (audit M39). `energy_batched` splits into exactly the
+    # same sub-batches -- memory behavior is unchanged -- and goes through
+    # `ModelAdapter.energy`, which is energy-only.
+    #
+    # NOT bucketed by molecule size, deliberately. `pad_from_mols` pads to the
+    # global max atom count, so one large record widens the padded tensor for
+    # every other one, and `optimizing._make_buckets` already solves exactly that
+    # for the optimizer. Reusing it here was considered and declined: the only
+    # engines that pay for padded slots at all are the ANI ones (AIMNet2 flattens
+    # to real atoms before the model sees them), `forward_batched` already caps
+    # memory by ATOM count so a wide batch costs throughput rather than an OOM,
+    # and this repository has no way to measure the difference -- CI is CPU-only
+    # and no NNP may be loaded here. An unmeasured optimization that also has to
+    # re-thread the writer loop's index alignment is not worth the change.
+    es = model.energy_batched(
         coord_padded, numbers_padded, charges, atom_mask=atom_mask
     )
     es = es.to('cpu').detach().numpy()

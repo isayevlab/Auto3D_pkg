@@ -5,6 +5,87 @@ All notable changes to Auto3D will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+- **The thermochemistry path takes a `ModelAdapter` instead of a model plus a
+  name string.** 3.0.0 made `model_name` a *required* keyword on `Calculator`
+  and `mol2aimnet_input` because omitting it silently ran the wrong species
+  convention. This removes the parameter entirely: the adapter carries the
+  convention as a member, so there is nothing left to dispatch on.
+
+  | before | after |
+  |---|---|
+  | `Calculator(model, charge=0, model_name="ANI2xt")` | `Calculator(adapter, charge=0)` |
+  | `mol2aimnet_input(mol, device, model_name="ANI2xt")` | `mol2aimnet_input(mol, device, adapter=adapter)` |
+  | `vib_hessian(mol, calc, model, device, model_name=...)` | `vib_hessian(mol, calc, adapter, device)` |
+  | `do_mol_thermo(mol, atoms, model, device, ..., model_name=...)` | `do_mol_thermo(mol, atoms, adapter, device, ...)` |
+
+  Build the adapter with `Auto3D.model_factory.create_model(name, device)`.
+  `Calculator.model` is now `Calculator.adapter`, and `Calculator.model_name` is
+  gone; passing a non-adapter raises `TypeError`.
+
+  **Removed:** `Auto3D.ASE.thermo.aimnet_hessian_helper` — a fifth
+  model-calling convention with per-engine argument order and its own
+  Hartree→eV conversion; `Auto3D.models.species.to_model_species` (use
+  `ModelAdapter.to_species`, or `to_ani2xt_species` directly);
+  `Auto3D.models.adapter.AIMNet2Adapter.calculator`, which existed so callers
+  could reach past the adapter.
+
+  `_load_hessian_model` now returns a `ModelAdapter` from every branch rather
+  than either a bare `nn.Module` or an `AIMNet2Calculator`.
+
+  **`ModelAdapter` gains a required member**, `analytic_hessian(coords, species,
+  charges) -> Tensor | None`. `BaseModelAdapter` supplies a `None` default, which
+  means "no analytic Hessian — differentiate `energy` instead", and
+  `AIMNet2Adapter` overrides it. A structural implementation that does not
+  subclass `BaseModelAdapter` must provide it.
+
+  `CustomNNP`, the public custom-NNP contract, is unchanged.
+
+- **`Auto3D.isomer_engine.rd_isomer` and `.rd_isomer_sdf` are removed.** 2.x
+  aliases for `RDKitIsomer` and `RDKitSdfIsomer`; `rd_isomer_sdf` had no
+  importers and `rd_isomer` had one, in Auto3D's own tests. Neither was
+  documented.
+
+### Changed
+
+- **Single-point energies no longer pay for a backward pass they discard.**
+  `SPE.calc_spe` called `forward_batched` and threw the forces away. It now uses
+  a new `EnForce_ANI.energy_batched`, which routes through `ModelAdapter.energy`.
+  Verified by counting `torch.autograd.grad` calls: the energy path makes none.
+
+  The saving applies to ANI2xt, ANI2x and custom NNPs. `AIMNet2Adapter.energy`
+  still goes through `forward`, deliberately: switching to the calculator's
+  `forces=False` route changes which of aimnet's internal DFTD3/Coulomb paths
+  computes the energy, and asserting the two agree needs a real model on a GPU.
+  A test pins the current routing so it cannot change silently.
+
+  Bucketing `pad_from_mols` by molecule size was considered and **not** done. Only
+  the ANI engines pay for padded slots at all — AIMNet2 flattens to real atoms
+  before the model sees them — and `forward_batched` already caps by atom count,
+  so a wide batch costs throughput rather than memory. The reasoning is recorded
+  at the call site; if it is worth doing, it is worth measuring first.
+
+- **A custom NNP that returns float64 energies now keeps that precision in
+  `calc_spe`.** `forward` ended with a cast back to the input dtype (float32);
+  the energy path is dtype-preserving. `E_hartree` changes by ≤ 6e-8 relative
+  (~1e-6 kcal/mol at typical magnitudes) for such a model. Every other engine,
+  and a custom model returning float32, is bit-identical.
+
+### Fixed
+
+- Roughly thirty tests that could not fail. The recurring shapes, each found
+  more than once: an assertion computed from the same source it compares against
+  (`Auto3D.__all__` iterated self-referentially, so a *dropped* name was
+  undetectable); a disjunct that recomputed its own premise
+  (`or c.is_terminal is False`, which held whether or not the code under test
+  set anything); a fixture whose before and after states were both empty, so a
+  guard's presence made no difference; and a test named for a behavior it never
+  checked. Also `test_auto3D_userNNP2`, which instantiates `userNNP1` — the
+  eager-model path it appears to cover is untested outside a GPU-gated test.
+
 ## [3.0.0] - 2026-08-04
 
 ### Breaking Changes

@@ -455,7 +455,19 @@ def test_auto3D_userNNP1():
 
 @pytest.mark.skipif(test_userNNP1 == False, reason='TorchANI is not installed')
 def test_auto3D_userNNP2():
-    """A TorchScript custom NNP drives the full pipeline on CPU."""
+    """A TorchScript custom NNP drives the full pipeline on CPU.
+
+    Naming note: this is the *second* of three numbered scenarios in this
+    file (GPU-scripted, CPU-scripted, GPU-eager), not a test of the module's
+    ``userNNP2`` class -- it builds ``userNNP1`` (torch.jit.script over
+    ANI2x), same as ``test_auto3D_userNNP1`` above, just on CPU. The eager
+    AIMNet2-backed ``userNNP2`` class is only exercised by
+    ``test_auto3D_userNNP3`` below, which is GPU-gated (skipped on CI and on
+    this box). ``tests/test_custom_nnp_eager.py`` covers eager-module loading
+    at the adapter level without a GPU or a real NNP, which is the practical
+    mitigation for that gap; it does not cover the eager path through the
+    full ``main()`` pipeline.
+    """
     myNNP1 = userNNP1()
     with tempfile.TemporaryDirectory() as temp_dir:
         model_path = os.path.join(temp_dir, 'myNNP1.pt')

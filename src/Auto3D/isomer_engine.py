@@ -754,10 +754,11 @@ def _oe_isomer_in_owned_cwd(
     return 0
 
 
-# Backward compatibility aliases. ``tautomer_engine`` (a 2.x-era alias of the
-# class now called ``RDKitOrOEChemTautomerEngine``) was removed in 4.0: it had
-# zero importers anywhere in the repo, is documented at no public path, and
-# keeping it would have preserved the ``TautomerEngine`` name collision under a
-# second spelling that no test exercised. The two below still have importers.
-rd_isomer = RDKitIsomer
-rd_isomer_sdf = RDKitSdfIsomer
+# ``rd_isomer``/``rd_isomer_sdf`` (2.x-era aliases of ``RDKitIsomer``/
+# ``RDKitSdfIsomer``) were removed for the same reason ``tautomer_engine`` was
+# removed above: ``rd_isomer_sdf`` had zero importers anywhere in the repo and
+# ``rd_isomer`` had exactly one, tests/test_isomer_engine.py, which now imports
+# ``RDKitIsomer`` directly. Neither is documented at any public path
+# (docs/source/api.rst). Keeping an alias nothing but one test module
+# exercises preserves a hazard under a spelling the rest of the codebase
+# never uses -- cheaper to remove now, before 3.1.0, than later.

@@ -13,13 +13,35 @@ def test_console_exists():
 
 
 def test_console_auto_detects_tty(monkeypatch):
-    """Console should auto-detect terminal capabilities."""
+    """Non-interactive stdout must force plain (non-colored) output.
+
+    ``c.is_terminal`` recomputes from the live stream's own ``isatty()``
+    whenever ``_force_terminal`` is ``None`` (see ``rich.console.Console
+    .is_terminal``), so an ``... or c.is_terminal is False`` assertion would
+    still pass even if ``create_console()`` never set ``force_terminal`` at
+    all: the monkeypatched ``isatty`` would make that disjunct true on its
+    own. Assert on ``_force_terminal`` directly instead.
+    """
     from Auto3D.cli.console import create_console
 
     # Simulate non-TTY
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
     c = create_console()
-    assert c._force_terminal is False or c.is_terminal is False
+    assert c._force_terminal is False
+
+
+def test_console_does_not_force_plain_on_a_real_tty(monkeypatch):
+    """A real terminal must not be forced to plain output.
+
+    Complements the non-TTY case above: catches a mutation that always sets
+    ``force_terminal = False`` (or inverts the ``isatty()`` check) regardless
+    of the stream's actual capability.
+    """
+    from Auto3D.cli.console import create_console
+
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    c = create_console()
+    assert c._force_terminal is None
 
 
 def test_print_success(capsys):
@@ -34,14 +56,24 @@ def test_print_success(capsys):
     assert "Test passed" in captured.out
 
 
-def test_print_error():
-    """print_error should output to stderr."""
-    from Auto3D.cli.console import print_error
-    # Just ensure it doesn't crash
+def test_print_error(capsys):
+    """print_error should write the message and hint to stderr, not stdout."""
+    from Auto3D.cli.console import error_console, print_error
+
+    error_console._force_terminal = False
     print_error("Test error", hint="Try this")
+    captured = capsys.readouterr()
+    assert "Test error" in captured.err
+    assert "Try this" in captured.err
+    assert captured.out == ""
 
 
-def test_print_warning():
-    """print_warning should output warning."""
-    from Auto3D.cli.console import print_warning
+def test_print_warning(capsys):
+    """print_warning should write the message to stderr, not stdout."""
+    from Auto3D.cli.console import error_console, print_warning
+
+    error_console._force_terminal = False
     print_warning("Test warning")
+    captured = capsys.readouterr()
+    assert "Test warning" in captured.err
+    assert captured.out == ""
