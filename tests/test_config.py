@@ -158,7 +158,7 @@ class TestChunkMeta:
 def test_optimization_config_exposes_no_energy_criterion_knobs():
     """The energy-stability knobs are gone, not merely defaulted (audit M1).
 
-    ``test_energy_tol_above_fp32_noise`` stood here until 4.0.0 and asserted
+    ``test_energy_tol_above_fp32_noise`` stood here until 3.0.0 and asserted
     that ``DEFAULT_ENERGY_TOL >= 1e-3`` so the criterion would be "live". It
     never was: the criterion also required ``fmax < opttol``, which is exactly
     where the force criterion had already converged the structure, so no value

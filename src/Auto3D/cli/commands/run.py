@@ -292,7 +292,7 @@ def execute_run(
                 console.print()
                 print_results_summary(results)
                 # The summary panel carries only a *count* of missing
-                # molecules. `migration-4.0.rst` says the summary lists them,
+                # molecules. `migration-3.0.rst` says the summary lists them,
                 # and `--json` does -- but the human path named none of them,
                 # so an interactive user who saw "1 failed" and exit 6 had no
                 # way to learn which molecule it was without rerunning with

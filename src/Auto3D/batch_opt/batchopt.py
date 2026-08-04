@@ -399,7 +399,7 @@ class optimizing:
             # through logging.getLogger("auto3d") directly instead -- the
             # same fix Auto3D.clash_relief.relieve_clash already uses --
             # because this count is documented as user-visible in the log
-            # (CHANGELOG.md, docs/source/migration-4.0.rst).
+            # (CHANGELOG.md, docs/source/migration-3.0.rst).
             logging.getLogger("auto3d").warning(
                 f"{n_stereo_changed} conformer(s) changed stereochemistry during "
                 "optimization and will be excluded from the results."

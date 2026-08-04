@@ -120,7 +120,7 @@ class TestEnantiomerValidation:
     def test_enantiomer_empty_lists_returns_false(self):
         """Two molecules with no stereo centers are not an enantiomeric pair.
 
-        This asserted ``True`` until 4.0.0, matching the implementation's
+        This asserted ``True`` until 3.0.0, matching the implementation's
         vacuous result: the comparison loop never executed and ``indicator``
         kept its ``True`` initial value. A molecule with no stereo centers is
         its own mirror image, so it has no enantiomer to be paired with, and

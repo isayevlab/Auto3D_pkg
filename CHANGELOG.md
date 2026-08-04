@@ -128,6 +128,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   startup banner also moved after validation, so an unrunnable config is no
   longer announced as running.
 
+- **`from Auto3D.utils import <name>` no longer resolves for 41 names, and
+  `utils/chemistry.py` and `utils/file_ops.py` are gone.** `Auto3D/utils/__init__.py`
+  re-exported 41 names drawn from five of its eight modules, so three modules had
+  no way in and the same function was reachable by two different paths in sibling
+  files. It is now docstring-only. The two largest modules — 849 and 580 lines,
+  each holding several unrelated responsibilities — were split.
+
+  Import each name from the module that now defines it:
+
+  | new home | names |
+  |---|---|
+  | `Auto3D.constants` | `EV_TO_KCAL_PER_MOL`, `HARTREE_TO_EV`, `HARTREE_TO_KCAL_PER_MOL` |
+  | `Auto3D.utils.energy` | `ev2kcalpermol`, `hartree2ev`, `hartree2kcalpermol` |
+  | `Auto3D.utils.connectivity` | `amend_mol`, `check_connectivity`, `get_mol_connectivity` |
+  | `Auto3D.utils.geometry` | `get_rmsd`, `min_pairwise_distance` |
+  | `Auto3D.utils.molprops` | `get_mol_charge` |
+  | `Auto3D.utils.smi_io` | `combine_smi`, `hash_enumerated_smi_IDs`, `hash_taut_smi` |
+  | `Auto3D.utils.sdf_io` | `SDF2chunks`, `guess_file_type`, `reorder_sdf` |
+  | `Auto3D.utils.stereochemistry` | `amend_configuration`, `amend_configuration_w`, `check_value`, `count_unspecified_stereo`, `create_enantiomer`, `enantiomer`, `enantiomer_helper`, `get_stereo_info`, `no_enantiomer`, `no_enantiomer_helper`, `remove_enantiomers` |
+  | `Auto3D.utils.validation` | `check_input`, `check_sdf_format`, `check_smi_format`, `check_valid_configuration` |
+  | `Auto3D.utils.logging_config` | `configure_logging`, `get_logger` |
+  | `Auto3D.clash_relief` | `relieve_clash` |
+  | `Auto3D.id_mapping` | `decode_ids`, `encode_ids` |
+  | `Auto3D.job_layout` | `create_chunk_meta_names`, `housekeeping` |
+
+  `filter_unique` is **deleted**, not moved — see the single-filter entry above.
+
+  Also gone: `Auto3D.utils.__all__`; `batch_opt.batchopt.print_stats` (now
+  `batch_opt.optimization_engine.print_stats`); and two attributes that were
+  never in any `__all__` but were reachable as module-scope imports,
+  `Auto3D.utils.validation.load_custom_nnp` and `.resolve_engine_name` (now
+  `Auto3D.models.loading.load_custom_nnp` and
+  `Auto3D.models.preflight.resolve_engine_name`).
+
+  **If you installed from PyPI or conda-forge this table is unlikely to affect
+  you**: 2.3.1's `Auto3D.utils` was a single module with a different surface, so
+  those imports need rewriting regardless. The 41-name barrel only ever existed
+  in git-tag installs of 3.x.
+
 - **One exit-code scheme, used by every command.** `cli/errors.py` has mapped
   exception types to differentiated exit codes since 3.x -- 0 success, 1
   generic, 2 configuration/input, 3 dependency, 4 GPU, 5 model, plus 6 for a
@@ -192,7 +231,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`auto3d run` names the molecules it lost.** The results summary reported
   only a count (`1 failed`), so an interactive user who saw exit 6 had to
   rerun with `--json` to learn which molecule was missing.
-  `migration-4.0.rst` already said the summary listed them. It now does: the
+  `migration-3.0.rst` already said the summary listed them. It now does: the
   names are printed under the summary, in full with `-v`.
 
 - **The CLI refuses to overwrite an existing output file; pass `-f`/`--force`

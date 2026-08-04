@@ -178,7 +178,7 @@ class TestFiltersExcludeStereoChangedRecords:
     def test_the_filter_reports_stereochemistry_as_the_drop_reason(self):
         """Not just that it dropped, but that it says why.
 
-        Until 4.1.0 the two conformer filters returned a bare list, so
+        Until 3.0.0 the two conformer filters returned a bare list, so
         ``ranking`` reported a stereo-changed species as "No structure
         converged" -- pointing the reader at the optimizer settings for a
         problem in the input's stereo definitions.
