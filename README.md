@@ -25,9 +25,21 @@ uv pip install Auto3D
 
 # Using pip
 pip install Auto3D
+```
 
-# Using conda (recommended for GPU support)
-conda install -c conda-forge auto3d
+> **conda-forge is not current.** `conda install -c conda-forge auto3d` installs
+> **2.3.0**, not 3.0.0. conda-forge requires every dependency to be a conda
+> package, and `aimnet` — a core dependency since 3.0.0 — is not one yet, nor is
+> its own dependency `nvalchemi-toolkit-ops`. Use pip for 3.0.0. Details and the
+> path forward: [Building the conda package](https://auto3d.readthedocs.io/en/latest/howto/conda_build.html).
+
+Auto3D works fine *inside* a conda environment — it is only the conda **package**
+that lags. The supported combination, which `installation.yml` in this repo sets
+up, is a conda environment with Auto3D installed by pip:
+
+```bash
+conda env create --file installation.yml --name auto3D
+conda activate auto3D          # pip installs Auto3D[ani,ase] into it
 ```
 
 For GPU acceleration, ensure you have CUDA-compatible PyTorch installed. See the [installation guide](https://auto3d.readthedocs.io/en/latest/installation.html) for detailed instructions.

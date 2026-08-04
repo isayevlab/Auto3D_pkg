@@ -12,3 +12,4 @@ Practical guides for common Auto3D tasks.
    hpc
    troubleshooting
    integrations
+   conda_build
