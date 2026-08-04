@@ -55,6 +55,36 @@ def test_no_jpt_package_data():
     assert not any("jpt" in g for g in pd), pd
 
 
+def test_manifest_excludes_bytecode():
+    """``MANIFEST.in`` must exclude compiled bytecode from the distributions.
+
+    ``graft src/Auto3D`` is recursive and unconditional, so on its own it ships
+    whatever the build tree contains. Building 3.0.0 from a checkout that had
+    been used -- which is every real build -- put **69** ``__pycache__/*.pyc``
+    files into a ``py3-none-any`` wheel: CPython 3.13 bytecode, stale for any
+    other interpreter, and 0.36 MB of nothing for this one. Bytecode is
+    generated at install time and never belongs in a distribution.
+
+    This is a source check rather than a built-artifact check on purpose: a test
+    that ran ``python -m build`` would add tens of seconds to the fast tier to
+    re-derive a property the manifest already states. What it guards is someone
+    trimming these two lines back to the bare ``graft``, which is what created
+    the problem.
+    """
+    manifest = (ROOT / "MANIFEST.in").read_text()
+    patterns = [
+        line.split(None, 1)[1].strip()
+        for line in manifest.splitlines()
+        if line.strip().startswith("global-exclude")
+    ]
+    assert "*.py[cod]" in patterns, (
+        f"MANIFEST.in must global-exclude '*.py[cod]'; found {patterns}"
+    )
+    assert any("__pycache__" in p for p in patterns), (
+        f"MANIFEST.in must global-exclude __pycache__ contents; found {patterns}"
+    )
+
+
 def test_torchani_floor_is_2_8():
     deps = _pyproject()["project"]["optional-dependencies"]["ani"]
     assert any("torchani>=2.8" in d.replace(" ", "") for d in deps), deps

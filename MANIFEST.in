@@ -1,1 +1,11 @@
 graft src/Auto3D
+
+# `graft` is recursive and unconditional, so without these the sdist and wheel
+# pick up whatever the build tree happens to contain. Building in a checkout
+# that has been used -- which is every real build -- put 69 __pycache__/*.pyc
+# files into the first 3.0.0 wheel: CPython 3.13 bytecode shipped inside a
+# py3-none-any wheel, stale for any other interpreter and pure bloat for this
+# one. Bytecode is generated at install time; it never belongs in a
+# distribution.
+global-exclude *.py[cod]
+global-exclude __pycache__/*
