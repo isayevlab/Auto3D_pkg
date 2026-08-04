@@ -289,7 +289,7 @@ class TestSpeFiltersAndAligns:
 
         monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
 
-        def fake_pad(mols, model_name, device, coord_pad, species_pad):
+        def fake_pad(mols, adapter, device):
             assert all(m is not None for m in mols), "None leaked into pad_from_mols"
             n = len(mols)
             coords = torch.zeros(n, 1, 3, requires_grad=True)

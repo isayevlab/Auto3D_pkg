@@ -23,6 +23,14 @@ import torch
 from torch import nn
 
 from Auto3D.batch_opt.padding import pad_from_mols
+from tests.helpers_adapter import FakeAdapter
+
+# Stands in for AIMNet2's padding convention (raw atomic numbers, species_pad=0)
+# without loading anything. `pad_from_mols` reads the species convention AND both
+# fill values off this one object, so they cannot disagree (audit C3/C4).
+def _aimnet_padding():
+    return FakeAdapter(coord_pad=0.0, species_pad=0)
+
 from Auto3D.models.adapter import AIMNet2Adapter
 
 rdkit = pytest.importorskip("rdkit")
@@ -90,9 +98,7 @@ class TestDummyAtomIsNotTreatedAsPadding:
 
     @staticmethod
     def _pad(mols):
-        return pad_from_mols(
-            mols, "AIMNET", torch.device("cpu"), coord_pad=0.0, species_pad=0
-        )
+        return pad_from_mols(mols, _aimnet_padding(), torch.device("cpu"))
 
     def test_r_group_atom_is_counted(self):
         mol = _embed("*CCO", "rgroup")
@@ -135,8 +141,7 @@ class TestRealPaddingIsStillExcluded:
         big = _embed("*CCO", "rgroup")   # 9 atoms
         small = _embed("O", "water")     # 3 atoms
         coords, species, charges, atom_mask = pad_from_mols(
-            [big, small], "AIMNET", torch.device("cpu"),
-            coord_pad=0.0, species_pad=0,
+            [big, small], _aimnet_padding(), torch.device("cpu")
         )
         assert species.shape == (2, 9)
         assert int(atom_mask.sum()) == 12
@@ -159,7 +164,7 @@ class TestUnpaddedCallersNeedNoMask:
     def test_no_mask_treats_every_slot_as_real(self):
         mol = _embed("*CCO", "rgroup")
         coords, species, charges, _ = pad_from_mols(
-            [mol], "AIMNET", torch.device("cpu"), coord_pad=0.0, species_pad=0
+            [mol], _aimnet_padding(), torch.device("cpu")
         )
         calc = _RecordingCalculator()
         energy, _ = _stub_adapter(calc).forward(coords, species, charges)
@@ -175,8 +180,9 @@ class TestMaskReachesTheAdapterThroughTheStack:
 
         seen: list[int] = []
 
-        class _CountingAdapter(nn.Module):
-            coord_pad = 0.0
+        from tests.helpers_adapter import AdapterModuleMixin
+
+        class _CountingAdapter(AdapterModuleMixin, nn.Module):
             species_pad = 0
 
             def forward(self, coords, species, charges, atom_mask=None):
@@ -189,8 +195,7 @@ class TestMaskReachesTheAdapterThroughTheStack:
         big = _embed("*CCO", "rgroup")
         small = _embed("O", "water")
         coords, species, charges, atom_mask = pad_from_mols(
-            [big, small], "AIMNET", torch.device("cpu"),
-            coord_pad=0.0, species_pad=0,
+            [big, small], _aimnet_padding(), torch.device("cpu")
         )
         # batchsize_atoms=9 with N=9 gives one molecule per sub-batch, so the
         # mask has to be sliced with the same indices as coord/numbers.

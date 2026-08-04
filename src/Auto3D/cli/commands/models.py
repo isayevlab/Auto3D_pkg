@@ -238,7 +238,6 @@ def execute_models_test(
 
         import torch
 
-        from Auto3D.batch_opt.species import to_model_species
         from Auto3D.exceptions import NumericalError
         from Auto3D.model_factory import create_model, get_device
         from Auto3D.utils.validation import check_gpu_requested
@@ -258,11 +257,13 @@ def execute_models_test(
                   [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]],
                 dtype=torch.float, device=device,
             )
-            # Build species in the engine's own convention. Passing raw atomic
-            # numbers made the ANI2xt check evaluate a Cl+4C species and report
-            # success (audit C4).
+            # Build species in the engine's own convention, asked of the
+            # adapter that will consume them. Passing raw atomic numbers made the
+            # ANI2xt check evaluate a Cl+4C species and report success (audit
+            # C4); asking a name-keyed helper instead of the model left the
+            # convention and the model as two independently-resolved things.
             species = torch.tensor(
-                [to_model_species([6, 1, 1, 1, 1], engine)], device=device
+                [adapter.to_species([6, 1, 1, 1, 1])], device=device
             )
             charges = torch.tensor([0.0], device=device)
             energy, forces = adapter.forward(coords, species, charges)

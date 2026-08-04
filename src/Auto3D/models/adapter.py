@@ -1,10 +1,21 @@
 # src/Auto3D/models/adapter.py
-"""Model adapters providing consistent interface for all NNP models."""
+"""Implementations of the adapter contract, one per NNP backend.
+
+The contract itself -- :class:`Auto3D.models.contract.ModelAdapter` -- lives in
+:mod:`Auto3D.models.contract`, next to the custom-NNP contract it is so easily
+confused with. This module holds only implementations.
+
+Layering: :mod:`Auto3D.models` is a leaf. It imports ``torch``,
+``Auto3D.constants``, ``Auto3D.exceptions`` and its own submodules, and nothing
+else from Auto3D. There is exactly one deliberate back-edge into
+``Auto3D.batch_opt`` (``ANI2xtAdapter.__init__``'s deferred ``ANI2xt`` import);
+see the comment there before moving it.
+"""
 from __future__ import annotations
 
 import warnings
 from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable
+from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
@@ -12,6 +23,7 @@ import torch.nn as nn
 from Auto3D.constants import HARTREE_TO_EV
 from Auto3D.exceptions import NumericalError
 from Auto3D.models.loading import load_custom_nnp
+from Auto3D.models.species import to_ani2xt_species
 
 
 def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
@@ -86,55 +98,24 @@ def _validate_outputs(energy: torch.Tensor, forces: torch.Tensor) -> None:
         )
 
 
-@runtime_checkable
-class ModelAdapter(Protocol):
-    """Protocol defining the standard interface for NNP model adapters.
-
-    All model adapters must implement this interface to ensure consistent
-    behavior across different neural network potential backends.
-
-    This protocol is runtime_checkable, allowing isinstance() checks.
-    """
-
-    coord_pad: float
-    species_pad: int
-    device: torch.device
-
-    def forward(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute energies and forces.
-
-        Args:
-            coords: Atomic coordinates (batch, n_atoms, 3).
-            species: Atomic numbers (batch, n_atoms).
-            charges: Molecular charges (batch,).
-            atom_mask: Boolean (batch, n_atoms), True for real atoms and False
-                for padded slots, as returned by
-                :func:`Auto3D.batch_opt.padding.pad_from_mols`. Required from
-                any caller that passes a PADDED batch; ``None`` means every
-                slot holds a real atom. An adapter must never re-derive this by
-                comparing ``species`` against ``species_pad`` (audit C13).
-
-        Returns:
-            Tuple of (energies, forces) where energies has shape (batch,)
-            and forces has shape (batch, n_atoms, 3). Units: eV.
-        """
-        ...
-
-
 class BaseModelAdapter(ABC, nn.Module):
-    """Base class for model adapters.
+    """Implementation base for Auto3D's adapters. NOT the contract.
+
+    The contract is :class:`Auto3D.models.contract.ModelAdapter`, and that -- not
+    this class -- is what every signature that wants "an adapter" annotates.
+    This distinction is the point: production has always accepted structural
+    implementations (test doubles, and anything a downstream user writes), so
+    annotating the ABC while accepting the Protocol is exactly what made the
+    Protocol decorative. The one place this class legitimately appears as a type
+    is ``ModelFactory._adapters``, a registry of Auto3D's OWN classes.
 
     Provides common functionality for all NNP model adapters including:
     - Model storage and device management
     - Padding value configuration
     - Gradient disabling for model parameters (weights are frozen)
     - Optional torch.compile() for performance optimization
+    - Concrete ``to_species`` (identity) and ``energy`` defaults, so a subclass
+      satisfies the contract by implementing ``forward`` alone
 
     Note on torch.inference_mode():
         This class CANNOT use torch.inference_mode() or torch.no_grad() in forward
@@ -186,6 +167,40 @@ class BaseModelAdapter(ABC, nn.Module):
             self._compiled = True
 
         self.model = model
+
+    def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
+        """Identity: this model consumes raw atomic numbers.
+
+        Correct for AIMNet2, for ANI2x (constructed with
+        ``periodic_table_index=True``), and for every custom NNP -- a custom
+        model declares its own ``species_pad`` and receives atomic numbers, so
+        remapping them here would silently feed every third-party model
+        different species indices than its author tested against. ANI2xt is the
+        sole override; see :meth:`ANI2xtAdapter.to_species`.
+        """
+        return list(atomic_numbers)
+
+    def energy(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Energies only, graph-connected, at the dtype of ``coords``.
+
+        The default takes ``forward``'s first output. That is safe only for
+        adapters whose ``forward`` is already dtype-preserving and does not
+        mutate ``coords.requires_grad``; ``ANI2xtAdapter``, ``ANI2xAdapter`` and
+        ``CustomModelAdapter`` each override it for exactly that reason (the
+        latter two call ``coords.float()``, which would turn an fp64 caller's
+        request into an fp32 answer with no error).
+
+        No ``no_grad`` here, deliberately: a caller differentiating this (a
+        Hessian) needs the graph, and a caller that does not want it wraps its
+        own call site.
+        """
+        return self.forward(coords, species, charges, atom_mask)[0]
 
     @abstractmethod
     def forward(
@@ -266,6 +281,26 @@ class AIMNet2Adapter(BaseModelAdapter):
         """
         return self._calc
 
+    def energy(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Energies (eV) via ``forward``; the base default, made explicit.
+
+        Written out rather than inherited so the dtype reasoning is on the record
+        for the one adapter where it differs. ``forward`` returns float64
+        energies whatever it was fed -- an UPCAST, so there is no silent
+        precision loss to guard against (the hazard the other two overrides
+        exist for), and whole-graph fp64 through AIMNet2 would be false
+        precision regardless. Routed through ``forward`` (hence the calculator's
+        ``forces=True`` path) because that is the route the calculator
+        guarantees stays connected to ``coord`` in the autograd graph.
+        """
+        return self.forward(coords, species, charges, atom_mask)[0]
+
     def forward(
         self,
         coords: torch.Tensor,
@@ -344,9 +379,47 @@ class ANI2xtAdapter(BaseModelAdapter):
             device: Target device for computations.
             compile_model: Whether to apply torch.compile() for optimization.
         """
+        # THE ONE deliberate back-edge from Auto3D.models into
+        # Auto3D.batch_opt, and it MUST stay inside this method. Promoting it to
+        # module scope creates models -> batch_opt -> models, and because
+        # Auto3D/__init__.py eagerly imports Auto3D.batch_opt.ANI2xt_no_rep that
+        # becomes an import cycle at package-import time.
         from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt
         model = ANI2xt(device)
         super().__init__(model, device, coord_pad=0.0, species_pad=-1, compile_model=compile_model)
+
+    def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
+        """Remap atomic numbers to ANI2xt's 0-based network indices.
+
+        ANI2xt is built with ``periodic_table_index=False`` everywhere, so its
+        ``forward`` expects H=0, C=1, N=2, O=3, F=4, S=5, Cl=6 -- not atomic
+        numbers. The remap lives on the adapter (rather than in a name-keyed free
+        function the caller had to remember to invoke) so it cannot be omitted at
+        one call site and applied at another; that omission is audit findings
+        C3/C4, where thermo and the CLI health check silently scored a different
+        molecule than the one submitted.
+
+        Raises:
+            ValueError: An atomic number outside ANI2xt's element set.
+        """
+        return to_ani2xt_species(atomic_numbers)
+
+    def energy(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Energies (eV) with no ``requires_grad_`` mutation of ``coords``.
+
+        ``forward`` calls ``coords.requires_grad_(True)`` because it must
+        differentiate to get forces. ``energy`` cannot: an autograd-Hessian
+        caller hands in a NON-LEAF tensor, and ``requires_grad_`` on a non-leaf
+        raises. Energies come out float64 (see ``ANI2xt.forward``); coords are
+        consumed at whatever dtype they arrive in.
+        """
+        return self.model(species, coords)
 
     def forward(
         self,
@@ -398,6 +471,27 @@ class ANI2xAdapter(BaseModelAdapter):
         import torchani
         model = torchani.models.ANI2x(periodic_table_index=True).to(device)
         super().__init__(model, device, coord_pad=0.0, species_pad=-1, compile_model=compile_model)
+
+    def energy(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Energies (eV) at the dtype of ``coords`` -- NO float32 downcast.
+
+        This override exists solely to keep that promise. ``forward`` calls
+        ``coords.float()`` for compatibility with torchani's float32 weights;
+        inheriting ``BaseModelAdapter.energy`` (which is ``forward(...)[0]``)
+        would therefore turn an fp64 caller's request into an fp32 answer with no
+        error, no warning, and no way to notice -- the caller that wants fp64 is
+        computing a Hessian, and it would silently get an fp32 one. Feeding the
+        model the dtype it was handed pushes that choice back to the caller,
+        which is the layer that also has to promote the model's weights
+        (``.double()``) for it to be meaningful.
+        """
+        return self.model((species, coords)).energies * HARTREE_TO_EV
 
     def forward(
         self,
@@ -489,6 +583,27 @@ class CustomModelAdapter(BaseModelAdapter):
         super().__init__(
             model, device, model.coord_pad, model.species_pad, compile_model=False
         )
+
+    def energy(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Energies (eV) at the dtype of ``coords`` -- NO float32 downcast.
+
+        Same reason as :meth:`ANI2xAdapter.energy`: ``forward`` casts coords and
+        charges to float32 (documented in the class docstring), so inheriting the
+        ``forward(...)[0]`` default would silently answer an fp64 request in fp32.
+        ``charges`` follows ``coords``' dtype so a model that indexes or
+        concatenates the two does not hit a mismatch.
+
+        The published contract is ``forward(species, coords, charges)`` -- species
+        FIRST -- and that order is the user's, not this adapter's; see
+        :class:`Auto3D.models.contract.CustomNNP`.
+        """
+        return self.model(species, coords, charges.to(coords.dtype))
 
     def forward(
         self,

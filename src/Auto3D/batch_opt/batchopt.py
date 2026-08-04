@@ -11,21 +11,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from Auto3D.config import OptimizationConfig
+    from Auto3D.models.contract import ModelAdapter
 
 logger = get_logger(__name__)
 
-try:
-    import torchani  # noqa: F401  (optional dependency probe)
-except ImportError:
-    pass
 from collections import defaultdict
 
 from rdkit import Chem
-
-try:
-    from .ANI2xt_no_rep import ANI2xt  # noqa: F401  (optional dependency probe)
-except ImportError:
-    pass
 
 # Note: TF32 settings are now configured via Auto3D.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
@@ -39,7 +31,11 @@ from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 # Re-export for backward compatibility (print_stats kept as public re-export)
 from Auto3D.batch_opt.optimization_engine import n_steps, print_stats  # noqa: F401
 from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
-from Auto3D.model_factory import create_model
+
+# Deliberately NOT `from Auto3D.model_factory import create_model`. This module
+# is the numerical layer; the factory sits above it, and importing upward made
+# `optimizing` construct its own dependency. Callers inject a ready adapter --
+# see `optimizing.__init__`.
 from Auto3D.utils.convergence import set_converged
 from Auto3D.utils.energy import set_e_tot_from_ev
 from Auto3D.utils.stereo_check import apply_optimized_coords
@@ -148,7 +144,8 @@ class optimizing:
         self,
         in_f: str,
         out_f: str,
-        name: str,
+        *,
+        adapter: "ModelAdapter",
         device: torch.device,
         config: "OptimizationConfig | dict",
         progress_cb: "Callable[[dict], None] | None" = None,
@@ -158,13 +155,30 @@ class optimizing:
         Args:
             in_f: Input SDF file path.
             out_f: Output SDF file path.
-            name: Model name ('AIMNET', 'ANI2x', 'ANI2xt', or path to custom model).
+            adapter: A ready model adapter satisfying
+                :class:`Auto3D.models.contract.ModelAdapter`, built by the
+                caller. This used to be a model NAME that this class handed to
+                ``Auto3D.model_factory.create_model`` itself -- the numerical
+                layer importing upward into the construction layer and building
+                its own dependency (audit M41).
+
+                **The caller must construct it inside the process that will run
+                the optimization.** See the comments at the two production call
+                sites (``workflow_workers.optim_rank_wrapper`` and
+                ``ASE.geometry.opt_geometry``): hoisting construction any further
+                out pushes a device-resident ``nn.Module`` -- and for AIMNET a
+                live ``AIMNet2Calculator`` -- across a ``spawn`` boundary.
             device: Torch device for computation.
             config: OptimizationConfig dataclass or legacy dict with parameters.
+            progress_cb: Optional per-step progress callback.
+
+        Everything after ``out_f`` is keyword-only on purpose: the third
+        positional slot used to be the engine name, and a stale positional caller
+        would otherwise bind a string silently into the slot that now supplies the
+        padding values.
         """
         self.in_f = in_f
         self.out_f = out_f
-        self.name = name
         self.device = device
         self.progress_cb = progress_cb
 
@@ -175,10 +189,12 @@ class optimizing:
             # It's an OptimizationConfig - convert to dict for internal use
             self._config_dict = config.to_dict()
 
-        # Use ModelFactory to create the model adapter
-        self.model = create_model(name, device)
-        self.coord_pad = self.model.coord_pad
-        self.species_pad = self.model.species_pad
+        # No engine name is retained: `pad_from_mols` asks the adapter for the
+        # species convention as well as both pad values, so there is nothing left
+        # for a name to decide here.
+        self.model = adapter
+        self.coord_pad = adapter.coord_pad
+        self.species_pad = adapter.species_pad
 
     @property
     def config(self) -> dict:
@@ -246,8 +262,7 @@ class optimizing:
             position within ``bucket_mols``).
         """
         coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(
-            bucket_mols, self.name, self.device,
-            coord_pad=self.coord_pad, species_pad=self.species_pad
+            bucket_mols, self.model, self.device
         )
 
         # torch.jit.optimized_execution only affects TorchScript modules; the

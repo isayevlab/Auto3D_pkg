@@ -6,6 +6,28 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.batch_opt.padding import pad_from_mols
+from tests.helpers_adapter import FakeAdapter
+
+# The padder now takes the ADAPTER, which supplies the species convention and
+# both fill values. These two stand in for the real engines' conventions without
+# loading anything: AIMNet2 (raw atomic numbers, species_pad=0) and ANI2xt
+# (0-based network indices, species_pad=-1). Constructing the real ANI2xtAdapter
+# would load ~7 MB of weights and require torchani for the AEV computer, neither
+# of which belongs in the fast tier.
+ANI2XT_MAP = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
+
+
+def _aimnet_like(species_pad: int = 0) -> FakeAdapter:
+    return FakeAdapter(coord_pad=0.0, species_pad=species_pad)
+
+
+def _ani2xt_like(species_pad: int = -1) -> FakeAdapter:
+    """Real ANI2xt remap, including its named ValueError for an out-of-set Z."""
+    from Auto3D.models.species import to_ani2xt_species
+
+    adapter = FakeAdapter(coord_pad=0.0, species_pad=species_pad)
+    adapter.to_species = to_ani2xt_species
+    return adapter
 
 
 class TestPadFromMols:
@@ -23,7 +45,7 @@ class TestPadFromMols:
         mols = [mol1, mol2]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         # Methane has 5 atoms (1C + 4H), water has 3 atoms (1O + 2H)
         assert c.shape == (2, 5, 3)  # max_atoms = 5
@@ -40,7 +62,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         # Carbon is atomic number 6, Hydrogen is 1
         species_list = s[0].tolist()
@@ -55,7 +77,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, "ANI2xt", device, coord_pad=0.0, species_pad=-1)
+        c, s, q, mask = pad_from_mols(mols, _ani2xt_like(), device)
 
         # ANI2xt mapping: H->0, C->1, N->2, O->3, F->4, S->5, Cl->6
         species_list = s[0].tolist()
@@ -74,7 +96,7 @@ class TestPadFromMols:
         mols = [mol1, mol2]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         assert q[0].item() == 0   # Methane is neutral
         assert q[1].item() == -1  # Hydroxide has -1 charge
@@ -85,8 +107,7 @@ class TestPadFromMols:
         AllChem.EmbedMolecule(mol, randomSeed=42)
         device = torch.device("cpu")
 
-        _, _, q_mols, _ = pad_from_mols([mol], "AIMNET", device,
-                                        coord_pad=0.0, species_pad=0)
+        _, _, q_mols, _ = pad_from_mols([mol], _aimnet_like(), device)
         assert q_mols.dtype == torch.float32
 
     def test_coords_match_conformer(self):
@@ -97,7 +118,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         # Get positions from RDKit
         conf = mol.GetConformer()
@@ -117,7 +138,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, "AIMNET", device, coord_pad=0.0, species_pad=0)
+        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         assert c.requires_grad is True
 
@@ -133,7 +154,7 @@ class TestPadFromMols:
         device = torch.device("cpu")
 
         with pytest.raises(ValueError) as exc:
-            pad_from_mols(mols, "ANI2xt", device, coord_pad=0.0, species_pad=-1)
+            pad_from_mols(mols, _ani2xt_like(), device)
         msg = str(exc.value)
         assert "ANI2xt" in msg and ("15" in msg or "P" in msg)
 
@@ -161,7 +182,7 @@ class TestAtomMaskIsExplicit:
             return m
 
         small, large = _mol("CCO"), _mol("c1ccccc1CCCCO")
-        _, _, _, atom_mask = pad_from_mols([small, large], "AIMNET", device)
+        _, _, _, atom_mask = pad_from_mols([small, large], _aimnet_like(), device)
 
         assert atom_mask.shape == (2, large.GetNumAtoms())
         assert atom_mask[0].sum().item() == small.GetNumAtoms()
@@ -185,7 +206,7 @@ class TestAtomMaskIsExplicit:
         # species_pad=0 collides with ANI2xt's hydrogen index. The mask must be
         # derived from atom counts, so the collision cannot matter.
         _, species, _, atom_mask = pad_from_mols(
-            [small, large], "ANI2xt", device, coord_pad=0.0, species_pad=0
+            [small, large], _ani2xt_like(species_pad=0), device
         )
 
         n_small = small.GetNumAtoms()
@@ -198,3 +219,52 @@ class TestAtomMaskIsExplicit:
             "sanity check: hydrogens really do sit at species index 0, so a "
             "value-derived mask would have zeroed them"
         )
+
+
+class TestThePadderCannotDisagreeWithTheAdapter:
+    """One object supplies the remap AND both sentinels, so they cannot conflict.
+
+    ``pad_from_mols`` used to take a model-name *string* plus the adapter's two
+    pad values as separate arguments (``SPE.py`` and ``batchopt.py`` each passed
+    all three). The species convention therefore came from one source and the
+    padding sentinel from another, and nothing structurally prevented them from
+    contradicting each other -- the shape of audit findings C3/C4. The signature
+    now takes the adapter, so there is only one source.
+    """
+
+    @staticmethod
+    def _molecules():
+        mol1 = Chem.AddHs(Chem.MolFromSmiles("C"))  # 5 atoms
+        AllChem.EmbedMolecule(mol1, randomSeed=42)
+        mol2 = Chem.AddHs(Chem.MolFromSmiles("O"))  # 3 atoms
+        AllChem.EmbedMolecule(mol2, randomSeed=42)
+        return [mol1, mol2]
+
+    def test_both_the_remap_and_the_pad_come_from_the_one_object(self):
+        """A fake declaring a sentinel remap and a distinctive pad must see both
+        land in the same tensor. Impossible to state before the signature change:
+        the name decided the remap and the adapter decided the pad."""
+        from tests.helpers_adapter import FakeAdapter
+
+        # Deliberately not any real engine's convention: H -> 77, C -> 88, O -> 99.
+        adapter = FakeAdapter(
+            coord_pad=-5.5, species_pad=-42, species_map={1: 77, 6: 88, 8: 99}
+        )
+        coords, species, charges, mask = pad_from_mols(
+            self._molecules(), adapter, torch.device("cpu")
+        )
+
+        # Methane: C then 4 H, remapped by the ADAPTER.
+        assert species[0].tolist() == [88, 77, 77, 77, 77]
+        # Water: O, H, H remapped; the two padded slots hold the ADAPTER's pad.
+        assert species[1].tolist() == [99, 77, 77, -42, -42]
+        assert torch.all(coords[1, 3:] == -5.5)
+        assert mask[1].tolist() == [True, True, True, False, False]
+
+    def test_the_signature_no_longer_accepts_a_name_or_loose_pads(self):
+        """A stale caller must fail at the call, not bind a string into the slot
+        that decides which atoms are padding."""
+        import inspect
+
+        parameters = list(inspect.signature(pad_from_mols).parameters)
+        assert parameters == ["mols", "adapter", "device"], parameters

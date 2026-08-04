@@ -6,15 +6,18 @@ and provides batched forward functionality for calculating energies and forces.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import torch
 import torch.nn as nn
 
 from Auto3D.exceptions import OptimizationError
 
-if TYPE_CHECKING:
-    from Auto3D.model_factory import BaseModelAdapter
+# The CONTRACT, not the construction layer. This module used to name
+# `Auto3D.model_factory.BaseModelAdapter` -- the numerical layer reaching up into
+# the factory for a type that is actually defined below it, and reaching for the
+# implementation base class rather than the interface. A runtime (not
+# TYPE_CHECKING) import because the gate below consults it; contract.py costs
+# nothing beyond torch, which this module already imports.
+from Auto3D.models.contract import ModelAdapter, missing_adapter_members
 
 
 class EnForce_ANI(nn.Module):
@@ -41,14 +44,21 @@ class EnForce_ANI(nn.Module):
 
     def __init__(
         self,
-        model_adapter: BaseModelAdapter,
+        model_adapter: ModelAdapter,
         batchsize_atoms: int = 1024 * 16,
     ) -> None:
         """Initialize EnForce_ANI wrapper.
 
         Args:
-            model_adapter: A model adapter implementing the forward interface.
+            model_adapter: An object satisfying
+                :class:`Auto3D.models.contract.ModelAdapter`. Checked here --
+                this is the one seam in Auto3D where that Protocol is
+                load-bearing.
             batchsize_atoms: Maximum number of atoms per batch (default: 16384).
+
+        Raises:
+            TypeError: ``model_adapter`` is missing contract members, or
+                ``batchsize_atoms`` is not an int.
 
         The second parameter used to be ``name_or_batchsize: str | int | None``,
         type-switched between a model name (the pre-adapter API) and a batch size.
@@ -57,6 +67,27 @@ class EnForce_ANI(nn.Module):
         ever passed one. Removed, so the parameter has one meaning.
         """
         super().__init__()
+        # What this catches is a CATEGORY ERROR -- a raw nn.Module, a third-party
+        # calculator, a leftover engine-name string -- named here instead of
+        # surfacing as an AttributeError several frames deep inside
+        # forward_batched. It is NOT a contract check: a presence test cannot see
+        # arity, so an object with a wrong-signature forward still passes, and a
+        # MagicMock passes trivially (the unit tests rely on that). Do not
+        # oversell it in this message; the next reader will believe it.
+        #
+        # The missing names are computed from the Protocol rather than trusting
+        # the bare isinstance boolean, so widening ModelAdapter widens this
+        # message in the same edit. Never use issubclass against ModelAdapter --
+        # it raises TypeError for any Protocol with data members.
+        missing = missing_adapter_members(model_adapter)
+        if missing:
+            raise TypeError(
+                f"EnForce_ANI needs a model adapter satisfying "
+                f"Auto3D.models.contract.ModelAdapter; "
+                f"{type(model_adapter).__name__} is missing "
+                f"{', '.join(missing)}. Build one with "
+                f"Auto3D.model_factory.create_model."
+            )
         # A caller migrating off the removed API would pass a model name here and,
         # with the union gone, silently set the batch size to a string -- surfacing
         # much later inside batching as an unrelated comparison error. Rejected on

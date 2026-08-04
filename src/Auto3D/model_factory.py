@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -18,9 +19,18 @@ from Auto3D.models.adapter import (
     AIMNet2Adapter,
     ANI2xAdapter,
     ANI2xtAdapter,
-    BaseModelAdapter,
     CustomModelAdapter,
 )
+
+if TYPE_CHECKING:
+    # Annotation-only. Every signature here promises the CONTRACT
+    # (Auto3D.models.contract.ModelAdapter), not the implementation base class;
+    # `_adapters` is the sole exception, because it really is a registry of
+    # Auto3D's own classes. Kept behind TYPE_CHECKING so
+    # `Auto3D.model_factory.BaseModelAdapter` is no longer an incidental
+    # re-export -- import it from Auto3D.models.
+    from Auto3D.models.adapter import BaseModelAdapter
+    from Auto3D.models.contract import ModelAdapter
 
 # Environment variable to enable torch.compile() by default
 _COMPILE_ENV_VAR = "AUTO3D_COMPILE_MODEL"
@@ -54,7 +64,7 @@ class ModelFactory:
     assert set(_adapters) == set(BUILTIN_ANI_MODELS)
 
     # Model instance cache: key = (name, device_str, compile_model)
-    _cache: dict[tuple[str, str, bool], BaseModelAdapter] = {}
+    _cache: dict[tuple[str, str, bool], ModelAdapter] = {}
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -81,7 +91,7 @@ class ModelFactory:
         device: torch.device | None = None,
         compile_model: bool | None = None,
         use_cache: bool = True,
-    ) -> BaseModelAdapter:
+    ) -> ModelAdapter:
         """Create a model adapter by name.
 
         Args:
@@ -176,7 +186,7 @@ def create_model(
     device: torch.device | None = None,
     compile_model: bool | None = None,
     use_cache: bool = True,
-) -> BaseModelAdapter:
+) -> ModelAdapter:
     """Convenience function to create a model adapter.
 
     Args:

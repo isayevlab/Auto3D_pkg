@@ -17,7 +17,7 @@ from Auto3D.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
 )
-from Auto3D.model_factory import get_device
+from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
@@ -262,7 +262,13 @@ def opt_geometry(
         patience=patience if patience is not None else opt_steps,
         batchsize_atoms=batchsize_atoms,
     )
-    opt_engine = optimizing(path, outpath, model_name, device, opt_config)
+    # Built here, in the process that runs the optimization. `optimizing` no
+    # longer constructs its own adapter (audit M41); see the note at
+    # `Auto3D.workflow_workers.optim_rank_wrapper` about why construction must
+    # not be hoisted past the frame that does the work.
+    adapter = create_model(model_name, device)
+    opt_engine = optimizing(path, outpath, adapter=adapter, device=device,
+                            config=opt_config)
     opt_engine.run()
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds

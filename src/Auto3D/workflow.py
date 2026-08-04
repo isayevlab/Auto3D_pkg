@@ -237,18 +237,7 @@ class WorkflowOrchestrator:
         # Without this the bad index only surfaces deep inside a spawned worker as
         # an opaque "no structure converged". check_valid_configuration already
         # validates the index against torch.cuda.device_count(); reuse it.
-        config_errors = check_valid_configuration(
-            path=self.config.path,
-            k=self.config.k,
-            window=self.config.window,
-            use_gpu=self.config.use_gpu,
-            gpu_idx=self.config.gpu_idx,
-            optimizing_engine=self.config.optimizing_engine,
-            isomer_engine=self.config.isomer_engine,
-            opt_steps=self.config.opt_steps,
-            enumerate_tautomer=self.config.enumerate_tautomer,
-            tauto_engine=self.config.tauto_engine,
-        )
+        config_errors = check_valid_configuration(self.config)
         if config_errors:
             raise ConfigurationError(
                 "Invalid configuration:\n  - " + "\n  - ".join(config_errors)

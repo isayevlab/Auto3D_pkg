@@ -232,19 +232,11 @@ class TestOptimizerEmptyInput:
     def test_optimizer_handles_missing_file(self, tmp_path, caplog, monkeypatch):
         """Optimizer should gracefully handle missing input files."""
         import logging
-        from types import SimpleNamespace
 
         import torch
 
         from Auto3D.batch_opt.batchopt import optimizing
-
-        # This test exercises missing-file handling only -- run() returns before
-        # touching the model -- so stub create_model to skip the multi-second
-        # real AIMNet2 load (and stay robust to sibling tests clearing the cache).
-        monkeypatch.setattr(
-            "Auto3D.batch_opt.batchopt.create_model",
-            lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
-        )
+        from tests.helpers_adapter import FakeAdapter
 
         device = torch.device("cpu")
         config = {
@@ -255,7 +247,10 @@ class TestOptimizerEmptyInput:
         }
 
         nonexistent = str(tmp_path / "nonexistent.sdf")
-        optimizer = optimizing(nonexistent, str(tmp_path / "out.sdf"), "AIMNET", device, config)
+        # An injected double, because `optimizing` no longer constructs its own
+        # adapter -- and this test returns before the model is touched anyway.
+        optimizer = optimizing(nonexistent, str(tmp_path / "out.sdf"),
+                               adapter=FakeAdapter(), device=device, config=config)
 
         # Should not raise, just log warning and return
         with caplog.at_level(logging.WARNING):
@@ -266,18 +261,11 @@ class TestOptimizerEmptyInput:
     def test_optimizer_handles_empty_file(self, tmp_path, caplog, monkeypatch):
         """Optimizer should gracefully handle empty input files."""
         import logging
-        from types import SimpleNamespace
 
         import torch
 
         from Auto3D.batch_opt.batchopt import optimizing
-
-        # Empty-file handling returns before the model is used; stub create_model
-        # to skip the real AIMNet2 load (see test_optimizer_handles_missing_file).
-        monkeypatch.setattr(
-            "Auto3D.batch_opt.batchopt.create_model",
-            lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
-        )
+        from tests.helpers_adapter import FakeAdapter
 
         device = torch.device("cpu")
         config = {
@@ -291,7 +279,8 @@ class TestOptimizerEmptyInput:
         empty_sdf = tmp_path / "empty.sdf"
         empty_sdf.write_text("")
 
-        optimizer = optimizing(str(empty_sdf), str(tmp_path / "out.sdf"), "AIMNET", device, config)
+        optimizer = optimizing(str(empty_sdf), str(tmp_path / "out.sdf"),
+                               adapter=FakeAdapter(), device=device, config=config)
 
         # Should not raise, just log warning and return
         with caplog.at_level(logging.WARNING):
@@ -421,7 +410,7 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     attempted = []
 
     class _BoomOptimizing:
-        def __init__(self, in_f, out_f, engine, device, config, progress_cb=None):
+        def __init__(self, in_f, out_f, *, adapter, device, config, progress_cb=None):
             self._enumerated = in_f
 
         def run(self):
@@ -978,18 +967,12 @@ class TestQuietPathsNameWhatTheyDropped:
         `SPE.calc_spe` and `ASE/thermo`'s `iter_thermo_records` both log
         per-record for exactly this; this reader did not.
         """
-        from types import SimpleNamespace
-
         import torch
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
         from Auto3D.batch_opt.batchopt import optimizing
-
-        monkeypatch.setattr(
-            "Auto3D.batch_opt.batchopt.create_model",
-            lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
-        )
+        from tests.helpers_adapter import FakeAdapter
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=1)
@@ -1006,8 +989,8 @@ class TestQuietPathsNameWhatTheyDropped:
             "batchsize_atoms": 1024,
         }
         optimizer = optimizing(
-            str(bad_sdf), str(tmp_path / "out.sdf"), "AIMNET",
-            torch.device("cpu"), config,
+            str(bad_sdf), str(tmp_path / "out.sdf"), adapter=FakeAdapter(),
+            device=torch.device("cpu"), config=config,
         )
 
         with caplog.at_level(logging.WARNING):

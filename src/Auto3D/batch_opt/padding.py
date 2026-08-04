@@ -8,15 +8,20 @@ vectorized PyTorch operations.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
+
+if TYPE_CHECKING:
+    # Annotation only, and pointing DOWN the stack: batch_opt depends on
+    # models/, never the reverse and never on model_factory.
+    from Auto3D.models.contract import ModelAdapter
 
 
 def pad_from_mols(
     mols: list,  # List of RDKit Mol objects
-    model_name: str,
+    adapter: ModelAdapter,
     device: torch.device,
-    coord_pad: float = 0.0,
-    species_pad: int = -1,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Pad molecular data directly from RDKit Mol objects.
 
@@ -25,11 +30,20 @@ def pad_from_mols(
 
     Args:
         mols: List of RDKit Mol objects with conformers.
-        model_name: Name of the model ('AIMNET', 'ANI2x', 'ANI2xt', or custom).
-            Affects how atomic numbers are mapped to species indices.
+        adapter: The model this batch is being built for, satisfying
+            :class:`Auto3D.models.contract.ModelAdapter`. It supplies all three
+            model-dependent pieces -- the species convention
+            (``adapter.to_species``) and both fill values (``adapter.coord_pad``,
+            ``adapter.species_pad``).
+
+            This used to be a model-name *string* plus the two pad values as
+            separate arguments, so both call sites (``SPE.py``,
+            ``batch_opt/batchopt.py``) handed over a name AND an adapter's pads:
+            the remap came from one source and the sentinel from another, and
+            nothing structurally stopped them from contradicting each other.
+            That is the C3/C4 failure class, and taking the adapter is what makes
+            it impossible rather than merely absent.
         device: Target device for tensors (CPU or CUDA).
-        coord_pad: Padding value for coordinates. Default 0.0.
-        species_pad: Padding value for species. Default -1.
 
     Returns:
         Tuple of (coords_tensor, species_tensor, charges_tensor, atom_mask)
@@ -54,13 +68,13 @@ def pad_from_mols(
     # Pre-allocate tensors with padding values
     coords_tensor = torch.full(
         (batch_size, max_atoms, 3),
-        coord_pad,
+        adapter.coord_pad,
         dtype=torch.float32,
         device=device
     )
     species_tensor = torch.full(
         (batch_size, max_atoms),
-        species_pad,
+        adapter.species_pad,
         dtype=torch.long,
         device=device
     )
@@ -77,9 +91,7 @@ def pad_from_mols(
             conf.GetPositions(), dtype=torch.float32, device=device
         )
 
-        from Auto3D.batch_opt.species import to_model_species
-
-        spec = to_model_species([a.GetAtomicNum() for a in mol.GetAtoms()], model_name)
+        spec = adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()])
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)
         atom_mask[i, :n] = True
 

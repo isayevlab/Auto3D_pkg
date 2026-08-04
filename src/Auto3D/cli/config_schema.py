@@ -7,6 +7,7 @@ YAML file loading, CLI overrides, and conversion to Auto3DOptions.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,6 +30,66 @@ from Auto3D.constants import (
 )
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.models.preflight import resolve_engine_name
+
+#: ``Auto3DOptions`` fields ``CLIConfig`` deliberately does not carry, with the
+#: reason each is excluded. Used by ``to_auto3d_options`` below (which forwards
+#: every *other* field mechanically) and by
+#: ``tests/test_cli_config_schema.py``'s field-parity test, so "not exposed to
+#: the CLI" is stated once instead of once per consumer.
+OPTIONS_ONLY_FIELDS: dict[str, str] = {
+    "input_format": (
+        "derived by the workflow from the input file's suffix, not something a "
+        "user sets"
+    ),
+}
+
+# Built-in engine names mapped back to the exact spelling Auto3DOptions and the
+# model factory compare against. `_validate_engine` accepts any case (
+# `resolve_engine_name` case-folds) but returns the value unchanged, so
+# `self.optimizing_engine` still carries whatever the caller typed, e.g.
+# "ani2x". Registry names and custom paths are deliberately absent and pass
+# through verbatim -- see test_config_accepts_registry_and_path_engines.
+_ENGINE_CANONICAL_CASE: dict[str, str] = {
+    "ANI2X": "ANI2x",
+    "ANI2XT": "ANI2xt",
+    "AIMNET": "AIMNET",
+}
+
+
+def _to_options_path(value: Path | None) -> str | None:
+    """``Path`` -> ``str``, keeping an absence an absence.
+
+    ``str(None)`` would be the literal ``"None"``: a path that looks real and
+    names nothing.
+    """
+    return str(value) if value is not None else None
+
+
+def _to_options_selector(value: Any) -> Any:
+    """``CLIConfig``'s ``None`` "unset" sentinel -> ``Auto3DOptions``'s ``False``.
+
+    Only ``k``/``window`` need this. The other two ``SENTINEL_FIELDS``
+    (``memory``, ``max_confs``) are typed ``int | None`` on *both* classes, so
+    ``None`` carries across unchanged.
+    """
+    return value if value else False
+
+
+def _to_options_engine(value: str) -> str:
+    return _ENGINE_CANONICAL_CASE.get(value.upper(), value)
+
+
+#: The only fields whose value differs between the two classes. Everything else
+#: is forwarded verbatim by ``to_auto3d_options``, so a field added to both
+#: classes cannot be silently dropped on the way across (which the previous
+#: hand-written 27-assignment ``return Auto3DOptions(...)`` allowed -- nothing
+#: checked that the mapper actually forwarded every field).
+_TO_OPTIONS_TRANSFORMS: dict[str, Any] = {
+    "path": _to_options_path,
+    "k": _to_options_selector,
+    "window": _to_options_selector,
+    "optimizing_engine": _to_options_engine,
+}
 
 
 class CLIConfig(BaseModel):
@@ -65,7 +126,16 @@ class CLIConfig(BaseModel):
     use_gpu: bool = True
     gpu_idx: int | list[int] = 0
 
-    # Isomer settings
+    # Isomer settings.
+    #
+    # The two Literals below are the *typed* view of Auto3D.config.ENGINE_CHOICES,
+    # which is where those whitelists are declared and where
+    # Auto3DOptions.__post_init__ enforces them. They stay written out here
+    # because a Literal is what mypy and pydantic's error messages can use and
+    # neither can read a dict at type-check time --
+    # test_engine_choices_table_matches_cliconfig_literals asserts the two agree,
+    # so this copy cannot drift. (Contrast the numeric bounds, which are in
+    # FIELD_BOUNDS *only*: a Field(ge=) buys nothing a type can use.)
     enumerate_tautomer: bool = False
     tauto_engine: Literal["rdkit", "oechem"] = "rdkit"
     pKaNorm: bool = True
@@ -215,52 +285,24 @@ class CLIConfig(BaseModel):
                     "-c config.yaml'."
                 ),
             )
-        # Map built-in engine names back to the canonical form expected by
-        # Auto3DOptions; registry names and custom paths pass through verbatim.
-        #
-        # This table is live, not dead: `_validate_engine` (above) now accepts
-        # any case of these three names -- `resolve_engine_name` case-folds
-        # them -- but it validates and returns `v` unchanged, so
-        # `self.optimizing_engine` still carries whatever case the caller
-        # typed (e.g. "ani2x"). This map is what normalizes that back to the
-        # exact mixed-case spelling (`ANI2x`/`ANI2xt`) that `MODEL_ANI2X`/
-        # `MODEL_ANI2XT` and their downstream exact-match comparisons expect.
-        # Registry names/aliases are deliberately left out of this map and
-        # pass through as typed -- see test_config_accepts_registry_and_path_engines.
-        engine_map = {"ANI2X": "ANI2x", "ANI2XT": "ANI2xt", "AIMNET": "AIMNET"}
-        engine = engine_map.get(self.optimizing_engine.upper(), self.optimizing_engine)
+        # Driven off `dataclasses.fields(Auto3DOptions)` -- the authoritative
+        # schema -- rather than 27 hand-written `field=self.field` assignments.
+        # Those assignments were the one place drift could not be caught:
+        # `test_cliconfig_covers_all_auto3doptions_fields` compared field *name*
+        # sets, so deleting a line here silently dropped a user's setting on the
+        # floor and every test still passed. Iterating the dataclass means a new
+        # field is forwarded the moment it exists on both classes, and a field
+        # that exists on only one is a KeyError/TypeError here rather than a
+        # silent default.
+        values: dict[str, Any] = {}
+        for spec in dataclasses.fields(Auto3DOptions):
+            if spec.name in OPTIONS_ONLY_FIELDS:
+                continue
+            value = getattr(self, spec.name)
+            transform = _TO_OPTIONS_TRANSFORMS.get(spec.name)
+            values[spec.name] = transform(value) if transform else value
 
-        return Auto3DOptions(
-            # `str(None)` would be the literal "None", a path that looks real
-            # and names nothing; keep the absence an absence.
-            path=str(self.path) if self.path is not None else None,
-            k=self.k if self.k else False,
-            window=self.window if self.window else False,
-            enumerate_tautomer=self.enumerate_tautomer,
-            tauto_engine=self.tauto_engine,
-            pKaNorm=self.pKaNorm,
-            isomer_engine=self.isomer_engine,
-            enumerate_isomer=self.enumerate_isomer,
-            mode_oe=self.mode_oe,
-            max_confs=self.max_confs,
-            mpi_np=self.mpi_np,
-            optimizing_engine=engine,
-            use_gpu=self.use_gpu,
-            gpu_idx=self.gpu_idx,
-            opt_steps=self.opt_steps,
-            convergence_threshold=self.convergence_threshold,
-            patience=self.patience,
-            threshold=self.threshold,
-            batchsize_atoms=self.batchsize_atoms,
-            use_parallel_embedding=self.use_parallel_embedding,
-            parallel_workers=self.parallel_workers,
-            parallel_embedding_threshold=self.parallel_embedding_threshold,
-            memory=self.memory,
-            capacity=self.capacity,
-            allow_tf32=self.allow_tf32,
-            verbose=self.verbose,
-            job_name=self.job_name,
-        )
+        return Auto3DOptions(**values)
 
 
 def build_cli_config(**kwargs: Any) -> CLIConfig:

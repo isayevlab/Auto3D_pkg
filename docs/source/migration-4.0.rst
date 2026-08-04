@@ -576,7 +576,7 @@ API changes
    coords, species, charges = pad_from_mols(mols, model_name, device)
 
    # 4.0
-   coords, species, charges, atom_mask = pad_from_mols(mols, model_name, device)
+   coords, species, charges, atom_mask = pad_from_mols(mols, adapter, device)
 
 ``atom_mask`` is ``(batch, max_atoms)`` bool, ``True`` for real atoms. Use it
 instead of comparing species against a padding sentinel.
@@ -674,8 +674,8 @@ Species conversion moved
    index = getidx(atomic_number, model="ANI2xt")
 
    # 4.0
-   from Auto3D.batch_opt.species import to_model_species, ANI2XT_INDEX
-   indices = to_model_species(atomic_numbers, "ANI2xt")   # whole molecule at once
+   from Auto3D.models.species import to_ani2xt_species, ANI2XT_INDEX
+   indices = to_ani2xt_species(atomic_numbers)            # whole molecule at once
 
 ``energy_tol`` and ``energy_patience`` removed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -726,16 +726,31 @@ tolerance) is a different parameter and is unchanged.
 ``AUTO3D_USE_ENSEMBLE`` is no longer read. Passing either argument now raises
 ``TypeError``, which is the point: misspellings were previously swallowed.
 
-.. warning::
+``optimizing`` takes an adapter, keyword-only
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   ``optimizing.__init__`` also dropped ``use_ensemble`` from its parameter
-   list, which shifts ``progress_cb`` into positional slot 6. A legacy
-   positional caller such as ``optimizing(in_f, out_f, name, device, config,
-   True)`` now silently binds ``True`` to ``progress_cb`` instead of raising
-   an error -- ``n_steps`` wraps every progress callback in ``except
-   Exception: pass``, so a wrong-typed callback is swallowed rather than
-   surfaced. Call ``optimizing`` with keyword arguments, especially for
-   ``progress_cb``, to avoid this.
+.. code:: python
+
+   # 3.x
+   opt = optimizing(in_f, out_f, "AIMNET", device, config)
+
+   # 4.0
+   from Auto3D.model_factory import create_model
+   opt = optimizing(in_f, out_f, adapter=create_model("AIMNET", device),
+                    device=device, config=config)
+
+``optimizing`` no longer resolves a model name itself -- ``batch_opt`` does not
+import ``model_factory`` at all now -- so the caller builds the adapter and
+passes it in. Build it inside the worker process: an adapter must not cross a
+``spawn`` boundary.
+
+Everything after ``out_f`` is keyword-only. That closes a hazard an earlier
+draft of this guide warned about: when ``use_ensemble`` was dropped from the
+parameter list, ``progress_cb`` moved into positional slot 6, so a legacy
+positional call silently bound a stray positional argument to ``progress_cb``
+-- and ``n_steps`` wraps every progress callback in ``except Exception: pass``,
+so the wrong-typed callback was swallowed rather than surfaced. A positional
+call now raises ``TypeError`` immediately.
 
 ``Calculator`` and ``mol2aimnet_input`` require ``model_name``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

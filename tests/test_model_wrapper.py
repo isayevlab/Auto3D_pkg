@@ -210,9 +210,16 @@ def test_forward_batched_retries_on_oom():
 
     from Auto3D.batch_opt.model_wrapper import EnForce_ANI
 
-    class _OOMAdapter:
-        coord_pad = 0.0
-        species_pad = -1
+    from tests.helpers_adapter import FakeAdapter
+
+    class _OOMAdapter(FakeAdapter):
+        """Conforms to the contract (inherited), then OOMs on purpose.
+
+        Subclassing the shared double rather than re-declaring an ad-hoc one is
+        what keeps ``EnForce_ANI``'s contract gate tightenable: a hand-rolled
+        stub listing only the members this test happens to exercise goes red for
+        a reason that has nothing to do with OOM retry.
+        """
 
         def forward(self, coord, numbers, charges, atom_mask=None):
             if coord.shape[0] > 1:
@@ -247,3 +254,68 @@ def test_a_model_name_in_the_batchsize_slot_is_rejected():
 
     with pytest.raises(TypeError, match="batchsize_atoms"):
         EnForce_ANI(MagicMock(), "AIMNET")
+
+
+class TestEnForceANIRejectsNonAdapters:
+    """The adapter contract is enforced here, at the one seam that consumes it.
+
+    ``ModelAdapter`` was declared ``@runtime_checkable`` and then never checked
+    anywhere in ``src/`` or ``tests/``, while every signature that wanted "an
+    adapter" annotated the ABC instead. This class is what makes the Protocol
+    load-bearing: a category error (a raw ``nn.Module``, an
+    ``AIMNet2Calculator``, an engine-name string) is named here instead of
+    surfacing as an ``AttributeError`` several frames deep inside
+    ``forward_batched``.
+
+    Note what this does NOT catch: presence is not arity. An object with a
+    wrong-signature ``forward`` still passes, and a ``MagicMock`` passes
+    trivially (which the tests above rely on). The gate is for category errors.
+    """
+
+    def test_a_raw_nn_module_is_rejected_and_the_gap_is_named(self):
+        import pytest
+
+        with pytest.raises(TypeError) as excinfo:
+            EnForce_ANI(torch.nn.Linear(1, 1))
+        message = str(excinfo.value)
+        assert "ModelAdapter" in message
+        # The missing members must be enumerated, not merely alluded to.
+        for name in ("to_species", "coord_pad", "species_pad", "energy"):
+            assert name in message, f"{name} is missing but unnamed: {message}"
+
+    def test_an_engine_name_string_is_rejected(self):
+        """The pre-adapter API took a model name here; a stale caller must not
+        get an object whose ``forward`` fails much later."""
+        import pytest
+
+        with pytest.raises(TypeError, match="ModelAdapter"):
+            EnForce_ANI("AIMNET")
+
+    def test_a_conforming_double_is_accepted(self):
+        """The gate must not reject a structural (non-subclass) adapter --
+        production has always accepted those, which is why annotating the ABC
+        instead of the Protocol made the Protocol decorative."""
+        from tests.helpers_adapter import FakeAdapter, padded_batch
+
+        adapter = FakeAdapter()
+        wrapper = EnForce_ANI(adapter)
+        coords, species, charges, atom_mask = padded_batch()
+        e, f = wrapper.forward(coords, species, charges, atom_mask=atom_mask)
+        assert e.shape == (2,)
+        assert f.shape == (2, 3, 3)
+
+    def test_the_missing_member_list_comes_from_the_protocol(self):
+        """Derived, not hand-listed: widening ``ModelAdapter`` must widen this
+        message in the same edit."""
+        import pytest
+
+        from Auto3D.models.contract import ModelAdapter
+
+        class NothingAtAll:
+            pass
+
+        with pytest.raises(TypeError) as excinfo:
+            EnForce_ANI(NothingAtAll())
+        message = str(excinfo.value)
+        for name in ModelAdapter.__annotations__:
+            assert name in message

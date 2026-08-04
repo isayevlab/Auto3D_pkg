@@ -298,7 +298,12 @@ def test_models_test_success(monkeypatch):
     """`models test` loads the engine and runs a forward; reports success."""
     import torch
 
-    class _StubAdapter:
+    # AdapterModuleMixin supplies the ModelAdapter members this stub does not
+    # care about; `models test` asks the adapter for the species convention now
+    # instead of resolving it from the engine name separately (audit C4).
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _StubAdapter(AdapterModuleMixin):
         def forward(self, coords, species, charges):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
@@ -327,7 +332,12 @@ def test_models_test_non_finite_exit_code(monkeypatch):
     """Non-finite outputs are reported as a model (numerical) error -> exit 5."""
     import torch
 
-    class _NanAdapter:
+    # AdapterModuleMixin supplies the ModelAdapter members this stub does not
+    # care about; `models test` asks the adapter for the species convention now
+    # instead of resolving it from the engine name separately (audit C4).
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _NanAdapter(AdapterModuleMixin):
         def forward(self, coords, species, charges):
             return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
 
@@ -357,7 +367,12 @@ def test_models_test_no_gpu_still_works_without_cuda(monkeypatch):
     """--no-gpu must keep working on a CPU-only box (not a blanket failure)."""
     import torch
 
-    class _StubAdapter:
+    # AdapterModuleMixin supplies the ModelAdapter members this stub does not
+    # care about; `models test` asks the adapter for the species convention now
+    # instead of resolving it from the engine name separately (audit C4).
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _StubAdapter(AdapterModuleMixin):
         def forward(self, coords, species, charges):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
@@ -372,7 +387,12 @@ def test_models_test_gpu_works_when_cuda_present(monkeypatch):
     """--gpu (the default) must still succeed when CUDA is actually available."""
     import torch
 
-    class _StubAdapter:
+    # AdapterModuleMixin supplies the ModelAdapter members this stub does not
+    # care about; `models test` asks the adapter for the species convention now
+    # instead of resolving it from the engine name separately (audit C4).
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _StubAdapter(AdapterModuleMixin):
         def forward(self, coords, species, charges):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 

@@ -13,14 +13,16 @@ Reading a Hartree number as eV makes the window 27.211x too wide, so a
 where the truth is 1.000, and the ranker's own eV->Hartree conversion runs on
 an already-Hartree number, dividing by 27.211 twice.
 
-No neural network potential is loaded: ``ensemble_opt`` and ``create_model``
-are stubbed at the model boundary, exactly as ``tests/test_batchopt.py`` does,
-so the real padder, the real ``optimizing.run`` writer, the real
-``_annotate_and_rewrite`` and the real ranker all execute.
+No neural network potential is loaded: ``ensemble_opt`` is stubbed and the
+adapter is a conforming double, so the real padder, the real ``optimizing.run``
+writer, the real ``_annotate_and_rewrite`` and the real ranker all execute.
+
+``optimizing`` no longer builds its own adapter (audit M41), so the direct tests
+inject one and the ``opt_geometry`` tests stub ``create_model`` where
+``opt_geometry`` itself reads it -- ``Auto3D.ASE.geometry`` -- rather than at a
+seam inside ``batch_opt``.
 """
 from __future__ import annotations
-
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -51,8 +53,16 @@ def _write_input(path, names) -> None:
 
 
 def _stub_model_boundary(monkeypatch, energies_ev):
-    """Replace the NNP with a table of energies; everything else stays real."""
+    """Replace the NNP with a table of energies; everything else stays real.
+
+    Returns the conforming adapter double, for callers that construct
+    ``optimizing`` directly. ``Auto3D.ASE.geometry.create_model`` is stubbed to
+    hand back the same object, because that is where ``opt_geometry`` now builds
+    the adapter it injects.
+    """
+    import Auto3D.ASE.geometry as geo
     import Auto3D.batch_opt.batchopt as bo
+    from tests.helpers_adapter import FakeAdapter
 
     def fake_ensemble_opt(net, coord, numbers, charges, param, device,
                           atom_mask=None, progress_cb=None):
@@ -64,11 +74,10 @@ def _stub_model_boundary(monkeypatch, energies_ev):
             converged_mask=[True] * n, oscillating_count=[0] * n,
         )
 
+    adapter = FakeAdapter()
     monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
-    monkeypatch.setattr(
-        bo, "create_model",
-        lambda *a, **k: SimpleNamespace(coord_pad=0.0, species_pad=-1),
-    )
+    monkeypatch.setattr(geo, "create_model", lambda *a, **k: adapter)
+    return adapter
 
 
 class TestOptimizerWritesHartree:
@@ -77,14 +86,15 @@ class TestOptimizerWritesHartree:
     def test_e_tot_is_the_model_energy_in_hartree(self, tmp_path, monkeypatch):
         import Auto3D.batch_opt.batchopt as bo
 
-        _stub_model_boundary(monkeypatch, ENERGIES_EV)
+        adapter = _stub_model_boundary(monkeypatch, ENERGIES_EV)
         inp = tmp_path / "in.sdf"
         out = tmp_path / "out.sdf"
         _write_input(inp, ["spec_0_0", "spec_0_1", "spec_0_2"])
 
         bo.optimizing(
-            str(inp), str(out), "AIMNET", torch.device("cpu"),
-            {"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+            str(inp), str(out), adapter=adapter, device=torch.device("cpu"),
+            config={"opt_steps": 1, "opttol": 0.01, "patience": 1,
+                    "batchsize_atoms": 1024},
         ).run()
 
         mols = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
@@ -178,13 +188,14 @@ class TestTautomerSelectionReadsTheSameUnit:
         import Auto3D.batch_opt.batchopt as bo
         from Auto3D.tautomer import select_tautomers
 
-        _stub_model_boundary(monkeypatch, ENERGIES_EV[:2])
+        adapter = _stub_model_boundary(monkeypatch, ENERGIES_EV[:2])
         inp = tmp_path / "in.sdf"
         out = tmp_path / "opt.sdf"
         _write_input(inp, ["id1@taut0_0_0", "id1@taut1_0_0"])
         bo.optimizing(
-            str(inp), str(out), "AIMNET", torch.device("cpu"),
-            {"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+            str(inp), str(out), adapter=adapter, device=torch.device("cpu"),
+            config={"opt_steps": 1, "opttol": 0.01, "patience": 1,
+                    "batchsize_atoms": 1024},
         ).run()
 
         selected = select_tautomers(str(out), k=2)
