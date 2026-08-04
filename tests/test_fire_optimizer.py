@@ -2,6 +2,7 @@
 """Unit tests for the FIRE optimizer module."""
 from __future__ import annotations
 
+import pytest
 import torch
 
 from Auto3D.batch_opt.fire_optimizer import FIRE
@@ -304,22 +305,73 @@ class TestFIREBatchBehavior:
         assert coord.shape == (4, 5, 3)
 
     def test_fire_independent_molecule_tracking(self):
-        """FIRE should track each molecule's state independently."""
-        coord = torch.zeros(3, 5, 3)
-        optimizer = FIRE(coord)
+        """FIRE tracks each molecule's dt/a state independently, driven only
+        by that molecule's OWN progressing flag -- not by whatever the other
+        molecules in the batch are doing (fire_optimizer.py's per-molecule
+        torch.where selects on ``progressing``/``speedup``, but ``a3``,
+        ``dt``, ``self.a`` etc are shared *tensors* the batch is stepped
+        through together, so a batch-index mix-up would leak one molecule's
+        state into another's).
 
-        # Give different molecules different force histories
-        for i in range(3):
-            forces = torch.zeros(3, 5, 3)
-            forces[i] = torch.randn(5, 3) * 0.1
+        Protocol (all pure tensor arithmetic; deterministic, no randomness):
+        Phase 1 -- all 3 molecules push in the same fixed direction, so they
+        progress together and jointly build up ``Nsteps`` past ``Nmin``
+        (bootstrapping requires ALL molecules progressing at least once; see
+        the ``all_progressing`` branch). Phase 2 -- molecule 0 starts
+        flipping its own force sign every step. Once misaligned with its own
+        velocity, a molecule can never re-progress under an alternating
+        force (each non-progressing step resets v to align with THAT step's
+        force, and the next step's opposite force is then anti-aligned) --
+        so molecule 0 is guaranteed to be "not progressing" for the rest of
+        phase 2, while molecules 1/2 keep progressing and trigger the
+        speed-up branch (``past_nmin`` already true from phase 1,
+        ``all_progressing`` now false because molecule 0 dissents).
+        """
+        n_atoms = 2
+        astart = 0.1
+        dt_max = 0.1
+        coord = torch.zeros(3, n_atoms, 3)
+        optimizer = FIRE(coord)
+        steady_force = torch.ones(n_atoms, 3) * 0.1
+
+        # Phase 1: all three molecules progress together, bootstrapping
+        # Nsteps past Nmin (=5) for everyone.
+        for _ in range(8):
+            forces = torch.stack([steady_force, steady_force, steady_force])
+            coord = optimizer(coord, forces)
+        assert (optimizer.Nsteps > 5).all(), "phase 1 setup failed to reach Nmin"
+
+        # Phase 2: molecule 0 alternates sign every step (can never progress
+        # again); molecules 1 and 2 keep pushing steadily.
+        for step in range(10):
+            forces = torch.stack(
+                [
+                    steady_force if step % 2 == 0 else -steady_force,
+                    steady_force,
+                    steady_force,
+                ]
+            )
             coord = optimizer(coord, forces)
 
-        # Each molecule should have different state
-        # (at minimum, different velocities)
-        v_norms = [optimizer.v[i].norm().item() for i in range(3)]
+        # Molecule 0 never progressed in phase 2, so its mixing parameter
+        # `a` must be exactly reset to astart every single step -- the
+        # oscillating molecule's own branch, untouched by its batch-mates.
+        assert optimizer.a[0].item() == pytest.approx(astart)
 
-        # They shouldn't all be identical
-        assert not (v_norms[0] == v_norms[1] == v_norms[2])
+        # Molecules 1/2 share an identical force history and so must reach
+        # an identical (and, since they triggered the speed-up branch,
+        # strictly smaller-than-astart) mixing parameter -- proving the
+        # speed-up state is tracked per molecule, not smeared across the
+        # batch by molecule 0's resets.
+        assert optimizer.a[1].item() == pytest.approx(optimizer.a[2].item())
+        assert optimizer.a[1].item() < astart
+
+        # dt tells the same story from the other side: molecule 0's dt was
+        # repeatedly shrunk (fdec) by its own non-progress, while 1/2's dt
+        # saturated at dt_max via their own speed-up.
+        assert optimizer.dt[1].item() == pytest.approx(dt_max)
+        assert optimizer.dt[2].item() == pytest.approx(dt_max)
+        assert optimizer.dt[0].item() < optimizer.dt[1].item()
 
 
 class TestFIRETorchScript:

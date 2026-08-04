@@ -153,6 +153,9 @@ class TestNStepsValidation:
             'nn': None,
         }
 
-        # Should NOT raise AssertionError
-        with pytest.raises(ValueError):
+        # Should NOT raise AssertionError, and must be raised for the coord
+        # shape defect this fixture actually has -- a bare `ValueError` would
+        # also pass for e.g. an unrelated numbers/charges ValueError, so pin
+        # the message to the coord/3D guard this fixture is built to hit.
+        with pytest.raises(ValueError, match="coord.*3D"):
             n_steps(invalid_state, n=10, opttol=0.01, patience=100)

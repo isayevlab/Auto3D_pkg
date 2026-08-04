@@ -297,7 +297,13 @@ class TestOptimizerEmptyInput:
         with caplog.at_level(logging.WARNING):
             optimizer.run()
 
-        assert "empty" in caplog.text
+        # Pin the exact guard that fired: the empty-file message must be
+        # distinguishable from the missing-file message above ("does not
+        # exist"), which is also a file literally named "empty.sdf" would
+        # trivially satisfy a bare "empty" in caplog.text check without ever
+        # proving the *empty-file* branch (not the missing-file branch) ran.
+        assert f"Input file {empty_sdf} is empty." in caplog.text
+        assert "does not exist" not in caplog.text
 
 
 def test_workers_importable_from_workflow_workers():

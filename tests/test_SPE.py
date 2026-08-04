@@ -7,9 +7,13 @@ from Auto3D.SPE import calc_spe
 # from tests import skip_ani2xt_test
 skip_ani2xt_test = False
 
-# Mark all tests in this module as slow (single-point energy calculations)
-pytestmark = pytest.mark.slow
-
+# Every real-model test below is marked @pytest.mark.slow individually
+# (single-point energy calculations, each loading a real NNP). NOT a
+# module-level `pytestmark`: test_calc_spe_uses_model_factory below mocks
+# every model-construction call (create_model/EnForce_ANI/pad_from_mols) and
+# loads no NNP, so it must run in the fast tier -- a module-level mark would
+# have swept it in with everything else regardless of what it actually does.
+#
 # Every calc_spe call below passes use_gpu=False on purpose. calc_spe's
 # `use_gpu` default is True, and Auto3D 4.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
@@ -138,6 +142,7 @@ class userNNP2(torch.nn.Module):
         return out['energy'].reshape(-1)
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
 def test_calc_spe_ani2xt():
     #load B97-3c results file
@@ -154,6 +159,7 @@ def test_calc_spe_ani2xt():
         assert(diff <= 0.01)
 
 
+@pytest.mark.slow
 def test_calc_spe_ani2x():
     #load wB97X/6-31G* output file
     path = os.path.join(folder, "tests/files/wb97x_dz.sdf")
@@ -170,6 +176,7 @@ def test_calc_spe_ani2x():
         print(idx, spe_out, diff)
         assert(diff <= 0.011)
 
+@pytest.mark.slow
 def test_calc_spe_aimnet():
     path = os.path.join(folder, 'tests/files/cyclooctane.sdf')
     e_ref = -314.689736079491
@@ -179,6 +186,7 @@ def test_calc_spe_aimnet():
     e_out = float(mol.GetProp('E_hartree'))
     assert(abs(e_out - e_ref) <= 0.01)    
 
+@pytest.mark.slow
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
 def test_calc_spe_userNNP1():
     #load wB97X/6-31G* output file
@@ -203,6 +211,7 @@ def test_calc_spe_userNNP1():
         assert(diff <= 0.011)
 
 
+@pytest.mark.slow
 def test_calc_spe_userNNP2():
     path = os.path.join(folder, 'tests/files/cyclooctane.sdf')
     e_ref = -314.689736079491

@@ -31,14 +31,19 @@ class TestPaddingInvariance:
     # already asserts with atol=1e-2 eV, and ANI2xt's float32 output caps
     # usable precision at ~float32 ULP (~4e-3 eV) at typical total-energy
     # magnitudes per src/Auto3D/batch_opt/ANI2xt_no_rep.py:148-155. 1e-6 would
-    # demand sub-ULP reproducibility and flake on a correct model.
+    # demand sub-ULP reproducibility and flake on a correct model. ANI2x
+    # (torchani, periodic-table indexing) shares ANI2xt's float32 output and
+    # the same -1 species_pad convention, so it gets the same 1e-3 budget
+    # rather than AIMNet2's looser 1e-2 -- there is no reason to expect it
+    # tighter than its ANI-family sibling, and no measurement here to justify
+    # tighter than that either.
     @pytest.mark.parametrize(
         "engine, atol",
-        [("AIMNET", 1e-2), ("ANI2xt", 1e-3)],
+        [("AIMNET", 1e-2), ("ANI2xt", 1e-3), ("ANI2x", 1e-3)],
     )
     def test_energy_unchanged_when_padded(self, engine, atol, device):
         """Batching a small molecule alongside a large one must not shift its energy."""
-        if engine == "ANI2xt":
+        if engine in ("ANI2xt", "ANI2x"):
             pytest.importorskip("torchani")
         from Auto3D.model_factory import create_model
 

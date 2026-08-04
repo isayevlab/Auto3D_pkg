@@ -7,7 +7,10 @@ outputs exist, so 9 of 10 failed chunks exits 0 (C6). find_smiles_not_in_sdf,
 the reconciliation function, exists and is exported and tested with zero
 production callers (C7).
 
-Slow tier: uses the real aimnet2 registry model on CPU.
+Slow tier: uses the real aimnet2 registry model on CPU. NOT a module-level
+`pytestmark`, though: `TestClashReliefWarning` below is hermetic (no NNP, no
+network) and must run in the fast tier, so every real-pipeline test in this
+module is marked `@pytest.mark.slow` individually instead.
 """
 from __future__ import annotations
 
@@ -15,8 +18,7 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
-
-pytestmark = pytest.mark.slow
+from tests.helpers_pipeline_output import base_molecule_id
 
 
 def _input_ids(smi_path: str) -> set[str]:
@@ -32,6 +34,7 @@ def _input_ids(smi_path: str) -> set[str]:
 class TestInputOutputAccounting:
     """No input may vanish without being reported."""
 
+    @pytest.mark.slow
     def test_every_input_is_present_or_reported(self, job_dir):
         """Each input ID must appear in the output or in a reported failure list.
 
@@ -84,6 +87,7 @@ class TestInputOutputAccounting:
             f"{sorted(missing)}"
         )
 
+    @pytest.mark.slow
     def test_one_bad_molecule_does_not_remove_the_others(self, job_dir):
         """A sodium counterion must fail, and must fail alone.
 
@@ -124,8 +128,17 @@ class TestInputOutputAccounting:
         args = Auto3DOptions(path=str(smi), k=1, use_gpu=False, max_confs=2)
         out = main(args)
 
+        # `.split("_")[0]` used to truncate "sodium_acetate" to "sodium" at
+        # this line, so `"sodium_acetate" not in produced` below was true
+        # UNCONDITIONALLY -- true whether sodium_acetate correctly failed
+        # (the intended case) or a regression let it silently succeed and
+        # reach the output SDF under a name split() would still mangle to
+        # "sodium". `base_molecule_id` is the pipeline's own id-recovery
+        # helper (matches what ConformerRanker/decode_ids leave in `_Name`
+        # by this point), so this now actually depends on whether
+        # sodium_acetate is or is not in the output.
         produced = {
-            m.GetProp("_Name").split("_")[0]
+            base_molecule_id(m.GetProp("_Name"))
             for m in Chem.SDMolSupplier(out, removeHs=False)
             if m is not None
         }
@@ -162,6 +175,7 @@ class TestInputOutputAccounting:
 class TestExitStatus:
     """Losing molecules must not exit 0."""
 
+    @pytest.mark.slow
     def test_cli_exits_nonzero_when_molecules_are_missing(self, job_dir):
         """auto3d run must signal partial failure through its exit code."""
         from typer.testing import CliRunner
@@ -196,6 +210,7 @@ class TestExitStatus:
 class TestEnergyAndRankingSanity:
     """Assert on the numbers, not merely that the program ran."""
 
+    @pytest.mark.slow
     def test_energies_are_negative_and_ordered(self, isolated_input):
         """E_tot must be negative and ascending within a conformer group."""
         from Auto3D.auto3D import main
@@ -219,6 +234,7 @@ class TestEnergyAndRankingSanity:
                 f"{base}: conformers are not energy-ordered: {energies}"
             )
 
+    @pytest.mark.slow
     def test_top_k_returns_distinct_conformers(self, isolated_input):
         """k=3 must yield at most 3 per molecule, and the first is the minimum."""
         from Auto3D.auto3D import main
@@ -238,3 +254,91 @@ class TestEnergyAndRankingSanity:
         for base, energies in groups.items():
             assert len(energies) <= 3, f"{base}: k=3 but got {len(energies)}"
             assert energies[0] == min(energies), f"{base}: first is not the minimum"
+
+
+class TestClashReliefWarning:
+    """RDKitIsomer's serial embedding path (isomer_engine.py's
+    ``_run_serial_embedding``) must warn, once, when EVERY embedded conformer
+    of a species is rejected by clash relief -- the species then silently
+    vanishes from the output with no other trace. Before this test,
+    ``grep -rn "produced no conformers after clash relief" tests/`` returned
+    nothing: this is distinct from (and untested by) the parallel-embedding
+    path's own version of the same warning in ``isomers/parallel_embed.py``,
+    which ``test_workflow.py`` already covers.
+
+    Hermetic: no NNP, no network. ``relieve_clash`` itself is monkeypatched,
+    so this exercises only isomer_engine.py's warn-and-continue behavior
+    around it, not the clash-relief force field logic.
+    """
+
+    def test_species_with_no_surviving_conformer_is_warned_and_a_sibling_is_not(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        import logging
+
+        import Auto3D.isomer_engine as isomer_engine_mod
+        from Auto3D.isomer_engine import RDKitIsomer
+
+        smi = tmp_path / "in.smi"
+        # "bad_mol" (methane) will have every conformer rejected below;
+        # "good_mol" (ethanol) is the companion the guard must NOT warn about
+        # (the over-fire check the spec's verification standard asks for).
+        smi.write_text("C\tbad_mol\nCCO\tgood_mol\n")
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+
+        engine = RDKitIsomer(
+            smi=str(smi),
+            smiles_enumerated=str(tmp_path / "enumerated.smi"),
+            smiles_enumerated_reduced=str(tmp_path / "enumerated_reduced.smi"),
+            smiles_hashed=str(tmp_path / "hashed.smi"),
+            enumerated_sdf=str(tmp_path / "enumerated.sdf"),
+            job_name=str(job_dir),
+            max_confs=1,
+            threshold=0.3,
+            np=1,
+            flipper=False,
+        )
+
+        # relieve_clash(mol, conf_id) never sees the species name -- only the
+        # embedded RDKit Mol -- so identify "the methane-derived molecule"
+        # the only way the stub can: by its (distinctive) atom count after
+        # AddHs. Bypassing the real force-field logic entirely keeps this
+        # test hermetic and removes any dependence on ETKDG's random seed
+        # actually producing a clashing geometry.
+        bad_atom_count = Chem.AddHs(Chem.MolFromSmiles("C")).GetNumAtoms()
+
+        def fake_relieve_clash(mol, conf_id):
+            return mol.GetNumAtoms() != bad_atom_count
+
+        monkeypatch.setattr(
+            isomer_engine_mod, "relieve_clash", fake_relieve_clash
+        )
+
+        with caplog.at_level(logging.WARNING):
+            out = engine.run()
+
+        warnings = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        clash_warnings = [
+            m for m in warnings if "produced no conformers after clash relief" in m
+        ]
+        assert len(clash_warnings) == 1, (
+            f"expected exactly one clash-relief warning, got {clash_warnings}"
+        )
+        assert "bad_mol" in clash_warnings[0]
+        # The over-fire check: a sibling molecule in the same batch that DID
+        # survive clash relief must not be named in any such warning.
+        assert "good_mol" not in clash_warnings[0]
+        assert not any("good_mol" in m for m in clash_warnings)
+
+        # bad_mol is absent from the output entirely; good_mol made it through.
+        produced = {
+            m.GetProp("_Name")
+            for m in Chem.SDMolSupplier(out, removeHs=False)
+            if m is not None
+        }
+        assert not any(name.startswith("bad_mol") for name in produced), produced
+        assert any(name.startswith("good_mol") for name in produced), produced

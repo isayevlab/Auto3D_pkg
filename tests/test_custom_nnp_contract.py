@@ -92,6 +92,18 @@ class TooFewArgsNNP(torch.nn.Module):
         return (coords ** 2).sum(dim=(1, 2))
 
 
+class TooManyArgsNNP(torch.nn.Module):
+    """Extra required positional argument -- Auto3D never passes a fourth."""
+
+    def __init__(self):
+        super().__init__()
+        self.coord_pad = 0.0
+        self.species_pad = -1
+
+    def forward(self, species, coords, charges, cutoff):
+        return (coords ** 2).sum(dim=(1, 2)) * cutoff
+
+
 class ExoticNamesNNP(torch.nn.Module):
     """Right arity, names outside the known vocabulary -- must be accepted."""
 
@@ -178,7 +190,7 @@ def test_transposed_forward_is_rejected_through_the_adapter(tmp_path):
     from Auto3D.models.adapter import CustomModelAdapter
 
     path = _save(TransposedNNP(), tmp_path, "transposed_adapter.pt")
-    with pytest.raises(ModelLoadError):
+    with pytest.raises(ModelLoadError, match="species, coords, charges"):
         CustomModelAdapter(path, CPU)
 
 
@@ -209,7 +221,7 @@ def test_transposed_forward_is_rejected_by_input_validation(tmp_path):
         verbose=False,
         job_name="",
     )
-    with pytest.raises(ModelLoadError):
+    with pytest.raises(ModelLoadError, match="species, coords, charges"):
         check_input(args)
 
 
@@ -218,6 +230,67 @@ def test_alias_names_in_the_wrong_order_are_rejected(tmp_path):
     path = _save(AliasTransposedNNP(), tmp_path, "alias_transposed.pt")
     with pytest.raises(ModelLoadError, match="species, coords, charges"):
         load_custom_nnp(path, CPU)
+
+
+def _model_with_param_names(species_name, coords_name, charges_name):
+    """A plain object (no torch.save/pickle needed) whose forward's parameter
+    NAMES are exactly the given ones, so validate_custom_nnp's order check
+    (models/contract.py::_classify / _check_forward_signature) sees them.
+
+    Not an nn.Module: this only needs to be introspectable by
+    inspect.signature, which is all validate_custom_nnp actually uses, and
+    dynamically-named parameters cannot be produced by a module-level
+    class (needed elsewhere in this file for torch.save's pickling).
+    """
+    namespace: dict = {}
+    exec(  # noqa: S102 - test-only, fixed trusted template, no user input
+        f"def forward(self, {species_name}, {coords_name}, {charges_name}):\n"
+        f"    return ({coords_name} ** 2).sum(dim=(1, 2))\n",
+        namespace,
+    )
+    return type(
+        "DynamicNamedNNP",
+        (),
+        {"coord_pad": 0.0, "species_pad": -1, "forward": namespace["forward"]},
+    )()
+
+
+# Full synonym vocabulary from models/contract.py's _SPECIES_NAMES/
+# _COORDS_NAMES/_CHARGES_NAMES, covered at least once each, plus one
+# mixed-case ("Numbers"/"Positions"/"Charge") combination to confirm the
+# order check case-folds via _classify's ``name.lower()``.
+ALIAS_VOCABULARY = [
+    ("species", "coords", "charges"),
+    ("numbers", "positions", "charge"),
+    ("atomic_numbers", "coordinates", "charge"),
+    ("atomicnumbers", "coord", "q"),
+    ("z", "pos", "charges"),
+    ("elements", "xyz", "charge"),
+    ("Numbers", "Positions", "Charge"),
+]
+
+
+@pytest.mark.parametrize("species_name,coords_name,charges_name", ALIAS_VOCABULARY)
+def test_alias_vocabulary_in_correct_order_is_accepted(
+    species_name, coords_name, charges_name
+):
+    """Every recognized synonym, in the right order, must not be rejected --
+    a false rejection here would break a working model that merely spelled
+    the contract differently."""
+    model = _model_with_param_names(species_name, coords_name, charges_name)
+    validate_custom_nnp(model, "<memory>")  # must not raise
+
+
+@pytest.mark.parametrize("species_name,coords_name,charges_name", ALIAS_VOCABULARY)
+def test_alias_vocabulary_transposed_is_rejected(
+    species_name, coords_name, charges_name
+):
+    """The same synonyms, transposed (coords first), must still be caught --
+    synonyms are not an escape hatch from the order check, across the full
+    vocabulary, not just the one numbers/positions/charge pair."""
+    model = _model_with_param_names(coords_name, species_name, charges_name)
+    with pytest.raises(ModelLoadError, match="species, coords, charges"):
+        validate_custom_nnp(model, "<memory>")
 
 
 def test_missing_both_padding_attributes_are_rejected_at_load(tmp_path):
@@ -245,6 +318,17 @@ def test_wrong_arity_is_rejected_at_load(tmp_path):
     path = _save(TooFewArgsNNP(), tmp_path, "twoargs.pt")
     with pytest.raises(ModelLoadError, match="three positional arguments"):
         load_custom_nnp(path, CPU)
+
+
+def test_wrong_arity_too_many_required_args_is_rejected_at_load(tmp_path):
+    """The ``> 3`` branch: a fourth REQUIRED positional argument is just as
+    uncallable as the two-argument case above, but exercises the other half
+    of ``len(positional) < 3 or len(required) > 3`` in
+    ``models/contract.py::_check_forward_signature``."""
+    path = _save(TooManyArgsNNP(), tmp_path, "fourargs.pt")
+    with pytest.raises(ModelLoadError, match="three positional arguments") as excinfo:
+        load_custom_nnp(path, CPU)
+    assert "cutoff" in str(excinfo.value)
 
 
 # --- acceptance (a false rejection is a regression) -------------------------

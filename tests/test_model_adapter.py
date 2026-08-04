@@ -132,6 +132,47 @@ class TestANI2xtAdapter:
         assert adapter.species_pad == -1
         assert adapter.coord_pad == 0.0
 
+    def test_ani2xt_adapter_force_sign_with_toy_model(self):
+        """``forces = -grad`` is duplicated once per adapter in adapter.py:
+        ``ANI2xtAdapter.forward`` has its own copy, distinct from (and
+        untested by) ``CustomModelAdapter``'s copy that
+        ``test_custom_model_adapter_runs`` already checks (audit M32). A sign
+        bug introduced independently in THIS copy would not be caught by that
+        test, and ``test_ani2xt_adapter_creates_model`` above never calls
+        ``.forward`` at all.
+
+        ``BaseModelAdapter.__init__`` is called directly on a bypassed
+        instance (skipping ``ANI2xtAdapter.__init__``, which imports the real
+        bundled ANI2xt weights) and handed a toy quadratic model instead --
+        same technique ``TestBaseModelAdapter`` already uses for a mock
+        model, applied here so the REAL ``ANI2xtAdapter.forward`` runs.
+        Hermetic: no NNP loaded, no torchani import.
+        """
+        from Auto3D.models.adapter import ANI2xtAdapter, BaseModelAdapter
+
+        class _ToyANI2xtModel(torch.nn.Module):
+            def forward(self, species, coords):
+                return (coords ** 2).sum(dim=(1, 2))
+
+        device = torch.device("cpu")
+        adapter = ANI2xtAdapter.__new__(ANI2xtAdapter)
+        BaseModelAdapter.__init__(
+            adapter, _ToyANI2xtModel(), device, coord_pad=0.0, species_pad=-1
+        )
+
+        coords = torch.randn(2, 4, 3)
+        species = torch.tensor([[0, 1, 2, 3], [0, 1, 2, -1]])
+        charges = torch.zeros(2)
+        energy, forces = adapter.forward(coords, species, charges)
+
+        # _ToyANI2xtModel does not mask padding: E = sum(coords^2) over every
+        # slot => dE/dx = 2*coords => F = -dE/dx = -2*coords, exactly like
+        # test_custom_model_adapter_runs's reference calculation.
+        torch.testing.assert_close(
+            energy, (coords ** 2).sum(dim=(1, 2)), rtol=1e-5, atol=1e-6
+        )
+        torch.testing.assert_close(forces, -2.0 * coords, rtol=1e-5, atol=1e-6)
+
 
 class TestANI2xAdapter:
     """Tests for the ANI2x adapter."""
@@ -149,6 +190,53 @@ class TestANI2xAdapter:
         # Verify adapter has correct padding values
         assert adapter.species_pad == -1
         assert adapter.coord_pad == 0.0
+
+    def test_ani2x_adapter_force_sign_with_toy_model(self):
+        """``forces = -grad`` is duplicated again in ``ANI2xAdapter.forward``
+        -- a third, separate copy from ``ANI2xtAdapter``'s and
+        ``CustomModelAdapter``'s (audit M32), also untested by
+        ``test_custom_model_adapter_runs``.
+
+        The toy model mimics torchani's ``SpeciesEnergies`` return shape (an
+        object with a ``.energies`` attribute) rather than
+        ``ANI2xtAdapter``'s plain-tensor return, since ``ANI2xAdapter.forward``
+        calls ``self.model((species, coords)).energies`` and multiplies by
+        ``HARTREE_TO_EV`` -- the toy divides by the same constant first so the
+        expected force in eV is still the clean ``-2*coords``. Coordinates are
+        float32 from the start (matching what ``ANI2xAdapter.forward`` casts
+        to internally) so the adapter's own ``coords.float()`` cast is a
+        no-op here and cannot be blamed for any looseness in the comparison
+        (the brainstorm's dtype-cast risk flag for this specific test).
+        Hermetic: no NNP loaded, no torchani import.
+        """
+        from collections import namedtuple
+
+        from Auto3D.constants import HARTREE_TO_EV
+        from Auto3D.models.adapter import ANI2xAdapter, BaseModelAdapter
+
+        _SpeciesEnergies = namedtuple("SpeciesEnergies", ["species", "energies"])
+
+        class _ToyANI2xModel(torch.nn.Module):
+            def forward(self, species_coords):
+                species, coords = species_coords
+                energies = (coords ** 2).sum(dim=(1, 2)) / HARTREE_TO_EV
+                return _SpeciesEnergies(species, energies)
+
+        device = torch.device("cpu")
+        adapter = ANI2xAdapter.__new__(ANI2xAdapter)
+        BaseModelAdapter.__init__(
+            adapter, _ToyANI2xModel(), device, coord_pad=0.0, species_pad=-1
+        )
+
+        coords = torch.randn(2, 4, 3, dtype=torch.float32)
+        species = torch.tensor([[1, 6, 7, 8], [1, 6, 7, -1]])
+        charges = torch.zeros(2)
+        energy, forces = adapter.forward(coords, species, charges)
+
+        torch.testing.assert_close(
+            energy, (coords ** 2).sum(dim=(1, 2)), rtol=1e-5, atol=1e-6
+        )
+        torch.testing.assert_close(forces, -2.0 * coords, rtol=1e-5, atol=1e-6)
 
 
 class TestCustomModelAdapter:
