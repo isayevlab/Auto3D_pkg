@@ -84,10 +84,9 @@ Auto3D supports three neural network potentials:
    The speed column is qualitative. The one structural fact behind it: the
    ``ANI2x`` engine loads torchani's full **8-model ensemble**, so it evaluates
    eight networks per step, while ``AIMNET`` and ``ANI2xt`` are single models.
-   ``auto3d models info AIMNET`` quotes "~35x faster than ANI2x" for AIMNet2.
-   No benchmark for these engines is maintained in this repository, so treat
-   the relative ordering of ``AIMNET`` and ``ANI2xt`` as unmeasured and time
-   your own workload before choosing between them.
+   No benchmark for these engines is maintained in this repository, so no
+   speed ratio between them is quoted anywhere -- treat the ordering as
+   unmeasured and time your own workload before choosing.
 
 Select a model with ``--engine``:
 

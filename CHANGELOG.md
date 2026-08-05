@@ -74,6 +74,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (~1e-6 kcal/mol at typical magnitudes) for such a model. Every other engine,
   and a custom model returning float32, is bit-identical.
 
+### Changed
+
+- **`auto3d models info` and `auto3d models list` no longer quote a speed
+  ratio.** The `speed` field carried "~35x faster than ANI2x" for all four
+  AIMNet2 registry entries, "Moderate" for ANI2x and "Faster than ANI2x" for
+  ANI2xt. No benchmark for any of those exists in this repository -- the only
+  thing `benchmarks/` measures is eager against compiled -- so the field now
+  states what is actually checkable: how many networks the engine evaluates per
+  step (ANI2x loads torchani's 8-model ensemble; AIMNet2 and ANI2xt are single
+  models), marked "not benchmarked here". `auto3d models list` carried the same
+  ranking as a five-star Speed column (AIMNET five, ANI2xt four, ANI2x three);
+  that column is now `Networks/step`, showing the count itself. The guides that
+  quoted the figure were updated to match. This is the same standard already applied when "~1.25x" was
+  removed from the `torch.compile` documentation.
+
 ### Added
 
 - **In-tree conda recipe.** `conda-recipe/meta.yaml` builds 3.0.0 from the

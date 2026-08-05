@@ -26,14 +26,14 @@ def execute_models_list() -> None:
     """Display available optimization engines."""
     table = Table(title="Available Optimization Engines", show_header=True)
     table.add_column("Engine", style="cyan")
-    table.add_column("Speed", justify="center")
+    table.add_column("Networks/step", justify="center")
     table.add_column("Accuracy", justify="center")
     table.add_column("Status")
 
     # AIMNET (alias for the aimnet2 registry default) - auto-downloaded on first use
     table.add_row(
         "AIMNET",
-        "[green]★★★★★[/green]",
+        "1",
         "[green]★★★★★[/green]",
         "[cyan]Auto-download[/cyan]",
     )
@@ -42,7 +42,7 @@ def execute_models_list() -> None:
     ani_available, ani_status = check_dependency_status("torchani")
     table.add_row(
         "ANI2x",
-        "[yellow]★★★☆☆[/yellow]",
+        "[yellow]8 (ensemble)[/yellow]",
         "[green]★★★★☆[/green]",
         ani_status,
     )
@@ -50,7 +50,7 @@ def execute_models_list() -> None:
     # ANI2xt - requires torchani
     table.add_row(
         "ANI2xt",
-        "[yellow]★★★★☆[/yellow]",
+        "1",
         "[yellow]★★★☆☆[/yellow]",
         ani_status,
     )
@@ -59,19 +59,19 @@ def execute_models_list() -> None:
     table.add_section()
     table.add_row(
         "aimnet2-2025",
-        "[green]★★★★★[/green]",
+        "1",
         "[green]★★★★★[/green]",
         "[cyan]Auto-download[/cyan]",
     )
     table.add_row(
         "aimnet2-nse",
-        "[green]★★★★★[/green]",
+        "1",
         "[green]★★★★★[/green]",
         "[cyan]Auto-download[/cyan]",
     )
     table.add_row(
         "aimnet2-pd",
-        "[green]★★★★★[/green]",
+        "1",
         "[green]★★★★★[/green]",
         "[cyan]Auto-download[/cyan]",
     )
@@ -87,6 +87,11 @@ def execute_models_list() -> None:
         "[dim]Any aimnet registry name is accepted; registry models are "
         "downloaded on first use into ~/.cache/aimnet[/dim]"
     )
+    console.print(
+        "[dim]Networks/step is how many networks the engine evaluates per "
+        "optimization step -- no engine speed benchmark is maintained in "
+        "this repository.[/dim]"
+    )
     console.print()
     console.print("[dim]Run 'auto3d models info <engine>' for details[/dim]")
 
@@ -94,9 +99,9 @@ def execute_models_list() -> None:
 ENGINE_INFO = {
     "AIMNET": {
         "name": "AIMNet2",
-        "description": "State-of-the-art neural network potential with excellent speed and accuracy.",
+        "description": "State-of-the-art neural network potential for organic and main-group chemistry.",
         "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
-        "speed": "~35x faster than ANI2x",
+        "speed": "Single model (not benchmarked here)",
         "accuracy": "Best for organic molecules",
         "reference": "https://github.com/isayevlab/AIMNet2",
         "notes": [
@@ -109,7 +114,7 @@ ENGINE_INFO = {
         "name": "aimnet2-2025",
         "description": "AIMNet2 model trained on B97-3c with improved non-covalent interactions.",
         "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
-        "speed": "~35x faster than ANI2x",
+        "speed": "Single model (not benchmarked here)",
         "accuracy": "Improved non-covalent interactions over the default model",
         "reference": "https://github.com/isayevlab/aimnetcentral",
         "notes": [
@@ -122,7 +127,7 @@ ENGINE_INFO = {
         "name": "aimnet2-nse",
         "description": "AIMNet2 model with open-shell support for radicals and spin states.",
         "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
-        "speed": "~35x faster than ANI2x",
+        "speed": "Single model (not benchmarked here)",
         "accuracy": "Best for open-shell / radical species",
         "reference": "https://github.com/isayevlab/aimnetcentral",
         "notes": [
@@ -135,7 +140,7 @@ ENGINE_INFO = {
         "name": "aimnet2-pd",
         "description": "AIMNet2 model with palladium support for organometallic catalysis.",
         "elements": "H, B, C, N, O, F, Si, P, S, Cl, Se, Br, Pd, I",
-        "speed": "~35x faster than ANI2x",
+        "speed": "Single model (not benchmarked here)",
         "accuracy": "Best for Pd organometallic / catalytic systems",
         "reference": "https://github.com/isayevlab/aimnetcentral",
         "notes": [
@@ -148,7 +153,7 @@ ENGINE_INFO = {
         "name": "ANI-2x",
         "description": "Accurate neural network potential for organic molecules.",
         "elements": "H, C, N, O, F, S, Cl",
-        "speed": "Moderate",
+        "speed": "8-model ensemble (not benchmarked here)",
         "accuracy": "Excellent for covered elements",
         "reference": "https://github.com/aiqm/torchani",
         "notes": [
@@ -161,12 +166,12 @@ ENGINE_INFO = {
         "name": "ANI-2xt",
         "description": "Extended ANI-2x with improved torsion handling.",
         "elements": "H, C, N, O, F, S, Cl",
-        "speed": "Faster than ANI2x",
+        "speed": "Single model (not benchmarked here)",
         "accuracy": "Good for conformer generation",
         "reference": "https://github.com/aiqm/torchani",
         "notes": [
             "Requires torchani: pip install torchani",
-            "Single model (faster)",
+            "Single model",
             "Optimized for conformer search",
         ],
     },

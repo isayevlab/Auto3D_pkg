@@ -467,7 +467,10 @@ Show available optimization engines.
 Displays a table with one row per engine and these columns:
 
 - **Engine** -- the name you pass to ``--engine``
-- **Speed** -- a qualitative note (see ``auto3d models info``)
+- **Networks/step** -- how many networks the engine evaluates per
+  optimization step (``ANI2x`` is an 8-model ensemble; everything else is a
+  single model). This is a structural count, not a benchmark: no engine
+  speed measurement is maintained in this repository.
 - **Accuracy** -- what the model is best suited to
 - **Status** -- whether the model is available in this install
 
