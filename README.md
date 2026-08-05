@@ -7,25 +7,19 @@
 
 ![auto3d-white](https://github.com/user-attachments/assets/3184d31b-fb21-42d5-a1e0-611ccbf66ad2)
 
-**Auto3D** automatically generates low-energy 3D molecular conformers from SMILES or SDF input using neural network potentials (AIMNet2, ANI2x, ANI2xt). It handles tautomer enumeration, stereoisomer generation, geometry optimization, and conformer ranking in a single workflow.
-
-## What's New in v3.0
-
-- **Modern CLI** with Typer and Rich - beautiful terminal output, progress bars, and helpful error messages
-- **Subcommand structure** - `run`, `config`, `models`, `validate` commands
-- **Improved architecture** - cleaner codebase with strategy patterns and proper separation of concerns
-- **Better logging** - structured logging throughout the workflow
-- **Type safety** - full type hints and Pydantic validation
+**Auto3D** automatically generates low-energy 3D molecular conformers from SMILES
+or SDF input using neural network potentials (AIMNet2, ANI2x, ANI2xt). It handles
+tautomer enumeration, stereoisomer generation, geometry optimization, and
+conformer ranking in a single workflow.
 
 ## Installation
 
 ```bash
-# Using uv (fastest)
-uv pip install Auto3D
-
-# Using pip
-pip install Auto3D
+pip install Auto3D            # or: uv pip install Auto3D
+pip install "Auto3D[ani,ase]" # + torchani (ANI2x/ANI2xt) and ase (thermochemistry)
 ```
+
+Requires **Python >= 3.11** and **PyTorch >= 2.8**.
 
 > **conda-forge is not current.** `conda install -c conda-forge auto3d` installs
 > **2.3.0**, not 3.0.0. conda-forge requires every dependency to be a conda
@@ -42,7 +36,8 @@ conda env create --file installation.yml --name auto3D
 conda activate auto3D          # pip installs Auto3D[ani,ase] into it
 ```
 
-For GPU acceleration, ensure you have CUDA-compatible PyTorch installed. See the [installation guide](https://auto3d.readthedocs.io/en/latest/installation.html) for detailed instructions.
+For GPU acceleration, install a CUDA-enabled PyTorch build. See the
+[installation guide](https://auto3d.readthedocs.io/en/latest/installation.html).
 
 ## Quick Start
 
@@ -52,30 +47,34 @@ For GPU acceleration, ensure you have CUDA-compatible PyTorch installed. See the
 # Generate top-5 conformers per molecule
 auto3d run molecules.smi --k=5
 
-# Use a configuration file
-auto3d run molecules.smi -c config.yaml
+# Exactly one of --k or --window is required
+auto3d run molecules.smi --window=3.0
 
-# Generate a config template
+# CPU-only (GPU is used by default)
+auto3d run molecules.smi --k=5 --no-gpu
+
+# Generate a config template, then use it
 auto3d config init
-
-# List available neural network models
-auto3d models list
-
-# Validate input file before running
-auto3d validate molecules.smi
+auto3d run molecules.smi -c auto3d.yaml
 ```
+
+A run writes `<stem>_<timestamp>/<stem>_out.sdf` next to the input, alongside an
+`Auto3D.log`.
 
 ### Python API
 
 ```python
 from Auto3D import Auto3DOptions, main
 
-# Generate conformers for a SMILES file
 config = Auto3DOptions(path="molecules.smi", k=1)
-output_path = main(config)
+output_path = main(config)      # WorkflowResult: a str subclass holding the SDF path
 ```
 
-For small batches (< 150 molecules), use the convenience function:
+`main()` returns a `WorkflowResult`, which *is* the output path (it subclasses
+`str`) and also carries `n_molecules`, `n_conformers`, and `failures`.
+
+For small batches (≤150 molecules), `smiles2mols` skips the job directory and
+hands back RDKit molecules directly:
 
 ```python
 from Auto3D import Auto3DOptions, smiles2mols
@@ -84,10 +83,13 @@ smiles = ["CCO", "CCCO", "c1ccccc1"]
 config = Auto3DOptions(k=1, use_gpu=False)
 mols = smiles2mols(smiles, config)
 
-# Access energies from RDKit mol objects
 for mol in mols:
     print(f"{mol.GetProp('_Name')}: {mol.GetProp('E_tot')} Hartree")
 ```
+
+Output SDF properties: `E_tot` / `E_tot(Hartree)`, `E_rel(kcal/mol)`, `_Name`,
+`ID`, and the optimizer diagnostics `fmax`, `Converged`, `Dropped_Oscillating`.
+The input SMILES is **not** carried into the output — join on `_Name`/`ID`.
 
 ## CLI Commands
 
@@ -99,28 +101,25 @@ for mol in mols:
 | `auto3d thermo <input.sdf>` | Thermochemistry (enthalpy/entropy/Gibbs); needs the `ase` extra |
 | `auto3d tautomers <input.smi>` | Enumerate and rank stable tautomers |
 | `auto3d config init` | Create a configuration template |
-| `auto3d config show <file>` | Display config with syntax highlighting |
+| `auto3d config show [file]` | Display config with syntax highlighting (defaults to `auto3d.yaml`) |
 | `auto3d config validate <file>` | Validate a configuration file |
 | `auto3d models list` | List available NNP models |
 | `auto3d models info <engine>` | Show model details |
 | `auto3d models test <engine>` | Load an engine and run a forward pass to verify it works |
 | `auto3d validate <input>` | Validate input file |
 
-### Common Options
+All commands except `models list` accept `-v/--verbose`, which is the only way
+to get a traceback. `--json` is available on `run`, `validate`, and the four
+property commands. Exit codes: `0` success, `2` configuration/input error, `4`
+GPU requested but unavailable, `6` partial success, `130` interrupted.
 
 ```bash
 auto3d run input.smi --k=5              # Top-k conformers
 auto3d run input.smi --window=3.0       # Energy window (kcal/mol)
-auto3d run input.smi --engine=ANI2x        # AIMNET, ANI2x, ANI2xt, a registry name, or a model path
+auto3d run input.smi --engine=ANI2x     # AIMNET, ANI2x, ANI2xt, a registry name, or a model path
 auto3d run input.smi --no-gpu           # CPU-only mode
 auto3d run input.smi -c config.yaml     # Use config file
-```
-
-### Shell Completion
-
-```bash
-# Enable tab completion
-auto3d --install-completion bash  # or zsh, fish
+auto3d --install-completion             # Shell completion (takes no shell argument)
 ```
 
 ## Neural Network Potentials
@@ -128,41 +127,50 @@ auto3d --install-completion bash  # or zsh, fish
 | Engine | Description | Elements |
 |--------|-------------|----------|
 | **AIMNET** (default) | AIMNet2 with D3 dispersion (alias for `aimnet2`) | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I |
-| **aimnet2-2025**, **aimnet2-nse**, **aimnet2-pd**, ... | Any `aimnet` registry model | H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I (`aimnet2-pd` replaces As with Pd) |
-| **ANI2x** | ANI-2x ensemble | H, C, N, O, F, S, Cl |
-| **ANI2xt** | Extended ANI-2x | H, C, N, O, F, S, Cl |
+| **aimnet2-2025**, **aimnet2-nse**, **aimnet2-pd**, ... | Any `aimnet` registry model | as above (`aimnet2-pd` replaces As with Pd) |
+| **ANI2x** | ANI-2x, an 8-model ensemble | H, C, N, O, F, S, Cl |
+| **ANI2xt** | Extended ANI-2x, single model | H, C, N, O, F, S, Cl |
 
 AIMNet2 models are provided by the [`aimnet`](https://github.com/isayevlab/aimnetcentral)
 package and auto-downloaded (and sha256-validated) into `~/.cache/aimnet` on first
 use; set `AIMNET_CACHE_DIR` to change the cache location. Network access is required
 once per model. Run `auto3d models list` to see available registry families.
-`optimizing_engine` also accepts a path to a custom NNP model file.
+`optimizing_engine` also accepts a path to a
+[custom NNP model file](https://auto3d.readthedocs.io/en/latest/howto/custom_nnp.html).
 
-> **Note:** As of v3.5, AIMNet2 is served by the `aimnet` package rather than
-> bundled `.jpt` files, and the default AIMNet2 energies differ from 3.x (the
-> registry `.pt` externalizes D3 dispersion), so conformer rankings may shift
-> slightly. Requires Python >= 3.11 and PyTorch >= 2.8.
+> **Upgrading from 2.x:** AIMNet2 is now served by the `aimnet` package rather
+> than bundled `.jpt` files, and the default AIMNet2 energies differ from 2.x
+> (the registry `.pt` externalizes D3 dispersion), so conformer rankings may
+> shift slightly. The thermochemistry SDF property `S_hartree` was renamed
+> `S_hartree_per_K`. See the
+> [migration guide](https://auto3d.readthedocs.io/en/latest/migration.html).
 
 ## Key Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `k` | - | Output top-k conformers per molecule |
-| `window` | - | Energy window in kcal/mol (alternative to k) |
-| `optimizing_engine` | AIMNET | NNP: AIMNET, an aimnet registry name, ANI2x, ANI2xt, or a model path |
-| `use_gpu` | True | Enable GPU acceleration |
-| `enumerate_tautomer` | False | Enumerate tautomers |
-| `enumerate_isomer` | True | Enumerate stereoisomers |
-| `threshold` | 0.3 | RMSD threshold for duplicate removal (Å) |
+| `k` | — | Output top-k conformers per molecule |
+| `window` | — | Energy window in kcal/mol — exactly one of `k`/`window` is required |
+| `optimizing_engine` | `AIMNET` | NNP: AIMNET, an aimnet registry name, ANI2x, ANI2xt, or a model path |
+| `use_gpu` | `True` | GPU acceleration. Requesting it with no visible CUDA device is a fatal error, not a fallback |
+| `gpu_idx` | `0` | CUDA device index, or a list for multi-GPU |
+| `enumerate_tautomer` | `False` | Enumerate tautomers |
+| `enumerate_isomer` | `True` | Enumerate stereoisomers |
+| `threshold` | `0.3` | RMSD threshold for duplicate removal (Å) |
+| `opt_steps` | `2000` | Maximum optimization steps |
+| `convergence_threshold` | `0.01` | Force convergence threshold (eV/Å) |
 
 ## Documentation
 
 Full documentation: [**auto3d.readthedocs.io**](https://auto3d.readthedocs.io/)
 
 - [Installation Guide](https://auto3d.readthedocs.io/en/latest/installation.html)
-- [Usage & Examples](https://auto3d.readthedocs.io/en/latest/usage.html)
+- [Quickstart](https://auto3d.readthedocs.io/en/latest/howto/quickstart.html)
+- [CLI Reference](https://auto3d.readthedocs.io/en/latest/cli.html)
 - [API Reference](https://auto3d.readthedocs.io/en/latest/api.html)
-- [Jupyter Notebooks](https://github.com/isayevlab/Auto3D_pkg/tree/main/example)
+- [Custom NNPs](https://auto3d.readthedocs.io/en/latest/howto/custom_nnp.html)
+- [Troubleshooting](https://auto3d.readthedocs.io/en/latest/howto/troubleshooting.html)
+- [Jupyter notebooks](https://github.com/isayevlab/Auto3D_pkg/tree/main/example)
 
 ## Citation
 
@@ -186,7 +194,7 @@ If you use Auto3D in your research, please cite:
 
 - **Bug reports**: [GitHub Issues](https://github.com/isayevlab/Auto3D_pkg/issues)
 - **Feature requests**: [GitHub Discussions](https://github.com/isayevlab/Auto3D_pkg/discussions)
-- **Pull requests**: Welcome! Please read our contributing guidelines.
+- **Pull requests**: welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

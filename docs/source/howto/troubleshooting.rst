@@ -93,10 +93,15 @@ CUDA Out of Memory
       config = Auto3DOptions(
           path="input.smi",
           k=1,
-          batchsize_atoms=512,  # Reduce from default 1024
+          # Halved from the 1024 default. On this path the value is a
+          # per-gigabyte budget, not an absolute cap: ChunkManager scales
+          # it by available memory (up to 16x). Only
+          # ASE.geometry.opt_geometry takes it as an absolute count.
+          batchsize_atoms=512,
       )
 
-2. Use a lighter model (ANI2xt uses the least memory):
+2. Try a lighter model. ``ANI2xt`` is a single small network over 7 elements;
+   per-engine memory is not benchmarked here, so measure if it matters:
 
    .. code:: console
 
@@ -151,9 +156,14 @@ CUDA Out of Memory
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Problem**: The requested ``gpu_idx`` is out of range. Auto3D validates the GPU
-index up front and raises ``Invalid configuration: GPU index N is invalid.
-Available GPUs: M`` rather than letting CUDA fail later with "invalid device
-ordinal".
+index up front rather than letting CUDA fail later with "invalid device
+ordinal". The wording depends on which entry point you used:
+
+- ``main()`` / ``smiles2mols`` / ``auto3d run``: ``Invalid configuration: GPU
+  index N is invalid. Available GPUs: M``
+- ``calc_spe`` / ``opt_geometry`` / ``calc_thermo`` / ``auto3d models test``:
+  ``GPU index N is invalid: M CUDA device(s) visible, so valid indices are
+  0-M-1``
 
 **Solutions**:
 
@@ -218,7 +228,7 @@ Input/Output Issues
 
    .. code:: console
 
-      cat auto3d.log | grep -i error
+      grep -i error <input_stem>_<timestamp>/Auto3D.log
 
 2. Ensure at least one molecule is valid
 3. Check that k or window is set:
@@ -346,7 +356,7 @@ Slow Performance
       config = Auto3DOptions(
           path="input.smi",
           k=1,
-          optimizing_engine="ANI2xt",  # Fastest
+          optimizing_engine="ANI2xt",  # single small model, 7 elements
       )
 
 3. Enable TF32 on Ampere GPUs:
@@ -442,7 +452,7 @@ Command Not Found
 
    .. code:: console
 
-      python -m Auto3D.cli.app run input.smi --k=1
+      python -m Auto3D.auto3Dcli run input.smi --k=1
 
 3. Reinstall:
 
@@ -571,16 +581,12 @@ Shell Completion Not Working
 
    .. code:: console
 
-      # For bash
-      auto3d --install-completion bash
-      source ~/.bashrc
+      # Takes no shell argument -- it installs for the current shell.
+      auto3d --install-completion
 
-      # For zsh
-      auto3d --install-completion zsh
-      source ~/.zshrc
-
-      # For fish
-      auto3d --install-completion fish
+      # Then reload your rc file, e.g.
+      source ~/.bashrc   # bash
+      source ~/.zshrc    # zsh
 
 2. Restart your terminal completely
 
@@ -635,11 +641,11 @@ Common Error Messages
 
    * - Error
      - Solution
-   * - ``ValueError: Only k OR window needs to be specified``
+   * - ``ConfigurationError: Only one of k or window may be specified``
      - Use only ``k`` OR ``window``, not both
    * - ``RuntimeError: CUDA out of memory``
      - Reduce ``batchsize_atoms`` or use CPU
-   * - ``ModuleNotFoundError: No module named 'torchani'``
+   * - ``DependencyError: ANI2x requires TorchANI, which is not installed.``
      - Install the optional ani extra: ``pip install "Auto3D[ani]"`` (or ``conda install -c conda-forge torchani``)
    * - ``FileNotFoundError: input.smi``
      - Check file path exists

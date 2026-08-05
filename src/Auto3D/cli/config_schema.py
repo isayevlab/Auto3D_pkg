@@ -99,11 +99,10 @@ class CLIConfig(BaseModel):
     path: Path | None = None
     """Path to input .smi or .sdf file, or None for a settings-only config.
 
-    Optional, because the input is supplied on the command line by every
-    modern entry point: ``auto3d run INPUT -c cfg.yaml``,
-    ``auto3d tautomers INPUT -c cfg.yaml`` and ``auto3d smiles ... -c
-    cfg.yaml`` all override whatever ``path`` the file carries (``run``
-    explicitly excludes the key -- see ``cli/commands/run.py``). Requiring it
+    Optional, because the input is supplied on the command line by the modern
+    entry point: ``auto3d run INPUT -c cfg.yaml`` overrides whatever ``path``
+    the file carries (``run`` explicitly excludes the key -- see
+    ``cli/commands/run.py``). Requiring it
     here made the natural reusable config -- settings only, input per run --
     the one shape the CLI refused: ``auto3d config validate cfg.yaml`` and
     ``auto3d run in.smi -c cfg.yaml`` both died on ``path / Field required``
@@ -255,15 +254,14 @@ class CLIConfig(BaseModel):
         """Convert to Auto3DOptions for core workflow.
 
         Args:
-            allow_missing_path: Permit ``path=None``. Exactly one caller sets
-                it: ``auto3d smiles`` (``cli/commands/smiles.py``), which
-                takes its molecules from the command line and hands the
-                options to ``smiles2mols`` -- and ``smiles2mols`` writes the
-                SMILES to a temporary ``.smi`` and assigns ``args.path``
-                itself before validating anything, so any path supplied here
-                is discarded unread. Supplying a placeholder instead would put
-                a path in the options object that names no file the user ever
-                mentioned, which is worse than declaring the absence.
+            allow_missing_path: Permit ``path=None``. No caller in the package
+                currently sets it; it exists for a caller that supplies its
+                molecules by some route other than a file on disk (as
+                ``smiles2mols`` does, writing them to a temporary ``.smi`` and
+                assigning ``args.path`` itself before validating anything).
+                Supplying a placeholder path instead would put a path in the
+                options object that names no file the user ever mentioned,
+                which is worse than declaring the absence.
 
         Raises:
             ConfigurationError: ``path`` is unset and ``allow_missing_path``

@@ -12,8 +12,8 @@ Quick Start
    # Generate top-5 conformers for each molecule
    auto3d run molecules.smi --k=5
 
-   # Use GPU acceleration
-   auto3d run molecules.smi --k=5 --gpu
+   # Force CPU (GPU is used by default, and a missing GPU is a fatal error)
+   auto3d run molecules.smi --k=5 --no-gpu
 
    # Use a configuration file
    auto3d run molecules.smi -c config.yaml
@@ -34,7 +34,7 @@ Global Options
    * - ``--version``, ``-V``
      - Show version and exit
    * - ``--install-completion``
-     - Install shell completion for bash, zsh, or fish
+     - Install shell completion for the current shell (takes no argument)
    * - ``--show-completion``
      - Show completion script for the current shell
    * - ``--help``
@@ -79,18 +79,22 @@ Run conformer generation on input molecules.
      - YAML configuration file path
    * - ``--k``
      - None
-     - Output top-k conformers per molecule
+     - Output top-k conformers per molecule. **Exactly one of**
+       ``--k`` **or** ``--window`` **is required** -- giving neither, or
+       both, exits 2.
    * - ``--window``
      - None
-     - Energy window in kcal/mol (alternative to ``--k``)
+     - Energy window in kcal/mol (alternative to ``--k``; see above)
    * - ``--engine``
      - AIMNET
      - Optimization engine: ``AIMNET`` (alias for ``aimnet2``), any aimnet
        registry name (``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``,
        ``aimnet2-pd``, ...), ``ANI2x``, ``ANI2xt``, or a path to a custom model
    * - ``--gpu`` / ``--no-gpu``
-     - --no-gpu
-     - Enable/disable GPU acceleration
+     - ``--gpu``
+     - Enable/disable GPU acceleration. GPU is on by default, and requesting
+       it with no visible CUDA device is **fatal, not a silent fallback**
+       (exit 4) -- pass ``--no-gpu`` on a CPU-only machine.
    * - ``--gpu-idx``
      - 0
      - GPU index(es), e.g., ``0`` or ``0,1,2``
@@ -103,6 +107,58 @@ Run conformer generation on input molecules.
    * - ``--json``
      - False
      - Output results as JSON on stdout (nothing else is written there)
+   * - ``--job-name``
+     - timestamp
+     - Name for the output folder. The job directory is
+       ``<input_stem>_<job-name>``, so the default gives
+       ``molecules_20260102-143052-123456/``.
+   * - ``--enumerate-tautomer`` / ``--no-``
+     - ``--no-enumerate-tautomer``
+     - Enumerate tautomers before generating conformers
+   * - ``--tauto-engine``
+     - ``rdkit``
+     - Tautomer enumeration engine: ``rdkit`` or ``oechem``
+   * - ``--isomer-engine``
+     - ``rdkit``
+     - 3D isomer engine: ``rdkit`` or ``omega`` (needs OpenEye)
+   * - ``--enumerate-isomer`` / ``--no-``
+     - ``--enumerate-isomer``
+     - Enumerate cis/trans and R/S isomers
+   * - ``--max-confs``
+     - auto
+     - Max conformers per molecule. The default is **not** "heavy atoms - 1":
+       it is ``min(max(1, num_heavy, 2*8.481*n_rot**1.642), 1000)``.
+   * - ``--threshold``
+     - 0.3
+     - RMSD threshold for duplicate removal (Angstrom)
+   * - ``--mpi-np``
+     - 4
+     - CPU cores used for isomer generation
+   * - ``--opt-steps``
+     - 2000
+     - Max optimization steps per structure
+   * - ``--opt-tol``
+     - 0.01
+     - Max-force convergence threshold (eV/A). This is the CLI spelling of the
+       ``convergence_threshold`` config key.
+   * - ``--patience``
+     - 250
+     - Drop a conformer after this many non-improving steps
+   * - ``--batchsize-atoms``
+     - 1024
+     - Atoms per optimization batch, **per GB** of available memory (scaled by
+       ``ChunkManager``, clamped at 16,384) -- not an absolute count
+   * - ``--memory``
+     - auto-detect
+     - RAM available to Auto3D, in GB
+   * - ``--tf32`` / ``--no-tf32``
+     - ``--no-tf32``
+     - Allow TF32 matmul on Ampere+ GPUs (faster, less precise)
+   * - ``--save-intermediate``
+     - False
+     - Keep all intermediate metadata files. Sets ``Auto3DOptions.verbose``
+       -- note this is a *different* knob from ``-v/--verbose``, which
+       controls logging.
 
 **Examples:**
 
@@ -183,7 +239,13 @@ These wrap the corresponding Python API functions so single-point energy,
 geometry optimization, thermochemistry, and tautomer ranking are first-class CLI
 operations (not Python-only). Each takes an input file (validated for existence),
 shares ``--engine``, ``--gpu/--no-gpu``, ``--gpu-idx``, ``-o/--output``,
-``-f/--force``, and ``--json``, writes an SDF, and prints its path. The
+``-f/--force``, ``-v/--verbose``, and ``--json``, writes an SDF, and prints
+its path. Three asymmetries are worth knowing: ``--tf32/--no-tf32`` exists
+on ``energy``/``optimize``/``thermo`` but not ``tautomers``; ``--gpu-idx``
+takes a single ``int`` on those three but a string like ``"0,1"`` on
+``tautomers`` (as on ``run``); and ``optimize`` additionally accepts
+``--patience`` and ``--batchsize-atoms``, while ``thermo``'s
+``--temperature`` has a ``-T`` short form. The
 ``--json`` document is ``{"success": true, "command": ..., "output_file":
 ...}``; on failure every ``--json`` command instead emits ``{"success":
 false, "error", "error_type", "hint", "exit_code"}`` on stdout, with the
@@ -253,8 +315,11 @@ faithful gate.
      - ``auto3d models test AIMNET --gpu-idx 99`` on a machine with fewer
        than 100 CUDA devices; any GPU command on a machine with none
    * - ``5``
-     - Model error -- not found, failed to load, or numerically unusable
-     - ``auto3d models test ./not_a_model.pt``
+     - Model error -- failed to load, or numerically unusable. Note that a
+       model path that does not *exist* is not routed here: it falls
+       through to the aimnet registry lookup and surfaces as ``1``.
+     - ``auto3d models test ./corrupt_model.pt`` (a file that exists but is
+       not a loadable model)
    * - ``6``
      - Partial success: the run completed, but some input molecules produced
        no output
@@ -274,7 +339,7 @@ Code ``130`` follows the shell convention for a process terminated by
 interrupted run -- elapsed time, the counts for the optimizer batch that was in
 flight, and the job directory where any partial output was written. That report
 goes to stderr, so ``--json`` consumers still see nothing but the document (or
-nothing at all) on stdout. See :doc:`migration-4.0` for what changed in 4.0.
+nothing at all) on stdout. See :doc:`migration-3.0` for what changed in 3.0.
 
 auto3d config
 ~~~~~~~~~~~~~
@@ -307,6 +372,13 @@ Generate a configuration file with sensible defaults.
    * - ``--preset``, ``-p``
      - None
      - Configuration preset: ``quick``, ``balanced``, ``thorough``
+   * - ``--force``, ``-f``
+     - False
+     - Overwrite an existing output file. Without it, an existing file is
+       refused with exit 2.
+   * - ``--verbose``, ``-v``
+     - 0
+     - Increase logging verbosity
 
 **Presets:**
 
@@ -317,11 +389,11 @@ Generate a configuration file with sensible defaults.
    * - Preset
      - Description
    * - ``quick``
-     - Fast optimization with relaxed convergence (for screening)
+     - Screening budget: ``k=1``, ``opt_steps=500``, ``patience=100``
    * - ``balanced``
-     - Default settings balancing speed and accuracy
+     - Default budget: ``k=5``, ``opt_steps=2000``
    * - ``thorough``
-     - Tight convergence for accurate energies
+     - Generous budget: ``k=10``, ``opt_steps=5000``
 
 **Examples:**
 
@@ -345,13 +417,17 @@ Display configuration with syntax highlighting.
 
 .. code:: console
 
-   auto3d config show CONFIG_FILE
+   auto3d config show [CONFIG_FILE]
+
+``CONFIG_FILE`` is optional and defaults to ``auto3d.yaml`` in the working
+directory.
 
 **Examples:**
 
 .. code:: console
 
    auto3d config show config.yaml
+   auto3d config show               # reads ./auto3d.yaml
 
 auto3d config validate
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -388,12 +464,15 @@ Show available optimization engines.
 
 **Output:**
 
-Displays a table of available models with:
+Displays a table with one row per engine and these columns:
 
-- Model name
-- Supported elements
-- Charge support
-- Brief description
+- **Engine** -- the name you pass to ``--engine``
+- **Speed** -- a qualitative note (see ``auto3d models info``)
+- **Accuracy** -- what the model is best suited to
+- **Status** -- whether the model is available in this install
+
+Supported elements and charge support are *not* columns here; run
+``auto3d models info <engine>`` for those.
 
 auto3d models info
 ^^^^^^^^^^^^^^^^^^
@@ -451,23 +530,21 @@ Installation
 
 .. code:: console
 
-   # Bash (add to ~/.bashrc for persistence)
-   auto3d --install-completion bash
-   source ~/.bashrc
+   # Installs for the shell you are currently running -- it takes no
+   # shell argument, and passing one is an error.
+   auto3d --install-completion
 
-   # Zsh (add to ~/.zshrc for persistence)
-   auto3d --install-completion zsh
-   source ~/.zshrc
-
-   # Fish
-   auto3d --install-completion fish
+   # Then reload the rc file for your shell, e.g.
+   source ~/.bashrc   # bash
+   source ~/.zshrc    # zsh
 
 Usage
 ~~~~~
 
 After installation, press ``Tab`` to complete:
 
-- Command names (``run``, ``config``, ``models``, ``validate``)
+- Command names (``run``, ``config``, ``models``, ``validate``, ``energy``,
+  ``optimize``, ``thermo``, ``tautomers``)
 - Option names (``--k``, ``--engine``, ``--gpu``)
 - File paths
 
@@ -502,7 +579,13 @@ See :doc:`usage` for a complete list of parameters.
 Legacy Mode
 -----------
 
-For backwards compatibility, the old YAML-only invocation still works:
+For backwards compatibility, the old YAML-only invocation still works, but
+it is **deprecated**: it emits a ``DeprecationWarning`` and a visible
+warning panel, and will be removed in a future release. The root
+``parameters.yaml`` in this repository is the example config for this
+deprecated form -- it is the only shape that needs the ``path:`` key.
+Prefer ``auto3d run INPUT -c config.yaml``.
+
 
 .. code:: console
 

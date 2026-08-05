@@ -70,6 +70,12 @@ def select_tautomers(
     results = []
     if (k is not None) and (window is not None):
         raise ConfigurationError("Only k OR window needs to be specified")
+    # Checked here, not inside the grouping loop below: a loop-scoped check
+    # cannot fire for an input that yields no groups, so a zero-record SDF
+    # used to write an empty output and return its path for a call that
+    # specified no selection at all.
+    if (k is None) and (window is None):
+        raise ConfigurationError("Either k OR window needs to be specified")
     if (k is not None) and (k < 1):
         raise ConfigurationError(f"tauto_k must be >= 1, got {k}")
 
@@ -111,8 +117,9 @@ def select_tautomers(
                 e_rel = mol_energy - ref_energy
                 mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
                 mol.SetProp("_Name", group_name)
-        #select E <= window
-        elif window is not None:
+        #select E <= window -- window is not None here, guaranteed by the
+        #argument check above
+        else:
             out_mols = []
             for mol in out_mols0:
                 mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
@@ -121,8 +128,6 @@ def select_tautomers(
                     mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
                     mol.SetProp("_Name", group_name)
                     out_mols.append(mol)
-        else:
-            raise ConfigurationError("Either k OR window needs to be specified")
         results += out_mols
 
     with Chem.SDWriter(output_path) as w:
@@ -134,7 +139,7 @@ def select_tautomers(
 
 
 def get_stable_tautomers(
-    args: dict | Auto3DOptions,
+    args: Auto3DOptions,
     tauto_k: int | None = None,
     tauto_window: float | None = None
 ) -> str:
@@ -144,8 +149,9 @@ def get_stable_tautomers(
     based on either top-k or energy window criteria.
 
     Args:
-        args: Configuration options as an ``Auto3DOptions`` instance.
-            For backward compatibility, a dict with the same keys is also accepted.
+        args: Configuration options as an ``Auto3DOptions`` instance. A plain
+            dict is *not* accepted: this forwards to :func:`Auto3D.auto3D.main`,
+            which reads attributes off the object.
         tauto_k: Keep the top-k tautomers (mutually exclusive with tauto_window).
         tauto_window: Keep tautomers within this energy window (kcal/mol)
             of the lowest energy tautomer (mutually exclusive with tauto_k).

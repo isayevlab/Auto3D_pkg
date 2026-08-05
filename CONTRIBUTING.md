@@ -182,14 +182,21 @@ pytest -v tests/
 Example:
 
 ```python
+import pytest
+
+from Auto3D import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError
+
+
 def test_auto3d_options_validation():
     """Test that Auto3DOptions validates parameters correctly."""
     # Valid configuration
     config = Auto3DOptions(path="test.smi", k=1)
     assert config.k == 1
 
-    # Invalid: both k and window set
-    with pytest.raises(ValueError):
+    # Invalid: both k and window set. ConfigurationError derives from
+    # Auto3DError, not ValueError.
+    with pytest.raises(ConfigurationError):
         Auto3DOptions(path="test.smi", k=1, window=5.0)
 ```
 

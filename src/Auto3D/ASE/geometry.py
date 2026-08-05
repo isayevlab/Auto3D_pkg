@@ -109,7 +109,8 @@ def opt_geometry(
         model_name: Model for optimization. Options:
             - 'ANI2x': ANI2x neural network potential
             - 'ANI2xt': ANI2xt neural network potential
-            - 'AIMNET': AIMNet2 model (default in Auto3D)
+            - 'AIMNET': AIMNet2 model (default in Auto3D; alias for 'aimnet2')
+            - Any aimnet registry name, e.g. 'aimnet2-2025', 'aimnet2-nse', 'aimnet2-pd'
             - Path to custom NNP model file (.pt)
         gpu_idx: CUDA device index. Defaults to 0.
         opt_tol: Convergence threshold for max force (eV/Å). Defaults to 0.01.
@@ -122,10 +123,11 @@ def opt_geometry(
 
             Note the difference from ``main()``/``Auto3DOptions``, where the same
             parameter name is a per-gigabyte *multiplier*: ``ChunkManager``
-            multiplies it by the detected GPU memory, so ``batchsize_atoms=1024``
-            means 1024 there and 81,920 on an 80 GB card, while here it always
-            means 1024. Two meanings for one name, which is why each is spelled
-            out rather than cross-referenced.
+            multiplies it by the available memory and clamps the product at
+            16,384, so ``batchsize_atoms=1024`` means 1024 there on a 1 GB card
+            and 16,384 from 16 GB upward, while here it always means 1024. Two
+            meanings for one name, which is why each is spelled out rather than
+            cross-referenced.
         use_gpu: Use the GPU when available. Defaults to True.
         allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
         out_path: Output SDF path. Defaults to ``<input_stem>_<model>_opt.sdf``

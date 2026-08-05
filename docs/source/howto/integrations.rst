@@ -10,6 +10,19 @@ CLI Quick Reference
 Most integrations follow a common workflow: generate conformers with Auto3D CLI,
 then convert/process the output SDF file.
 
+.. note::
+
+   ``output.sdf`` below is a stand-in for whatever Auto3D actually wrote. A run
+   creates a timestamped job directory next to the input and writes
+   ``<stem>_<timestamp>/<stem>_out.sdf`` inside it -- there is never an
+   ``output.sdf`` in the working directory. From Python, take the path
+   ``main()`` returns::
+
+      output = main(config)          # the real path to the output SDF
+      mols = list(Chem.SDMolSupplier(str(output)))
+
+   From the shell, glob for it: ``<stem>_*/<stem>_out.sdf``.
+
 .. code:: console
 
    # Step 1: Generate conformers (common to all workflows)
@@ -429,14 +442,16 @@ RDKit Workflows
 .. code:: python
 
    from rdkit import Chem
-   from rdkit.Chem import AllChem, Descriptors
+   from rdkit.Chem import AllChem, Descriptors, Descriptors3D
 
    # Load Auto3D output
    for mol in Chem.SDMolSupplier("output.sdf"):
        # 3D descriptors require conformer
-       pmi1, pmi2, pmi3 = Descriptors.NPR1(mol), Descriptors.NPR2(mol), Descriptors.PMI3(mol)
-       rgyr = Descriptors.RadiusOfGyration(mol)
-       asph = Descriptors.Asphericity(mol)
+       # 3D descriptors live on Descriptors3D, not Descriptors.
+       npr1, npr2 = Descriptors3D.NPR1(mol), Descriptors3D.NPR2(mol)
+       pmi3 = Descriptors3D.PMI3(mol)
+       rgyr = Descriptors3D.RadiusOfGyration(mol)
+       asph = Descriptors3D.Asphericity(mol)
 
        print(f"{mol.GetProp('_Name')}: Rgyr={rgyr:.2f}, Asphericity={asph:.2f}")
 
@@ -606,7 +621,7 @@ Makefile
 Snakemake
 ~~~~~~~~~
 
-.. code:: python
+.. code:: text
 
    # Snakefile
    rule generate_conformers:

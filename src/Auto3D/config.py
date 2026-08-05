@@ -393,15 +393,18 @@ class Auto3DOptions:
     """
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
-    """Atoms per optimization batch, **per gigabyte** of detected GPU memory.
+    """Atoms per optimization batch, **per gigabyte** of available memory.
 
-    ``ChunkManager`` multiplies this by the detected memory, so the default 1024
-    means 1024 atoms per batch on a 1 GB card and 81,920 on an 80 GB one.
+    ``ChunkManager`` multiplies this by ``memory`` when you set it, otherwise by
+    the *free* GPU memory (or total RAM on CPU), then clamps the product to
+    ``_MAX_SCALED_BATCHSIZE_ATOMS`` (16,384). So the default 1024 means 1024
+    atoms per batch on a 1 GB card and 16,384 from 16 GB upward -- an 80 GB card
+    gets the same 16,384 as a 16 GB one.
 
     ``ASE.geometry.opt_geometry`` takes the same parameter name **absolutely** --
-    1024 means 1024 there whatever the card. The two entry points are 80x apart on
-    the same value; each docstring says which it is rather than pointing at the
-    other.
+    1024 means 1024 there whatever the card. The two entry points are up to 16x
+    apart on the same value; each docstring says which it is rather than
+    pointing at the other.
     """
 
     # Performance options

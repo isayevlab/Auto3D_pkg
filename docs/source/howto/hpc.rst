@@ -95,7 +95,9 @@ For limited GPU memory:
        use_gpu=True,
    )
 
-Or use a lighter model (ANI2xt uses the least memory):
+Or try a lighter model. ``ANI2xt`` is a single small network over 7 elements,
+so it is a reasonable thing to try under memory pressure -- though per-engine
+memory is not benchmarked here:
 
 .. code:: console
 
@@ -245,16 +247,20 @@ compiled.
 Engine Selection for Speed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-From fastest to slowest:
+``ANI2x`` is the slow one: it evaluates torchani's full 8-model ensemble at
+every step. ``AIMNET`` and ``ANI2xt`` are both single models and are the fast
+options; which of the two wins on your hardware and molecules is not measured
+in this repository, so time both if it matters.
 
-1. **ANI2xt**: Ultra-fast, good for screening
-2. **ANI2x**: Very fast, well-validated
-3. **AIMNet2**: Fast, most versatile (default); pick a specific registry model
-   (``aimnet2-2025``, ``aimnet2-nse``, ``aimnet2-pd``) for specialized chemistry
+- **AIMNet2** (default): most versatile, handles charged species, and covers
+  14 elements; pick a specific registry model (``aimnet2-2025``,
+  ``aimnet2-nse``, ``aimnet2-pd``) for specialized chemistry
+- **ANI2xt**: single ANI model, neutral organics only
+- **ANI2x**: 8-model ensemble, well-validated, slowest
 
 .. code:: console
 
-   # Fastest for screening
+   # Single-model ANI, neutral organics only
    auto3d run input.smi --k=1 --gpu --engine=ANI2xt
 
    # Most versatile (default)
@@ -378,8 +384,9 @@ After parallel processing, merge outputs:
    from rdkit import Chem
    from pathlib import Path
 
-   # Find all output files
-   output_files = list(Path(".").glob("chunk_*_out.sdf"))
+   # Find all output files. Each chunk run creates its own job directory,
+   # so the SDF is one level down, not in the working directory.
+   output_files = sorted(Path(".").glob("chunk_*/chunk_*_out.sdf"))
 
    # Merge
    writer = Chem.SDWriter("merged_output.sdf")
@@ -401,7 +408,7 @@ CUDA Out of Memory
 
    .. code:: python
 
-      config = Auto3DOptions(batchsize_atoms=256, ...)
+      config = Auto3DOptions(path="molecules.smi", k=1, batchsize_atoms=256)
 
 2. Use fewer GPUs with more memory each
 3. Process in smaller chunks
@@ -410,7 +417,8 @@ Job Timeout
 ~~~~~~~~~~~
 
 1. Increase time limit
-2. Use faster engine (``ANI2xt``)
+2. Try a lighter engine (``ANI2xt``), or ``AIMNET`` if you are on ``ANI2x``,
+   whose 8-model ensemble is the slow one
 3. Reduce ``k`` or use ``window``
 4. Split into array jobs
 
@@ -426,7 +434,7 @@ On shared filesystems:
       cp $SLURM_SUBMIT_DIR/input.smi $TMPDIR/
       cd $TMPDIR
       auto3d run input.smi --k=1 --gpu
-      cp *_out.sdf $SLURM_SUBMIT_DIR/
+      cp input_*/input_out.sdf $SLURM_SUBMIT_DIR/   # the SDF is inside the job dir
 
 2. Use SSD scratch if available
 
@@ -440,8 +448,8 @@ Make jobs resumable:
    #!/bin/bash
    #SBATCH --requeue
 
-   # Check if output exists
-   if [ -f "output.sdf" ]; then
+   # Check if output exists (the job directory is created next to the input)
+   if compgen -G "input_*/input_out.sdf" > /dev/null; then
        echo "Output exists, skipping"
        exit 0
    fi
