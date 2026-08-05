@@ -99,10 +99,9 @@ class CLIConfig(BaseModel):
     path: Path | None = None
     """Path to input .smi or .sdf file, or None for a settings-only config.
 
-    Optional, because the input is supplied on the command line by every
-    modern entry point: ``auto3d run INPUT -c cfg.yaml``,
-    ``auto3d run INPUT -c cfg.yaml`` overrides whatever ``path`` the file
-    carries (``run`` explicitly excludes the key -- see
+    Optional, because the input is supplied on the command line by the modern
+    entry point: ``auto3d run INPUT -c cfg.yaml`` overrides whatever ``path``
+    the file carries (``run`` explicitly excludes the key -- see
     ``cli/commands/run.py``). Requiring it
     here made the natural reusable config -- settings only, input per run --
     the one shape the CLI refused: ``auto3d config validate cfg.yaml`` and
