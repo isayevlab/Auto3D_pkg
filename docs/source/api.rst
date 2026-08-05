@@ -14,14 +14,15 @@ supported way to import it.
 
 Both directions are enforced by ``tests/test_import_boundaries.py``: every path
 listed here must resolve, and nothing may be exported from ``Auto3D.__all__``
-without appearing here.
+without appearing here (``__version__`` excepted -- a version string, not an
+API object).
 
 No package ``__init__.py`` re-exports a name, and that is enforced too. The one
 exception is ``Auto3D.isomers.IsomerEngineFactory`` below, whose documented
 dotted path *is* the package path -- so the re-export is the public surface
 rather than a convenience alias for it. ``Auto3D.cli`` (six names) and
 ``Auto3D.models`` (seven) were the last two package barrels; both are empty as of
-4.0, and none of their thirteen names was documented here. Import from the module
+3.0, and none of their thirteen names was documented here. Import from the module
 that defines each one: ``Auto3D.cli.app``, ``Auto3D.cli.console``,
 ``Auto3D.models.adapter``, ``Auto3D.models.contract``.
 
@@ -35,6 +36,7 @@ The main entry points for Auto3D:
 
    Auto3D.auto3D.main
    Auto3D.auto3D.smiles2mols
+   Auto3D.results.WorkflowResult
 
 ``generate_conformers`` is the canonical, self-describing name for ``main()``.
 It exists only as a top-level alias -- ``main`` remains the function's name in

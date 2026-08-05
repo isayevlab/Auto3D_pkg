@@ -42,6 +42,10 @@
       ~Auto3DOptions.mode_oe
       ~Auto3DOptions.mpi_np
       ~Auto3DOptions.opt_steps
+      ~Auto3DOptions.input_format
+      ~Auto3DOptions.parallel_embedding_threshold
+      ~Auto3DOptions.parallel_workers
+      ~Auto3DOptions.use_parallel_embedding
       ~Auto3DOptions.optimizing_engine
       ~Auto3DOptions.pKaNorm
       ~Auto3DOptions.path

@@ -96,12 +96,16 @@ class ModelFactory:
         """Create a model adapter by name.
 
         Args:
-            name: Model name ('AIMNET', 'ANI2x', 'ANI2xt') or path to custom model.
+            name: ``AIMNET`` (alias for the registry default ``aimnet2``), any aimnet
+                registry name (``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``,
+                ``aimnet2-pd``, ...), ``ANI2x``, ``ANI2xt``, or a path to a
+                custom NNP model file.
             device: Target device for the model.
             compile_model: Whether to use torch.compile() for optimization.
                 If None, checks AUTO3D_COMPILE_MODEL environment variable.
             use_cache: Whether to cache and reuse model instances. Default True.
-                Set False to force creating a new model instance.
+                Set False to force creating a new model instance. Has no
+                effect for a custom-model path, which is always rebuilt.
 
         Returns:
             Initialized model adapter on the specified device.
@@ -193,11 +197,13 @@ def create_model(
     """Convenience function to create a model adapter.
 
     Args:
-        name: Model name or path to custom model.
+        name: ``AIMNET``, any aimnet registry name, ``ANI2x``, ``ANI2xt``, or a
+            path to a custom NNP model file. See ``available_models()``.
         device: Target device (default: CPU).
         compile_model: Whether to use torch.compile() for optimization.
             If None, checks AUTO3D_COMPILE_MODEL environment variable.
         use_cache: Whether to cache and reuse model instances. Default True.
+            Has no effect for a custom-model path, which is always rebuilt.
 
     Returns:
         Initialized model adapter.

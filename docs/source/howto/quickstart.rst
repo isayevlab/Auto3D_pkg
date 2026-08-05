@@ -18,7 +18,7 @@ Installation
 
    uv pip install Auto3D
 
-**Option 3: conda (recommended for GPU)**
+**Option 3: conda environment (Auto3D itself still installed by pip)**
 
 .. code:: console
 

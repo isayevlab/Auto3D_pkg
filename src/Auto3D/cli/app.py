@@ -151,7 +151,11 @@ EnumerateIsomerFlag = Annotated[
 ]
 MaxConfsOption = Annotated[
     int | None,
-    typer.Option("--max-confs", help="Max conformers per molecule (default: heavy atoms - 1)."),
+    typer.Option(
+        "--max-confs",
+        help="Max conformers per molecule (default: derived from heavy-atom "
+             "and rotatable-bond count, capped at 1000).",
+    ),
 ]
 ThresholdOption = Annotated[
     float | None,

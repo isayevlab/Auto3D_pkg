@@ -1565,7 +1565,9 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     Args:
         path: Input sdf file.
-        model_name: ANI2x, ANI2xt, AIMNET or a path to a userNNP model.
+        model_name: ANI2x, ANI2xt, AIMNET, any aimnet registry name
+            (aimnet2, aimnet2-2025, aimnet2-nse, aimnet2-pd, ...), or a path
+            to a userNNP model file.
         mol_info_func: A function that returns the name and temperature (idx, T)
             from a rdkit mol object. If not provided, the thermodynamic properties
             will be calculated at 298.15 K.

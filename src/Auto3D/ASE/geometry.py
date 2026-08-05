@@ -109,7 +109,8 @@ def opt_geometry(
         model_name: Model for optimization. Options:
             - 'ANI2x': ANI2x neural network potential
             - 'ANI2xt': ANI2xt neural network potential
-            - 'AIMNET': AIMNet2 model (default in Auto3D)
+            - 'AIMNET': AIMNet2 model (default in Auto3D; alias for 'aimnet2')
+            - Any aimnet registry name, e.g. 'aimnet2-2025', 'aimnet2-nse', 'aimnet2-pd'
             - Path to custom NNP model file (.pt)
         gpu_idx: CUDA device index. Defaults to 0.
         opt_tol: Convergence threshold for max force (eV/Å). Defaults to 0.01.

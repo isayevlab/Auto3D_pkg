@@ -5,7 +5,7 @@ Minimum Dependencies Installation
 ---------------------------------
 
 1. Python >= 3.11
-2. `RDKit <https://www.rdkit.org/docs/Install.html>`__ >= 2022.03.1 (for
+2. `RDKit <https://www.rdkit.org/docs/Install.html>`__ >= 2022.9.5 (for
    the isomer engine)
 3. `PyTorch <https://pytorch.org/get-started/locally/>`__ >= 2.8 (for
    the optimization engine)
@@ -25,8 +25,10 @@ installed by
    uv pip install Auto3D
 
 Otherwise, you can create an environment and install Auto3D. In a
-terminal, the following code will create an environment named ``auto3D``
-with Auto3D and its minimum dependencies installed.
+terminal, the following code creates an environment named ``auto3D``.
+Note that ``installation.yml`` already runs ``pip install
+"Auto3D[ani,ase]"`` inside the new environment, so the optional
+``torchani`` and ``ase`` steps below are done for you on this route.
 
 .. code:: console
 
@@ -34,7 +36,6 @@ with Auto3D and its minimum dependencies installed.
    cd Auto3D_pkg
    conda env create --file installation.yml --name auto3D
    conda activate auto3D
-   pip install Auto3D
 
 .. note::
 
@@ -84,8 +85,8 @@ enthalpy, entropy, geometry optimization) with Auto3D,
 
 .. code:: console
 
-   conda activate auto3D
-   conda install -c conda-forge ase
-
-   # or, equivalently, the pip extra
+   # The pip extra is the reliable route: it pins ase>=3.23.0.
    pip install "Auto3D[ase]"
+
+   # conda works too, but pin the floor yourself:
+   conda install -c conda-forge "ase>=3.23.0"

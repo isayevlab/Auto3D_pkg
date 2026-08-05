@@ -15,6 +15,10 @@ In Auto3D v3.0, the API was modernized with breaking changes:
 - `source/` - Sphinx documentation source files (RST) for v2.x
 - `example/` - Jupyter notebook examples using the v2.x API
 - `parameters.yaml` - Example YAML config with v2.x defaults
+- `tauto.yaml` - Example tautomer config with v2.x defaults
+- `tauto_interface.py` - **Unmaintained.** A runnable script kept for
+  reference only. It imports the *current* `Auto3D.config.Auto3DOptions`
+  from inside this v2.x folder; it is not a supported entry point.
 
 ## Using Legacy Documentation
 

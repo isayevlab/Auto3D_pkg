@@ -419,13 +419,15 @@ For Schrodinger Glide, export to Maestro format:
 
 .. code:: python
 
+   from Auto3D import Auto3DOptions, main
+
    # Generate conformers
    config = Auto3DOptions(
        path="ligands.smi",
        k=10,
        enumerate_isomer=True,
    )
-   output = main(config)
+   output = main(config)   # the real path to the output SDF
    # Import output.sdf into Maestro for Glide docking
 
 Batch Docking Pipeline
