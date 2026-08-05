@@ -137,7 +137,7 @@ Modern CLI with Rich output
 
 The new CLI provides:
 
-- Beautiful terminal output with progress bars
+- Beautiful terminal output with a live status panel on stderr
 - Helpful error messages with suggestions
 - Shell completion for bash, zsh, and fish
 - Configuration presets

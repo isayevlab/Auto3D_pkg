@@ -11,11 +11,11 @@
 
 ## What's New in v3.0
 
-- **Modern CLI** with Typer and Rich - beautiful terminal output, progress bars, and helpful error messages
+- **Modern CLI** with Typer and Rich - a live converged/active/dropped status panel on stderr, and helpful error messages
 - **Subcommand structure** - `run`, `config`, `models`, `validate` commands
 - **Improved architecture** - cleaner codebase with strategy patterns and proper separation of concerns
 - **Better logging** - structured logging throughout the workflow
-- **Type safety** - full type hints and Pydantic validation
+- **Type safety** - full type hints, a validated `Auto3DOptions` dataclass, and Pydantic validation of CLI/YAML config files
 
 ## Installation
 

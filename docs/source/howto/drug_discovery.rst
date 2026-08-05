@@ -5,6 +5,19 @@ This guide covers using Auto3D in drug discovery pipelines, including
 compound library processing, tautomer enumeration, and integration with
 docking and molecular dynamics workflows.
 
+.. note::
+
+   ``output.sdf`` below is a stand-in for whatever Auto3D actually wrote. A run
+   creates a timestamped job directory next to the input and writes
+   ``<stem>_<timestamp>/<stem>_out.sdf`` inside it -- there is never an
+   ``output.sdf`` in the working directory. From Python, take the path
+   ``main()`` returns::
+
+      output = main(config)          # the real path to the output SDF
+      mols = list(Chem.SDMolSupplier(str(output)))
+
+   From the shell, glob for it: ``<stem>_*/<stem>_out.sdf``.
+
 CLI Quick Reference
 -------------------
 
@@ -72,7 +85,7 @@ Create ``screening.yaml`` for advanced settings:
            k=1,                          # Single conformer for initial screening
            use_gpu=True,
            gpu_idx=[0, 1, 2, 3],         # Multi-GPU for speed
-           optimizing_engine="ANI2xt",   # Fastest engine
+           optimizing_engine="ANI2xt",   # single small model, neutral organics
            memory=64,                    # Assign 64GB RAM
            capacity=50,                  # Compounds per GB
        )
@@ -360,7 +373,7 @@ Preparing for AutoDock Vina
    # Generate 5 conformers per ligand
    auto3d run ligands.smi --k=5 --gpu
 
-   # For faster screening, use ANI2xt
+   # For a lighter model over neutral organics, use ANI2xt
    auto3d run ligands.smi --k=5 --engine=ANI2xt --gpu
 
 **Step 2: Convert to PDBQT format**
@@ -575,7 +588,8 @@ Comparing Conformer Ensembles
 Best Practices
 --------------
 
-1. **Start with fast screening**: Use ``ANI2xt`` with ``k=1`` for initial filtering
+1. **Start with a cheap first pass**: ``k=1``, and a single-model engine
+   (``AIMNET``, the default, or ``ANI2xt`` if your library is neutral organics)
 
    .. code:: console
 

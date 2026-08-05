@@ -10,6 +10,19 @@ CLI Quick Reference
 Most integrations follow a common workflow: generate conformers with Auto3D CLI,
 then convert/process the output SDF file.
 
+.. note::
+
+   ``output.sdf`` below is a stand-in for whatever Auto3D actually wrote. A run
+   creates a timestamped job directory next to the input and writes
+   ``<stem>_<timestamp>/<stem>_out.sdf`` inside it -- there is never an
+   ``output.sdf`` in the working directory. From Python, take the path
+   ``main()`` returns::
+
+      output = main(config)          # the real path to the output SDF
+      mols = list(Chem.SDMolSupplier(str(output)))
+
+   From the shell, glob for it: ``<stem>_*/<stem>_out.sdf``.
+
 .. code:: console
 
    # Step 1: Generate conformers (common to all workflows)
@@ -608,7 +621,7 @@ Makefile
 Snakemake
 ~~~~~~~~~
 
-.. code:: python
+.. code:: text
 
    # Snakefile
    rule generate_conformers:

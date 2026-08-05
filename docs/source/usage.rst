@@ -68,16 +68,26 @@ Auto3D supports three neural network potentials:
      - Supported Elements
    * - ``AIMNET``
      - General use, charged molecules (default)
-     - Fast
+     - Fast (single model)
      - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
    * - ``ANI2x``
      - Organic molecules
-     - Very fast
+     - Slowest (8-model ensemble)
      - H, C, N, O, F, S, Cl
    * - ``ANI2xt``
-     - Ultra-fast screening, tautomers
-     - Ultra fast
+     - Screening, tautomers
+     - Fast (single model)
      - H, C, N, O, F, S, Cl
+
+.. note::
+
+   The speed column is qualitative. The one structural fact behind it: the
+   ``ANI2x`` engine loads torchani's full **8-model ensemble**, so it evaluates
+   eight networks per step, while ``AIMNET`` and ``ANI2xt`` are single models.
+   ``auto3d models info AIMNET`` quotes "~35x faster than ANI2x" for AIMNet2.
+   No benchmark for these engines is maintained in this repository, so treat
+   the relative ordering of ``AIMNET`` and ``ANI2xt`` as unmeasured and time
+   your own workload before choosing between them.
 
 Select a model with ``--engine``:
 
@@ -222,8 +232,8 @@ Output Control
    # JSON output (for scripting)
    auto3d run molecules.smi --k=1 --json
 
-   # Custom output directory name (job_name is set via a config file, not a flag)
-   auto3d run molecules.smi --k=1 -c config.yaml   # config.yaml: job_name: my_results
+   # Custom output directory name
+   auto3d run molecules.smi --k=1 --job-name my_results
 
 Legacy YAML Mode
 ~~~~~~~~~~~~~~~~
@@ -402,11 +412,12 @@ syntax, Python uses ``param_name`` in ``Auto3DOptions``.
      - (required)
      - Input ``.smi`` or ``.sdf`` file path
    * - ``k``
-     - (required*)
+     - (see note)
      - Number of top conformers to output per molecule
    * - ``window``
-     - (required*)
-     - Energy window in kcal/mol (*use ``k`` OR ``window``)
+     - (see note)
+     - Energy window in kcal/mol. **Exactly one of** ``k`` **or**
+       ``window`` **is required** -- giving neither, or both, is an error.
    * - ``optimizing_engine``
      - AIMNET
      - Neural network: ``AIMNET``, ``ANI2x``, ``ANI2xt``, or path to custom model
@@ -469,9 +480,9 @@ Auto3D creates a timestamped folder with results:
 
 .. code:: text
 
-   20260102-143052-123456_molecules/
+   molecules_20260102-143052-123456/
    ├── molecules_out.sdf      # Final optimized conformers
-   └── auto3d.log             # Processing log
+   └── Auto3D.log             # Processing log
 
 The output SDF contains:
 
@@ -479,4 +490,8 @@ The output SDF contains:
 - **E_tot** / **E_tot(Hartree)**: Total energy in Hartree
 - **E_rel(kcal/mol)**: Relative energy in kcal/mol
 - **_Name**: Molecule identifier
-- Original SMILES (if input was SMILES file)
+- **ID**: Stable per-molecule identifier
+- **fmax** / **Converged** / **Dropped_Oscillating**: optimizer diagnostics
+
+The input SMILES is *not* carried into the output; recover it by joining on
+``_Name``/``ID`` against your input file.

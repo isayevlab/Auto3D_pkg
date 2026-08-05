@@ -128,8 +128,11 @@ Python API:
    model = create_model("ANI2xt", device=device, compile_model=True)
 
 .. note::
-   ``torch.compile()`` applies only to ANI2x/ANI2xt. AIMNET uses its own
-   compilation internally and ignores this setting.
+   ``AIMNET`` forwards this flag to aimnet's own compilation; ANI2x/ANI2xt
+   compile through Auto3D's wrapper. A **custom NNP path ignores it**
+   entirely -- ``CustomModelAdapter`` is constructed with compilation off,
+   so neither ``compile_model=True`` nor ``AUTO3D_COMPILE_MODEL=1`` reaches
+   your model.
 
    No speedup figure is documented here because none has been measured on this
    codebase. Earlier versions of these docs quoted "~1.25x"; that number had no
@@ -512,15 +515,25 @@ Available Models
    * - ``AIMNET``
      - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
      - Neutral + charged
-     - Fast (default)
+     - Fast, single model (default)
    * - ``ANI2x``
      - H, C, N, O, F, S, Cl
      - Neutral only
-     - Very fast
+     - Slowest, 8-model ensemble
    * - ``ANI2xt``
      - H, C, N, O, F, S, Cl
      - Neutral only
-     - Ultra-fast
+     - Fast, single model
+
+.. note::
+
+   The speed column is qualitative. The one structural fact behind it: the
+   ``ANI2x`` engine loads torchani's full **8-model ensemble**, so it evaluates
+   eight networks per step, while ``AIMNET`` and ``ANI2xt`` are single models.
+   ``auto3d models info AIMNET`` quotes "~35x faster than ANI2x" for AIMNet2.
+   No benchmark for these engines is maintained in this repository, so treat
+   the relative ordering of ``AIMNET`` and ``ANI2xt`` as unmeasured and time
+   your own workload before choosing between them.
 
 Choosing an AIMNet2 Registry Model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -585,7 +598,7 @@ If you encounter CUDA out-of-memory errors:
    EOF
    auto3d run input.smi --k=1 -c low_memory.yaml --gpu
 
-   # 2. Use a lighter model (ANI2xt is the fastest, lowest memory)
+   # 2. Try a lighter model (ANI2xt is a single small network over 7 elements)
    auto3d run input.smi --k=1 --engine=ANI2xt --gpu
 
    # 3. Use CPU as fallback

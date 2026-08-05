@@ -57,16 +57,17 @@ Auto3D creates a timestamped folder with results:
 
 .. code:: text
 
-   20260102-143052-123456_molecules/
+   molecules_20260102-143052-123456/
    ├── molecules_out.sdf      # Final optimized conformers
-   └── auto3d.log             # Processing log
+   └── Auto3D.log             # Processing log
 
 The output SDF file contains:
 
 - Optimized 3D coordinates
 - Energy in Hartree (``E_tot`` / ``E_tot(Hartree)`` property)
 - Relative energy in kcal/mol (``E_rel(kcal/mol)`` property)
-- Original SMILES and molecule name
+- The molecule name (``_Name``) and a stable ``ID`` -- but **not** the
+  input SMILES, which is not written to the output
 
 View in Python:
 
@@ -156,16 +157,26 @@ Auto3D supports three neural network potentials:
      - Elements
    * - ``AIMNET``
      - General use, charged molecules
-     - Fast
+     - Fast (single model)
      - H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I
    * - ``ANI2x``
      - Organic molecules
-     - Very fast
+     - Slowest (8-model ensemble)
      - H, C, N, O, F, S, Cl
    * - ``ANI2xt``
-     - Tautomers, ultra-fast screening
-     - Ultra fast
+     - Tautomers, screening
+     - Fast (single model)
      - H, C, N, O, F, S, Cl
+
+.. note::
+
+   The speed column is qualitative. The one structural fact behind it: the
+   ``ANI2x`` engine loads torchani's full **8-model ensemble**, so it evaluates
+   eight networks per step, while ``AIMNET`` and ``ANI2xt`` are single models.
+   ``auto3d models info AIMNET`` quotes "~35x faster than ANI2x" for AIMNet2.
+   No benchmark for these engines is maintained in this repository, so treat
+   the relative ordering of ``AIMNET`` and ``ANI2xt`` as unmeasured and time
+   your own workload before choosing between them.
 
 Specify with ``--engine``:
 

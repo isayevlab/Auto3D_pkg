@@ -257,3 +257,45 @@ class TestTheGateRefusesBeforeDoingTheWork:
 
         with pytest.raises(ConfigurationError, match="already exists"):
             select_tautomers(sdf, k=1)
+
+    def test_neither_k_nor_window_is_refused_before_reading_the_input(
+        self, tmp_path, monkeypatch
+    ):
+        """The docstring promises a raise when neither selector is given.
+
+        It used to live inside the ``groupby("id")`` loop, so it could only fire
+        for an input that produced at least one group: an SDF with no parsable
+        record wrote an empty output and returned a path, reporting success for
+        a call that specified no selection at all.
+        """
+        import Auto3D.tautomer as tautomer
+
+        sdf = _tautomer_sdf(tmp_path / "results.sdf")
+
+        def _never(*args, **kwargs):
+            raise AssertionError(
+                "select_tautomers read its input before validating its arguments"
+            )
+
+        monkeypatch.setattr(tautomer.Chem, "SDMolSupplier", _never)
+
+        with pytest.raises(ConfigurationError, match="Either k OR window"):
+            select_tautomers(sdf)
+
+    def test_neither_k_nor_window_is_refused_for_a_zero_record_input(self, tmp_path):
+        """The case the loop-scoped check could never reach.
+
+        An SDF that parses but yields no molecule produces no groups, so the
+        raise inside ``groupby("id")`` never ran: the call wrote a zero-byte
+        output and returned its path, reporting success for a selection that
+        was never specified.
+        """
+        norecords = tmp_path / "norecords.sdf"
+        norecords.write_text("$$$$\n")
+
+        with pytest.raises(ConfigurationError, match="Either k OR window"):
+            select_tautomers(str(norecords))
+
+        assert not (tmp_path / "norecords_top_tautomers.sdf").exists(), (
+            "an empty output was written for a call that selected nothing"
+        )

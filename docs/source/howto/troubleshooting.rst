@@ -93,10 +93,15 @@ CUDA Out of Memory
       config = Auto3DOptions(
           path="input.smi",
           k=1,
-          batchsize_atoms=512,  # Reduce from default 1024
+          # Halved from the 1024 default. On this path the value is a
+          # per-gigabyte budget, not an absolute cap: ChunkManager scales
+          # it by available memory (up to 16x). Only
+          # ASE.geometry.opt_geometry takes it as an absolute count.
+          batchsize_atoms=512,
       )
 
-2. Use a lighter model (ANI2xt uses the least memory):
+2. Try a lighter model. ``ANI2xt`` is a single small network over 7 elements;
+   per-engine memory is not benchmarked here, so measure if it matters:
 
    .. code:: console
 
@@ -151,9 +156,14 @@ CUDA Out of Memory
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Problem**: The requested ``gpu_idx`` is out of range. Auto3D validates the GPU
-index up front and raises ``Invalid configuration: GPU index N is invalid.
-Available GPUs: M`` rather than letting CUDA fail later with "invalid device
-ordinal".
+index up front rather than letting CUDA fail later with "invalid device
+ordinal". The wording depends on which entry point you used:
+
+- ``main()`` / ``smiles2mols`` / ``auto3d run``: ``Invalid configuration: GPU
+  index N is invalid. Available GPUs: M``
+- ``calc_spe`` / ``opt_geometry`` / ``calc_thermo`` / ``auto3d models test``:
+  ``GPU index N is invalid: M CUDA device(s) visible, so valid indices are
+  0-M-1``
 
 **Solutions**:
 
@@ -218,7 +228,7 @@ Input/Output Issues
 
    .. code:: console
 
-      cat auto3d.log | grep -i error
+      grep -i error <input_stem>_<timestamp>/Auto3D.log
 
 2. Ensure at least one molecule is valid
 3. Check that k or window is set:
@@ -346,7 +356,7 @@ Slow Performance
       config = Auto3DOptions(
           path="input.smi",
           k=1,
-          optimizing_engine="ANI2xt",  # Fastest
+          optimizing_engine="ANI2xt",  # single small model, 7 elements
       )
 
 3. Enable TF32 on Ampere GPUs:

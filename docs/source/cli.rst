@@ -79,10 +79,12 @@ Run conformer generation on input molecules.
      - YAML configuration file path
    * - ``--k``
      - None
-     - Output top-k conformers per molecule
+     - Output top-k conformers per molecule. **Exactly one of**
+       ``--k`` **or** ``--window`` **is required** -- giving neither, or
+       both, exits 2.
    * - ``--window``
      - None
-     - Energy window in kcal/mol (alternative to ``--k``)
+     - Energy window in kcal/mol (alternative to ``--k``; see above)
    * - ``--engine``
      - AIMNET
      - Optimization engine: ``AIMNET`` (alias for ``aimnet2``), any aimnet
@@ -255,8 +257,11 @@ faithful gate.
      - ``auto3d models test AIMNET --gpu-idx 99`` on a machine with fewer
        than 100 CUDA devices; any GPU command on a machine with none
    * - ``5``
-     - Model error -- not found, failed to load, or numerically unusable
-     - ``auto3d models test ./not_a_model.pt``
+     - Model error -- failed to load, or numerically unusable. Note that a
+       model path that does not *exist* is not routed here: it falls
+       through to the aimnet registry lookup and surfaces as ``1``.
+     - ``auto3d models test ./corrupt_model.pt`` (a file that exists but is
+       not a loadable model)
    * - ``6``
      - Partial success: the run completed, but some input molecules produced
        no output
@@ -319,11 +324,11 @@ Generate a configuration file with sensible defaults.
    * - Preset
      - Description
    * - ``quick``
-     - Fast optimization with relaxed convergence (for screening)
+     - Screening budget: ``k=1``, ``opt_steps=500``, ``patience=100``
    * - ``balanced``
-     - Default settings balancing speed and accuracy
+     - Default budget: ``k=5``, ``opt_steps=2000``
    * - ``thorough``
-     - Tight convergence for accurate energies
+     - Generous budget: ``k=10``, ``opt_steps=5000``
 
 **Examples:**
 
