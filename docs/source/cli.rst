@@ -12,8 +12,8 @@ Quick Start
    # Generate top-5 conformers for each molecule
    auto3d run molecules.smi --k=5
 
-   # Use GPU acceleration
-   auto3d run molecules.smi --k=5 --gpu
+   # Force CPU (GPU is used by default, and a missing GPU is a fatal error)
+   auto3d run molecules.smi --k=5 --no-gpu
 
    # Use a configuration file
    auto3d run molecules.smi -c config.yaml
@@ -34,7 +34,7 @@ Global Options
    * - ``--version``, ``-V``
      - Show version and exit
    * - ``--install-completion``
-     - Install shell completion for bash, zsh, or fish
+     - Install shell completion for the current shell (takes no argument)
    * - ``--show-completion``
      - Show completion script for the current shell
    * - ``--help``
@@ -89,8 +89,10 @@ Run conformer generation on input molecules.
        registry name (``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``,
        ``aimnet2-pd``, ...), ``ANI2x``, ``ANI2xt``, or a path to a custom model
    * - ``--gpu`` / ``--no-gpu``
-     - --no-gpu
-     - Enable/disable GPU acceleration
+     - ``--gpu``
+     - Enable/disable GPU acceleration. GPU is on by default, and requesting
+       it with no visible CUDA device is **fatal, not a silent fallback**
+       (exit 4) -- pass ``--no-gpu`` on a CPU-only machine.
    * - ``--gpu-idx``
      - 0
      - GPU index(es), e.g., ``0`` or ``0,1,2``
@@ -274,7 +276,7 @@ Code ``130`` follows the shell convention for a process terminated by
 interrupted run -- elapsed time, the counts for the optimizer batch that was in
 flight, and the job directory where any partial output was written. That report
 goes to stderr, so ``--json`` consumers still see nothing but the document (or
-nothing at all) on stdout. See :doc:`migration-4.0` for what changed in 4.0.
+nothing at all) on stdout. See :doc:`migration-3.0` for what changed in 3.0.
 
 auto3d config
 ~~~~~~~~~~~~~
@@ -451,23 +453,21 @@ Installation
 
 .. code:: console
 
-   # Bash (add to ~/.bashrc for persistence)
-   auto3d --install-completion bash
-   source ~/.bashrc
+   # Installs for the shell you are currently running -- it takes no
+   # shell argument, and passing one is an error.
+   auto3d --install-completion
 
-   # Zsh (add to ~/.zshrc for persistence)
-   auto3d --install-completion zsh
-   source ~/.zshrc
-
-   # Fish
-   auto3d --install-completion fish
+   # Then reload the rc file for your shell, e.g.
+   source ~/.bashrc   # bash
+   source ~/.zshrc    # zsh
 
 Usage
 ~~~~~
 
 After installation, press ``Tab`` to complete:
 
-- Command names (``run``, ``config``, ``models``, ``validate``)
+- Command names (``run``, ``config``, ``models``, ``validate``, ``energy``,
+  ``optimize``, ``thermo``, ``tautomers``)
 - Option names (``--k``, ``--engine``, ``--gpu``)
 - File paths
 

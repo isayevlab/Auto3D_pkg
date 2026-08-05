@@ -82,7 +82,7 @@ rejected before any conformer work starts:
 
 This is the only public name in the ``Auto3D.models`` package, and the path above
 is the only way to import it. ``from Auto3D.models import CustomNNP`` worked
-through a package barrel until 4.0 and no longer resolves. The barrel also placed
+through a package barrel until 3.0 and no longer resolves. The barrel also placed
 the *internal* adapter interface (``Auto3D.models.contract.ModelAdapter``, which
 only Auto3D's own adapters implement) at a shallower path than this one; both now
 sit in ``contract``, and neither is reachable from ``Auto3D.models`` itself.

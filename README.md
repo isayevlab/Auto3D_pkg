@@ -119,8 +119,8 @@ auto3d run input.smi -c config.yaml     # Use config file
 ### Shell Completion
 
 ```bash
-# Enable tab completion
-auto3d --install-completion bash  # or zsh, fish
+# Enable tab completion for the current shell (takes no shell argument)
+auto3d --install-completion
 ```
 
 ## Neural Network Potentials
@@ -138,8 +138,8 @@ use; set `AIMNET_CACHE_DIR` to change the cache location. Network access is requ
 once per model. Run `auto3d models list` to see available registry families.
 `optimizing_engine` also accepts a path to a custom NNP model file.
 
-> **Note:** As of v3.5, AIMNet2 is served by the `aimnet` package rather than
-> bundled `.jpt` files, and the default AIMNet2 energies differ from 3.x (the
+> **Note:** As of 3.0.0, AIMNet2 is served by the `aimnet` package rather than
+> bundled `.jpt` files, and the default AIMNet2 energies differ from 2.x (the
 > registry `.pt` externalizes D3 dispersion), so conformer rankings may shift
 > slightly. Requires Python >= 3.11 and PyTorch >= 2.8.
 

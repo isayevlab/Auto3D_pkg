@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Calculating single point energy using ANI2xt, ANI2x, 'userNNP' or AIMNET"""
+"""Calculating single point energy using ANI2xt, ANI2x, AIMNET or a userNNP model file"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,7 +37,9 @@ def calc_spe(
 
     Args:
         path: Input sdf file.
-        model_name: AIMNET, ANI2x, userNNP, or ANI2xt.
+        model_name: ``AIMNET``, ``ANI2x``, ``ANI2xt``, an aimnet registry name
+            (``aimnet2``, ``aimnet2-2025``, ...), or a path to a userNNP model
+            file. The literal string ``userNNP`` is not an engine name.
         gpu_idx: GPU cuda index. Defaults to 0.
         use_gpu: Use the GPU when available. Defaults to True.
         allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.

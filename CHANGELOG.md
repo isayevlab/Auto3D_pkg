@@ -74,6 +74,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (~1e-6 kcal/mol at typical magnitudes) for such a model. Every other engine,
   and a custom model returning float32, is bit-identical.
 
+### Added
+
+- **In-tree conda recipe.** `conda-recipe/meta.yaml` builds 3.0.0 from the
+  published PyPI sdist, and `docs/source/howto/conda_build.rst` documents
+  building and installing it locally. conda-forge itself remains on 2.3.0 until
+  `aimnet` is available as a conda package; the recipe records what blocks the
+  feedstock update.
+
 ### Fixed
 
 - Roughly thirty tests that could not fail. The recurring shapes, each found
@@ -1765,8 +1773,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.5.0-dev] - 2026-06-13 — never published
 
-> Tagged `v3.5.0` in git and never released to any package channel. Retained as
-> a development record; nothing below reached a user through pip or conda.
+> Tagged `v3.5.0` in git and never released under *that version number*.
+> Retained as a development record. **The changes below did reach users**: they
+> are part of the 3.0.0 release above, which is what pip installs. In
+> particular, note the unbundling of AIMNet2 (first use now requires network)
+> and the `S_hartree` -> `S_hartree_per_K` rename if you are upgrading from
+> 2.3.1.
 
 ### Breaking Changes
 
@@ -1873,8 +1885,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Tagged `v3.0.0` in git and never released to any package channel. The version
 > number is reused by the release above, which is the 3.0.0 users actually get:
-> PyPI went 2.3.1 -> 3.0.0 and conda-forge 2.3.0 -> 3.0.0, with no 3.x in
-> between. Retained as a development record.
+> PyPI went 2.3.1 -> 3.0.0, with no 3.x in between. conda-forge remains on
+> 2.3.0 until `aimnet` is packaged for conda (see
+> `docs/source/howto/conda_build.rst`). Retained as a development record.
 
 ### Breaking Changes
 

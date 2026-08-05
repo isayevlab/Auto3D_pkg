@@ -144,8 +144,8 @@ The new CLI provides:
 
 .. code:: console
 
-   # Enable shell completion
-   auto3d --install-completion bash
+   # Enable shell completion (takes no shell argument)
+   auto3d --install-completion
 
    # View available models with details
    auto3d models info AIMNET
@@ -188,9 +188,9 @@ New environment variables for runtime configuration:
 .. note::
 
    ``AUTO3D_USE_ENSEMBLE`` and the ``use_ensemble`` argument, deprecated (and
-   already a no-op) since v3.5, were removed entirely in v4.0 -- passing
+   already a no-op) before 3.0, were removed entirely in 3.0 -- passing
    ``use_ensemble`` now raises ``TypeError``. See :doc:`migration-3.0` for the
-   full list of v4.0 breaking changes. A single AIMNet2 registry model is
+   full list of 3.0 breaking changes. A single AIMNet2 registry model is
    always used; pick a specific registry name (for example ``aimnet2-2025``)
    for different accuracy/speed tradeoffs.
 

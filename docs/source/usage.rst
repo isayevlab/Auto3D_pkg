@@ -202,9 +202,9 @@ Enable tab completion for your shell:
 
 .. code:: console
 
-   auto3d --install-completion bash      # For bash
-   auto3d --install-completion zsh       # For zsh
-   auto3d --install-completion fish      # For fish
+   # Installs for the shell you are currently running; it takes no
+   # shell argument, and passing one is an error.
+   auto3d --install-completion
 
 Restart your shell or source the config file after installation.
 

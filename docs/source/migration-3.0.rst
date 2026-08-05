@@ -7,13 +7,15 @@ This release corrects defects that produced silently wrong results. Read the
 .. note::
 
    **If you installed Auto3D from PyPI or conda-forge, every change on this
-   page applies to you.** The latest published release was 2.3.1; the ``v3.0.0``
-   and ``v3.5.0`` git tags were never published to either index, so no
-   ``pip install`` or ``conda install`` has ever produced them.
+   page applies to you.** 3.0.0 is the current release; the previously published
+   release was 2.3.1, so PyPI went straight from 2.3.1 to 3.0.0 with no 3.x in
+   between. (conda-forge is still on 2.3.0 -- see :doc:`installation`.) Two
+   earlier iterations of this work, recorded in the CHANGELOG as ``[3.0.0-dev]``
+   and ``[3.5.0-dev]``, were never published to either index.
 
    Code examples below are labelled ``# before`` and ``# 3.0`` rather than by
-   version number, because "before" covers both 2.3.1 and those unpublished
-   tags. Where a change applies *only* to someone who installed from an
+   version number, because "before" covers both 2.3.1 and those unpublished dev
+   iterations. Where a change applies *only* to someone who installed from an
    unpublished tag, it says so.
 
    ``utils.chemistry`` and ``utils.file_ops`` are named throughout this guide as
@@ -46,8 +48,8 @@ twice.
    :header-rows: 1
 
    * - Producer
-     - 3.x / 4.0-pre
-     - 4.0
+     - before 3.0
+     - 3.0
    * - ``optimizing.run()`` -- the unranked SDF from the optimization step
        (kept in the job directory, and in the ``--verbose`` housekeeping
        archive)
@@ -65,7 +67,7 @@ twice.
 
 Only the intermediate optimizer output changed unit. A file carrying both
 ``E_tot`` and ``E_tot(Hartree)`` is Hartree by construction. A file carrying
-``E_tot`` alone, produced by a 3.x/4.0-pre ``optimizing.run()``, is in eV:
+``E_tot`` alone, produced by a pre-3.0 ``optimizing.run()``, is in eV:
 divide by 27.211386245988 to migrate it, or re-run. Every finished Auto3D
 output was already Hartree and is unchanged.
 
@@ -136,7 +138,7 @@ Distinct inputs can share a standard InChIKey -- a tautomer pair the standard
 key conflates, or the same molecule written two ways. ``smiles2smi`` renames
 the second one ``<KEY>_2`` *specifically so it is not dropped*.
 
-With SMILES input and ``enumerate_isomer=False``, 3.x/4.0-pre named conformers
+With SMILES input and ``enumerate_isomer=False``, pre-3.0 releases named conformers
 ``<species>_<conformer>`` -- one trailing component, where every other mode
 appends two (``<species>_<isomer>_<conformer>``).
 :func:`Auto3D.ranking.species_id` strips two, so ``KEY_0`` and ``KEY_2_0``
@@ -165,8 +167,8 @@ exactly one "isomer", the molecule as written.
    :header-rows: 1
 
    * - Producer
-     - ``ID`` in 3.x / 4.0-pre
-     - ``ID`` in 4.0
+     - ``ID`` in before 3.0
+     - ``ID`` in 3.0
    * - SMILES input, ``enumerate_isomer=True``
      - ``mol_1_3``
      - ``mol_1_3`` (unchanged)
@@ -238,14 +240,14 @@ check already inverted and passing through unnoticed.
 
 If your custom NNP holds no ``nn.Parameter`` -- a buffer-only model, a
 closed-form potential, or one that builds its backend lazily on first call --
-3.x/4.0-pre had nothing to read a device off in the ASE calculator and chose
+Before 3.0 there was nothing to read a device off in the ASE calculator, so it chose
 ``cuda`` whenever a GPU was visible, in ``float64``. ``use_gpu`` and
 ``gpu_idx`` never reached that decision, so ``calc_thermo(..., use_gpu=False)``
 relaxed the geometry on **cuda:0 in float64** while the fmax pre-check and the
 Hessian ran on **cpu in float32** -- one call, two devices, two precisions,
 and ``gpu_idx`` ignored (always device 0). Nothing was logged.
 
-4.0 threads the device ``calc_thermo`` already resolved (through
+3.0 threads the device ``calc_thermo`` already resolved (through
 ``check_gpu_requested`` and ``get_device(gpu_idx, use_gpu)``) into the
 calculator, and a param-less model defaults to CPU/float32 rather than taking
 a GPU nobody asked for. **Numbers change** for such a model: the relaxation
@@ -280,7 +282,7 @@ Gibbs energy computed from it exactly as if it had converged. The harmonic
 approximation used throughout this module is only defined at a stationary
 point, so those numbers were never really thermochemistry.
 
-4.0 checks the result: a structure that does not reach ``opt_tol`` within
+3.0 checks the result: a structure that does not reach ``opt_tol`` within
 ``opt_steps`` is not passed to the Hessian/vibrational analysis at all. It is
 written to the output SDF with ``Thermo_failed = "not_converged"`` and none
 of ``G_hartree``, ``H_hartree``, or ``S_hartree_per_K``, instead of a Gibbs
@@ -295,7 +297,7 @@ raised on an arbitrary record whenever a run had any failures at all -- and a
 malformed or conformer-less input record could abort the whole run before any
 output was written at all.
 
-Every record in 4.0's ``calc_thermo`` output now carries a ``Thermo_failed``
+Every record in 3.0's ``calc_thermo`` output now carries a ``Thermo_failed``
 property:
 
 - ``""`` (empty) on success.
@@ -337,7 +339,7 @@ Two measured cases, both with ``enumerate_isomer=False``:
 
    * - Input SMILES
      - Configurations actually emitted
-     - Warned in 3.x/4.0-pre?
+     - Warned before 3.0?
    * - ``OC(=O)C=CC(=O)O``
      - ``O=C(O)/C=C/C(=O)O`` **and** ``O=C(O)/C=C\C(=O)O`` -- fumaric *and*
        maleic acid, ~5 kcal/mol apart, under one species id
@@ -395,7 +397,7 @@ that is worth **-2.39 kcal/mol on every transition-state record**, and it put
 a tolerated artifact's Gibbs energy **2.4-2.9 kcal/mol** away from the value
 the same input produced on ASE 3.27.
 
-4.0 removes translation and rotation by Eckart/Sayvetz projection
+3.0 removes translation and rotation by Eckart/Sayvetz projection
 (``Auto3D.ASE.thermo.projected_vibrations``) before anything else looks at the
 spectrum: mass-weight the Hessian, build the translation and
 infinitesimal-rotation vectors, orthonormalise them to ``V``, and diagonalise
@@ -407,7 +409,7 @@ heuristic picked (measured on MMFF n-butane and n-butanol: 0.00 cm-1
 difference), so a clean minimum is unaffected.
 
 **What to check:** nothing, if you always ran the same ASE. If you compare
-thermochemistry produced by two installs, or by Auto3D 3.x against 4.0,
+thermochemistry produced by two installs, or by a pre-3.0 Auto3D against 3.0,
 transition-state and imaginary-mode records are the ones that moved.
 
 The ``ase`` extra now requires ``ase>=3.23.0``. The old ``>=3.22.1`` floor was
@@ -423,7 +425,7 @@ value and deleted every imaginary mode alike, so a genuine reaction coordinate
 a -15 cm-1 numerical artifact, and a saddle point was reported as an ordinary
 minimum with no marker.
 
-4.0 counts and sizes imaginary modes over the projected vibrational spectrum
+3.0 counts and sizes imaginary modes over the projected vibrational spectrum
 -- the same modes that go on to produce ``G_hartree``, and before any
 correction is applied to them -- and writes three SD properties:
 
@@ -537,7 +539,7 @@ The argument against deleting is mode counting, not the size of any one
 number. A nonlinear molecule has exactly ``3N-6`` vibrational degrees of
 freedom; deleting an artifact gives a species that has one a ``3N-7``-mode
 partition function and a species that has none a ``3N-6``-mode one, and those
-two free energies are not the same thermodynamic quantity. 4.0 substitutes
+two free energies are not the same thermodynamic quantity. 3.0 substitutes
 ``|nu|`` for every sub-cutoff imaginary mode -- the Gaussian/ORCA convention
 -- and keeps it. A mode at or above the cutoff is a reaction coordinate;
 Auto3D removes it itself and passes ``3N-7`` deliberately, rather than leaving
@@ -576,7 +578,7 @@ on the frequency of a mode the code has just declared untrustworthy.
 
 The bias does not cancel between two species with different artifact counts,
 which is exactly the comparison thermochemistry is run to make, so **do not
-mix 3.x/4.0-pre and 4.0 Gibbs energies in one comparison**. The new
+mix pre-3.0 and 3.0 Gibbs energies in one comparison**. The new
 ``N_inverted_imaginary_modes`` SD property records how many modes were treated
 this way, and ``H_hartree``/``S_hartree_per_K`` move for the same records.
 
@@ -640,7 +642,7 @@ accepted and failing many optimization steps later inside
 ``forward(coords, species, charges)`` -- the **opposite** order -- and returns
 ``(energies, forces)`` rather than energies alone. It is implemented only by
 Auto3D's own adapters. If you wrote a model against that interface it silently
-computed an energy from transposed tensors in 3.x; in 4.0 it is refused at
+computed an energy from transposed tensors in 3.x; in 3.0 it is refused at
 load. Swap the first two parameters and return energies only.
 
 **You must now define both padding attributes.** 3.x filled in missing
@@ -822,7 +824,7 @@ stereocenter came back as an ETKDG-randomized mixture of configurations under
 that one name, and ``enumerate_isomers`` had no effect on this path at all --
 the adapter did not accept it.
 
-4.0 enumerates unspecified stereocenters on SDF input the same way the SMILES
+3.0 enumerates unspecified stereocenters on SDF input the same way the SMILES
 path does, embeds each configuration separately, and removes enantiomeric
 pairs the same way ``remove_enantiomers`` does for SMILES input. Conformers
 are named ``<species>_<isomer>_<conformer>``, matching the SMILES path, and
@@ -1041,7 +1043,7 @@ used to open the user's input file for writing and destroy it. Nothing about
 that was recoverable: ``calc_spe`` and ``calc_thermo`` read the input into
 memory first, so the overwrite simply succeeded and the only copy of the
 input became output; ``opt_geometry`` clobbered the file it had just read.
-The 4.0 tmp+``os.replace`` staging makes a *failed* rewrite non-destructive,
+The 3.0 tmp+``os.replace`` staging makes a *failed* rewrite non-destructive,
 but it cannot help here -- a successful same-file run overwrites the input by
 design.
 
@@ -1155,7 +1157,7 @@ gave ``auto3d config validate`` exit ``1`` and ``auto3d run -c`` exit ``2``:
    $ auto3d run mols.smi -c cfg.yaml; echo $?     # before
    2
 
-Both are ``2`` in 4.0. The full scheme, with one table now in
+Both are ``2`` in 3.0. The full scheme, with one table now in
 :doc:`cli` instead of the two contradictory ones 3.x shipped:
 
 .. list-table::
@@ -1179,7 +1181,7 @@ Both are ``2`` in 4.0. The full scheme, with one table now in
    * - ``6``
      - Partial success -- see the next section
    * - ``130``
-     - Interrupted by the user (128 + ``SIGINT``) -- new in 4.0
+     - Interrupted by the user (128 + ``SIGINT``) -- new in 3.0
 
 Every code that changed, changed *from* ``1``:
 
@@ -1190,7 +1192,7 @@ Every code that changed, changed *from* ``1``:
    * - Command
      - Condition
      - 3.x
-     - 4.0
+     - 3.0
    * - ``auto3d config validate``
      - any invalid config file
      - 1
@@ -1263,7 +1265,7 @@ worker, or any other per-chunk failure -- still printed a results summary
 and exited ``0``, indistinguishable from a fully successful run to a calling
 shell script (``auto3d run --json && next_step``).
 
-4.0 exits ``6`` whenever any input molecule produced no output. The results
+3.0 exits ``6`` whenever any input molecule produced no output. The results
 summary and, with ``--json``, the JSON document are still printed *before*
 that exit -- a scripted consumer checking for exit ``6`` always receives a
 parseable description of what was missing. This guarantee is specific to
@@ -1297,7 +1299,7 @@ and was tested, but had no production caller at all, so a molecule that
 vanished mid-pipeline left no trace anywhere reachable from ``main()``'s
 return value.
 
-4.0 reconciles the original input against the final output SDF and reports
+3.0 reconciles the original input against the final output SDF and reports
 every missing molecule by ID:
 
 - ``main()`` returns the missing input IDs as ``WorkflowResult.failures`` --
@@ -1330,7 +1332,7 @@ configuration disagreed about whether the run had succeeded:
 
 .. code:: console
 
-   $ auto3d params.yaml; echo $?                       # before and early 4.0
+   $ auto3d params.yaml; echo $?                       # before and early 3.0
    OK Output: /data/mols_20260801-101500-123456/mols_out.sdf
    0
    $ auto3d run mols.smi -c params.yaml; echo $?       # same run, same result

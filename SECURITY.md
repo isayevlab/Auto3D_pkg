@@ -6,7 +6,6 @@ We provide security updates for the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.5.x   | :white_check_mark: |
 | 3.0.x   | :white_check_mark: |
 | < 3.0   | :x:                |
 

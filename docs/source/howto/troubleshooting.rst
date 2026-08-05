@@ -442,7 +442,7 @@ Command Not Found
 
    .. code:: console
 
-      python -m Auto3D.cli.app run input.smi --k=1
+      python -m Auto3D.auto3Dcli run input.smi --k=1
 
 3. Reinstall:
 
@@ -571,16 +571,12 @@ Shell Completion Not Working
 
    .. code:: console
 
-      # For bash
-      auto3d --install-completion bash
-      source ~/.bashrc
+      # Takes no shell argument -- it installs for the current shell.
+      auto3d --install-completion
 
-      # For zsh
-      auto3d --install-completion zsh
-      source ~/.zshrc
-
-      # For fish
-      auto3d --install-completion fish
+      # Then reload your rc file, e.g.
+      source ~/.bashrc   # bash
+      source ~/.zshrc    # zsh
 
 2. Restart your terminal completely
 
@@ -635,11 +631,11 @@ Common Error Messages
 
    * - Error
      - Solution
-   * - ``ValueError: Only k OR window needs to be specified``
+   * - ``ConfigurationError: Only one of k or window may be specified``
      - Use only ``k`` OR ``window``, not both
    * - ``RuntimeError: CUDA out of memory``
      - Reduce ``batchsize_atoms`` or use CPU
-   * - ``ModuleNotFoundError: No module named 'torchani'``
+   * - ``DependencyError: ANI2x requires TorchANI, which is not installed.``
      - Install the optional ani extra: ``pip install "Auto3D[ani]"`` (or ``conda install -c conda-forge torchani``)
    * - ``FileNotFoundError: input.smi``
      - Check file path exists

@@ -134,7 +134,7 @@ def select_tautomers(
 
 
 def get_stable_tautomers(
-    args: dict | Auto3DOptions,
+    args: Auto3DOptions,
     tauto_k: int | None = None,
     tauto_window: float | None = None
 ) -> str:
@@ -144,8 +144,9 @@ def get_stable_tautomers(
     based on either top-k or energy window criteria.
 
     Args:
-        args: Configuration options as an ``Auto3DOptions`` instance.
-            For backward compatibility, a dict with the same keys is also accepted.
+        args: Configuration options as an ``Auto3DOptions`` instance. A plain
+            dict is *not* accepted: this forwards to :func:`Auto3D.auto3D.main`,
+            which reads attributes off the object.
         tauto_k: Keep the top-k tautomers (mutually exclusive with tauto_window).
         tauto_window: Keep tautomers within this energy window (kcal/mol)
             of the lowest energy tautomer (mutually exclusive with tauto_k).

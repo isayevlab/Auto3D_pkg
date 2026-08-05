@@ -557,8 +557,11 @@ For custom workflows, create models directly:
    # Create model
    model = create_model("AIMNET", device=device)
 
-   # Use for calculations
-   energies = model(species, coords, charges)
+   # Use for calculations. ``create_model`` returns a ModelAdapter, whose
+   # contract is forward(coords, species, charges) -> (energies, forces):
+   # coords first, and a 2-tuple out. This is the reverse of the custom-NNP
+   # contract -- see :doc:`howto/custom_nnp`.
+   energies, forces = model(coords, species, charges)
 
    # List available models
    print(ModelFactory.available_models())

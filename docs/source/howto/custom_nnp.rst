@@ -135,8 +135,10 @@ Your custom model must:
 
        def __init__(self, model_path: str):
            super().__init__()
-           # Load your underlying model
-           self.model = torch.load(model_path)
+           # Load your underlying model. ``weights_only=False`` is required to
+           # unpickle a full nn.Module on torch >= 2.6 (Auto3D requires >= 2.8),
+           # so only load checkpoints you trust.
+           self.model = torch.load(model_path, weights_only=False)
 
            # Required: padding values for batched tensors. Set on the instance
            # (not as class attributes) so they survive torch.jit.save too.
@@ -157,7 +159,9 @@ Your custom model must:
                        Padded atoms have value species_pad (-1)
                coords: Atomic coordinates in Angstroms
                        Padded atoms have coordinates (0, 0, 0)
-               charges: Total molecular charge for each molecule
+               charges: Total molecular charge for each molecule, as a
+                   float32 tensor (Auto3D pads and casts to float before
+                   calling; do not index or ``.long()``-cast it)
 
            Returns:
                Energies tensor of shape (batch_size,) in eV
@@ -182,7 +186,7 @@ Understanding the Input Tensors
 
 **Charges Tensor** ``(batch_size,)``:
 
-- Total molecular charge (integer)
+- Total molecular charge, as a ``float32`` tensor
 - 0 for neutral molecules
 
 Example: Complete Custom Model
@@ -286,8 +290,10 @@ For testing, here's a minimal example using Lennard-Jones potential:
                xyz = coords[b][mask]
                n_atoms = sp.shape[0]
 
-               # Calculate pairwise LJ energy
-               energy = 0.0
+               # Calculate pairwise LJ energy. Seed with a zero tensor tied to
+               # ``xyz`` -- Auto3D differentiates the energy with respect to the
+               # coordinates, so the accumulator must stay on the autograd graph.
+               energy = xyz.new_zeros(())
                for i in range(n_atoms):
                    for j in range(i + 1, n_atoms):
                        r = torch.norm(xyz[i] - xyz[j])
@@ -300,7 +306,10 @@ For testing, here's a minimal example using Lennard-Jones potential:
                        lj = 4 * eps * ((sig / r) ** 12 - (sig / r) ** 6)
                        energy += lj
 
-               energies.append(torch.tensor(energy, device=species.device))
+               # Do NOT wrap this in ``torch.tensor(...)``: that detaches it from
+               # the graph and Auto3D's force calculation then raises
+               # "element 0 of tensors does not require grad".
+               energies.append(energy)
 
            return torch.stack(energies)
 
@@ -334,11 +343,32 @@ For custom workflows, create models directly:
                            [0.0, 1.0, 0.0],
                            [0.0, 0.0, 1.0],
                            [-1.0, 0.0, 0.0]]], device="cuda:0")
-   charges = torch.tensor([0], device="cuda:0")
+   charges = torch.tensor([0.0], device="cuda:0")   # float32, not int
 
-   # Calculate energy
+   # Calculate energy and forces.
+   #
+   # NOTE the argument order. ``create_model`` hands back a
+   # ``CustomModelAdapter``, which speaks the *adapter* contract
+   # ``forward(coords, species, charges) -> (energies, forces)`` -- coords
+   # first, and a 2-tuple out. That is the mirror image of the contract your
+   # own model implements (``forward(species, coords, charges) -> energies``);
+   # the adapter transposes for you. See the "Required Interface" warning above.
+   #
+   # Do NOT wrap this in ``torch.no_grad()``: the adapter derives forces with
+   # ``torch.autograd.grad``, so suppressing the graph raises a RuntimeError.
+   energies, forces = model(coords, species, charges)
+   print(f"Energy: {energies.item():.6f} eV")
+
+To call your own model directly instead -- energies only, species first, and
+``torch.no_grad()`` is fine because nothing differentiates:
+
+.. code:: python
+
+   from Auto3D.models.loading import load_custom_nnp
+
+   raw = load_custom_nnp("/path/to/my_custom_nnp.pt", device=torch.device("cuda:0"))
    with torch.no_grad():
-       energy = model(species, coords, charges)
+       energy = raw(species, coords, charges)
        print(f"Energy: {energy.item():.6f} eV")
 
 Testing Your Model
@@ -405,7 +435,7 @@ checks the *shape* of the contract, not the physics:
                                [-0.36, -0.51, -0.89],
                                [0.0, 0.0, 0.0],  # Padding
                                [0.0, 0.0, 0.0]]], device=device)
-       charges = torch.tensor([0], device=device)
+       charges = torch.tensor([0.0], device=device)   # float32, not int
 
        # Run inference
        with torch.no_grad():
@@ -430,7 +460,7 @@ Ensure gradients flow correctly for optimization:
    def check_gradients(model_path: str):
        """Verify gradients are computed correctly."""
 
-       model = torch.load(model_path)
+       model = torch.load(model_path, weights_only=False)
        model.eval()
 
        # Sample input with gradient tracking
@@ -440,7 +470,7 @@ Ensure gradients flow correctly for optimization:
                                [-0.36, 1.03, 0.0],
                                [-0.36, -0.51, 0.89],
                                [-0.36, -0.51, -0.89]]], requires_grad=True)
-       charges = torch.tensor([0])
+       charges = torch.tensor([0.0])   # float32, not int
 
        # Compute energy and gradient
        energy = model(species, coords, charges)
@@ -567,7 +597,7 @@ Example wrapping a SchNetPack model:
            # Instance attributes -- see the note above on TorchScript.
            self.coord_pad = 0
            self.species_pad = -1
-           self.model = torch.load(model_path)
+           self.model = torch.load(model_path, weights_only=False)
 
        def forward(self, species, coords, charges):
            # Convert to SchNetPack input format
@@ -598,7 +628,11 @@ Example wrapping a SchNetPack model:
 Integration with NequIP/Allegro
 -------------------------------
 
-Example wrapping NequIP:
+Example wrapping NequIP. **This wrapper is energy-only and cannot drive a
+geometry optimization**: routing through an ASE calculator returns a Python
+float, so no autograd graph reaches ``coords`` and Auto3D's force
+calculation raises. Use it for single-point energies, or replace the ASE
+round-trip with a call that keeps the graph intact:
 
 .. code:: python
 

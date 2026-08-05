@@ -401,7 +401,7 @@ CUDA Out of Memory
 
    .. code:: python
 
-      config = Auto3DOptions(batchsize_atoms=256, ...)
+      config = Auto3DOptions(path="molecules.smi", k=1, batchsize_atoms=256)
 
 2. Use fewer GPUs with more memory each
 3. Process in smaller chunks
