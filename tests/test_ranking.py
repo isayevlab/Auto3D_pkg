@@ -1221,3 +1221,37 @@ class TestSelectorDispatchRegistry:
                 setattr(ranker, method, spy)
             ranker.run()
             assert called == [expected], f"{field} dispatched to {called}"
+
+
+def test_missing_selector_message_is_not_run_together(tmp_path):
+    """The no-selector refusal must render as prose, not "if youonly want".
+
+    ``run``'s message is built by implicit string concatenation across three
+    source lines; the second fragment ended without a trailing space, so the
+    shipped text read "Append \"--k=1\" if youonly want one structure per
+    SMILES".
+    """
+    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.ranking import ConformerRanker
+
+    input_path = str(tmp_path / "input.sdf")
+    _write_mols_to_sdf([_create_mol_with_energy("C", -10.0, "mol_1")], input_path)
+
+    ranker = ConformerRanker(
+        input_path=input_path,
+        out_path=str(tmp_path / "output.sdf"),
+        threshold=0.3,
+        k=5,
+    )
+    # Clear both selectors so `run` falls through to the refusal. Constructing
+    # with neither is refused earlier, which is correct -- this exercises the
+    # last-resort message inside the dispatch loop.
+    ranker.k = None
+    ranker.window = None
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        ranker.run()
+
+    message = str(excinfo.value)
+    assert "youonly" not in message, message
+    assert "if you only want" in message, message

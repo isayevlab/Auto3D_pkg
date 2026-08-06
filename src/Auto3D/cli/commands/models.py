@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import importlib
+
 from rich.panel import Panel
 from rich.table import Table
 
@@ -12,14 +14,21 @@ from Auto3D.exceptions import ConfigurationError
 
 
 def check_dependency_status(name: str) -> tuple[bool, str]:
-    """Check if an optional dependency is available."""
-    if name == "torchani":
-        try:
-            import torchani
-            return True, f"[green]v{torchani.__version__}[/green]"
-        except ImportError:
-            return False, "[yellow]Not installed[/yellow]"
-    return True, "[green]Available[/green]"
+    """Report whether an optional dependency is importable, and its version.
+
+    The probe is by import, for whatever name it is handed. This used to
+    special-case ``"torchani"`` and return an unconditional
+    ``(True, "Available")`` for anything else -- an answer arrived at without
+    looking. That was unreachable while torchani was the only optional engine,
+    but it made the next entry in the engine table silently report itself
+    installed.
+    """
+    try:
+        module = importlib.import_module(name)
+    except ImportError:
+        return False, "[yellow]Not installed[/yellow]"
+    version = getattr(module, "__version__", None)
+    return True, f"[green]v{version}[/green]" if version else "[green]Available[/green]"
 
 
 def execute_models_list() -> None:
@@ -39,7 +48,7 @@ def execute_models_list() -> None:
     )
 
     # ANI2x - requires torchani
-    ani_available, ani_status = check_dependency_status("torchani")
+    _, ani_status = check_dependency_status("torchani")
     table.add_row(
         "ANI2x",
         "[yellow]8 (ensemble)[/yellow]",

@@ -225,7 +225,6 @@ def optim_rank_wrapper(
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
 
-        conformers = []
         while True:
             sdf_path_dir_job = queue.get()
             if sdf_path_dir_job == "Done":
@@ -293,7 +292,12 @@ def optim_rank_wrapper(
                 window = args.window
                 rank_engine = ranking(optimized_og,
                                       output, duplicate_threshold, k=k, window=window)
-                conformers.append(rank_engine.run())
+                # The ranked mols are written to `output` by `run()`; they are
+                # deliberately not accumulated. This function only ever runs as
+                # an `mp.Process` target (workflow.py), so anything returned is
+                # discarded -- collecting them held every chunk's molecules in
+                # worker memory for the whole run and nothing ever read them.
+                rank_engine.run()
 
                 # Housekeeping
                 housekeeping_folder = meta["housekeeping_folder"]
@@ -315,7 +319,6 @@ def optim_rank_wrapper(
                     "skipping this chunk and continuing with the rest."
                 )
                 continue
-        return conformers
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     """A child process for logging all information from other processes.

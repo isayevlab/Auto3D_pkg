@@ -220,8 +220,6 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
                 "Usually, setting 'k: 1' satisfies most needs."
             )
 
-        warnings: list[str] = []
-
         # Say where the input comes from, so "valid" is not mistaken for
         # "complete": a settings-only file is valid for `auto3d run INPUT -c`
         # and invalid for the deprecated `auto3d <config.yaml>` form, which
@@ -239,9 +237,6 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
             title="Validation Passed",
             border_style="green",
         ))
-
-        for warning in warnings:
-            console.print(f"[yellow]Warning:[/yellow] {warning}")
 
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
         handle_error(e, verbose=verbose)
