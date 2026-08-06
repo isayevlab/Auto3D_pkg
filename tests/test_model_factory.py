@@ -272,6 +272,9 @@ class TestFactoryReturnsAdapter:
         mock_model.parameters.return_value = iter([])
         mock_model.coord_pad = 1.5
         mock_model.species_pad = -2
+        # `load_custom_nnp` puts everything it returns in eval mode; a real
+        # nn.Module answers .eval() with itself, so the double must too.
+        mock_model.eval.return_value = mock_model
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")

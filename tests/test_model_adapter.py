@@ -306,6 +306,10 @@ class TestCustomModelAdapter:
         mock_model.parameters.return_value = iter([])
         mock_model.coord_pad = 1.0
         mock_model.species_pad = -2
+        # `load_custom_nnp` puts everything it returns in eval mode, so the
+        # double has to answer .eval() the way a real nn.Module does -- with
+        # itself -- rather than with a fresh MagicMock.
+        mock_model.eval.return_value = mock_model
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")
@@ -332,6 +336,9 @@ class TestCustomModelAdapter:
         class MockModel:
             def parameters(self):
                 return iter([])
+
+            def eval(self):  # every real nn.Module has this; the loader calls it
+                return self
 
         mock_load.return_value = MockModel()
 

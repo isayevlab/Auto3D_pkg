@@ -759,3 +759,52 @@ def test_positional_only_marker_survives_the_transposed_message():
     with pytest.raises(ModelLoadError) as excinfo:
         validate_custom_nnp(Transposed(), "<memory>")
     assert "/" in str(excinfo.value).split("but Auto3D calls")[0]
+
+
+# --- inference mode ---------------------------------------------------------
+
+def test_torchscript_archive_saved_in_train_mode_loads_in_eval_mode(tmp_path):
+    """``torch.jit.save`` records ``training``; ``load_custom_nnp`` must clear it.
+
+    The eager branch has always called ``.eval()``. The TorchScript branch
+    returned ``torch.jit.load``'s result untouched, so an archive a user saved
+    without calling ``.eval()`` first kept dropout and batchnorm live at
+    inference.
+    """
+    from tests.helpers_custom_nnp import StochasticNNP
+
+    model = StochasticNNP()
+    model.train()
+    path = tmp_path / "train_mode.pt"
+    torch.jit.save(torch.jit.script(model), str(path))
+
+    loaded = load_custom_nnp(str(path), CPU)
+
+    assert loaded.training is False, (
+        "a TorchScript archive saved in train mode stayed in train mode, so "
+        "dropout/batchnorm run at inference"
+    )
+
+
+def test_torchscript_archive_saved_in_train_mode_gives_repeatable_energies(tmp_path):
+    """Why the flag matters: FIRE cannot converge against a stochastic energy.
+
+    Identical inputs must give one energy. Without the eval-mode guarantee this
+    returns a different number nearly every call, and the optimizer burns its
+    whole step budget before dropping the conformer as oscillating.
+    """
+    from tests.helpers_custom_nnp import StochasticNNP
+
+    model = StochasticNNP()
+    model.train()
+    path = tmp_path / "train_mode_energies.pt"
+    torch.jit.save(torch.jit.script(model), str(path))
+
+    loaded = load_custom_nnp(str(path), CPU)
+
+    species = torch.zeros(1, 8, dtype=torch.long)
+    coords = torch.randn(1, 8, 3)
+    charges = torch.zeros(1)
+    energies = {round(float(loaded(species, coords, charges)), 8) for _ in range(5)}
+
+    assert len(energies) == 1, f"energy is not repeatable across calls: {energies}"

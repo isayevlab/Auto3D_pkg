@@ -67,6 +67,13 @@ def load_custom_nnp(
                 f"Custom NNP at {model_path} did not deserialize to an nn.Module "
                 f"(got {type(model).__name__})."
             )
-        model = model.to(device).eval()
+        model = model.to(device)
+    # Both branches, not just the eager one: torch.jit.save records the
+    # module's `training` flag, so an archive saved before its author called
+    # .eval() keeps dropout and batchnorm live at inference. That makes the
+    # energy differ between identical calls, which FIRE cannot converge
+    # against -- the run spends its whole step budget and reports
+    # Converged=False, indistinguishable from a genuinely floppy molecule.
+    model = model.eval()
     validate_custom_nnp(model, model_path)
     return model.double() if double else model
