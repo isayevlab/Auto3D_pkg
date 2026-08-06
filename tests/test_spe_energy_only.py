@@ -413,3 +413,44 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
         assert float(written[0].GetProp("E_hartree")) == pytest.approx(
             -1.0 * EV_TO_HARTREE
         )
+
+
+class TestEnergyBatchedDoesNotRetainSubBatchGraphs:
+    """Sub-batching must bound memory, and a retained graph defeats that.
+
+    ``pad_from_mols`` hands ``calc_spe`` coordinates with ``requires_grad=True``,
+    and ``energy_batched`` deliberately has no ``no_grad`` wrapper (AIMNet2's
+    ``energy`` differentiates internally, so disabling grad would break the
+    default engine). Every sub-batch result therefore arrived graph-connected
+    and was held in a list until the final ``torch.cat``, so the activations of
+    *every completed sub-batch* stayed reachable at once. Peak memory then
+    scaled with the whole input file rather than with ``batchsize_atoms``, and
+    the OOM-retry could not recover: ``empty_cache()`` cannot free memory that
+    is still referenced.
+    """
+
+    def test_the_returned_energies_are_detached(self):
+        adapter = _GradCountingAdapter()
+        net = EnForce_ANI(adapter, batchsize_atoms=8)  # forces several sub-batches
+        coords, species, charges, atom_mask = _batch(n_mols=6, n_atoms=4)
+
+        energies = net.energy_batched(coords, species, charges, atom_mask=atom_mask)
+
+        assert len(adapter.sub_batch_sizes) > 1, (
+            "the batch did not split; this test needs more than one sub-batch"
+        )
+        assert energies.grad_fn is None, (
+            "energy_batched returned a graph-connected tensor, so each completed "
+            "sub-batch's activations stay alive until the whole file is done"
+        )
+        assert energies.requires_grad is False
+
+    def test_the_energy_values_are_unchanged_by_detaching(self):
+        """Detaching must free memory without moving a reported number."""
+        adapter = _GradCountingAdapter()
+        net = EnForce_ANI(adapter, batchsize_atoms=8)
+        coords, species, charges, atom_mask = _batch(n_mols=6, n_atoms=4)
+
+        energies = net.energy_batched(coords, species, charges, atom_mask=atom_mask)
+
+        torch.testing.assert_close(energies, coords.detach().pow(2).sum(dim=(1, 2)))

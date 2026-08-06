@@ -299,12 +299,20 @@ class EnForce_ANI(nn.Module):
                 an output file full of ``nan``.
             OptimizationError: A single molecule exhausted GPU memory.
         """
+        # `.detach()` per sub-batch, not once at the end: no `no_grad` wrapper
+        # is possible here (AIMNet2's `energy` differentiates internally), so
+        # each result arrives graph-connected. Accumulating them attached kept
+        # every completed sub-batch's activations reachable until the final
+        # `cat`, which made peak memory scale with the whole input rather than
+        # with `batchsize_atoms` -- and left the OOM-retry below nothing it
+        # could free. A single-point energy has no backward pass, so nothing
+        # downstream wants the graph.
         results = self._run_in_sub_batches(
             coord,
             lambda sub: self.model.energy(
                 coord[sub], numbers[sub], charges[sub],
                 atom_mask=None if atom_mask is None else atom_mask[sub],
-            ),
+            ).detach(),
         )
         energies = torch.cat(results, dim=0)
         validate_energies(energies)
