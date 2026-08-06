@@ -100,10 +100,14 @@ def ensemble_opt(
         numbers = torch.tensor(numbers, dtype=torch.long, device=device)
     else:
         numbers = numbers.detach().to(dtype=torch.long, device=device)
+    # float32, not long: `pad_from_mols` builds this tensor float32 on purpose
+    # (see the comment at its construction site) and every adapter casts to its
+    # own working dtype on arrival. Narrowing to int64 here contradicted that
+    # contract and silently truncated any non-integral charge toward zero.
     if not isinstance(charges, torch.Tensor):
-        charges = torch.tensor(charges, dtype=torch.long, device=device)
+        charges = torch.tensor(charges, dtype=torch.float32, device=device)
     else:
-        charges = charges.detach().to(dtype=torch.long, device=device)
+        charges = charges.detach().to(dtype=torch.float32, device=device)
     if atom_mask is not None:
         if not isinstance(atom_mask, torch.Tensor):
             atom_mask = torch.tensor(atom_mask, dtype=torch.bool, device=device)
