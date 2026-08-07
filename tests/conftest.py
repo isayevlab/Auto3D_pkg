@@ -86,10 +86,18 @@ def _import_every_auto3d_module_before_any_test():
     A leaked ``handle_error`` stub swallows the exception it is handed, so
     every later test that expects a non-zero exit code sees exit 0. That is
     what made this suite order-dependent: three runs of CI's own command
-    (``pytest tests/ -q -m "not slow" --continue-on-collection-errors``, which
-    unlike the local habit does *not* pass ``-p no:randomly``) produced 0, 1
-    and 13 failures purely by ``pytest-randomly`` seed, and seed 1351916419
-    failed 13 tests across six CLI modules on ``main``.
+    (``pytest tests/ -q -m "not slow" --continue-on-collection-errors``)
+    produced 0, 1 and 13 failures purely by ``pytest-randomly`` seed, and seed
+    1351916419 failed 13 tests across six CLI modules on ``main``.
+
+    Read those seeds as evidence for the guard below, not as a description of
+    what CI does. ``pytest-randomly`` is **not** a declared dependency, so CI
+    installs it with neither ``[dev]`` nor anything else and runs in plain file
+    order; the shuffling above came from a local environment that had the
+    plugin. The guard is worth having either way -- it closes the
+    module-identity class outright rather than making one ordering lucky -- but
+    do not assume a green CI run has exercised a shuffled order. As of
+    2026-08-07 the six seeds above, 1351916419 included, all pass.
 
     Importing everything first makes module identity stable before any test can
     patch anything, which closes the whole class rather than the one instance.

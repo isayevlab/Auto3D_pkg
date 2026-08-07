@@ -71,6 +71,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "mypy>=1.0",
+    # requests ships no inline types; without the stubs mypy reports
+    # `import-untyped` at models/preflight.py's download path.
+    "types-requests",
     "ruff>=0.1.0",
     "pre-commit>=3.0",
 ]
@@ -179,6 +182,9 @@ ignore = [
 known-first-party = ["Auto3D"]
 
 [tool.mypy]
+# The declared floor, not the interpreter mypy happens to run on: this is what
+# makes `X | None` in a runtime position an error here rather than on a user's
+# 3.11 box.
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
@@ -188,6 +194,27 @@ exclude = [
     "docs/",
     "example/",
 ]
+
+# For development environments only -- expect mypy to report this section as
+# unused anywhere it is not needed, which includes CI.
+#
+# mypy follows a PEP 561 package into its source and parses it under the
+# declared `python_version`, so a `type` statement (3.12+) inside one is a
+# `[syntax]` error. A syntax error is fatal: mypy stops with "errors prevented
+# further checking" before analysing a single Auto3D module, reports two errors
+# neither of which is in this package, and looks like a pass.
+# `ignore_missing_imports` does not help -- these packages are found, not
+# missing -- and neither does `follow_imports = "silent"`, since mypy still has
+# to parse the file.
+#
+# Neither package is an Auto3D dependency: `tifffile` arrives via
+# `scikit-image` and `sphinx` via docs tooling, so this only fires in a shared
+# environment that has them. Add to the list if another dependency
+# reintroduces the abort; the symptom is an error inside site-packages
+# followed by the "prevented further checking" line.
+[[tool.mypy.overrides]]
+module = ["tifffile.*", "sphinx.*"]
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
