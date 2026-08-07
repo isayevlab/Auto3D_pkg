@@ -40,6 +40,22 @@ jobs:
       - name: Run fast tests
         run: pytest tests/ -q -m "not slow" --continue-on-collection-errors
 
+      # Here rather than in `lint`, because this job is the only one that
+      # installs the dependencies. mypy resolves a third-party import to `Any`
+      # when the package is absent, so a dep-free run cannot see a wrong tensor,
+      # array or ASE argument at all -- it reported 40 errors where a run with
+      # the extras present reports 66, and the 26 it missed are precisely the
+      # ones a type checker is worth having here for.
+      #
+      # Only on the `ani` leg: three near-identical reports are noise, and this
+      # is the leg with the most complete type information. Running it under
+      # 3.12 does not weaken the floor -- `python_version = "3.11"` in
+      # pyproject.toml is what decides the semantics checked, not the
+      # interpreter.
+      - name: mypy (non-blocking until type debt is cleared)
+        if: matrix.ani
+        run: mypy src/Auto3D/ || true
+
   slow:
     name: slow tests (NNP integration)
     runs-on: ubuntu-latest
@@ -105,16 +121,16 @@ jobs:
           pytest tests/ -m slow -q
 
   lint:
-    name: ruff + mypy
+    name: ruff
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # ruff needs no dependencies installed; mypy does, so it runs in the
+      # `test` job instead. See the note on that step.
       - name: Install tooling
-        run: pip install ruff mypy
+        run: pip install ruff
       - name: ruff
         run: ruff check src/Auto3D/ tests/
-      - name: mypy (non-blocking until type debt is cleared)
-        run: mypy src/Auto3D/ --ignore-missing-imports || true
