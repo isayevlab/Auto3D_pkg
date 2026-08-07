@@ -103,3 +103,51 @@ def test_ase_floor_is_3_23_the_first_release_calc_thermo_can_use():
     deps = _pyproject()["project"]["optional-dependencies"]["ase"]
     ase_dep = next(d for d in deps if d.replace(" ", "").lower().startswith("ase"))
     assert ">=3.23.0" in ase_dep.replace(" ", ""), ase_dep
+
+
+def test_py_typed_marker_exists():
+    """The package claims ``Typing :: Typed``; PEP 561 needs the marker to back it.
+
+    Without ``py.typed`` a downstream type checker treats every name in this
+    package as ``Any`` -- so the annotations are written, tested by our own mypy
+    run, and then invisible to the people they were written for. The classifier
+    said otherwise, which is a promise the distribution did not keep.
+    """
+    assert (ROOT / "src" / "Auto3D" / "py.typed").is_file(), (
+        "src/Auto3D/py.typed is missing while pyproject.toml declares "
+        "'Typing :: Typed'"
+    )
+
+
+def test_py_typed_is_declared_as_package_data():
+    """Present in the tree is not enough; setuptools must be told to ship it."""
+    pd = _pyproject()["tool"]["setuptools"]["package-data"]["Auto3D"]
+    assert "py.typed" in pd, (
+        f"py.typed must be listed in [tool.setuptools.package-data]; found {pd}"
+    )
+
+
+def test_typing_typed_classifier_is_present():
+    """The other half of the pair -- if one goes, both should."""
+    classifiers = _pyproject()["project"]["classifiers"]
+    assert "Typing :: Typed" in classifiers
+
+
+def test_manifest_excludes_the_packages_own_gitignore():
+    """``src/Auto3D/.gitignore`` is a repo file, not a distribution file.
+
+    ``graft src/Auto3D`` is unconditional, so it shipped inside the 3.0.0 wheel
+    (verified against the built artifact: entry ``Auto3D/.gitignore``). It is
+    the only non-Python payload there besides the bundled ANI2xt weights, and it
+    tells an installed package to ignore ``*.sdf`` and ``*.txt`` -- which means
+    nothing at install time and is confusing wherever it is read.
+    """
+    manifest = (ROOT / "MANIFEST.in").read_text()
+    patterns = [
+        line.split(None, 1)[1].strip()
+        for line in manifest.splitlines()
+        if line.strip().startswith(("global-exclude", "exclude"))
+    ]
+    assert any(".gitignore" in p for p in patterns), (
+        f"MANIFEST.in must keep .gitignore out of the distribution; found {patterns}"
+    )
