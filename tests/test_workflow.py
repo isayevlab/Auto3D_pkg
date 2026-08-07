@@ -438,7 +438,13 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     # ... and BOTH chunks must have been attempted: the loop continued past the
     # first chunk's failure instead of dying on it.
     assert attempted == ["enum1.sdf", "enum2.sdf"]
-    assert result == []  # neither failing chunk produced conformers
+    # No return value, by design: this function only ever runs as an
+    # `mp.Process` target (workflow.py), so anything returned is discarded.
+    # It used to accumulate every chunk's ranked mols into a list it then
+    # returned, which held the whole run's molecules in worker memory and was
+    # read by nobody. Ranked structures reach the caller through the output
+    # SDF each chunk writes, not through this frame.
+    assert result is None
 
 
 def test_unsupported_extension_rejected_before_encoding(tmp_path):

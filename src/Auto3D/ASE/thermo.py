@@ -38,6 +38,7 @@ from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.contract import ModelAdapter, missing_adapter_members
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
+from Auto3D.utils.energy import set_e_tot_from_ev
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.validation import (
@@ -1387,6 +1388,23 @@ def do_mol_thermo(mol: Chem.Mol,
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
     mol.SetProp("E_hartree", str(e * EV_TO_HARTREE))
+    # `E_tot` too, through its owner. calc_thermo relaxes to a threshold 50x
+    # tighter than the one the conformer pipeline used, so `atoms` is almost
+    # never the geometry the input SDF was written for -- and the conformer
+    # sync below is about to replace mol's coordinates with the relaxed ones.
+    # Leaving the incoming `E_tot` in place produced one record carrying two
+    # disagreeing electronic energies for the same coordinates, and it is the
+    # stale one that ConformerRanker and select_tautomers read.
+    set_e_tot_from_ev(mol, e)
+    # And drop the relative energy derived from the value just replaced.
+    # `ranking.run` computes `E_rel(kcal/mol)` against the best conformer of a
+    # molecule, from the pre-relaxation `E_tot`; leaving it here would recreate
+    # the same defect one property over -- a fresh absolute energy beside a
+    # stale relative one that no longer derives from it. Cleared rather than
+    # recomputed because the quantity is defined across the whole conformer
+    # group and this function sees one molecule at a time.
+    if mol.HasProp("E_rel(kcal/mol)"):
+        mol.ClearProp("E_rel(kcal/mol)")
 
     # Only now, with every thermo property computed and set, overwrite mol's
     # conformer with the relaxed geometry. Deliberately deferred from the top

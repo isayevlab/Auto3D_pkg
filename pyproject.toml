@@ -71,6 +71,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "mypy>=1.0",
+    # requests ships no inline types; without the stubs mypy reports
+    # `import-untyped` at models/preflight.py's download path.
+    "types-requests",
     "ruff>=0.1.0",
     "pre-commit>=3.0",
 ]
@@ -98,7 +101,10 @@ Changelog = "https://github.com/isayevlab/Auto3D_pkg/releases"
 where = ["src"]
 
 [tool.setuptools.package-data]
-Auto3D = ["models/*.pt"]
+# `py.typed` backs the `Typing :: Typed` classifier: without the marker file
+# PEP 561 tells a downstream checker to treat every name here as `Any`, so the
+# annotations exist but nobody outside can see them.
+Auto3D = ["models/*.pt", "py.typed"]
 
 [tool.ruff]
 line-length = 100
@@ -179,7 +185,22 @@ ignore = [
 known-first-party = ["Auto3D"]
 
 [tool.mypy]
-python_version = "3.11"
+# Deliberately no `python_version`. Setting it to the declared floor ("3.11")
+# would be the obvious choice, and it does not work: mypy applies that version
+# when parsing the *source and stubs of typed third-party packages*, and numpy
+# ships stubs using 3.12 `type` statements. That is a `[syntax]` error, which is
+# fatal -- mypy stops with "errors prevented further checking" before analysing
+# a single Auto3D module, reports one error that is not in this package, and
+# looks like a pass.
+#
+# It is environment-specific in which package trips first, which is the trap:
+# a skip-list of offenders (`tifffile`, `sphinx` on one dev box) looked like a
+# fix locally and left CI aborting on numpy, a core dependency, where excluding
+# it would have thrown away the array types worth checking in the first place.
+#
+# So mypy uses the running interpreter's semantics. The cost is that a 3.12-only
+# construct in our own code would not be flagged here; the tests still run on
+# 3.11 in CI, and the typecheck step is pinned to a 3.12 job.
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true

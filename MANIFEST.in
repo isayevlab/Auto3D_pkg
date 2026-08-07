@@ -9,3 +9,11 @@ graft src/Auto3D
 # distribution.
 global-exclude *.py[cod]
 global-exclude __pycache__/*
+
+# `src/Auto3D/.gitignore` is a repository file that `graft` swept into the
+# 3.0.0 wheel (verified against the artifact: entry `Auto3D/.gitignore`). It
+# was the only non-Python payload there besides the bundled ANI2xt weights, and
+# an installed package telling anyone that it ignores `*.sdf` is meaningless at
+# best. It stays in the repo -- it still carries patterns the root .gitignore
+# does not -- it just stops being shipped.
+global-exclude .gitignore

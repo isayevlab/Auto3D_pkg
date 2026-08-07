@@ -319,3 +319,50 @@ class TestOptimizingTakesAnAdapterNotAName:
             config=self._config(),
         )
         assert not hasattr(opt, "name")
+
+
+def test_charges_reach_the_model_as_float32():
+    """``pad_from_mols`` builds charges float32; ``ensemble_opt`` must not narrow it.
+
+    ``pad_from_mols`` documents the float32 choice at its construction site, and
+    the AIMNet2 adapter casts to the coordinate dtype on arrival. Between them
+    ``ensemble_opt`` re-cast to ``torch.long``, so the documented contract was
+    false on the ``main()`` path and any non-integral charge was truncated
+    toward zero rather than carried.
+    """
+    from Auto3D.batch_opt.batchopt import ensemble_opt
+
+    seen_dtypes = []
+
+    class _RecordingAdapter:
+        coord_pad = 0.0
+        species_pad = -1
+
+        def forward(self, coords, species, charges, atom_mask=None):
+            seen_dtypes.append(charges.dtype)
+            return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
+
+        def to_species(self, numbers):
+            return numbers
+
+        def energy(self, coords, species, charges, atom_mask=None):
+            return torch.zeros(coords.shape[0])
+
+        def analytic_hessian(self, coords, species, charges):
+            return None
+
+    model = EnForce_ANI(_RecordingAdapter(), batchsize_atoms=1024)
+    coord = torch.randn(2, 3, 3)
+    numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
+    charges = torch.tensor([0.0, 0.0], dtype=torch.float32)
+
+    ensemble_opt(
+        model, coord, numbers, charges,
+        {"opt_steps": 10, "opttol": 0.01, "patience": 5},
+        torch.device("cpu"),
+    )
+
+    assert seen_dtypes, "the model was never called"
+    assert seen_dtypes[0] == torch.float32, (
+        f"charges reached the model as {seen_dtypes[0]}, not float32"
+    )

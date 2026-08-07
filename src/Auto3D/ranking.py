@@ -455,9 +455,10 @@ class ConformerRanker:
                     top_results = getattr(self, _SELECTORS[field])(group, value)
                     break
             else:
-                raise ConfigurationError('Parameter k or window needs to be '
-                                    'specified. Append "--k=1" if you'
-                                    'only want one structure per SMILES')
+                raise ConfigurationError(
+                    'Parameter k or window needs to be specified. '
+                    'Append "--k=1" if you only want one structure per SMILES'
+                )
             results += top_results
 
         if n_records and not results:

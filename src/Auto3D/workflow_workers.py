@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import torch
-from rdkit import Chem
 from send2trash import send2trash
 
 from Auto3D.batch_opt.batchopt import optimizing
@@ -219,13 +218,12 @@ def optim_rank_wrapper(
     logging_queue: Queue[LogRecord | None],
     gpu_idx: int,
     progress_queue: Queue[ProgressEvent] | None = None,
-) -> list[list[Chem.Mol]]:
+) -> None:
     with _worker_stdout_to_stderr():
         #prepare logging
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
 
-        conformers = []
         while True:
             sdf_path_dir_job = queue.get()
             if sdf_path_dir_job == "Done":
@@ -293,7 +291,16 @@ def optim_rank_wrapper(
                 window = args.window
                 rank_engine = ranking(optimized_og,
                                       output, duplicate_threshold, k=k, window=window)
-                conformers.append(rank_engine.run())
+                # The ranked mols are written to `output` by `run()`; they are
+                # deliberately not accumulated. Every call site in this
+                # repository runs this as an `mp.Process` target
+                # (workflow.py:448), so anything returned is discarded --
+                # collecting them held every chunk's molecules in worker memory
+                # for the whole run and nothing ever read them. The function is
+                # re-exported from `Auto3D.auto3D`, so an out-of-tree in-process
+                # caller now gets None where it got a list; the structures were
+                # already on disk either way.
+                rank_engine.run()
 
                 # Housekeeping
                 housekeeping_folder = meta["housekeeping_folder"]
@@ -315,7 +322,6 @@ def optim_rank_wrapper(
                     "skipping this chunk and continuing with the rest."
                 )
                 continue
-        return conformers
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     """A child process for logging all information from other processes.

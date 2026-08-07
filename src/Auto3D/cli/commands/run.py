@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from Auto3D.cli.config_schema import build_cli_config, load_yaml_config, merge_configs
 from Auto3D.cli.console import (
@@ -23,6 +24,11 @@ from Auto3D.cli.results import (
 )
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.utils.logging_config import configure_logging
+
+if TYPE_CHECKING:
+    # Annotation only -- `from __future__ import annotations` keeps this out of
+    # the runtime import graph, so the CLI still pays nothing for it.
+    from Auto3D.workflow_workers import ProgressEvent
 
 # A partial run (the process completed, but some input molecules produced no
 # output) is a different failure class than a crash. cli/errors.py's
@@ -237,7 +243,7 @@ def execute_run(
                 with Live(
                     display.make_panel(), console=error_console, refresh_per_second=8
                 ) as live:
-                    def progress_cb(event: dict) -> None:
+                    def progress_cb(event: ProgressEvent) -> None:
                         jobs[event.get("job", 0)] = event
                         display.update_from_jobs(jobs)
                         live.update(display.make_panel())
