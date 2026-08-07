@@ -118,3 +118,30 @@ def test_do_mol_thermo_does_not_leave_a_stale_e_tot():
     assert e_tot_ev(result) * EV_TO_HARTREE == pytest.approx(e_hartree), (
         "E_tot and E_hartree disagree for the same coordinates"
     )
+
+
+def test_do_mol_thermo_clears_the_relative_energy_it_cannot_recompute():
+    """``E_rel(kcal/mol)`` must not outlive the ``E_tot`` it was derived from.
+
+    ``ranking.run`` writes ``E_rel(kcal/mol)`` as an energy *relative to the
+    best conformer of that molecule*, computed from the pre-relaxation
+    ``E_tot``. ``calc_thermo`` then relaxes the geometry and rewrites ``E_tot``,
+    which leaves the relative value describing a comparison that no longer
+    exists -- the same "one record, two disagreeing energies" defect the
+    ``E_tot`` write was added to fix, one property over.
+
+    Clearing rather than recomputing: the quantity is defined against the whole
+    conformer group, and ``do_mol_thermo`` sees one molecule at a time, so it
+    has no reference to recompute against.
+    """
+    from Auto3D.ASE.thermo import do_mol_thermo
+
+    mol, atoms = _water_with_stale_energy()
+    mol.SetProp("E_rel(kcal/mol)", "1.234")
+
+    result = do_mol_thermo(mol, atoms, _HarmonicAdapter(), CPU)
+
+    assert not result.HasProp("E_rel(kcal/mol)"), (
+        "E_rel(kcal/mol) survived a relaxation that replaced the E_tot it was "
+        f"computed from: {result.GetProp('E_rel(kcal/mol)')}"
+    )

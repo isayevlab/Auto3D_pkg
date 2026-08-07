@@ -68,12 +68,18 @@ def load_custom_nnp(
                 f"(got {type(model).__name__})."
             )
         model = model.to(device)
-    # Both branches, not just the eager one: torch.jit.save records the
-    # module's `training` flag, so an archive saved before its author called
-    # .eval() keeps dropout and batchnorm live at inference. That makes the
-    # energy differ between identical calls, which FIRE cannot converge
+    # Both branches, not just the eager one: `torch.jit.save` records the
+    # module's `training` flag, so a *scripted* archive saved before its author
+    # called .eval() keeps dropout and batchnorm live at inference. That makes
+    # the energy differ between identical calls, which FIRE cannot converge
     # against -- the run spends its whole step budget and reports
     # Converged=False, indistinguishable from a genuinely floppy molecule.
+    #
+    # This does not rescue a *traced* archive. `torch.jit.trace` bakes the
+    # training-time branch into the graph as a constant, so `.eval()` clears
+    # the flag while the recorded dropout keeps firing -- `model.training` is
+    # then False and the energy is still stochastic. Nothing here can detect
+    # that; a model author must call `.eval()` before tracing.
     model = model.eval()
     validate_custom_nnp(model, model_path)
     return model.double() if double else model

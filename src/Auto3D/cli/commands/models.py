@@ -27,6 +27,13 @@ def check_dependency_status(name: str) -> tuple[bool, str]:
         module = importlib.import_module(name)
     except ImportError:
         return False, "[yellow]Not installed[/yellow]"
+    except Exception as exc:  # noqa: BLE001 - a status probe must not raise
+        # Installed but unusable is a third state, and it is common for
+        # CUDA-linked packages: torchani can raise OSError or RuntimeError from
+        # a broken driver or a version mismatch. `auto3d models list` exists to
+        # report status, so letting that propagate would kill the one command a
+        # user runs to find out what is wrong.
+        return False, f"[red]Import failed: {type(exc).__name__}[/red]"
     version = getattr(module, "__version__", None)
     return True, f"[green]v{version}[/green]" if version else "[green]Available[/green]"
 

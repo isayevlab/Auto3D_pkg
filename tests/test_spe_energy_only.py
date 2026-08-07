@@ -24,6 +24,8 @@ Nothing here loads a neural network potential.
 """
 from __future__ import annotations
 
+import weakref
+
 import pytest
 import torch
 from torch import nn
@@ -429,20 +431,51 @@ class TestEnergyBatchedDoesNotRetainSubBatchGraphs:
     is still referenced.
     """
 
-    def test_the_returned_energies_are_detached(self):
-        adapter = _GradCountingAdapter()
+    def test_each_sub_batch_graph_is_released_before_the_next_one_runs(self):
+        """The load-bearing assertion: released *per sub-batch*, not at the end.
+
+        Asserting only that the returned tensor is detached does not pin this.
+        A single ``torch.cat(results).detach()`` at the end satisfies that while
+        every sub-batch's graph is still held in ``results`` -- which is exactly
+        the accumulation this fix exists to prevent. Verified: that variant
+        passes a ``grad_fn is None`` check.
+
+        So watch lifetime instead. A weak reference to the graph-connected
+        tensor each call returns must already be dead by the time the next
+        sub-batch runs, which is true only if the detach happens inside the
+        loop.
+        """
+        alive_at_next_call: list[bool] = []
+
+        class _LifetimeAdapter(AdapterModuleMixin, nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self._previous: weakref.ref | None = None
+
+            def energy(self, coords, species, charges, atom_mask=None):
+                if self._previous is not None:
+                    alive_at_next_call.append(self._previous() is not None)
+                out = coords.pow(2).sum(dim=(1, 2))
+                self._previous = weakref.ref(out)
+                return out
+
+            def forward(self, coords, species, charges, atom_mask=None):
+                raise AssertionError("energy_batched must not call forward")
+
+        adapter = _LifetimeAdapter()
         net = EnForce_ANI(adapter, batchsize_atoms=8)  # forces several sub-batches
         coords, species, charges, atom_mask = _batch(n_mols=6, n_atoms=4)
 
         energies = net.energy_batched(coords, species, charges, atom_mask=atom_mask)
 
-        assert len(adapter.sub_batch_sizes) > 1, (
-            "the batch did not split; this test needs more than one sub-batch"
+        assert len(alive_at_next_call) > 1, (
+            "the batch did not split into enough sub-batches to observe lifetime"
         )
-        assert energies.grad_fn is None, (
-            "energy_batched returned a graph-connected tensor, so each completed "
-            "sub-batch's activations stay alive until the whole file is done"
+        assert not any(alive_at_next_call), (
+            "a previous sub-batch's graph-connected tensor was still alive when "
+            "the next sub-batch ran, so the graphs accumulate across the batch"
         )
+        assert energies.grad_fn is None
         assert energies.requires_grad is False
 
     def test_the_energy_values_are_unchanged_by_detaching(self):

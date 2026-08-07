@@ -96,8 +96,8 @@ def _import_every_auto3d_module_before_any_test():
     order; the shuffling above came from a local environment that had the
     plugin. The guard is worth having either way -- it closes the
     module-identity class outright rather than making one ordering lucky -- but
-    do not assume a green CI run has exercised a shuffled order. As of
-    2026-08-07 the six seeds above, 1351916419 included, all pass.
+    do not assume a green CI run has exercised a shuffled order. Checked
+    locally on 2026-08-07 across six seeds, 1351916419 among them: all pass.
 
     Importing everything first makes module identity stable before any test can
     patch anything, which closes the whole class rather than the one instance.

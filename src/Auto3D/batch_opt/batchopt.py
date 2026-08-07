@@ -101,9 +101,19 @@ def ensemble_opt(
     else:
         numbers = numbers.detach().to(dtype=torch.long, device=device)
     # float32, not long: `pad_from_mols` builds this tensor float32 on purpose
-    # (see the comment at its construction site) and every adapter casts to its
-    # own working dtype on arrival. Narrowing to int64 here contradicted that
-    # contract and silently truncated any non-integral charge toward zero.
+    # (see the comment at its construction site), and CLAUDE.md states charges
+    # reach a model as float32. Narrowing to int64 here contradicted both.
+    #
+    # No shipped path changed its numbers. The only producer is
+    # `pad_from_mols`, which reads `rdmolops.GetFormalCharge` -- always
+    # integral, so the round trip float32 -> int64 -> float32 was lossless, and
+    # the adapters that consume charges either cast on arrival
+    # (`AIMNet2Adapter.forward`, `CustomModelAdapter`) or ignore them entirely
+    # (both ANI adapters). What this fixes is a direct `ensemble_opt` caller
+    # passing a non-integral charge, which was truncated toward zero in
+    # silence. Note `AIMNet2Adapter.analytic_hessian` deliberately does NOT
+    # cast, and `ASE/thermo.py`'s Hessian path still builds an int64 charge --
+    # so the float32 claim is not yet true everywhere.
     if not isinstance(charges, torch.Tensor):
         charges = torch.tensor(charges, dtype=torch.float32, device=device)
     else:

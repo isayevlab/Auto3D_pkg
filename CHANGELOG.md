@@ -49,7 +49,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importers and `rd_isomer` had one, in Auto3D's own tests. Neither was
   documented.
 
+### Fixed
+
+- **A TorchScript custom NNP is now put in eval mode on load.** `load_custom_nnp`
+  called `.eval()` only on the eager `torch.load` branch. `torch.jit.save`
+  records the module's `training` flag, so a scripted archive saved before its
+  author called `.eval()` kept dropout and batchnorm live at inference —
+  measured as **4 distinct energies from 5 identical calls**.
+
+  A stochastic energy is one FIRE cannot converge against: the run spends its
+  whole step budget, every conformer leaves through the oscillation drop, and
+  the record is written `Converged=False`. There is no diagnosis; it is
+  indistinguishable from a genuinely floppy molecule.
+
+  **Not covered:** a `torch.jit.trace` archive bakes the training-time branch
+  into the graph as a constant, so `.eval()` clears the flag while the recorded
+  dropout keeps firing. Call `.eval()` before tracing.
+
+- **`calc_thermo` no longer leaves a stale `E_tot` on the record.** It relaxes
+  to `2e-4` eV/Å, 50× tighter than the `0.01` conformer generation uses, so on
+  the `main() → calc_thermo` path the geometry essentially always moves. The
+  output then carried `E_hartree` for the relaxed geometry beside an `E_tot`
+  describing the geometry before it — and `ConformerRanker` and
+  `select_tautomers` both read `E_tot`.
+
+  `E_tot` and `E_tot(Hartree)` are now written for the relaxed geometry, through
+  `utils/energy.py`. `E_rel(kcal/mol)` is **cleared** rather than recomputed: it
+  is defined against the best conformer of a molecule and `do_mol_thermo` sees
+  one molecule at a time.
+
+  **What changes:** every `calc_thermo` output. `E_tot` moves to the relaxed
+  geometry's energy, a thermo run on an SDF that never had `E_tot` now gains it
+  (and `E_tot(Hartree)`), and `E_rel(kcal/mol)` disappears. Note that a
+  partially-failed run can mix levels of theory under one property name — records
+  that fail the stationary-point gate keep the *input* `E_tot`, from whichever
+  engine produced it, while successful records carry `calc_thermo`'s. Filter on
+  `Thermo_failed == ""` before comparing energies across a thermo output.
+
+- **A single-point energy no longer holds every sub-batch's autograd graph.**
+  `energy_batched` accumulated graph-connected results until the final `cat`, so
+  the sub-batching that exists to bound memory did not — and the OOM retry had
+  nothing to free, since `empty_cache()` cannot release referenced blocks. Each
+  sub-batch is now detached as it completes. `energy_batched` therefore returns a
+  **detached** tensor; a caller needing gradients must use `ModelAdapter.energy`
+  directly, as the Hessian path does. No reported number changes.
+
+- **Molecular charges reach the optimizer as float32.** `ensemble_opt` re-cast to
+  `torch.long` one frame after `pad_from_mols` deliberately built float32. No
+  shipped path changed its numbers — formal charges are integral and the
+  adapters cast on arrival — but a direct `ensemble_opt` caller passing a
+  non-integral charge was truncated toward zero in silence. `ASE/thermo.py`'s
+  Hessian path still builds an int64 charge, so the float32 contract is not yet
+  true everywhere.
+
+- **`auto3d models list` no longer claims an unprobed dependency is available**,
+  and no longer dies when one raises on import. The probe special-cased
+  `torchani` and returned an unconditional "Available" for any other name; a
+  CUDA-linked package raising `OSError` now reports as unavailable instead of
+  propagating out of the command whose job is to report status.
+
+- **The no-selector error message reads as prose.** It rendered as
+  `Append "--k=1" if youonly want one structure per SMILES`.
+
+- `optim_rank_wrapper` no longer accumulates every chunk's ranked molecules into
+  a list it returns. It runs only as an `mp.Process` target, so the return value
+  was discarded while the list held the whole run's molecules in worker memory.
+  It is now annotated `-> None`; an out-of-tree in-process caller gets `None`
+  where it got a list, and the structures were already written to disk.
+
 ### Changed
+
+- **The package ships a `py.typed` marker.** `Typing :: Typed` was advertised
+  without it, so PEP 561 told every downstream type checker to treat the package
+  as `Any`. `main`'s `progress_callback` is now typed `Callable[[ProgressEvent],
+  None]`, matching what it is actually invoked with.
+
+- **`src/Auto3D/.gitignore` is no longer shipped inside the wheel.** It remains
+  in the repository.
 
 - **Single-point energies no longer pay for a backward pass they discard.**
   `SPE.calc_spe` called `forward_batched` and threw the forces away. It now uses

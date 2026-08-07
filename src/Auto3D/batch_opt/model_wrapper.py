@@ -290,7 +290,12 @@ class EnForce_ANI(nn.Module):
                 exactly as in :meth:`forward_batched`. ``None`` means unpadded.
 
         Returns:
-            Energies, shape (B,), in eV.
+            Energies, shape (B,), in eV, **detached**. Unlike
+            :meth:`Auto3D.models.contract.ModelAdapter.energy`, which stays
+            graph-connected for a Hessian caller, this batched wrapper drops
+            the graph as each sub-batch completes so memory tracks
+            ``batchsize_atoms``. A caller needing gradients must go to the
+            adapter directly, as ``ASE/thermo.py``'s Hessian path does.
 
         Raises:
             NumericalError: A non-finite energy. ``forward``'s
@@ -301,12 +306,23 @@ class EnForce_ANI(nn.Module):
         """
         # `.detach()` per sub-batch, not once at the end: no `no_grad` wrapper
         # is possible here (AIMNet2's `energy` differentiates internally), so
-        # each result arrives graph-connected. Accumulating them attached kept
-        # every completed sub-batch's activations reachable until the final
-        # `cat`, which made peak memory scale with the whole input rather than
-        # with `batchsize_atoms` -- and left the OOM-retry below nothing it
-        # could free. A single-point energy has no backward pass, so nothing
-        # downstream wants the graph.
+        # each result arrives graph-connected, and accumulating them attached
+        # held every completed sub-batch until the final `cat` -- leaving the
+        # OOM-retry below nothing it could free, since `empty_cache()` cannot
+        # release still-referenced blocks.
+        #
+        # How much that held depends on the engine, so no single claim covers
+        # all four. `ANI2xtAdapter.energy`, `ANI2xAdapter.energy` and
+        # `CustomModelAdapter.energy` are pure forwards with no
+        # `autograd.grad`, so their saved activations stayed alive and peak
+        # memory tracked the whole input rather than `batchsize_atoms`.
+        # `AIMNet2Adapter.energy` routes through `forward`, whose calculator
+        # differentiates with `create_graph=False` and frees its buffers before
+        # returning -- so for the default engine what accumulated was grad_fn
+        # nodes and the energy tensors, a real but smaller effect.
+        #
+        # A single-point energy has no backward pass, so nothing downstream
+        # wants the graph either way.
         results = self._run_in_sub_batches(
             coord,
             lambda sub: self.model.energy(

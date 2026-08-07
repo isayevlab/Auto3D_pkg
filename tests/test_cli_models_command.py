@@ -43,3 +43,24 @@ def test_torchani_is_still_probed_by_import():
     available, _ = check_dependency_status("torchani")
 
     assert available is expected
+
+
+def test_a_dependency_that_raises_on_import_is_reported_not_available(monkeypatch):
+    """Installed-but-broken is a third state, and it must not kill the command.
+
+    CUDA-linked packages raise ``OSError``/``RuntimeError`` rather than
+    ``ImportError`` when the driver is wrong. ``auto3d models list`` is the
+    command a user runs to find out what is broken, so a probe that propagates
+    takes down the diagnosis along with the dependency.
+    """
+    import Auto3D.cli.commands.models as models_mod
+
+    def _explode(name):
+        raise OSError("libcudart.so.12: cannot open shared object file")
+
+    monkeypatch.setattr(models_mod.importlib, "import_module", _explode)
+
+    available, status = check_dependency_status("torchani")
+
+    assert available is False
+    assert "OSError" in status, status

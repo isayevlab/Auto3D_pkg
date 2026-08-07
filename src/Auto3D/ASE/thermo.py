@@ -1396,6 +1396,15 @@ def do_mol_thermo(mol: Chem.Mol,
     # disagreeing electronic energies for the same coordinates, and it is the
     # stale one that ConformerRanker and select_tautomers read.
     set_e_tot_from_ev(mol, e)
+    # And drop the relative energy derived from the value just replaced.
+    # `ranking.run` computes `E_rel(kcal/mol)` against the best conformer of a
+    # molecule, from the pre-relaxation `E_tot`; leaving it here would recreate
+    # the same defect one property over -- a fresh absolute energy beside a
+    # stale relative one that no longer derives from it. Cleared rather than
+    # recomputed because the quantity is defined across the whole conformer
+    # group and this function sees one molecule at a time.
+    if mol.HasProp("E_rel(kcal/mol)"):
+        mol.ClearProp("E_rel(kcal/mol)")
 
     # Only now, with every thermo property computed and set, overwrite mol's
     # conformer with the relaxed geometry. Deliberately deferred from the top

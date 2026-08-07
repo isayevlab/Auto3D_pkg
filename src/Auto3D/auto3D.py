@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from Auto3D.results import WorkflowResult
+    from Auto3D.workflow_workers import ProgressEvent
 
 from Auto3D.batch_opt.batchopt import optimizing
 from Auto3D.config import Auto3DOptions
@@ -48,7 +49,7 @@ logger = get_logger(__name__)
 
 def main(
     args: Auto3DOptions,
-    progress_callback: Callable[[dict], None] | None = None,
+    progress_callback: Callable[[ProgressEvent], None] | None = None,
 ) -> WorkflowResult:
     """Run the Auto3D conformer generation pipeline.
 
