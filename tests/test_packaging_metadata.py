@@ -151,3 +151,25 @@ def test_manifest_excludes_the_packages_own_gitignore():
     assert any(".gitignore" in p for p in patterns), (
         f"MANIFEST.in must keep .gitignore out of the distribution; found {patterns}"
     )
+
+
+def test_mypy_does_not_pin_python_version():
+    """`[tool.mypy]` must not set `python_version`, and the reason is not style.
+
+    mypy applies that setting when parsing the source and stubs of *typed
+    third-party packages*. numpy ships stubs containing 3.12 ``type``
+    statements, so pinning the declared floor ("3.11") makes those a
+    ``[syntax]`` error -- which is fatal. mypy then stops with "errors prevented
+    further checking" before analysing a single Auto3D module, reports one error
+    that is not in this package, and looks like a clean run.
+
+    Skipping the offending package is not the fix either: which one trips first
+    is environment-specific, and in CI it is numpy itself, where excluding it
+    would discard the array types most worth checking.
+    """
+    mypy_config = _pyproject()["tool"]["mypy"]
+    assert "python_version" not in mypy_config, (
+        "pinning python_version makes mypy abort while parsing third-party "
+        "stubs that use newer syntax; the run then checks nothing and still "
+        "exits looking successful"
+    )

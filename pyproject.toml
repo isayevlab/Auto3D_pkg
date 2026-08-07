@@ -185,10 +185,22 @@ ignore = [
 known-first-party = ["Auto3D"]
 
 [tool.mypy]
-# The declared floor, not the interpreter mypy happens to run on: this is what
-# makes `X | None` in a runtime position an error here rather than on a user's
-# 3.11 box.
-python_version = "3.11"
+# Deliberately no `python_version`. Setting it to the declared floor ("3.11")
+# would be the obvious choice, and it does not work: mypy applies that version
+# when parsing the *source and stubs of typed third-party packages*, and numpy
+# ships stubs using 3.12 `type` statements. That is a `[syntax]` error, which is
+# fatal -- mypy stops with "errors prevented further checking" before analysing
+# a single Auto3D module, reports one error that is not in this package, and
+# looks like a pass.
+#
+# It is environment-specific in which package trips first, which is the trap:
+# a skip-list of offenders (`tifffile`, `sphinx` on one dev box) looked like a
+# fix locally and left CI aborting on numpy, a core dependency, where excluding
+# it would have thrown away the array types worth checking in the first place.
+#
+# So mypy uses the running interpreter's semantics. The cost is that a 3.12-only
+# construct in our own code would not be flagged here; the tests still run on
+# 3.11 in CI, and the typecheck step is pinned to a 3.12 job.
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
@@ -197,27 +209,6 @@ exclude = [
     "docs/",
     "example/",
 ]
-
-# For development environments only -- expect mypy to report this section as
-# unused anywhere it is not needed, which includes CI.
-#
-# mypy follows a PEP 561 package into its source and parses it under the
-# declared `python_version`, so a `type` statement (3.12+) inside one is a
-# `[syntax]` error. A syntax error is fatal: mypy stops with "errors prevented
-# further checking" before analysing a single Auto3D module, reports two errors
-# neither of which is in this package, and looks like a pass.
-# `ignore_missing_imports` does not help -- these packages are found, not
-# missing -- and neither does `follow_imports = "silent"`, since mypy still has
-# to parse the file.
-#
-# Neither package is an Auto3D dependency: `tifffile` arrives via
-# `scikit-image` and `sphinx` via docs tooling, so this only fires in a shared
-# environment that has them. Add to the list if another dependency
-# reintroduces the abort; the symptom is an error inside site-packages
-# followed by the "prevented further checking" line.
-[[tool.mypy.overrides]]
-module = ["tifffile.*", "sphinx.*"]
-follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
