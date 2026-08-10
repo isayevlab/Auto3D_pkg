@@ -10,6 +10,7 @@ import sys
 from unittest.mock import patch
 
 import pytest
+import torch
 from typer.testing import CliRunner
 
 from Auto3D.cli.app import app
@@ -166,7 +167,7 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
 
 def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
     with (
-        patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False),
+        patch.object(torch.cuda, "is_available", return_value=False),
         patch("Auto3D.SPE.calc_spe") as m,
     ):
         res = runner.invoke(app, ["energy", str(sdf)])  # gpu defaults to True
@@ -177,7 +178,7 @@ def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
 
 def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
     with (
-        patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False),
+        patch.object(torch.cuda, "is_available", return_value=False),
         patch("Auto3D.ASE.geometry.opt_geometry") as m,
     ):
         res = runner.invoke(app, ["optimize", str(sdf)])
@@ -188,7 +189,7 @@ def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
 
 def test_thermo_rejects_when_gpu_requested_without_cuda(sdf):
     with (
-        patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False),
+        patch.object(torch.cuda, "is_available", return_value=False),
         patch("Auto3D.ASE.thermo.calc_thermo") as m,
     ):
         res = runner.invoke(app, ["thermo", str(sdf)])
@@ -200,7 +201,7 @@ def test_thermo_rejects_when_gpu_requested_without_cuda(sdf):
 def test_energy_no_gpu_still_works_without_cuda(sdf):
     """--no-gpu must keep working on a CPU-only box (not a blanket failure)."""
     with (
-        patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False),
+        patch.object(torch.cuda, "is_available", return_value=False),
         patch("Auto3D.SPE.calc_spe", return_value="out_E.sdf") as m,
     ):
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu"])
@@ -227,7 +228,7 @@ def test_run_rejects_when_gpu_requested_without_cuda(smi):
     first" rather than "something eventually raised."
     """
     with (
-        patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False),
+        patch.object(torch.cuda, "is_available", return_value=False),
         patch("Auto3D.workflow.check_input") as mock_check_input,
         patch("Auto3D.workflow.preflight_model") as mock_preflight,
     ):
@@ -388,7 +389,7 @@ def test_models_test_rejects_when_gpu_requested_without_cuda(monkeypatch):
     create_model is never reached: the check must happen before any real work
     (before the model would even be constructed, let alone downloaded)."""
     with (
-        patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False),
+        patch.object(torch.cuda, "is_available", return_value=False),
         patch("Auto3D.model_factory.create_model") as m,
     ):
         res = runner.invoke(app, ["models", "test", "AIMNET"])  # gpu defaults to True
@@ -410,7 +411,7 @@ def test_models_test_no_gpu_still_works_without_cuda(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr("Auto3D.utils.validation.torch.cuda.is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
@@ -430,7 +431,7 @@ def test_models_test_gpu_works_when_cuda_present(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr("Auto3D.utils.validation.torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET"])  # gpu defaults to True

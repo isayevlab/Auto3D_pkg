@@ -29,6 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import torch
 from pydantic import ValidationError
 
 from Auto3D.cli.config_schema import CLIConfig
@@ -313,7 +314,7 @@ class TestAuxiliaryEntryPointGPUGuard:
         from Auto3D.exceptions import GPUError
         from Auto3D.SPE import calc_spe
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 calc_spe(str(job_dir / "nonexistent.sdf"), "AIMNET")
         assert "--no-gpu" in str(exc_info.value)
@@ -324,7 +325,7 @@ class TestAuxiliaryEntryPointGPUGuard:
         from Auto3D.ASE.geometry import opt_geometry
         from Auto3D.exceptions import GPUError
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 opt_geometry(str(job_dir / "nonexistent.sdf"), "AIMNET")
         assert "--no-gpu" in str(exc_info.value)
@@ -335,7 +336,7 @@ class TestAuxiliaryEntryPointGPUGuard:
         from Auto3D.ASE.thermo import calc_thermo
         from Auto3D.exceptions import GPUError
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 calc_thermo(str(job_dir / "nonexistent.sdf"), "AIMNET")
         assert "--no-gpu" in str(exc_info.value)

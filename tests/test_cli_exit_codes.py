@@ -379,7 +379,7 @@ def test_exit_4_out_of_range_gpu_index(monkeypatch):
 def test_exit_4_no_cuda_at_all(monkeypatch):
     """The other exit-4 path, pinned alongside so the two stay distinguishable
     by message even though they share an integer."""
-    monkeypatch.setattr("Auto3D.utils.validation.torch.cuda.is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
     with patch("Auto3D.model_factory.create_model") as m:
         result = runner.invoke(app, ["models", "test", "AIMNET"])
