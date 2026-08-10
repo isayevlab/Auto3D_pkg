@@ -120,6 +120,33 @@ jobs:
         run: >
           pytest tests/ -m slow -q
 
+      # Executes one notebook for real. Here rather than in the docs workflow
+      # because every one of the 20 needs a neural network potential, and this
+      # is the only job with the model cache and the `ani` extra.
+      #
+      # One, and the selection was measured on a CPU box with CUDA hidden --
+      # which is what a runner is -- rather than on a machine with a GPU. The
+      # dividing line is not notebook size, it is whether the notebook runs an
+      # optimization:
+      #
+      #   single_point_energy   (calc_spe, 4 records)     5.9 s
+      #   geometry_optimization (opt_geometry, 4 records)  > 600 s
+      #
+      # The same optimization notebook takes 74 s on a GPU, which is how it
+      # first looked affordable. Every other notebook either optimizes or runs
+      # `main()` end to end, so all of them land on the wrong side of that line;
+      # those paths are covered by the slow test tier above instead.
+      #
+      # What this closes: this notebook calling a function Auto3D no longer has,
+      # or passing an argument it no longer accepts, now fails here. What it
+      # does not: the other 19 are still parse-checked only, so the guard in
+      # tests/test_notebook_properties.py remains the only thing covering all
+      # 20 -- and it catches a wrong SD property name, not a wrong call.
+      - name: Execute the single-point notebook
+        run: |
+          pip install nbmake
+          pytest --nbmake --nbmake-timeout=600 example/single_point_energy.ipynb
+
   lint:
     name: ruff
     runs-on: ubuntu-latest
