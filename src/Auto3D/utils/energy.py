@@ -39,7 +39,7 @@ from Auto3D.constants import (
 from Auto3D.utils.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Iterator, Sequence
 
 logger = get_logger(__name__)
 
@@ -48,11 +48,16 @@ __all__ = [
     "E_TOT_HARTREE_PROP",
     "E_REL_KCAL_PROP",
     "set_e_tot_from_ev",
+    "G_REL_KCAL_PROP",
+    "G_HARTREE_PROP",
+    "T_K_PROP",
     "set_relative_energies",
+    "set_relative_gibbs_energies",
     "clear_relative_energies",
     "e_tot_hartree",
     "e_tot_ev",
     "try_e_tot_ev",
+    "try_gibbs_ev",
     # Conversion factors, and their lowercase legacy spellings
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
@@ -71,6 +76,13 @@ E_TOT_HARTREE_PROP = "E_tot(Hartree)"
 #: ``ranking.run`` for a ``main()`` output and by :func:`set_relative_energies`
 #: for a ``calc_thermo`` one.
 E_REL_KCAL_PROP = "E_rel(kcal/mol)"
+#: Gibbs free energy relative to the lowest-G conformer of the same molecule,
+#: kcal/mol. Written by :func:`set_relative_gibbs_energies` for a thermo output.
+G_REL_KCAL_PROP = "G_rel(kcal/mol)"
+#: Absolute Gibbs free energy in Hartree, written by ``Auto3D.ASE.thermo``.
+G_HARTREE_PROP = "G_hartree"
+#: Temperature the thermochemistry was evaluated at, in Kelvin.
+T_K_PROP = "T_K"
 
 # Legacy lowercase spellings of the three conversion factors in
 # ``Auto3D.constants``. They are the names Auto3D 2.x used and several call
@@ -129,6 +141,18 @@ def try_e_tot_ev(mol: Chem.Mol) -> float | None:
         return None
 
 
+def try_gibbs_ev(mol: Chem.Mol) -> float | None:
+    """``G_hartree`` in eV, or None when the record has no usable one.
+
+    eV, not Hartree, so a caller can compare it against the same thresholds it
+    already applies to :func:`e_tot_ev` -- the kcal/mol energy window in
+    ``ranking`` converts to eV once and must not care which basis it is
+    measuring. ``Auto3D.ASE.thermo`` writes the underlying property.
+    """
+    value = _try_float_prop(mol, G_HARTREE_PROP)
+    return None if value is None else value * HARTREE_TO_EV
+
+
 def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
     """Write ``E_rel(kcal/mol)`` per conformer group, against the group minimum.
 
@@ -173,6 +197,107 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
             or a record that failed the stationary-point gate must not be a
             group member, and must not be the reference either.
     """
+    for group in _comparable_groups(mols, E_REL_KCAL_PROP):
+        with_energy = [(mol, try_e_tot_ev(mol)) for mol in group]
+        usable = [(mol, e) for mol, e in with_energy if e is not None]
+        # A record with no readable E_tot cannot carry a relative one either.
+        _clear_prop((mol for mol, e in with_energy if e is None), E_REL_KCAL_PROP)
+        if not usable:
+            continue
+
+        reference = min(e for _, e in usable)
+        for mol, energy in usable:
+            mol.SetProp(E_REL_KCAL_PROP, str((energy - reference) * EV_TO_KCAL_PER_MOL))
+
+
+def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
+    """Write ``G_rel(kcal/mol)`` per conformer group, against the lowest ``G``.
+
+    The relative *Gibbs* energy, not the electronic one, is what a conformer
+    population is built from: ``p_i`` goes as ``exp(-dG/RT)``. At 298 K ``RT`` is
+    0.59 kcal/mol, while conformer-to-conformer differences in zero-point energy
+    and vibrational entropy are routinely 0.3-1 kcal/mol, so populations taken
+    from ``E_rel`` are wrong by a factor of a few in precisely the regime anyone
+    computes them for.
+
+    The reference is chosen **independently** of :func:`set_relative_energies`'.
+    Once ZPE and *S*\\ :sub:`vib` enter, the lowest-*G* conformer need not be the
+    lowest-*E* one; that is ordinary chemistry rather than an inconsistency, and
+    forcing one reference on both would misreport one of them.
+
+    Grouping and the same-compound guard are shared with
+    :func:`set_relative_energies`. One extra guard applies here: every member of
+    a group must share ``T_K``. ``calc_thermo``'s ``mol_info_func`` returns a
+    temperature per record, so one output file can legitimately hold several,
+    and *G*\\ (*T*) carries a ``-T*S`` term -- a difference taken across two
+    temperatures is a thermal term, not a conformational preference, and for a
+    druglike molecule it is tens of kcal/mol.
+
+    Reads ``G_hartree`` and ``T_K``, which ``Auto3D.ASE.thermo`` writes.
+    """
+    for group in _comparable_groups(mols, G_REL_KCAL_PROP):
+        temperatures = {
+            mol.GetProp(T_K_PROP).strip() for mol in group if mol.HasProp(T_K_PROP)
+        }
+        if len(temperatures) > 1:
+            _clear_prop(group, G_REL_KCAL_PROP)
+            logger.warning(
+                "%d record(s) named %r span %d temperatures (%s); "
+                "%s is withheld, because G(T) carries a -T*S term and a "
+                "difference across two temperatures is a thermal term rather "
+                "than a conformational preference.",
+                len(group), _group_name(group), len(temperatures),
+                ", ".join(sorted(temperatures)), G_REL_KCAL_PROP,
+            )
+            continue
+
+        with_g = [(mol, _try_float_prop(mol, G_HARTREE_PROP)) for mol in group]
+        usable = [(mol, g) for mol, g in with_g if g is not None]
+        _clear_prop((mol for mol, g in with_g if g is None), G_REL_KCAL_PROP)
+        if not usable:
+            continue
+
+        reference = min(g for _, g in usable)
+        for mol, gibbs in usable:
+            mol.SetProp(
+                G_REL_KCAL_PROP, str((gibbs - reference) * HARTREE_TO_KCAL_PER_MOL)
+            )
+
+
+def _group_name(group: Sequence[Chem.Mol]) -> str:
+    """The ``_Name`` a group was keyed on, for a diagnostic."""
+    for mol in group:
+        if mol.HasProp("_Name"):
+            return str(mol.GetProp("_Name")).strip()
+    return ""
+
+
+def _try_float_prop(mol: Chem.Mol, prop: str) -> float | None:
+    try:
+        return float(mol.GetProp(prop))
+    except (KeyError, ValueError):
+        return None
+
+
+def _comparable_groups(
+    mols: Sequence[Chem.Mol], prop: str
+) -> Iterator[list[Chem.Mol]]:
+    """Yield each set of records a relative energy may be measured across.
+
+    Grouping is on ``_Name`` **verbatim**. It is tempting to reuse
+    ``ranking.species_id``, which strips ``<isomer>_<conformer>``; that is wrong
+    here and silently so. By the time a file is written, ``ranking.run`` has
+    already stripped the name, so ``_Name`` *is* the group key -- applying the
+    strip a second time is not idempotent and turns ``aspirin_analog_3`` into
+    ``aspirin``, merging compounds that share a prefix.
+
+    A group is skipped, and any stale ``prop`` on it cleared, when it cannot
+    support a comparison: when it has no title (which would otherwise collect
+    every untitled record into one bucket), or when its members are not the same
+    compound. The caller may have been handed an arbitrary SDF, where reusing a
+    title across molecules is ordinary -- and the difference between two
+    compounds' energies looks exactly like a conformational preference.
+    """
     # Local import: `stereo_check` pulls rdkit stereo perception, which this
     # module's readers (`filtering`, `ranking`) do not otherwise need.
     from Auto3D.utils.stereo_check import species_key
@@ -184,35 +309,32 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
 
     for name, group in groups.items():
         if not name:
-            clear_relative_energies(group)
+            _clear_prop(group, prop)
             logger.warning(
-                "%d record(s) carry no name; relative energies need a group and "
-                "a title is the only thing identifying one, so E_rel(kcal/mol) "
-                "is withheld for them.", len(group),
+                "%d record(s) carry no name; a relative energy needs a group and "
+                "a title is the only thing identifying one, so %s is withheld "
+                "for them.", len(group), prop,
             )
             continue
 
         identities = {(species_key(mol), Chem.GetFormalCharge(mol)) for mol in group}
         if len(identities) > 1:
-            clear_relative_energies(group)
+            _clear_prop(group, prop)
             logger.warning(
                 "%d record(s) named %r are not all the same compound (%d distinct "
-                "species); E_rel(kcal/mol) is withheld rather than subtracting "
-                "the energies of different molecules.",
-                len(group), name, len(identities),
+                "species); %s is withheld rather than subtracting the energies of "
+                "different molecules.",
+                len(group), name, len(identities), prop,
             )
             continue
 
-        with_energy = [(mol, try_e_tot_ev(mol)) for mol in group]
-        usable = [(mol, e) for mol, e in with_energy if e is not None]
-        # A record with no readable E_tot cannot carry a relative one either.
-        clear_relative_energies(mol for mol, e in with_energy if e is None)
-        if not usable:
-            continue
+        yield group
 
-        reference = min(e for _, e in usable)
-        for mol, energy in usable:
-            mol.SetProp(E_REL_KCAL_PROP, str((energy - reference) * EV_TO_KCAL_PER_MOL))
+
+def _clear_prop(mols: Iterable[Chem.Mol], prop: str) -> None:
+    for mol in mols:
+        if mol.HasProp(prop):
+            mol.ClearProp(prop)
 
 
 def clear_relative_energies(mols: Iterable[Chem.Mol]) -> None:
@@ -225,6 +347,5 @@ def clear_relative_energies(mols: Iterable[Chem.Mol]) -> None:
     and so still hold the *input* ``E_tot``. Without it the property would
     survive on exactly the records a reader is told to discard.
     """
-    for mol in mols:
-        if mol.HasProp(E_REL_KCAL_PROP):
-            mol.ClearProp(E_REL_KCAL_PROP)
+    _clear_prop(mols, E_REL_KCAL_PROP)
+    _clear_prop(mols, G_REL_KCAL_PROP)

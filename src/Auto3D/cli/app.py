@@ -514,6 +514,12 @@ def thermo(
     temperature: Annotated[float, typer.Option("--temperature", "-T", help="Temperature in Kelvin.")] = 298.15,
     opt_tol: Annotated[float, typer.Option("--opt-tol", help="Pre-optimization max-force convergence (eV/A).")] = 0.0002,
     opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max pre-optimization steps.")] = 2000,
+    relative_gibbs: Annotated[bool, typer.Option(
+        "--relative-gibbs",
+        help="Also write G_rel(kcal/mol), the Gibbs energy relative to each "
+             "molecule's lowest-G conformer. Use this for Boltzmann "
+             "populations; plain E_rel is electronic only.",
+    )] = False,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
@@ -524,6 +530,7 @@ def thermo(
     execute_thermo(
         input_file, engine, gpu, gpu_idx, output, temperature,
         opt_tol, opt_steps, tf32, json_output, verbose=verbose, force=force,
+        relative_gibbs=relative_gibbs,
     )
 
 

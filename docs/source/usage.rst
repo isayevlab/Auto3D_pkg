@@ -494,3 +494,58 @@ The output SDF contains:
 
 The input SMILES is *not* carried into the output; recover it by joining on
 ``_Name``/``ID`` against your input file.
+
+A ``calc_thermo`` output carries more, and two of them are relative:
+
+- **G_hartree** / **H_hartree** / **S_hartree_per_K** / **T_K**: absolute
+  thermochemistry at the recorded temperature
+- **E_tot** / **E_tot(Hartree)** and **E_rel(kcal/mol)**: recomputed for the
+  relaxed geometry, since ``calc_thermo`` relaxes to a tighter threshold than
+  conformer generation uses
+- **G_rel(kcal/mol)**: Gibbs free energy relative to the lowest-*G* conformer of
+  the same molecule — **only when asked for**, with ``--relative-gibbs`` or
+  ``calc_thermo(..., relative_gibbs=True)``
+
+The Gibbs quantity is opt-in because it is the entry point to the expensive
+path: obtaining a Δ*G* at all costs a Hessian per conformer. Conformer
+*selection* is electronic by default for the same reason — ``ConformerRanker``
+ranks on ``E_tot`` unless told otherwise, so the ordinary pipeline never
+depends on a thermochemistry run.
+
+Once you have a thermo output, you can select on *G* instead:
+
+.. code:: python
+
+   from Auto3D.ranking import ConformerRanker, RANK_BY_GIBBS
+
+   ConformerRanker(
+       input_path="molecules_AIMNET_G.sdf",
+       out_path="selected.sdf",
+       threshold=0.3,
+       k=1,
+       rank_by=RANK_BY_GIBBS,
+   ).run()
+
+The energy window is measured on whichever basis is selected, and the published
+relative energy is named for it — ``G_rel(kcal/mol)`` rather than
+``E_rel(kcal/mol)``. Ranking a file with no ``G_hartree`` on this basis is
+refused with a message pointing at ``calc_thermo``. Duplicate detection is
+deliberately *not* switched: whether two records are the same structure is a
+question about geometry and electronic energy, not about which is favoured at
+temperature.
+
+Use ``G_rel(kcal/mol)`` for conformer populations. A Boltzmann weight goes as
+``exp(-ΔG/RT)``, and at 298 K ``RT`` is 0.59 kcal/mol while differences in
+zero-point energy and vibrational entropy between conformers run 0.3–1
+kcal/mol — so populations taken from the electronic ``E_rel(kcal/mol)`` are
+wrong by a factor of a few. Note the lowest-*G* conformer need not be the
+lowest-*E* one; the two properties reference their own minima.
+
+Both relative properties are written only where they are meaningful. Records
+that failed the stationary-point gate and confirmed saddle points carry
+neither, so a group cannot be measured against a structure that is not a
+minimum, and ``G_rel(kcal/mol)`` is additionally withheld from any molecule
+whose conformers were evaluated at more than one temperature — *G*\ (*T*)
+carries a ``-T·S`` term, so a difference across two temperatures is a thermal
+term rather than a conformational preference. Filter on
+``Thermo_failed == ""`` before comparing the absolute energies.
