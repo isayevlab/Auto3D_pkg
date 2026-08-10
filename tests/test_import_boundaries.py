@@ -908,15 +908,21 @@ def test_only_one_class_in_the_package_is_named_tautomer_engine():
     with ``IsomerEngine`` beside it.
 
     Static, so it holds for a class nobody imports yet.
+
+    Asserted as a file, not a ``file:line``. The line number was part of the
+    expected value until a whole-repo ``ruff format`` moved the class down the
+    file and turned a passing test red without anything about the collision
+    changing. A test that fails when unrelated lines are inserted above its
+    subject reports edit distance, not the property in its name.
     """
     definitions = []
     for path in _source_files():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name == "TautomerEngine":
-                definitions.append(f"{path.relative_to(SRC_ROOT.parent)}:{node.lineno}")
-    assert definitions == ["Auto3D/isomers/base.py:33"], (
-        f"TautomerEngine is defined at: {definitions}"
+                definitions.append(str(path.relative_to(SRC_ROOT.parent)))
+    assert definitions == ["Auto3D/isomers/base.py"], (
+        f"TautomerEngine is defined in: {definitions}"
     )
 
 
