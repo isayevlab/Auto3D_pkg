@@ -38,7 +38,12 @@ from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.contract import ModelAdapter, missing_adapter_members
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
-from Auto3D.utils.energy import set_e_tot_from_ev
+from Auto3D.utils.energy import (
+    E_REL_KCAL_PROP,
+    clear_relative_energies,
+    set_e_tot_from_ev,
+    set_relative_energies,
+)
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.validation import (
@@ -1400,11 +1405,14 @@ def do_mol_thermo(mol: Chem.Mol,
     # `ranking.run` computes `E_rel(kcal/mol)` against the best conformer of a
     # molecule, from the pre-relaxation `E_tot`; leaving it here would recreate
     # the same defect one property over -- a fresh absolute energy beside a
-    # stale relative one that no longer derives from it. Cleared rather than
-    # recomputed because the quantity is defined across the whole conformer
-    # group and this function sees one molecule at a time.
-    if mol.HasProp("E_rel(kcal/mol)"):
-        mol.ClearProp("E_rel(kcal/mol)")
+    # stale relative one that no longer derives from it.
+    #
+    # Cleared *here* rather than recomputed because this function sees one
+    # molecule and the quantity is defined across a conformer group. That is a
+    # statement about this frame, not a policy for the module: `calc_thermo`
+    # recomputes it over the full set once the loop is done.
+    if mol.HasProp(E_REL_KCAL_PROP):
+        mol.ClearProp(E_REL_KCAL_PROP)
 
     # Only now, with every thermo property computed and set, overwrite mol's
     # conformer with the relaxed geometry. Deliberately deferred from the top
@@ -1780,6 +1788,26 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
     logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
+
+    # `do_mol_thermo` cleared each record's inherited `E_rel(kcal/mol)` because
+    # the relaxation replaced the `E_tot` it was computed from. It could not
+    # recompute one: it sees a single molecule and the quantity is defined
+    # against a conformer group. Here the whole set is in hand, so restore the
+    # documented property against the relaxed energies.
+    #
+    # Successes only. A saddle point's thermochemistry is not a minimum's, and a
+    # record that failed the stationary-point gate never reached `do_mol_thermo`
+    # -- so it still carries the *input* `E_tot`, from whatever engine wrote the
+    # file. Letting either into the group would either pollute the comparison or,
+    # as the reference, shift every other conformer in it. Excluding them is also
+    # what makes the mixed-level-of-theory caveat in CHANGELOG a property of the
+    # file rather than something the reader has to remember.
+    set_relative_energies(out_mols)
+    # And the failures keep no relative energy at all: theirs derives from an
+    # `E_tot` this run did not recompute, and leaving it would mean the property
+    # survives on exactly the records a user must discard.
+    clear_relative_energies(mols_failed)
+
     _write_thermo_output(outpath, out_mols, mols_failed)
     return str(outpath)
 
