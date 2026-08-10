@@ -4,6 +4,7 @@ import pytest
 from rdkit import Chem
 import torch
 from Auto3D.SPE import calc_spe
+from tests.helpers_adapter import FakeAdapter
 
 # from tests import skip_ani2xt_test
 skip_ani2xt_test = False
@@ -278,11 +279,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
     with Chem.SDWriter(str(sdf)) as w:
         w.write(mol)
 
-    class FakeAdapter:
-        coord_pad = 0.0
-        species_pad = 0
-
-    adapter = FakeAdapter()
+    adapter = FakeAdapter(species_pad=0)
     factory_calls = []
 
     def fake_create_model(model_name, device):

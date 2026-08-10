@@ -77,3 +77,37 @@ def test_no_test_asserts_a_source_line_number():
         "to what these tests check:\n  " + "\n  ".join(offenders)
     )
     assert pattern.search('"a/b.py:12"'), "the pattern itself must be able to match"
+
+
+def test_the_shared_test_doubles_are_not_shadowed():
+    """A double defined in `helpers_*.py` must not be redefined in a test module.
+
+    Six files each carried their own `class FakeAdapter` with the same three
+    lines, shadowing `tests.helpers_adapter.FakeAdapter` -- the module written to
+    stop precisely that. Its docstring names the cost: a local double declares
+    only the members its own test happens to exercise, so tightening the contract
+    those doubles stand in for turns unrelated files red, and the cheap way back
+    to green is to weaken the contract.
+
+    Scoped to names the helpers actually export, so a test is still free to
+    define whatever local stub it needs under a name of its own.
+    """
+    shared = {}
+    for helper in sorted(TESTS_DIR.glob("helpers_*.py")):
+        for node in ast.parse(helper.read_text()).body:
+            if isinstance(node, ast.ClassDef):
+                shared[node.name] = helper.name
+
+    offenders = []
+    for path in _test_sources():
+        if path.name.startswith("helpers_"):
+            continue
+        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+            if isinstance(node, ast.ClassDef) and node.name in shared:
+                offenders.append(
+                    f"{path.relative_to(TESTS_DIR)}:{node.lineno}: {node.name} "
+                    f"(shadows {shared[node.name]})"
+                )
+    assert not offenders, "import the shared double instead of redefining it:\n  " + "\n  ".join(
+        offenders
+    )

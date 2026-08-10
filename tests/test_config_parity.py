@@ -37,6 +37,7 @@ from Auto3D.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
 from Auto3D.exceptions import Auto3DError, ConfigurationError
 import Auto3D.auto3D
 import Auto3D.cli.errors
+from tests.helpers_adapter import FakeAdapter
 
 
 class TestAuto3DOptionsBounds:
@@ -151,11 +152,7 @@ class TestAuxiliaryEntryPointGuards:
 
         monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
 
-        class FakeAdapter:
-            coord_pad = 0.0
-            species_pad = 0
-
-        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
 
         class FakeEnForce:
             def __init__(self, adapter):
