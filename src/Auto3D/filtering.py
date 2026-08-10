@@ -30,7 +30,10 @@ from Auto3D.constants import (
     DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.utils.connectivity import check_connectivity
-from Auto3D.utils.convergence import converged_or_unfiltered
+from Auto3D.utils.convergence import (
+    converged_or_unfiltered,
+    thermo_succeeded_or_unfiltered,
+)
 from Auto3D.utils.energy import try_e_tot_ev
 from Auto3D.utils.stereo_check import species_key, stereo_preserved
 
@@ -53,6 +56,7 @@ __all__ = [
 DROP_REASONS: tuple[str, ...] = (
     "unparsed",
     "unconverged",
+    "thermo_failed",
     "stereochemistry",
     "connectivity",
     "duplicate",
@@ -63,6 +67,7 @@ DROP_REASONS: tuple[str, ...] = (
 _REASON_PHRASES: dict[str, str] = {
     "unparsed": "unparseable by RDKit",
     "unconverged": "marked Converged=false",
+    "thermo_failed": "not a minimum (Thermo_failed is set)",
     "stereochemistry": "changed stereochemistry during optimization",
     "connectivity": "have broken or newly formed bonds",
     "duplicate": "duplicates of a kept conformer",
@@ -197,6 +202,12 @@ def filter_conformers(
             _drop("unparsed")
         elif not converged_or_unfiltered(mol):
             _drop("unconverged")
+        elif not thermo_succeeded_or_unfiltered(mol):
+            # A saddle point or a failed stationary-point gate. Its electronic
+            # energy can sit below a genuine minimum's, so leaving it in the
+            # running is a way to publish the wrong structure as the most
+            # stable conformer.
+            _drop("thermo_failed")
         elif not stereo_preserved(mol):
             _drop("stereochemistry")
         elif not check_connectivity(mol):

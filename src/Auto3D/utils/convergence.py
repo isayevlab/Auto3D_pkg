@@ -32,6 +32,8 @@ from rdkit import Chem
 
 __all__ = [
     "CONVERGED_PROP",
+    "THERMO_FAILED_PROP",
+    "thermo_succeeded_or_unfiltered",
     "set_converged",
     "has_convergence_flag",
     "converged_or_unfiltered",
@@ -39,6 +41,12 @@ __all__ = [
 
 #: Name of the SD property. ``"True"``/``"False"``, compared case-insensitively.
 CONVERGED_PROP = "Converged"
+#: Written by ``Auto3D.ASE.thermo``: ``""`` for a genuine minimum, otherwise a
+#: reason -- ``"transition_state"``, ``"not_converged"``, or an exception class
+#: name. Defined here rather than in ``ASE/thermo`` so the filters can read it
+#: without importing ase and torch, the same reason ``CONVERGED_PROP`` lives
+#: here rather than in ``batch_opt``.
+THERMO_FAILED_PROP = "Thermo_failed"
 
 
 def set_converged(mol: Chem.Mol, converged: bool) -> None:
@@ -50,6 +58,26 @@ def set_converged(mol: Chem.Mol, converged: bool) -> None:
             ``batchopt``, was not dropped for oscillating).
     """
     mol.SetProp(CONVERGED_PROP, str(bool(converged)))
+
+
+def thermo_succeeded_or_unfiltered(mol: Chem.Mol) -> bool:
+    """False only for a record ``calc_thermo`` explicitly marked as failed.
+
+    ``Thermo_failed`` is ``""`` for a minimum and a reason otherwise. The reason
+    matters to a reader but not to a filter: a confirmed saddle point, a record
+    that never reached a stationary point, and one that raised are all records
+    whose thermochemistry is not a minimum's, and none may be published as a
+    molecule's most stable conformer. A saddle point's electronic energy can sit
+    below another conformer's minimum, so leaving it in the running is a real
+    way to report the wrong structure.
+
+    Absence means "not filtered on it", exactly as for :data:`CONVERGED_PROP` --
+    an optimizer output has never carried this property and a record that never
+    claimed to be a thermochemistry result did not fail one.
+    """
+    if not mol.HasProp(THERMO_FAILED_PROP):
+        return True
+    return str(mol.GetProp(THERMO_FAILED_PROP)).strip() == ""
 
 
 def has_convergence_flag(mol: Chem.Mol) -> bool:

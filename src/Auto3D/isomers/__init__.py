@@ -11,7 +11,7 @@ Every other name in this package -- ``create_tautomer_engine`` and the
 ``IsomerEngine``/``TautomerEngine`` protocols -- is imported from the module that
 defines it (``Auto3D.isomers.factory``, ``Auto3D.isomers.base``), so that no name
 here has two supported spellings. A ``create_isomer_engine`` free function was
-the exception until 4.0 and is deleted; see ``factory.py``'s docstring for why
+the exception until 3.0.0 and is deleted; see ``factory.py``'s docstring for why
 ``create_tautomer_engine`` beside it was kept.
 
 Example:

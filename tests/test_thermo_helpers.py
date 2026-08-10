@@ -1720,3 +1720,55 @@ class TestDerivedMultiplicityIsAlsoChecked:
             assert not any("parity" in r.message for r in caplog.records), (
                 f"{smiles} triggered a parity warning it should not have"
             )
+
+
+def test_vib_hessian_passes_charge_as_float32():
+    """The documented contract: charges reach a model as float32.
+
+    ``batch_opt/padding.py`` builds them float32 and CLAUDE.md states it, but
+    ``vib_hessian`` built ``torch.tensor([charge])`` -- int64, because the
+    formal charge is a Python int. Most routes recovered by casting on arrival;
+    ``AIMNet2Adapter.analytic_hessian`` deliberately does not ("Passed to the
+    calculator exactly as received"), so the *default* engine's analytic Hessian
+    received an int64 charge. That left the float32 claim false on the thermo
+    path after the optimizer path was fixed.
+    """
+    import torch
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.ASE.thermo import vib_hessian
+
+    seen: dict[str, torch.dtype] = {}
+
+    class _RecordingAdapter:
+        coord_pad = 0.0
+        species_pad = -1
+
+        def to_species(self, numbers):
+            return list(numbers)
+
+        def analytic_hessian(self, coords, species, charges):
+            seen["dtype"] = charges.dtype
+            n = coords.shape[-2] * 3
+            return torch.eye(n, dtype=torch.double) * 2.0
+
+        def energy(self, coords, species, charges, atom_mask=None):
+            return coords.pow(2).sum()
+
+        def forward(self, coords, species, charges, atom_mask=None):
+            raise AssertionError("vib_hessian must not call forward")
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("O"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+
+    vib_hessian(mol, _InertCalculatorForCharge(), _RecordingAdapter(),
+                torch.device("cpu"), positions=mol.GetConformer().GetPositions())
+
+    assert seen["dtype"] == torch.float32, (
+        f"charge reached analytic_hessian as {seen['dtype']}, not float32"
+    )
+
+
+class _InertCalculatorForCharge:
+    """``vib_hessian`` attaches this to Atoms but never queries it."""

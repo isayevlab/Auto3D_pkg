@@ -41,6 +41,7 @@ from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.energy import (
     E_REL_KCAL_PROP,
     clear_relative_energies,
+    set_e_hartree_from_ev,
     set_e_tot_from_ev,
     set_relative_energies,
     set_relative_gibbs_energies,
@@ -424,7 +425,7 @@ class Calculator(ase.calculators.calculator.Calculator):
     The first argument is a :class:`Auto3D.models.contract.ModelAdapter` and it
     is the ONLY model-dependent input: it supplies the energy/force call *and*
     the species convention (:meth:`~Auto3D.models.contract.ModelAdapter.to_species`).
-    Until 4.0.1 it took an engine-name string alongside the model and fed that
+    Until 3.0.0 it took an engine-name string alongside the model and fed that
     name to a name-keyed species converter, so ``Calculator.model_name`` and the
     model actually wrapped could disagree about which convention was in force --
     the C3/C4 defect class, on a path where ANI2xt's 0-based network indices and
@@ -778,7 +779,15 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, adapter: ModelAdapter,
     ).to(device)
     # aimnet's AIMNet2 model requires a 1D charge tensor (one entry per
     # molecule); a 0-dim scalar trips an internal assert.
-    charge = torch.tensor([charge]).to(device)
+    #
+    # float32, explicitly: `torch.tensor([charge])` on a Python int gives int64,
+    # and while most routes recover by casting on arrival,
+    # `AIMNet2Adapter.analytic_hessian` deliberately does not -- it passes the
+    # charge to the calculator exactly as received. So the *default* engine's
+    # analytic Hessian was the one place still receiving an int64 charge after
+    # the optimizer path was fixed, leaving CLAUDE.md's "charges reach a model
+    # as float32" false on this path.
+    charge = torch.tensor([charge], dtype=torch.float32, device=device)
 
     hess = adapter.analytic_hessian(coord, numbers, charge)
     if hess is None:
@@ -1393,7 +1402,7 @@ def do_mol_thermo(mol: Chem.Mol,
     mol.SetProp("S_hartree_per_K", str(S))
     mol.SetProp("T_K", str(T))
     mol.SetProp("G_hartree", str(G))
-    mol.SetProp("E_hartree", str(e * EV_TO_HARTREE))
+    set_e_hartree_from_ev(mol, e)
     # `E_tot` too, through its owner. calc_thermo relaxes to a threshold 50x
     # tighter than the one the conformer pipeline used, so `atoms` is almost
     # never the geometry the input SDF was written for -- and the conformer
