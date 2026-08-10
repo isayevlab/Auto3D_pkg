@@ -1,0 +1,19 @@
+# Commits that moved every line without changing any code. `git blame` should
+# look straight through them to whoever last touched the logic.
+#
+# Enable locally, once:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub reads this file by name and applies it to its own blame view with no
+# configuration.
+#
+# Only add a revision here that a tool can regenerate byte for byte. If a commit
+# contains one hand edit alongside the mechanical churn, that edit becomes
+# invisible to blame -- which is precisely the accident this file exists to
+# prevent, inverted.
+
+# style: normalize formatting across src/ and tests/
+# The first `ruff format` run over a tree that had never had one: 169 of 176
+# files, no hand edits. Verified by AST comparison, not by inspection.
+ce1c281205c38b7bd95382a8643df8c4593b65ac

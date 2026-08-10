@@ -159,5 +159,16 @@ jobs:
       # `test` job instead. See the note on that step.
       - name: Install tooling
         run: pip install ruff
-      - name: ruff
+      - name: ruff check
         run: ruff check src/Auto3D/ tests/
+
+      # CONTRIBUTING.md has told contributors to run `ruff format src/ tests/`
+      # since long before anything checked. Nothing did, so the tree drifted
+      # until the documented command produced a 169-file diff -- at which point
+      # nobody could follow the instruction on an ordinary pull request, and the
+      # drift compounded. The gate is the half that makes the instruction true.
+      #
+      # Unlike the mypy step, this one does NOT end in `|| true`. It starts from
+      # zero and the fix is one command, so there is no debt to grandfather.
+      - name: ruff format
+        run: ruff format --check src/ tests/

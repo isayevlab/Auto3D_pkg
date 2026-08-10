@@ -151,6 +151,21 @@ mypy src/Auto3D/
 pytest tests/
 ```
 
+The first two are enforced in CI (the `ruff` job) and both must be clean to
+merge. `mypy` runs there too but is advisory for now — it reports a known
+backlog of pre-existing errors, so it does not fail the build.
+
+`ruff format` used to be documented here without anything checking it, and the
+tree drifted until running it touched 96% of the files. It was normalized in one
+commit, listed in `.git-blame-ignore-revs`. Run this once so `git blame` skips
+that commit and keeps pointing at whoever last changed the logic:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+GitHub's blame view picks the file up automatically; only local git needs telling.
+
 ## Testing
 
 ### Running Tests
