@@ -177,9 +177,10 @@ class TestConvergenceFlagDerivation:
 
 def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
     """Buckets must be size-homogeneous; a size outlier splits into its own bucket."""
+    import torch
     from rdkit import Chem
     from rdkit.Chem import AllChem
-    import torch
+
     from Auto3D.batch_opt.batchopt import optimizing
 
     # Build an optimizing instance without running (just to call _make_buckets)
@@ -212,9 +213,10 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
 
 def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     """Bucketing reorders internally but output order must match input."""
+    import torch
     from rdkit import Chem
     from rdkit.Chem import AllChem
-    import torch
+
     import Auto3D.batch_opt.batchopt as bo
 
     inp = tmp_path / "in.sdf"

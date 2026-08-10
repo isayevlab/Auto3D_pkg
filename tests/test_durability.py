@@ -27,9 +27,8 @@ replaced.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import os
+from pathlib import Path
 
 import pytest
 import torch
@@ -37,7 +36,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.utils.sdf_io import reorder_sdf
-
+from tests.helpers_adapter import FakeAdapter
 
 # Captured once, at import time, before any test monkeypatches Chem.SDWriter.
 # Constructing a real Chem.SDWriter on an existing path truncates it
@@ -359,11 +358,7 @@ class TestSameFileGuard:
 
         monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
 
-        class FakeAdapter:
-            coord_pad = 0.0
-            species_pad = 0
-
-        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
 
         class FakeEnForce:
             def __init__(self, adapter):
@@ -818,10 +813,6 @@ class TestOutputOverwriteGuard:
         stale = job_dir / "stale.sdf"
         stale.write_bytes(b"OLD RESULTS\n")
 
-        class FakeAdapter:
-            coord_pad = 0.0
-            species_pad = 0
-
         class FakeEnForce:
             def __init__(self, adapter):
                 pass
@@ -842,7 +833,7 @@ class TestOutputOverwriteGuard:
             )
 
         monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
-        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
         monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 

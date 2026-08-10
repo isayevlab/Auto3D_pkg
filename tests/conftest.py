@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 import torch
 
+import Auto3D.cli.errors
+
 # Test file paths
 TEST_DIR = Path(__file__).parent
 FILES_DIR = TEST_DIR / "files"
@@ -78,7 +80,7 @@ def _import_every_auto3d_module_before_any_test():
     into the importing module's namespace at *import* time. Auto3D's CLI
     imports many of its own modules lazily (inside functions, to keep
     ``auto3d --help`` fast). Put those two facts together with a test that does
-    ``monkeypatch.setattr("Auto3D.cli.errors.handle_error", stub)`` and the
+    ``monkeypatch.setattr(Auto3D.cli.errors, "handle_error", stub)`` and the
     result depends on which test ran first:
 
     * if some earlier test already imported ``Auto3D.cli.commands.run``, that

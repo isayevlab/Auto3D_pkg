@@ -1,5 +1,6 @@
 """Tests for Auto3D.job_layout module."""
 
+import shutil
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
@@ -133,7 +134,7 @@ def test_housekeeping_sweep_is_per_file_robust(tmp_path, monkeypatch):
             raise OSError("already gone")
         return real_move(src, dst)
 
-    monkeypatch.setattr("Auto3D.job_layout.shutil.move", flaky_move)
+    monkeypatch.setattr(shutil, "move", flaky_move)
 
     housekeeping(str(job), str(dest), str(job / "out.sdf"))  # must not raise
 

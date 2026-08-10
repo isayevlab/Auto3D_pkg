@@ -2,9 +2,11 @@ import os
 import shutil
 import time
 import uuid
+
 import pytest
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
+
 from Auto3D.isomer_engine import RDKitIsomer
 from Auto3D.utils.sdf_io import SDF2chunks, count_sdf
 

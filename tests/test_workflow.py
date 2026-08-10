@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
+import Auto3D.workflow
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 
 
@@ -85,8 +87,9 @@ class TestWorkflowExceptions:
         config = Auto3DOptions(path=str(smi_file), k=1)
         orchestrator = WorkflowOrchestrator(config)
 
-        with patch(
-            "Auto3D.workflow.check_valid_configuration",
+        with patch.object(
+            Auto3D.workflow,
+            "check_valid_configuration",
             return_value=["GPU index 5 is invalid. Available GPUs: 1"],
         ):
             with pytest.raises(ConfigurationError, match="GPU index 5 is invalid"):
@@ -481,7 +484,7 @@ def test_unsupported_extension_rejected_before_encoding(tmp_path):
     bad.write_text("stuff\n")
     orch = WorkflowOrchestrator(Auto3DOptions(path=str(bad), k=1, use_gpu=False))
 
-    with patch("Auto3D.workflow.encode_ids") as enc:
+    with patch.object(Auto3D.workflow, "encode_ids") as enc:
         with pytest.raises(FileFormatError, match="not supported"):
             orch.run()
         enc.assert_not_called()  # format is validated before any encoding
@@ -573,8 +576,8 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
             return 0
 
     with (
-        patch("Auto3D.workflow.mp.Manager") as mock_manager,
-        patch("Auto3D.workflow.mp.Process", _FakeProcess),
+        patch.object(mp, "Manager") as mock_manager,
+        patch.object(mp, "Process", _FakeProcess),
     ):
         mock_manager.return_value.Queue.return_value = MagicMock()
         orch._run_pipeline([("chunk.smi", "job1")])
@@ -925,10 +928,11 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
     not a stand-in, so a regression to zero callers would fail this test."""
     import logging
 
-    import Auto3D.auto3D as auto3D_mod
-    from Auto3D.config import Auto3DOptions
     from rdkit import Chem
     from rdkit.Chem import inchi
+
+    import Auto3D.auto3D as auto3D_mod
+    from Auto3D.config import Auto3DOptions
 
     ethanol_id = inchi.MolToInchiKey(Chem.MolFromSmiles("CCO"))
     written: dict[str, str] = {}

@@ -38,6 +38,7 @@ import pytest
 import torch
 from typer.testing import CliRunner
 
+import Auto3D.model_factory
 from Auto3D.cli.app import app
 
 runner = CliRunner()
@@ -238,8 +239,23 @@ def _hide_torchani(monkeypatch):
     translation in ``ModelFactory.create`` keys on -- so this simulates the
     *absence* of torchani specifically, not a torchani that is present but
     broken (which deliberately still propagates untranslated).
+
+    Hiding the import is not sufficient on its own. ``ModelFactory._cache`` is a
+    class attribute, so it outlives every test in the process: if any earlier
+    test built an ANI2x model on this device, ``create`` returns that instance
+    and never reaches an import at all. The command then succeeds and the test
+    fails asserting exit 3 -- but only when the suite happens to run a model
+    build first, which is why this surfaced as an intermittent failure under
+    ``pytest-randomly`` rather than a reliable one.
+
+    Swapping in an empty dict rather than calling ``clear_cache()`` keeps this
+    scoped: monkeypatch restores the populated cache afterwards, so tests that
+    follow are not made slower by a cold factory.
     """
+    from Auto3D.model_factory import ModelFactory
+
     monkeypatch.setitem(sys.modules, "torchani", None)
+    monkeypatch.setattr(ModelFactory, "_cache", {})
 
 
 def test_exit_3_models_test_without_torchani(monkeypatch):
@@ -361,7 +377,7 @@ def test_exit_4_out_of_range_gpu_index(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
-    with patch("Auto3D.model_factory.create_model") as m:
+    with patch.object(Auto3D.model_factory, "create_model") as m:
         result = runner.invoke(app, ["models", "test", "AIMNET", "--gpu-idx", "99"])
 
     assert result.exit_code == 4, result.output
@@ -379,9 +395,9 @@ def test_exit_4_out_of_range_gpu_index(monkeypatch):
 def test_exit_4_no_cuda_at_all(monkeypatch):
     """The other exit-4 path, pinned alongside so the two stay distinguishable
     by message even though they share an integer."""
-    monkeypatch.setattr("Auto3D.utils.validation.torch.cuda.is_available", lambda: False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
-    with patch("Auto3D.model_factory.create_model") as m:
+    with patch.object(Auto3D.model_factory, "create_model") as m:
         result = runner.invoke(app, ["models", "test", "AIMNET"])
 
     assert result.exit_code == 4, result.output
@@ -485,8 +501,8 @@ def test_exit_5_non_finite_model_output(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _NanAdapter())
+    monkeypatch.setattr(Auto3D.model_factory, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", lambda *a, **k: _NanAdapter())
 
     result = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
 

@@ -169,8 +169,13 @@ ignore = [
 # class's test, and a vacuous `assert ... or True` that could never fail.
 # Both were fixed at the source instead (see git history), and both codes
 # stay enabled for tests/ so a regression here is caught by lint again.
+#
+# I001 (unsorted imports) was also on this list, excused as "reordering would
+# touch most test files". That was the same objection as the unformatted tree,
+# and it expired with it: once `ruff format` had been run over all 176 files in
+# one commit, sorting 34 files' imports was no longer the disruptive change it
+# had been the argument against. The code is enabled for tests/ again.
 "tests/*" = [
-    "I001",   # unsorted imports -- reordering would touch most test files
     "F401",   # unused imports (legacy test scaffolding, e.g. optional-dep guards)
     "E712",   # `== True`/`== False` comparisons (common in older tests)
     "E702",   # multiple statements on one line (semicolons in legacy tests)

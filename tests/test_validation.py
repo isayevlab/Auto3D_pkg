@@ -3,11 +3,14 @@
 This module tests that check_input raises proper exceptions instead of sys.exit().
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+import torch
+
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError, DependencyError, GPUError, ModelLoadError
 from Auto3D.utils.validation import check_input
-from Auto3D.exceptions import GPUError, DependencyError, ConfigurationError, ModelLoadError
 
 
 class TestCheckInputExceptions:
@@ -23,7 +26,7 @@ class TestCheckInputExceptions:
         args.input_format = "smi"
         args.path = "/fake/path.smi"
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device"):
                 check_input(args)
 
@@ -170,6 +173,7 @@ class TestCheckInputExceptions:
         reject them (they are AIMNet engines, not ANI2x/ANI2xt).
         """
         from types import SimpleNamespace
+
         from Auto3D.utils.validation import check_input
 
         smi = tmp_path / "in.smi"
@@ -199,8 +203,8 @@ class TestCheckValidConfigurationGpuIndex:
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
         with (
-            patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=True),
-            patch("Auto3D.utils.validation.torch.cuda.device_count", return_value=1),
+            patch.object(torch.cuda, "is_available", return_value=True),
+            patch.object(torch.cuda, "device_count", return_value=1),
         ):
             errors = check_valid_configuration(
                 Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=5)
@@ -213,8 +217,8 @@ class TestCheckValidConfigurationGpuIndex:
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
         with (
-            patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=True),
-            patch("Auto3D.utils.validation.torch.cuda.device_count", return_value=4),
+            patch.object(torch.cuda, "is_available", return_value=True),
+            patch.object(torch.cuda, "device_count", return_value=4),
         ):
             errors = check_valid_configuration(
                 Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=0)
@@ -233,7 +237,7 @@ class TestGpuPolicyIsUniform:
     def test_check_gpu_requested_raises_gpu_error_without_cuda(self):
         from Auto3D.utils.validation import check_gpu_requested
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 check_gpu_requested(True)
         assert "--no-gpu" in str(exc_info.value)
@@ -242,13 +246,13 @@ class TestGpuPolicyIsUniform:
         """use_gpu=False must never raise, CUDA available or not."""
         from Auto3D.utils.validation import check_gpu_requested
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             check_gpu_requested(False)  # must not raise
 
     def test_check_gpu_requested_noop_when_cuda_available(self):
         from Auto3D.utils.validation import check_gpu_requested
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=True):
+        with patch.object(torch.cuda, "is_available", return_value=True):
             check_gpu_requested(True)  # must not raise
 
     def test_check_valid_configuration_raises_gpu_error_not_configuration_error(self, tmp_path):
@@ -262,7 +266,7 @@ class TestGpuPolicyIsUniform:
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError):
                 check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
@@ -282,7 +286,7 @@ class TestGpuPolicyIsUniform:
         args.input_format = "smi"
         args.path = str(p)
 
-        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
+        with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError) as exc_via_check_input:
                 check_input(args)
             with pytest.raises(GPUError) as exc_via_check_valid_configuration:

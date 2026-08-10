@@ -7,22 +7,23 @@ This module tests the CLI interface including:
 - Exception handling
 """
 
-import pytest
 import sys
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from Auto3D.auto3Dcli import cli, _is_yaml_file
+import pytest
+
+import Auto3D.auto3D
+from Auto3D.auto3Dcli import _is_yaml_file, cli
 from Auto3D.exceptions import (
     Auto3DError,
     ConfigurationError,
-    GPUError,
     DependencyError,
     FileFormatError,
+    GPUError,
     OptimizationError,
 )
-
 
 # =============================================================================
 # Tests for _is_yaml_file helper function
@@ -83,6 +84,7 @@ def test_new_cli_help():
     import re
 
     from typer.testing import CliRunner
+
     from Auto3D.cli.app import app
 
     runner = CliRunner()
@@ -109,6 +111,7 @@ def test_new_cli_version():
     from importlib.metadata import version as installed_version
 
     from typer.testing import CliRunner
+
     from Auto3D.cli.app import app
 
     runner = CliRunner()
@@ -121,6 +124,7 @@ def test_new_cli_version():
 def test_run_subcommand_help():
     """run --help should show all options."""
     from typer.testing import CliRunner
+
     from Auto3D.cli.app import app
 
     runner = CliRunner()
@@ -145,6 +149,7 @@ def test_run_subcommand_help():
 def test_config_subcommand_help():
     """config --help should show subcommands."""
     from typer.testing import CliRunner
+
     from Auto3D.cli.app import app
 
     runner = CliRunner()
@@ -166,6 +171,7 @@ def test_models_subcommand_help():
     that its name appears somewhere in the parent's help text.
     """
     from typer.testing import CliRunner
+
     from Auto3D.cli.app import app
 
     runner = CliRunner()
@@ -185,6 +191,7 @@ def test_validate_subcommand_help():
     import re
 
     from typer.testing import CliRunner
+
     from Auto3D.cli.app import app
 
     runner = CliRunner()
@@ -282,7 +289,7 @@ class TestCLIExceptionHandling:
 
     def _run_legacy_with_error(self, error):
         """Drive the legacy YAML path with main() raising `error`; return exit code."""
-        with patch("Auto3D.auto3D.main") as mock_main:
+        with patch.object(Auto3D.auto3D, "main") as mock_main:
             mock_main.side_effect = error
             with patch.object(sys, "argv", ["auto3d", "config.yaml"]):
                 with patch("yaml.safe_load", return_value=dict(self._LEGACY_YAML)):

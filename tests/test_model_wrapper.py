@@ -209,7 +209,6 @@ def test_forward_batched_retries_on_oom():
     import torch
 
     from Auto3D.batch_opt.model_wrapper import EnForce_ANI
-
     from tests.helpers_adapter import FakeAdapter
 
     class _OOMAdapter(FakeAdapter):

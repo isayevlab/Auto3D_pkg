@@ -13,6 +13,7 @@ def test_thermo_module_no_hardcoded_tf32():
 
     # Import should not change these settings
     import importlib
+
     import Auto3D.ASE.thermo as thermo_module
 
     importlib.reload(thermo_module)
@@ -29,6 +30,7 @@ def test_geometry_module_no_hardcoded_tf32():
     torch.backends.cudnn.allow_tf32 = True
 
     import importlib
+
     import Auto3D.ASE.geometry as geometry_module
 
     importlib.reload(geometry_module)

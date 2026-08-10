@@ -113,8 +113,8 @@ class TestModelFactory:
         assert isinstance(aimnet_model, AIMNet2Adapter)
         assert aimnet_model.model_name == "aimnet2"
 
-    @patch("Auto3D.model_factory.Path.exists")
-    @patch("Auto3D.models.adapter.torch.jit.load")
+    @patch.object(Path, "exists")
+    @patch.object(torch.jit, "load")
     def test_create_custom_model_from_path(self, mock_load, mock_exists):
         """Test that custom model paths are loaded correctly."""
         from Auto3D.models.adapter import CustomModelAdapter
@@ -151,15 +151,15 @@ class TestGetDevice:
         device = get_device(gpu_idx=0, use_gpu=False)
         assert device == torch.device("cpu")
 
-    @patch("Auto3D.model_factory.torch.cuda.is_available")
+    @patch.object(torch.cuda, "is_available")
     def test_get_device_cpu_when_cuda_unavailable(self, mock_cuda):
         """Test that CPU is returned when CUDA is unavailable."""
         mock_cuda.return_value = False
         device = get_device(gpu_idx=0, use_gpu=True)
         assert device == torch.device("cpu")
 
-    @patch("Auto3D.model_factory.torch.cuda.device_count")
-    @patch("Auto3D.model_factory.torch.cuda.is_available")
+    @patch.object(torch.cuda, "device_count")
+    @patch.object(torch.cuda, "is_available")
     def test_get_device_cuda_when_available(self, mock_cuda, mock_count):
         """Test that CUDA device is returned when available.
 
@@ -176,7 +176,7 @@ class TestGetDevice:
         device = get_device(gpu_idx=1, use_gpu=True)
         assert device == torch.device("cuda:1")
 
-    @patch("Auto3D.model_factory.torch.cuda.is_available")
+    @patch.object(torch.cuda, "is_available")
     def test_get_device_cuda_default_index(self, mock_cuda):
         """Test that CUDA:0 is returned by default."""
         mock_cuda.return_value = True
@@ -253,8 +253,8 @@ class TestFactoryReturnsAdapter:
         assert isinstance(model, ANI2xAdapter)
         assert model.species_pad == -1
 
-    @patch("Auto3D.model_factory.Path.exists")
-    @patch("Auto3D.models.adapter.torch.jit.load")
+    @patch.object(Path, "exists")
+    @patch.object(torch.jit, "load")
     def test_factory_returns_custom_adapter(self, mock_load, mock_exists):
         """Factory should return CustomModelAdapter for custom model paths."""
         from Auto3D.models.adapter import CustomModelAdapter
@@ -279,6 +279,7 @@ class TestFactoryReturnsAdapter:
 
 def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
     import torch
+
     from Auto3D import model_factory
 
     captured = {}
@@ -295,6 +296,7 @@ def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
 
 def test_registry_name_routes_to_aimnet2(monkeypatch):
     import torch
+
     from Auto3D import model_factory
 
     captured = {}
@@ -311,6 +313,7 @@ def test_registry_name_routes_to_aimnet2(monkeypatch):
 
 def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
     import torch
+
     from Auto3D import model_factory
 
     f = tmp_path / "my.pt"
@@ -341,6 +344,7 @@ def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
     an error naming the mismatch.
     """
     import torch
+
     from Auto3D import model_factory
 
     monkeypatch.chdir(tmp_path)

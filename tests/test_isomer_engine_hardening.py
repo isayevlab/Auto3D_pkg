@@ -22,6 +22,7 @@ from Auto3D.isomer_engine import (
     RDKitSdfIsomer,
 )
 from Auto3D.utils.molprops import calculate_conformer_count
+from tests.helpers_adapter import FakeAdapter
 
 
 def _make_engine(tmp_path, smi_path, flipper=True, max_confs=None):
@@ -353,11 +354,7 @@ class TestSpeFiltersAndAligns:
         monkeypatch.setattr(spe_mod.Chem, "SDMolSupplier", FakeSupplier)
         monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
 
-        class FakeAdapter:
-            coord_pad = 0.0
-            species_pad = 0
-
-        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
 
         captured = {}
 
@@ -421,11 +418,7 @@ class TestSpeFiltersAndAligns:
         monkeypatch.setattr(spe_mod.Chem, "SDMolSupplier", FakeSupplier)
         monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
 
-        class FakeAdapter:
-            coord_pad = 0.0
-            species_pad = 0
-
-        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
         monkeypatch.setattr(spe_mod, "EnForce_ANI", lambda adapter: object())
 
         def fail_pad(*a, **k):  # pragma: no cover - must never be reached

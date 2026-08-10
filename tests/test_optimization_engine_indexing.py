@@ -635,7 +635,7 @@ class TestDecomposedHelpers:
         A scatter that touched an untouched row would silently overwrite a
         converged structure's final geometry with a stale one.
         """
-        from Auto3D.batch_opt.optimization_engine import _StepResult, _scatter_back
+        from Auto3D.batch_opt.optimization_engine import _scatter_back, _StepResult
 
         state = self._state()
         state["coord"] = torch.zeros(4, 5, 3)
@@ -673,7 +673,7 @@ class TestDecomposedHelpers:
         at the call site. This is the unit-level statement of what
         ``test_float64_model_outputs_do_not_raise`` checks end to end.
         """
-        from Auto3D.batch_opt.optimization_engine import _StepResult, _scatter_back
+        from Auto3D.batch_opt.optimization_engine import _scatter_back, _StepResult
 
         state = self._state()
         smallest = torch.full((4, 1), 999.0)

@@ -1,14 +1,16 @@
 import os
 import tempfile
-import pytest
+from unittest.mock import MagicMock, patch
+
 import numpy as np
+import pytest
 import torch
-from unittest.mock import patch, MagicMock
 from rdkit import Chem
+
 import Auto3D
+import Auto3D.ASE.thermo
 from Auto3D.ASE.geometry import opt_geometry
-from Auto3D.ASE.thermo import model_name2model_calculator, vib_hessian
-from Auto3D.ASE.thermo import calc_thermo
+from Auto3D.ASE.thermo import calc_thermo, model_name2model_calculator, vib_hessian
 from tests.helpers_pipeline_output import (
     assert_opt_geometry_output,
     write_perturbed_sdf,
@@ -183,7 +185,7 @@ def test_model_name2model_calculator_uses_factory():
             return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
 
     stub = _StubAdapter()
-    with patch("Auto3D.ASE.thermo.create_model", return_value=stub) as mock_factory:
+    with patch.object(Auto3D.ASE.thermo, "create_model", return_value=stub) as mock_factory:
         model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
 
     mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))
@@ -316,9 +318,8 @@ def test_vib_hessian_includes_external_dispersion():
     # AIMNet2Adapter, whose analytic_hessian runs the full pipeline. It used to be
     # the bare AIMNet2Calculator, reached through an adapter property that existed
     # only for this call, with vib_hessian then dispatching on its TYPE.
-    from Auto3D.models.adapter import AIMNet2Adapter
-
     from Auto3D.ASE.thermo import _load_hessian_model
+    from Auto3D.models.adapter import AIMNet2Adapter
 
     adapter = _load_hessian_model("AIMNET", device)
     assert isinstance(adapter, AIMNet2Adapter)
@@ -336,9 +337,9 @@ def test_vib_hessian_includes_external_dispersion():
     # --- Buggy path: differentiate the bare aimnet nn.Module (drops externals) ---
     coord = mol.GetConformer().GetPositions()
     species = [a.GetSymbol() for a in mol.GetAtoms()]
-    from rdkit.Chem import rdmolops
     from ase import Atoms
     from ase.vibrations import VibrationsData
+    from rdkit.Chem import rdmolops
 
     charge = rdmolops.GetFormalCharge(mol)
     atoms = Atoms(species, coord)

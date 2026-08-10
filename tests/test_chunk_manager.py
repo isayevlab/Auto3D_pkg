@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+import Auto3D.chunk_manager
 from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions
 
@@ -73,7 +74,7 @@ class TestCalculateMemoryAndChunks:
             workflow_logger=None,
         )
 
-        with patch("Auto3D.chunk_manager._gpu_free_memory_gb", return_value=8):
+        with patch.object(Auto3D.chunk_manager, "_gpu_free_memory_gb", return_value=8):
             memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert num_jobs == 1
@@ -95,7 +96,7 @@ class TestCalculateMemoryAndChunks:
             workflow_logger=None,
         )
 
-        with patch("Auto3D.chunk_manager._gpu_free_memory_gb", return_value=8):
+        with patch.object(Auto3D.chunk_manager, "_gpu_free_memory_gb", return_value=8):
             memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert num_jobs == 3
@@ -363,7 +364,7 @@ class TestScaledBatchsizeAtomsClamp:
             workflow_logger=None,
         )
 
-        with patch("Auto3D.chunk_manager._gpu_free_memory_gb", return_value=80):
+        with patch.object(Auto3D.chunk_manager, "_gpu_free_memory_gb", return_value=80):
             manager.prepare_chunks()
 
         # Unclamped this would be 1024 * 80 = 81920.

@@ -234,6 +234,7 @@ class TestIsotopeMasses:
 def aimnet_hessian_model():
     """Load the AIMNET Hessian evaluator once for this module's NNP checks."""
     import torch
+
     from Auto3D.ASE.thermo import _load_hessian_model
 
     return _load_hessian_model("AIMNET", torch.device("cpu"))
@@ -241,6 +242,7 @@ def aimnet_hessian_model():
 
 def test_detect_geometry_linear_vs_nonlinear():
     from ase import Atoms
+
     from Auto3D.ASE.thermo import _detect_geometry
 
     co2 = Atoms("CO2", [[0, 0, 0], [0, 0, 1.16], [0, 0, -1.16]])
@@ -251,6 +253,7 @@ def test_detect_geometry_linear_vs_nonlinear():
 
 def test_symmetry_number_defaults_to_one():
     from rdkit import Chem
+
     from Auto3D.ASE.thermo import _symmetry_number
 
     m = Chem.MolFromSmiles("CCO")
@@ -259,6 +262,7 @@ def test_symmetry_number_defaults_to_one():
 
 def test_symmetry_number_reads_property():
     from rdkit import Chem
+
     from Auto3D.ASE.thermo import _symmetry_number
 
     m = Chem.MolFromSmiles("c1ccccc1")
@@ -268,6 +272,7 @@ def test_symmetry_number_reads_property():
 
 def test_symmetry_number_invalid_property_falls_back():
     from rdkit import Chem
+
     from Auto3D.ASE.thermo import _symmetry_number
 
     m = Chem.MolFromSmiles("CCO")
@@ -277,6 +282,7 @@ def test_symmetry_number_invalid_property_falls_back():
 
 def test_resolve_multiplicity_closed_shell_is_singlet():
     from rdkit import Chem
+
     from Auto3D.ASE.thermo import _resolve_multiplicity
 
     m = Chem.MolFromSmiles("CCO")
@@ -287,6 +293,7 @@ def test_resolve_multiplicity_closed_shell_is_singlet():
 
 def test_resolve_multiplicity_radical_is_doublet():
     from rdkit import Chem
+
     from Auto3D.ASE.thermo import _resolve_multiplicity
 
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
@@ -296,6 +303,7 @@ def test_resolve_multiplicity_radical_is_doublet():
 
 def test_resolve_multiplicity_respects_explicit_property():
     from rdkit import Chem
+
     from Auto3D.ASE.thermo import _resolve_multiplicity
 
     m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
@@ -306,6 +314,7 @@ def test_resolve_multiplicity_respects_explicit_property():
 def test_do_mol_thermo_default_temperature_is_298_15():
     """Reference temperature must be the thermochemistry standard 298.15 K."""
     import inspect
+
     from Auto3D.ASE.thermo import do_mol_thermo
 
     assert inspect.signature(do_mol_thermo).parameters["T"].default == 298.15
@@ -1425,7 +1434,6 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         from torch import nn
 
         from Auto3D.ASE.thermo import Calculator
-
         from tests.helpers_adapter import AdapterModuleMixin
 
         class _WithParam(AdapterModuleMixin, nn.Module):

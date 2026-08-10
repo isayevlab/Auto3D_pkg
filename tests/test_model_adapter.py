@@ -301,7 +301,7 @@ class TestANI2xAdapter:
 class TestCustomModelAdapter:
     """Tests for the CustomModelAdapter."""
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
+    @patch.object(torch.jit, "load")
     def test_custom_adapter_loads_from_path(self, mock_load):
         """CustomModelAdapter should load model from provided path."""
         from Auto3D.models.adapter import CustomModelAdapter
@@ -323,7 +323,7 @@ class TestCustomModelAdapter:
         assert adapter.coord_pad == 1.0
         assert adapter.species_pad == -2
 
-    @patch("Auto3D.models.adapter.torch.jit.load")
+    @patch.object(torch.jit, "load")
     def test_custom_adapter_rejects_a_model_without_padding_attributes(self, mock_load):
         """No silent default: the padding values must come from the model.
 
@@ -437,6 +437,7 @@ def test_custom_model_adapter_runs(tmp_path):
     """Custom-NNP path: a scripted (species, coords, charges)->energies model
     must run through CustomModelAdapter and yield finite energy/forces."""
     import torch
+
     from Auto3D.models.adapter import CustomModelAdapter
 
     class _Toy(torch.nn.Module):

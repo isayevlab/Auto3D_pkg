@@ -675,10 +675,13 @@ def test_importing_utils_validation_does_not_load_models():
     domain package reached from the bottom of the stack is what let one probe in
     ``Auto3D/__init__.py`` drag in the entire model layer.
 
-    Scoped to ``Auto3D.models`` on purpose: ``validation.py`` legitimately
-    imports torch and rdkit at module scope, and must keep doing so -- twenty-two
-    test sites patch ``Auto3D.utils.validation.torch.cuda.is_available``, which
-    requires ``torch`` to be a real attribute of this module's namespace.
+    Scoped to ``Auto3D.models`` on purpose: ``validation.py`` imports torch and
+    rdkit at module scope, and this test takes no position on that. It used to,
+    for a test-mechanical reason -- twenty-two sites patched
+    ``Auto3D.utils.validation.torch.cuda.is_available``, so the module needed a
+    ``torch`` attribute for those strings to resolve. Those sites now patch
+    ``torch.cuda`` directly, which is the object they were reaching all along,
+    so nothing in the suite constrains this module's import style any more.
     """
     proc = subprocess.run(
         [sys.executable, "-c", _LEAF_PROBE_SOURCE],
@@ -737,21 +740,20 @@ def test_file_io_modules_do_not_load_torch_or_the_model_tree():
     )
 
 
-def test_validation_imports_torch_at_module_scope():
-    """The companion constraint, pinned so the leaf fix cannot overreach.
-
-    ``torch`` is a third-party leaf, not a domain package, and twenty-two test
-    sites patch ``Auto3D.utils.validation.torch.cuda.is_available``. Deferring
-    this import would break every one of them at once, and the leaf test above
-    would still pass -- so the prohibition is stated here rather than left to be
-    inferred.
-    """
-    validation = importlib.import_module("Auto3D.utils.validation")
-    assert hasattr(validation, "torch"), (
-        "utils/validation.py no longer imports torch at module scope; "
-        "monkeypatches targeting Auto3D.utils.validation.torch.* will silently "
-        "target nothing"
-    )
+# `test_validation_imports_torch_at_module_scope` stood here. It forbade
+# `utils/validation.py` from deferring its `import torch`, and the only reason
+# given was that twenty-two test sites patched
+# `Auto3D.utils.validation.torch.cuda.is_available`, which needs `torch` to be an
+# attribute of that module. That is a test-mechanical constraint on production
+# import structure, and it pointed the wrong way: the string resolved through
+# `validation` to the *global* torch module, so every one of those patches was
+# already process-wide and the module prefix only implied a scoping that never
+# existed. The sites now patch `torch.cuda` directly and the constraint is gone
+# with them.
+#
+# Its stated failure mode was also wrong: a dotted path that stops resolving
+# raises (`ImportError` from monkeypatch, `AttributeError` from mock.patch), it
+# does not "silently target nothing".
 
 
 # --------------------------------------------------------------------------- #
