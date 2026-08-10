@@ -120,6 +120,30 @@ jobs:
         run: >
           pytest tests/ -m slow -q
 
+      # Executes two notebooks for real. Here rather than in the docs workflow
+      # because every one of the 20 needs a neural network potential, and this
+      # is the only job with the model cache and the `ani` extra.
+      #
+      # Two, not twenty, and chosen by measured runtime rather than by taste.
+      # These operate on a prepared SDF: `geometry_optimization` takes 74 s
+      # locally and `single_point_energy` is a single point over the same four
+      # records. The end-to-end ones are out of reach -- `tutorial.ipynb` runs
+      # `main()` with `use_gpu=False` and exceeded 10 minutes on a box faster
+      # than a CI runner, and that path is already covered by the slow test
+      # tier above.
+      #
+      # What this closes: a notebook that calls a function Auto3D no longer has,
+      # or passes an argument it no longer accepts, now fails here. What it does
+      # not: the other 18 remain parse-checked only, so the guard in
+      # tests/test_notebook_properties.py is still what catches a wrong SD
+      # property name across all of them.
+      - name: Execute the notebooks that run on a prepared SDF
+        run: |
+          pip install nbmake
+          pytest --nbmake --nbmake-timeout=900 \
+            example/geometry_optimization.ipynb \
+            example/single_point_energy.ipynb
+
   lint:
     name: ruff
     runs-on: ubuntu-latest
