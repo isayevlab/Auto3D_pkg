@@ -17,3 +17,9 @@
 # The first `ruff format` run over a tree that had never had one: 169 of 176
 # files, no hand edits. Verified by AST comparison, not by inspection.
 ce1c281205c38b7bd95382a8643df8c4593b65ac
+
+# style: sort imports in tests/
+# `ruff check --select I001 --fix tests/` -- 71 findings, 34 files. The config
+# change that unsuppressed them is a separate commit, deliberately, so this one
+# holds nothing a tool cannot regenerate.
+dc11ff65c15966565f71db4c775425dfef34c5c8
