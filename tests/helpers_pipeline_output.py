@@ -35,6 +35,7 @@ Units
 module rather than re-deriving the unit, so a future unit change has one place
 to update, not two.
 """
+
 from __future__ import annotations
 
 import math
@@ -192,9 +193,7 @@ def read_sdf_records(path: str | Path, *, label: str = "") -> list[Chem.Mol]:
         records = list(supplier)
     assert records, f"output file {p} contains no SDF records{where}"
     unparsed = [i for i, mol in enumerate(records) if mol is None]
-    assert not unparsed, (
-        f"records at index {unparsed} of {p} do not parse as SDF{where}"
-    )
+    assert not unparsed, f"records at index {unparsed} of {p} do not parse as SDF{where}"
     return records
 
 
@@ -271,8 +270,7 @@ def assert_energy_is_plausible_hartree(
     )
 
     assert mol.HasProp(E_TOT_HARTREE_PROP), (
-        f"{name}: writer did not emit the unit-labeled {E_TOT_HARTREE_PROP} "
-        f"sibling{where}"
+        f"{name}: writer did not emit the unit-labeled {E_TOT_HARTREE_PROP} sibling{where}"
     )
     labeled = float(mol.GetProp(E_TOT_HARTREE_PROP))
     assert math.isclose(labeled, energy, rel_tol=1e-9, abs_tol=1e-12), (
@@ -303,9 +301,7 @@ def assert_geometry_is_physical(
     )
     positions = mol.GetConformer().GetPositions()
     assert positions.shape[0] == mol.GetNumAtoms()
-    assert np.isfinite(positions).all(), (
-        f"{name}: geometry contains non-finite coordinates{where}"
-    )
+    assert np.isfinite(positions).all(), f"{name}: geometry contains non-finite coordinates{where}"
     if mol.GetNumAtoms() < 2:
         return
     deltas = positions[:, None, :] - positions[None, :, :]
@@ -334,9 +330,7 @@ def max_atom_displacement(mol_a: Chem.Mol, mol_b: Chem.Mol) -> float:
             atom order, which would make the returned number meaningless.
     """
     if mol_a.GetNumAtoms() != mol_b.GetNumAtoms():
-        raise ValueError(
-            f"atom count differs: {mol_a.GetNumAtoms()} vs {mol_b.GetNumAtoms()}"
-        )
+        raise ValueError(f"atom count differs: {mol_a.GetNumAtoms()} vs {mol_b.GetNumAtoms()}")
     z_a = [atom.GetAtomicNum() for atom in mol_a.GetAtoms()]
     z_b = [atom.GetAtomicNum() for atom in mol_b.GetAtoms()]
     if z_a != z_b:
@@ -451,9 +445,7 @@ def read_pre_optimization_geometries(job_dir: str | Path) -> dict[str, Chem.Mol]
                         continue
                     geometries[mol.GetProp("_Name").strip()] = mol
 
-    assert geometries, (
-        f"no pre-optimization conformers found in {[str(t) for t in tarballs]}"
-    )
+    assert geometries, f"no pre-optimization conformers found in {[str(t) for t in tarballs]}"
     return geometries
 
 
@@ -502,9 +494,7 @@ def assert_pipeline_output(
         "assert_pipeline_output was given no expected molecules; every check "
         f"below would be vacuous{where}"
     )
-    assert k is None or window is None, (
-        "k and window are alternative selectors; pass at most one"
-    )
+    assert k is None or window is None, "k and window are alternative selectors; pass at most one"
 
     records = read_sdf_records(str(result), label=label)
 
@@ -517,19 +507,15 @@ def assert_pipeline_output(
     # --- Accounting: nothing invented, nothing lost without a report. --------
     unexpected = set(produced) - expected_ids
     assert not unexpected, (
-        f"output contains ids that were never in the input: {sorted(unexpected)}"
-        f"{where}"
+        f"output contains ids that were never in the input: {sorted(unexpected)}{where}"
     )
     failures = set(getattr(result, "failures", None) or [])
     bogus_failures = failures - expected_ids
     assert not bogus_failures, (
-        f"failure list names ids that were never in the input: "
-        f"{sorted(bogus_failures)}{where}"
+        f"failure list names ids that were never in the input: {sorted(bogus_failures)}{where}"
     )
     both = set(produced) & failures
-    assert not both, (
-        f"ids reported as failures yet present in the output: {sorted(both)}{where}"
-    )
+    assert not both, f"ids reported as failures yet present in the output: {sorted(both)}{where}"
     unaccounted = expected_ids - set(produced) - failures
     assert not unaccounted, (
         f"{len(unaccounted)} of {len(expected_ids)} input molecules are absent "
@@ -559,9 +545,7 @@ def assert_pipeline_output(
     for mol_id, group in sorted(produced.items()):
         assert group, f"{mol_id}: empty conformer group{where}"
         if k is not None:
-            assert len(group) <= k, (
-                f"{mol_id}: {len(group)} conformers written for k={k}{where}"
-            )
+            assert len(group) <= k, f"{mol_id}: {len(group)} conformers written for k={k}{where}"
             if k == 1:
                 assert len(group) == 1, (
                     f"{mol_id}: k=1 must yield exactly one conformer per "
@@ -585,9 +569,7 @@ def assert_pipeline_output(
                 f"but this one is marked Converged="
                 f"{mol.GetProp('Converged')!r}{where}"
             )
-            assert mol.HasProp("ID"), (
-                f"{mol_id}: output record carries no optimizer ID{where}"
-            )
+            assert mol.HasProp("ID"), f"{mol_id}: output record carries no optimizer ID{where}"
             # ConformerRanker converts the working eV relative energy into
             # kcal/mol and clears the eV one on the way out; an output still
             # carrying E_rel(eV) means that writer did not run.

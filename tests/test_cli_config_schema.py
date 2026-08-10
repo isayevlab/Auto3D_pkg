@@ -114,9 +114,11 @@ def test_load_yaml_config_validation_failure_is_configuration_error(tmp_path):
 
 def test_config_accepts_registry_and_path_engines(tmp_path):
     from Auto3D.cli.config_schema import CLIConfig
+
     for eng in ("AIMNET", "aimnet2-2025", "ANI2x"):
         assert CLIConfig(path="x.smi", optimizing_engine=eng).optimizing_engine == eng
-    f = tmp_path / "m.pt"; f.write_text("x")
+    f = tmp_path / "m.pt"
+    f.write_text("x")
     assert CLIConfig(path="x.smi", optimizing_engine=str(f)).optimizing_engine == str(f)
 
 
@@ -155,6 +157,7 @@ def test_config_accepts_case_insensitive_engine_names(raw, canonical):
 def test_config_rejects_garbage_engine():
     import pytest
     from Auto3D.cli.config_schema import CLIConfig
+
     with pytest.raises(Exception):
         CLIConfig(path="x.smi", optimizing_engine="not-a-model-or-path")
 
@@ -585,9 +588,7 @@ def test_to_auto3d_options_forwards_every_field(selector):
     from Auto3D.cli.config_schema import CLIConfig
 
     other = next(s for s in _ROUND_TRIP_SELECTORS if s != selector)
-    config = CLIConfig(
-        **_ROUND_TRIP_VALUES, **{selector: _ROUND_TRIP_SELECTORS[selector]}
-    )
+    config = CLIConfig(**_ROUND_TRIP_VALUES, **{selector: _ROUND_TRIP_SELECTORS[selector]})
     options = config.to_auto3d_options()
 
     # The chosen selector crosses; the other stays "not specified", spelled
@@ -604,8 +605,7 @@ def test_to_auto3d_options_forwards_every_field(selector):
         if arrived != expected:
             dropped[name] = (expected, arrived)
     assert not dropped, (
-        f"to_auto3d_options did not forward these fields "
-        f"(field: (sent, arrived)): {dropped}"
+        f"to_auto3d_options did not forward these fields (field: (sent, arrived)): {dropped}"
     )
 
 
@@ -652,8 +652,7 @@ def test_config_init_tables_only_name_real_options():
     real = set(_auto3d_option_fields()) - set(OPTIONS_ONLY_FIELDS)
 
     assert not set(DEFAULT_CONFIG) - real, (
-        f"DEFAULT_CONFIG names options that do not exist: "
-        f"{set(DEFAULT_CONFIG) - real}"
+        f"DEFAULT_CONFIG names options that do not exist: {set(DEFAULT_CONFIG) - real}"
     )
     for name, preset in PRESETS.items():
         assert not set(preset) - real, f"preset {name!r}: {set(preset) - real}"
@@ -663,14 +662,11 @@ def test_config_init_tables_only_name_real_options():
     lines = generate_commented_yaml(dict(DEFAULT_CONFIG)).splitlines()
     uncommented = []
     for key in DEFAULT_CONFIG:
-        index = next(
-            (i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None
-        )
+        index = next((i for i, line in enumerate(lines) if line.startswith(f"{key}:")), None)
         if index is None or index == 0 or not lines[index - 1].startswith("#"):
             uncommented.append(key)
     assert not uncommented, (
-        f"`auto3d config init` emits these keys with no explanatory comment: "
-        f"{uncommented}"
+        f"`auto3d config init` emits these keys with no explanatory comment: {uncommented}"
     )
 
     # And the template must itself be a runnable configuration.

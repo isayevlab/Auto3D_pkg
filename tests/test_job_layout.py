@@ -1,4 +1,5 @@
 """Tests for Auto3D.job_layout module."""
+
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
@@ -86,11 +87,7 @@ class TestFileOpsIntegration:
         Path(meta["output"]).write_text("fake sdf output")
 
         # Run housekeeping - should move enumerated but not output
-        housekeeping(
-            str(job_dir),
-            meta["housekeeping_folder"],
-            meta["output"]
-        )
+        housekeeping(str(job_dir), meta["housekeeping_folder"], meta["output"])
 
         # Output should still exist
         assert Path(meta["output"]).exists()

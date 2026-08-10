@@ -15,6 +15,7 @@ def runner():
 def test_app_exists():
     """Main app should exist."""
     from Auto3D.cli.app import app
+
     assert app is not None
 
 
@@ -123,6 +124,7 @@ def test_models_info_unknown_engine(runner):
 
 def test_models_list_shows_aimnet_registry(runner):
     from Auto3D.cli.app import app
+
     result = runner.invoke(app, ["models", "list"])
     assert result.exit_code == 0
     out = result.stdout
@@ -138,6 +140,7 @@ def test_models_info_aimnet_element_set(runner):
     Elements:" line into discrete tokens and check membership there.
     """
     from Auto3D.cli.app import app
+
     result = runner.invoke(app, ["models", "info", "AIMNET"])
     assert result.exit_code == 0
 
@@ -274,8 +277,13 @@ def auto3d_process(tmp_path):
     def run(subcommand: str, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [
-                sys.executable, str(bootstrap), str(out_sdf),
-                FOREIGN_STDOUT_MARKER, subcommand, str(smi), *args,
+                sys.executable,
+                str(bootstrap),
+                str(out_sdf),
+                FOREIGN_STDOUT_MARKER,
+                subcommand,
+                str(smi),
+                *args,
             ],
             capture_output=True,
             text=True,
@@ -376,12 +384,7 @@ def test_config_validate_valid(runner, tmp_path_cwd):
 
     # Create a valid config file
     config_file = tmp_path_cwd / "valid.yaml"
-    config_file.write_text(
-        "path: input.smi\n"
-        "k: 5\n"
-        "optimizing_engine: AIMNET\n"
-        "use_gpu: true\n"
-    )
+    config_file.write_text("path: input.smi\nk: 5\noptimizing_engine: AIMNET\nuse_gpu: true\n")
 
     result = runner.invoke(app, ["config", "validate", str(config_file)])
 
@@ -486,8 +489,7 @@ def test_json_output_is_pure_json(auto3d_process):
     assert result.returncode == 0, result.stderr
     document = json.loads(result.stdout)
     assert result.stdout == json.dumps(document, indent=2) + "\n", (
-        "stdout carried something other than the JSON document:\n"
-        f"{result.stdout!r}"
+        f"stdout carried something other than the JSON document:\n{result.stdout!r}"
     )
     assert document["success"] is True
     assert document["molecules"] == 1
@@ -520,25 +522,24 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
     smi.write_text("CCO mol1\nCCCO mol2\n")
 
     import Auto3D.auto3D as a3d
+
     out = tmp_path_cwd / "in_out.sdf"
     from rdkit import Chem
     from rdkit.Chem import AllChem
+
     with Chem.SDWriter(str(out)) as w:
         m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(m, randomSeed=1)
         m.SetProp("_Name", "mol1")
         w.write(m)
     from Auto3D.results import WorkflowResult
+
     # mol2 has no corresponding output structure -- a lost molecule.
-    monkeypatch.setattr(
-        a3d, "main", lambda options: WorkflowResult(str(out), failures=["mol2"])
-    )
+    monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out), failures=["mol2"]))
 
     result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
 
-    assert result.exit_code != 0, (
-        f"exited 0 despite a reported failure; output:\n{result.output}"
-    )
+    assert result.exit_code != 0, f"exited 0 despite a reported failure; output:\n{result.output}"
     # No slicing from the first '{' any more: the CLI now reserves stdout for
     # its own output for the whole command, so the third-party banner that
     # used to need routing around lands on stderr instead. A workaround left
@@ -560,15 +561,18 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
     smi.write_text("CCO mol1\n")
 
     import Auto3D.auto3D as a3d
+
     out = tmp_path_cwd / "in_out.sdf"
     from rdkit import Chem
     from rdkit.Chem import AllChem
+
     with Chem.SDWriter(str(out)) as w:
         m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(m, randomSeed=1)
         m.SetProp("_Name", "mol1")
         w.write(m)
     from Auto3D.results import WorkflowResult
+
     monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
 
     result = runner.invoke(app, ["run", str(smi), "--k", "1", "--json"])
@@ -638,9 +642,7 @@ def test_quiet_releases_held_third_party_output_when_the_run_fails(
     )
 
 
-def test_json_error_document_is_emitted_when_the_command_fails(
-    runner, tmp_path_cwd
-):
+def test_json_error_document_is_emitted_when_the_command_fails(runner, tmp_path_cwd):
     """`--json` must leave a parseable document on stdout on the failure path too.
 
     A caller that parses stdout got an empty stream on every error, so it
@@ -695,9 +697,7 @@ def test_validate_json_reports_a_clean_file(runner, tmp_path_cwd):
     }
 
 
-def test_validate_json_reports_every_bad_entry_and_exits_nonzero(
-    runner, tmp_path_cwd
-):
+def test_validate_json_reports_every_bad_entry_and_exits_nonzero(runner, tmp_path_cwd):
     """The JSON document lists all failures, not the ten the human table shows."""
     import json
 
@@ -741,11 +741,18 @@ def test_json_document_is_not_colorized_on_a_terminal(tmp_path):
 
     master, slave = pty.openpty()
     process = subprocess.Popen(
-        [sys.executable, "-c",
-         "import sys; sys.argv = ['auto3d', *sys.argv[1:]];"
-         " from Auto3D.auto3Dcli import cli; cli()",
-         "validate", str(smi), "--json"],
-        stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.DEVNULL,
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.argv = ['auto3d', *sys.argv[1:]];"
+            " from Auto3D.auto3Dcli import cli; cli()",
+            "validate",
+            str(smi),
+            "--json",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=slave,
+        stderr=subprocess.DEVNULL,
     )
     os.close(slave)
     chunks = []
@@ -763,9 +770,7 @@ def test_json_document_is_not_colorized_on_a_terminal(tmp_path):
     assert process.wait(timeout=300) == 0
 
     on_terminal = b"".join(chunks)
-    assert b"\x1b" not in on_terminal, (
-        f"ANSI escapes in a --json document: {on_terminal!r}"
-    )
+    assert b"\x1b" not in on_terminal, f"ANSI escapes in a --json document: {on_terminal!r}"
     # A pty turns "\n" into "\r\n"; the document itself must still parse.
     assert json.loads(on_terminal.decode().replace("\r\n", "\n"))["success"] is True
 
@@ -836,9 +841,7 @@ def test_run_cli_k_override_substitutes_file_window(runner, tmp_path_cwd, monkey
 
     monkeypatch.setattr(a3d, "main", fake_main)
 
-    result = runner.invoke(
-        app, ["run", str(smi), "-c", str(cfg), "--k", "1", "--json"]
-    )
+    result = runner.invoke(app, ["run", str(smi), "-c", str(cfg), "--k", "1", "--json"])
 
     assert result.exit_code == 0, result.output
     assert captured["options"].k == 1
@@ -859,9 +862,14 @@ def test_run_cli_explicit_k_and_window_conflict_is_configuration_error(
     smi.write_text("CCO mol1\n")
 
     import Auto3D.auto3D as a3d
-    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("main() must not run when config validation fails")
-    ))
+
+    monkeypatch.setattr(
+        a3d,
+        "main",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("main() must not run when config validation fails")
+        ),
+    )
 
     result = runner.invoke(app, ["run", str(smi), "--k", "1", "--window", "2.0"])
 
@@ -891,9 +899,14 @@ def test_run_cli_yaml_config_bounds_violation_is_configuration_error(
     cfg.write_text("path: placeholder.smi\nk: 0\noptimizing_engine: ANI2xt\nuse_gpu: false\n")
 
     import Auto3D.auto3D as a3d
-    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("main() must not run when config validation fails")
-    ))
+
+    monkeypatch.setattr(
+        a3d,
+        "main",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("main() must not run when config validation fails")
+        ),
+    )
 
     result = runner.invoke(app, ["run", str(smi), "-c", str(cfg)])
 
@@ -901,9 +914,7 @@ def test_run_cli_yaml_config_bounds_violation_is_configuration_error(
     assert "Unexpected Error" not in result.output
 
 
-def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(
-    runner, tmp_path_cwd, monkeypatch
-):
+def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(runner, tmp_path_cwd, monkeypatch):
     """`auto3d run in.smi -c cfg.yaml` with `gpu_idx: {a: 1}` must exit 2 as
     a ConfigurationError -- not exit 1 under "Unexpected Error".
 
@@ -923,14 +934,18 @@ def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(
     smi.write_text("CCO mol1\n")
     cfg = tmp_path_cwd / "cfg.yaml"
     cfg.write_text(
-        "path: placeholder.smi\nk: 1\ngpu_idx:\n  a: 1\n"
-        "optimizing_engine: ANI2xt\nuse_gpu: false\n"
+        "path: placeholder.smi\nk: 1\ngpu_idx:\n  a: 1\noptimizing_engine: ANI2xt\nuse_gpu: false\n"
     )
 
     import Auto3D.auto3D as a3d
-    monkeypatch.setattr(a3d, "main", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("main() must not run when config validation fails")
-    ))
+
+    monkeypatch.setattr(
+        a3d,
+        "main",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("main() must not run when config validation fails")
+        ),
+    )
 
     result = runner.invoke(app, ["run", str(smi), "-c", str(cfg)])
 
@@ -940,6 +955,7 @@ def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(
 
 # Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
 # pinned without going through the CLI or a pipeline run at all.
+
 
 def test_exit_if_incomplete_raises_nonzero_when_failures_present():
     from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS, _exit_if_incomplete
@@ -977,6 +993,7 @@ def test_exit_if_incomplete_does_not_raise_when_no_failures():
 
 
 # Error handling tests
+
 
 def test_error_hint_configuration_error():
     """get_error_hint should return hint for ConfigurationError."""
@@ -1026,6 +1043,7 @@ def test_models_info_aimnet2_pd(runner):
     itself dropped it. Parse that line specifically.
     """
     from Auto3D.cli.app import app
+
     result = runner.invoke(app, ["models", "info", "aimnet2-pd"])
     assert result.exit_code == 0
 
@@ -1038,6 +1056,7 @@ def test_models_info_aimnet2_pd(runner):
 def test_models_info_aimnet2_alias(runner):
     """models info aimnet2 (the canonical default) must resolve to the AIMNET entry."""
     from Auto3D.cli.app import app
+
     result = runner.invoke(app, ["models", "info", "aimnet2"])
     assert result.exit_code == 0
     assert "AIMNet2" in result.stdout
@@ -1048,6 +1067,7 @@ def test_models_info_unkeyed_aimnet2_variant_resolves(runner):
     ENGINE_INFO block -- must resolve to the base AIMNet2 entry, not 'Unknown
     engine' (check_valid_configuration already accepts any aimnet2* name)."""
     from Auto3D.cli.app import app
+
     result = runner.invoke(app, ["models", "info", "aimnet2-future"])
     assert result.exit_code == 0, result.stdout
     assert "AIMNet2" in result.stdout
@@ -1056,6 +1076,7 @@ def test_models_info_unkeyed_aimnet2_variant_resolves(runner):
 def test_config_validate_missing_file(runner, tmp_path_cwd):
     """config validate on a missing file is now a Typer path-existence error (exit 2)."""
     from Auto3D.cli.app import app
+
     result = runner.invoke(app, ["config", "validate", "nonexistent.yaml"])
     assert result.exit_code == 2
     assert "does not exist" in result.output
@@ -1096,9 +1117,7 @@ def test_run_forwards_each_new_flag_to_auto3d_options(
     smi.write_text("CCO m1\n")
 
     with patch("Auto3D.auto3D.main", return_value="out.sdf") as m:
-        result = runner.invoke(
-            app, ["run", str(smi), "--k", "1", "--no-gpu", flag, value]
-        )
+        result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", flag, value])
 
     assert result.exit_code == 0, result.output
     assert m.called, f"{flag} prevented the run from starting"

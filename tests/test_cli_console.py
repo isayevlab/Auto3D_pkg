@@ -9,6 +9,7 @@ import pytest
 def test_console_exists():
     """Console singleton should exist."""
     from Auto3D.cli.console import console
+
     assert console is not None
 
 

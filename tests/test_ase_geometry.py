@@ -6,11 +6,16 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     sdf.write_text("")  # contents irrelevant; we stub optimizing + supplier
 
     class _Stub:
-        def __init__(self, *a, **k): pass
-        def run(self): pass
+        def __init__(self, *a, **k):
+            pass
+
+        def run(self):
+            pass
+
     monkeypatch.setattr(geo, "optimizing", _Stub)
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [])
     import torch
+
     monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
 
@@ -51,10 +56,9 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     monkeypatch.setattr(geo, "optimizing", _Stub)
     # The re-read supplier yields a None record, a record with no E_tot, and a
     # good one; only the good one should survive into the rewritten output.
-    monkeypatch.setattr(
-        geo.Chem, "SDMolSupplier", lambda *a, **k: [None, no_etot, good]
-    )
+    monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [None, no_etot, good])
     import torch
+
     monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
 

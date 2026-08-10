@@ -3,6 +3,7 @@
 torch.jit.script needs source access, so these live in a real module rather
 than being defined inside a test function.
 """
+
 from __future__ import annotations
 
 import torch
@@ -23,7 +24,7 @@ class ScriptableNNP(torch.nn.Module):
     def forward(
         self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
     ) -> torch.Tensor:
-        return (coords ** 2).sum(dim=(1, 2))
+        return (coords**2).sum(dim=(1, 2))
 
 
 class StochasticNNP(torch.nn.Module):
@@ -46,7 +47,7 @@ class StochasticNNP(torch.nn.Module):
     def forward(
         self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
     ) -> torch.Tensor:
-        return self.drop(coords ** 2).sum(dim=(1, 2))
+        return self.drop(coords**2).sum(dim=(1, 2))
 
 
 class ClassAttrOnlyNNP(torch.nn.Module):
@@ -58,4 +59,4 @@ class ClassAttrOnlyNNP(torch.nn.Module):
     def forward(
         self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
     ) -> torch.Tensor:
-        return (coords ** 2).sum(dim=(1, 2))
+        return (coords**2).sum(dim=(1, 2))

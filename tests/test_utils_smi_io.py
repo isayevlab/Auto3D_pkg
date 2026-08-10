@@ -1,4 +1,5 @@
 """Tests for Auto3D.utils.smi_io module."""
+
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,7 @@ class TestSmiles2Smi:
         assert result == str(output)
         assert output.exists()
         content = output.read_text()
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         assert len(lines) == 2
         # Each line should have SMILES and InChIKey
         for line in lines:
@@ -58,7 +59,7 @@ class TestSmiles2Smi:
         inchikey = parts[1]
         # InChIKey format: 14 chars + hyphen + 10 chars + hyphen + 1 char = 27 chars
         assert len(inchikey) == 27
-        assert inchikey.count('-') == 2
+        assert inchikey.count("-") == 2
 
     def test_preserves_smiles_string(self, tmp_path):
         """Original SMILES strings should be preserved in output."""
@@ -307,6 +308,7 @@ class TestHashHelpersBlankLines:
         assert len(lines) == 2
         assert all("@taut" in ln.split()[1] for ln in lines)
 
+
 class TestIterSmiRecords:
     """FIX A: shared lenient .smi parser used by all 7 call sites."""
 
@@ -329,9 +331,7 @@ class TestIterSmiRecords:
         line_no, smiles, mol_id = records[0]
         assert (smiles, mol_id) == ("CCN", "extra_a")
 
-    def test_on_malformed_skip_skips_one_token_line_with_warning(
-        self, tmp_path, caplog
-    ):
+    def test_on_malformed_skip_skips_one_token_line_with_warning(self, tmp_path, caplog):
         """on_malformed='skip' (default) skips a 1-token line and warns."""
         import logging
 

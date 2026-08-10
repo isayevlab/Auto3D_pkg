@@ -4,6 +4,7 @@
 Tests for the EnForce_ANI class which wraps model adapters
 and provides batched forward functionality.
 """
+
 from __future__ import annotations
 
 import warnings

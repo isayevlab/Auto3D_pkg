@@ -29,6 +29,7 @@ no longer applies: ``models/`` used to be reachable from ``import Auto3D.utils``
 via a module-scope import in ``utils/validation.py``, which audit M43 deferred
 into the two functions that use it.)
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

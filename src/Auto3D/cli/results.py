@@ -74,7 +74,9 @@ def print_results_summary(results: WorkflowResults) -> None:
     border_style = "green" if results.failed_count == 0 else "yellow"
     title_style = "bold green" if results.failed_count == 0 else "bold yellow"
 
-    console.print(Panel(stats, title=f"[{title_style}]Results[/{title_style}]", border_style=border_style))
+    console.print(
+        Panel(stats, title=f"[{title_style}]Results[/{title_style}]", border_style=border_style)
+    )
 
 
 def print_failures(failures: list[FailedMolecule], verbose: bool = False) -> None:
@@ -111,12 +113,14 @@ def output_json(results: WorkflowResults) -> None:
     Args:
         results: Workflow results to output.
     """
-    emit_json({
-        "success": results.failed_count == 0,
-        "molecules": results.success_count,
-        "failed": results.failed_count,
-        "conformers": results.total_conformers,
-        "output_file": results.output_path,
-        "elapsed_seconds": results.elapsed_seconds,
-        "failures": [{"name": f.name, "error": f.error} for f in results.failures],
-    })
+    emit_json(
+        {
+            "success": results.failed_count == 0,
+            "molecules": results.success_count,
+            "failed": results.failed_count,
+            "conformers": results.total_conformers,
+            "output_file": results.output_path,
+            "elapsed_seconds": results.elapsed_seconds,
+            "failures": [{"name": f.name, "error": f.error} for f in results.failures],
+        }
+    )

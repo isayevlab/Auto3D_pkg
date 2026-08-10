@@ -1,5 +1,6 @@
 # tests/test_model_adapter.py
 """Unit tests for the Model Adapter module."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,15 +28,26 @@ def test_model_adapter_interface(aimnet_model):
     adapter = aimnet_model
 
     # Test interface attributes exist
-    assert hasattr(adapter, 'coord_pad')
-    assert hasattr(adapter, 'species_pad')
-    assert hasattr(adapter, 'device')
+    assert hasattr(adapter, "coord_pad")
+    assert hasattr(adapter, "species_pad")
+    assert hasattr(adapter, "device")
 
     # Test forward signature on two real methane molecules.
-    coords = torch.tensor(
-        [[[0., 0, 0], [0.63, 0.63, 0.63], [-0.63, -0.63, 0.63],
-          [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]]
-    ).repeat(2, 1, 1).to(device)
+    coords = (
+        torch.tensor(
+            [
+                [
+                    [0.0, 0, 0],
+                    [0.63, 0.63, 0.63],
+                    [-0.63, -0.63, 0.63],
+                    [0.63, -0.63, -0.63],
+                    [-0.63, 0.63, -0.63],
+                ]
+            ]
+        )
+        .repeat(2, 1, 1)
+        .to(device)
+    )
     species = torch.tensor([[6, 1, 1, 1, 1], [6, 1, 1, 1, 1]], device=device)
     charges = torch.tensor([0.0, 0.0], device=device)
 
@@ -207,13 +219,11 @@ class TestANI2xtAdapter:
 
         class _ToyANI2xtModel(torch.nn.Module):
             def forward(self, species, coords):
-                return (coords ** 2).sum(dim=(1, 2))
+                return (coords**2).sum(dim=(1, 2))
 
         device = torch.device("cpu")
         adapter = ANI2xtAdapter.__new__(ANI2xtAdapter)
-        BaseModelAdapter.__init__(
-            adapter, _ToyANI2xtModel(), device, coord_pad=0.0, species_pad=-1
-        )
+        BaseModelAdapter.__init__(adapter, _ToyANI2xtModel(), device, coord_pad=0.0, species_pad=-1)
 
         coords = torch.randn(2, 4, 3)
         species = torch.tensor([[0, 1, 2, 3], [0, 1, 2, -1]])
@@ -223,9 +233,7 @@ class TestANI2xtAdapter:
         # _ToyANI2xtModel does not mask padding: E = sum(coords^2) over every
         # slot => dE/dx = 2*coords => F = -dE/dx = -2*coords, exactly like
         # test_custom_model_adapter_runs's reference calculation.
-        torch.testing.assert_close(
-            energy, (coords ** 2).sum(dim=(1, 2)), rtol=1e-5, atol=1e-6
-        )
+        torch.testing.assert_close(energy, (coords**2).sum(dim=(1, 2)), rtol=1e-5, atol=1e-6)
         torch.testing.assert_close(forces, -2.0 * coords, rtol=1e-5, atol=1e-6)
 
 
@@ -274,23 +282,19 @@ class TestANI2xAdapter:
         class _ToyANI2xModel(torch.nn.Module):
             def forward(self, species_coords):
                 species, coords = species_coords
-                energies = (coords ** 2).sum(dim=(1, 2)) / HARTREE_TO_EV
+                energies = (coords**2).sum(dim=(1, 2)) / HARTREE_TO_EV
                 return _SpeciesEnergies(species, energies)
 
         device = torch.device("cpu")
         adapter = ANI2xAdapter.__new__(ANI2xAdapter)
-        BaseModelAdapter.__init__(
-            adapter, _ToyANI2xModel(), device, coord_pad=0.0, species_pad=-1
-        )
+        BaseModelAdapter.__init__(adapter, _ToyANI2xModel(), device, coord_pad=0.0, species_pad=-1)
 
         coords = torch.randn(2, 4, 3, dtype=torch.float32)
         species = torch.tensor([[1, 6, 7, 8], [1, 6, 7, -1]])
         charges = torch.zeros(2)
         energy, forces = adapter.forward(coords, species, charges)
 
-        torch.testing.assert_close(
-            energy, (coords ** 2).sum(dim=(1, 2)), rtol=1e-5, atol=1e-6
-        )
+        torch.testing.assert_close(energy, (coords**2).sum(dim=(1, 2)), rtol=1e-5, atol=1e-6)
         torch.testing.assert_close(forces, -2.0 * coords, rtol=1e-5, atol=1e-6)
 
 
@@ -349,12 +353,16 @@ class TestCustomModelAdapter:
 
 def test_try_compile_uses_dynamic_default_mode(monkeypatch):
     import Auto3D.models.adapter as adapter
+
     captured = {}
+
     def fake_compile(model, **kwargs):
         captured.update(kwargs)
         return model
+
     monkeypatch.setattr(adapter.torch, "compile", fake_compile)
     import torch.nn as nn
+
     m = nn.Linear(2, 2)
     adapter._try_compile(m)
     assert captured.get("mode") == "default"
@@ -374,7 +382,7 @@ def test_aimnet2_adapter_energy_forces_water(aimnet_model):
     e, f = ad.forward(coord, species, charges)
     assert e.shape == (1,)
     assert f.shape == (1, 3, 3)
-    assert -3000 < float(e[0]) < -1000   # water total energy, eV
+    assert -3000 < float(e[0]) < -1000  # water total energy, eV
     assert ad.species_pad == 0 and ad.coord_pad == 0.0
 
 
@@ -385,12 +393,21 @@ def test_aimnet2_adapter_padded_batch_matches_unpadded(aimnet_model):
     Reuses the shared session ``aimnet_model`` adapter (read-only forward).
     """
     import torch
+
     ad = aimnet_model
 
-    water_c = torch.tensor([[0.,0,0],[0,0,0.97],[0,0.92,-0.25]])
-    water_n = torch.tensor([8,1,1])
-    meth_c = torch.tensor([[0.,0,0],[0.63,0.63,0.63],[-0.63,-0.63,0.63],[0.63,-0.63,-0.63],[-0.63,0.63,-0.63]])
-    meth_n = torch.tensor([6,1,1,1,1])
+    water_c = torch.tensor([[0.0, 0, 0], [0, 0, 0.97], [0, 0.92, -0.25]])
+    water_n = torch.tensor([8, 1, 1])
+    meth_c = torch.tensor(
+        [
+            [0.0, 0, 0],
+            [0.63, 0.63, 0.63],
+            [-0.63, -0.63, 0.63],
+            [0.63, -0.63, -0.63],
+            [-0.63, 0.63, -0.63],
+        ]
+    )
+    meth_n = torch.tensor([6, 1, 1, 1, 1])
 
     e_w, _ = ad.forward(water_c.unsqueeze(0), water_n.unsqueeze(0), torch.zeros(1))
     e_m, _ = ad.forward(meth_c.unsqueeze(0), meth_n.unsqueeze(0), torch.zeros(1))
@@ -399,15 +416,21 @@ def test_aimnet2_adapter_padded_batch_matches_unpadded(aimnet_model):
     # is passed explicitly (as pad_from_mols returns it); the adapter must not
     # re-derive it from `species == species_pad`, which would also delete a
     # legitimate atomic number 0 (an R-group `*` atom) -- audit C13.
-    bc = torch.zeros(2,5,3); bc[0,:3]=water_c; bc[1,:5]=meth_c
-    bn = torch.zeros(2,5,dtype=torch.long); bn[0,:3]=water_n; bn[1,:5]=meth_n
-    bm = torch.zeros(2,5,dtype=torch.bool); bm[0,:3]=True; bm[1,:5]=True
+    bc = torch.zeros(2, 5, 3)
+    bc[0, :3] = water_c
+    bc[1, :5] = meth_c
+    bn = torch.zeros(2, 5, dtype=torch.long)
+    bn[0, :3] = water_n
+    bn[1, :5] = meth_n
+    bm = torch.zeros(2, 5, dtype=torch.bool)
+    bm[0, :3] = True
+    bm[1, :5] = True
     e_b, f_b = ad.forward(bc, bn, torch.zeros(2), atom_mask=bm)
-    assert f_b.shape == (2,5,3)
+    assert f_b.shape == (2, 5, 3)
     assert abs(float(e_b[0]) - float(e_w[0])) < 1e-2  # padded water == solo water (NaN-free!)
     assert abs(float(e_b[1]) - float(e_m[0])) < 1e-2
     # padded slots of water (rows 3,4) carry zero force
-    assert torch.allclose(f_b[0,3:], torch.zeros(2,3), atol=1e-6)
+    assert torch.allclose(f_b[0, 3:], torch.zeros(2, 3), atol=1e-6)
 
 
 def test_custom_model_adapter_runs(tmp_path):
@@ -427,7 +450,7 @@ def test_custom_model_adapter_runs(tmp_path):
 
         def forward(self, species, coords, charges):
             # simple harmonic-ish energy = sum of squared coords per molecule
-            return (coords ** 2).sum(dim=(1, 2))
+            return (coords**2).sum(dim=(1, 2))
 
     p = tmp_path / "toy.pt"
     torch.jit.save(torch.jit.script(_Toy()), str(p))
@@ -445,7 +468,7 @@ def test_custom_model_adapter_runs(tmp_path):
     # path (audit M32).
     expected_forces = -2.0 * coords
     torch.testing.assert_close(f, expected_forces, rtol=1e-5, atol=1e-6)
-    expected_energy = (coords ** 2).sum(dim=(1, 2))
+    expected_energy = (coords**2).sum(dim=(1, 2))
     torch.testing.assert_close(e, expected_energy, rtol=1e-5, atol=1e-6)
 
 
@@ -456,6 +479,7 @@ class TestValidateOutputs:
 
     def test_finite_outputs_pass(self):
         from Auto3D.models.adapter import _validate_outputs
+
         energy = torch.tensor([-1.0, -2.0])
         forces = torch.zeros(2, 3, 3)
         assert _validate_outputs(energy, forces) is None
@@ -463,6 +487,7 @@ class TestValidateOutputs:
     def test_nan_energy_raises(self):
         from Auto3D.exceptions import NumericalError
         from Auto3D.models.adapter import _validate_outputs
+
         energy = torch.tensor([float("nan"), -2.0])
         forces = torch.zeros(2, 3, 3)
         with pytest.raises(NumericalError, match="NaN.*energy"):
@@ -471,6 +496,7 @@ class TestValidateOutputs:
     def test_inf_energy_raises(self):
         from Auto3D.exceptions import NumericalError
         from Auto3D.models.adapter import _validate_outputs
+
         energy = torch.tensor([float("inf"), -2.0])
         forces = torch.zeros(2, 3, 3)
         with pytest.raises(NumericalError, match="Inf.*energy"):
@@ -479,6 +505,7 @@ class TestValidateOutputs:
     def test_nan_forces_raises(self):
         from Auto3D.exceptions import NumericalError
         from Auto3D.models.adapter import _validate_outputs
+
         energy = torch.tensor([-1.0, -2.0])
         forces = torch.zeros(2, 3, 3)
         forces[1, 0, 0] = float("nan")
@@ -488,6 +515,7 @@ class TestValidateOutputs:
     def test_inf_forces_raises(self):
         from Auto3D.exceptions import NumericalError
         from Auto3D.models.adapter import _validate_outputs
+
         energy = torch.tensor([-1.0, -2.0])
         forces = torch.zeros(2, 3, 3)
         forces[0, 2, 1] = float("inf")
@@ -521,9 +549,12 @@ class TestAni2xtNetworksAreTableDriven:
 
         def mlp(a, b, c, d):
             return nn.Sequential(
-                nn.Linear(a, b), nn.CELU(0.1),
-                nn.Linear(b, c), nn.CELU(0.1),
-                nn.Linear(c, d), nn.CELU(0.1),
+                nn.Linear(a, b),
+                nn.CELU(0.1),
+                nn.Linear(b, c),
+                nn.CELU(0.1),
+                nn.Linear(c, d),
+                nn.CELU(0.1),
                 nn.Linear(d, 1),
             )
 
@@ -534,10 +565,17 @@ class TestAni2xtNetworksAreTableDriven:
         S_network = mlp(aev_dim, 160, 128, 96)
         F_network = mlp(aev_dim, 160, 128, 96)
         Cl_network = mlp(aev_dim, 160, 128, 96)
-        return nn.ModuleList([
-            H_network, C_network, N_network, O_network,
-            F_network, S_network, Cl_network,
-        ])
+        return nn.ModuleList(
+            [
+                H_network,
+                C_network,
+                N_network,
+                O_network,
+                F_network,
+                S_network,
+                Cl_network,
+            ]
+        )
 
     def test_the_shipped_checkpoint_loads_identically_both_ways(self):
         """The tripwire for the whole refactor: same weights, tensor for tensor.
@@ -600,12 +638,12 @@ class TestAni2xtNetworksAreTableDriven:
 
         net = _atomic_mlp(11, (5, 4, 3))
         kinds = [type(layer) for layer in net]
-        assert kinds == [
-            nn.Linear, nn.CELU, nn.Linear, nn.CELU, nn.Linear, nn.CELU, nn.Linear
-        ]
-        assert [ (l.in_features, l.out_features)
-                 for l in net if isinstance(l, nn.Linear) ] == [
-            (11, 5), (5, 4), (4, 3), (3, 1)
+        assert kinds == [nn.Linear, nn.CELU, nn.Linear, nn.CELU, nn.Linear, nn.CELU, nn.Linear]
+        assert [(l.in_features, l.out_features) for l in net if isinstance(l, nn.Linear)] == [
+            (11, 5),
+            (5, 4),
+            (4, 3),
+            (3, 1),
         ]
         assert all(l.alpha == 0.1 for l in net if isinstance(l, nn.CELU))
 
@@ -652,9 +690,7 @@ class TestEnergyIsDtypePreserving:
             def forward(self, species_coords):
                 species, coords = species_coords
                 seen.append(coords.dtype)
-                return _SpeciesEnergies(
-                    species, (coords ** 2).sum(dim=(1, 2)) / HARTREE_TO_EV
-                )
+                return _SpeciesEnergies(species, (coords**2).sum(dim=(1, 2)) / HARTREE_TO_EV)
 
         adapter = self._bypassed(ANI2xAdapter, _Recorder())
         coords = torch.randn(2, 4, 3, dtype=torch.float64)
@@ -681,7 +717,7 @@ class TestEnergyIsDtypePreserving:
         class _Recorder(torch.nn.Module):
             def forward(self, species, coords, charges):
                 seen.append((coords.dtype, charges.dtype))
-                return (coords ** 2).sum(dim=(1, 2))
+                return (coords**2).sum(dim=(1, 2))
 
         adapter = self._bypassed(CustomModelAdapter, _Recorder())
         coords = torch.randn(2, 4, 3, dtype=torch.float64)
@@ -707,7 +743,7 @@ class TestEnergyIsDtypePreserving:
 
         class _Toy(torch.nn.Module):
             def forward(self, species, coords):
-                return (coords ** 2).sum(dim=(1, 2))
+                return (coords**2).sum(dim=(1, 2))
 
         adapter = self._bypassed(ANI2xtAdapter, _Toy())
         leaf = torch.randn(2, 4, 3, dtype=torch.float64, requires_grad=True)
@@ -728,6 +764,5 @@ class TestEnergyIsDtypePreserving:
 
         adapter = FakeAdapter()
         coords = torch.randn(1, 3, 3, requires_grad=True)
-        energy = adapter.energy(coords, torch.ones(1, 3, dtype=torch.long),
-                                torch.zeros(1))
+        energy = adapter.energy(coords, torch.ones(1, 3, dtype=torch.long), torch.zeros(1))
         assert energy.requires_grad

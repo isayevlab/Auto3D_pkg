@@ -131,6 +131,7 @@ def test_run_subcommand_help():
     # '--' prefix separately from the option name, which splits the literal
     # '--engine' across escape codes. Stripping rejoins the text.
     import re
+
     out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
     # "-c" alone is trivially satisfied by "--max-confs" (which contains the
     # substring "-c") even if the -c/--config option were deleted outright.
@@ -255,23 +256,40 @@ class TestCLIExceptionHandling:
     # import of `aimnet` at all, keeping this exception-mapping test from
     # depending on that heavy optional dependency importing cleanly.
     _LEGACY_YAML = {
-        'path': '/fake/path.smi', 'k': 1, 'window': None, 'memory': None,
-        'capacity': 40, 'enumerate_tautomer': False, 'tauto_engine': 'rdkit',
-        'pKaNorm': True, 'isomer_engine': 'rdkit', 'max_confs': None,
-        'enumerate_isomer': True, 'mode_oe': 'classic', 'mpi_np': 4,
-        'optimizing_engine': 'ANI2xt', 'use_gpu': False, 'gpu_idx': 0,
-        'opt_steps': 2000, 'convergence_threshold': 0.01, 'patience': 250,
-        'threshold': 0.3, 'verbose': False, 'job_name': '',
+        "path": "/fake/path.smi",
+        "k": 1,
+        "window": None,
+        "memory": None,
+        "capacity": 40,
+        "enumerate_tautomer": False,
+        "tauto_engine": "rdkit",
+        "pKaNorm": True,
+        "isomer_engine": "rdkit",
+        "max_confs": None,
+        "enumerate_isomer": True,
+        "mode_oe": "classic",
+        "mpi_np": 4,
+        "optimizing_engine": "ANI2xt",
+        "use_gpu": False,
+        "gpu_idx": 0,
+        "opt_steps": 2000,
+        "convergence_threshold": 0.01,
+        "patience": 250,
+        "threshold": 0.3,
+        "verbose": False,
+        "job_name": "",
     }
 
     def _run_legacy_with_error(self, error):
         """Drive the legacy YAML path with main() raising `error`; return exit code."""
-        with patch('Auto3D.auto3D.main') as mock_main:
+        with patch("Auto3D.auto3D.main") as mock_main:
             mock_main.side_effect = error
-            with patch.object(sys, 'argv', ['auto3d', 'config.yaml']):
-                with patch('yaml.safe_load', return_value=dict(self._LEGACY_YAML)):
-                    with patch('builtins.open', MagicMock()), \
-                         patch('pathlib.Path.is_file', return_value=True):
+            with patch.object(sys, "argv", ["auto3d", "config.yaml"]):
+                with patch("yaml.safe_load", return_value=dict(self._LEGACY_YAML)):
+                    with (
+                        patch("builtins.open", MagicMock()),
+                        patch("pathlib.Path.is_file", return_value=True),
+                    ):
                         with pytest.raises(SystemExit) as exc_info:
                             cli()
                         return exc_info.value.code
@@ -374,7 +392,8 @@ class TestLegacyYamlReconciliation:
 
         with pytest.raises(SystemExit) as exc_info:
             self._drive(
-                tmp_path, monkeypatch,
+                tmp_path,
+                monkeypatch,
                 lambda options, **kw: WorkflowResult(
                     str(missing_output), failures=["chlorpromazine"]
                 ),
@@ -385,9 +404,7 @@ class TestLegacyYamlReconciliation:
         assert "chlorpromazine" in out, "the lost molecule was never named to the user"
         assert "1failed" in out
 
-    def test_a_clean_run_still_reports_success_and_exits_zero(
-        self, tmp_path, monkeypatch, capsys
-    ):
+    def test_a_clean_run_still_reports_success_and_exits_zero(self, tmp_path, monkeypatch, capsys):
         """Control: the same wiring with nothing missing must not exit at all.
 
         Without this, the test above would also pass if the new code exited 6
@@ -396,7 +413,8 @@ class TestLegacyYamlReconciliation:
         from Auto3D.results import WorkflowResult
 
         self._drive(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             lambda options, **kw: WorkflowResult(str(tmp_path / "combined.sdf"), failures=[]),
         )
 
@@ -404,9 +422,7 @@ class TestLegacyYamlReconciliation:
         assert "Results" in out
         assert "failed" not in out
 
-    def test_ctrl_c_reports_what_is_known_instead_of_nothing(
-        self, tmp_path, monkeypatch, capsys
-    ):
+    def test_ctrl_c_reports_what_is_known_instead_of_nothing(self, tmp_path, monkeypatch, capsys):
         """KeyboardInterrupt is a BaseException, so the blanket `except
         Exception` on this path could never see it: Ctrl-C printed nothing at
         all and the user was left guessing whether anything reached disk.

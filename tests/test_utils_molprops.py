@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Tests for Auto3D.utils.molprops module."""
+
 from __future__ import annotations
 
 from rdkit import Chem

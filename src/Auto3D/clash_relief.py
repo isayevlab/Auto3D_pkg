@@ -7,6 +7,7 @@ about stereochemistry. That is why it sits beside the embedding code rather
 than under ``Auto3D.utils``, whose modules are leaves that neither optimize nor
 judge.
 """
+
 from __future__ import annotations
 
 import logging
@@ -95,10 +96,7 @@ def relieve_clash(
     # inverted geometry as its reference and never notice. Reject the conformer
     # here instead; the embedder simply keeps the ones that survive.
     if stereo_descriptors_from_3d(mol, conf_id=conf_id) != before:
-        logger.warning(
-            "Discarding a conformer whose stereochemistry changed during clash "
-            "relief."
-        )
+        logger.warning("Discarding a conformer whose stereochemistry changed during clash relief.")
         return False
 
     positions = mol.GetConformer(conf_id).GetPositions()

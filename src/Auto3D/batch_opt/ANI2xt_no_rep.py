@@ -38,13 +38,13 @@ ani_2xt_dict = os.path.join(root, "models/ani2xt_no_repulsion.pt")
 #: which loads ``models/ani2xt_no_repulsion.pt`` both ways and compares every
 #: tensor.
 WIDTHS: tuple[tuple[int, int, int], ...] = (
-    (256, 192, 160),   # H
-    (224, 192, 160),   # C
-    (192, 160, 128),   # N
-    (192, 160, 128),   # O
-    (160, 128, 96),    # F
-    (160, 128, 96),    # S
-    (160, 128, 96),    # Cl
+    (256, 192, 160),  # H
+    (224, 192, 160),  # C
+    (192, 160, 128),  # N
+    (192, 160, 128),  # O
+    (160, 128, 96),  # F
+    (160, 128, 96),  # S
+    (160, 128, 96),  # Cl
 )
 
 
@@ -77,7 +77,9 @@ def _atomic_mlp(aev_dim: int, widths: tuple[int, int, int]) -> nn.Sequential:
 NUM_ELEMENTS: int = len(WIDTHS)
 
 
-def element_indices(species_idx: torch.Tensor, num_elements: int = NUM_ELEMENTS) -> list[torch.Tensor]:
+def element_indices(
+    species_idx: torch.Tensor, num_elements: int = NUM_ELEMENTS
+) -> list[torch.Tensor]:
     """Row indices of each element's atoms on the FLATTENED ``(batch*atoms,)`` axis.
 
     Returns exactly what ``[torch.nonzero(flat == e)[0] for e in range(n)]``
@@ -115,7 +117,7 @@ def element_indices(species_idx: torch.Tensor, num_elements: int = NUM_ELEMENTS)
     counts = torch.zeros(num_elements + 2, dtype=torch.long, device=flat.device)
     counts.scatter_add_(0, bucket, torch.ones_like(bucket))
     sizes = counts.tolist()  # the ONE host readback
-    return list(order.split(sizes))[1:num_elements + 1]
+    return list(order.split(sizes))[1 : num_elements + 1]
 
 
 def self_atomic_energies(
@@ -209,20 +211,48 @@ class ANI2xt(nn.Module):
         import torchani
 
         # setup constants and construct an AEV computer
-        Rcr = 5.2000e+00
-        Rca = 3.5000e+00
-        EtaR = 1.6000000e+01
-        ShfR = [9.0000000e-01, 1.1687500e+00, 1.4375000e+00, 1.7062500e+00, 1.9750000e+00, 2.2437500e+00, 2.5125000e+00, 2.7812500e+00, 3.0500000e+00, 3.3187500e+00, 3.5875000e+00, 3.8562500e+00, 4.1250000e+00, 4.3937500e+00, 4.6625000e+00, 4.9312500e+00]
-        Zeta = 3.2000000e+01
-        ShfZ = [1.9634954e-01, 5.8904862e-01, 9.8174770e-01, 1.3744468e+00, 1.7671459e+00, 2.1598449e+00, 2.5525440e+00, 2.9452431e+00]
-        EtaA = 8.0000000e+00
-        ShfA = [9.0000000e-01, 1.5500000e+00, 2.2000000e+00, 2.8500000e+00]
+        Rcr = 5.2000e00
+        Rca = 3.5000e00
+        EtaR = 1.6000000e01
+        ShfR = [
+            9.0000000e-01,
+            1.1687500e00,
+            1.4375000e00,
+            1.7062500e00,
+            1.9750000e00,
+            2.2437500e00,
+            2.5125000e00,
+            2.7812500e00,
+            3.0500000e00,
+            3.3187500e00,
+            3.5875000e00,
+            3.8562500e00,
+            4.1250000e00,
+            4.3937500e00,
+            4.6625000e00,
+            4.9312500e00,
+        ]
+        Zeta = 3.2000000e01
+        ShfZ = [
+            1.9634954e-01,
+            5.8904862e-01,
+            9.8174770e-01,
+            1.3744468e00,
+            1.7671459e00,
+            2.1598449e00,
+            2.5525440e00,
+            2.9452431e00,
+        ]
+        EtaA = 8.0000000e00
+        ShfA = [9.0000000e-01, 1.5500000e00, 2.2000000e00, 2.8500000e00]
         # species_order = [b'H', b'C', b'N', b'O', b'F', b'S', b'Cl']
-        species_order = ["H", 'C', 'N', 'O', 'F', 'S', 'Cl']
+        species_order = ["H", "C", "N", "O", "F", "S", "Cl"]
         num_species = len(species_order)
         # Use new torchani API (v2.3+)
         radial = torchani.aev.ANIRadial(eta=EtaR, shifts=ShfR, cutoff=Rcr)
-        angular = torchani.aev.ANIAngular(eta=EtaA, zeta=Zeta, shifts=ShfA, sections=ShfZ, cutoff=Rca)
+        angular = torchani.aev.ANIAngular(
+            eta=EtaA, zeta=Zeta, shifts=ShfA, sections=ShfZ, cutoff=Rca
+        )
         aev_computer = torchani.AEVComputer(radial, angular, num_species)
 
         aev_dim = aev_computer.out_dim
@@ -231,19 +261,21 @@ class ANI2xt(nn.Module):
         # nn.Sequential blocks. Order is ModuleList order -- H, C, N, O, F, S, Cl
         # -- matching Auto3D.models.species.ANI2XT_INDEX, and it is load-bearing:
         # the checkpoint's keys are positional indices.
-        self.networks = torch.nn.ModuleList(
-            [_atomic_mlp(aev_dim, widths) for widths in WIDTHS]
-        )
+        self.networks = torch.nn.ModuleList([_atomic_mlp(aev_dim, widths) for widths in WIDTHS])
         checkpoint = torch.load(state_dict, map_location=device, weights_only=True)
         self.networks.load_state_dict(checkpoint)
         # Move networks to device
         self.networks = self.networks.to(device)
 
         # Energy shifts for each element (H, C, N, O, F, S, Cl)
-        self.register_buffer('energy_shifts', torch.tensor(
-            [-0.5984, -38.0826, -54.7031, -75.1901, -99.8006, -398.1224, -460.1387],
-            device=device, dtype=torch.float64
-        ))
+        self.register_buffer(
+            "energy_shifts",
+            torch.tensor(
+                [-0.5984, -38.0826, -54.7031, -75.1901, -99.8006, -398.1224, -460.1387],
+                device=device,
+                dtype=torch.float64,
+            ),
+        )
         self.aev_computer = aev_computer.to(device)
         self._device = device
         self.periodic = periodic_table_index
@@ -325,7 +357,8 @@ class ANI2xt(nn.Module):
             elem_index = element_indices(species_idx, len(self.networks))
         if self_energies is None:
             self_energies = self_atomic_energies(
-                species_idx, self.energy_shifts, len(self.networks))
+                species_idx, self.energy_shifts, len(self.networks)
+            )
 
         # Per-atom energies, accumulated in float64 so the float64 energy_shifts
         # buffer is meaningful; the network output is float32 and is cast up

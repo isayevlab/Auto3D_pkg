@@ -2,6 +2,7 @@
 
 This module provides input validation and filtering utilities for the Auto3D pipeline.
 """
+
 from __future__ import annotations
 
 import os
@@ -138,8 +139,7 @@ def check_engine_supports_molecules(
     ]
     if incompatible:
         raise ConfigurationError(
-            f"Only AIMNET can handle: {incompatible}, but {optimizing_engine} "
-            "was parsed to Auto3D."
+            f"Only AIMNET can handle: {incompatible}, but {optimizing_engine} was parsed to Auto3D."
         )
 
 
@@ -183,8 +183,7 @@ def check_input(args: Any) -> None:
     isomer_engine = args.isomer_engine
     if ("OE_LICENSE" not in os.environ) and (isomer_engine == "omega"):
         raise DependencyError(
-            "Omega is used as the isomer engine, but OE_LICENSE is not detected. "
-            "Please use rdkit.",
+            "Omega is used as the isomer engine, but OE_LICENSE is not detected. Please use rdkit.",
             dependency_name="openeye",
         )
 
@@ -290,7 +289,9 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # cannot silently disagree about what a well-formed line looks like
     # (M25). The parser also tolerates ragged rows (extra whitespace columns
     # beyond SMILES+ID), matching the chunk loader's usecols=[0, 1].
-    smiles_all = [smiles for _line_no, smiles, _id in iter_smi_records(args.path, on_malformed="raise")]
+    smiles_all = [
+        smiles for _line_no, smiles, _id in iter_smi_records(args.path, on_malformed="raise")
+    ]
 
     logger.info(f"\tThere are {len(smiles_all)} SMILES in the input file {args.path}.")
     logger.info("\tAll SMILES and IDs are valid.")
@@ -458,11 +459,15 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     if use_gpu:
         if isinstance(gpu_idx, int):
             if gpu_idx >= torch.cuda.device_count():
-                errors.append(f"GPU index {gpu_idx} is invalid. Available GPUs: {torch.cuda.device_count()}")
+                errors.append(
+                    f"GPU index {gpu_idx} is invalid. Available GPUs: {torch.cuda.device_count()}"
+                )
         elif isinstance(gpu_idx, list):
             for idx in gpu_idx:
                 if idx >= torch.cuda.device_count():
-                    errors.append(f"GPU index {idx} is invalid. Available GPUs: {torch.cuda.device_count()}")
+                    errors.append(
+                        f"GPU index {idx} is invalid. Available GPUs: {torch.cuda.device_count()}"
+                    )
 
     # Resolve rather than prefix-match: `aimnet2-2025x` starts with "aimnet2"
     # and so used to pass here, then failed inside a worker where

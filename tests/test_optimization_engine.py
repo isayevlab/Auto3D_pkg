@@ -4,6 +4,7 @@
 Tests for the print_stats and n_steps functions which handle the main
 optimization loop for batch geometry optimization.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,10 +22,11 @@ class TestPrintStats:
     def test_print_stats_outputs_correctly(self, caplog):
         """print_stats should output convergence info with correct counts."""
         state = {
-            'numbers': torch.ones(10, 5),
-            'converged_mask': torch.tensor([True, True, False, False, False,
-                                            False, False, False, False, False]),
-            'oscillating_count': torch.zeros(10, 1),
+            "numbers": torch.ones(10, 5),
+            "converged_mask": torch.tensor(
+                [True, True, False, False, False, False, False, False, False, False]
+            ),
+            "oscillating_count": torch.zeros(10, 1),
         }
 
         with caplog.at_level(logging.INFO):
@@ -37,9 +39,9 @@ class TestPrintStats:
     def test_print_stats_all_converged(self, caplog):
         """print_stats should report all converged when all are done."""
         state = {
-            'numbers': torch.ones(5, 3),
-            'converged_mask': torch.tensor([True, True, True, True, True]),
-            'oscillating_count': torch.zeros(5, 1),
+            "numbers": torch.ones(5, 3),
+            "converged_mask": torch.tensor([True, True, True, True, True]),
+            "oscillating_count": torch.zeros(5, 1),
         }
 
         with caplog.at_level(logging.INFO):
@@ -52,9 +54,11 @@ class TestPrintStats:
     def test_print_stats_with_oscillating(self, caplog):
         """print_stats should report dropped structures correctly."""
         state = {
-            'numbers': torch.ones(6, 3),
-            'converged_mask': torch.tensor([True, True, True, False, False, False]),
-            'oscillating_count': torch.tensor([[150], [150], [50], [0], [0], [0]], dtype=torch.float),
+            "numbers": torch.ones(6, 3),
+            "converged_mask": torch.tensor([True, True, True, False, False, False]),
+            "oscillating_count": torch.tensor(
+                [[150], [150], [50], [0], [0], [0]], dtype=torch.float
+            ),
         }
 
         # patience=100, so structures with count >= 100 are considered dropped
@@ -71,9 +75,9 @@ class TestPrintStats:
     def test_print_stats_empty_batch(self, caplog):
         """print_stats should handle empty batches gracefully."""
         state = {
-            'numbers': torch.ones(0, 5),
-            'converged_mask': torch.tensor([], dtype=torch.bool),
-            'oscillating_count': torch.zeros(0, 1),
+            "numbers": torch.ones(0, 5),
+            "converged_mask": torch.tensor([], dtype=torch.bool),
+            "oscillating_count": torch.zeros(0, 1),
         }
 
         with caplog.at_level(logging.INFO):
@@ -84,9 +88,9 @@ class TestPrintStats:
     def test_print_stats_flushes_output(self, caplog):
         """print_stats should produce log output."""
         state = {
-            'numbers': torch.ones(2, 3),
-            'converged_mask': torch.tensor([False, False]),
-            'oscillating_count': torch.zeros(2, 1),
+            "numbers": torch.ones(2, 3),
+            "converged_mask": torch.tensor([False, False]),
+            "oscillating_count": torch.zeros(2, 1),
         }
 
         # This test verifies the function completes without error
@@ -106,22 +110,22 @@ class TestNSteps:
         # Return low forces so structures converge immediately
         mock_nn.forward_batched.return_value = (
             torch.tensor([1.0, 2.0]),
-            torch.ones(2, 5, 3) * 0.001  # Very small forces
+            torch.ones(2, 5, 3) * 0.001,  # Very small forces
         )
 
         state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': torch.randn(2, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': torch.full((2,), 999.0, dtype=torch.double),
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": torch.randn(2, 5, 3),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": torch.full((2,), 999.0, dtype=torch.double),
         }
 
         n_steps(state, n=10, opttol=0.01, patience=100)
 
-        assert 'oscillating_count' in state
+        assert "oscillating_count" in state
 
     def test_n_steps_updates_converged_mask(self):
         """n_steps should update converged_mask for structures with low forces."""
@@ -129,47 +133,47 @@ class TestNSteps:
         # Return forces below opttol for all structures
         mock_nn.forward_batched.return_value = (
             torch.tensor([1.0, 2.0]),
-            torch.ones(2, 5, 3) * 0.001  # Forces much smaller than opttol
+            torch.ones(2, 5, 3) * 0.001,  # Forces much smaller than opttol
         )
 
         state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': torch.randn(2, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': torch.full((2,), 999.0, dtype=torch.double),
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": torch.randn(2, 5, 3),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": torch.full((2,), 999.0, dtype=torch.double),
         }
 
         n_steps(state, n=10, opttol=0.01, patience=100)
 
         # Both structures should converge since forces are below threshold
-        assert state['converged_mask'].all()
+        assert state["converged_mask"].all()
 
     def test_n_steps_updates_energy(self):
         """n_steps should update energy values in state."""
         mock_nn = MagicMock()
         mock_nn.forward_batched.return_value = (
             torch.tensor([-10.0, -20.0]),  # Energies
-            torch.ones(2, 5, 3) * 0.001  # Small forces to converge
+            torch.ones(2, 5, 3) * 0.001,  # Small forces to converge
         )
 
         initial_energy = torch.full((2,), 999.0, dtype=torch.double)
         state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': torch.randn(2, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': initial_energy.clone(),
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": torch.randn(2, 5, 3),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": initial_energy.clone(),
         }
 
         n_steps(state, n=10, opttol=0.01, patience=100)
 
         # Energies should be updated from initial 999.0
-        assert not torch.equal(state['energy'], initial_energy)
+        assert not torch.equal(state["energy"], initial_energy)
 
     def test_n_steps_updates_coordinates(self):
         """n_steps should update coordinates during optimization."""
@@ -177,24 +181,24 @@ class TestNSteps:
         # Return non-trivial forces so optimizer moves atoms
         mock_nn.forward_batched.return_value = (
             torch.tensor([1.0, 2.0]),
-            torch.randn(2, 5, 3) * 0.1  # Moderate forces
+            torch.randn(2, 5, 3) * 0.1,  # Moderate forces
         )
 
         initial_coord = torch.randn(2, 5, 3)
         state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': initial_coord.clone(),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': torch.full((2,), 999.0, dtype=torch.double),
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": initial_coord.clone(),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": torch.full((2,), 999.0, dtype=torch.double),
         }
 
         n_steps(state, n=5, opttol=0.001, patience=100)
 
         # Coordinates should have been modified
-        assert not torch.equal(state['coord'], initial_coord)
+        assert not torch.equal(state["coord"], initial_coord)
 
     def test_n_steps_stops_when_all_converged(self):
         """n_steps should stop early when all structures converge."""
@@ -210,13 +214,13 @@ class TestNSteps:
         mock_nn.forward_batched.side_effect = mock_forward
 
         state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': torch.randn(2, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': torch.full((2,), 999.0, dtype=torch.double),
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": torch.randn(2, 5, 3),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": torch.full((2,), 999.0, dtype=torch.double),
         }
 
         n_steps(state, n=100, opttol=0.01, patience=1000)
@@ -240,22 +244,22 @@ class TestNSteps:
         mock_nn.forward_batched.side_effect = mock_forward
 
         state = {
-            'numbers': torch.ones(2, 5, dtype=torch.long),
-            'charges': torch.zeros(2, dtype=torch.long),
-            'coord': torch.randn(2, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False]),
-            'fmax': torch.full((2,), 999.0),
-            'energy': torch.full((2,), 999.0, dtype=torch.double),
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": torch.randn(2, 5, 3),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": torch.full((2,), 999.0, dtype=torch.double),
         }
 
         # With patience=5, structures should be dropped after 5 steps without improvement
         n_steps(state, n=20, opttol=0.01, patience=5)
 
         # Both structures should be marked as converged (dropped due to oscillation)
-        assert state['converged_mask'].all()
+        assert state["converged_mask"].all()
         # oscillating_count should be >= patience for dropped structures
-        assert (state['oscillating_count'] >= 5).all()
+        assert (state["oscillating_count"] >= 5).all()
 
 
 class _ConstantForceNN:
@@ -313,24 +317,26 @@ def _run_constant_force(
     batch, where the mask is always all-True or all-False).
     """
     nn = _ConstantForceNN(force_per_atom, energy_stable)
-    numbers = torch.stack([
-        torch.full((4,), species[0], dtype=torch.long),
-        torch.full((4,), species[1], dtype=torch.long),
-    ])
+    numbers = torch.stack(
+        [
+            torch.full((4,), species[0], dtype=torch.long),
+            torch.full((4,), species[1], dtype=torch.long),
+        ]
+    )
     state = {
-        'numbers': numbers,
-        'charges': torch.zeros(2, dtype=torch.long),
-        'coord': torch.zeros(2, 4, 3),
-        'nn': nn,
-        'converged_mask': torch.zeros(2, dtype=torch.bool),
-        'fmax': torch.full((2,), 999.0),
-        'energy': torch.full((2,), 999.0, dtype=torch.double),
+        "numbers": numbers,
+        "charges": torch.zeros(2, dtype=torch.long),
+        "coord": torch.zeros(2, 4, 3),
+        "nn": nn,
+        "converged_mask": torch.zeros(2, dtype=torch.bool),
+        "fmax": torch.full((2,), 999.0),
+        "energy": torch.full((2,), 999.0, dtype=torch.double),
     }
     # patience far above n so nothing is dropped as oscillating: the constant
     # force never decreases, so the oscillation counter climbs every step and
     # would otherwise mask the effect under test.
     n_steps(state, n=20, opttol=opttol, patience=1000)
-    return state['converged_mask'].tolist()
+    return state["converged_mask"].tolist()
 
 
 def test_convergence_outcome_never_depends_on_energy_stability():
@@ -366,7 +372,7 @@ def test_convergence_outcome_never_depends_on_energy_stability():
     cells green-to-red immediately.
     """
     opttol = 0.0625  # exact in binary, so the "at" cell is a true tie
-    regimes = {'below': opttol / 2, 'at': opttol, 'above': opttol * 2}
+    regimes = {"below": opttol / 2, "at": opttol, "above": opttol * 2}
 
     outcomes = {
         (label, stable): _run_constant_force(force, stable, opttol)
@@ -384,9 +390,9 @@ def test_convergence_outcome_never_depends_on_energy_stability():
 
     # And the outcome is exactly the force criterion, in both energy regimes.
     for stable in (True, False):
-        assert all(outcomes[('below', stable)]), "fmax < opttol must converge"
-        assert all(outcomes[('at', stable)]), "fmax == opttol must converge"
-        assert not any(outcomes[('above', stable)]), (
+        assert all(outcomes[("below", stable)]), "fmax < opttol must converge"
+        assert all(outcomes[("at", stable)]), "fmax == opttol must converge"
+        assert not any(outcomes[("above", stable)]), (
             "fmax > opttol must not converge, however stable the energy"
         )
 
@@ -401,9 +407,7 @@ def test_convergence_outcome_never_depends_on_energy_stability():
     # (species 6) is above it, so molecule 0 converges first and every
     # subsequent step runs on a one-row subset.
     for stable in (True, False):
-        mixed = _run_constant_force(
-            {1: opttol / 2, 6: opttol * 2}, stable, opttol, species=(1, 6)
-        )
+        mixed = _run_constant_force({1: opttol / 2, 6: opttol * 2}, stable, opttol, species=(1, 6))
         assert mixed == [True, False], (
             "in a mixed batch each molecule must be judged on its own force "
             f"after the subset gather, got {mixed} (energy_stable={stable})"
@@ -434,12 +438,16 @@ def test_fmax_ignores_padded_atoms():
             f[:, 0, :] = 100.0  # huge force on the real atom at index 0 (species 0)
             f[:, -1, :] = 100.0  # huge force on the (padded) last slot (also species 0)
             return e, f
+
     coord = torch.zeros(1, 3, 3)
     state = {
-        "coord": coord, "numbers": torch.tensor([[0, 8, 0]]),  # index 0 is real H; last is pad, both species 0
-        "charges": torch.zeros(1, dtype=torch.long), "nn": MockNN(),
+        "coord": coord,
+        "numbers": torch.tensor([[0, 8, 0]]),  # index 0 is real H; last is pad, both species 0
+        "charges": torch.zeros(1, dtype=torch.long),
+        "nn": MockNN(),
         "converged_mask": torch.zeros(1, dtype=torch.bool),
-        "fmax": torch.full((1,), 999.0), "energy": torch.full((1,), float("inf"), dtype=torch.double),
+        "fmax": torch.full((1,), 999.0),
+        "energy": torch.full((1,), float("inf"), dtype=torch.double),
     }
     atom_mask = torch.tensor([[True, True, False]])  # only the last slot is padding
     n_steps(state, n=1, opttol=0.01, patience=5, atom_mask=atom_mask)
@@ -456,7 +464,7 @@ def test_stored_energy_matches_stored_coord():
 
     class MockNN:
         def forward_batched(self, coord, numbers, charges, atom_mask=None):
-            e = (coord ** 2).sum(dim=(1, 2))
+            e = (coord**2).sum(dim=(1, 2))
             f = -2.0 * coord
             return e, f
 
@@ -492,7 +500,7 @@ def test_stored_fmax_matches_stored_coord():
 
     class MockNN:
         def forward_batched(self, coord, numbers, charges, atom_mask=None):
-            e = (coord ** 2).sum(dim=(1, 2))
+            e = (coord**2).sum(dim=(1, 2))
             f = -2.0 * coord
             return e, f
 
@@ -538,7 +546,7 @@ class TestConvergedAndFmaxDescribeTheSameGeometry:
             self.k = k
 
         def forward_batched(self, coord, numbers, charges, atom_mask=None):
-            return self.k * (coord ** 2).sum(dim=(1, 2)), -2.0 * self.k * coord
+            return self.k * (coord**2).sum(dim=(1, 2)), -2.0 * self.k * coord
 
     @staticmethod
     def _run(k: float, start: float, opttol: float) -> tuple[bool, float]:
@@ -585,27 +593,29 @@ class TestNStepsIntegration:
             batch_size = coord.shape[0]
             # Simulate forces that decrease with each step
             force_magnitude = max(0.001, 0.5 / step_count[0])
-            return torch.ones(batch_size) * (-step_count[0]), torch.ones(batch_size, coord.shape[1], 3) * force_magnitude
+            return torch.ones(batch_size) * (-step_count[0]), torch.ones(
+                batch_size, coord.shape[1], 3
+            ) * force_magnitude
 
         mock_nn = MagicMock()
         mock_nn.forward_batched.side_effect = mock_forward
 
         state = {
-            'numbers': torch.ones(3, 5, dtype=torch.long),
-            'charges': torch.zeros(3, dtype=torch.long),
-            'coord': torch.randn(3, 5, 3),
-            'nn': mock_nn,
-            'converged_mask': torch.tensor([False, False, False]),
-            'fmax': torch.full((3,), 999.0),
-            'energy': torch.full((3,), 999.0, dtype=torch.double),
+            "numbers": torch.ones(3, 5, dtype=torch.long),
+            "charges": torch.zeros(3, dtype=torch.long),
+            "coord": torch.randn(3, 5, 3),
+            "nn": mock_nn,
+            "converged_mask": torch.tensor([False, False, False]),
+            "fmax": torch.full((3,), 999.0),
+            "energy": torch.full((3,), 999.0, dtype=torch.double),
         }
 
         n_steps(state, n=100, opttol=0.01, patience=50)
 
         # Should have converged
-        assert state['converged_mask'].all()
+        assert state["converged_mask"].all()
         # fmax should be updated to reasonable values
-        assert (state['fmax'] < 999.0).all()
+        assert (state["fmax"] < 999.0).all()
 
 
 class TestOptimizationEngineImportPaths:
@@ -636,9 +646,9 @@ class TestPrintStatsBackwardCompatibility:
     def test_print_stats_uses_oscillating_count_key(self, caplog):
         """print_stats should use 'oscillating_count' key (correct spelling)."""
         state = {
-            'numbers': torch.ones(3, 5),
-            'converged_mask': torch.tensor([True, False, False]),
-            'oscillating_count': torch.tensor([[100], [0], [0]], dtype=torch.float),
+            "numbers": torch.ones(3, 5),
+            "converged_mask": torch.tensor([True, False, False]),
+            "oscillating_count": torch.tensor([[100], [0], [0]], dtype=torch.float),
         }
 
         # Should work with correctly spelled key

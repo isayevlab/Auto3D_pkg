@@ -10,6 +10,7 @@ have: it raised ``AttributeError: 'NoneType' object has no attribute
 
 Every test here now drives ``Auto3D.cli.config_schema.load_yaml_config``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

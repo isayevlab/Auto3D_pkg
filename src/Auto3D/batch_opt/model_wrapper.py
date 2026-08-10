@@ -4,6 +4,7 @@
 This module contains the EnForce_ANI class which wraps model adapters
 and provides batched forward functionality for calculating energies and forces.
 """
+
 from __future__ import annotations
 
 import torch
@@ -140,10 +141,7 @@ class EnForce_ANI(nn.Module):
         """
         return self.model.forward(coord, numbers, charges, atom_mask=atom_mask)
 
-
-    def _run_in_sub_batches(
-        self, coord: torch.Tensor, compute
-    ) -> list:
+    def _run_in_sub_batches(self, coord: torch.Tensor, compute) -> list:
         """Split the batch by molecule count and call ``compute`` on each slice.
 
         Shared by :meth:`forward_batched` and :meth:`energy_batched` so the
@@ -243,7 +241,9 @@ class EnForce_ANI(nn.Module):
         results = self._run_in_sub_batches(
             coord,
             lambda sub: self(
-                coord[sub], numbers[sub], charges[sub],
+                coord[sub],
+                numbers[sub],
+                charges[sub],
                 atom_mask=None if atom_mask is None else atom_mask[sub],
             ),
         )
@@ -326,7 +326,9 @@ class EnForce_ANI(nn.Module):
         results = self._run_in_sub_batches(
             coord,
             lambda sub: self.model.energy(
-                coord[sub], numbers[sub], charges[sub],
+                coord[sub],
+                numbers[sub],
+                charges[sub],
                 atom_mask=None if atom_mask is None else atom_mask[sub],
             ).detach(),
         )

@@ -1,5 +1,6 @@
 # tests/test_results.py
 """WorkflowResult is a backwards-compatible str carrying lazy run counts."""
+
 from __future__ import annotations
 
 import os

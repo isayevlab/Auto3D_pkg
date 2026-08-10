@@ -6,6 +6,7 @@ traceback and a suggestion; the same failure inside a worker is swallowed by
 ``optim_rank_wrapper``'s per-chunk handler and surfaces, if at all, as a run
 that quietly produced nothing.
 """
+
 from __future__ import annotations
 
 import os

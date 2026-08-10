@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Tests for ConformerRanker with optimized RMSD filtering."""
+
 from __future__ import annotations
 
 import os
@@ -30,11 +31,11 @@ def _create_mol_with_energy(
     mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, randomSeed=42)
     AllChem.MMFFOptimizeMolecule(mol)
-    mol.SetProp('_Name', name)
+    mol.SetProp("_Name", name)
     # converged=None leaves the property off entirely -- what every SDF that
     # batchopt did not write looks like.
     if converged is not None:
-        mol.SetProp('Converged', 'true' if converged else 'false')
+        mol.SetProp("Converged", "true" if converged else "false")
     set_e_tot_from_ev(mol, energy_ev)
     return mol
 
@@ -122,13 +123,17 @@ class TestConformerRankerWithOptimizedFiltering:
         counts = []
         for name, window in (("default", None), ("single_cluster", 100.0)):
             kwargs = {} if window is None else {"energy_cluster_window": window}
-            counts.append(len(ConformerRanker(
-                input_path=input_path,
-                out_path=str(tmp_path / f"output_{name}.sdf"),
-                threshold=0.3,
-                k=5,
-                **kwargs,
-            ).run()))
+            counts.append(
+                len(
+                    ConformerRanker(
+                        input_path=input_path,
+                        out_path=str(tmp_path / f"output_{name}.sdf"),
+                        threshold=0.3,
+                        k=5,
+                        **kwargs,
+                    ).run()
+                )
+            )
 
         assert counts[0] == counts[1]
         assert counts[0] == 1  # all identical molecules deduplicate to one
@@ -184,11 +189,13 @@ class TestConformerRankerTopK:
             k=2,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol", "mol", "mol"],
-            "energies": [-10.0, -9.0, -8.0],
-            "mols": [mol1, mol2, mol3],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol", "mol", "mol"],
+                "energies": [-10.0, -9.0, -8.0],
+                "mols": [mol1, mol2, mol3],
+            }
+        )
 
         results = ranker.top_k(df, k=2)
         # All are same molecule, so should get 1 unique
@@ -218,11 +225,13 @@ class TestConformerRankerTopK:
             k=1,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol", "mol", "mol"],
-            "energies": [-10.0, -9.0, -8.0],
-            "mols": [mol1, mol2, mol3],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol", "mol", "mol"],
+                "energies": [-10.0, -9.0, -8.0],
+                "mols": [mol1, mol2, mol3],
+            }
+        )
 
         results = ranker.top_k(df, k=1)
 
@@ -278,6 +287,7 @@ class TestConformerRankerTopK:
 
         # Sanity: the broken one fails check_connectivity, the valid one passes.
         from Auto3D.utils.connectivity import check_connectivity
+
         assert check_connectivity(mol_broken) is False
         assert check_connectivity(mol_valid) is True
 
@@ -288,11 +298,13 @@ class TestConformerRankerTopK:
             k=1,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol", "mol"],
-            "energies": [-10.0, -9.0],
-            "mols": [mol_broken, mol_valid],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol", "mol"],
+                "energies": [-10.0, -9.0],
+                "mols": [mol_broken, mol_valid],
+            }
+        )
 
         results = ranker.top_k(df, k=1)
 
@@ -311,6 +323,7 @@ class TestConformerRankerTopK:
         conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
 
         from Auto3D.utils.connectivity import check_connectivity
+
         assert check_connectivity(mol_broken) is False
 
         ranker = ConformerRanker(
@@ -320,11 +333,13 @@ class TestConformerRankerTopK:
             k=1,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol"],
-            "energies": [-10.0],
-            "mols": [mol_broken],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol"],
+                "energies": [-10.0],
+                "mols": [mol_broken],
+            }
+        )
 
         results = ranker.top_k(df, k=1)
         assert results == []
@@ -352,11 +367,13 @@ class TestConformerRankerTopWindow:
             window=1.0,  # 1 kcal/mol window
         )
 
-        df = pd.DataFrame({
-            "names": ["mol", "mol", "mol"],
-            "energies": [-10.0, -9.5, -5.0],
-            "mols": [mol1, mol2, mol3],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol", "mol", "mol"],
+                "energies": [-10.0, -9.5, -5.0],
+                "mols": [mol1, mol2, mol3],
+            }
+        )
 
         results = ranker.top_window(df, window=1.0)
         # mol1 and mol2 are different structures, both within window
@@ -455,11 +472,13 @@ class TestConformerRankerValidation:
             k=2,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol_a", "mol_b"],
-            "energies": [-10.0, -9.0],
-            "mols": [mol1, mol2],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol_a", "mol_b"],
+                "energies": [-10.0, -9.0],
+                "mols": [mol1, mol2],
+            }
+        )
 
         with pytest.raises(ValueError, match="All molecules must have the same name"):
             ranker.top_k(df, k=2)
@@ -481,11 +500,13 @@ class TestConformerRankerValidation:
             window=1.0,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol"],
-            "energies": [-10.0],
-            "mols": [mol1],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol"],
+                "energies": [-10.0],
+                "mols": [mol1],
+            }
+        )
 
         with pytest.raises(ValueError, match="window must be non-negative"):
             ranker.top_window(df, window=-1.0)
@@ -508,11 +529,13 @@ class TestConformerRankerValidation:
             window=1.0,
         )
 
-        df = pd.DataFrame({
-            "names": ["mol_a", "mol_b"],
-            "energies": [-10.0, -9.0],
-            "mols": [mol1, mol2],
-        })
+        df = pd.DataFrame(
+            {
+                "names": ["mol_a", "mol_b"],
+                "energies": [-10.0, -9.0],
+                "mols": [mol1, mol2],
+            }
+        )
 
         with pytest.raises(ValueError, match="All molecules must have the same name"):
             ranker.top_window(df, window=1.0)
@@ -584,19 +607,19 @@ class TestConformerRankerMissingConvergedProp:
         _write_mols_to_sdf(mols, input_path)
 
         results = ConformerRanker(
-            input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=1,
         ).run()
 
         assert {mol.GetProp("_Name") for mol in results} == {
-            "ethanol", "propanol", "butanol",
+            "ethanol",
+            "propanol",
+            "butanol",
         }
-        assert os.path.getsize(output_path) > 0, (
-            "a non-empty input produced a 0-byte output file"
-        )
-        written = [
-            m for m in Chem.SDMolSupplier(output_path, removeHs=False)
-            if m is not None
-        ]
+        assert os.path.getsize(output_path) > 0, "a non-empty input produced a 0-byte output file"
+        written = [m for m in Chem.SDMolSupplier(output_path, removeHs=False) if m is not None]
         assert len(written) == 3
 
     def test_an_explicit_false_is_still_dropped(self, tmp_path):
@@ -611,7 +634,10 @@ class TestConformerRankerMissingConvergedProp:
         _write_mols_to_sdf([good, bad], input_path)
 
         results = ConformerRanker(
-            input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=1,
         ).run()
 
         names = {mol.GetProp("_Name") for mol in results}
@@ -636,7 +662,10 @@ class TestConformerRankerMissingConvergedProp:
         _write_mols_to_sdf([mol], input_path)
 
         ranker = ConformerRanker(
-            input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            k=1,
         )
         with pytest.raises(InputValidationError, match="has no 'E_tot' property"):
             ranker.run()
@@ -662,7 +691,10 @@ class TestConformerRankerMissingConvergedProp:
 
         with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
             results = ConformerRanker(
-                input_path=input_path, out_path=output_path, threshold=0.3, k=1,
+                input_path=input_path,
+                out_path=output_path,
+                threshold=0.3,
+                k=1,
             ).run()
 
         assert results == []
@@ -731,10 +763,7 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
         # Stand in for the optimizer: mark everything converged and make the
         # SECOND input much lower in energy, so a merged group would keep ITS
         # geometry under the FIRST molecule's name.
-        mols = [
-            m for m in Chem.SDMolSupplier(enumerated, removeHs=False)
-            if m is not None
-        ]
+        mols = [m for m in Chem.SDMolSupplier(enumerated, removeHs=False) if m is not None]
         assert mols, "the embedding step produced nothing to rank"
         seen_species = {species_id(m.GetProp("_Name")) for m in mols}
         assert seen_species == {key, key_2}, (
@@ -750,31 +779,29 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
 
         output = str(tmp_path / "ranked.sdf")
         results = ConformerRanker(
-            input_path=optimized, out_path=output, threshold=0.3, k=1,
+            input_path=optimized,
+            out_path=output,
+            threshold=0.3,
+            k=1,
         ).run()
 
         by_name = {mol.GetProp("_Name"): mol for mol in results}
         assert set(by_name) == {key, key_2}, (
-            f"expected one conformer per input molecule ({key}, {key_2}), got "
-            f"{sorted(by_name)}"
+            f"expected one conformer per input molecule ({key}, {key_2}), got {sorted(by_name)}"
         )
         # Identity, not just count: the record under each name must BE that
         # molecule, not the other one wearing its name.
         assert self._canonical(by_name[key]) == Chem.CanonSmiles(self.PYRIDONE)
-        assert self._canonical(by_name[key_2]) == Chem.CanonSmiles(
-            self.HYDROXYPYRIDINE
-        )
+        assert self._canonical(by_name[key_2]) == Chem.CanonSmiles(self.HYDROXYPYRIDINE)
         assert self._canonical(by_name[key]) != self._canonical(by_name[key_2])
 
-        written = [
-            m for m in Chem.SDMolSupplier(output, removeHs=False) if m is not None
-        ]
+        written = [m for m in Chem.SDMolSupplier(output, removeHs=False) if m is not None]
         assert {m.GetProp("_Name") for m in written} == {key, key_2}
         assert os.path.getsize(output) > 0
 
 
 class TestNothingSelectedSaysWhy:
-    """"No structure converged" used to be the message for every empty group.
+    """ "No structure converged" used to be the message for every empty group.
 
     ``ranking`` logged it whether the conformers were dropped for convergence,
     for stereochemistry (an optimization that inverted a center, so the geometry
@@ -790,11 +817,13 @@ class TestNothingSelectedSaysWhy:
         """A one-species ranking group, shaped the way ``run`` builds them."""
         import pandas as pd
 
-        return pd.DataFrame({
-            "names": [name] * len(mols),
-            "energies": [e_tot_ev(m) for m in mols],
-            "mols": mols,
-        })
+        return pd.DataFrame(
+            {
+                "names": [name] * len(mols),
+                "energies": [e_tot_ev(m) for m in mols],
+                "mols": mols,
+            }
+        )
 
     @staticmethod
     def _ranker(tmp_path, **kwargs):
@@ -822,8 +851,7 @@ class TestNothingSelectedSaysWhy:
     def test_a_stereo_dropped_species_is_not_called_unconverged(self, tmp_path, caplog):
         import logging
 
-        mols = [self._stereo_changed(-10.0, "probe_0_0"),
-                self._stereo_changed(-9.0, "probe_0_1")]
+        mols = [self._stereo_changed(-10.0, "probe_0_0"), self._stereo_changed(-9.0, "probe_0_1")]
         ranker = self._ranker(tmp_path, k=5)
 
         with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
@@ -834,9 +862,9 @@ class TestNothingSelectedSaysWhy:
             f"conformers dropped for stereochemistry were reported as an "
             f"optimizer convergence failure: {messages}"
         )
-        assert any(
-            "probe" in m and "stereochemistry" in m for m in messages
-        ), f"the real reason was never named: {messages}"
+        assert any("probe" in m and "stereochemistry" in m for m in messages), (
+            f"the real reason was never named: {messages}"
+        )
 
     def test_the_k1_fast_path_reports_the_same_reason(self, tmp_path, caplog):
         """k=1 bypasses the RMSD dedup entirely; the diagnostic must not
@@ -876,9 +904,7 @@ class TestNothingSelectedSaysWhy:
         assert not any("No structure converged" in m for m in messages), messages
         assert any("broken or newly formed bonds" in m for m in messages), messages
 
-    def test_the_literal_survives_when_convergence_is_the_sole_reason(
-        self, tmp_path, caplog
-    ):
+    def test_the_literal_survives_when_convergence_is_the_sole_reason(self, tmp_path, caplog):
         """The inverse, and the reason the assertions above are safe.
 
         A change that simply stopped emitting "No structure converged" would
@@ -897,14 +923,12 @@ class TestNothingSelectedSaysWhy:
         with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
             assert ranker.top_k(self._group(mols), k=5) == []
 
-        assert any(
-            m == "No structure converged for probe." for m in self._messages(caplog)
-        ), self._messages(caplog)
+        assert any(m == "No structure converged for probe." for m in self._messages(caplog)), (
+            self._messages(caplog)
+        )
 
-    def test_the_literal_is_not_emitted_alongside_another_reason(
-        self, tmp_path, caplog
-    ):
-        """"Only when that is the sole reason": a mixed group must not claim
+    def test_the_literal_is_not_emitted_alongside_another_reason(self, tmp_path, caplog):
+        """ "Only when that is the sole reason": a mixed group must not claim
         convergence."""
         import logging
 
@@ -920,9 +944,7 @@ class TestNothingSelectedSaysWhy:
         messages = self._messages(caplog)
         assert not any("No structure converged" in m for m in messages), messages
         # Both reasons are named, so the reader sees the whole accounting.
-        assert any(
-            "Converged=false" in m and "stereochemistry" in m for m in messages
-        ), messages
+        assert any("Converged=false" in m and "stereochemistry" in m for m in messages), messages
 
     def test_a_successful_selection_logs_no_complaint(self, tmp_path, caplog):
         """The other inverse: a group that DOES select must stay silent.
@@ -970,9 +992,7 @@ class TestNothingSelectedSaysWhy:
         assert len(ranker.top_window(self._group(mols), window=1000.0)) == 2
         assert ranker._drop_totals == {}
 
-    def test_the_run_level_warning_names_the_reasons_that_fired(
-        self, tmp_path, caplog
-    ):
+    def test_the_run_level_warning_names_the_reasons_that_fired(self, tmp_path, caplog):
         """``run``'s "selected 0 structures" warning used to list every reason
         it MIGHT have been.
 
@@ -987,8 +1007,7 @@ class TestNothingSelectedSaysWhy:
 
         from Auto3D.ranking import ConformerRanker
 
-        mols = [self._stereo_changed(-10.0, "probe_0_0"),
-                self._stereo_changed(-9.0, "probe_0_1")]
+        mols = [self._stereo_changed(-10.0, "probe_0_0"), self._stereo_changed(-9.0, "probe_0_1")]
         input_path = str(tmp_path / "in.sdf")
         _write_mols_to_sdf(mols, input_path)
 
@@ -1001,22 +1020,14 @@ class TestNothingSelectedSaysWhy:
         with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
             assert ranker.run() == []
 
-        warnings = [
-            r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-        ]
-        assert any("Selected 0 structures from 2 record(s)" in m for m in warnings), (
-            warnings
-        )
-        assert any(
-            "changed stereochemistry during optimization" in m for m in warnings
-        ), warnings
+        warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("Selected 0 structures from 2 record(s)" in m for m in warnings), warnings
+        assert any("changed stereochemistry during optimization" in m for m in warnings), warnings
         assert not any("Converged=false" in m for m in warnings), (
             f"nothing was unconverged, yet convergence was named: {warnings}"
         )
 
-    def test_the_run_level_warning_still_names_convergence_when_it_applies(
-        self, tmp_path, caplog
-    ):
+    def test_the_run_level_warning_still_names_convergence_when_it_applies(self, tmp_path, caplog):
         """The inverse: records dropped before grouping (for convergence, or
         because RDKit could not parse them) are counted in the same tally."""
         import logging
@@ -1039,9 +1050,7 @@ class TestNothingSelectedSaysWhy:
         with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
             assert ranker.run() == []
 
-        warnings = [
-            r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-        ]
+        warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("2 marked Converged=false" in m for m in warnings), warnings
 
     def test_the_tally_is_reset_between_runs(self, tmp_path):
@@ -1054,24 +1063,24 @@ class TestNothingSelectedSaysWhy:
         # separately. Getting that wrong makes this test vacuous.
         dirty = str(tmp_path / "dirty.sdf")
         _write_mols_to_sdf(
-            [self._stereo_changed(-10.0, "a_0_0"),
-             self._stereo_changed(-9.0, "a_0_1")],
+            [self._stereo_changed(-10.0, "a_0_0"), self._stereo_changed(-9.0, "a_0_1")],
             dirty,
         )
         clean = str(tmp_path / "clean.sdf")
         _write_mols_to_sdf([_create_mol_with_energy("CCO", -10.0, "b_0_0")], clean)
 
         ranker = ConformerRanker(
-            input_path=dirty, out_path=str(tmp_path / "out.sdf"), threshold=0.3, k=5,
+            input_path=dirty,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=5,
         )
         assert ranker.run() == []
         assert ranker._drop_totals == {"stereochemistry": 2}, "test premise"
 
         ranker.input_path = clean
         assert len(ranker.run()) == 1
-        assert ranker._drop_totals == {}, (
-            "the second run reported the first run's drops"
-        )
+        assert ranker._drop_totals == {}, "the second run reported the first run's drops"
 
 
 class TestSelectorDispatchRegistry:
@@ -1111,9 +1120,7 @@ class TestSelectorDispatchRegistry:
         )
 
         with pytest.raises(ImportError, match="out of step with"):
-            _verify_selector_registry(
-                _SELECTORS, ("k", "window", "percentile"), ConformerRanker
-            )
+            _verify_selector_registry(_SELECTORS, ("k", "window", "percentile"), ConformerRanker)
 
     def test_a_registry_entry_this_module_does_not_implement_is_refused(self):
         """A typo in a method name passes the set comparison, then raises
@@ -1164,17 +1171,13 @@ class TestSelectorDispatchRegistry:
                 mol.SetProp("E_rel(eV)", "0.0")
             return selected
 
-        monkeypatch.setattr(
-            ranking, "SELECTOR_FIELDS", ("k", "window", "percentile"), raising=True
-        )
+        monkeypatch.setattr(ranking, "SELECTOR_FIELDS", ("k", "window", "percentile"), raising=True)
         monkeypatch.setattr(
             ranking,
             "_SELECTORS",
             {"k": "top_k", "window": "top_window", "percentile": "top_percentile"},
         )
-        monkeypatch.setattr(
-            ConformerRanker, "top_percentile", top_percentile, raising=False
-        )
+        monkeypatch.setattr(ConformerRanker, "top_percentile", top_percentile, raising=False)
 
         mols = [_create_mol_with_energy("CCO", -10.0, "probe_0_0")]
         input_path = str(tmp_path / "in.sdf")

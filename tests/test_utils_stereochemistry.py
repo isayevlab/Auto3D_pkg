@@ -3,6 +3,7 @@
 This module tests stereochemistry-related utility functions including
 enantiomer detection, stereo info extraction, and configuration amendment.
 """
+
 import os
 import tempfile
 
@@ -257,16 +258,12 @@ class TestRemoveEnantiomers:
 
     def test_remove_enantiomers_basic(self):
         """Test basic enantiomer removal."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".smi", delete=False
-        ) as infile:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as infile:
             infile.write("C[C@H](O)F mol_1\n")
             infile.write("C[C@@H](O)F mol_2\n")
             inpath = infile.name
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".smi", delete=False
-        ) as outfile:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as outfile:
             outpath = outfile.name
 
         try:
@@ -278,9 +275,7 @@ class TestRemoveEnantiomers:
             # `"mol" in result` alone, or `len(lines) >= 1`, would still pass
             # if the enantiomer filter never removed anything at all.
             assert set(result.keys()) == {"mol"}
-            assert len(result["mol"]) == 1, (
-                f"a genuine enantiomer pair survived: {result['mol']}"
-            )
+            assert len(result["mol"]) == 1, f"a genuine enantiomer pair survived: {result['mol']}"
 
             # Check output file
             with open(outpath) as f:
@@ -292,16 +287,12 @@ class TestRemoveEnantiomers:
 
     def test_remove_enantiomers_no_stereo(self):
         """Test with molecules having no stereochemistry."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".smi", delete=False
-        ) as infile:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as infile:
             infile.write("CCO mol1_1\n")
             infile.write("CCCO mol2_1\n")
             inpath = infile.name
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".smi", delete=False
-        ) as outfile:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as outfile:
             outpath = outfile.name
 
         try:
@@ -344,9 +335,7 @@ class TestAmendConfiguration:
 
     def test_amend_configuration_complete(self):
         """Test with complete stereo enumeration."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".smi", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             # Single stereo center with both configurations
             f.write("C[C@H](O)F mol_1\n")
             f.write("C[C@@H](O)F mol_2\n")
@@ -367,9 +356,7 @@ class TestAmendConfiguration:
 
     def test_amend_configuration_w_writes_file(self):
         """Test that amend_configuration_w writes to file."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".smi", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             f.write("C[C@H](O)F mol_1\n")
             path = f.name
 
@@ -388,9 +375,7 @@ class TestAmendConfiguration:
         many values to unpack" on a line with a third whitespace column.
         """
         path = tmp_path / "in.smi"
-        path.write_text(
-            "C[C@H](O)F mol_1\n\n# comment\nC[C@@H](O)F mol_2\n"
-        )
+        path.write_text("C[C@H](O)F mol_1\n\n# comment\nC[C@@H](O)F mol_2\n")
 
         result = amend_configuration(str(path))
 
@@ -517,15 +502,15 @@ class TestEnantiomerHelperDiastereomers:
             Chem.MolFromSmiles(meso_inverted)
         ), "the two strings must denote one molecule or this test means nothing"
 
-        result = enantiomer_helper([
-            "O[C@H](C(=O)O)[C@H](O)C(=O)O",
-            meso,
-            "O[C@@H](C(=O)O)[C@@H](O)C(=O)O",
-            meso_inverted,
-        ])
-        assert len(result) == 2, (
-            f"tartaric acid must yield one of L/D plus meso, once: {result}"
+        result = enantiomer_helper(
+            [
+                "O[C@H](C(=O)O)[C@H](O)C(=O)O",
+                meso,
+                "O[C@@H](C(=O)O)[C@@H](O)C(=O)O",
+                meso_inverted,
+            ]
         )
+        assert len(result) == 2, f"tartaric acid must yield one of L/D plus meso, once: {result}"
 
 
 class TestAreEnantiomers:
@@ -555,15 +540,11 @@ class TestAreEnantiomers:
 
     def test_partially_inverted_two_center_diastereomer_is_not_enantiomers(self):
         """Inverting only one of two centers gives a diastereomer, not a pair."""
-        assert are_enantiomers(
-            "C[C@H](O)[C@H](F)Cl", "C[C@@H](O)[C@H](F)Cl"
-        ) is False
+        assert are_enantiomers("C[C@H](O)[C@H](F)Cl", "C[C@@H](O)[C@H](F)Cl") is False
 
     def test_fully_inverted_two_center_pair_is_enantiomers(self):
         """Inverting both centers of a two-center molecule gives its enantiomer."""
-        assert are_enantiomers(
-            "C[C@H](O)[C@H](F)Cl", "C[C@@H](O)[C@@H](F)Cl"
-        ) is True
+        assert are_enantiomers("C[C@H](O)[C@H](F)Cl", "C[C@@H](O)[C@@H](F)Cl") is True
 
     def test_unparseable_smiles_returns_false_without_raising(self):
         """Unparseable input is handled, not propagated as an exception."""

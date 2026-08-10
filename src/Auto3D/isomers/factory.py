@@ -20,6 +20,7 @@ Two constructors, deliberately asymmetric:
   keeps ``processors.py`` from importing ``Auto3D.isomer_engine`` directly, which
   is what its own tests monkeypatch.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -150,8 +151,7 @@ class IsomerEngineFactory:
         if engine_type not in _ENGINE_TYPES:
             available = ", ".join(f"'{e}'" for e in _ENGINE_TYPES)
             raise ValueError(
-                f"Unknown isomer engine type: '{engine_type}'. "
-                f"Supported types: {available}"
+                f"Unknown isomer engine type: '{engine_type}'. Supported types: {available}"
             )
 
         # The one kwarg-mapping site. Each branch names exactly the arguments
@@ -159,6 +159,7 @@ class IsomerEngineFactory:
         # unnoticed the way it could when three adapters each held a partial
         # copy of the same signature.
         if engine_type == "rdkit":
+
             def build_and_run() -> str:
                 return RDKitIsomer(
                     smi=input_path,
@@ -177,6 +178,7 @@ class IsomerEngineFactory:
                 ).run()
 
         elif engine_type == "rdkit_sdf":
+
             def build_and_run() -> str:
                 return RDKitSdfIsomer(
                     sdf=input_path,
@@ -188,6 +190,7 @@ class IsomerEngineFactory:
                 ).run()
 
         else:  # "omega" -- the only remaining possibility, checked above
+
             def build_and_run() -> str:
                 # oe_isomer is a function returning 0, not an engine object, so
                 # this is the one branch that still has an adapting step: run it
@@ -244,6 +247,5 @@ def create_tautomer_engine(
 
     else:
         raise ValueError(
-            f"Unknown tautomer engine type: '{engine_type}'. "
-            f"Supported types: 'rdkit', 'oechem'"
+            f"Unknown tautomer engine type: '{engine_type}'. Supported types: 'rdkit', 'oechem'"
         )

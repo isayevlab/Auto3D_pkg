@@ -5,6 +5,7 @@ Formal charge and the conformer budget: both are functions of the graph alone
 (no coordinates, no force field, no energy), which is what separates them from
 ``utils/geometry.py`` and ``utils/connectivity.py``.
 """
+
 from __future__ import annotations
 
 from rdkit import Chem
@@ -48,8 +49,7 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     num_heavy = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
 
     formula_count = int(
-        CONFORMER_MULTIPLIER * CONFORMER_ROTATABLE_COEFF *
-        (num_rotatable ** CONFORMER_ROTATABLE_EXP)
+        CONFORMER_MULTIPLIER * CONFORMER_ROTATABLE_COEFF * (num_rotatable**CONFORMER_ROTATABLE_EXP)
     )
 
     # Floor at 1: a heavy-atom-free species (e.g. [H+]) or a single atom must

@@ -7,6 +7,7 @@ Nothing checks opt.run()'s return value, so G is reported for structures the
 optimizer never converged (M8). And one unparseable SDF record aborts a batch
 that may already have computed hundreds of Hessians (M13).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -85,15 +86,11 @@ class TestBatchRobustness:
         # must independently reach the output with a Gibbs energy, and the
         # corrupt one must not have been counted or duplicated into a third
         # record.
-        with_g = {
-            m.GetProp("_Name") for m in results if m.HasProp("G_hartree")
-        }
+        with_g = {m.GetProp("_Name") for m in results if m.HasProp("G_hartree")}
         assert with_g == {"ethanol", "propanol"}, (
             f"expected both valid molecules to produce a thermo result, got {with_g}"
         )
-        assert len(results) == 2, (
-            f"expected exactly the two valid records, got {len(results)}"
-        )
+        assert len(results) == 2, f"expected exactly the two valid records, got {len(results)}"
 
 
 class TestStationaryPointGating:
@@ -144,9 +141,9 @@ class TestStationaryPointGating:
             "converged in a single BFGS step; calc_thermo's only implemented "
             "resolution for an unconverged geometry is to withhold G entirely"
         )
-        assert all(
-            m.GetProp("Thermo_failed") == "not_converged" for m in results
-        ), "the unconverged record was not marked Thermo_failed='not_converged'"
+        assert all(m.GetProp("Thermo_failed") == "not_converged" for m in results), (
+            "the unconverged record was not marked Thermo_failed='not_converged'"
+        )
 
 
 class TestHessianGeometry:

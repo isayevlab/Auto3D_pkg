@@ -30,6 +30,7 @@ class TestCreateEnantiomerStereoClasses:
         molecule's stereo enumeration.
         """
         from rdkit import Chem
+
         out = create_enantiomer(smi)
         assert Chem.MolFromSmiles(out) is not None, out
         assert "@@SP" not in out and "@@TH" not in out
@@ -46,9 +47,7 @@ class TestNoEnantiomerLengthMismatch:
         """Comparisons between different-length stereo infos are skipped, not
         raised, so amend_configuration no longer abandons the molecule."""
         # One marker vs two markers in the group: not enantiomers -> True.
-        result = no_enantiomer(
-            "C[C@H](O)CC", ["C[C@H](O)CC", "C[C@@H](O)[C@@H](F)Cl"]
-        )
+        result = no_enantiomer("C[C@H](O)CC", ["C[C@H](O)CC", "C[C@@H](O)[C@@H](F)Cl"])
         assert result is True
 
     def test_true_enantiomer_still_detected(self):
@@ -62,16 +61,16 @@ class TestEnantiomerValidation:
 
     def test_enantiomer_mismatched_lengths_raises_valueerror(self):
         """enantiomer() should raise ValueError for mismatched list lengths."""
-        l1 = [(0, 'R'), (1, 'S')]
-        l2 = [(0, 'R')]  # Different length
+        l1 = [(0, "R"), (1, "S")]
+        l2 = [(0, "R")]  # Different length
 
         with pytest.raises(ValueError, match="length"):
             enantiomer(l1, l2)
 
     def test_enantiomer_mismatched_lengths_error_message(self):
         """Error message should contain actual lengths."""
-        l1 = [(0, 'R'), (1, 'S'), (2, 'R')]
-        l2 = [(0, 'R')]
+        l1 = [(0, "R"), (1, "S"), (2, "R")]
+        l2 = [(0, "R")]
 
         with pytest.raises(ValueError) as exc_info:
             enantiomer(l1, l2)
@@ -82,16 +81,16 @@ class TestEnantiomerValidation:
 
     def test_enantiomer_mismatched_indices_raises_valueerror(self):
         """enantiomer() should raise ValueError for mismatched stereo center indices."""
-        l1 = [(0, 'R'), (1, 'S')]
-        l2 = [(0, 'S'), (5, 'R')]  # Second index doesn't match
+        l1 = [(0, "R"), (1, "S")]
+        l2 = [(0, "S"), (5, "R")]  # Second index doesn't match
 
         with pytest.raises(ValueError, match="indices"):
             enantiomer(l1, l2)
 
     def test_enantiomer_mismatched_indices_error_message(self):
         """Error message should contain mismatched indices and position."""
-        l1 = [(0, 'R'), (1, 'S')]
-        l2 = [(0, 'S'), (5, 'R')]
+        l1 = [(0, "R"), (1, "S")]
+        l2 = [(0, "S"), (5, "R")]
 
         with pytest.raises(ValueError) as exc_info:
             enantiomer(l1, l2)
@@ -103,16 +102,16 @@ class TestEnantiomerValidation:
 
     def test_enantiomer_valid_enantiomers_returns_true(self):
         """Valid enantiomers should return True without raising."""
-        l1 = [(0, 'R'), (1, 'S')]
-        l2 = [(0, 'S'), (1, 'R')]
+        l1 = [(0, "R"), (1, "S")]
+        l2 = [(0, "S"), (1, "R")]
 
         result = enantiomer(l1, l2)
         assert result is True
 
     def test_enantiomer_non_enantiomers_returns_false(self):
         """Non-enantiomers (same stereo at any center) should return False."""
-        l1 = [(0, 'R'), (1, 'S')]
-        l2 = [(0, 'R'), (1, 'R')]  # First stereo matches
+        l1 = [(0, "R"), (1, "S")]
+        l2 = [(0, "R"), (1, "R")]  # First stereo matches
 
         result = enantiomer(l1, l2)
         assert result is False
@@ -139,16 +138,16 @@ class TestNoEnantiomerHelperValidation:
 
     def test_no_enantiomer_helper_mismatched_lengths_raises_valueerror(self):
         """no_enantiomer_helper() should raise ValueError for mismatched lengths."""
-        info1 = ['@', '@@']
-        info2 = ['@']  # Different length
+        info1 = ["@", "@@"]
+        info2 = ["@"]  # Different length
 
         with pytest.raises(ValueError, match="length"):
             no_enantiomer_helper(info1, info2)
 
     def test_no_enantiomer_helper_mismatched_lengths_error_message(self):
         """Error message should contain actual lengths."""
-        info1 = ['@', '@@', '@']
-        info2 = ['@@']
+        info1 = ["@", "@@", "@"]
+        info2 = ["@@"]
 
         with pytest.raises(ValueError) as exc_info:
             no_enantiomer_helper(info1, info2)
@@ -159,16 +158,16 @@ class TestNoEnantiomerHelperValidation:
 
     def test_no_enantiomer_helper_enantiomers_returns_true(self):
         """Enantiomeric stereo info should return True."""
-        info1 = ['@', '@@']
-        info2 = ['@@', '@']
+        info1 = ["@", "@@"]
+        info2 = ["@@", "@"]
 
         result = no_enantiomer_helper(info1, info2)
         assert result is True
 
     def test_no_enantiomer_helper_non_enantiomers_returns_false(self):
         """Non-enantiomeric stereo info should return False."""
-        info1 = ['@', '@@']
-        info2 = ['@', '@']  # First symbol matches
+        info1 = ["@", "@@"]
+        info2 = ["@", "@"]  # First symbol matches
 
         result = no_enantiomer_helper(info1, info2)
         assert result is False
@@ -187,8 +186,8 @@ class TestNoAssertionError:
 
     def test_enantiomer_does_not_raise_assertion_error_for_length(self):
         """Should raise ValueError, not AssertionError, for length mismatch."""
-        l1 = [(0, 'R')]
-        l2 = [(0, 'S'), (1, 'R')]
+        l1 = [(0, "R")]
+        l2 = [(0, "S"), (1, "R")]
 
         with pytest.raises(ValueError):
             enantiomer(l1, l2)
@@ -203,8 +202,8 @@ class TestNoAssertionError:
 
     def test_enantiomer_does_not_raise_assertion_error_for_indices(self):
         """Should raise ValueError, not AssertionError, for index mismatch."""
-        l1 = [(0, 'R')]
-        l2 = [(1, 'S')]
+        l1 = [(0, "R")]
+        l2 = [(1, "S")]
 
         with pytest.raises(ValueError):
             enantiomer(l1, l2)
@@ -218,8 +217,8 @@ class TestNoAssertionError:
 
     def test_no_enantiomer_helper_does_not_raise_assertion_error(self):
         """Should raise ValueError, not AssertionError, for length mismatch."""
-        info1 = ['@']
-        info2 = ['@', '@@']
+        info1 = ["@"]
+        info2 = ["@", "@@"]
 
         with pytest.raises(ValueError):
             no_enantiomer_helper(info1, info2)

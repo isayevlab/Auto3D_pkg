@@ -14,6 +14,7 @@ Absence of the property means "not filtered on it", exactly as for
 ``Converged`` -- an optimizer output has never carried it and must not be
 deleted for that.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -85,11 +86,11 @@ def test_the_k1_fast_path_drops_it_too(tmp_path):
             w.write(m)
 
     out = ConformerRanker(
-        input_path=str(path), out_path=str(tmp_path / "out.sdf"),
-        threshold=0.3, k=1,
+        input_path=str(path),
+        out_path=str(tmp_path / "out.sdf"),
+        threshold=0.3,
+        k=1,
     ).run()
 
     assert len(out) == 1
-    assert out[0].GetProp("Thermo_failed") == "", (
-        "the k==1 fast path selected a saddle point"
-    )
+    assert out[0].GetProp("Thermo_failed") == "", "the k==1 fast path selected a saddle point"

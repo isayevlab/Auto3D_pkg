@@ -23,6 +23,7 @@ exact by construction. These tests build Hessians directly (synthetic ones with
 a prescribed spectrum, and real MMFF ones); no neural network potential is
 loaded anywhere.
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,8 +52,26 @@ from tests.helpers_vibrations import (
 
 #: A realistic 21-mode organic spectrum for a 9-atom molecule (ethanol).
 REAL_MODES = (
-    250, 300, 420, 800, 900, 1000, 1100, 1200, 1300, 1400,
-    1450, 1470, 2900, 2950, 3000, 3010, 3020, 3050, 3600, 3700,
+    250,
+    300,
+    420,
+    800,
+    900,
+    1000,
+    1100,
+    1200,
+    1300,
+    1400,
+    1450,
+    1470,
+    2900,
+    2950,
+    3000,
+    3010,
+    3020,
+    3050,
+    3600,
+    3700,
 )
 #: Translation/rotation eigenvalues at the magnitudes a converged NNP Hessian
 #: actually produces -- mixed real and imaginary, a few cm-1 either way. The
@@ -70,9 +89,7 @@ def _ethanol():
 class TestTheModeCountComesFromTheGeometry:
     def test_a_nonlinear_molecule_yields_exactly_3n_minus_6(self):
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         energies = projected_vibrations(atoms, hessian, "nonlinear")
         assert len(energies) == 3 * len(atoms) - 6 == 21
 
@@ -84,9 +101,7 @@ class TestTheModeCountComesFromTheGeometry:
         )
         energies = projected_vibrations(atoms, hessian, "linear")
         assert len(energies) == 3 * 3 - 5 == 4
-        assert sorted(wavenumbers(energies)) == pytest.approx(
-            [667, 667, 1333, 2349], abs=1e-6
-        )
+        assert sorted(wavenumbers(energies)) == pytest.approx([667, 667, 1333, 2349], abs=1e-6)
 
     def test_a_monatomic_species_has_no_vibrations(self):
         atoms = Atoms("Ar", [[0.0, 0.0, 0.0]])
@@ -168,13 +183,9 @@ class TestTheFixtureIsWhatAseWouldSee:
 
     def test_ase_reads_back_exactly_the_prescribed_3n_spectrum(self):
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [-20, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [-20, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         n_atoms = len(atoms)
-        raw = VibrationsData(
-            atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)
-        ).get_energies()
+        raw = VibrationsData(atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)).get_energies()
         assert sorted(wavenumbers(raw)) == pytest.approx(
             sorted([-20, *REAL_MODES, *TRANS_ROT_NOISE]), abs=1e-6
         )
@@ -183,13 +194,9 @@ class TestTheFixtureIsWhatAseWouldSee:
 class TestTranslationAndRotationNeverEnterTheSpectrum:
     def test_the_noise_modes_are_gone_and_every_vibration_survives(self):
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [-20, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [-20, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         energies = projected_vibrations(atoms, hessian, "nonlinear")
-        assert sorted(wavenumbers(energies)) == pytest.approx(
-            sorted([-20, *REAL_MODES]), abs=1e-6
-        )
+        assert sorted(wavenumbers(energies)) == pytest.approx(sorted([-20, *REAL_MODES]), abs=1e-6)
 
     def test_a_noise_mode_larger_than_a_real_vibration_is_still_removed(self):
         """The heuristic's one assumption, violated on purpose.
@@ -205,14 +212,10 @@ class TestTranslationAndRotationNeverEnterTheSpectrum:
         external = (120.0, -3.2, 3.4, -3.5, 3.7, -4.1)
         hessian = hessian_with_spectrum(atoms, vibrations, external, "nonlinear")
         energies = projected_vibrations(atoms, hessian, "nonlinear")
-        assert sorted(wavenumbers(energies)) == pytest.approx(
-            sorted(vibrations), abs=1e-6
-        )
+        assert sorted(wavenumbers(energies)) == pytest.approx(sorted(vibrations), abs=1e-6)
 
         n_atoms = len(atoms)
-        raw = VibrationsData(
-            atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)
-        ).get_energies()
+        raw = VibrationsData(atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)).get_energies()
         for label, rule in ASE_SELECTION_RULES.items():
             picked = sorted(wavenumbers(rule(raw, 3 * n_atoms - 6)))
             assert picked[0] == pytest.approx(120.0, abs=1e-6), (
@@ -240,9 +243,7 @@ class TestAgainstARealForceFieldHessian:
         n_atoms = len(atoms)
         n_vib = 3 * n_atoms - 6
         projected = sorted(wavenumbers(projected_vibrations(atoms, hessian, "nonlinear")))
-        raw = VibrationsData(
-            atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)
-        ).get_energies()
+        raw = VibrationsData(atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)).get_energies()
 
         for label, rule in ASE_SELECTION_RULES.items():
             heuristic = sorted(wavenumbers(rule(raw, n_vib)))
@@ -274,18 +275,16 @@ class TestAgainstARealForceFieldHessian:
         n_atoms = len(atoms)
         n_vib = 3 * n_atoms - 6
         projected = sorted(wavenumbers(projected_vibrations(atoms, hessian, "nonlinear")))
-        raw = VibrationsData(
-            atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)
-        ).get_energies()
+        raw = VibrationsData(atoms, hessian.reshape(n_atoms, 3, n_atoms, 3)).get_energies()
 
         assert sum(1 for w in projected if w < 0) == 2, (
             f"test premise: the displaced structure has two genuine imaginary "
             f"modes, got {[w for w in projected if w < 0]}"
         )
 
-        square_sorted = sorted(wavenumbers(ase_rule := ASE_SELECTION_RULES[
-            "square-sort (ASE >=3.28)"
-        ](raw, n_vib)))
+        square_sorted = sorted(
+            wavenumbers(ase_rule := ASE_SELECTION_RULES["square-sort (ASE >=3.28)"](raw, n_vib))
+        )
         assert ase_rule is not None
         assert all(w > 0 for w in square_sorted), (
             "test premise: the >=3.28 rule is supposed to discard every "
@@ -296,9 +295,9 @@ class TestAgainstARealForceFieldHessian:
             f"vibrational set, expected here; got {min(square_sorted)}"
         )
 
-        abs_sorted = sorted(wavenumbers(ASE_SELECTION_RULES[
-            "abs-sort (ASE 3.23-3.27)"
-        ](raw, n_vib)))
+        abs_sorted = sorted(
+            wavenumbers(ASE_SELECTION_RULES["abs-sort (ASE 3.23-3.27)"](raw, n_vib))
+        )
         assert abs_sorted != pytest.approx(projected, abs=1.0), (
             "the abs-sort rule is supposed to differ from the projected "
             "spectrum off a stationary point"
@@ -315,27 +314,21 @@ class TestTheProjectionReportsWhatItAssumed:
         that the separation is gone.
         """
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [0.0, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [0.0, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             energies = projected_vibrations(atoms, hessian, "nonlinear", name="floppy")
         assert len(energies) == 21, "the mode was dropped instead of reported"
-        assert any(
-            "not cleanly separated" in record.getMessage() for record in caplog.records
-        ), f"no warning for a collapsed separation: {[r.getMessage() for r in caplog.records]}"
+        assert any("not cleanly separated" in record.getMessage() for record in caplog.records), (
+            f"no warning for a collapsed separation: {[r.getMessage() for r in caplog.records]}"
+        )
 
     def test_a_healthy_spectrum_is_silent(self, caplog):
         """Non-vacuity: the warning must discriminate."""
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [35, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [35, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             projected_vibrations(atoms, hessian, "nonlinear", name="healthy")
-        assert not any(
-            "not cleanly separated" in record.getMessage() for record in caplog.records
-        )
+        assert not any("not cleanly separated" in record.getMessage() for record in caplog.records)
         # The threshold really is a ratio against the smallest kept mode, not
         # an absolute number: 35 cm-1 is small, and it stays silent.
         assert PROJECTION_RESIDUAL_FRACTION == 0.05
@@ -346,22 +339,16 @@ class TestTheProjectionReportsWhatItAssumed:
         masses[0] = 0.0
         atoms.set_masses(masses)
         with pytest.raises(ValueError, match="mass"):
-            projected_vibrations(
-                atoms, np.zeros((3 * len(atoms), 3 * len(atoms))), "nonlinear"
-            )
+            projected_vibrations(atoms, np.zeros((3 * len(atoms), 3 * len(atoms))), "nonlinear")
 
 
 class TestHessianShapeAndMasses:
     def test_the_four_index_hessian_ase_uses_is_accepted(self):
         _, atoms = _ethanol()
         n_atoms = len(atoms)
-        hessian = hessian_with_spectrum(
-            atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         flat = projected_vibrations(atoms, hessian, "nonlinear")
-        nested = projected_vibrations(
-            atoms, hessian.reshape(n_atoms, 3, n_atoms, 3), "nonlinear"
-        )
+        nested = projected_vibrations(atoms, hessian.reshape(n_atoms, 3, n_atoms, 3), "nonlinear")
         assert wavenumbers(flat) == pytest.approx(wavenumbers(nested), abs=1e-9)
 
     def test_an_asymmetric_hessian_is_symmetrized_before_diagonalizing(self):
@@ -373,17 +360,13 @@ class TestHessianShapeAndMasses:
         Hessian layout rather than on the physics.
         """
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         rng = np.random.default_rng(3)
         noise = rng.normal(0.0, 0.05, hessian.shape)
         antisymmetric = noise - noise.T
         clean = sorted(wavenumbers(projected_vibrations(atoms, hessian, "nonlinear")))
         perturbed = sorted(
-            wavenumbers(
-                projected_vibrations(atoms, hessian + antisymmetric, "nonlinear")
-            )
+            wavenumbers(projected_vibrations(atoms, hessian + antisymmetric, "nonlinear"))
         )
         assert perturbed == pytest.approx(clean, abs=1e-6), (
             "an antisymmetric perturbation changed the spectrum, so only one "
@@ -395,18 +378,14 @@ class TestHessianShapeAndMasses:
     def test_isotope_masses_reach_the_mass_weighting(self):
         """Deuteration must move the spectrum, or masses are being ignored."""
         _, atoms = _ethanol()
-        hessian = hessian_with_spectrum(
-            atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
         light = sorted(wavenumbers(projected_vibrations(atoms, hessian, "nonlinear")))
 
         heavy_atoms = atoms.copy()
         masses = np.asarray(heavy_atoms.get_masses(), dtype=float)
         masses[[a.index for a in heavy_atoms if a.symbol == "H"]] = 2.0141
         heavy_atoms.set_masses(masses)
-        heavy = sorted(
-            wavenumbers(projected_vibrations(heavy_atoms, hessian, "nonlinear"))
-        )
+        heavy = sorted(wavenumbers(projected_vibrations(heavy_atoms, hessian, "nonlinear")))
         assert max(heavy) < max(light) * 0.85, (
             "deuterating every hydrogen did not lower the highest stretch; the "
             "masses are not reaching the mass weighting"

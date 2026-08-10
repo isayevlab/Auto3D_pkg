@@ -11,6 +11,7 @@ exercised here in milliseconds against records built by hand. No model is loaded
 and no geometry is optimized; what is under test is the checking, not the
 chemistry.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -33,16 +34,17 @@ def _record(G: float, H: float, S: float, T: float = _T) -> Chem.Mol:
     """A stand-in for one record of a calc_thermo output SDF."""
     mol = Chem.MolFromSmiles("C")
     for name, value in (
-        ("G_hartree", G), ("H_hartree", H), ("S_hartree_per_K", S), ("T_K", T),
+        ("G_hartree", G),
+        ("H_hartree", H),
+        ("S_hartree_per_K", S),
+        ("T_K", T),
     ):
         mol.SetProp(name, str(value))
     return mol
 
 
 def _check(mol: Chem.Mol) -> None:
-    assert_thermo_record(
-        mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE
-    )
+    assert_thermo_record(mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE)
 
 
 def test_a_consistent_record_is_accepted():

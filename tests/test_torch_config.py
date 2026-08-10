@@ -1,5 +1,6 @@
 # tests/test_torch_config.py
 """Tests for TorchConfig and configure_torch functionality."""
+
 import pytest
 import torch
 
@@ -146,9 +147,7 @@ def _nondeterministic_op_raises() -> bool:
     report the flag; this reports what the flag does.
     """
     try:
-        torch.zeros(5).put_(
-            torch.tensor([0, 1]), torch.tensor([1.0, 2.0]), accumulate=False
-        )
+        torch.zeros(5).put_(torch.tensor([0, 1]), torch.tensor([1.0, 2.0]), accumulate=False)
     except RuntimeError:
         return True
     return False
@@ -236,9 +235,7 @@ class TestConfigureTorchLeavesUnrequestedGlobalsAlone:
 
         saved = self._snapshot()
         try:
-            configure_torch(
-                TorchConfig(deterministic=True, deterministic_warn_only=False)
-            )
+            configure_torch(TorchConfig(deterministic=True, deterministic_warn_only=False))
             assert torch.is_deterministic_algorithms_warn_only_enabled() is False
             assert _nondeterministic_op_raises(), (
                 "deterministic_warn_only=False was requested, but the op only "
@@ -289,6 +286,7 @@ class TestBatchoptNoHardcodedTF32:
         import importlib
 
         import Auto3D.batch_opt.batchopt
+
         importlib.reload(Auto3D.batch_opt.batchopt)
 
         # TF32 should still be True (not overridden by batchopt)

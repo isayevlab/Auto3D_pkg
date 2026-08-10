@@ -19,6 +19,7 @@ fake returning a synthetic Hessian with a known spectrum, and the
 model/calculator construction is monkeypatched exactly as
 ``test_thermo_helpers`` already does.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -53,13 +54,12 @@ class TestDoMolThermoMarksASaddlePoint:
     def test_a_saddle_point_is_marked_as_a_failure(self, monkeypatch):
         mol = _water("saddle")
         monkeypatch.setattr(
-            thermo_mod, "vib_hessian",
+            thermo_mod,
+            "vib_hessian",
             lambda *a, **k: _fake_vib(mol, SADDLE_MODES),
         )
 
-        result = thermo_mod.do_mol_thermo(
-            mol, _atoms_for(mol), adapter=None
-        )
+        result = thermo_mod.do_mol_thermo(mol, _atoms_for(mol), adapter=None)
 
         assert result.GetProp("Is_transition_state") == "True"
         assert result.GetProp(THERMO_FAILED_PROP) == TRANSITION_STATE_FAILURE
@@ -67,21 +67,18 @@ class TestDoMolThermoMarksASaddlePoint:
         # its numbers, and the mode that makes it a saddle point is named.
         assert result.HasProp("G_hartree")
         assert result.GetProp("N_imaginary_modes") == "1"
-        assert float(result.GetProp("Max_imaginary_mode_cm-1")) == pytest.approx(
-            400.0, abs=1.0
-        )
+        assert float(result.GetProp("Max_imaginary_mode_cm-1")) == pytest.approx(400.0, abs=1.0)
 
     def test_a_minimum_is_marked_as_a_success(self, monkeypatch):
         """Non-vacuity: the marker must discriminate, not fail everything."""
         mol = _water("minimum")
         monkeypatch.setattr(
-            thermo_mod, "vib_hessian",
+            thermo_mod,
+            "vib_hessian",
             lambda *a, **k: _fake_vib(mol, MINIMUM_MODES),
         )
 
-        result = thermo_mod.do_mol_thermo(
-            mol, _atoms_for(mol), adapter=None
-        )
+        result = thermo_mod.do_mol_thermo(mol, _atoms_for(mol), adapter=None)
 
         assert result.GetProp("Is_transition_state") == "False"
         assert result.GetProp(THERMO_FAILED_PROP) == ""
@@ -99,26 +96,21 @@ class TestTheWriterCannotEraseTheVerdict:
 
     def _written_records(self, tmp_path, out_mols, mols_failed):
         outpath = tmp_path / "out.sdf"
-        thermo_mod._write_thermo_output(
-            outpath, out_mols=out_mols, mols_failed=mols_failed
-        )
+        thermo_mod._write_thermo_output(outpath, out_mols=out_mols, mols_failed=mols_failed)
         records = [m for m in Chem.SDMolSupplier(str(outpath)) if m is not None]
         assert len(records) == len(out_mols) + len(mols_failed), (
             "a record was lost on the SDF round trip"
         )
         return records
 
-    def test_a_saddle_point_routed_as_a_success_still_fails_the_filter(
-        self, monkeypatch, tmp_path
-    ):
+    def test_a_saddle_point_routed_as_a_success_still_fails_the_filter(self, monkeypatch, tmp_path):
         mol = _water("saddle")
         monkeypatch.setattr(
-            thermo_mod, "vib_hessian",
+            thermo_mod,
+            "vib_hessian",
             lambda *a, **k: _fake_vib(mol, SADDLE_MODES),
         )
-        saddle = thermo_mod.do_mol_thermo(
-            mol, _atoms_for(mol), adapter=None
-        )
+        saddle = thermo_mod.do_mol_thermo(mol, _atoms_for(mol), adapter=None)
 
         records = self._written_records(tmp_path, [saddle], [])
         kept = [m for m in records if m.GetProp(THERMO_FAILED_PROP) == ""]
@@ -171,12 +163,8 @@ class TestCalcThermoRoutesASaddlePointToTheFailures:
         def fake_vib_hessian(mol, *a, **k):
             return _fake_vib(mol, spectra[mol.GetProp("_Name")])
 
-        monkeypatch.setattr(
-            thermo_mod, "create_model", lambda *a, **k: self._zero_force_model()
-        )
-        monkeypatch.setattr(
-            thermo_mod, "_load_hessian_model", lambda *a, **k: object()
-        )
+        monkeypatch.setattr(thermo_mod, "create_model", lambda *a, **k: self._zero_force_model())
+        monkeypatch.setattr(thermo_mod, "_load_hessian_model", lambda *a, **k: object())
         monkeypatch.setattr(thermo_mod, "vib_hessian", fake_vib_hessian)
 
         sdf = tmp_path / "in.sdf"
@@ -185,9 +173,7 @@ class TestCalcThermoRoutesASaddlePointToTheFailures:
                 writer.write(_water(name))
         out = tmp_path / "out.sdf"
 
-        thermo_mod.calc_thermo(
-            str(sdf), "AIMNET", use_gpu=False, out_path=str(out)
-        )
+        thermo_mod.calc_thermo(str(sdf), "AIMNET", use_gpu=False, out_path=str(out))
 
         records = [m for m in Chem.SDMolSupplier(str(out)) if m is not None]
         assert {m.GetProp("_Name") for m in records} == {"saddle", "minimum"}, (
@@ -200,9 +186,6 @@ class TestCalcThermoRoutesASaddlePointToTheFailures:
             f"{[(m.GetProp('_Name'), m.GetProp(THERMO_FAILED_PROP)) for m in records]}"
         )
         by_name = {m.GetProp("_Name"): m for m in records}
-        assert (
-            by_name["saddle"].GetProp(THERMO_FAILED_PROP)
-            == TRANSITION_STATE_FAILURE
-        )
+        assert by_name["saddle"].GetProp(THERMO_FAILED_PROP) == TRANSITION_STATE_FAILURE
         assert by_name["saddle"].GetProp("Is_transition_state") == "True"
         assert by_name["minimum"].GetProp("Is_transition_state") == "False"

@@ -43,6 +43,7 @@ Honest limits of the method
   are therefore a *lower* bound on rule 4 and exact for rules 1-3, which is the
   right direction: a regression can only ever be under-reported, never invented.
 """
+
 from __future__ import annotations
 
 import collections
@@ -111,8 +112,11 @@ def classify(func: object, args: tuple, kwargs: dict) -> str | None:
     if name.startswith("aten._to_copy"):
         src = args[0] if args else None
         dst_device = kwargs.get("device")
-        if (isinstance(src, torch.Tensor) and dst_device is not None
-                and torch.device(dst_device).type != src.device.type):
+        if (
+            isinstance(src, torch.Tensor)
+            and dst_device is not None
+            and torch.device(dst_device).type != src.device.type
+        ):
             return D2H_COPY
         return None
 
@@ -183,8 +187,10 @@ class SyncCounter(TorchDispatchMode):
         lines = [f"  {n:4d}  {label}" for label, n in sorted(self.counts.items())]
         if self.sites:
             lines.append("  sites:")
-            lines += [f"    {n:4d}  {label}\n          {site}"
-                      for (label, site), n in sorted(self.sites.items(), key=lambda kv: -kv[1])]
+            lines += [
+                f"    {n:4d}  {label}\n          {site}"
+                for (label, site), n in sorted(self.sites.items(), key=lambda kv: -kv[1])
+            ]
         return "\n".join(lines)
 
 

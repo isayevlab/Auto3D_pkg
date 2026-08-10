@@ -28,6 +28,7 @@ These tests assert two independent things:
   ``state['coord'][mask]``. CI has no GPU and can never time this loop, but it
   can count it exactly.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -63,7 +64,7 @@ class _AnisotropicHarmonic:
             [self.k[int(numbers[row, 0])] for row in range(coord.shape[0])],
             dtype=coord.dtype,
         ).reshape(-1, 1, 1)
-        energy = (kk * coord ** 2).sum(dim=(1, 2)).to(torch.double)
+        energy = (kk * coord**2).sum(dim=(1, 2)).to(torch.double)
         forces = -2.0 * kk * coord
         return energy, forces
 
@@ -376,22 +377,66 @@ _WIDE_K = {i: 0.5 + 0.37 * i for i in range(64)}
 
 # (label, nn factory, batch, natoms, n, opttol, patience, seed, atom_mask)
 _SCENARIOS = [
-    ("staggered convergence", lambda: _AnisotropicHarmonic(_STAGGERED_K),
-     8, 6, 2000, 0.01, 5000, 0, None),
-    ("staggered plus oscillation drops", lambda: _AnisotropicHarmonic(_STAGGERED_K),
-     8, 6, 2000, 1e-9, 20, 1, None),
+    (
+        "staggered convergence",
+        lambda: _AnisotropicHarmonic(_STAGGERED_K),
+        8,
+        6,
+        2000,
+        0.01,
+        5000,
+        0,
+        None,
+    ),
+    (
+        "staggered plus oscillation drops",
+        lambda: _AnisotropicHarmonic(_STAGGERED_K),
+        8,
+        6,
+        2000,
+        1e-9,
+        20,
+        1,
+        None,
+    ),
     ("all oscillating", _ConstantForce, 6, 5, 200, 0.01, 7, 2, None),
-    ("single molecule", lambda: _AnisotropicHarmonic(_STAGGERED_K),
-     1, 4, 500, 0.01, 5000, 3, None),
-    ("n=0, loop never runs", lambda: _AnisotropicHarmonic(_STAGGERED_K),
-     4, 4, 0, 0.01, 5000, 4, None),
+    ("single molecule", lambda: _AnisotropicHarmonic(_STAGGERED_K), 1, 4, 500, 0.01, 5000, 3, None),
+    (
+        "n=0, loop never runs",
+        lambda: _AnisotropicHarmonic(_STAGGERED_K),
+        4,
+        4,
+        0,
+        0.01,
+        5000,
+        4,
+        None,
+    ),
     ("large batch", lambda: _AnisotropicHarmonic(_WIDE_K), 64, 9, 800, 0.02, 300, 5, None),
-    ("padded batch, 2 ghost slots", lambda: _AnisotropicHarmonic(_STAGGERED_K),
-     8, 6, 2000, 0.01, 5000, 6, "two-ghosts"),
+    (
+        "padded batch, 2 ghost slots",
+        lambda: _AnisotropicHarmonic(_STAGGERED_K),
+        8,
+        6,
+        2000,
+        0.01,
+        5000,
+        6,
+        "two-ghosts",
+    ),
 ]
 _SCENARIOS += [
-    (f"randomized seed {seed}", lambda: _AnisotropicHarmonic(_STAGGERED_K),
-     8, 6, 400, 0.03, 60, seed, None)
+    (
+        f"randomized seed {seed}",
+        lambda: _AnisotropicHarmonic(_STAGGERED_K),
+        8,
+        6,
+        400,
+        0.03,
+        60,
+        seed,
+        None,
+    )
     for seed in range(7, 17)
 ]
 
@@ -406,8 +451,9 @@ class TestEngineMatchesBooleanMaskReference:
         _SCENARIOS,
         ids=[s[0] for s in _SCENARIOS],
     )
-    def test_state_is_bit_identical(self, label, nn_factory, batch, natoms, n,
-                                    opttol, patience, seed, mask_kind):
+    def test_state_is_bit_identical(
+        self, label, nn_factory, batch, natoms, n, opttol, patience, seed, mask_kind
+    ):
         """Every state tensor matches exactly -- ``torch.equal``, not ``allclose``.
 
         ``index_select(0, nonzero(m))`` and ``x[m]`` gather the same rows in the
@@ -425,16 +471,23 @@ class TestEngineMatchesBooleanMaskReference:
         production_state = _make_state(nn_factory(), batch, natoms, seed)
 
         _reference_n_steps(
-            reference_state, n=n, opttol=opttol, patience=patience,
+            reference_state,
+            n=n,
+            opttol=opttol,
+            patience=patience,
             atom_mask=None if atom_mask is None else atom_mask.clone(),
         )
         n_steps(
-            production_state, n=n, opttol=opttol, patience=patience,
+            production_state,
+            n=n,
+            opttol=opttol,
+            patience=patience,
             atom_mask=None if atom_mask is None else atom_mask.clone(),
         )
 
         mismatched = [
-            key for key in _STATE_KEYS
+            key
+            for key in _STATE_KEYS
             if not torch.equal(reference_state[key], production_state[key])
         ]
         assert not mismatched, (
@@ -456,6 +509,7 @@ class TestEngineMatchesBooleanMaskReference:
         changed. Observe the width of the batch handed to the model each step:
         a staggered run shrinks in several stages.
         """
+
         class _WidthRecorder:
             def __init__(self, inner):
                 self.inner = inner
@@ -463,8 +517,7 @@ class TestEngineMatchesBooleanMaskReference:
 
             def forward_batched(self, coord, numbers, charges, atom_mask=None):
                 self.widths.append(int(coord.shape[0]))
-                return self.inner.forward_batched(coord, numbers, charges,
-                                                  atom_mask=atom_mask)
+                return self.inner.forward_batched(coord, numbers, charges, atom_mask=atom_mask)
 
         recorder = _WidthRecorder(_AnisotropicHarmonic(_STAGGERED_K))
         state = _make_state(recorder, 8, 6, seed=0)
@@ -506,16 +559,24 @@ class TestStepForStepIdentity:
             atom_mask[:, -2:] = False
 
         for steps in range(1, 41):
-            reference_state = _make_state(
-                _AnisotropicHarmonic(_STAGGERED_K), batch, natoms, seed=0)
+            reference_state = _make_state(_AnisotropicHarmonic(_STAGGERED_K), batch, natoms, seed=0)
             production_state = _make_state(
-                _AnisotropicHarmonic(_STAGGERED_K), batch, natoms, seed=0)
+                _AnisotropicHarmonic(_STAGGERED_K), batch, natoms, seed=0
+            )
             _reference_n_steps(
-                reference_state, n=steps, opttol=0.05, patience=12,
-                atom_mask=None if atom_mask is None else atom_mask.clone())
+                reference_state,
+                n=steps,
+                opttol=0.05,
+                patience=12,
+                atom_mask=None if atom_mask is None else atom_mask.clone(),
+            )
             n_steps(
-                production_state, n=steps, opttol=0.05, patience=12,
-                atom_mask=None if atom_mask is None else atom_mask.clone())
+                production_state,
+                n=steps,
+                opttol=0.05,
+                patience=12,
+                atom_mask=None if atom_mask is None else atom_mask.clone(),
+            )
 
             for key in _STATE_KEYS:
                 assert torch.equal(reference_state[key], production_state[key]), (
@@ -559,12 +620,10 @@ class TestDecomposedHelpers:
         smallest = torch.full((4, 1), 999.0)
         active = torch.tensor([1, 3])
 
-        result = _step_active_subset(state, optimizer, active, smallest,
-                                     opttol=0.01, patience=100)
+        result = _step_active_subset(state, optimizer, active, smallest, opttol=0.01, patience=100)
 
         assert result.coord.shape == (2, 5, 3)
-        for field in (result.energy, result.fmax, result.still_active,
-                      result.oscillating_count):
+        for field in (result.energy, result.fmax, result.still_active, result.oscillating_count):
             assert field.shape[0] == 2
         assert result.smallest_fmax.shape == (2, 1)
         # And it left the full-batch state alone: writing is _scatter_back's job.
@@ -585,14 +644,19 @@ class TestDecomposedHelpers:
         smallest = torch.full((4, 1), 999.0)
         active = torch.tensor([1, 3])
 
-        _scatter_back(state, active, smallest, _StepResult(
-            coord=torch.ones(2, 5, 3),
-            energy=torch.full((2,), -1.0, dtype=torch.double),
-            fmax=torch.full((2,), 0.5),
-            still_active=torch.tensor([True, False]),
-            smallest_fmax=torch.full((2, 1), 0.5),
-            oscillating_count=torch.tensor([0, 4]),
-        ))
+        _scatter_back(
+            state,
+            active,
+            smallest,
+            _StepResult(
+                coord=torch.ones(2, 5, 3),
+                energy=torch.full((2,), -1.0, dtype=torch.double),
+                fmax=torch.full((2,), 0.5),
+                still_active=torch.tensor([True, False]),
+                smallest_fmax=torch.full((2, 1), 0.5),
+                oscillating_count=torch.tensor([0, 4]),
+            ),
+        )
 
         assert state["converged_mask"].tolist() == [False, False, False, True]
         assert state["fmax"].tolist() == [7.0, 0.5, 7.0, 0.5]
@@ -613,14 +677,19 @@ class TestDecomposedHelpers:
 
         state = self._state()
         smallest = torch.full((4, 1), 999.0)
-        _scatter_back(state, torch.tensor([0]), smallest, _StepResult(
-            coord=torch.ones(1, 5, 3, dtype=torch.float64),
-            energy=torch.zeros(1, dtype=torch.float32),
-            fmax=torch.full((1,), 0.25, dtype=torch.float64),
-            still_active=torch.tensor([True]),
-            smallest_fmax=torch.full((1, 1), 0.25, dtype=torch.float64),
-            oscillating_count=torch.tensor([2], dtype=torch.int32),
-        ))
+        _scatter_back(
+            state,
+            torch.tensor([0]),
+            smallest,
+            _StepResult(
+                coord=torch.ones(1, 5, 3, dtype=torch.float64),
+                energy=torch.zeros(1, dtype=torch.float32),
+                fmax=torch.full((1,), 0.25, dtype=torch.float64),
+                still_active=torch.tensor([True]),
+                smallest_fmax=torch.full((1, 1), 0.25, dtype=torch.float64),
+                oscillating_count=torch.tensor([2], dtype=torch.int32),
+            ),
+        )
         assert state["coord"].dtype is torch.float32
         assert state["fmax"].dtype is torch.float32
         assert state["energy"].dtype is torch.float64
@@ -654,8 +723,7 @@ class TestDecomposedHelpers:
         state["converged_mask"] = torch.tensor([True, True, False, False])
         events: list[dict] = []
         _emit_progress(state, patience=100, progress_cb=events.append, istep=7)
-        assert events == [{"step": 7, "total": 4, "converged": 2, "dropped": 0,
-                           "active": 2}]
+        assert events == [{"step": 7, "total": 4, "converged": 2, "dropped": 0, "active": 2}]
 
     def test_recompute_final_energy_and_fmax_uses_the_stored_coordinates(self):
         """Reported energy/fmax describe the reported geometry, not the pre-step one."""
@@ -671,10 +739,10 @@ class TestDecomposedHelpers:
         _recompute_final_energy_and_fmax(state)
 
         expected_energy = torch.tensor(
-            [_STAGGERED_K[i] * 5 * 3 * 0.25 for i in range(4)], dtype=torch.double)
+            [_STAGGERED_K[i] * 5 * 3 * 0.25 for i in range(4)], dtype=torch.double
+        )
         assert torch.allclose(state["energy"], expected_energy)
-        expected_fmax = torch.tensor(
-            [(2.0 * _STAGGERED_K[i] * 0.5) * (3 ** 0.5) for i in range(4)])
+        expected_fmax = torch.tensor([(2.0 * _STAGGERED_K[i] * 0.5) * (3**0.5) for i in range(4)])
         assert torch.allclose(state["fmax"], expected_fmax, rtol=1e-5)
 
     def test_recompute_ignores_padded_atom_forces(self):
@@ -690,8 +758,7 @@ class TestDecomposedHelpers:
 
         _recompute_final_energy_and_fmax(state)
 
-        quiet = torch.tensor(
-            [(2.0 * _STAGGERED_K[i] * 0.1) * (3 ** 0.5) for i in range(4)])
+        quiet = torch.tensor([(2.0 * _STAGGERED_K[i] * 0.1) * (3**0.5) for i in range(4)])
         assert torch.allclose(state["fmax"], quiet, rtol=1e-5)
 
 
@@ -712,7 +779,7 @@ def _loop_body_syncs(steps: int) -> SyncCounter:
     counter = SyncCounter(attribute=True)
     state = _make_state(_ConstantForce(), 8, 6, seed=0)
     with counter:
-        n_steps(state, n=steps, opttol=0.0, patience=10 ** 9)
+        n_steps(state, n=steps, opttol=0.0, patience=10**9)
     return counter
 
 
@@ -759,8 +826,7 @@ class TestHotLoopDoesNotSync:
         """
         counter = _loop_body_syncs(9)
         non_nonzero = {
-            label: count for label, count in counter.counts.items()
-            if label != NONZERO and count
+            label: count for label, count in counter.counts.items() if label != NONZERO and count
         }
         # print_stats runs once at the end of n_steps and reads two scalars.
         readbacks = sum(non_nonzero.values())

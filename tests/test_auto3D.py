@@ -18,6 +18,7 @@ The checks are bounds and invariants derived from the pipeline source, not
 recorded output: an NNP's numbers move with the model version and the machine,
 and a slow tier that fails on correct code is one people stop reading.
 """
+
 import os
 import shutil
 import tempfile
@@ -44,13 +45,14 @@ path = os.path.join(folder, "tests/files/smiles2.smi")
 path_large = os.path.join(folder, "tests/files/smiles10.smi")
 sdf_path = os.path.join(folder, "tests/files/example.sdf")
 
-if ('OE_LICENSE' in os.environ) and (os.environ['OE_LICENSE'] != ''):
+if ("OE_LICENSE" in os.environ) and (os.environ["OE_LICENSE"] != ""):
     skip_omega = False
 else:
     skip_omega = True
 
 try:
     import torchani
+
     class userNNP1(torch.nn.Module):
         def __init__(self):
             super(userNNP1, self).__init__()
@@ -69,10 +71,9 @@ try:
             self.species_pad = -1  # int, the padding value for species.
             # self.state_dict = None
 
-        def forward(self,
-                    species: torch.Tensor,
-                    coords: torch.Tensor,
-                    charges: torch.Tensor) -> torch.Tensor:
+        def forward(
+            self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
+        ) -> torch.Tensor:
             """
             Your NNP should take species, coords, and charges as input
             and return the energies of the molecules.
@@ -92,9 +93,11 @@ try:
             # an example for computing molecular energy, replace with your NNP model
             energies = self.model((species, coords)).energies * 27.211386245988
             return energies
+
     test_userNNP1 = True
 except ImportError:
     test_userNNP1 = False
+
 
 class userNNP2(torch.nn.Module):
     def __init__(self):
@@ -123,10 +126,9 @@ class userNNP2(torch.nn.Module):
         # submitted. Matches docs/source/howto/custom_nnp.rst.
         self.species_pad = -1  # int, the padding value for species.
 
-    def forward(self,
-                species: torch.Tensor,
-                coords: torch.Tensor,
-                charges: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
+    ) -> torch.Tensor:
         """
         Your NNP should take species, coords, and charges as input
         and return the energies of the molecules.
@@ -145,6 +147,7 @@ class userNNP2(torch.nn.Module):
 
         if self._calc is None or self._calc_device != species.device:
             from aimnet.calculators import AIMNet2Calculator
+
             self._calc = AIMNet2Calculator("aimnet2", device=str(species.device))
             self._calc_device = species.device
         # Auto3D feeds padded (B, N) batches; use ragged mol_idx batching to drop
@@ -159,11 +162,15 @@ class userNNP2(torch.nn.Module):
         # forces via autograd (the calculator preserves the graph when coord
         # requires grad).
         out = self._calc(
-            dict(coord=coord_flat, numbers=numbers_flat,
-                 charge=charges.to(coord_flat.dtype), mol_idx=mol_idx),
+            dict(
+                coord=coord_flat,
+                numbers=numbers_flat,
+                charge=charges.to(coord_flat.dtype),
+                mol_idx=mol_idx,
+            ),
             forces=False,
         )
-        return out['energy'].reshape(-1)
+        return out["energy"].reshape(-1)
 
 
 # --------------------------------------------------------------------------
@@ -174,6 +181,7 @@ class userNNP2(torch.nn.Module):
 # rather than at import time to keep module collection (which the fast tier
 # also performs) free of file I/O.
 # --------------------------------------------------------------------------
+
 
 def _smi_formulas() -> dict[str, str]:
     """{id: formula} for tests/files/smiles2.smi (three small ketones/esters)."""
@@ -192,169 +200,272 @@ def _sdf_formulas() -> dict[str, str]:
 
 def test_auto3D_rdkit_aimnet(isolated_input):
     """RDKit isomers + AIMNet2: one conformer per input, correctly assembled."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1, max_confs=2,
-                   isomer_engine="rdkit", optimizing_engine="AIMNET")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        max_confs=2,
+        isomer_engine="rdkit",
+        optimizing_engine="AIMNET",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="rdkit/AIMNET")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="rdkit/AIMNET")
+
 
 # @pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
 def test_auto3D_rdkit_ani2xt(isolated_input):
     """RDKit isomers + ANI2xt: one conformer per input, correctly assembled."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1, max_confs=2,
-                   isomer_engine="rdkit", optimizing_engine="ANI2xt")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        max_confs=2,
+        isomer_engine="rdkit",
+        optimizing_engine="ANI2xt",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="rdkit/ANI2xt")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="rdkit/ANI2xt")
+
 
 def test_auto3D_rdkit_ani2x(isolated_input):
     """RDKit isomers + ANI2x: one conformer per input, correctly assembled."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="rdkit", optimizing_engine="ANI2x")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="rdkit",
+        optimizing_engine="ANI2x",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="rdkit/ANI2x")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="rdkit/ANI2x")
+
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_omega_aimnet(isolated_input):
     """OMEGA isomers + AIMNet2: one conformer per input, correctly assembled."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="omega", optimizing_engine="AIMNET")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="omega",
+        optimizing_engine="AIMNET",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="omega/AIMNET")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="omega/AIMNET")
 
 
 # @pytest.mark.skipif(skip_ani2xt_test, reason="ANI2xt model is not  installed.")
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_omega_ani2xt(isolated_input):
     """OMEGA isomers + ANI2xt: one conformer per input, correctly assembled."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="omega", optimizing_engine="ANI2xt")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="omega",
+        optimizing_engine="ANI2xt",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="omega/ANI2xt")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="omega/ANI2xt")
+
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_omega_ani2x(isolated_input):
     """OMEGA isomers + ANI2x: one conformer per input, correctly assembled."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="omega", optimizing_engine="ANI2x")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="omega",
+        optimizing_engine="ANI2x",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="omega/ANI2x")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="omega/ANI2x")
+
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_config1(isolated_input):
     """Energy-window selection: every kept conformer lies inside the window."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), window=1, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="omega", optimizing_engine="AIMNET")
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        window=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="omega",
+        optimizing_engine="AIMNET",
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), window=1,
-                           label="omega/AIMNET window=1")
+    assert_pipeline_output(
+        out, formula_by_id=_smi_formulas(), window=1, label="omega/AIMNET window=1"
+    )
+
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_config2(isolated_input):
     """GPU run with an explicit memory budget still produces complete output."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), window=1, use_gpu=True,
-                   convergence_threshold=1,
-                   isomer_engine="rdkit", optimizing_engine="AIMNET", memory=2)
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        window=1,
+        use_gpu=True,
+        convergence_threshold=1,
+        isomer_engine="rdkit",
+        optimizing_engine="AIMNET",
+        memory=2,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), window=1,
-                           label="gpu rdkit/AIMNET memory=2")
+    assert_pipeline_output(
+        out, formula_by_id=_smi_formulas(), window=1, label="gpu rdkit/AIMNET memory=2"
+    )
 
 
 def test_auto3D_config3(isolated_input):
     """Chunked run (capacity=2): chunking must not lose or duplicate molecules."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), k=1, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="rdkit", optimizing_engine="AIMNET", capacity=2)
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        k=1,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="rdkit",
+        optimizing_engine="AIMNET",
+        capacity=2,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                           label="rdkit/AIMNET capacity=2")
+    assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1, label="rdkit/AIMNET capacity=2")
+
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_config4(isolated_input):
     """Energy window of 2 kcal/mol over up to three embedded conformers."""
-    args = Auto3DOptions(isolated_input("smiles2.smi"), window=2, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="omega", optimizing_engine="AIMNET", max_confs=3)
+    args = Auto3DOptions(
+        isolated_input("smiles2.smi"),
+        window=2,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="omega",
+        optimizing_engine="AIMNET",
+        max_confs=3,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_formulas(), window=2,
-                           label="omega/AIMNET window=2")
+    assert_pipeline_output(
+        out, formula_by_id=_smi_formulas(), window=2, label="omega/AIMNET window=2"
+    )
+
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_config5(isolated_input):
     """Multi-GPU, multi-chunk run over ten inputs: all ten must be accounted for."""
-    args = Auto3DOptions(isolated_input("smiles10.smi"), k=1, use_gpu=True,
-                   convergence_threshold=1, max_confs=2,
-                   isomer_engine="rdkit", optimizing_engine="ANI2xt", capacity=2, memory=1,
-                   gpu_idx=[0, 1])
+    args = Auto3DOptions(
+        isolated_input("smiles10.smi"),
+        k=1,
+        use_gpu=True,
+        convergence_threshold=1,
+        max_confs=2,
+        isomer_engine="rdkit",
+        optimizing_engine="ANI2xt",
+        capacity=2,
+        memory=1,
+        gpu_idx=[0, 1],
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_smi_large_formulas(), k=1,
-                           label="multi-gpu rdkit/ANI2xt")
+    assert_pipeline_output(
+        out, formula_by_id=_smi_large_formulas(), k=1, label="multi-gpu rdkit/ANI2xt"
+    )
+
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_config6(isolated_input):
     """Multi-GPU run from SDF input: ids and formulas survive the round trip."""
-    args = Auto3DOptions(isolated_input("example.sdf"), k=1, use_gpu=True,
-                   convergence_threshold=1, max_confs=2,
-                   isomer_engine="rdkit", optimizing_engine="AIMNET", capacity=2,
-                   memory=1, gpu_idx=[0, 1])
+    args = Auto3DOptions(
+        isolated_input("example.sdf"),
+        k=1,
+        use_gpu=True,
+        convergence_threshold=1,
+        max_confs=2,
+        isomer_engine="rdkit",
+        optimizing_engine="AIMNET",
+        capacity=2,
+        memory=1,
+        gpu_idx=[0, 1],
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), k=1,
-                           label="multi-gpu sdf rdkit/AIMNET")
+    assert_pipeline_output(
+        out, formula_by_id=_sdf_formulas(), k=1, label="multi-gpu sdf rdkit/AIMNET"
+    )
+
 
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_auto3D_sdf_omega_aimnet(isolated_input):
     """SDF input + OMEGA isomers + AIMNet2, selected by a 2 kcal/mol window."""
-    args = Auto3DOptions(isolated_input("example.sdf"), window=2, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="omega", optimizing_engine="AIMNET", max_confs=3)
+    args = Auto3DOptions(
+        isolated_input("example.sdf"),
+        window=2,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="omega",
+        optimizing_engine="AIMNET",
+        max_confs=3,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2,
-                           label="sdf omega/AIMNET")
+    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2, label="sdf omega/AIMNET")
+
 
 def test_auto3D_sdf_rdkit_aimnet(isolated_input):
     """SDF input + RDKit isomers + AIMNet2, selected by a 2 kcal/mol window."""
-    args = Auto3DOptions(isolated_input("example.sdf"), window=2, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="rdkit", optimizing_engine="AIMNET", max_confs=3)
+    args = Auto3DOptions(
+        isolated_input("example.sdf"),
+        window=2,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="rdkit",
+        optimizing_engine="AIMNET",
+        max_confs=3,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2,
-                           label="sdf rdkit/AIMNET")
+    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2, label="sdf rdkit/AIMNET")
+
 
 def test_auto3D_sdf_rdkit_ani2x(isolated_input):
     """SDF input + RDKit isomers + ANI2x, selected by a 2 kcal/mol window."""
-    args = Auto3DOptions(isolated_input("example.sdf"), window=2, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="rdkit", optimizing_engine="ANI2x", max_confs=3)
+    args = Auto3DOptions(
+        isolated_input("example.sdf"),
+        window=2,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="rdkit",
+        optimizing_engine="ANI2x",
+        max_confs=3,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2,
-                           label="sdf rdkit/ANI2x")
+    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2, label="sdf rdkit/ANI2x")
+
 
 def test_auto3D_sdf_rdkit_ani2xt(isolated_input):
     """SDF input + RDKit isomers + ANI2xt, selected by a 2 kcal/mol window."""
-    args = Auto3DOptions(isolated_input("example.sdf"), window=2, use_gpu=False,
-                   convergence_threshold=1,
-                   isomer_engine="rdkit", optimizing_engine="ANI2xt", max_confs=3)
+    args = Auto3DOptions(
+        isolated_input("example.sdf"),
+        window=2,
+        use_gpu=False,
+        convergence_threshold=1,
+        isomer_engine="rdkit",
+        optimizing_engine="ANI2xt",
+        max_confs=3,
+    )
     out = main(args)
-    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2,
-                           label="sdf rdkit/ANI2xt")
+    assert_pipeline_output(out, formula_by_id=_sdf_formulas(), window=2, label="sdf rdkit/ANI2xt")
+
 
 def test_auto3D_smiles2mols():
     """Check that the program runs"""
-    smiles = ['CCNCC', 'CCC']
-    args = Auto3DOptions(k=1, use_gpu=False, max_confs=2, optimizing_engine='ANI2xt')
+    smiles = ["CCNCC", "CCC"]
+    args = Auto3DOptions(k=1, use_gpu=False, max_confs=2, optimizing_engine="ANI2xt")
     mols = smiles2mols(smiles, args)
-    assert (len(mols) == 2)
+    assert len(mols) == 2
 
 
 def test_auto3D_optimization_moves_the_embedded_geometry(job_dir):
@@ -388,13 +499,20 @@ def test_auto3D_optimization_moves_the_embedded_geometry(job_dir):
     smi = job_dir / "ethanol.smi"
     smi.write_text("CCO ethanol\n")
 
-    args = Auto3DOptions(str(smi), k=1, use_gpu=False, max_confs=2,
-                         isomer_engine="rdkit", optimizing_engine="AIMNET",
-                         verbose=True)
+    args = Auto3DOptions(
+        str(smi),
+        k=1,
+        use_gpu=False,
+        max_confs=2,
+        isomer_engine="rdkit",
+        optimizing_engine="AIMNET",
+        verbose=True,
+    )
     out = main(args)
 
-    records = assert_pipeline_output(out, formula_by_id={"ethanol": "C2H6O"}, k=1,
-                                     label="ethanol/AIMNET")
+    records = assert_pipeline_output(
+        out, formula_by_id={"ethanol": "C2H6O"}, k=1, label="ethanol/AIMNET"
+    )
 
     embedded = read_pre_optimization_geometries(os.path.dirname(os.path.abspath(out)))
 
@@ -435,13 +553,13 @@ def test_auto3D_optimization_moves_the_embedded_geometry(job_dir):
         )
 
 
-@pytest.mark.skipif(test_userNNP1 == False, reason='TorchANI is not installed')
+@pytest.mark.skipif(test_userNNP1 == False, reason="TorchANI is not installed")
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_userNNP1():
     """A TorchScript custom NNP drives the full pipeline on GPU."""
     myNNP1 = userNNP1()
     with tempfile.TemporaryDirectory() as temp_dir:
-        model_path = os.path.join(temp_dir, 'myNNP1.pt')
+        model_path = os.path.join(temp_dir, "myNNP1.pt")
         myNNP1_jit = torch.jit.script(myNNP1)
         myNNP1_jit.save(model_path)
 
@@ -450,10 +568,12 @@ def test_auto3D_userNNP1():
 
         args = Auto3DOptions(smi_path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
         out = main(args)
-        assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                               label="gpu userNNP1 (scripted ANI2x)")
+        assert_pipeline_output(
+            out, formula_by_id=_smi_formulas(), k=1, label="gpu userNNP1 (scripted ANI2x)"
+        )
 
-@pytest.mark.skipif(test_userNNP1 == False, reason='TorchANI is not installed')
+
+@pytest.mark.skipif(test_userNNP1 == False, reason="TorchANI is not installed")
 def test_auto3D_userNNP2():
     """A TorchScript custom NNP drives the full pipeline on CPU.
 
@@ -470,7 +590,7 @@ def test_auto3D_userNNP2():
     """
     myNNP1 = userNNP1()
     with tempfile.TemporaryDirectory() as temp_dir:
-        model_path = os.path.join(temp_dir, 'myNNP1.pt')
+        model_path = os.path.join(temp_dir, "myNNP1.pt")
         myNNP1_jit = torch.jit.script(myNNP1)
         myNNP1_jit.save(model_path)
 
@@ -478,15 +598,17 @@ def test_auto3D_userNNP2():
         shutil.copyfile(path, smi_path)
         args = Auto3DOptions(smi_path, k=1, optimizing_engine=model_path, use_gpu=False)
         out = main(args)
-        assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                               label="cpu userNNP1 (scripted ANI2x)")
+        assert_pipeline_output(
+            out, formula_by_id=_smi_formulas(), k=1, label="cpu userNNP1 (scripted ANI2x)"
+        )
+
 
 @pytest.mark.skipif(torch.cuda.is_available() == False, reason="No GPU")
 def test_auto3D_userNNP3():
     """An eager (non-scriptable) AIMNet2-backed custom NNP drives the pipeline."""
     myNNP = userNNP2()
     with tempfile.TemporaryDirectory() as temp_dir:
-        model_path = os.path.join(temp_dir, 'myNNP.pt')
+        model_path = os.path.join(temp_dir, "myNNP.pt")
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
 
@@ -494,13 +616,13 @@ def test_auto3D_userNNP3():
         shutil.copyfile(path, smi_path)
         args = Auto3DOptions(smi_path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
         out = main(args)
-        assert_pipeline_output(out, formula_by_id=_smi_formulas(), k=1,
-                               label="gpu userNNP2 (eager AIMNet2 calculator)")
+        assert_pipeline_output(
+            out, formula_by_id=_smi_formulas(), k=1, label="gpu userNNP2 (eager AIMNet2 calculator)"
+        )
 
 
 if __name__ == "__main__":
     import time
-
 
     start = time.time()
     test_auto3D_userNNP1()

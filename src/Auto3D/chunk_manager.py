@@ -3,6 +3,7 @@
 This module provides the ChunkManager class for handling the division
 of input data into chunks for parallel processing.
 """
+
 from __future__ import annotations
 
 import os
@@ -101,7 +102,8 @@ def _gpu_free_memory_gb(gpu_idx: int) -> int | None:
         result = subprocess.run(
             [
                 exe,
-                "-i", smi_id,
+                "-i",
+                smi_id,
                 "--query-gpu=memory.free",
                 "--format=csv,noheader,nounits",
             ],

@@ -226,7 +226,9 @@ def print_banner(input_path: str, engine: str, gpu_info: str, output_info: str) 
     grid.add_row("GPU:", gpu_info)
     grid.add_row("Output:", output_info)
 
-    console.print(Panel(grid, title=f"[bold]Auto3D v{Auto3D.__version__}[/bold]", border_style="blue"))
+    console.print(
+        Panel(grid, title=f"[bold]Auto3D v{Auto3D.__version__}[/bold]", border_style="blue")
+    )
 
 
 def print_success(message: str) -> None:

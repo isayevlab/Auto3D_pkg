@@ -20,6 +20,7 @@ Every assertion here is on the emitted *structures*, not on a count: a count of
 2 is satisfied by two copies of one isomer. Nothing in this module loads a
 neural network potential -- ETKDG embedding and RDKit stereo perception only.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -59,9 +60,7 @@ def _configuration_from_3d(mol: Chem.Mol) -> str:
     return Chem.MolToSmiles(Chem.RemoveHs(work))
 
 
-def _configurations_emitted(
-    job_dir: Path, smiles: str, *, enumerate_isomers: bool
-) -> Counter[str]:
+def _configurations_emitted(job_dir: Path, smiles: str, *, enumerate_isomers: bool) -> Counter[str]:
     """Run the real SMILES isomer/conformer engine and report what it wrote.
 
     Returns a ``Counter`` keyed by canonical isomeric SMILES, so both *which*
@@ -96,9 +95,7 @@ def _warnings_for(job_dir: Path, smiles: str) -> list[str]:
     job_dir.mkdir(parents=True, exist_ok=True)
     smi_path = job_dir / "probe.smi"
     smi_path.write_text(f"{smiles}\tprobe\n")
-    args = Auto3DOptions(
-        str(smi_path), k=1, use_gpu=False, enumerate_isomer=False
-    )
+    args = Auto3DOptions(str(smi_path), k=1, use_gpu=False, enumerate_isomer=False)
     args["input_format"] = "smi"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -109,9 +106,7 @@ def _warnings_for(job_dir: Path, smiles: str) -> list[str]:
 class TestUnspecifiedDoubleBondOnTheSmilesPath:
     """The two cases the SDF path already covers, on the SMILES path."""
 
-    def test_fumaric_and_maleic_are_emitted_together_and_the_input_is_warned_about(
-        self, tmp_path
-    ):
+    def test_fumaric_and_maleic_are_emitted_together_and_the_input_is_warned_about(self, tmp_path):
         """``OC(=O)C=CC(=O)O`` embeds as both geometric isomers at once.
 
         Asserting the structures, not ``len(...) == 2``: two conformers of one
@@ -126,9 +121,7 @@ class TestUnspecifiedDoubleBondOnTheSmilesPath:
         )
 
         messages = _warnings_for(tmp_path / "warn", "OC(=O)C=CC(=O)O")
-        stereo_warnings = [
-            m for m in messages if "unspecified stereo element" in m
-        ]
+        stereo_warnings = [m for m in messages if "unspecified stereo element" in m]
         assert len(stereo_warnings) == 1, (
             "the input that emits two geometric isomers under one id was not "
             f"warned about: {messages}"
@@ -136,37 +129,26 @@ class TestUnspecifiedDoubleBondOnTheSmilesPath:
         assert "OC(=O)C=CC(=O)O" in stereo_warnings[0]
         assert "1 unspecified stereo element" in stereo_warnings[0]
 
-    def test_2_butene_emits_only_the_cis_isomer_and_the_input_is_warned_about(
-        self, tmp_path
-    ):
+    def test_2_butene_emits_only_the_cis_isomer_and_the_input_is_warned_about(self, tmp_path):
         """``CC=CC`` loses trans-2-butene entirely, with no warning before the fix.
 
         The enumerated run is the non-vacuity guard: it shows both geometries
         are reachable for this molecule, so the single-entry result below is a
         genuinely missing isomer rather than an artifact of the comparison.
         """
-        both = _configurations_emitted(
-            tmp_path / "enumerated", "CC=CC", enumerate_isomers=True
-        )
+        both = _configurations_emitted(tmp_path / "enumerated", "CC=CC", enumerate_isomers=True)
         assert set(both) == {TRANS_2_BUTENE, CIS_2_BUTENE}, (
             f"enumeration did not produce both 2-butene geometries: {dict(both)}"
         )
 
-        emitted = _configurations_emitted(
-            tmp_path / "embed", "CC=CC", enumerate_isomers=False
-        )
-        assert set(emitted) == {CIS_2_BUTENE}, (
-            f"expected cis-2-butene alone, got {dict(emitted)}"
-        )
+        emitted = _configurations_emitted(tmp_path / "embed", "CC=CC", enumerate_isomers=False)
+        assert set(emitted) == {CIS_2_BUTENE}, f"expected cis-2-butene alone, got {dict(emitted)}"
         assert TRANS_2_BUTENE not in emitted
 
         messages = _warnings_for(tmp_path / "warn", "CC=CC")
-        stereo_warnings = [
-            m for m in messages if "unspecified stereo element" in m
-        ]
+        stereo_warnings = [m for m in messages if "unspecified stereo element" in m]
         assert len(stereo_warnings) == 1, (
-            "the input whose trans isomer is silently dropped was not warned "
-            f"about: {messages}"
+            f"the input whose trans isomer is silently dropped was not warned about: {messages}"
         )
         assert "CC=CC" in stereo_warnings[0]
 
@@ -184,9 +166,7 @@ class TestTheWarningStillDiscriminates:
     def test_an_unspecified_atom_center_is_still_warned_about(self, tmp_path):
         """The atom-center case the old predicate did cover must not regress."""
         messages = _warnings_for(tmp_path / "warn", "CC(O)CC")
-        stereo_warnings = [
-            m for m in messages if "unspecified stereo element" in m
-        ]
+        stereo_warnings = [m for m in messages if "unspecified stereo element" in m]
         assert len(stereo_warnings) == 1, (
             f"an unspecified tetrahedral center stopped warning: {messages}"
         )

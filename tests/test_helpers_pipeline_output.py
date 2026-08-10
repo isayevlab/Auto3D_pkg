@@ -12,6 +12,7 @@ well-formed input, and that it **fails** on each specific defect it claims to
 catch. A helper only verified in the passing direction is exactly the "names a
 guarantee it does not provide" defect these tests exist to prevent.
 """
+
 from __future__ import annotations
 
 import math
@@ -104,6 +105,7 @@ def _write_sdf(path: Path, mols: list[Chem.Mol]) -> str:
 # Formula helpers
 # ---------------------------------------------------------------------------
 
+
 class TestFormulaHelpers:
     """Formula comparison is the pipeline's chemical-identity check."""
 
@@ -187,6 +189,7 @@ class TestBaseMoleculeId:
 # read_sdf_records
 # ---------------------------------------------------------------------------
 
+
 class TestReadSdfRecords:
     """The check that kills 'return a path you never wrote'."""
 
@@ -231,6 +234,7 @@ class TestReadSdfRecords:
 # ---------------------------------------------------------------------------
 # Energies
 # ---------------------------------------------------------------------------
+
 
 class TestSelfEnergyEstimate:
     """The order-of-magnitude reference the energy bound is measured against."""
@@ -333,6 +337,7 @@ class TestAssertEnergyIsPlausible:
 # ---------------------------------------------------------------------------
 # Geometry
 # ---------------------------------------------------------------------------
+
 
 class TestAssertGeometryIsPhysical:
     def test_accepts_real_structures(self):
@@ -458,18 +463,14 @@ class TestExpandedCopy:
 
     def test_a_factor_of_one_is_a_no_op(self):
         mol = read_sdf_records(FILES / "DA.sdf")[0]
-        assert max_atom_displacement(mol, expanded_copy(mol, 1.0)) == pytest.approx(
-            0.0, abs=1e-9
-        )
+        assert max_atom_displacement(mol, expanded_copy(mol, 1.0)) == pytest.approx(0.0, abs=1e-9)
 
 
 class TestWritePerturbedSdf:
     """The staging step the opt_geometry tests depend on."""
 
     def test_writes_every_record_with_its_name(self, tmp_path):
-        path, mols = write_perturbed_sdf(
-            FILES / "DA.sdf", tmp_path / "DA.sdf", 1.05
-        )
+        path, mols = write_perturbed_sdf(FILES / "DA.sdf", tmp_path / "DA.sdf", 1.05)
         assert Path(path) == tmp_path / "DA.sdf"
         assert [m.GetProp("_Name") for m in mols] == [
             "diene",
@@ -500,9 +501,7 @@ class TestWritePerturbedSdf:
     def test_returned_molecules_match_the_file_on_disk(self, tmp_path):
         """The returned list must be what the optimizer will read, to 4dp, not
         the full-precision in-memory copies."""
-        path, returned = write_perturbed_sdf(
-            FILES / "DA.sdf", tmp_path / "DA.sdf", 1.05
-        )
+        path, returned = write_perturbed_sdf(FILES / "DA.sdf", tmp_path / "DA.sdf", 1.05)
         from_disk = read_sdf_records(path)
         for a, b in zip(returned, from_disk, strict=True):
             assert max_atom_displacement(a, b) == pytest.approx(0.0, abs=1e-12)
@@ -551,9 +550,7 @@ class TestAssertPipelineOutput:
         with pytest.raises(AssertionError, match="absent from the output"):
             assert_pipeline_output(result, formula_by_id=FORMULAS, k=1)
 
-    def test_rejects_a_run_that_produced_nothing_but_claims_total_failure(
-        self, tmp_path
-    ):
+    def test_rejects_a_run_that_produced_nothing_but_claims_total_failure(self, tmp_path):
         empty = tmp_path / "nothing.sdf"
         empty.write_text("")
         result = WorkflowResult(str(empty), failures=list(FORMULAS))
@@ -563,9 +560,7 @@ class TestAssertPipelineOutput:
     def test_rejects_an_id_that_was_never_in_the_input(self, tmp_path):
         result, _ = _good_output(tmp_path)
         with pytest.raises(AssertionError, match="never in the input"):
-            assert_pipeline_output(
-                result, formula_by_id={"smi2": "C4H8O", "smi3": "C5H8O2"}, k=1
-            )
+            assert_pipeline_output(result, formula_by_id={"smi2": "C4H8O", "smi3": "C5H8O2"}, k=1)
 
     def test_rejects_an_id_both_produced_and_reported_failed(self, tmp_path):
         result, _ = _good_output(tmp_path)
@@ -576,21 +571,14 @@ class TestAssertPipelineOutput:
     def test_rejects_a_changed_chemical_identity(self, tmp_path):
         """The mutation where the pipeline emits the wrong molecule."""
         wrong = _annotate_ranked(_embedded("CCCCCC"), "smi2")
-        others = [
-            _annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")
-        ]
+        others = [_annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")]
         path = _write_sdf(tmp_path / "wrong.sdf", [wrong, *others])
         with pytest.raises(AssertionError, match="chemical identity changed"):
             assert_pipeline_output(WorkflowResult(path), formula_by_id=FORMULAS, k=1)
 
     def test_rejects_more_conformers_than_k_allows(self, tmp_path):
-        mols = [
-            _annotate_ranked(_embedded(SMILES_BY_ID["smi2"], seed=s), "smi2")
-            for s in (1, 2)
-        ]
-        mols += [
-            _annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")
-        ]
+        mols = [_annotate_ranked(_embedded(SMILES_BY_ID["smi2"], seed=s), "smi2") for s in (1, 2)]
+        mols += [_annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")]
         path = _write_sdf(tmp_path / "extra.sdf", mols)
         with pytest.raises(AssertionError, match="conformers written for k=1"):
             assert_pipeline_output(WorkflowResult(path), formula_by_id=FORMULAS, k=1)
@@ -613,9 +601,7 @@ class TestAssertPipelineOutput:
         ]
         path = _write_sdf(tmp_path / "negative.sdf", mols)
         with pytest.raises(AssertionError, match="is negative"):
-            assert_pipeline_output(
-                WorkflowResult(path), formula_by_id=FORMULAS, window=5.0
-            )
+            assert_pipeline_output(WorkflowResult(path), formula_by_id=FORMULAS, window=5.0)
 
     def test_rejects_a_nonzero_relative_energy_when_k_is_one(self, tmp_path):
         mols = [
@@ -642,11 +628,8 @@ class TestAssertPipelineOutput:
 
     def test_rejects_an_implausible_energy(self, tmp_path):
         """The 'arbitrary E_tot' half of the mutation this tier missed."""
-        mols = [
-            _annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")
-        ]
-        mols.insert(0, _annotate_ranked(_embedded(SMILES_BY_ID["smi2"]), "smi2",
-                                        energy=-1.0))
+        mols = [_annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")]
+        mols.insert(0, _annotate_ranked(_embedded(SMILES_BY_ID["smi2"]), "smi2", energy=-1.0))
         path = _write_sdf(tmp_path / "badenergy.sdf", mols)
         with pytest.raises(AssertionError, match="outside"):
             assert_pipeline_output(WorkflowResult(path), formula_by_id=FORMULAS, k=1)
@@ -675,6 +658,7 @@ class TestAssertPipelineOutput:
 # assert_opt_geometry_output
 # ---------------------------------------------------------------------------
 
+
 def _optimized_da(tmp_path, *, factor=1.05, name="DA_opt.sdf"):
     """Inputs perturbed off their minimum, plus a plausible 'optimized' result."""
     originals = read_sdf_records(FILES / "DA.sdf")
@@ -686,9 +670,7 @@ def _optimized_da(tmp_path, *, factor=1.05, name="DA_opt.sdf"):
 class TestAssertOptGeometryOutput:
     def test_accepts_a_real_relaxation(self, tmp_path):
         path, inputs = _optimized_da(tmp_path)
-        records = assert_opt_geometry_output(
-            path, input_mols=inputs, moved_at_least=0.01
-        )
+        records = assert_opt_geometry_output(path, input_mols=inputs, moved_at_least=0.01)
         assert len(records) == 3
 
     def test_rejects_a_path_that_was_never_written(self, tmp_path):
@@ -706,9 +688,7 @@ class TestAssertOptGeometryOutput:
         outputs = [_annotate_optimized(mol, mol.GetProp("_Name")) for mol in originals]
         path = _write_sdf(tmp_path / "noop.sdf", outputs)
         with pytest.raises(AssertionError, match="moved no atom further"):
-            assert_opt_geometry_output(
-                path, input_mols=originals, moved_at_least=0.01
-            )
+            assert_opt_geometry_output(path, input_mols=originals, moved_at_least=0.01)
 
     def test_rejects_a_dropped_record(self, tmp_path):
         originals = read_sdf_records(FILES / "DA.sdf")

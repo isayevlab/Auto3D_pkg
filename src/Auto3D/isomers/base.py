@@ -1,4 +1,5 @@
 """Base protocols for isomer enumeration engines."""
+
 from __future__ import annotations
 
 from abc import abstractmethod

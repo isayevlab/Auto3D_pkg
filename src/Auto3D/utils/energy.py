@@ -25,6 +25,7 @@ kcal/mol -> eV window conversion in ``ranking``) keeps its documented eV
 meaning. Writers additionally set :data:`E_TOT_HARTREE_PROP`, the unit-labeled
 sibling, so a file states its own unit.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -253,9 +254,7 @@ def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
     Reads ``G_hartree`` and ``T_K``, which ``Auto3D.ASE.thermo`` writes.
     """
     for group in _comparable_groups(mols, G_REL_KCAL_PROP):
-        temperatures = {
-            mol.GetProp(T_K_PROP).strip() for mol in group if mol.HasProp(T_K_PROP)
-        }
+        temperatures = {mol.GetProp(T_K_PROP).strip() for mol in group if mol.HasProp(T_K_PROP)}
         if len(temperatures) > 1:
             _clear_prop(group, G_REL_KCAL_PROP)
             logger.warning(
@@ -263,8 +262,11 @@ def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
                 "%s is withheld, because G(T) carries a -T*S term and a "
                 "difference across two temperatures is a thermal term rather "
                 "than a conformational preference.",
-                len(group), _group_name(group), len(temperatures),
-                ", ".join(sorted(temperatures)), G_REL_KCAL_PROP,
+                len(group),
+                _group_name(group),
+                len(temperatures),
+                ", ".join(sorted(temperatures)),
+                G_REL_KCAL_PROP,
             )
             continue
 
@@ -276,9 +278,7 @@ def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
 
         reference = min(g for _, g in usable)
         for mol, gibbs in usable:
-            mol.SetProp(
-                G_REL_KCAL_PROP, str((gibbs - reference) * HARTREE_TO_KCAL_PER_MOL)
-            )
+            mol.SetProp(G_REL_KCAL_PROP, str((gibbs - reference) * HARTREE_TO_KCAL_PER_MOL))
 
 
 def _group_name(group: Sequence[Chem.Mol]) -> str:
@@ -296,9 +296,7 @@ def _try_float_prop(mol: Chem.Mol, prop: str) -> float | None:
         return None
 
 
-def _comparable_groups(
-    mols: Sequence[Chem.Mol], prop: str
-) -> Iterator[list[Chem.Mol]]:
+def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Chem.Mol]]:
     """Yield each set of records a relative energy may be measured across.
 
     Grouping is on ``_Name`` **verbatim**. It is tempting to reuse
@@ -330,7 +328,9 @@ def _comparable_groups(
             logger.warning(
                 "%d record(s) carry no name; a relative energy needs a group and "
                 "a title is the only thing identifying one, so %s is withheld "
-                "for them.", len(group), prop,
+                "for them.",
+                len(group),
+                prop,
             )
             continue
 
@@ -341,7 +341,10 @@ def _comparable_groups(
                 "%d record(s) named %r are not all the same compound (%d distinct "
                 "species); %s is withheld rather than subtracting the energies of "
                 "different molecules.",
-                len(group), name, len(identities), prop,
+                len(group),
+                name,
+                len(identities),
+                prop,
             )
             continue
 

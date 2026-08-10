@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Calculating single point energy using ANI2xt, ANI2x, AIMNET or a userNNP model file"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -113,7 +114,7 @@ def calc_spe(
             logger.warning(f"Skipping molecule at index {i}: failed to parse")
             continue
         if mol.GetNumConformers() == 0:
-            name = mol.GetProp('_Name') if mol.HasProp('_Name') else '<unnamed>'
+            name = mol.GetProp("_Name") if mol.HasProp("_Name") else "<unnamed>"
             logger.warning(f"Skipping record without a conformer: {name!r}.")
             continue
         mols.append(mol)
@@ -122,9 +123,7 @@ def calc_spe(
     # would raise a cryptic "max() arg is an empty sequence". Write an empty
     # output SDF and return its path so callers get a clear signal instead.
     if not mols:
-        logger.warning(
-            f"No valid molecules with conformers in {path}; nothing to compute."
-        )
+        logger.warning(f"No valid molecules with conformers in {path}; nothing to compute.")
         with Chem.SDWriter(str(outpath)):
             pass
         return str(outpath)
@@ -155,9 +154,7 @@ def calc_spe(
     # both pad values. This call used to hand over `model_name` alongside the
     # adapter's two pads, so the remap and the sentinel came from different
     # places and could contradict each other (audit C3/C4).
-    coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(
-        mols, model_adapter, device
-    )
+    coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(mols, model_adapter, device)
 
     # Energies only. This used to call `forward_batched` and discard the forces
     # it returned, so every single-point energy ran a full backward pass for a
@@ -175,14 +172,11 @@ def calc_spe(
     # and this repository has no way to measure the difference -- CI is CPU-only
     # and no NNP may be loaded here. An unmeasured optimization that also has to
     # re-thread the writer loop's index alignment is not worth the change.
-    es = model.energy_batched(
-        coord_padded, numbers_padded, charges, atom_mask=atom_mask
-    )
-    es = es.to('cpu').detach().numpy()
+    es = model.energy_batched(coord_padded, numbers_padded, charges, atom_mask=atom_mask)
+    es = es.to("cpu").detach().numpy()
 
     with Chem.SDWriter(str(outpath)) as f:
         for i, mol in enumerate(mols):
             set_e_hartree_from_ev(mol, float(es[i]))
             f.write(mol)
     return str(outpath)
-

@@ -41,8 +41,7 @@ def test_version_matches_the_newest_changelog_section():
     # versions that were never published (see CHANGELOG.md) and are skipped, or
     # this would compare against a milestone rather than the shipping version.
     newest = next(
-        m.group(1)
-        for m in re.finditer(r"^## \[([0-9][0-9.]*)\]", changelog, re.MULTILINE)
+        m.group(1) for m in re.finditer(r"^## \[([0-9][0-9.]*)\]", changelog, re.MULTILINE)
     )
     assert _pyproject()["project"]["version"] == newest, (
         f"pyproject.toml declares {_pyproject()['project']['version']!r} while the "
@@ -77,9 +76,7 @@ def test_manifest_excludes_bytecode():
         for line in manifest.splitlines()
         if line.strip().startswith("global-exclude")
     ]
-    assert "*.py[cod]" in patterns, (
-        f"MANIFEST.in must global-exclude '*.py[cod]'; found {patterns}"
-    )
+    assert "*.py[cod]" in patterns, f"MANIFEST.in must global-exclude '*.py[cod]'; found {patterns}"
     assert any("__pycache__" in p for p in patterns), (
         f"MANIFEST.in must global-exclude __pycache__ contents; found {patterns}"
     )
@@ -114,8 +111,7 @@ def test_py_typed_marker_exists():
     said otherwise, which is a promise the distribution did not keep.
     """
     assert (ROOT / "src" / "Auto3D" / "py.typed").is_file(), (
-        "src/Auto3D/py.typed is missing while pyproject.toml declares "
-        "'Typing :: Typed'"
+        "src/Auto3D/py.typed is missing while pyproject.toml declares 'Typing :: Typed'"
     )
 
 

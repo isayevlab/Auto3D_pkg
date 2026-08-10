@@ -1,4 +1,5 @@
 """Unit tests for the ModelFactory module."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,20 +31,11 @@ def test_the_factory_promises_the_contract_not_the_base_class():
 
     from Auto3D import model_factory
 
-    assert (
-        inspect.get_annotations(model_factory.create_model)["return"]
-        == "ModelAdapter"
-    )
-    assert (
-        inspect.get_annotations(ModelFactory.create.__func__)["return"]
-        == "ModelAdapter"
-    )
+    assert inspect.get_annotations(model_factory.create_model)["return"] == "ModelAdapter"
+    assert inspect.get_annotations(ModelFactory.create.__func__)["return"] == "ModelAdapter"
     # BaseModelAdapter survives in exactly one type position: a registry of
     # Auto3D's OWN adapter classes, which really is the concrete base.
-    assert (
-        inspect.get_annotations(ModelFactory)["_adapters"]
-        == "dict[str, type[BaseModelAdapter]]"
-    )
+    assert inspect.get_annotations(ModelFactory)["_adapters"] == "dict[str, type[BaseModelAdapter]]"
     # ...and it is no longer an incidental runtime re-export of this module.
     assert not hasattr(model_factory, "BaseModelAdapter")
 
@@ -97,14 +89,14 @@ class TestModelFactory:
 
         for alias in ("aimnet", "AImNeT", "AIMNET"):
             captured.clear()
-            model_factory.ModelFactory.create(
-                alias, device=torch.device("cpu"), use_cache=False
-            )
+            model_factory.ModelFactory.create(alias, device=torch.device("cpu"), use_cache=False)
             assert captured["aimnet"] == "aimnet2"
 
         # ANI engines resolve case-insensitively to their adapter class.
-        assert model_factory.ModelFactory._adapters["ani2x".upper()] is \
-            model_factory.ModelFactory._adapters["ANI2X"]
+        assert (
+            model_factory.ModelFactory._adapters["ani2x".upper()]
+            is model_factory.ModelFactory._adapters["ANI2X"]
+        )
         assert "ANI2XT" in model_factory.ModelFactory._adapters
 
     @pytest.mark.slow
@@ -222,9 +214,9 @@ class TestFactoryReturnsAdapter:
         model = aimnet_model
 
         # Check it's an adapter with the right interface
-        assert hasattr(model, 'coord_pad')
-        assert hasattr(model, 'species_pad')
-        assert hasattr(model, 'forward')
+        assert hasattr(model, "coord_pad")
+        assert hasattr(model, "species_pad")
+        assert hasattr(model, "forward")
         assert model.coord_pad == 0.0
         assert model.species_pad == 0
 
@@ -288,11 +280,13 @@ class TestFactoryReturnsAdapter:
 def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
     import torch
     from Auto3D import model_factory
+
     captured = {}
 
     class _FakeAIMNet2Adapter:
         def __init__(self, model_name, device, **kw):
             captured["model_name"] = model_name
+
     monkeypatch.setattr(model_factory, "AIMNet2Adapter", _FakeAIMNet2Adapter)
     model_factory.ModelFactory.clear_cache()
     model_factory.create_model("AIMNET", torch.device("cpu"), use_cache=False)
@@ -302,11 +296,13 @@ def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
 def test_registry_name_routes_to_aimnet2(monkeypatch):
     import torch
     from Auto3D import model_factory
+
     captured = {}
 
     class _FakeAIMNet2Adapter:
         def __init__(self, model_name, device, **kw):
             captured["model_name"] = model_name
+
     monkeypatch.setattr(model_factory, "AIMNet2Adapter", _FakeAIMNet2Adapter)
     model_factory.ModelFactory.clear_cache()
     model_factory.create_model("aimnet2-2025", torch.device("cpu"), use_cache=False)
@@ -316,12 +312,15 @@ def test_registry_name_routes_to_aimnet2(monkeypatch):
 def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
     import torch
     from Auto3D import model_factory
-    f = tmp_path / "my.pt"; f.write_text("x")
+
+    f = tmp_path / "my.pt"
+    f.write_text("x")
     captured = {}
 
     class _FakeCustom:
         def __init__(self, path, device, **kw):
             captured["path"] = path
+
     monkeypatch.setattr(model_factory, "CustomModelAdapter", _FakeCustom)
     model_factory.create_model(str(f), torch.device("cpu"), use_cache=False)
     assert captured["path"] == str(f)
@@ -345,15 +344,14 @@ def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
     from Auto3D import model_factory
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "ANI2xt").write_text(
-        "colliding file; must not be loaded as a custom NNP"
-    )
+    (tmp_path / "ANI2xt").write_text("colliding file; must not be loaded as a custom NNP")
 
     def _boom(path, device, **kw):
         raise AssertionError(
             f"colliding file at {path!r} was routed to CustomModelAdapter; "
             "a built-in engine name must resolve before Path.exists()."
         )
+
     monkeypatch.setattr(model_factory, "CustomModelAdapter", _boom)
 
     captured = {}

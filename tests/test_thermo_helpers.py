@@ -18,6 +18,7 @@ members these doubles do not care about (the two pads, ``to_species``,
 ``energy``, ``analytic_hessian``) with ``BaseModelAdapter``'s own defaults, so
 the double satisfies the contract without any of them weakening it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,11 +34,14 @@ from Auto3D.ASE.thermo import _detect_geometry, _is_collinear  # noqa: E402
 def _bent_triatomic(symbols: str, bond_length: float, angle_deg: float):
     """A symmetric bent triatomic with the given apex angle, apex first."""
     half = np.radians(angle_deg) / 2.0
-    return Atoms(symbols, [
-        (0.0, 0.0, 0.0),
-        (bond_length * np.sin(half), bond_length * np.cos(half), 0.0),
-        (-bond_length * np.sin(half), bond_length * np.cos(half), 0.0),
-    ])
+    return Atoms(
+        symbols,
+        [
+            (0.0, 0.0, 0.0),
+            (bond_length * np.sin(half), bond_length * np.cos(half), 0.0),
+            (-bond_length * np.sin(half), bond_length * np.cos(half), 0.0),
+        ],
+    )
 
 
 class TestLinearity:
@@ -192,8 +196,7 @@ class TestIsotopeMasses:
 
         periodic_table = Chem.GetPeriodicTable()
         expected = [
-            periodic_table.GetMostCommonIsotopeMass(a.GetAtomicNum())
-            for a in mol.GetAtoms()
+            periodic_table.GetMostCommonIsotopeMass(a.GetAtomicNum()) for a in mol.GetAtoms()
         ]
         assert list(atoms.get_masses()) == pytest.approx(expected, abs=1e-9)
 
@@ -218,7 +221,8 @@ class TestIsotopeMasses:
         atoms = mol2atoms(mol)
 
         carbon = next(
-            mass for atom, mass in zip(mol.GetAtoms(), atoms.get_masses())
+            mass
+            for atom, mass in zip(mol.GetAtoms(), atoms.get_masses())
             if atom.GetAtomicNum() == 6
         )
         assert carbon == pytest.approx(13.00335, abs=1e-4), (
@@ -231,12 +235,14 @@ def aimnet_hessian_model():
     """Load the AIMNET Hessian evaluator once for this module's NNP checks."""
     import torch
     from Auto3D.ASE.thermo import _load_hessian_model
+
     return _load_hessian_model("AIMNET", torch.device("cpu"))
 
 
 def test_detect_geometry_linear_vs_nonlinear():
     from ase import Atoms
     from Auto3D.ASE.thermo import _detect_geometry
+
     co2 = Atoms("CO2", [[0, 0, 0], [0, 0, 1.16], [0, 0, -1.16]])
     water = Atoms("OH2", [[0, 0, 0], [0, 0.76, 0.59], [0, -0.76, 0.59]])
     assert _detect_geometry(co2) == "linear"
@@ -246,6 +252,7 @@ def test_detect_geometry_linear_vs_nonlinear():
 def test_symmetry_number_defaults_to_one():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _symmetry_number
+
     m = Chem.MolFromSmiles("CCO")
     assert _symmetry_number(m) == 1  # no property -> default 1
 
@@ -253,6 +260,7 @@ def test_symmetry_number_defaults_to_one():
 def test_symmetry_number_reads_property():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _symmetry_number
+
     m = Chem.MolFromSmiles("c1ccccc1")
     m.SetProp("symmetry_number", "12")
     assert _symmetry_number(m) == 12
@@ -261,6 +269,7 @@ def test_symmetry_number_reads_property():
 def test_symmetry_number_invalid_property_falls_back():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _symmetry_number
+
     m = Chem.MolFromSmiles("CCO")
     m.SetProp("symmetry_number", "not_a_number")
     assert _symmetry_number(m) == 1
@@ -269,6 +278,7 @@ def test_symmetry_number_invalid_property_falls_back():
 def test_resolve_multiplicity_closed_shell_is_singlet():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _resolve_multiplicity
+
     m = Chem.MolFromSmiles("CCO")
     assert _resolve_multiplicity(m) == 1
     # Derived multiplicity is recorded on the mol.
@@ -278,6 +288,7 @@ def test_resolve_multiplicity_closed_shell_is_singlet():
 def test_resolve_multiplicity_radical_is_doublet():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _resolve_multiplicity
+
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
     assert _resolve_multiplicity(m) == 2
     assert m.GetUnsignedProp("multiplicity") == 2
@@ -286,6 +297,7 @@ def test_resolve_multiplicity_radical_is_doublet():
 def test_resolve_multiplicity_respects_explicit_property():
     from rdkit import Chem
     from Auto3D.ASE.thermo import _resolve_multiplicity
+
     m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
     m.SetUnsignedProp("multiplicity", 4)  # ... but an explicit value wins
     assert _resolve_multiplicity(m) == 4
@@ -295,6 +307,7 @@ def test_do_mol_thermo_default_temperature_is_298_15():
     """Reference temperature must be the thermochemistry standard 298.15 K."""
     import inspect
     from Auto3D.ASE.thermo import do_mol_thermo
+
     assert inspect.signature(do_mol_thermo).parameters["T"].default == 298.15
 
 
@@ -328,6 +341,7 @@ def test_load_hessian_model_aimnet(aimnet_hessian_model):
 @pytest.mark.slow
 def test_load_hessian_model_aimnet_is_fp32(aimnet_hessian_model):
     import torch
+
     # The underlying aimnet module stays fp32 (no whole-graph fp64 upcast, which
     # would be false precision here -- unlike the ANI/custom autograd branch).
     p = next(aimnet_hessian_model.model.parameters())
@@ -361,8 +375,10 @@ class TestVibrationAnalysis:
 
     def test_a_clean_spectrum_is_untouched(self):
         result = analyze_vibrations(
-            _ev(200, 800, 1600, 3000, 3100, 3200), n_atoms=4,
-            geometry="nonlinear", low_freq_cutoff_cm=0.0,
+            _ev(200, 800, 1600, 3000, 3100, 3200),
+            n_atoms=4,
+            geometry="nonlinear",
+            low_freq_cutoff_cm=0.0,
         )
         assert result.n_imag == 0
         assert result.max_imag_cm == pytest.approx(0.0)
@@ -372,7 +388,9 @@ class TestVibrationAnalysis:
     def test_a_small_imaginary_mode_is_counted_but_tolerated(self):
         """A -15 cm-1 artifact is the reason the cutoff exists."""
         result = analyze_vibrations(
-            _ev(-15, 800, 1600), n_atoms=3, geometry="nonlinear",
+            _ev(-15, 800, 1600),
+            n_atoms=3,
+            geometry="nonlinear",
             low_freq_cutoff_cm=0.0,
         )
         assert result.n_imag == 1
@@ -384,16 +402,16 @@ class TestVibrationAnalysis:
     def test_a_large_imaginary_mode_is_a_transition_state(self):
         """-400 cm-1 is a reaction coordinate, not numerical noise."""
         result = analyze_vibrations(
-            _ev(-400, 800, 1600), n_atoms=3, geometry="nonlinear",
+            _ev(-400, 800, 1600),
+            n_atoms=3,
+            geometry="nonlinear",
             low_freq_cutoff_cm=0.0,
         )
         assert result.n_imag == 1
         assert result.max_imag_cm == pytest.approx(400.0, abs=1.0)
         assert result.is_transition_state is True
         assert result.n_removed == 1
-        assert len(result.corrected_energies) == 2, (
-            "a saddle point must pass 3N-7 modes"
-        )
+        assert len(result.corrected_energies) == 2, "a saddle point must pass 3N-7 modes"
 
     def test_the_exact_mode_count_is_a_precondition(self):
         """The old contract -- pass 3N and let something downstream cut -- is gone.
@@ -406,9 +424,7 @@ class TestVibrationAnalysis:
         with pytest.raises(ValueError, match="projected_vibrations"):
             analyze_vibrations(full_3n, n_atoms=4, geometry="nonlinear")
         # Non-vacuity: the same call with the right number of modes is fine.
-        assert len(
-            analyze_vibrations(full_3n[-6:], n_atoms=4, geometry="nonlinear").energies
-        ) == 6
+        assert len(analyze_vibrations(full_3n[-6:], n_atoms=4, geometry="nonlinear").energies) == 6
 
     def test_linear_geometry_expects_3n_minus_5(self):
         """A linear molecule has 5 external degrees of freedom, not 6, so its
@@ -416,13 +432,17 @@ class TestVibrationAnalysis:
         size. A collapse of the linear branch onto the nonlinear one would
         silently discard a genuine vibration -- CO2's degenerate bend."""
         result = analyze_vibrations(
-            _ev(667, 667, 1333, 2349), n_atoms=3, geometry="linear",
+            _ev(667, 667, 1333, 2349),
+            n_atoms=3,
+            geometry="linear",
             low_freq_cutoff_cm=0.0,
         )
         assert len(result.energies) == 3 * 3 - 5
         with pytest.raises(ValueError, match="4"):
             analyze_vibrations(
-                _ev(667, 667, 1333, 2349), n_atoms=3, geometry="nonlinear",
+                _ev(667, 667, 1333, 2349),
+                n_atoms=3,
+                geometry="nonlinear",
             )
 
     def test_monatomic_has_no_vibrational_modes(self):
@@ -438,21 +458,25 @@ class TestVibrationAnalysis:
         imaginary mode is a saddle point; raising the cutoff to 500 makes it a
         tolerated artifact instead."""
         result = analyze_vibrations(
-            _ev(-100, 800, 1600), n_atoms=3, geometry="nonlinear",
-            imag_cutoff_cm=500.0, low_freq_cutoff_cm=0.0,
+            _ev(-100, 800, 1600),
+            n_atoms=3,
+            geometry="nonlinear",
+            imag_cutoff_cm=500.0,
+            low_freq_cutoff_cm=0.0,
         )
         assert result.is_transition_state is False
         assert result.n_inverted == 1
-        assert min(wavenumbers(result.corrected_energies)) == pytest.approx(
-            100.0, abs=1e-6
-        )
+        assert min(wavenumbers(result.corrected_energies)) == pytest.approx(100.0, abs=1e-6)
 
     def test_a_lowered_cutoff_triggers_the_transition_state_flag(self):
         """A 30 cm-1 imaginary mode is noise at the 50 cm-1 default, but must
         trigger the flag once the cutoff is lowered below it."""
         result = analyze_vibrations(
-            _ev(-30, 800, 1600), n_atoms=3, geometry="nonlinear",
-            imag_cutoff_cm=20.0, low_freq_cutoff_cm=0.0,
+            _ev(-30, 800, 1600),
+            n_atoms=3,
+            geometry="nonlinear",
+            imag_cutoff_cm=20.0,
+            low_freq_cutoff_cm=0.0,
         )
         assert result.is_transition_state is True
         assert result.n_removed == 1
@@ -466,7 +490,9 @@ class TestVibrationAnalysis:
         record must still report one.
         """
         result = analyze_vibrations(
-            _ev(-30, 800, 1600), n_atoms=3, geometry="nonlinear",
+            _ev(-30, 800, 1600),
+            n_atoms=3,
+            geometry="nonlinear",
         )
         assert result.n_imag == 1
         assert result.max_imag_cm == pytest.approx(30.0, abs=0.5)
@@ -504,8 +530,7 @@ class TestSymmetryNumber:
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             _symmetry_number(_mol("c1ccccc1"))
         assert any("symmetry_number" in r.message for r in caplog.records), (
-            f"defaulting to sigma=1 was not warned about: "
-            f"{[r.message for r in caplog.records]}"
+            f"defaulting to sigma=1 was not warned about: {[r.message for r in caplog.records]}"
         )
 
     def test_an_explicit_value_does_not_warn(self, caplog):
@@ -591,9 +616,7 @@ class TestMultiplicity:
             _resolve_multiplicity(_mol("CCO"))
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
 
-    def test_an_unsigned_wraparound_value_falls_back_to_the_radical_count(
-        self, caplog
-    ):
+    def test_an_unsigned_wraparound_value_falls_back_to_the_radical_count(self, caplog):
         """The other side of the guard: int("4294967295") parses cleanly (no
         wraparound -- that only afflicts GetUnsignedProp) to a value that is
         ">= 1" and so slipped past a lower-bound-only check, feeding
@@ -626,9 +649,7 @@ class TestMultiplicity:
             assert _resolve_multiplicity(mol) == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
-    def test_a_legitimate_high_multiplicity_on_an_even_electron_species_passes(
-        self, caplog
-    ):
+    def test_a_legitimate_high_multiplicity_on_an_even_electron_species_passes(self, caplog):
         """A triplet (multiplicity 3) on an even-electron species is
         physically legitimate (e.g. a diradical or an excited state) and
         must pass through unchanged and unwarned."""
@@ -701,9 +722,7 @@ class TestHessianGeometrySourcing:
                 return self._masses
 
         monkeypatch.setattr(thermo_mod, "Atoms", _FakeAtoms)
-        monkeypatch.setattr(
-            thermo_mod, "VibrationsData", lambda atoms, hess: ("vib", atoms)
-        )
+        monkeypatch.setattr(thermo_mod, "VibrationsData", lambda atoms, hess: ("vib", atoms))
 
         real_tensor = torch.tensor
 
@@ -726,7 +745,9 @@ class TestHessianGeometrySourcing:
         # which is all this test reads.
         try:
             thermo_mod.vib_hessian(
-                mol, _FakeCalculator(), FakeAdapter(),
+                mol,
+                _FakeCalculator(),
+                FakeAdapter(),
                 positions=relaxed,
             )
         except Exception:
@@ -765,9 +786,10 @@ class TestStationaryPointGate:
                 return True
 
         monkeypatch.setattr(thermo_mod, "BFGS", _FakeOptimizer)
-        assert thermo_mod.relax_to_stationary_point(
-            object(), fmax=2e-4, steps=10, name="probe"
-        ) is True
+        assert (
+            thermo_mod.relax_to_stationary_point(object(), fmax=2e-4, steps=10, name="probe")
+            is True
+        )
 
     def test_an_exhausted_run_reports_false_and_warns(self, monkeypatch, caplog):
         import logging
@@ -807,9 +829,7 @@ class TestStationaryPointGate:
                 return True
 
         monkeypatch.setattr(thermo_mod, "BFGS", _FakeOptimizer)
-        thermo_mod.relax_to_stationary_point(
-            object(), fmax=2e-4, steps=123, name="probe"
-        )
+        thermo_mod.relax_to_stationary_point(object(), fmax=2e-4, steps=123, name="probe")
         assert seen == {"fmax": 2e-4, "steps": 123}
 
 
@@ -852,8 +872,7 @@ class TestRecordFiltering:
         with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
             list(iter_thermo_records([None, self._mol_with_conformer("ok")]))
         assert any("Skipping record" in r.message for r in caplog.records), (
-            f"a dropped record was not reported: "
-            f"{[r.message for r in caplog.records]}"
+            f"a dropped record was not reported: {[r.message for r in caplog.records]}"
         )
 
     def test_an_all_valid_batch_is_untouched(self):
@@ -979,8 +998,10 @@ class TestFailedRecordKeepsInputGeometry:
 
         n_vib = 3 * mol.GetNumAtoms() - 6
         fake = fake_vib_for(
-            atoms, [200.0 + 50.0 * i for i in range(n_vib)],
-            (1.6, -3.2, 3.4, -3.5, 3.7, -4.1), "nonlinear",
+            atoms,
+            [200.0 + 50.0 * i for i in range(n_vib)],
+            (1.6, -3.2, 3.4, -3.5, 3.7, -4.1),
+            "nonlinear",
         )
 
         class _Boom:
@@ -1015,8 +1036,10 @@ class TestFailedRecordKeepsInputGeometry:
 
         n_vib = 3 * mol.GetNumAtoms() - 6
         fake = fake_vib_for(
-            atoms, [400.0 + 80.0 * i for i in range(n_vib)],
-            (1.6, -3.2, 3.4, -3.5, 3.7, -4.1), "nonlinear",
+            atoms,
+            [400.0 + 80.0 * i for i in range(n_vib)],
+            (1.6, -3.2, 3.4, -3.5, 3.7, -4.1),
+            "nonlinear",
         )
         monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: fake)
 
@@ -1027,8 +1050,7 @@ class TestFailedRecordKeepsInputGeometry:
         after = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
         np.testing.assert_allclose(after, relaxed)
         assert not np.allclose(after, original), (
-            "a converged record's conformer was not updated to the relaxed "
-            "geometry"
+            "a converged record's conformer was not updated to the relaxed geometry"
         )
 
 
@@ -1066,9 +1088,7 @@ class TestTheNameKeyedHessianEvaluatorIsGone:
         mol = Chem.AddHs(Chem.MolFromSmiles("O"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
-        vib = thermo_mod.vib_hessian(
-            mol, object(), FakeAdapter(), torch.device("cpu")
-        )
+        vib = thermo_mod.vib_hessian(mol, object(), FakeAdapter(), torch.device("cpu"))
         assert vib.get_hessian_2d().shape == (3 * mol.GetNumAtoms(),) * 2
 
 
@@ -1313,12 +1333,14 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
                 self.seen: list[dict] = []
 
             def forward(self, coords, species, charges, atom_mask=None):
-                self.seen.append({
-                    "device": coords.device,
-                    "dtype": coords.dtype,
-                    "species_device": species.device,
-                    "charge_device": charges.device,
-                })
+                self.seen.append(
+                    {
+                        "device": coords.device,
+                        "dtype": coords.dtype,
+                        "species_device": species.device,
+                        "charge_device": charges.device,
+                    }
+                )
                 energy = torch.zeros(coords.shape[0], dtype=coords.dtype)
                 # A toy restoring force: non-zero (so the fmax pre-check fails
                 # and the ASE calculator -- the cuda-seizing half of the split
@@ -1372,8 +1394,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         assert model.seen, "the model was never called"
         for call in model.seen:
             assert call["device"].type == "cpu", (
-                f"coordinates were built on {call['device']}, not the "
-                "requested cpu"
+                f"coordinates were built on {call['device']}, not the requested cpu"
             )
             assert call["dtype"] is torch.float32, (
                 f"coordinates were built as {call['dtype']}; the rest of the "
@@ -1419,9 +1440,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         assert calc.device == torch.device("cpu")
         assert calc.dtype is torch.float64
 
-    def test_calc_thermo_no_gpu_uses_one_device_and_one_dtype(
-        self, monkeypatch, tmp_path
-    ):
+    def test_calc_thermo_no_gpu_uses_one_device_and_one_dtype(self, monkeypatch, tmp_path):
         """The whole call, both stages, on the device ``use_gpu=False`` means.
 
         The fmax pre-check goes through ``mol2aimnet_input`` (device from
@@ -1437,9 +1456,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         self._pretend_cuda_is_available(monkeypatch)
         model = self._paramless_model()
         monkeypatch.setattr(thermo_mod, "create_model", lambda *a, **k: model)
-        monkeypatch.setattr(
-            thermo_mod, "_load_hessian_model", lambda *a, **k: object()
-        )
+        monkeypatch.setattr(thermo_mod, "_load_hessian_model", lambda *a, **k: object())
 
         mol = Chem.AddHs(Chem.MolFromSmiles("O"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -1449,9 +1466,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
             writer.write(mol)
         out = tmp_path / "out.sdf"
 
-        thermo_mod.calc_thermo(
-            str(sdf), "AIMNET", use_gpu=False, opt_steps=2, out_path=str(out)
-        )
+        thermo_mod.calc_thermo(str(sdf), "AIMNET", use_gpu=False, opt_steps=2, out_path=str(out))
 
         assert len(model.seen) >= 2, (
             "expected both the fmax pre-check and the ASE relaxation to call "
@@ -1571,9 +1586,7 @@ class TestTheHessianPathBoundaryCasesAfterUnification:
 
         adapter.to_species = _record
 
-        thermo_mod.vib_hessian(
-            self._monatomic(), object(), adapter, torch.device("cpu")
-        )
+        thermo_mod.vib_hessian(self._monatomic(), object(), adapter, torch.device("cpu"))
 
         assert seen["numbers"] == [6], (
             f"one atom must yield one species value, got {seen['numbers']}"
@@ -1616,8 +1629,7 @@ class TestTheHessianPathBoundaryCasesAfterUnification:
         # dtype-preserving, so the charge follows the coordinates rather than
         # arriving as the int64 tensor the formal charge started as.
         assert seen["charge_dtype"] is torch.float64, (
-            f"custom NNP received charge as {seen['charge_dtype']} beside "
-            "float64 coordinates"
+            f"custom NNP received charge as {seen['charge_dtype']} beside float64 coordinates"
         )
 
 
@@ -1762,8 +1774,13 @@ def test_vib_hessian_passes_charge_as_float32():
     mol = Chem.AddHs(Chem.MolFromSmiles("O"))
     AllChem.EmbedMolecule(mol, randomSeed=42)
 
-    vib_hessian(mol, _InertCalculatorForCharge(), _RecordingAdapter(),
-                torch.device("cpu"), positions=mol.GetConformer().GetPositions())
+    vib_hessian(
+        mol,
+        _InertCalculatorForCharge(),
+        _RecordingAdapter(),
+        torch.device("cpu"),
+        positions=mol.GetConformer().GetPositions(),
+    )
 
     assert seen["dtype"] == torch.float32, (
         f"charge reached analytic_hessian as {seen['dtype']}, not float32"

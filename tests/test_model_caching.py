@@ -1,4 +1,5 @@
 """Tests for model caching in ModelFactory."""
+
 from __future__ import annotations
 
 import pytest

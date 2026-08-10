@@ -26,6 +26,7 @@ means "differentiate ``energy()``"), not a type test; and no engine-name string
 survives on the path. Nothing here loads a neural network potential -- the one
 adapter is a recording double, and the reference Hessian is analytic.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -180,9 +181,7 @@ class TestAnalyticVersusAutograd:
         mol = _water()
         adapter = _RecordingAdapter(analytic=None)
 
-        vib = thermo_mod.vib_hessian(
-            mol, _InertCalculator(), adapter, torch.device("cpu")
-        )
+        vib = thermo_mod.vib_hessian(mol, _InertCalculator(), adapter, torch.device("cpu"))
         hess = vib.get_hessian_2d()
 
         n = 3 * mol.GetNumAtoms()
@@ -199,34 +198,34 @@ class TestAnalyticVersusAutograd:
         """Spy on both: the native Hessian wins and ``energy`` is never called."""
         mol = _water()
         n_atoms = mol.GetNumAtoms()
-        native = torch.arange(
-            (n_atoms * 3) ** 2, dtype=torch.double
-        ).reshape(n_atoms, 3, n_atoms, 3)
+        native = torch.arange((n_atoms * 3) ** 2, dtype=torch.double).reshape(
+            n_atoms, 3, n_atoms, 3
+        )
         # Symmetric, because VibrationsData validates that.
-        native = 0.5 * (native + native.reshape(n_atoms * 3, n_atoms * 3).T.reshape(
-            n_atoms, 3, n_atoms, 3))
+        native = 0.5 * (
+            native + native.reshape(n_atoms * 3, n_atoms * 3).T.reshape(n_atoms, 3, n_atoms, 3)
+        )
         adapter = _RecordingAdapter(analytic=native)
 
-        vib = thermo_mod.vib_hessian(
-            mol, _InertCalculator(), adapter, torch.device("cpu")
-        )
+        vib = thermo_mod.vib_hessian(mol, _InertCalculator(), adapter, torch.device("cpu"))
 
         assert "analytic_hessian" in adapter.calls
         assert "energy" not in adapter.calls, (
             "the native analytic Hessian was computed AND then discarded in "
             "favour of differentiating energy()"
         )
-        assert np.allclose(
-            vib.get_hessian_2d(), native.reshape(n_atoms * 3, n_atoms * 3).numpy()
-        )
+        assert np.allclose(vib.get_hessian_2d(), native.reshape(n_atoms * 3, n_atoms * 3).numpy())
 
     def test_the_default_capability_is_none_not_an_exception(self):
         """Every in-tree adapter inherits "no native Hessian" from the base."""
         from Auto3D.models.adapter import BaseModelAdapter
 
-        assert BaseModelAdapter.analytic_hessian(
-            object(), torch.zeros(1, 1, 3), torch.zeros(1, 1), torch.zeros(1)
-        ) is None
+        assert (
+            BaseModelAdapter.analytic_hessian(
+                object(), torch.zeros(1, 1, 3), torch.zeros(1, 1), torch.zeros(1)
+            )
+            is None
+        )
 
     def test_the_aimnet_calculator_escape_hatch_is_gone(self):
         """``AIMNet2Adapter.calculator`` existed only to reach the native Hessian.
@@ -242,9 +241,7 @@ class TestAnalyticVersusAutograd:
         # purpose, to record what the capability replaced.
         referenced = thermo_mod.vib_hessian.__code__.co_names
         assert "AIMNet2Calculator" not in referenced
-        assert "isinstance" not in referenced, (
-            "vib_hessian is dispatching on a type again"
-        )
+        assert "isinstance" not in referenced, "vib_hessian is dispatching on a type again"
 
 
 class TestTheHessianPathStaysFloat64:
@@ -294,9 +291,7 @@ class TestLoadHessianModelReturnsOneType:
         monkeypatch.setattr(thermo_mod, "create_model", _create)
         return calls
 
-    @pytest.mark.parametrize(
-        "name", ["ANI2xt", "ani2x", "AIMNET", "aimnet2-2025", "aimnet2-nse"]
-    )
+    @pytest.mark.parametrize("name", ["ANI2xt", "ani2x", "AIMNET", "aimnet2-2025", "aimnet2-nse"])
     def test_every_engine_name_yields_a_conforming_adapter(self, name, monkeypatch):
         """One return type. An aimnet registry alias no longer needs a branch.
 

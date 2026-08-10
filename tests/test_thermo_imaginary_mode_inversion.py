@@ -26,6 +26,7 @@ choice in 3.28.0, and the same input then gave a different Gibbs energy.
 Everything here is driven from synthetic Hessians; no neural network potential
 is loaded and no model is downloaded.
 """
+
 from __future__ import annotations
 
 import math
@@ -60,8 +61,26 @@ PRESSURE_PA = 101325
 #: 9 atoms (ethanol), nonlinear -> 27 Hessian eigenvalues, of which 21 are
 #: genuine vibrations. One slot is left for the mode under test.
 REAL_VIBRATIONS = (
-    250, 300, 420, 800, 900, 1000, 1100, 1200, 1300, 1400,
-    1450, 1470, 2900, 2950, 3000, 3010, 3020, 3050, 3600, 3700,
+    250,
+    300,
+    420,
+    800,
+    900,
+    1000,
+    1100,
+    1200,
+    1300,
+    1400,
+    1450,
+    1470,
+    2900,
+    2950,
+    3000,
+    3010,
+    3020,
+    3050,
+    3600,
+    3700,
 )
 #: Translation/rotation eigenvalues at realistic magnitudes, mixed real and
 #: imaginary. A 1.6 cm-1 mode of these is worth about -2.9 kcal/mol of G on its
@@ -114,16 +133,15 @@ def _gibbs_kcal(atoms, modes, potential_energy=0.0) -> float:
         **_selection_disabled_kwargs(),
     )
     return (
-        thermo.get_gibbs_energy(
-            temperature=T_REFERENCE, pressure=PRESSURE_PA, verbose=False
-        )
+        thermo.get_gibbs_energy(temperature=T_REFERENCE, pressure=PRESSURE_PA, verbose=False)
         * EV_TO_HARTREE
         * HARTREE_TO_KCAL_PER_MOL
     )
 
 
-def _run(mode_cm: float, *, low_freq_cutoff_cm=LOW_FREQUENCY_CUTOFF_CM,
-         name="probe", monkeypatch=None):
+def _run(
+    mode_cm: float, *, low_freq_cutoff_cm=LOW_FREQUENCY_CUTOFF_CM, name="probe", monkeypatch=None
+):
     """``do_mol_thermo`` on a synthetic Hessian; returns (mol, atoms, modes given to ASE)."""
     mol = probe_mol("CCO", name)
     atoms = atoms_for(mol, potential_energy=0.0)
@@ -138,7 +156,10 @@ def _run(mode_cm: float, *, low_freq_cutoff_cm=LOW_FREQUENCY_CUTOFF_CM,
     monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: vib)
     monkeypatch.setattr(thermo_mod, "IdealGasThermo", recording)
     produced = thermo_mod.do_mol_thermo(
-        mol, atoms, adapter=None, T=T_REFERENCE,
+        mol,
+        atoms,
+        adapter=None,
+        T=T_REFERENCE,
         low_freq_cutoff_cm=low_freq_cutoff_cm,
     )
     assert len(captured) == 1, "do_mol_thermo built more than one IdealGasThermo"
@@ -148,7 +169,9 @@ def _run(mode_cm: float, *, low_freq_cutoff_cm=LOW_FREQUENCY_CUTOFF_CM,
 class TestTheModeCountIsConserved:
     def test_a_sub_cutoff_artifact_is_kept_at_its_absolute_value(self):
         analysis = analyze_vibrations(
-            energies_ev(*_spectrum(-20)), n_atoms=N_ATOMS, geometry="nonlinear",
+            energies_ev(*_spectrum(-20)),
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
             low_freq_cutoff_cm=0.0,
         )
         assert analysis.n_imag == 1
@@ -163,7 +186,9 @@ class TestTheModeCountIsConserved:
 
     def test_a_reaction_coordinate_is_removed_not_inverted(self):
         analysis = analyze_vibrations(
-            energies_ev(*_spectrum(-400)), n_atoms=N_ATOMS, geometry="nonlinear",
+            energies_ev(*_spectrum(-400)),
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
             low_freq_cutoff_cm=0.0,
         )
         assert (analysis.n_imag, analysis.n_inverted, analysis.n_removed) == (1, 0, 1)
@@ -178,11 +203,13 @@ class TestTheModeCountIsConserved:
     def test_the_cutoff_boundary_is_read_not_hardcoded(self):
         just_under = analyze_vibrations(
             energies_ev(*_spectrum(-(IMAGINARY_MODE_CUTOFF_CM - 1))),
-            n_atoms=N_ATOMS, geometry="nonlinear",
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
         )
         just_over = analyze_vibrations(
             energies_ev(*_spectrum(-(IMAGINARY_MODE_CUTOFF_CM + 1))),
-            n_atoms=N_ATOMS, geometry="nonlinear",
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
         )
         assert (just_under.n_inverted, just_under.n_removed) == (1, 0)
         assert (just_over.n_inverted, just_over.n_removed) == (0, 1)
@@ -196,7 +223,8 @@ class TestTheModeCountIsConserved:
         with pytest.raises(ValueError, match="projected_vibrations"):
             analyze_vibrations(
                 energies_ev(*TRANS_ROT_NOISE, *_spectrum(-20)),
-                n_atoms=N_ATOMS, geometry="nonlinear",
+                n_atoms=N_ATOMS,
+                geometry="nonlinear",
             )
 
 
@@ -211,7 +239,8 @@ class TestTheQuasiHarmonicFloor:
         floored = {}
         for artifact in (10, 20, 30, 49):
             analysis = analyze_vibrations(
-                energies_ev(*_spectrum(-artifact)), n_atoms=N_ATOMS,
+                energies_ev(*_spectrum(-artifact)),
+                n_atoms=N_ATOMS,
                 geometry="nonlinear",
             )
             assert analysis.n_inverted == 1
@@ -231,7 +260,9 @@ class TestTheQuasiHarmonicFloor:
         RRHO -- so both get the same treatment.
         """
         analysis = analyze_vibrations(
-            energies_ev(*_spectrum(30)), n_atoms=N_ATOMS, geometry="nonlinear",
+            energies_ev(*_spectrum(30)),
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
         )
         assert (analysis.n_imag, analysis.n_inverted) == (0, 0)
         assert analysis.n_raised == 1
@@ -241,18 +272,20 @@ class TestTheQuasiHarmonicFloor:
 
     def test_the_floor_can_be_switched_off(self):
         analysis = analyze_vibrations(
-            energies_ev(*_spectrum(30)), n_atoms=N_ATOMS, geometry="nonlinear",
+            energies_ev(*_spectrum(30)),
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
             low_freq_cutoff_cm=0.0,
         )
         assert analysis.n_raised == 0
-        assert min(wavenumbers(analysis.corrected_energies)) == pytest.approx(
-            30.0, abs=1e-6
-        )
+        assert min(wavenumbers(analysis.corrected_energies)) == pytest.approx(30.0, abs=1e-6)
         assert analysis.convention == "RRHO"
 
     def test_the_convention_names_the_cutoff(self):
         analysis = analyze_vibrations(
-            energies_ev(*_spectrum(30)), n_atoms=N_ATOMS, geometry="nonlinear",
+            energies_ev(*_spectrum(30)),
+            n_atoms=N_ATOMS,
+            geometry="nonlinear",
         )
         assert analysis.convention == "RRHO+quasiharmonic(100cm-1)"
 
@@ -266,12 +299,9 @@ class TestTheQuasiHarmonicFloor:
         ``|nu|`` restores exactly the harmonic free energy of one mode at
         ``|nu|``, which is negative because ``-T*S_vib`` dominates.
         """
-        produced, atoms, given = _run(
-            -artifact_cm, low_freq_cutoff_cm=0.0, monkeypatch=monkeypatch
-        )
+        produced, atoms, given = _run(-artifact_cm, low_freq_cutoff_cm=0.0, monkeypatch=monkeypatch)
         g_inverted = float(produced.GetProp("G_hartree")) * HARTREE_TO_KCAL_PER_MOL
-        deleted = [v for v in given if abs(v.real - artifact_cm * EV_PER_WAVENUMBER)
-                   > 1e-12]
+        deleted = [v for v in given if abs(v.real - artifact_cm * EV_PER_WAVENUMBER) > 1e-12]
         assert len(deleted) == N_VIB - 1, "test premise: exactly one mode removed"
         g_deleted = _gibbs_kcal(atoms, deleted)
 
@@ -284,13 +314,13 @@ class TestTheQuasiHarmonicFloor:
         assert 0.8 < abs(delta) < 1.9
 
     @pytest.mark.parametrize("artifact_cm", [10, 20, 30, 49])
-    def test_with_the_floor_on_every_artifact_gives_the_same_g(
-        self, monkeypatch, artifact_cm
-    ):
+    def test_with_the_floor_on_every_artifact_gives_the_same_g(self, monkeypatch, artifact_cm):
         produced, _atoms, _given = _run(-artifact_cm, monkeypatch=monkeypatch)
         g = float(produced.GetProp("G_hartree")) * HARTREE_TO_KCAL_PER_MOL
         reference, _, _ = _run(
-            -20, name="reference", monkeypatch=monkeypatch,
+            -20,
+            name="reference",
+            monkeypatch=monkeypatch,
         )
         g_reference = float(reference.GetProp("G_hartree")) * HARTREE_TO_KCAL_PER_MOL
         assert g == pytest.approx(g_reference, abs=1e-9), (
@@ -310,12 +340,11 @@ class TestGibbsEnergyDoesNotDependOnAsesSelectionRule:
     """
 
     @pytest.mark.parametrize(
-        "mode_cm", [120, -10, -20, -30, -49, -400],
+        "mode_cm",
+        [120, -10, -20, -30, -49, -400],
         ids=["clean", "10i", "20i", "30i", "49i", "saddle"],
     )
-    def test_both_rules_select_the_same_modes_and_the_same_g(
-        self, monkeypatch, mode_cm
-    ):
+    def test_both_rules_select_the_same_modes_and_the_same_g(self, monkeypatch, mode_cm):
         produced, atoms, given = _run(mode_cm, monkeypatch=monkeypatch)
         g_reported = float(produced.GetProp("G_hartree")) * HARTREE_TO_KCAL_PER_MOL
 
@@ -324,9 +353,9 @@ class TestGibbsEnergyDoesNotDependOnAsesSelectionRule:
             assert sorted(wavenumbers(selected)) == pytest.approx(
                 sorted(wavenumbers(given)), abs=1e-9
             ), f"the {label} rule changed the mode set Auto3D handed ASE"
-            assert _gibbs_kcal(atoms, selected) == pytest.approx(
-                g_reported, abs=1e-9
-            ), f"G differs under the {label} rule"
+            assert _gibbs_kcal(atoms, selected) == pytest.approx(g_reported, abs=1e-9), (
+                f"G differs under the {label} rule"
+            )
 
     @pytest.mark.parametrize(
         "mode_cm, expect_spread",
@@ -342,12 +371,8 @@ class TestGibbsEnergyDoesNotDependOnAsesSelectionRule:
         """
         mol = probe_mol("CCO")
         atoms = atoms_for(mol, potential_energy=0.0)
-        hessian = hessian_with_spectrum(
-            atoms, _spectrum(mode_cm), TRANS_ROT_NOISE, "nonlinear"
-        )
-        raw = VibrationsData(
-            atoms, hessian.reshape(N_ATOMS, 3, N_ATOMS, 3)
-        ).get_energies()
+        hessian = hessian_with_spectrum(atoms, _spectrum(mode_cm), TRANS_ROT_NOISE, "nonlinear")
+        raw = VibrationsData(atoms, hessian.reshape(N_ATOMS, 3, N_ATOMS, 3)).get_energies()
         gibbs = {
             label: _gibbs_kcal(atoms, rule(raw, N_VIB))
             for label, rule in ASE_SELECTION_RULES.items()
@@ -368,9 +393,7 @@ class TestGibbsEnergyDoesNotDependOnAsesSelectionRule:
     ):
         produced, atoms, given = _run(-400, monkeypatch=monkeypatch)
         assert produced.GetProp("Is_transition_state") == "True"
-        assert len(given) == N_VIB - 1, (
-            "the saddle point was not handed 3N-7 modes"
-        )
+        assert len(given) == N_VIB - 1, "the saddle point was not handed 3N-7 modes"
         assert all(v.imag == 0.0 for v in given)
         assert not any(abs(w - 400.0) < 1.0 for w in wavenumbers(given)), (
             "the reaction coordinate was inverted into the partition function"
@@ -388,9 +411,7 @@ class TestTheRecordSaysWhatWasDone:
         assert produced.GetProp("Thermo_convention") == "RRHO+quasiharmonic(100cm-1)"
 
     def test_the_convention_property_follows_the_opt_out(self, monkeypatch):
-        produced, _atoms, _given = _run(
-            -20, low_freq_cutoff_cm=0.0, monkeypatch=monkeypatch
-        )
+        produced, _atoms, _given = _run(-20, low_freq_cutoff_cm=0.0, monkeypatch=monkeypatch)
         assert produced.GetProp("Thermo_convention") == "RRHO"
         assert produced.GetProp("N_raised_modes") == "0"
 
@@ -422,9 +443,7 @@ class TestProjectionFeedsTheAnalysis:
     def test_the_projected_spectrum_is_exactly_what_analyze_vibrations_wants(self):
         mol = probe_mol("CCO")
         atoms = atoms_for(mol)
-        hessian = hessian_with_spectrum(
-            atoms, _spectrum(-20), TRANS_ROT_NOISE, "nonlinear"
-        )
+        hessian = hessian_with_spectrum(atoms, _spectrum(-20), TRANS_ROT_NOISE, "nonlinear")
         energies = projected_vibrations(atoms, hessian, "nonlinear")
         analysis = analyze_vibrations(
             energies, n_atoms=N_ATOMS, geometry="nonlinear", low_freq_cutoff_cm=0.0
@@ -433,6 +452,7 @@ class TestProjectionFeedsTheAnalysis:
         assert sorted(wavenumbers(analysis.energies)) == pytest.approx(
             sorted(_spectrum(-20)), abs=1e-6
         )
+
 
 class TestAseSelectionIsDisabledAtTheCallSite:
     """The kwargs that stop ASE re-selecting, pinned on whichever ASE is here.
@@ -455,9 +475,9 @@ class TestAseSelectionIsDisabledAtTheCallSite:
         )
         if thermo_mod._ASE_HAS_VIB_SELECTION:
             assert kwargs == {"vib_selection": "exact"}
-            assert thermo_mod._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {
-                "vib_selection": "all"
-            }, "a saddle point's 3N-7 list must not be checked against 3N-6"
+            assert thermo_mod._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {"vib_selection": "all"}, (
+                "a saddle point's 3N-7 list must not be checked against 3N-6"
+            )
         else:
             assert kwargs == {"natoms": 0}
             assert thermo_mod._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {"natoms": 0}
@@ -475,8 +495,12 @@ class TestAseSelectionIsDisabledAtTheCallSite:
         assert len(too_many) == N_VIB + 1, "test premise"
 
         thermo = IdealGasThermo(
-            vib_energies=too_many, potentialenergy=0.0, atoms=atoms,
-            geometry="nonlinear", symmetrynumber=1, spin=0.0,
+            vib_energies=too_many,
+            potentialenergy=0.0,
+            atoms=atoms,
+            geometry="nonlinear",
+            symmetrynumber=1,
+            spin=0.0,
             ignore_imag_modes=True,
             **thermo_mod._verbatim_mode_kwargs(len(too_many), N_VIB),
         )
@@ -487,8 +511,12 @@ class TestAseSelectionIsDisabledAtTheCallSite:
         try:
             with_default_selection = len(
                 IdealGasThermo(
-                    vib_energies=too_many, potentialenergy=0.0, atoms=atoms,
-                    geometry="nonlinear", symmetrynumber=1, spin=0.0,
+                    vib_energies=too_many,
+                    potentialenergy=0.0,
+                    atoms=atoms,
+                    geometry="nonlinear",
+                    symmetrynumber=1,
+                    spin=0.0,
                     ignore_imag_modes=True,
                 ).vib_energies
             )

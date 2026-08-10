@@ -32,6 +32,7 @@ What these tests cannot establish, and nothing here pretends otherwise:
 * Any wall-clock number. A sync costs only what it serializes, which depends on
   the GPU and the batch size. See ``benchmarks/bench_optimization_perf.py``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -134,8 +135,7 @@ class TestElementIndices:
             batch = int(torch.randint(1, 6, (1,)))
             atoms = int(torch.randint(1, 25, (1,)))
             species = torch.randint(-3, NUM_ELEMENTS + 3, (batch, atoms))
-            for got, want in zip(element_indices(species),
-                                 _reference_element_indices(species)):
+            for got, want in zip(element_indices(species), _reference_element_indices(species)):
                 assert torch.equal(got, want), f"seed {seed}"
 
     def test_performs_exactly_one_host_readback(self):
@@ -220,8 +220,7 @@ class TestAtomEnergies:
         """
         species = torch.tensor([[0, -1, 7, 3, -1]])
         aev = _aev_for(species)
-        result = _atom_energies(
-            _networks(), aev.reshape(5, AEV_DIM), element_indices(species), 5)
+        result = _atom_energies(_networks(), aev.reshape(5, AEV_DIM), element_indices(species), 5)
         assert result[1] == 0.0
         assert result[2] == 0.0
         assert (result[[0, 3]] != 0.0).all()
@@ -251,8 +250,7 @@ class TestAtomEnergies:
         fewer than 21 and the honest figure is "up to 21, and 21 for any
         realistic molecule".
         """
-        species = torch.tensor([[0, 0, 1, 1, 2, 2, 3, 3],
-                                [4, 4, 5, 5, 6, 6, 0, 0]])
+        species = torch.tensor([[0, 0, 1, 1, 2, 2, 3, 3], [4, 4, 5, 5, 6, 6, 0, 0]])
         counter = SyncCounter()
         with counter:
             _reference_atom_energies(_networks(), species, _aev_for(species))
@@ -268,8 +266,7 @@ class TestAtomEnergies:
         ``_validate_outputs``' one scalar read, which is unchanged and lives in
         the adapter, and the ANI2xt forward goes from 22 to 2.
         """
-        species = torch.tensor([[0, 0, 1, 1, 2, 2, 3, 3],
-                                [4, 4, 5, 5, 6, 6, 0, 0]])
+        species = torch.tensor([[0, 0, 1, 1, 2, 2, 3, 3], [4, 4, 5, 5, 6, 6, 0, 0]])
         aev = _aev_for(species)
         networks = _networks()
 
@@ -311,8 +308,7 @@ class TestCompilation:
         flat = aev.reshape(16, AEV_DIM)
 
         assert count_graphs(_atom_energies, networks, flat, index, 16) == 1
-        assert count_graphs(_atom_energies, networks, flat, index, 16,
-                            fullgraph=True) == 1
+        assert count_graphs(_atom_energies, networks, flat, index, 16, fullgraph=True) == 1
 
     def test_masked_reference_compiles_to_zero_graphs(self):
         """The control, without which "1 graph" means nothing.
@@ -333,8 +329,9 @@ class TestCompilation:
         """And it fails outright under ``fullgraph=True``, naming the reason."""
         species = torch.tensor([[0, 1, 2, 3, 4, 5, 6, 0]])
         with pytest.raises(Exception, match="[Dd]ata-dependent"):
-            count_graphs(_reference_atom_energies, _networks(), species,
-                         _aev_for(species), fullgraph=True)
+            count_graphs(
+                _reference_atom_energies, _networks(), species, _aev_for(species), fullgraph=True
+            )
 
 
 class TestSelfAtomicEnergies:
@@ -372,5 +369,6 @@ class TestSelfAtomicEnergies:
         shifts = torch.full((NUM_ELEMENTS,), -7.0, dtype=torch.float64)
         unpadded = torch.tensor([[0, 1, 2]])
         padded = torch.tensor([[0, 1, 2, -1, -1]])
-        assert torch.equal(self_atomic_energies(unpadded, shifts),
-                           self_atomic_energies(padded, shifts))
+        assert torch.equal(
+            self_atomic_energies(unpadded, shifts), self_atomic_energies(padded, shifts)
+        )

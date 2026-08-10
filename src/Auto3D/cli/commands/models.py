@@ -94,9 +94,7 @@ def execute_models_list() -> None:
 
     console.print(table)
     console.print()
-    console.print(
-        "[dim]aimnet2-2025: B97-3c, improved non-covalent interactions[/dim]"
-    )
+    console.print("[dim]aimnet2-2025: B97-3c, improved non-covalent interactions[/dim]")
     console.print("[dim]aimnet2-nse: open-shell / radicals (spin support)[/dim]")
     console.print("[dim]aimnet2-pd: palladium catalysis[/dim]")
     console.print(
@@ -122,8 +120,7 @@ ENGINE_INFO = {
         "reference": "https://github.com/isayevlab/AIMNet2",
         "notes": [
             "Default engine (recommended)",
-            "A single registry model is used; pick aimnet2-2025/-nse/-pd for "
-            "different chemistry",
+            "A single registry model is used; pick aimnet2-2025/-nse/-pd for different chemistry",
         ],
     },
     "AIMNET2-2025": {
@@ -214,6 +211,7 @@ def execute_models_info(engine: str, verbose: int = 0) -> None:
 
         if engine_upper not in ENGINE_INFO:
             from Auto3D.model_factory import ModelFactory
+
             raise ConfigurationError(
                 f"Unknown engine: {engine}",
                 hint=f"Available: {', '.join(ModelFactory.available_models())}",
@@ -223,16 +221,16 @@ def execute_models_info(engine: str, verbose: int = 0) -> None:
 
     info = ENGINE_INFO[engine_upper]
 
-    content = f"""[bold]{info['name']}[/bold]
+    content = f"""[bold]{info["name"]}[/bold]
 
-{info['description']}
+{info["description"]}
 
-[bold]Supported Elements:[/bold] {info['elements']}
+[bold]Supported Elements:[/bold] {info["elements"]}
 
-[bold]Speed:[/bold] {info['speed']}
-[bold]Accuracy:[/bold] {info['accuracy']}
+[bold]Speed:[/bold] {info["speed"]}
+[bold]Accuracy:[/bold] {info["accuracy"]}
 
-[bold]Reference:[/bold] {info['reference']}
+[bold]Reference:[/bold] {info["reference"]}
 
 [bold]Notes:[/bold]
 """
@@ -242,9 +240,7 @@ def execute_models_info(engine: str, verbose: int = 0) -> None:
     console.print(Panel(content, title=f"[cyan]{engine_upper}[/cyan]", border_style="blue"))
 
 
-def execute_models_test(
-    engine: str, gpu: bool = True, gpu_idx: int = 0, verbose: int = 0
-) -> None:
+def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose: int = 0) -> None:
     """Health-check an engine: load it and run one tiny forward pass.
 
     Catches the common environment problems up front -- a missing torchani for
@@ -276,18 +272,24 @@ def execute_models_test(
             adapter = create_model(engine, device)
             # A single methane molecule (H, C only -> supported by every engine).
             coords = torch.tensor(
-                [[[0.0, 0.0, 0.0], [0.63, 0.63, 0.63], [-0.63, -0.63, 0.63],
-                  [0.63, -0.63, -0.63], [-0.63, 0.63, -0.63]]],
-                dtype=torch.float, device=device,
+                [
+                    [
+                        [0.0, 0.0, 0.0],
+                        [0.63, 0.63, 0.63],
+                        [-0.63, -0.63, 0.63],
+                        [0.63, -0.63, -0.63],
+                        [-0.63, 0.63, -0.63],
+                    ]
+                ],
+                dtype=torch.float,
+                device=device,
             )
             # Build species in the engine's own convention, asked of the
             # adapter that will consume them. Passing raw atomic numbers made the
             # ANI2xt check evaluate a Cl+4C species and report success (audit
             # C4); asking a name-keyed helper instead of the model left the
             # convention and the model as two independently-resolved things.
-            species = torch.tensor(
-                [adapter.to_species([6, 1, 1, 1, 1])], device=device
-            )
+            species = torch.tensor([adapter.to_species([6, 1, 1, 1, 1])], device=device)
             charges = torch.tensor([0.0], device=device)
             energy, forces = adapter.forward(coords, species, charges)
             elapsed = time.time() - t0

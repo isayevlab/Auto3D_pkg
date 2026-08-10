@@ -15,6 +15,7 @@ a structure no longer in the file.
 
 Nothing here loads a neural network potential.
 """
+
 from __future__ import annotations
 
 import ase
@@ -90,9 +91,7 @@ def _water_with_stale_energy() -> tuple[Chem.Mol, ase.Atoms]:
     set_e_tot_from_ev(mol, STALE_ENERGY_EV)
 
     positions = mol.GetConformer().GetPositions()
-    atoms = ase.Atoms(
-        numbers=[a.GetAtomicNum() for a in mol.GetAtoms()], positions=positions
-    )
+    atoms = ase.Atoms(numbers=[a.GetAtomicNum() for a in mol.GetAtoms()], positions=positions)
     atoms.calc = _FixedEnergyCalculator()
     return mol, atoms
 

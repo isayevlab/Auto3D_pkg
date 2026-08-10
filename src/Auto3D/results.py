@@ -12,6 +12,7 @@ counts, this cannot be recomputed lazily from the output path alone -- it
 depends on the original input, which the orchestrator already compared during
 ``_finalize_output`` -- so it is passed in explicitly at construction.
 """
+
 from __future__ import annotations
 
 from functools import cached_property

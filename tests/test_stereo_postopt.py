@@ -5,6 +5,7 @@ produces a molecule of different chemical identity than its title. check_connect
 compares interatomic distances against UFF radii and is stereo-blind, so nothing
 caught it. These tests pin the detector and the three filters that act on it.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -42,8 +43,7 @@ def _nudged_coords(mol: Chem.Mol) -> list[list[float]]:
     """Coordinates displaced far too little to change any configuration."""
     conf = mol.GetConformer()
     return [
-        [conf.GetAtomPosition(i).x + 0.01, conf.GetAtomPosition(i).y,
-         conf.GetAtomPosition(i).z]
+        [conf.GetAtomPosition(i).x + 0.01, conf.GetAtomPosition(i).y, conf.GetAtomPosition(i).z]
         for i in range(mol.GetNumAtoms())
     ]
 
@@ -198,11 +198,13 @@ class TestFiltersExcludeStereoChangedRecords:
         kept = _optimized(-1.0, changed=False)
         for mol, name in ((dropped, "probe_0_0"), (kept, "probe_0_1")):
             mol.SetProp("_Name", name)
-        group = pd.DataFrame({
-            "names": ["probe", "probe"],
-            "energies": [-2.0, -1.0],
-            "mols": [dropped, kept],
-        })
+        group = pd.DataFrame(
+            {
+                "names": ["probe", "probe"],
+                "energies": [-2.0, -1.0],
+                "mols": [dropped, kept],
+            }
+        )
         ranker = ConformerRanker(
             input_path="unused.sdf", out_path="unused_out.sdf", threshold=0.3, k=1
         )

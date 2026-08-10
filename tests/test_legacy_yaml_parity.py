@@ -22,6 +22,7 @@ than asserting either path's behavior in isolation: for each malformed shape,
 both entry points must report the **same exception class** and the **same exit
 code**.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -99,9 +100,7 @@ def _verdict_modern(input_file: Path, yaml_path: Path, monkeypatch) -> tuple[str
 
 
 @pytest.mark.parametrize("shape", sorted(MALFORMED_SHAPES))
-def test_malformed_yaml_is_judged_identically_by_both_entry_points(
-    shape, tmp_path, monkeypatch
-):
+def test_malformed_yaml_is_judged_identically_by_both_entry_points(shape, tmp_path, monkeypatch):
     """A malformed config file must produce the same error class and the same
     exit code whichever entry point reads it.
 
@@ -137,8 +136,6 @@ def test_settings_only_config_still_refused_by_the_legacy_form(tmp_path, monkeyp
     # ANI2xt, not the default AIMNET: resolving the engine name for a *valid*
     # config actually happens here, and AIMNET would import the optional
     # `aimnet` package (see tests/test_config_parity.py's matching note).
-    cfg = _write(
-        tmp_path, "settings_only.yaml", "k: 1\noptimizing_engine: 'ANI2xt'\n"
-    )
+    cfg = _write(tmp_path, "settings_only.yaml", "k: 1\noptimizing_engine: 'ANI2xt'\n")
 
     assert _verdict_legacy(cfg, monkeypatch) == ("ConfigurationError", 2)

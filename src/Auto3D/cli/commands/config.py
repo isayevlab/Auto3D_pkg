@@ -111,7 +111,9 @@ def generate_commented_yaml(config: dict) -> str:
 
 
 def execute_config_init(
-    output: Path, preset: str | None = None, force: bool = False,
+    output: Path,
+    preset: str | None = None,
+    force: bool = False,
     verbose: int = 0,
 ) -> None:
     """Generate a configuration file.
@@ -131,10 +133,7 @@ def execute_config_init(
                 f"{output} already exists.",
                 # Same reason check_output_overwrite suppresses its class
                 # hint: "Run 'auto3d config init'" is what the user just ran.
-                hint=(
-                    "Pass --force/-f to overwrite, or choose a different "
-                    "-o path."
-                ),
+                hint=("Pass --force/-f to overwrite, or choose a different -o path."),
             )
 
         config = DEFAULT_CONFIG.copy()
@@ -156,9 +155,7 @@ def execute_config_init(
 
         print_success(f"Created [cyan]{output}[/cyan]")
         console.print()
-        console.print(
-            Syntax(yaml_content, "yaml", theme="monokai", line_numbers=True)
-        )
+        console.print(Syntax(yaml_content, "yaml", theme="monokai", line_numbers=True))
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
         handle_error(e, verbose=verbose)
 
@@ -173,10 +170,12 @@ def execute_config_show(config_file: Path | None = None, verbose: int = 0) -> No
 
         content = config_file.read_text()
 
-        console.print(Panel(
-            Syntax(content, "yaml", theme="monokai", line_numbers=True),
-            title=f"[cyan]{config_file}[/cyan]",
-        ))
+        console.print(
+            Panel(
+                Syntax(content, "yaml", theme="monokai", line_numbers=True),
+                title=f"[cyan]{config_file}[/cyan]",
+            )
+        )
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
         handle_error(e, verbose=verbose)
 
@@ -225,18 +224,21 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
         # and invalid for the deprecated `auto3d <config.yaml>` form, which
         # has no other source of an input path.
         input_line = (
-            str(config.path) if config.path is not None
+            str(config.path)
+            if config.path is not None
             else "supplied on the command line (no 'path' key)"
         )
-        console.print(Panel(
-            f"[green]Valid configuration[/green]\n\n"
-            f"Input: {input_line}\n"
-            f"Engine: {config.optimizing_engine}\n"
-            f"GPU: {'Enabled' if config.use_gpu else 'Disabled'}\n"
-            f"Output: {'k=' + str(config.k) if config.k else 'window=' + str(config.window)}",
-            title="Validation Passed",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                f"[green]Valid configuration[/green]\n\n"
+                f"Input: {input_line}\n"
+                f"Engine: {config.optimizing_engine}\n"
+                f"GPU: {'Enabled' if config.use_gpu else 'Disabled'}\n"
+                f"Output: {'k=' + str(config.k) if config.k else 'window=' + str(config.window)}",
+                title="Validation Passed",
+                border_style="green",
+            )
+        )
 
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
         handle_error(e, verbose=verbose)

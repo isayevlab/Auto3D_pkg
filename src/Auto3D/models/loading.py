@@ -5,6 +5,7 @@ contract, used by every entry point that accepts a custom model path
 (model_factory/CustomModelAdapter, input validation, and the thermo Hessian
 path) so the accepted formats and error behavior stay identical everywhere.
 """
+
 from __future__ import annotations
 
 import torch

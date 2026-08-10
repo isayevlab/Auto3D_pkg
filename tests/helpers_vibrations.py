@@ -14,6 +14,7 @@ keeps the fixture from agreeing with the code under test by construction: a
 sign, ordering or center-of-mass bug in the production basis would still leave
 these Hessians correct, and the projection tests would fail.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,6 +23,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.constants import EV_PER_WAVENUMBER
+
 
 #: The eigenvalue -> energy conversion ASE applies to a mass-weighted Hessian
 #: (eV/A^2, amu). Written out from ase.units rather than imported from Auto3D
@@ -88,8 +90,7 @@ def hessian_with_spectrum(
     n_external = EXTERNAL_DOF[geometry]
     n_vib = n_vib_expected(n_atoms, geometry)
     assert len(vibrations_cm) == n_vib, (
-        f"expected {n_vib} vibrations for {n_atoms} {geometry} atoms, "
-        f"got {len(vibrations_cm)}"
+        f"expected {n_vib} vibrations for {n_atoms} {geometry} atoms, got {len(vibrations_cm)}"
     )
     assert len(external_cm) == n_external, (
         f"expected {n_external} translation/rotation modes, got {len(external_cm)}"
@@ -119,9 +120,7 @@ def wavenumbers(energies) -> list[float]:
 def energies_ev(*wavenumbers_cm) -> list[complex]:
     """Complex eV energies from wavenumbers; a negative one is imaginary."""
     return [
-        complex(0.0, abs(w) * EV_PER_WAVENUMBER)
-        if w < 0
-        else complex(w * EV_PER_WAVENUMBER, 0.0)
+        complex(0.0, abs(w) * EV_PER_WAVENUMBER) if w < 0 else complex(w * EV_PER_WAVENUMBER, 0.0)
         for w in wavenumbers_cm
     ]
 
@@ -163,7 +162,7 @@ def ase_selection_ge_3_28(vib_energies, n_vib: int) -> list[complex]:
     mode is dropped by the selection and a translation/rotation noise mode is
     promoted into the vibrational partition function to fill the quota.
     """
-    ordered = sorted((complex(v) for v in vib_energies), key=lambda f: (f ** 2).real)
+    ordered = sorted((complex(v) for v in vib_energies), key=lambda f: (f**2).real)
     return ordered[-n_vib:] if n_vib > 0 else []
 
 
@@ -228,9 +227,7 @@ def mmff_hessian(smiles: str, *, displacement: np.ndarray | None = None):
     kcal_per_mol_to_ev = 1.0 / 23.060547830619026
     mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
     AllChem.EmbedMolecule(mol, randomSeed=42)
-    force_field = AllChem.MMFFGetMoleculeForceField(
-        mol, AllChem.MMFFGetMoleculeProperties(mol)
-    )
+    force_field = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol))
     force_field.Minimize(maxIts=200000, forceTol=1e-10, energyTol=1e-14)
     flat = np.asarray(force_field.Positions(), dtype=float)
     if displacement is not None:
@@ -248,9 +245,7 @@ def mmff_hessian(smiles: str, *, displacement: np.ndarray | None = None):
                 total += sign * force_field.CalcEnergy(list(shifted))
             value = total / (4 * step * step) * kcal_per_mol_to_ev
             hessian[i, j] = hessian[j, i] = value
-    atoms = Atoms(
-        [a.GetSymbol() for a in mol.GetAtoms()], flat.reshape(-1, 3)
-    )
+    atoms = Atoms([a.GetSymbol() for a in mol.GetAtoms()], flat.reshape(-1, 3))
     # Masses through the production helper, not RDKit's GetMass(): mol2atoms
     # applies the QM (most-abundant-isotope) convention for unlabeled atoms,
     # where GetMass() returns the natural-abundance average. A reference Atoms

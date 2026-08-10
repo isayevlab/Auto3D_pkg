@@ -1,4 +1,5 @@
 """Unit tests for the config module."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -17,12 +18,12 @@ def test_input_format_is_real_field_surviving_replace():
     reading it off a replace()'d config copy.
     """
     cfg = Auto3DOptions(path="x.smi", k=1)
-    assert cfg.input_format is None          # declared default
-    cfg["input_format"] = "smi"              # dict-like write, as workflow.py does
+    assert cfg.input_format is None  # declared default
+    cfg["input_format"] = "smi"  # dict-like write, as workflow.py does
     assert cfg.input_format == "smi"
-    assert "input_format" in cfg.keys()      # part of the dict-like contract
+    assert "input_format" in cfg.keys()  # part of the dict-like contract
     cfg2 = replace(cfg, batchsize_atoms=2048)
-    assert cfg2.input_format == "smi"        # survives replace()
+    assert cfg2.input_format == "smi"  # survives replace()
 
 
 class TestAuto3DOptions:
@@ -143,9 +144,17 @@ class TestChunkMeta:
         from Auto3D.config import ChunkMeta
 
         expected_keys = {
-            "output", "optimized_og", "output_taut", "smiles_enumerated",
-            "smiles_reduced", "smiles_hashed", "enumerated_sdf", "sorted_sdf",
-            "housekeeping_folder", "path", "dir",
+            "output",
+            "optimized_og",
+            "output_taut",
+            "smiles_enumerated",
+            "smiles_reduced",
+            "smiles_hashed",
+            "enumerated_sdf",
+            "sorted_sdf",
+            "housekeeping_folder",
+            "path",
+            "dir",
         }
         assert set(ChunkMeta.__annotations__) == expected_keys
         # ChunkMeta declares no Optional/NotRequired fields, so every key is
@@ -244,6 +253,7 @@ def test_opt_steps_has_exactly_one_declared_minimum():
 def test_negative_k_rejected():
     from Auto3D.config import Auto3DOptions
     from Auto3D.exceptions import ConfigurationError
+
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=-1)
 
@@ -251,6 +261,7 @@ def test_negative_k_rejected():
 def test_negative_window_rejected():
     from Auto3D.config import Auto3DOptions
     from Auto3D.exceptions import ConfigurationError
+
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", window=-0.5)
 
@@ -265,12 +276,14 @@ def test_zero_k_rejected():
     """
     from Auto3D.config import Auto3DOptions
     from Auto3D.exceptions import ConfigurationError
+
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=0)
 
 
 def test_default_and_valid_k_window_accepted():
     from Auto3D.config import Auto3DOptions
+
     # defaults (False) and valid positives must NOT raise
     Auto3DOptions(path="x.smi")
     Auto3DOptions(path="x.smi", k=5)
@@ -302,9 +315,7 @@ def test_false_sentinel_accepted_on_every_bound_field_both_entry_points():
     from Auto3D.config import Auto3DOptions
 
     # Auto3DOptions: all four False, together and individually.
-    opts = Auto3DOptions(
-        path="x.smi", k=False, window=False, memory=False, max_confs=False
-    )
+    opts = Auto3DOptions(path="x.smi", k=False, window=False, memory=False, max_confs=False)
     assert opts.k is False
     assert opts.window is False
     assert opts.memory is False
@@ -312,9 +323,7 @@ def test_false_sentinel_accepted_on_every_bound_field_both_entry_points():
 
     # CLIConfig: same four fields, same False values -- must validate too,
     # and must normalize False to CLIConfig's own "unset" sentinel (None).
-    cfg = CLIConfig(
-        path=Path("x.smi"), k=False, window=False, memory=False, max_confs=False
-    )
+    cfg = CLIConfig(path=Path("x.smi"), k=False, window=False, memory=False, max_confs=False)
     assert cfg.k is None
     assert cfg.window is None
     assert cfg.memory is None
@@ -355,19 +364,23 @@ class TestOptimizerWorkerIndices:
 
     def test_single_int_index(self):
         from Auto3D.config import optimizer_worker_indices
+
         assert optimizer_worker_indices(True, 0) == [0]
         assert optimizer_worker_indices(False, 2) == [2]
 
     def test_gpu_list_fans_out(self):
         from Auto3D.config import optimizer_worker_indices
+
         assert optimizer_worker_indices(True, [0, 1, 2]) == [0, 1, 2]
 
     def test_cpu_list_collapses_to_one(self):
         from Auto3D.config import optimizer_worker_indices
+
         assert optimizer_worker_indices(False, [0, 1]) == [0]
 
     def test_cpu_empty_list_is_safe(self):
         from Auto3D.config import optimizer_worker_indices
+
         assert optimizer_worker_indices(False, []) == [0]
 
 
@@ -430,9 +443,7 @@ class TestParallelEmbeddingIsReachable:
             seen.update(kwargs)
             return _StubEngine()
 
-        monkeypatch.setattr(
-            auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture)
-        )
+        monkeypatch.setattr(auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture))
 
         smi = tmp_path / "in.smi"
         smi.write_text("CCO ethanol\n")
@@ -440,7 +451,9 @@ class TestParallelEmbeddingIsReachable:
             # use_gpu=False: this box and CI are CPU-only, and check_gpu_requested
             # is fatal for a GPU request with no visible device -- it would fire
             # before the factory call under test.
-            path=str(smi), k=1, use_gpu=False,
+            path=str(smi),
+            k=1,
+            use_gpu=False,
             use_parallel_embedding=True,
             parallel_workers=3,
             parallel_embedding_threshold=2,
@@ -469,9 +482,7 @@ class TestParallelEmbeddingIsReachable:
         options = Auto3DOptions(path="in.smi", k=1)
         assert options.use_parallel_embedding is False
 
-    @pytest.mark.parametrize(
-        "field", ["parallel_workers", "parallel_embedding_threshold"]
-    )
+    @pytest.mark.parametrize("field", ["parallel_workers", "parallel_embedding_threshold"])
     def test_a_count_below_one_is_rejected(self, field):
         """Bounds come from FIELD_BOUNDS, so both entry points share them."""
         from Auto3D.config import Auto3DOptions

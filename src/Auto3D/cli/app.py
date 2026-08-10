@@ -66,7 +66,9 @@ class Preset(StrEnum):
 InputFile = Annotated[
     Path,
     typer.Argument(
-        exists=True, dir_okay=False, readable=True,
+        exists=True,
+        dir_okay=False,
+        readable=True,
         help="Input file (must exist).",
     ),
 ]
@@ -77,7 +79,12 @@ InputFile = Annotated[
 # `run` (M30).
 VerboseOption = Annotated[
     int,
-    typer.Option("-v", "--verbose", count=True, help="Increase verbosity; shows a traceback on unexpected errors."),
+    typer.Option(
+        "-v",
+        "--verbose",
+        count=True,
+        help="Increase verbosity; shows a traceback on unexpected errors.",
+    ),
 ]
 
 # Create main app
@@ -154,7 +161,7 @@ MaxConfsOption = Annotated[
     typer.Option(
         "--max-confs",
         help="Max conformers per molecule (default: derived from heavy-atom "
-             "and rotatable-bond count, capped at 1000).",
+        "and rotatable-bond count, capped at 1000).",
     ),
 ]
 ThresholdOption = Annotated[
@@ -183,7 +190,9 @@ RunBatchsizeAtomsOption = Annotated[
 ]
 RunTf32Flag = Annotated[
     bool | None,
-    typer.Option("--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs (faster, less precise)."),
+    typer.Option(
+        "--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs (faster, less precise)."
+    ),
 ]
 
 
@@ -199,7 +208,8 @@ def main_callback(
     version: Annotated[
         bool,
         typer.Option(
-            "--version", "-V",
+            "--version",
+            "-V",
             callback=version_callback,
             is_eager=True,
             help="Show version and exit.",
@@ -215,14 +225,17 @@ def run(
     input_file: Annotated[
         Path,
         typer.Argument(
-            exists=True, dir_okay=False, readable=True,
+            exists=True,
+            dir_okay=False,
+            readable=True,
             help="Input .smi or .sdf file containing molecules.",
         ),
     ],
     config: Annotated[
         Path | None,
         typer.Option(
-            "-c", "--config",
+            "-c",
+            "--config",
             help="YAML configuration file.",
         ),
     ] = None,
@@ -295,6 +308,7 @@ def run(
 ) -> None:
     """Run conformer generation on input molecules."""
     from Auto3D.cli.commands.run import execute_run
+
     execute_run(
         input_file=input_file,
         config_file=config,
@@ -342,6 +356,7 @@ def config_init(
 ) -> None:
     """Generate a configuration file with sensible defaults."""
     from Auto3D.cli.commands.config import execute_config_init
+
     execute_config_init(
         output=output,
         preset=preset.value if preset else None,
@@ -360,6 +375,7 @@ def config_show(
 ) -> None:
     """Display configuration with syntax highlighting."""
     from Auto3D.cli.commands.config import execute_config_show
+
     execute_config_show(config_file=config_file, verbose=verbose)
 
 
@@ -368,7 +384,9 @@ def config_validate(
     config_file: Annotated[
         Path,
         typer.Argument(
-            exists=True, dir_okay=False, readable=True,
+            exists=True,
+            dir_okay=False,
+            readable=True,
             help="Config file to validate.",
         ),
     ],
@@ -376,6 +394,7 @@ def config_validate(
 ) -> None:
     """Validate a configuration file without running."""
     from Auto3D.cli.commands.config import execute_config_validate
+
     execute_config_validate(config_file=config_file, verbose=verbose)
 
 
@@ -383,6 +402,7 @@ def config_validate(
 def models_list() -> None:
     """Show available optimization engines."""
     from Auto3D.cli.commands.models import execute_models_list
+
     execute_models_list()
 
 
@@ -396,6 +416,7 @@ def models_info(
 ) -> None:
     """Show detailed information about a specific engine."""
     from Auto3D.cli.commands.models import execute_models_info
+
     execute_models_info(engine=engine, verbose=verbose)
 
 
@@ -414,6 +435,7 @@ def models_test(
 ) -> None:
     """Load an engine and run a tiny forward pass to verify it works."""
     from Auto3D.cli.commands.models import execute_models_test
+
     execute_models_test(engine=engine, gpu=gpu, gpu_idx=gpu_idx, verbose=verbose)
 
 
@@ -436,7 +458,9 @@ OutputOption = Annotated[
     Path | None,
     typer.Option("-o", "--output", help="Output SDF path (default: next to input)."),
 ]
-Tf32Flag = Annotated[bool, typer.Option("--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs.")]
+Tf32Flag = Annotated[
+    bool, typer.Option("--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs.")
+]
 JsonFlag = Annotated[bool, typer.Option("--json", help="Emit the result as JSON.")]
 # Same spelling and same help wording as `config init`'s flag, so the CLI reads
 # consistently: -f/--force is "yes, clobber the existing file" everywhere.
@@ -454,8 +478,11 @@ def validate(
 ) -> None:
     """Validate input SMILES/SDF file without running optimization."""
     from Auto3D.cli.commands.validate import execute_validate
+
     execute_validate(
-        input_file=input_file, json_output=json_output, verbose=verbose,
+        input_file=input_file,
+        json_output=json_output,
+        verbose=verbose,
     )
 
 
@@ -473,9 +500,17 @@ def energy(
 ) -> None:
     """Single-point energy for an SDF (writes an SDF with E_hartree)."""
     from Auto3D.cli.commands.properties import execute_energy
+
     execute_energy(
-        input_file, engine, gpu, gpu_idx, output, tf32, json_output,
-        verbose=verbose, force=force,
+        input_file,
+        engine,
+        gpu,
+        gpu_idx,
+        output,
+        tf32,
+        json_output,
+        verbose=verbose,
+        force=force,
     )
 
 
@@ -486,10 +521,17 @@ def optimize(
     gpu: GpuFlag = True,
     gpu_idx: GpuIdxOption = 0,
     output: OutputOption = None,
-    opt_tol: Annotated[float, typer.Option("--opt-tol", help="Max-force convergence (eV/A).")] = 0.01,
+    opt_tol: Annotated[
+        float, typer.Option("--opt-tol", help="Max-force convergence (eV/A).")
+    ] = 0.01,
     opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max optimization steps.")] = 2000,
-    patience: Annotated[int | None, typer.Option("--patience", help="Drop a conformer after this many non-improving steps.")] = None,
-    batchsize_atoms: Annotated[int, typer.Option("--batchsize-atoms", help="Atoms per optimization batch.")] = 1024,
+    patience: Annotated[
+        int | None,
+        typer.Option("--patience", help="Drop a conformer after this many non-improving steps."),
+    ] = None,
+    batchsize_atoms: Annotated[
+        int, typer.Option("--batchsize-atoms", help="Atoms per optimization batch.")
+    ] = 1024,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
@@ -497,9 +539,20 @@ def optimize(
 ) -> None:
     """Geometry-optimize the structures in an SDF (no enumeration)."""
     from Auto3D.cli.commands.properties import execute_optimize
+
     execute_optimize(
-        input_file, engine, gpu, gpu_idx, output, opt_tol, opt_steps,
-        patience, batchsize_atoms, tf32, json_output, verbose=verbose,
+        input_file,
+        engine,
+        gpu,
+        gpu_idx,
+        output,
+        opt_tol,
+        opt_steps,
+        patience,
+        batchsize_atoms,
+        tf32,
+        json_output,
+        verbose=verbose,
         force=force,
     )
 
@@ -511,15 +564,24 @@ def thermo(
     gpu: GpuFlag = True,
     gpu_idx: GpuIdxOption = 0,
     output: OutputOption = None,
-    temperature: Annotated[float, typer.Option("--temperature", "-T", help="Temperature in Kelvin.")] = 298.15,
-    opt_tol: Annotated[float, typer.Option("--opt-tol", help="Pre-optimization max-force convergence (eV/A).")] = 0.0002,
-    opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max pre-optimization steps.")] = 2000,
-    relative_gibbs: Annotated[bool, typer.Option(
-        "--relative-gibbs",
-        help="Also write G_rel(kcal/mol), the Gibbs energy relative to each "
-             "molecule's lowest-G conformer. Use this for Boltzmann "
-             "populations; plain E_rel is electronic only.",
-    )] = False,
+    temperature: Annotated[
+        float, typer.Option("--temperature", "-T", help="Temperature in Kelvin.")
+    ] = 298.15,
+    opt_tol: Annotated[
+        float, typer.Option("--opt-tol", help="Pre-optimization max-force convergence (eV/A).")
+    ] = 0.0002,
+    opt_steps: Annotated[
+        int, typer.Option("--opt-steps", help="Max pre-optimization steps.")
+    ] = 2000,
+    relative_gibbs: Annotated[
+        bool,
+        typer.Option(
+            "--relative-gibbs",
+            help="Also write G_rel(kcal/mol), the Gibbs energy relative to each "
+            "molecule's lowest-G conformer. Use this for Boltzmann "
+            "populations; plain E_rel is electronic only.",
+        ),
+    ] = False,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
@@ -527,9 +589,20 @@ def thermo(
 ) -> None:
     """Thermochemistry (enthalpy/entropy/Gibbs) for an SDF. Requires the ase extra."""
     from Auto3D.cli.commands.properties import execute_thermo
+
     execute_thermo(
-        input_file, engine, gpu, gpu_idx, output, temperature,
-        opt_tol, opt_steps, tf32, json_output, verbose=verbose, force=force,
+        input_file,
+        engine,
+        gpu,
+        gpu_idx,
+        output,
+        temperature,
+        opt_tol,
+        opt_steps,
+        tf32,
+        json_output,
+        verbose=verbose,
+        force=force,
         relative_gibbs=relative_gibbs,
     )
 
@@ -539,9 +612,16 @@ def tautomers(
     input_file: InputFile,
     engine: EngineOption = "AIMNET",
     gpu: GpuFlag = True,
-    gpu_idx: Annotated[str | None, typer.Option("--gpu-idx", help="GPU index(es), e.g. '0' or '0,1'.")] = None,
-    tauto_k: Annotated[int | None, typer.Option("--tauto-k", help="Keep the top-k stable tautomers.")] = None,
-    tauto_window: Annotated[float | None, typer.Option("--tauto-window", help="Keep tautomers within this kcal/mol window.")] = None,
+    gpu_idx: Annotated[
+        str | None, typer.Option("--gpu-idx", help="GPU index(es), e.g. '0' or '0,1'.")
+    ] = None,
+    tauto_k: Annotated[
+        int | None, typer.Option("--tauto-k", help="Keep the top-k stable tautomers.")
+    ] = None,
+    tauto_window: Annotated[
+        float | None,
+        typer.Option("--tauto-window", help="Keep tautomers within this kcal/mol window."),
+    ] = None,
     output: OutputOption = None,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
@@ -549,7 +629,16 @@ def tautomers(
 ) -> None:
     """Enumerate tautomers and rank/select the most stable ones."""
     from Auto3D.cli.commands.properties import execute_tautomers
+
     execute_tautomers(
-        input_file, engine, gpu, gpu_idx, tauto_k, tauto_window, output, json_output,
-        verbose=verbose, force=force,
+        input_file,
+        engine,
+        gpu,
+        gpu_idx,
+        tauto_k,
+        tauto_window,
+        output,
+        json_output,
+        verbose=verbose,
+        force=force,
     )

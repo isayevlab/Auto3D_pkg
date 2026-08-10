@@ -28,26 +28,36 @@ def rmsd_greater(mols, rmsd=0.3):
     The users need to make sure that the mols are the same molecules"""
     for i in range(len(mols)):
         # aligner.SetRefMol(mols[i].OBMol)
-        for j in range(i+1, len(mols), 1):
+        for j in range(i + 1, len(mols), 1):
             # aligner.SetTargetMol(mols[j].OBMol)
             # aligner.Align()
             rmsd_ij = rdMolAlign.GetBestRMS(Chem.RemoveHs(mols[j]), Chem.RemoveHs(mols[i]))
             if rmsd_ij < rmsd:
                 return False
     return True
-            
+
+
 def test_rd_isomer_class():
     # time.strftime is second-resolution; append a uuid4 fragment so this
     # collides with neither a same-second run of this test nor a leftover
     # directory from a prior failed run that skipped cleanup.
-    job_name = time.strftime('%Y%m%d-%H%M%S') + '_' + uuid.uuid4().hex[:8]
+    job_name = time.strftime("%Y%m%d-%H%M%S") + "_" + uuid.uuid4().hex[:8]
     os.mkdir(job_name)
-    engine = RDKitIsomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
-                        sdf_enumerated, job_name, max_confs, threshold, n_process)
+    engine = RDKitIsomer(
+        path,
+        smiles_enumerated,
+        smiles_reduced,
+        smiles_hashed,
+        sdf_enumerated,
+        job_name,
+        max_confs,
+        threshold,
+        n_process,
+    )
     out = engine.run()
     # mols = list(pybel.readfile("sdf", out))
     mols = list(Chem.SDMolSupplier(out, removeHs=False))
-    assert(rmsd_greater(mols, threshold) == True)
+    assert rmsd_greater(mols, threshold) == True
     try:
         os.remove(smiles_enumerated)
     except OSError:
@@ -76,18 +86,27 @@ def test_rd_isomer_conformer_func():
     for threshold in [0.1, 0.2, 0.3]:
         # Same-second collision risk across loop iterations; see
         # test_rd_isomer_class for why a uuid4 fragment is appended.
-        job_name = time.strftime('%Y%m%d-%H%M%S') + '_' + uuid.uuid4().hex[:8]
+        job_name = time.strftime("%Y%m%d-%H%M%S") + "_" + uuid.uuid4().hex[:8]
         os.mkdir(job_name)
-        engine = RDKitIsomer(path, smiles_enumerated, smiles_reduced, smiles_hashed,
-                            sdf_enumerated, job_name, max_confs, threshold, n_process)
+        engine = RDKitIsomer(
+            path,
+            smiles_enumerated,
+            smiles_reduced,
+            smiles_hashed,
+            sdf_enumerated,
+            job_name,
+            max_confs,
+            threshold,
+            n_process,
+        )
         num_conformers_ = engine.embed_conformer(smi_name[0]).GetNumConformers()
         num_conformers.append(num_conformers_)
         try:
             shutil.rmtree(job_name)
         except OSError:
             pass
-    assert(num_conformers[0] >= num_conformers[1])
-    assert(num_conformers[1] >= num_conformers[2])
+    assert num_conformers[0] >= num_conformers[1]
+    assert num_conformers[1] >= num_conformers[2]
 
 
 def test_SDF2chunks():
@@ -97,15 +116,12 @@ def test_SDF2chunks():
     duplicated or dropped a molecule and another chunk absorbed the slack.
     """
     chunks = SDF2chunks(example_sdf)
-    assert(len(chunks) == count_sdf(example_sdf))
+    assert len(chunks) == count_sdf(example_sdf)
 
     reference_mols = [
-        mol for mol in Chem.SDMolSupplier(example_sdf, removeHs=False)
-        if mol is not None
+        mol for mol in Chem.SDMolSupplier(example_sdf, removeHs=False) if mol is not None
     ]
-    chunk_mols = [
-        Chem.MolFromMolBlock("".join(chunk), removeHs=False) for chunk in chunks
-    ]
+    chunk_mols = [Chem.MolFromMolBlock("".join(chunk), removeHs=False) for chunk in chunks]
     assert all(mol is not None for mol in chunk_mols), (
         "a chunk failed to parse back into a molecule"
     )
@@ -133,7 +149,7 @@ def test_rd_isomer_with_parallel_embedding(monkeypatch):
     took the serial branch would still satisfy every assertion below. Spy on
     both private methods to pin the parallel path as the one that actually ran.
     """
-    job_name = time.strftime('%Y%m%d-%H%M%S') + '_parallel'
+    job_name = time.strftime("%Y%m%d-%H%M%S") + "_parallel"
     os.mkdir(job_name)
 
     # Test file paths
@@ -144,11 +160,18 @@ def test_rd_isomer_with_parallel_embedding(monkeypatch):
 
     # Create engine with parallel embedding enabled
     engine = RDKitIsomer(
-        path, smiles_enum_par, smiles_reduced_par, smiles_hashed_par,
-        sdf_enum_par, job_name, max_confs, threshold, n_process,
+        path,
+        smiles_enum_par,
+        smiles_reduced_par,
+        smiles_hashed_par,
+        sdf_enum_par,
+        job_name,
+        max_confs,
+        threshold,
+        n_process,
         use_parallel_embedding=True,
         parallel_embedding_threshold=1,  # Use parallel for 1+ molecules
-        parallel_workers=2
+        parallel_workers=2,
     )
 
     # Verify the parallel embedding parameters are stored
@@ -200,12 +223,19 @@ def test_rd_isomer_parallel_embedding_default_off(monkeypatch):
     always runs anyway." Actually invoke run() and confirm the serial path
     -- and only the serial path -- executes.
     """
-    job_name = time.strftime('%Y%m%d-%H%M%S') + '_default'
+    job_name = time.strftime("%Y%m%d-%H%M%S") + "_default"
     os.mkdir(job_name)
 
     engine = RDKitIsomer(
-        path, smiles_enumerated, smiles_reduced, smiles_hashed,
-        sdf_enumerated, job_name, max_confs, threshold, n_process
+        path,
+        smiles_enumerated,
+        smiles_reduced,
+        smiles_hashed,
+        sdf_enumerated,
+        job_name,
+        max_confs,
+        threshold,
+        n_process,
     )
 
     # Default should be disabled
@@ -220,8 +250,7 @@ def test_rd_isomer_parallel_embedding_default_off(monkeypatch):
 
     def _explode_parallel(*args, **kwargs):
         raise AssertionError(
-            "parallel embedding path was invoked despite use_parallel_embedding "
-            "defaulting to False"
+            "parallel embedding path was invoked despite use_parallel_embedding defaulting to False"
         )
 
     monkeypatch.setattr(engine, "_run_serial_embedding", _spy_serial)
@@ -260,15 +289,22 @@ def test_rd_isomer_parallel_embedding_threshold(monkeypatch):
     path ``run()`` actually takes. Monkeypatch ``_run_parallel_embedding`` to
     explode if called, and ``_run_serial_embedding`` to record that it ran.
     """
-    job_name = time.strftime('%Y%m%d-%H%M%S') + '_threshold'
+    job_name = time.strftime("%Y%m%d-%H%M%S") + "_threshold"
     os.mkdir(job_name)
 
     # Create engine with high threshold (10 molecules)
     engine = RDKitIsomer(
-        path, smiles_enumerated, smiles_reduced, smiles_hashed,
-        sdf_enumerated, job_name, max_confs, threshold, n_process,
+        path,
+        smiles_enumerated,
+        smiles_reduced,
+        smiles_hashed,
+        sdf_enumerated,
+        job_name,
+        max_confs,
+        threshold,
+        n_process,
         use_parallel_embedding=True,
-        parallel_embedding_threshold=10  # High threshold
+        parallel_embedding_threshold=10,  # High threshold
     )
 
     # With only 1 molecule in the test file, should use serial embedding
@@ -283,9 +319,7 @@ def test_rd_isomer_parallel_embedding_threshold(monkeypatch):
         return original_serial(*args, **kwargs)
 
     def _explode_parallel(*args, **kwargs):
-        raise AssertionError(
-            "parallel embedding path was invoked despite being below threshold"
-        )
+        raise AssertionError("parallel embedding path was invoked despite being below threshold")
 
     monkeypatch.setattr(engine, "_run_serial_embedding", _spy_serial)
     monkeypatch.setattr(engine, "_run_parallel_embedding", _explode_parallel)

@@ -18,6 +18,7 @@ beside the table is gone as of 4.0.1, once the last two callers
 adapter instead of a name. Its tests moved with it: a case-folding test, for
 instance, has nothing left to protect, because there is no string to fold.
 """
+
 from __future__ import annotations
 
 import pytest

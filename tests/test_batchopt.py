@@ -1,5 +1,6 @@
 # tests/test_batchopt.py
 """Unit tests for the batchopt module."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -18,10 +19,7 @@ class TestEnForceANI:
     def test_enforce_ani_delegates_to_adapter(self):
         """EnForce_ANI.forward should delegate to adapter's forward method."""
         mock_adapter = MagicMock()
-        mock_adapter.forward.return_value = (
-            torch.tensor([1.0, 2.0]),
-            torch.randn(2, 5, 3)
-        )
+        mock_adapter.forward.return_value = (torch.tensor([1.0, 2.0]), torch.randn(2, 5, 3))
 
         # EnForce_ANI should accept the adapter directly
         model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
@@ -42,6 +40,7 @@ class TestEnForceANI:
     def test_enforce_ani_forward_batched(self):
         """EnForce_ANI.forward_batched should batch calls correctly."""
         mock_adapter = MagicMock()
+
         # Return consistent results for batching
         def mock_forward(coords, species, charges, atom_mask=None):
             batch_size = coords.shape[0]
@@ -81,7 +80,7 @@ class TestConvergenceStatus:
         mock_adapter = MagicMock()
         mock_adapter.forward.return_value = (
             torch.tensor([0.0, 0.0]),
-            torch.zeros(2, 3, 3)  # Zero forces = instant convergence
+            torch.zeros(2, 3, 3),  # Zero forces = instant convergence
         )
         model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
 
@@ -89,7 +88,7 @@ class TestConvergenceStatus:
         coord = torch.randn(2, 3, 3)
         numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
         charges = torch.tensor([0, 0], dtype=torch.long)
-        param = {'opt_steps': 10, 'opttol': 0.01, 'patience': 5}
+        param = {"opt_steps": 10, "opttol": 0.01, "patience": 5}
 
         result = ensemble_opt(model, coord, numbers, charges, param, torch.device("cpu"))
 
@@ -100,12 +99,12 @@ class TestConvergenceStatus:
         # presence/type/length (as before) would pass even if the values
         # were transposed, all-False, or a stray increment leaked into
         # oscillating_count.
-        assert 'converged_mask' in result, "converged_mask missing from ensemble_opt return"
-        assert 'oscillating_count' in result, "oscillating_count missing from ensemble_opt return"
-        assert isinstance(result['converged_mask'], list)
-        assert isinstance(result['oscillating_count'], list)
-        assert result['converged_mask'] == [True, True]
-        assert result['oscillating_count'] == [0, 0]
+        assert "converged_mask" in result, "converged_mask missing from ensemble_opt return"
+        assert "oscillating_count" in result, "oscillating_count missing from ensemble_opt return"
+        assert isinstance(result["converged_mask"], list)
+        assert isinstance(result["oscillating_count"], list)
+        assert result["converged_mask"] == [True, True]
+        assert result["oscillating_count"] == [0, 0]
 
 
 @pytest.mark.slow
@@ -166,7 +165,10 @@ class TestConvergenceFlagDerivation:
         # reproducing the oscillating condition on this platform/torch
         # version -- it does not mean the Converged/Dropped_Oscillating
         # invariant itself is broken.
-        assert any(m.HasProp("Dropped_Oscillating") and m.GetProp("Dropped_Oscillating") == "True" for m in out), (
+        assert any(
+            m.HasProp("Dropped_Oscillating") and m.GetProp("Dropped_Oscillating") == "True"
+            for m in out
+        ), (
             "fixture did not reproduce an oscillating structure (patience=1 "
             "should force this on the very first non-converging step); the "
             "invariant above was never exercised"
@@ -186,14 +188,21 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
     mols = []
     with Chem.SDWriter(str(inp)) as w:
         for i, s in enumerate(sizes):
-            m = Chem.AddHs(Chem.MolFromSmiles(s)); AllChem.EmbedMolecule(m, randomSeed=1)
-            m.SetProp("_Name", str(i)); w.write(m); mols.append(m)
+            m = Chem.AddHs(Chem.MolFromSmiles(s))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", str(i))
+            w.write(m)
+            mols.append(m)
     # _make_buckets is pure-Python, so a conforming double is enough and no
     # model is loaded. `optimizing` no longer builds its own adapter, so there is
     # no create_model seam left to patch.
-    eng = optimizing(str(inp), str(tmp_path/"o.sdf"), adapter=FakeAdapter(),
-                     device=torch.device("cpu"),
-                     config={"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
+    eng = optimizing(
+        str(inp),
+        str(tmp_path / "o.sdf"),
+        adapter=FakeAdapter(),
+        device=torch.device("cpu"),
+        config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+    )
     buckets = eng._make_buckets(mols)
     # the big 20-carbon ring must not share a bucket with methane
     big_idx = 3
@@ -212,22 +221,38 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     smis = ["CCCCCCCC", "C", "CCC"]  # 8,1,3 heavy atoms - deliberately unsorted
     with Chem.SDWriter(str(inp)) as w:
         for i, s in enumerate(smis):
-            m = Chem.AddHs(Chem.MolFromSmiles(s)); AllChem.EmbedMolecule(m, randomSeed=1)
-            m.SetProp("_Name", str(i)); w.write(m)
+            m = Chem.AddHs(Chem.MolFromSmiles(s))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", str(i))
+            w.write(m)
 
-    def fake_ensemble_opt(net, coord, numbers, charges, param, device,
-                          atom_mask=None, progress_cb=None):
+    def fake_ensemble_opt(
+        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None
+    ):
         n = len(coord)
-        return dict(coord=coord.tolist(), ids=list(range(n)), energy=[0.0]*n,
-                    fmax=[0.0]*n, he=[], close=[], timing={},
-                    numbers=numbers.tolist(), converged_mask=[True]*n,
-                    oscillating_count=[0]*n)
+        return dict(
+            coord=coord.tolist(),
+            ids=list(range(n)),
+            energy=[0.0] * n,
+            fmax=[0.0] * n,
+            he=[],
+            close=[],
+            timing={},
+            numbers=numbers.tolist(),
+            converged_mask=[True] * n,
+            oscillating_count=[0] * n,
+        )
+
     monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
 
     out = tmp_path / "out.sdf"
-    eng = bo.optimizing(str(inp), str(out), adapter=FakeAdapter(),
-                        device=torch.device("cpu"),
-                        config={"opt_steps":1,"opttol":0.01,"patience":1,"batchsize_atoms":1024})
+    eng = bo.optimizing(
+        str(inp),
+        str(out),
+        adapter=FakeAdapter(),
+        device=torch.device("cpu"),
+        config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+    )
     eng.run()
     names = [m.GetProp("_Name") for m in Chem.SDMolSupplier(str(out), removeHs=False)]
     assert names == ["0", "1", "2"]  # original input order
@@ -256,9 +281,7 @@ class TestBatchOptDependsDownwards:
             "sorted(m for m in sys.modules if m.startswith('Auto3D')); "
             "print('ok')"
         )
-        result = subprocess.run(
-            [sys.executable, "-c", program], capture_output=True, text=True
-        )
+        result = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         assert "ok" in result.stdout
 
@@ -289,9 +312,7 @@ class TestOptimizingTakesAnAdapterNotAName:
         call fails at the call rather than silently binding a string into the
         slot that supplies the padding values."""
         with pytest.raises(TypeError):
-            optimizing(
-                "dummy.sdf", "out.sdf", "AIMNET", torch.device("cpu"), self._config()
-            )
+            optimizing("dummy.sdf", "out.sdf", "AIMNET", torch.device("cpu"), self._config())
 
     def test_padding_values_come_from_the_injected_adapter(self):
         from tests.helpers_adapter import FakeAdapter
@@ -357,7 +378,10 @@ def test_charges_reach_the_model_as_float32():
     charges = torch.tensor([0.0, 0.0], dtype=torch.float32)
 
     ensemble_opt(
-        model, coord, numbers, charges,
+        model,
+        coord,
+        numbers,
+        charges,
         {"opt_steps": 10, "opttol": 0.01, "patience": 5},
         torch.device("cpu"),
     )

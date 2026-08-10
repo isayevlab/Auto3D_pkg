@@ -6,6 +6,7 @@ the tautomerization genuinely destroys, and while assigning none that the
 input never had. These tests pin all three, driving Auto3D's real ``rdkit``
 tautomer engine through the production factory.
 """
+
 from __future__ import annotations
 
 from rdkit import Chem
@@ -18,16 +19,12 @@ def _run_rd_taut(job_dir, smiles: str) -> list[str]:
     in_smi = job_dir / "taut_in.smi"
     in_smi.write_text(f"{smiles} probe\n")
     out_smi = job_dir / "taut_out.smi"
-    create_tautomer_engine(
-        "rdkit", str(in_smi), str(out_smi), pka_norm=False
-    ).run()
+    create_tautomer_engine("rdkit", str(in_smi), str(out_smi), pka_norm=False).run()
     return [line.split()[0] for line in out_smi.read_text().splitlines() if line.strip()]
 
 
 class TestSpecifiedStereoSurvives:
-    def test_center_on_the_tautomeric_site_survives_the_identity_tautomer(
-        self, job_dir
-    ):
+    def test_center_on_the_tautomeric_site_survives_the_identity_tautomer(self, job_dir):
         """The input's own configuration survives the tautomer that does not shift it.
 
         ``CC(=O)[C@@H](C)CC`` puts the stereocenter directly on the
@@ -50,9 +47,9 @@ class TestSpecifiedStereoSurvives:
             Chem.MolFromSmiles("CC(=O)[C@@H](C)CC"), isomericSmiles=False
         )
         identity_tautomers = [
-            smi for smi in outputs
-            if Chem.MolToSmiles(Chem.MolFromSmiles(smi), isomericSmiles=False)
-            == reference_skeleton
+            smi
+            for smi in outputs
+            if Chem.MolToSmiles(Chem.MolFromSmiles(smi), isomericSmiles=False) == reference_skeleton
         ]
         assert identity_tautomers, f"no identity tautomer in output: {sorted(outputs)}"
         assert all("@" in smi for smi in identity_tautomers), (
@@ -102,9 +99,7 @@ class TestNoStereoIsInvented:
         """A keto input must not acquire E/Z on the enol it tautomerizes to."""
         outputs = _run_rd_taut(job_dir, "CCC(C)=O")
         assert outputs, "tautomer enumeration returned nothing"
-        assert all("@" not in smi for smi in outputs), (
-            f"stereo was invented: {sorted(outputs)}"
-        )
+        assert all("@" not in smi for smi in outputs), f"stereo was invented: {sorted(outputs)}"
         assert all("/" not in smi and "\\" not in smi for smi in outputs), (
             f"double-bond geometry was invented: {sorted(outputs)}"
         )

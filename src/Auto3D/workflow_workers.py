@@ -5,6 +5,7 @@ These functions run in separate processes spawned by ``WorkflowOrchestrator``
 auto3D<->workflow import cycle, so the dependency direction is now one-way:
 ``auto3D`` (API) -> ``workflow`` -> ``workflow_workers``.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -122,8 +123,7 @@ def _attach_run_log_handlers(
     for logger_name in _RUN_LOG_LOGGER_NAMES:
         tree_logger = logging.getLogger(logger_name)
         already_attached = any(
-            isinstance(h, QueueHandler) and h.queue is logging_queue
-            for h in tree_logger.handlers
+            isinstance(h, QueueHandler) and h.queue is logging_queue for h in tree_logger.handlers
         )
         if already_attached:
             continue
@@ -149,7 +149,7 @@ def isomer_wrapper(
         logging_queue: Queue for centralized logging.
     """
     with _worker_stdout_to_stderr():
-        #prepare logging
+        # prepare logging
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
 
@@ -165,7 +165,7 @@ def isomer_wrapper(
 
         try:
             for i, path_dir in enumerate(chunk_info):
-                logger.info(f"\n\nIsomer generation for job{i+1}")
+                logger.info(f"\n\nIsomer generation for job{i + 1}")
                 path, dir = path_dir
                 meta = create_chunk_meta_names(path, dir)
 
@@ -195,14 +195,14 @@ def isomer_wrapper(
                     threshold=duplicate_threshold,
                     n_jobs=mpi_np,
                     enumerate_isomers=enumerate_isomer,
-                    mode=args.mode_oe if isomer_program == 'omega' else 'classic',
+                    mode=args.mode_oe if isomer_program == "omega" else "classic",
                     use_parallel_embedding=args.use_parallel_embedding,
                     parallel_workers=args.parallel_workers,
                     parallel_embedding_threshold=args.parallel_embedding_threshold,
                 )
                 engine.run()
 
-                queue.put((enumerated_sdf, path, dir, i+1))
+                queue.put((enumerated_sdf, path, dir, i + 1))
         except Exception:
             logger.exception("Isomer generation failed; signaling optimizers to stop.")
             raise
@@ -220,7 +220,7 @@ def optim_rank_wrapper(
     progress_queue: Queue[ProgressEvent] | None = None,
 ) -> None:
     with _worker_stdout_to_stderr():
-        #prepare logging
+        # prepare logging
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
 
@@ -251,11 +251,13 @@ def optim_rank_wrapper(
                 # never break the optimization.
                 progress_cb = None
                 if progress_queue is not None:
+
                     def progress_cb(event, _q=progress_queue, _job=job):
                         try:
                             _q.put(cast(ProgressEvent, {**event, "job": _job}))
                         except Exception:
                             pass
+
                 # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
                 # worker, and must stay here. `optimizing` used to construct it
                 # itself; hoisting construction one frame out (to this function)
@@ -267,10 +269,14 @@ def optim_rank_wrapper(
                 # unpicklable-object failure or CUDA re-initialization in the
                 # parent, and nothing in the signature says so.
                 adapter = create_model(optimizing_engine, device)
-                optimizer = optimizing(enumerated_sdf, optimized_og,
-                                       adapter=adapter, device=device,
-                                       config=opt_config,
-                                       progress_cb=progress_cb)
+                optimizer = optimizing(
+                    enumerated_sdf,
+                    optimized_og,
+                    adapter=adapter,
+                    device=device,
+                    config=opt_config,
+                    progress_cb=progress_cb,
+                )
                 optimizer.run()
 
                 # optimizing.run() returns early without writing optimized_og when
@@ -289,8 +295,7 @@ def optim_rank_wrapper(
                 duplicate_threshold = args.threshold
                 k = args.k
                 window = args.window
-                rank_engine = ranking(optimized_og,
-                                      output, duplicate_threshold, k=k, window=window)
+                rank_engine = ranking(optimized_og, output, duplicate_threshold, k=k, window=window)
                 # The ranked mols are written to `output` by `run()`; they are
                 # deliberately not accumulated. Every call site in this
                 # repository runs this as an `mp.Process` target
@@ -306,7 +311,7 @@ def optim_rank_wrapper(
                 housekeeping_folder = meta["housekeeping_folder"]
                 os.mkdir(housekeeping_folder)
                 housekeeping(dir, housekeeping_folder, output)
-                #Conpress verbose folder
+                # Conpress verbose folder
                 housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
                 with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
                     tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
@@ -322,6 +327,7 @@ def optim_rank_wrapper(
                     "skipping this chunk and continuing with the rest."
                 )
                 continue
+
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     """A child process for logging all information from other processes.

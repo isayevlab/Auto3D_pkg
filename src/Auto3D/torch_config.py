@@ -24,6 +24,7 @@ Example:
     >>> config = TorchConfig(allow_tf32=True)
     >>> configure_torch(config)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -140,6 +141,7 @@ def configure_torch(config: TorchConfig | None = None) -> None:
             torch.cuda.manual_seed_all(config.random_seed)
         # Also seed numpy for RDKit and other operations
         import numpy as np
+
         np.random.seed(config.random_seed)
 
     # Written only when the caller says which way they want it. An explicit

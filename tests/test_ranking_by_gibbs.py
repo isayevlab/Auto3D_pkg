@@ -12,6 +12,7 @@ therefore takes a basis, defaulting to the electronic energy.
 
 Nothing here loads a neural network potential.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -76,7 +77,10 @@ def test_ranking_by_gibbs_can_pick_a_different_conformer_than_energy(tmp_path):
     out2 = tmp_path / "out2.sdf"
     by_g = ConformerRanker(
         input_path=_write([low_e, low_g], tmp_path / "in2.sdf"),
-        out_path=str(out2), threshold=0.3, k=1, rank_by=RANK_BY_GIBBS,
+        out_path=str(out2),
+        threshold=0.3,
+        k=1,
+        rank_by=RANK_BY_GIBBS,
     ).run()
     assert len(by_g) == 1
     assert float(by_g[0].GetProp("G_hartree")) == pytest.approx(-100.0), (
@@ -86,12 +90,16 @@ def test_ranking_by_gibbs_can_pick_a_different_conformer_than_energy(tmp_path):
 
 def test_ranking_by_gibbs_reports_a_gibbs_relative_energy(tmp_path):
     """The published relative energy must name the basis it came from."""
-    mols = [_mol("m", e_ev=-10.0, g_hartree=-100.0, seed=1),
-            _mol("m", e_ev=-10.0, g_hartree=-99.5, seed=7)]
+    mols = [
+        _mol("m", e_ev=-10.0, g_hartree=-100.0, seed=1),
+        _mol("m", e_ev=-10.0, g_hartree=-99.5, seed=7),
+    ]
 
     out = ConformerRanker(
         input_path=_write(mols, tmp_path / "in.sdf"),
-        out_path=str(tmp_path / "out.sdf"), threshold=0.3, k=2,
+        out_path=str(tmp_path / "out.sdf"),
+        threshold=0.3,
+        k=2,
         rank_by=RANK_BY_GIBBS,
     ).run()
 
@@ -117,7 +125,9 @@ def test_a_missing_gibbs_energy_is_refused_with_a_usable_message(tmp_path):
     with pytest.raises(InputValidationError) as excinfo:
         ConformerRanker(
             input_path=_write(mols, tmp_path / "in.sdf"),
-            out_path=str(tmp_path / "out.sdf"), threshold=0.3, k=1,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=1,
             rank_by=RANK_BY_GIBBS,
         ).run()
 
@@ -137,12 +147,16 @@ def test_an_unknown_basis_is_refused_at_construction(tmp_path):
 def test_the_window_is_measured_on_the_selected_basis(tmp_path):
     """A 1 kcal/mol window on G must not be applied to E, or vice versa."""
     # Identical electronic energies; G differs by ~3 kcal/mol (0.00478 Hartree).
-    mols = [_mol("m", e_ev=-10.0, g_hartree=-100.0, seed=1),
-            _mol("m", e_ev=-10.0, g_hartree=-99.99522, seed=7)]
+    mols = [
+        _mol("m", e_ev=-10.0, g_hartree=-100.0, seed=1),
+        _mol("m", e_ev=-10.0, g_hartree=-99.99522, seed=7),
+    ]
 
     out = ConformerRanker(
         input_path=_write(mols, tmp_path / "in.sdf"),
-        out_path=str(tmp_path / "out.sdf"), threshold=0.3, window=1.0,
+        out_path=str(tmp_path / "out.sdf"),
+        threshold=0.3,
+        window=1.0,
         rank_by=RANK_BY_GIBBS,
     ).run()
 

@@ -7,6 +7,7 @@ consistent with them, which is how a geometry that dissociated or formed a new
 bond during optimization is caught. :func:`amend_mol` is the combined
 sanitize-and-validate wrapper the filters use.
 """
+
 from __future__ import annotations
 
 import logging
@@ -98,7 +99,9 @@ def check_connectivity(mol: Chem.Mol) -> bool:
             reference_length = Radii[atomic_num_i] + Radii[atomic_num_j]
             if bond:
                 # make sure the bond is not broken
-                length = rdMolTransforms.GetBondLength(mol.GetConformers()[0], atom_i_idx, atom_j_idx)
+                length = rdMolTransforms.GetBondLength(
+                    mol.GetConformers()[0], atom_i_idx, atom_j_idx
+                )
                 if length > reference_length * 1.25:
                     return False
             else:

@@ -6,6 +6,7 @@ convergence flag means (``utils/energy.py`` and ``utils/convergence.py`` own
 those), and nothing here decides pipeline layout (``Auto3D.job_layout``) or ID
 policy (``Auto3D.id_mapping``).
 """
+
 from __future__ import annotations
 
 from collections import defaultdict

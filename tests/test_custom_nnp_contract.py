@@ -11,6 +11,7 @@ rejection to load time.
 Hermetic: every model here is a few-line ``torch.nn.Module`` written to
 ``tmp_path``. No real NNP is loaded and nothing is downloaded.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -25,6 +26,7 @@ CPU = torch.device("cpu")
 
 
 # --- module-level so torch.save can pickle them by reference ----------------
+
 
 class GoodNNP(torch.nn.Module):
     """The real contract: species first, energies only."""
@@ -68,7 +70,7 @@ class NoPadsNNP(torch.nn.Module):
     """Correct forward, but no padding attributes."""
 
     def forward(self, species, coords, charges):
-        return (coords ** 2).sum(dim=(1, 2))
+        return (coords**2).sum(dim=(1, 2))
 
 
 class OnlyCoordPadNNP(torch.nn.Module):
@@ -77,7 +79,7 @@ class OnlyCoordPadNNP(torch.nn.Module):
         self.coord_pad = 0.0
 
     def forward(self, species, coords, charges):
-        return (coords ** 2).sum(dim=(1, 2))
+        return (coords**2).sum(dim=(1, 2))
 
 
 class TooFewArgsNNP(torch.nn.Module):
@@ -89,7 +91,7 @@ class TooFewArgsNNP(torch.nn.Module):
         self.species_pad = -1
 
     def forward(self, species, coords):
-        return (coords ** 2).sum(dim=(1, 2))
+        return (coords**2).sum(dim=(1, 2))
 
 
 class TooManyArgsNNP(torch.nn.Module):
@@ -101,7 +103,7 @@ class TooManyArgsNNP(torch.nn.Module):
         self.species_pad = -1
 
     def forward(self, species, coords, charges, cutoff):
-        return (coords ** 2).sum(dim=(1, 2)) * cutoff
+        return (coords**2).sum(dim=(1, 2)) * cutoff
 
 
 class ExoticNamesNNP(torch.nn.Module):
@@ -113,7 +115,7 @@ class ExoticNamesNNP(torch.nn.Module):
         self.species_pad = -1
 
     def forward(self, a, b, c):
-        return (b ** 2).sum(dim=(1, 2))
+        return (b**2).sum(dim=(1, 2))
 
 
 class VarArgsNNP(torch.nn.Module):
@@ -137,7 +139,7 @@ class AliasNamesNNP(torch.nn.Module):
         self.species_pad = -1
 
     def forward(self, numbers, positions, charge):
-        return (positions ** 2).sum(dim=(1, 2))
+        return (positions**2).sum(dim=(1, 2))
 
 
 class AliasTransposedNNP(torch.nn.Module):
@@ -149,7 +151,7 @@ class AliasTransposedNNP(torch.nn.Module):
         self.species_pad = -1
 
     def forward(self, positions, numbers, charge):
-        return (positions ** 2).sum(dim=(1, 2))
+        return (positions**2).sum(dim=(1, 2))
 
 
 class OrderRecordingNNP(torch.nn.Module):
@@ -163,7 +165,7 @@ class OrderRecordingNNP(torch.nn.Module):
 
     def forward(self, species, coords, charges):
         self.seen_ranks = [species.dim(), coords.dim(), charges.dim()]
-        return (coords ** 2).sum(dim=(1, 2))
+        return (coords**2).sum(dim=(1, 2))
 
 
 def _save(model, tmp_path, name):
@@ -173,6 +175,7 @@ def _save(model, tmp_path, name):
 
 
 # --- rejection --------------------------------------------------------------
+
 
 def test_transposed_forward_is_rejected_at_load(tmp_path):
     """A model taking (coords, species, charges) must fail at load, naming the
@@ -271,9 +274,7 @@ ALIAS_VOCABULARY = [
 
 
 @pytest.mark.parametrize("species_name,coords_name,charges_name", ALIAS_VOCABULARY)
-def test_alias_vocabulary_in_correct_order_is_accepted(
-    species_name, coords_name, charges_name
-):
+def test_alias_vocabulary_in_correct_order_is_accepted(species_name, coords_name, charges_name):
     """Every recognized synonym, in the right order, must not be rejected --
     a false rejection here would break a working model that merely spelled
     the contract differently."""
@@ -282,9 +283,7 @@ def test_alias_vocabulary_in_correct_order_is_accepted(
 
 
 @pytest.mark.parametrize("species_name,coords_name,charges_name", ALIAS_VOCABULARY)
-def test_alias_vocabulary_transposed_is_rejected(
-    species_name, coords_name, charges_name
-):
+def test_alias_vocabulary_transposed_is_rejected(species_name, coords_name, charges_name):
     """The same synonyms, transposed (coords first), must still be caught --
     synonyms are not an escape hatch from the order check, across the full
     vocabulary, not just the one numbers/positions/charge pair."""
@@ -332,6 +331,7 @@ def test_wrong_arity_too_many_required_args_is_rejected_at_load(tmp_path):
 
 
 # --- acceptance (a false rejection is a regression) -------------------------
+
 
 def test_contract_conforming_model_loads_and_runs(tmp_path):
     """The happy path must still work, end to end through the adapter, with the
@@ -407,6 +407,7 @@ def test_torchscript_archive_without_instance_attributes_is_rejected(tmp_path):
 
 # --- the deleted public Protocol -------------------------------------------
 
+
 def test_config_nnpmodel_protocol_is_gone():
     """Auto3D.NNPModel duplicated the contract in a module that never enforced
     it. One definition now, in Auto3D.models.contract."""
@@ -432,15 +433,12 @@ def test_custom_nnp_protocol_matches_what_the_adapter_calls(tmp_path):
     from Auto3D.models.adapter import CustomModelAdapter
     from Auto3D.models.contract import CustomNNP
 
-    protocol_params = [
-        p for p in inspect.signature(CustomNNP.forward).parameters if p != "self"
-    ]
+    protocol_params = [p for p in inspect.signature(CustomNNP.forward).parameters if p != "self"]
     assert protocol_params == ["species", "coords", "charges"]
 
     path = _save(OrderRecordingNNP(), tmp_path, "recorder.pt")
     adapter = CustomModelAdapter(path, CPU)
-    adapter.forward(torch.randn(2, 4, 3), torch.ones(2, 4, dtype=torch.long),
-                    torch.zeros(2))
+    adapter.forward(torch.randn(2, 4, 3), torch.ones(2, 4, dtype=torch.long), torch.zeros(2))
     # species -> rank 2, coords -> rank 3, charges -> rank 1, in that order.
     assert adapter.model.seen_ranks == [2, 3, 1], adapter.model.seen_ranks
 
@@ -461,11 +459,9 @@ def test_adapter_keeps_no_padding_fallback_of_its_own(monkeypatch, tmp_path):
 
     class Unvetted(torch.nn.Module):
         def forward(self, species, coords, charges):
-            return (coords ** 2).sum(dim=(1, 2))
+            return (coords**2).sum(dim=(1, 2))
 
-    monkeypatch.setattr(
-        adapter_mod, "load_custom_nnp", lambda path, device, **kw: Unvetted()
-    )
+    monkeypatch.setattr(adapter_mod, "load_custom_nnp", lambda path, device, **kw: Unvetted())
     with pytest.raises(AttributeError, match="coord_pad"):
         CustomModelAdapter(str(tmp_path / "unused.pt"), CPU)
 
@@ -495,12 +491,10 @@ def test_the_adapters_pad_is_what_the_padder_writes():
 
     # -1 remains the safe default for a third-party subclass: it can be neither
     # a real atomic number nor a 0-based species index.
-    assert inspect.signature(
-        BaseModelAdapter.__init__
-    ).parameters["species_pad"].default == -1
+    assert inspect.signature(BaseModelAdapter.__init__).parameters["species_pad"].default == -1
 
     mols = []
-    for smiles in ("C", "O"):          # 5 atoms and 3, so the batch is padded
+    for smiles in ("C", "O"):  # 5 atoms and 3, so the batch is padded
         mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
         assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0
         mols.append(mol)
@@ -632,9 +626,7 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
         model(species, coords, charges)
 
         assert received, f"{module_name}.userNNP2 never called its calculator"
-        counts = torch.bincount(
-            received["mol_idx"], minlength=len(mols)
-        ).tolist()
+        counts = torch.bincount(received["mol_idx"], minlength=len(mols)).tolist()
         expected = [mol.GetNumAtoms() for mol in mols]
         assert counts == expected, (
             f"{module_name}.userNNP2 passed {counts} atoms per molecule to the "
@@ -649,6 +641,7 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
 
 
 # --- the contract is derived from the Protocol, not retyped next to it ------
+
 
 def test_required_attributes_tracks_the_protocol():
     """What the validator demands must be DERIVED from ``CustomNNP`` itself.
@@ -676,8 +669,7 @@ def test_required_attributes_tracks_the_protocol():
     message = str(excinfo.value)
     for name in declared:
         assert name in message, (
-            f"{name} is declared on CustomNNP but the rejection message does "
-            f"not name it: {message}"
+            f"{name} is declared on CustomNNP but the rejection message does not name it: {message}"
         )
 
 
@@ -762,6 +754,7 @@ def test_positional_only_marker_survives_the_transposed_message():
 
 
 # --- inference mode ---------------------------------------------------------
+
 
 def test_torchscript_archive_saved_in_train_mode_loads_in_eval_mode(tmp_path):
     """``torch.jit.save`` records ``training``; ``load_custom_nnp`` must clear it.

@@ -96,16 +96,17 @@ class OptimizationDisplay:
         """
         stats = Table.grid(padding=(0, 3))
         stats.add_row(
-            "[green]Converged[/green]", f"[green]{self.converged}[/green]",
-            "[yellow]Active[/yellow]", f"[yellow]{self.active}[/yellow]",
-            "[red]Dropped[/red]", f"[red]{self.dropped}[/red]",
+            "[green]Converged[/green]",
+            f"[green]{self.converged}[/green]",
+            "[yellow]Active[/yellow]",
+            f"[yellow]{self.active}[/yellow]",
+            "[red]Dropped[/red]",
+            f"[red]{self.dropped}[/red]",
         )
 
         content = Table.grid()
         content.add_row(stats)
-        content.add_row(
-            f"\n[dim]{self.total} structures in this batch, step {self.step}[/dim]"
-        )
+        content.add_row(f"\n[dim]{self.total} structures in this batch, step {self.step}[/dim]")
 
         return Panel(
             content,

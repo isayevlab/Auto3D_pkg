@@ -148,6 +148,7 @@ def execute_run(
             # Validate input file exists
             if not input_file.exists():
                 from Auto3D.exceptions import InputValidationError
+
                 raise InputValidationError(f"Input file not found: {input_file}")
 
             # Build configuration
@@ -185,7 +186,9 @@ def execute_run(
                 # Only override when set, so a config-file `verbose: true` is preserved.
                 "verbose": True if save_intermediate else None,
             }
-            config = merge_configs(config, {key: val for key, val in overrides.items() if val is not None})
+            config = merge_configs(
+                config, {key: val for key, val in overrides.items() if val is not None}
+            )
 
             # Conformer selection is required, exactly as it is for main(),
             # smiles2mols and the legacy `auto3d config.yaml` form. This used to
@@ -243,6 +246,7 @@ def execute_run(
                 with Live(
                     display.make_panel(), console=error_console, refresh_per_second=8
                 ) as live:
+
                     def progress_cb(event: ProgressEvent) -> None:
                         jobs[event.get("job", 0)] = event
                         display.update_from_jobs(jobs)
@@ -284,7 +288,9 @@ def execute_run(
                 output_path=str(output_path) if output_path else "N/A",
                 elapsed_seconds=elapsed,
                 failures=[
-                    FailedMolecule(name=mol_id, error="no conformer generated (missing from output)")
+                    FailedMolecule(
+                        name=mol_id, error="no conformer generated (missing from output)"
+                    )
                     for mol_id in missing_ids
                 ],
             )

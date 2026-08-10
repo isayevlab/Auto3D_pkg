@@ -14,6 +14,7 @@ from the real one) plus a file of deliberately misbehaving tests. One
 subprocess covers every case, because each nested session pays for importing
 torch and eagerly importing Auto3D.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -25,7 +26,7 @@ CONFTEST = Path(__file__).with_name("conftest.py")
 # Each leaking test below *passes*; the guard reports at teardown, which pytest
 # renders as an error against that test. The observers after each leak prove the
 # guard repaired what it found, so the cascade stops at the guilty test.
-_MISBEHAVING_TESTS = '''\
+_MISBEHAVING_TESTS = """\
 import sys
 
 
@@ -69,7 +70,7 @@ def test_e_sees_the_module_swap_repaired():
 def test_f_leaves_auto3d_alone():
     import Auto3D.cli.errors  # noqa: F401
     assert True
-'''
+"""
 
 _GUILTY = (
     "test_a_leaks_a_function",
@@ -92,12 +93,21 @@ def test_the_guard_names_every_test_that_leaves_state_behind(tmp_path):
 
     proc = subprocess.run(
         [
-            sys.executable, "-m", "pytest", "test_misbehaving.py",
+            sys.executable,
+            "-m",
+            "pytest",
+            "test_misbehaving.py",
             # The nested session asserts on ordering (leak first, observer
             # second), so it must not be shuffled. addopts is cleared because
             # this repo's -v/--tb=short/-m markers do not apply here, and
             # -p no:cacheprovider keeps a .pytest_cache out of tmp_path.
-            "-p", "no:randomly", "-p", "no:cacheprovider", "-o", "addopts=", "-q",
+            "-p",
+            "no:randomly",
+            "-p",
+            "no:cacheprovider",
+            "-o",
+            "addopts=",
+            "-q",
         ],
         cwd=tmp_path,
         capture_output=True,

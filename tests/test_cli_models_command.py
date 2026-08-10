@@ -8,6 +8,7 @@ but a probe that says "Available" for a package it never looked for is a trap fo
 the next engine added to the table, which is exactly what the models command is
 for.
 """
+
 from __future__ import annotations
 
 from Auto3D.cli.commands.models import check_dependency_status
@@ -25,9 +26,7 @@ def test_a_missing_dependency_is_not_reported_available():
     """A name the probe cannot import must not come back as available."""
     available, status = check_dependency_status("a_package_that_is_not_installed")
 
-    assert available is False, (
-        "the probe claimed a package was available without importing it"
-    )
+    assert available is False, "the probe claimed a package was available without importing it"
     assert "not installed" in status.lower(), status
 
 

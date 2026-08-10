@@ -1,4 +1,5 @@
 """Factory for creating neural network potential models."""
+
 from __future__ import annotations
 
 import os
@@ -185,7 +186,14 @@ class ModelFactory:
     @classmethod
     def available_models(cls) -> list[str]:
         """Return list of registered model names."""
-        return [MODEL_AIMNET, "aimnet2-2025", "aimnet2-nse", "aimnet2-pd", MODEL_ANI2X, MODEL_ANI2XT]
+        return [
+            MODEL_AIMNET,
+            "aimnet2-2025",
+            "aimnet2-nse",
+            "aimnet2-pd",
+            MODEL_ANI2X,
+            MODEL_ANI2XT,
+        ]
 
 
 def create_model(
@@ -215,9 +223,7 @@ def create_model(
         >>> # Clear cache when done
         >>> ModelFactory.clear_cache()
     """
-    return ModelFactory.create(
-        name, device, compile_model=compile_model, use_cache=use_cache
-    )
+    return ModelFactory.create(name, device, compile_model=compile_model, use_cache=use_cache)
 
 
 def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device:
@@ -260,10 +266,7 @@ def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device
                     # The class hint ("Try --no-gpu ... or check CUDA
                     # installation") is a non-sequitur here: CUDA is installed
                     # and working, the index is simply out of range.
-                    hint=(
-                        "Pass a --gpu-idx within range, or --no-gpu to run "
-                        "on CPU."
-                    ),
+                    hint=("Pass a --gpu-idx within range, or --no-gpu to run on CPU."),
                 )
             return torch.device(f"cuda:{gpu_idx}")
         return torch.device("cuda:0")

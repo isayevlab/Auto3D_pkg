@@ -2,6 +2,7 @@
 """
 Generating low-energy conformers from SMILES.
 """
+
 from __future__ import annotations
 
 import multiprocessing as mp
@@ -114,6 +115,7 @@ def main(
     # AttributeError.
     return WorkflowResult(output_path, failures=getattr(orchestrator, "failures", None))
 
+
 def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     """Find low-energy conformers for a list of SMILES.
 
@@ -165,6 +167,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
 
     # Configure PyTorch settings (TF32, cuDNN benchmark)
     from Auto3D.torch_config import TorchConfig, configure_torch
+
     torch_config = TorchConfig(allow_tf32=args.allow_tf32)
     configure_torch(torch_config)
 
@@ -179,7 +182,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
                 "Either k or window needs to be specified. "
                 "Usually, setting '--k=1' satisfies most needs."
             )
-        args.input_format = 'smi'
+        args.input_format = "smi"
 
         # Fail fast on an invalid configuration (notably an out-of-range
         # gpu_idx) the same way main() does via WorkflowOrchestrator --
@@ -187,9 +190,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         # opaquely deep inside optimization.
         config_errors = check_valid_configuration(args)
         if config_errors:
-            raise ConfigurationError(
-                "Invalid configuration:\n  - " + "\n  - ".join(config_errors)
-            )
+            raise ConfigurationError("Invalid configuration:\n  - " + "\n  - ".join(config_errors))
 
         check_input(args)
 
@@ -238,14 +239,19 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         # boundary here, but see `Auto3D.workflow_workers.optim_rank_wrapper`
         # for why construction must never be hoisted past the frame that works.
         adapter = create_model(args.optimizing_engine, device)
-        opt_engine = optimizing(meta["enumerated_sdf"], meta["optimized_og"],
-                                adapter=adapter, device=device,
-                                config=opt_config)
+        opt_engine = optimizing(
+            meta["enumerated_sdf"],
+            meta["optimized_og"],
+            adapter=adapter,
+            device=device,
+            config=opt_config,
+        )
         opt_engine.run()
 
         # Ranking step
-        rank_engine = ranking(meta["optimized_og"], meta["output"],
-                              args.threshold, k=k, window=window)
+        rank_engine = ranking(
+            meta["optimized_og"], meta["output"], args.threshold, k=k, window=window
+        )
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)
 

@@ -22,6 +22,7 @@ inject one and the ``opt_geometry`` tests stub ``create_model`` where
 ``opt_geometry`` itself reads it -- ``Auto3D.ASE.geometry`` -- rather than at a
 seam inside ``batch_opt``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -64,14 +65,21 @@ def _stub_model_boundary(monkeypatch, energies_ev):
     import Auto3D.batch_opt.batchopt as bo
     from tests.helpers_adapter import FakeAdapter
 
-    def fake_ensemble_opt(net, coord, numbers, charges, param, device,
-                          atom_mask=None, progress_cb=None):
+    def fake_ensemble_opt(
+        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None
+    ):
         n = len(coord)
         return dict(
-            coord=coord.tolist(), ids=list(range(n)),
-            energy=list(energies_ev[:n]), fmax=[0.0] * n, he=[], close=[],
-            timing={}, numbers=numbers.tolist(),
-            converged_mask=[True] * n, oscillating_count=[0] * n,
+            coord=coord.tolist(),
+            ids=list(range(n)),
+            energy=list(energies_ev[:n]),
+            fmax=[0.0] * n,
+            he=[],
+            close=[],
+            timing={},
+            numbers=numbers.tolist(),
+            converged_mask=[True] * n,
+            oscillating_count=[0] * n,
         )
 
     adapter = FakeAdapter()
@@ -92,9 +100,11 @@ class TestOptimizerWritesHartree:
         _write_input(inp, ["spec_0_0", "spec_0_1", "spec_0_2"])
 
         bo.optimizing(
-            str(inp), str(out), adapter=adapter, device=torch.device("cpu"),
-            config={"opt_steps": 1, "opttol": 0.01, "patience": 1,
-                    "batchsize_atoms": 1024},
+            str(inp),
+            str(out),
+            adapter=adapter,
+            device=torch.device("cpu"),
+            config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
         ).run()
 
         mols = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
@@ -142,7 +152,10 @@ class TestOptGeometryOutputRanksCorrectly:
 
         ranked = tmp_path / "ranked.sdf"
         results = ConformerRanker(
-            input_path=optimized, out_path=str(ranked), threshold=0.3, window=2.0,
+            input_path=optimized,
+            out_path=str(ranked),
+            threshold=0.3,
+            window=2.0,
         ).run()
 
         # 2, not 3: the third conformer is 3 kcal/mol up, outside a 2 kcal/mol
@@ -165,15 +178,16 @@ class TestOptGeometryOutputRanksCorrectly:
 
         ranked = tmp_path / "ranked.sdf"
         ConformerRanker(
-            input_path=optimized, out_path=str(ranked), threshold=0.3, k=1,
+            input_path=optimized,
+            out_path=str(ranked),
+            threshold=0.3,
+            k=1,
         ).run()
 
         out = [m for m in Chem.SDMolSupplier(str(ranked), removeHs=False) if m]
         assert len(out) == 1
         expected_hartree = min(ENERGIES_EV) / HARTREE_TO_EV
-        assert float(out[0].GetProp(E_TOT_PROP)) == pytest.approx(
-            expected_hartree, rel=1e-9
-        )
+        assert float(out[0].GetProp(E_TOT_PROP)) == pytest.approx(expected_hartree, rel=1e-9)
         # Dividing by 27.211 a second time would land here instead.
         assert float(out[0].GetProp(E_TOT_PROP)) != pytest.approx(
             expected_hartree / HARTREE_TO_EV, rel=1e-3
@@ -193,9 +207,11 @@ class TestTautomerSelectionReadsTheSameUnit:
         out = tmp_path / "opt.sdf"
         _write_input(inp, ["id1@taut0_0_0", "id1@taut1_0_0"])
         bo.optimizing(
-            str(inp), str(out), adapter=adapter, device=torch.device("cpu"),
-            config={"opt_steps": 1, "opttol": 0.01, "patience": 1,
-                    "batchsize_atoms": 1024},
+            str(inp),
+            str(out),
+            adapter=adapter,
+            device=torch.device("cpu"),
+            config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
         ).run()
 
         selected = select_tautomers(str(out), k=2)

@@ -38,8 +38,7 @@ from Auto3D.models.preflight import resolve_engine_name
 #: the CLI" is stated once instead of once per consumer.
 OPTIONS_ONLY_FIELDS: dict[str, str] = {
     "input_format": (
-        "derived by the workflow from the input file's suffix, not something a "
-        "user sets"
+        "derived by the workflow from the input file's suffix, not something a user sets"
     ),
 }
 
@@ -366,9 +365,7 @@ def load_yaml_config(yaml_path: Path) -> CLIConfig:
         # A syntax error in the user's file is a configuration problem, not an
         # internal fault. Raised as ConfigurationError so the CLI reports it at
         # exit 2 with a hint rather than as "Unexpected Error" at exit 1.
-        raise ConfigurationError(
-            f"{yaml_path} is not valid YAML: {exc}"
-        ) from exc
+        raise ConfigurationError(f"{yaml_path} is not valid YAML: {exc}") from exc
 
     # An empty file parses to None, and a top-level list or scalar parses to a
     # non-mapping. Both used to reach `data.items()` and surface as

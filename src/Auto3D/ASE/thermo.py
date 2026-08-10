@@ -2,6 +2,7 @@
 """
 Calculating thermodynamic properties using Auto3D output
 """
+
 from __future__ import annotations
 
 import inspect
@@ -257,9 +258,7 @@ def _drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
         canonical = Chem.MolToSmiles(Chem.RemoveHs(mol))
     except (ValueError, RuntimeError):
         return False
-    return canonical in {
-        Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in _OPEN_SHELL_DRAWN_CLOSED
-    }
+    return canonical in {Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in _OPEN_SHELL_DRAWN_CLOSED}
 
 
 def _electron_count(mol: Chem.Mol) -> int:
@@ -274,9 +273,7 @@ def _electron_count(mol: Chem.Mol) -> int:
     mutated) and is idempotent when hydrogens are already explicit, so this
     is correct either way.
     """
-    return sum(
-        a.GetAtomicNum() for a in Chem.AddHs(mol).GetAtoms()
-    ) - rdmolops.GetFormalCharge(mol)
+    return sum(a.GetAtomicNum() for a in Chem.AddHs(mol).GetAtoms()) - rdmolops.GetFormalCharge(mol)
 
 
 def _resolve_multiplicity(mol: Chem.Mol) -> int:
@@ -340,7 +337,9 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                     "(2S+1 with every electron unpaired). Deriving it from "
                     "the radical-electron count instead.",
                     _mol_name(mol),
-                    value, n_electrons, max_multiplicity,
+                    value,
+                    n_electrons,
+                    max_multiplicity,
                 )
             elif value % 2 == n_electrons % 2:
                 logger.warning(
@@ -350,7 +349,8 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                     "species, even multiplicity for an odd-electron one). "
                     "Deriving it from the radical-electron count instead.",
                     _mol_name(mol),
-                    value, n_electrons,
+                    value,
+                    n_electrons,
                 )
             else:
                 return value
@@ -460,13 +460,14 @@ class Calculator(ase.calculators.calculator.Calculator):
     invalidates the cache. Both ``calc.set_charge(q)`` and a direct
     ``calc.charge = q`` go through that one path.
     """
-    implemented_properties = ['energy', 'forces']
+
+    implemented_properties = ["energy", "forces"]
     #: A change to any parameter (there is exactly one, ``charge``) makes every
     #: cached result stale, so let ASE's ``Calculator.set`` call ``reset()``.
     discard_results_on_any_change = True
     #: Declared so ``self.parameters`` always carries a charge entry, even
     #: before the first assignment in ``__init__``.
-    default_parameters = {'charge': 0}
+    default_parameters = {"charge": 0}
 
     def __init__(self, adapter: ModelAdapter, charge=0, *, device=None, dtype=None):
         """Wrap a model adapter as an ASE calculator.
@@ -514,7 +515,9 @@ class Calculator(ase.calculators.calculator.Calculator):
                 logger.warning(
                     "Calculator was asked for device %s but the model's "
                     "parameters are on %s; the ASE-facing tensors follow the "
-                    "requested device.", self.device, param_device,
+                    "requested device.",
+                    self.device,
+                    param_device,
                 )
         elif param_device is not None:
             self.device = param_device
@@ -578,10 +581,11 @@ class Calculator(ase.calculators.calculator.Calculator):
         """
         self.charge = charge
 
-    def calculate(self, atoms=None, properties=None,
-                  system_changes=ase.calculators.calculator.all_changes):
+    def calculate(
+        self, atoms=None, properties=None, system_changes=ase.calculators.calculator.all_changes
+    ):
         if properties is None:
-            properties = ['energy']
+            properties = ["energy"]
         super().calculate(atoms, properties, system_changes)
 
         # Atomic numbers directly from ASE (element-complete: no hardcoded
@@ -591,22 +595,21 @@ class Calculator(ase.calculators.calculator.Calculator):
         # cannot drift out of sync with batch_opt/padding.py (audit C3).
         species = torch.tensor(
             self.adapter.to_species(self.atoms.get_atomic_numbers().tolist()),
-            dtype=torch.long, device=self.device,
+            dtype=torch.long,
+            device=self.device,
         )
         coordinates = torch.tensor(self.atoms.get_positions()).to(self.device).to(self.dtype)
         coordinates = coordinates.requires_grad_(True)
 
         species = species.unsqueeze(0)
         coordinates = coordinates.unsqueeze(0)
-        
+
         energy, forces = self.adapter.forward(coordinates, species, self.charge)
-        self.results['energy'] = energy.item()
-        self.results['forces'] = forces.squeeze(0).to('cpu').numpy()
+        self.results["energy"] = energy.item()
+        self.results["forces"] = forces.squeeze(0).to("cpu").numpy()
 
 
-def mol2aimnet_input(
-    mol: Chem.Mol, device=torch.device('cpu'), *, adapter: ModelAdapter
-) -> dict:
+def mol2aimnet_input(mol: Chem.Mol, device=torch.device("cpu"), *, adapter: ModelAdapter) -> dict:
     """Converts sdf to model input, assuming the sdf has only 1 conformer.
 
     Args:
@@ -626,9 +629,7 @@ def mol2aimnet_input(
     # also feeds model-dtype coords). Passing fp64 coords to the fp32 model is a
     # silent dtype mismatch; the energy/force adapters cast anyway, so fp32 is
     # the consistent, lossless choice here.
-    coord = torch.tensor(
-        conf.GetPositions(), dtype=torch.float32, device=device
-    ).unsqueeze(0)
+    coord = torch.tensor(conf.GetPositions(), dtype=torch.float32, device=device).unsqueeze(0)
     numbers = torch.tensor(
         adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()]),
         device=device,
@@ -636,7 +637,8 @@ def mol2aimnet_input(
     charge = torch.tensor([Chem.GetFormalCharge(mol)], device=device, dtype=torch.float)
     return dict(coord=coord, numbers=numbers, charge=charge)
 
-def model_name2model_calculator(model_name: str, device=torch.device('cpu'), charge=0):
+
+def model_name2model_calculator(model_name: str, device=torch.device("cpu"), charge=0):
     """Return a model adapter and ASE calculator.
 
     Uses ModelFactory to create the model adapter, eliminating
@@ -668,6 +670,7 @@ def model_name2model_calculator(model_name: str, device=torch.device('cpu'), cha
 
     return model_adapter, calculator
 
+
 def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     """Convert an RDKit molecule to an ASE Atoms object.
 
@@ -682,7 +685,8 @@ def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
         and isotope masses applied where the mol carries isotope labels.
     """
     coord = (
-        mol.GetConformer().GetPositions() if positions is None
+        mol.GetConformer().GetPositions()
+        if positions is None
         else np.asarray(positions, dtype=float)
     )
     species = [a.GetSymbol() for a in mol.GetAtoms()]
@@ -710,16 +714,26 @@ def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     # falls back to the same natural-abundance average -- so the two cases are
     # taken from different accessors.
     periodic_table = Chem.GetPeriodicTable()
-    atoms.set_masses([
-        atom.GetMass() if atom.GetIsotope()
-        else periodic_table.GetMostCommonIsotopeMass(atom.GetAtomicNum())
-        for atom in mol.GetAtoms()
-    ])
+    atoms.set_masses(
+        [
+            atom.GetMass()
+            if atom.GetIsotope()
+            else periodic_table.GetMostCommonIsotopeMass(atom.GetAtomicNum())
+            for atom in mol.GetAtoms()
+        ]
+    )
     return atoms
 
-def vib_hessian(mol: Chem.Mol, ase_calculator, adapter: ModelAdapter,
-                device=torch.device('cpu'), *, positions=None):
-    '''Return a VibrationsData object for one molecule.
+
+def vib_hessian(
+    mol: Chem.Mol,
+    ase_calculator,
+    adapter: ModelAdapter,
+    device=torch.device("cpu"),
+    *,
+    positions=None,
+):
+    """Return a VibrationsData object for one molecule.
 
     The Hessian source is a CAPABILITY of the adapter, not a type test on it and
     not a branch on an engine name. ``adapter.analytic_hessian(...)`` returns the
@@ -752,7 +766,7 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, adapter: ModelAdapter,
             passes the relaxed geometry explicitly here in addition to
             syncing mol's conformer beforehand, so the Hessian is guaranteed
             to describe the same structure as the energy regardless of sync
-            order.'''
+            order."""
     # Built through mol2atoms (not a bare Atoms(species, coord) call) so
     # isotope masses are applied here exactly as they are for the other two
     # Atoms constructions (mol2atoms's own default path, calc_thermo's
@@ -774,9 +788,9 @@ def vib_hessian(mol: Chem.Mol, ase_calculator, adapter: ModelAdapter,
     # indices are built here exactly as they are for the optimization batch. This
     # used to be raw atomic numbers, remapped (or not) further down inside a
     # name-keyed helper -- one more place the convention could disagree.
-    numbers = torch.tensor(
-        [adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()])]
-    ).to(device)
+    numbers = torch.tensor([adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()])]).to(
+        device
+    )
     # aimnet's AIMNet2 model requires a 1D charge tensor (one entry per
     # molecule); a 0-dim scalar trips an internal assert.
     #
@@ -826,17 +840,13 @@ _EXTERNAL_DOF = {"monatomic": 3, "linear": 5, "nonlinear": 6}
 #: 3.22.1 through 3.29.0 (``units._hbar * units.m / sqrt(units._e *
 #: units._amu)``), so a projected spectrum is directly comparable with
 #: ``VibrationsData.get_energies()``.
-_HESSIAN_ENERGY_CONVERSION = (
-    ase_units._hbar * ase_units.m / (ase_units._e * ase_units._amu) ** 0.5
-)
+_HESSIAN_ENERGY_CONVERSION = ase_units._hbar * ase_units.m / (ase_units._e * ase_units._amu) ** 0.5
 
 #: True when the installed ``IdealGasThermo`` exposes the ``vib_selection``
 #: parameter, which ASE added in 3.28.0 (2026-03-17). Detected from the
 #: signature rather than from ``ase.__version__`` so a backport, a fork or a
 #: development snapshot is classified by what it can actually do.
-_ASE_HAS_VIB_SELECTION = "vib_selection" in inspect.signature(
-    IdealGasThermo.__init__
-).parameters
+_ASE_HAS_VIB_SELECTION = "vib_selection" in inspect.signature(IdealGasThermo.__init__).parameters
 
 
 def n_vibrational_modes(n_atoms: int, geometry: str) -> int:
@@ -851,8 +861,7 @@ def n_vibrational_modes(n_atoms: int, geometry: str) -> int:
         external = _EXTERNAL_DOF[geometry]
     except KeyError:
         raise ValueError(
-            f"Unsupported geometry {geometry!r}; expected one of "
-            f"{sorted(_EXTERNAL_DOF)}."
+            f"Unsupported geometry {geometry!r}; expected one of {sorted(_EXTERNAL_DOF)}."
         ) from None
     return max(0, 3 * n_atoms - external)
 
@@ -974,7 +983,7 @@ def projected_vibrations(
     # which triangle LAPACK happens to read.
     hessian_2d = 0.5 * (hessian_2d + hessian_2d.T)
 
-    weights = np.repeat(masses ** -0.5, 3)
+    weights = np.repeat(masses**-0.5, 3)
     mass_weighted = weights[:, np.newaxis] * hessian_2d * weights[np.newaxis, :]
 
     left_singular, _, _ = np.linalg.svd(
@@ -1004,9 +1013,12 @@ def projected_vibrations(
             "smallest retained %.3e (ratio %.2f, expected below %.2f). The "
             "%d retained modes may include a rotation or omit a very soft "
             "vibration.",
-            name, largest_discarded, smallest_kept,
+            name,
+            largest_discarded,
+            smallest_kept,
             largest_discarded / smallest_kept if smallest_kept else float("inf"),
-            PROJECTION_RESIDUAL_FRACTION, n_vib,
+            PROJECTION_RESIDUAL_FRACTION,
+            n_vib,
         )
 
     energies = _HESSIAN_ENERGY_CONVERSION * kept.astype(complex) ** 0.5
@@ -1252,13 +1264,15 @@ def _verbatim_mode_kwargs(n_passed: int, n_expected: int) -> dict:
     return {"natoms": 0}
 
 
-def do_mol_thermo(mol: Chem.Mol,
-                  atoms: ase.Atoms,
-                  adapter: ModelAdapter,
-                  device=torch.device('cpu'),
-                  T=298.15,
-                  *,
-                  low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM):
+def do_mol_thermo(
+    mol: Chem.Mol,
+    atoms: ase.Atoms,
+    adapter: ModelAdapter,
+    device=torch.device("cpu"),
+    T=298.15,
+    *,
+    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+):
     """For a RDKit mol object, calculate its thermochemistry properties.
 
     Args:
@@ -1300,7 +1314,9 @@ def do_mol_thermo(mol: Chem.Mol,
     vib_e = projected_vibrations(atoms, vib.get_hessian_2d(), geometry, name=name)
     n_expected = len(vib_e)
     analysis = analyze_vibrations(
-        vib_e, n_atoms=len(atoms), geometry=geometry,
+        vib_e,
+        n_atoms=len(atoms),
+        geometry=geometry,
         low_freq_cutoff_cm=low_freq_cutoff_cm,
     )
     if analysis.n_inverted > 0:
@@ -1313,15 +1329,21 @@ def do_mol_thermo(mol: Chem.Mol,
             "contribution to G -- dominated by -T*S_vib, which diverges as "
             "1/nu -- and the resulting mode-count mismatch does not cancel "
             "between two species with different artifact counts.",
-            analysis.n_imag, name, analysis.max_imag_cm,
-            analysis.n_inverted, analysis.imag_cutoff_cm, n_expected,
+            analysis.n_imag,
+            name,
+            analysis.max_imag_cm,
+            analysis.n_inverted,
+            analysis.imag_cutoff_cm,
+            n_expected,
         )
     elif analysis.n_imag > 0:
         logger.warning(
             "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
             "they are at or above the %.0f cm-1 saddle-point threshold, so "
             "they are removed from the thermochemistry rather than inverted.",
-            analysis.n_imag, name, analysis.max_imag_cm,
+            analysis.n_imag,
+            name,
+            analysis.max_imag_cm,
             analysis.imag_cutoff_cm,
         )
     if analysis.is_transition_state:
@@ -1336,8 +1358,11 @@ def do_mol_thermo(mol: Chem.Mol,
             "artifact threshold: this geometry is a saddle point, not a "
             "minimum. Its thermochemistry is reported but marked "
             "%s=%r, so it does not pass the success filter.",
-            name, analysis.max_imag_cm, analysis.imag_cutoff_cm,
-            THERMO_FAILED_PROP, TRANSITION_STATE_FAILURE,
+            name,
+            analysis.max_imag_cm,
+            analysis.imag_cutoff_cm,
+            THERMO_FAILED_PROP,
+            TRANSITION_STATE_FAILURE,
         )
     mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
     mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
@@ -1381,7 +1406,10 @@ def do_mol_thermo(mol: Chem.Mol,
             "%s: ASE kept %d of the %d vibrational modes it was given. Auto3D "
             "builds that list to be consumed verbatim, so G is missing %d "
             "mode(s) it was meant to include.",
-            name, n_used, len(vib_e), len(vib_e) - n_used,
+            name,
+            n_used,
+            len(vib_e),
+            len(vib_e) - n_used,
         )
     H = thermo.get_enthalpy(temperature=T) * EV_TO_HARTREE
     # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
@@ -1524,7 +1552,9 @@ def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> b
             "%s did not reach fmax=%.1e within %d steps; the harmonic "
             "approximation is only valid at a stationary point, so its "
             "thermochemistry is not reported.",
-            name, fmax, steps,
+            name,
+            fmax,
+            steps,
         )
     return converged
 
@@ -1542,13 +1572,13 @@ def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
     for position, mol in enumerate(mols):
         if mol is None:
             logger.warning(
-                "Skipping record %d: RDKit could not parse it.", position,
+                "Skipping record %d: RDKit could not parse it.",
+                position,
             )
             continue
         if mol.GetNumConformers() == 0:
             logger.warning(
-                "Skipping %s: no 3D conformer, so there is no geometry to "
-                "evaluate.",
+                "Skipping %s: no 3D conformer, so there is no geometry to evaluate.",
                 _mol_name(mol, default=f"record {position}"),
             )
             continue
@@ -1556,7 +1586,9 @@ def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
 
 
 def _write_thermo_output(
-    outpath: str | Path, out_mols: list[Chem.Mol], mols_failed: list[Chem.Mol],
+    outpath: str | Path,
+    out_mols: list[Chem.Mol],
+    mols_failed: list[Chem.Mol],
 ) -> None:
     """Write successes and failures to one SDF, both carrying `Thermo_failed`.
 
@@ -1591,13 +1623,20 @@ def _write_thermo_output(
             w.write(mol)
 
 
-def calc_thermo(path: str, model_name: str, mol_info_func=None,
-                gpu_idx=0, opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
-                opt_steps=DEFAULT_OPT_STEPS,
-                use_gpu: bool = True, allow_tf32: bool = False,
-                out_path: str | None = None, overwrite: bool = True,
-                low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
-                relative_gibbs: bool = False):
+def calc_thermo(
+    path: str,
+    model_name: str,
+    mol_info_func=None,
+    gpu_idx=0,
+    opt_tol=DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
+    opt_steps=DEFAULT_OPT_STEPS,
+    use_gpu: bool = True,
+    allow_tf32: bool = False,
+    out_path: str | None = None,
+    overwrite: bool = True,
+    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+    relative_gibbs: bool = False,
+):
     """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.
 
     Args:
@@ -1721,9 +1760,7 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     # get_device/_load_hessian_model/model_name2model_calculator below,
     # matching check_gpu_requested's already-first placement: every guard
     # that can fail fast, does, before any device/model construction.
-    check_engine_supports_molecules(
-        [mol for mol in mols if mol is not None], model_name
-    )
+    check_engine_supports_molecules([mol for mol in mols if mol is not None], model_name)
 
     device = get_device(gpu_idx, use_gpu=use_gpu)
 
@@ -1754,9 +1791,11 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
         try:
             EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
-            _, f_ = opt_adapter.forward(EnForce_in['coord'].requires_grad_(True),
-                                        EnForce_in['numbers'],
-                                        EnForce_in['charge'])
+            _, f_ = opt_adapter.forward(
+                EnForce_in["coord"].requires_grad_(True),
+                EnForce_in["numbers"],
+                EnForce_in["charge"],
+            )
             fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
 
             # Gate on the documented threshold, not a hardcoded 0.01.
@@ -1766,11 +1805,16 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             converged = fmax <= opt_tol
             if not converged:
                 logger.info(
-                    "Relaxing %s to fmax=%.1e before the Hessian "
-                    "(input fmax=%.2e).", idx, opt_tol, fmax,
+                    "Relaxing %s to fmax=%.1e before the Hessian (input fmax=%.2e).",
+                    idx,
+                    opt_tol,
+                    fmax,
                 )
                 converged = relax_to_stationary_point(
-                    atoms, fmax=opt_tol, steps=opt_steps, name=idx,
+                    atoms,
+                    fmax=opt_tol,
+                    steps=opt_steps,
+                    name=idx,
                 )
 
             if not converged:
@@ -1780,9 +1824,9 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 mols_failed.append(mol)
                 continue
 
-            mol = do_mol_thermo(mol, atoms, hessian_adapter,
-                                device, T,
-                                low_freq_cutoff_cm=low_freq_cutoff_cm)
+            mol = do_mol_thermo(
+                mol, atoms, hessian_adapter, device, T, low_freq_cutoff_cm=low_freq_cutoff_cm
+            )
             # do_mol_thermo writes the verdict: "" for a minimum, or
             # "transition_state" for a confirmed saddle point, whose
             # rigid-rotor/harmonic thermochemistry is not a minimum's and must
@@ -1792,8 +1836,13 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 mols_failed.append(mol)
             else:
                 out_mols.append(mol)
-        except (RuntimeError, torch.cuda.OutOfMemoryError, ValueError,
-                np.linalg.LinAlgError, ZeroDivisionError) as e:
+        except (
+            RuntimeError,
+            torch.cuda.OutOfMemoryError,
+            ValueError,
+            np.linalg.LinAlgError,
+            ZeroDivisionError,
+        ) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")
             mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
@@ -1840,4 +1889,3 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
 
     _write_thermo_output(outpath, out_mols, mols_failed)
     return str(outpath)
-

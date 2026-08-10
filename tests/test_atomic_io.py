@@ -21,6 +21,7 @@ regressing to its own staging:
 * **no temp file is left behind** when the body raises;
 * the **original file is intact** when the body raises.
 """
+
 from __future__ import annotations
 
 import os
@@ -167,8 +168,7 @@ class TestReorderSdfPreservesMode:
         reorder_sdf(str(sdf), str(smi))
 
         assert _mode(sdf) == mode, (
-            f"reorder_sdf changed the output file's mode from {mode:04o} to "
-            f"{_mode(sdf):04o}"
+            f"reorder_sdf changed the output file's mode from {mode:04o} to {_mode(sdf):04o}"
         )
 
     def test_the_reordering_still_happens(self, tmp_path):
@@ -254,8 +254,6 @@ class TestAnnotateAndRewritePreservesMode:
         _annotate_and_rewrite(str(out))
 
         assert _mode(out) == mode
-        rewritten = [
-            m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m is not None
-        ]
+        rewritten = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m is not None]
         assert len(rewritten) == 1
         assert rewritten[0].GetProp("E_tot(Hartree)") == "-1.5"

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Tests for the unit-conversion factors and legacy aliases in Auto3D.utils.energy."""
+
 from __future__ import annotations
 
 from Auto3D.utils.energy import (

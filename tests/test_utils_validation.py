@@ -1,4 +1,5 @@
 """Tests for Auto3D.utils.validation module."""
+
 import os
 import warnings
 
@@ -97,6 +98,7 @@ class TestCheckSmiFormat:
     def test_check_smi_format_rejects_missing_id(self, tmp_path):
         """A non-blank line with only a SMILES (no ID) raises InputValidationError."""
         from Auto3D.exceptions import InputValidationError
+
         smi = tmp_path / "noid.smi"
         smi.write_text("CCO\n")
         args = Auto3DOptions(str(smi), k=1, enumerate_isomer=True, use_gpu=False)
@@ -256,9 +258,7 @@ class TestCheckValidConfiguration:
 
     def test_valid_tauto_configuration(self):
         """Test valid tautomer configuration."""
-        errors = check_valid_configuration(
-            _options(enumerate_tautomer=True, tauto_engine="rdkit")
-        )
+        errors = check_valid_configuration(_options(enumerate_tautomer=True, tauto_engine="rdkit"))
         # Should not have tauto_engine errors
         assert not any("tauto_engine" in e.lower() for e in errors)
 

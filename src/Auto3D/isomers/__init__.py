@@ -19,6 +19,7 @@ Example:
     >>> engine = IsomerEngineFactory.create("rdkit", input_path="input.smi", ...)
     >>> engine.run()
 """
+
 from __future__ import annotations
 
 from Auto3D.isomers.factory import IsomerEngineFactory

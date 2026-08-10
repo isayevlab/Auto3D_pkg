@@ -40,6 +40,7 @@ the adapter interface silently computes an energy from transposed tensors and
 then fails deep inside ``torch.autograd.grad``, so :func:`validate_custom_nnp`
 rejects that shape at load time instead.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -95,9 +96,7 @@ REQUIRED_ATTRIBUTES: tuple[str, ...]
 _SPECIES_NAMES = frozenset(
     {"species", "numbers", "atomic_numbers", "atomicnumbers", "z", "elements"}
 )
-_COORDS_NAMES = frozenset(
-    {"coords", "coord", "coordinates", "positions", "pos", "xyz"}
-)
+_COORDS_NAMES = frozenset({"coords", "coord", "coordinates", "positions", "pos", "xyz"})
 _CHARGES_NAMES = frozenset({"charges", "charge", "q"})
 
 
@@ -389,9 +388,7 @@ def _check_forward_signature(model: Any, source: str) -> None:
     # that raises AttributeError on this lookup, and a scripted module always
     # has a real forward anyway (it could not have been scripted otherwise).
     # Rejecting one here would break every valid TorchScript archive.
-    if isinstance(model, torch.nn.Module) and not isinstance(
-        model, torch.jit.ScriptModule
-    ):
+    if isinstance(model, torch.nn.Module) and not isinstance(model, torch.jit.ScriptModule):
         try:
             inherits_stub = type(model).forward is torch.nn.Module.forward
         except AttributeError:
@@ -406,8 +403,7 @@ def _check_forward_signature(model: Any, source: str) -> None:
     forward = getattr(model, "forward", None)
     if forward is None:
         raise ModelLoadError(
-            f"Custom NNP at {source} defines no forward method. "
-            f"Expected {EXPECTED_SIGNATURE}."
+            f"Custom NNP at {source} defines no forward method. Expected {EXPECTED_SIGNATURE}."
         )
 
     try:
@@ -427,8 +423,7 @@ def _check_forward_signature(model: Any, source: str) -> None:
     positional = [
         p
         for p in parameters
-        if p.kind
-        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
     ]
     required = [p for p in positional if p.default is inspect.Parameter.empty]
     # Render the signature the way the interpreter does, NOT by comma-joining

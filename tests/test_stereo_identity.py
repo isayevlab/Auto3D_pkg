@@ -7,6 +7,7 @@ during enumeration, before any neural network potential runs.
 
 Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path).
 """
+
 from __future__ import annotations
 
 from rdkit import Chem
@@ -83,9 +84,7 @@ class TestTautomerStereoPreservation:
         in_smi.write_text("C[C@H](C(=O)C)N taut_test\n")
         out_smi = job_dir / "taut_stereo_out.smi"
 
-        create_tautomer_engine(
-            "rdkit", str(in_smi), str(out_smi), pka_norm=False
-        ).run()
+        create_tautomer_engine("rdkit", str(in_smi), str(out_smi), pka_norm=False).run()
 
         outputs = out_smi.read_text().splitlines()
         assert outputs, "tautomer enumeration returned nothing"
@@ -153,9 +152,7 @@ class TestSdfInputStereo:
             found = Chem.FindMolChiralCenters(out_mol, useLegacyImplementation=False)
             per_species.setdefault(species, set()).update(code for _, code in found)
 
-        mixed = {
-            name: sorted(codes) for name, codes in per_species.items() if len(codes) > 1
-        }
+        mixed = {name: sorted(codes) for name, codes in per_species.items() if len(codes) > 1}
         assert not mixed, (
             f"RDKitSdfIsomer wrote a stereochemical mixture under a single species "
             f"name: {mixed}; the pipeline must enumerate distinct species or refuse "
@@ -226,9 +223,7 @@ class TestSdfInputStereo:
             name = out_mol.GetProp("_Name")
             species = name.rsplit("_", 1)[0]
             Chem.AssignStereochemistryFrom3D(out_mol)
-            found = frozenset(
-                Chem.FindMolChiralCenters(out_mol, useLegacyImplementation=False)
-            )
+            found = frozenset(Chem.FindMolChiralCenters(out_mol, useLegacyImplementation=False))
             per_species.setdefault(species, set()).add(found)
 
         # Unlike the alanine case, both diastereomers must actually survive --
@@ -240,9 +235,7 @@ class TestSdfInputStereo:
             f"species, got {sorted(per_species)}"
         )
 
-        mixed = {
-            name: sorted(configs) for name, configs in per_species.items() if len(configs) > 1
-        }
+        mixed = {name: sorted(configs) for name, configs in per_species.items() if len(configs) > 1}
         assert not mixed, (
             f"RDKitSdfIsomer wrote more than one stereochemical configuration "
             f"under a single species name: {mixed}"

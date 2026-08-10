@@ -78,9 +78,7 @@ def test_print_results_summary(capsys):
     )
     print_results_summary(no_failures)
     out_clean = capsys.readouterr().out
-    assert "failed" not in out_clean, (
-        "the failed-count row must not appear when nothing failed"
-    )
+    assert "failed" not in out_clean, "the failed-count row must not appear when nothing failed"
 
 
 def test_print_failures_empty(capsys):
@@ -105,9 +103,7 @@ def test_print_failures_verbose(capsys):
     for i in range(5):
         assert f"mol{i}" in out
     assert "Error" in out
-    assert "Run with -v" not in out, (
-        "verbose mode must show the table, not the -v hint"
-    )
+    assert "Run with -v" not in out, "verbose mode must show the table, not the -v hint"
 
 
 def test_output_json(capsys):
@@ -137,5 +133,3 @@ def test_output_json(capsys):
         "elapsed_seconds": 120.5,
         "failures": [{"name": "mol1", "error": "boom"}],
     }
-
-

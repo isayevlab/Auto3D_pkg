@@ -50,9 +50,7 @@ def validate_smiles_file(file_path: Path) -> ValidationResult:
             total_count += 1
             parts = line.split()
             if len(parts) < 2:
-                errors.append(
-                    (i, line[:50], "Missing molecule ID (expected 'SMILES ID')")
-                )
+                errors.append((i, line[:50], "Missing molecule ID (expected 'SMILES ID')"))
                 continue
             smiles = parts[0]
 
@@ -120,9 +118,7 @@ def _validate_json_document(input_file: Path, result: ValidationResult) -> dict:
     }
 
 
-def execute_validate(
-    input_file: Path, json_output: bool = False, verbose: int = 0
-) -> None:
+def execute_validate(input_file: Path, json_output: bool = False, verbose: int = 0) -> None:
     """Validate an input file.
 
     Every failure leaves through ``handle_error``, so this command's exit
@@ -171,21 +167,23 @@ def execute_validate(
                 # but a --json caller must get a parseable document on stdout
                 # on this path too rather than an empty stream.
                 if json_output:
-                    emit_json({
-                        "success": False,
-                        "command": "validate",
-                        "input_file": str(input_file),
-                        "format": suffix.lstrip(".").upper(),
-                        "molecules": 0,
-                        "valid_molecules": 0,
-                        "errors": [
-                            {
-                                "line": 0,
-                                "content": str(input_file),
-                                "error": f"Unsupported file format: {suffix}",
-                            }
-                        ],
-                    })
+                    emit_json(
+                        {
+                            "success": False,
+                            "command": "validate",
+                            "input_file": str(input_file),
+                            "format": suffix.lstrip(".").upper(),
+                            "molecules": 0,
+                            "valid_molecules": 0,
+                            "errors": [
+                                {
+                                    "line": 0,
+                                    "content": str(input_file),
+                                    "error": f"Unsupported file format: {suffix}",
+                                }
+                            ],
+                        }
+                    )
                     document_emitted = True
                 raise InputValidationError(
                     f"Unsupported file format: {suffix}",
@@ -196,13 +194,15 @@ def execute_validate(
             emit_json(_validate_json_document(input_file, result))
             document_emitted = True
         elif result.valid:
-            console.print(Panel(
-                f"[green]Valid {result.file_format} file[/green]\n\n"
-                f"Molecules: {result.total_count}\n"
-                f"All entries parsed successfully",
-                title="Validation Passed",
-                border_style="green",
-            ))
+            console.print(
+                Panel(
+                    f"[green]Valid {result.file_format} file[/green]\n\n"
+                    f"Molecules: {result.total_count}\n"
+                    f"All entries parsed successfully",
+                    title="Validation Passed",
+                    border_style="green",
+                )
+            )
         else:
             error_table = Table(show_header=True, header_style="bold red")
             error_table.add_column("Line")
@@ -214,16 +214,16 @@ def execute_validate(
 
             more_msg = ""
             if len(result.errors) > 10:
-                more_msg = (
-                    f"\n[dim]... and {len(result.errors) - 10} more errors[/dim]"
-                )
+                more_msg = f"\n[dim]... and {len(result.errors) - 10} more errors[/dim]"
 
-            console.print(Panel(
-                f"[red]{len(result.errors)} invalid entries found[/red]\n\n"
-                f"Valid: {result.valid_count}/{result.total_count}",
-                title="Validation Failed",
-                border_style="red",
-            ))
+            console.print(
+                Panel(
+                    f"[red]{len(result.errors)} invalid entries found[/red]\n\n"
+                    f"Valid: {result.valid_count}/{result.total_count}",
+                    title="Validation Failed",
+                    border_style="red",
+                )
+            )
             console.print(error_table)
             if more_msg:
                 console.print(more_msg)
@@ -239,6 +239,4 @@ def execute_validate(
                 hint="",
             )
     except Exception as e:  # noqa: BLE001 - funnel everything to the error panel
-        handle_error(
-            e, verbose=verbose, json_output=json_output and not document_emitted
-        )
+        handle_error(e, verbose=verbose, json_output=json_output and not document_emitted)

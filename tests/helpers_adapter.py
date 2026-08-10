@@ -13,6 +13,7 @@ the gate.
 Everything here is a plain Python object: no ``nn.Module``, no weights, no
 device traffic, and nothing is loaded or downloaded.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -67,9 +68,7 @@ class FakeAdapter:
         return coords.pow(2).sum(dim=(1, 2))
 
     def forward(self, coords, species, charges, atom_mask=None):
-        self.calls.append(
-            {"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "forward"}
-        )
+        self.calls.append({"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "forward"})
         coords = coords if coords.requires_grad else coords.detach().requires_grad_(True)
         energy = self._energies(coords, species, charges)
         grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
@@ -77,9 +76,7 @@ class FakeAdapter:
 
     def energy(self, coords, species, charges, atom_mask=None):
         """Energies at the dtype of ``coords`` -- deliberately no downcast."""
-        self.calls.append(
-            {"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "energy"}
-        )
+        self.calls.append({"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "energy"})
         return self._energies(coords, species, charges)
 
     def analytic_hessian(self, coords, species, charges):
