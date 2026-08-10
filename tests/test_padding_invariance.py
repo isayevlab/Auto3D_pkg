@@ -3,7 +3,7 @@
 Every engine masks padded slots differently: AIMNet2 pads species with 0 and
 relies on Z=0 being unused, while ANI2x/ANI2xt pad with -1 and rely on that
 being torchani's masked-atom sentinel. ``ANI2xt.forward`` in
-``batch_opt/ANI2xt_no_rep.py`` documents that second assumption (species
+``models/ani2xt.py`` documents that second assumption (species
 == -1 surviving the periodic-table remap unchanged and relying on
 TorchANI's masked-atom convention) as depended-upon but not independently
 verified there. These tests verify it (audit M32, C13).
@@ -34,7 +34,7 @@ class TestPaddingInvariance:
     # already asserts with atol=1e-2 eV, and ANI2xt's float32 output caps
     # usable precision at ~float32 ULP (~4e-3 eV) at typical total-energy
     # magnitudes per the float32-precision Note in ``ANI2xt.forward``'s
-    # docstring (``src/Auto3D/batch_opt/ANI2xt_no_rep.py``). 1e-6 would
+    # docstring (``src/Auto3D/models/ani2xt.py``). 1e-6 would
     # demand sub-ULP reproducibility and flake on a correct model. ANI2x
     # (torchani, periodic-table indexing) shares ANI2xt's float32 output and
     # the same -1 species_pad convention, so it gets the same 1e-3 budget

@@ -4,8 +4,8 @@ from collections.abc import Sequence
 import torch
 import torch.nn as nn
 
+from Auto3D.constants import HARTREE_TO_EV
 from Auto3D.models.species import ANI2XT_INDEX
-from Auto3D.utils.energy import hartree2ev
 
 # Note: Do NOT set torch.manual_seed() at module level.
 # Random seed should be controlled by the caller, not by importing a module.
@@ -15,8 +15,12 @@ from Auto3D.utils.energy import hartree2ev
 training process
 https://wandb.ai/oilab/retraiin_ani_no_repulsion/runs/3u1gsp8r?workspace=user-liu97
 """
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ani_2xt_dict = os.path.join(root, "models/ani2xt_no_repulsion.pt")
+#: The checkpoint sits beside this module. It always did -- while this file
+#: lived in ``batch_opt/`` the path was built by walking up two directories and
+#: back down into ``models/``, which resolved correctly only because both
+#: packages happen to be one level under ``Auto3D/``. Now that the code is in the
+#: same directory as its weights, the path says so.
+ani_2xt_dict = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ani2xt_no_repulsion.pt")
 
 #: Hidden-layer widths of each per-element network, in ANI2xt's ModuleList
 #: order: H, C, N, O, F, S, Cl -- the same order as
@@ -376,5 +380,5 @@ class ANI2xt(nn.Module):
         atomic_energies = atom_energies.reshape(batch_size, num_atoms).sum(dim=1)  # (batch,)
 
         # Total energy in Hartree, convert to eV
-        total_energy = (atomic_energies + self_energies) * hartree2ev
+        total_energy = (atomic_energies + self_energies) * HARTREE_TO_EV
         return total_energy

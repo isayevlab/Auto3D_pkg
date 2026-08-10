@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Auto3D.batch_opt.ANI2xt_no_rep` is now `Auto3D.models.ani2xt`.** The module
+  defines the ANI2xt network and loads `models/ani2xt_no_repulsion.pt`, so it
+  lived one package away from both the weights it reads and the adapter that
+  builds it. There is no alias: import from the new path.
+
+  | before | after |
+  |---|---|
+  | `from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt` | `from Auto3D.models.ani2xt import ANI2xt` |
+
+  This removes the package's last mutual dependency. `models/adapter.py` had to
+  import `batch_opt` from *inside* a method, with a comment explaining that
+  promoting the import would create a cycle at package-import time. That comment
+  had been false since 3.0.0 stopped `Auto3D/__init__.py` eagerly importing the
+  module, and the import is now at module scope where it belongs.
+
+  Two things went with the move. The checkpoint path was built by walking up two
+  directories and back down into `models/`, which resolved only because both
+  packages sit one level under `Auto3D/`; it is now relative to the module's own
+  directory. And the module took its Hartree→eV factor from `utils.energy`,
+  which is a re-export of `constants.HARTREE_TO_EV` — it now reads the constant
+  directly, so `models` does not depend on `utils` at all.
+
 - **The thermochemistry path takes a `ModelAdapter` instead of a model plus a
   name string.** 3.0.0 made `model_name` a *required* keyword on `Calculator`
   and `mol2aimnet_input` because omitting it silently ran the wrong species
