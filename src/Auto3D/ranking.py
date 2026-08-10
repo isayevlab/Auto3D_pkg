@@ -12,16 +12,35 @@ from Auto3D.filtering import FilterResult, filter_conformers
 from Auto3D.utils.connectivity import check_connectivity
 from Auto3D.utils.convergence import converged_or_unfiltered, has_convergence_flag
 from Auto3D.utils.energy import (
+    E_REL_KCAL_PROP,
     E_TOT_HARTREE_PROP,
     E_TOT_PROP,
+    G_HARTREE_PROP,
+    G_REL_KCAL_PROP,
     e_tot_ev,
     ev2kcalpermol,
+    try_gibbs_ev,
 )
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.utils.stereo_check import stereo_preserved
 
 logger = get_logger(__name__)
+
+#: Select on the electronic energy -- the default, and the only basis available
+#: for an optimizer output.
+RANK_BY_ELECTRONIC = "E_tot"
+#: Select on the Gibbs free energy. Only a ``calc_thermo`` output carries one,
+#: and producing it costs a Hessian per conformer, so this is never a default.
+#: A population goes as ``exp(-dG/RT)``, and the lowest-G conformer need not be
+#: the lowest-E one, so this is the better basis once the cost is already paid.
+RANK_BY_GIBBS = "G_hartree"
+
+#: Basis -> (reader returning eV, source property, published relative property).
+_RANK_BASES: dict[str, tuple] = {
+    RANK_BY_ELECTRONIC: (e_tot_ev, E_TOT_PROP, E_REL_KCAL_PROP),
+    RANK_BY_GIBBS: (try_gibbs_ev, G_HARTREE_PROP, G_REL_KCAL_PROP),
+}
 
 
 def species_id(name: str) -> str:
@@ -148,6 +167,7 @@ class ConformerRanker:
         window: float | bool = False,
         energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
         overwrite: bool = True,
+        rank_by: str = RANK_BY_ELECTRONIC,
     ) -> None:
         # Same C14 guard the three API entry points run. ConformerRanker is a
         # documented public writer that reads `input_path` and opens
@@ -171,6 +191,19 @@ class ConformerRanker:
         self.k = k
         self.window = window
         self.energy_cluster_window = energy_cluster_window
+        if rank_by not in _RANK_BASES:
+            raise ValueError(
+                f"rank_by must be one of {sorted(_RANK_BASES)}, got {rank_by!r}"
+            )
+        #: Which energy selection compares. Electronic by default: a Gibbs
+        #: energy exists only after a thermochemistry run, so defaulting to it
+        #: would make the cheap path depend on the expensive one. Duplicate
+        #: detection is deliberately NOT switched with it -- that filter asks
+        #: whether two records are the same structure, which is a question
+        #: about the electronic energy and the geometry, not about which is
+        #: favoured at temperature.
+        self.rank_by = rank_by
+        self._read_energy_ev, self._energy_prop, self._rel_prop = _RANK_BASES[rank_by]
         #: Run-level drop tally, keyed by ``Auto3D.filtering.DROP_REASONS``.
         #: ``top_k``/``top_window`` add their per-species counts here (see
         #: ``_account``) so ``run``'s "selected 0 structures" warning can state
@@ -284,10 +317,12 @@ class ConformerRanker:
             self._log_nothing_selected(names[0].strip(), result)
         else:
             #Adding relative energies
-            # E_tot is stored in Hartree; E_rel(eV) is, as its name says, eV.
-            ref_energy = e_tot_ev(out_mols[0])
+            # Both sides are eV: the readers convert from whatever unit the
+            # source property is stored in (E_tot is Hartree, G_hartree is
+            # Hartree), so `E_rel(eV)` is eV whichever basis is selected.
+            ref_energy = self._read_energy_ev(out_mols[0])
             for mol in out_mols:
-                my_energy = e_tot_ev(mol)
+                my_energy = self._read_energy_ev(mol)
                 rel_energy = my_energy - ref_energy
                 mol.SetProp('E_rel(eV)', str(rel_energy))
         return out_mols
@@ -323,9 +358,9 @@ class ConformerRanker:
             # stored in Hartree, so both sides of the comparison are eV here.
             # Reading the Hartree number as if it were eV is what made the
             # window 27.2x too wide for an opt_geometry-produced input.
-            ref_energy = e_tot_ev(result.kept[0])
+            ref_energy = self._read_energy_ev(result.kept[0])
             for mol in result.kept:
-                my_energy = e_tot_ev(mol)
+                my_energy = self._read_energy_ev(mol)
                 rel_energy = my_energy - ref_energy
                 if rel_energy <= window:
                     mol.SetProp('E_rel(eV)', str(rel_energy))
@@ -414,22 +449,28 @@ class ConformerRanker:
                     continue
                 if not has_convergence_flag(mol):
                     n_unflagged += 1
-                if not mol.HasProp(E_TOT_PROP):
+                if not mol.HasProp(self._energy_prop):
                     name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
+                    hint = (
+                        f"Add {E_TOT_PROP!r} (Hartree) to every record, or "
+                        "rank a file produced by Auto3D's optimizer."
+                        if self.rank_by == RANK_BY_ELECTRONIC else
+                        "A Gibbs energy comes from a thermochemistry run: "
+                        "produce the file with `calc_thermo` (or `auto3d "
+                        "thermo`) before ranking on it, or rank on the "
+                        f"electronic energy with rank_by={RANK_BY_ELECTRONIC!r}."
+                    )
                     raise InputValidationError(
                         f"Record {position} "
                         f"{'(' + name + ') ' if name else ''}of "
-                        f"{self.input_path} has no {E_TOT_PROP!r} property. "
-                        "ConformerRanker selects by energy, so every record "
-                        "needs one.",
-                        hint=(
-                            f"Add {E_TOT_PROP!r} (Hartree) to every record, or "
-                            "rank a file produced by Auto3D's optimizer."
-                        ),
+                        f"{self.input_path} has no {self._energy_prop!r} "
+                        "property. ConformerRanker selects by energy, so every "
+                        "record needs one.",
+                        hint=hint,
                     )
                 mols.append(mol)
                 names.append(species_id(mol.GetProp('_Name')))
-                energies.append(e_tot_ev(mol))
+                energies.append(self._read_energy_ev(mol))
         if n_unflagged:
             logger.info(
                 "%d of %d record(s) in %s carry no 'Converged' property; they "
@@ -500,7 +541,13 @@ class ConformerRanker:
                 # Unit-labeled sibling so consumers can't misread E_tot's units
                 # (E_tot is kept unlabeled for backward compatibility).
                 mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
-                mol.SetProp('E_rel(kcal/mol)', str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol))
+                # Named for the basis it was measured on: publishing a Gibbs
+                # ranking as `E_rel(kcal/mol)` would label a dG with the
+                # electronic property's name.
+                mol.SetProp(
+                    self._rel_prop,
+                    str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol),
+                )
                 mol.ClearProp('E_rel(eV)')
                 # Strip the trailing <isomer>_<conformer> suffix, keeping the
                 # species id intact (see species_id()) so a disambiguated

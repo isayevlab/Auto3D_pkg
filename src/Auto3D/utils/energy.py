@@ -57,6 +57,7 @@ __all__ = [
     "e_tot_hartree",
     "e_tot_ev",
     "try_e_tot_ev",
+    "try_gibbs_ev",
     # Conversion factors, and their lowercase legacy spellings
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
@@ -138,6 +139,18 @@ def try_e_tot_ev(mol: Chem.Mol) -> float | None:
         return e_tot_ev(mol)
     except (KeyError, ValueError):
         return None
+
+
+def try_gibbs_ev(mol: Chem.Mol) -> float | None:
+    """``G_hartree`` in eV, or None when the record has no usable one.
+
+    eV, not Hartree, so a caller can compare it against the same thresholds it
+    already applies to :func:`e_tot_ev` -- the kcal/mol energy window in
+    ``ranking`` converts to eV once and must not care which basis it is
+    measuring. ``Auto3D.ASE.thermo`` writes the underlying property.
+    """
+    value = _try_float_prop(mol, G_HARTREE_PROP)
+    return None if value is None else value * HARTREE_TO_EV
 
 
 def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:

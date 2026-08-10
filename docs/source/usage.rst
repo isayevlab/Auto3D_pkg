@@ -508,8 +508,31 @@ A ``calc_thermo`` output carries more, and two of them are relative:
 
 The Gibbs quantity is opt-in because it is the entry point to the expensive
 path: obtaining a Δ*G* at all costs a Hessian per conformer. Conformer
-*selection* stays on the electronic energy in every case — ``ConformerRanker``
-ranks on ``E_tot`` and never on *G*.
+*selection* is electronic by default for the same reason — ``ConformerRanker``
+ranks on ``E_tot`` unless told otherwise, so the ordinary pipeline never
+depends on a thermochemistry run.
+
+Once you have a thermo output, you can select on *G* instead:
+
+.. code:: python
+
+   from Auto3D.ranking import ConformerRanker, RANK_BY_GIBBS
+
+   ConformerRanker(
+       input_path="molecules_AIMNET_G.sdf",
+       out_path="selected.sdf",
+       threshold=0.3,
+       k=1,
+       rank_by=RANK_BY_GIBBS,
+   ).run()
+
+The energy window is measured on whichever basis is selected, and the published
+relative energy is named for it — ``G_rel(kcal/mol)`` rather than
+``E_rel(kcal/mol)``. Ranking a file with no ``G_hartree`` on this basis is
+refused with a message pointing at ``calc_thermo``. Duplicate detection is
+deliberately *not* switched: whether two records are the same structure is a
+question about geometry and electronic energy, not about which is favoured at
+temperature.
 
 Use ``G_rel(kcal/mol)`` for conformer populations. A Boltzmann weight goes as
 ``exp(-ΔG/RT)``, and at 298 K ``RT`` is 0.59 kcal/mol while differences in

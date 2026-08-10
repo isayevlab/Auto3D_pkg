@@ -363,17 +363,3 @@ class TestGibbsIsOptIn:
             "set_relative_gibbs_energies is not nested under a conditional; "
             f"got {gibbs_line!r}"
         )
-
-    def test_ranking_selects_on_electronic_energy(self):
-        """Conformer selection must not acquire a Gibbs dependency."""
-        import inspect
-
-        from Auto3D.ranking import ConformerRanker
-
-        for method in ("top_k", "top_window"):
-            source = inspect.getsource(getattr(ConformerRanker, method))
-            assert "e_tot_ev" in source, f"{method} no longer selects on E_tot"
-            assert "G_hartree" not in source and "G_rel" not in source, (
-                f"{method} acquired a Gibbs dependency; ranking by dG requires a "
-                "thermo run per conformer and must stay opt-in"
-            )

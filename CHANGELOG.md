@@ -152,8 +152,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Opt-in on purpose. The number is free once thermochemistry has run, but it is
   the entry point to the path that is not: obtaining a Δ*G* at all costs a
   Hessian per conformer, and a default that quietly depends on one turns the
-  cheap path expensive. **Conformer selection is unaffected in every case** —
-  `ConformerRanker` ranks on `E_tot` and never on *G*.
+  cheap path expensive.
+
+- **`ConformerRanker(..., rank_by=RANK_BY_GIBBS)` selects on Gibbs free energy.**
+  Also opt-in, and for the same reason: the default stays `RANK_BY_ELECTRONIC`,
+  so the ordinary pipeline never depends on a thermochemistry run. Ranking a
+  file with no `G_hartree` on this basis is refused with a message pointing at
+  `calc_thermo`.
+
+  The energy window is measured on whichever basis is selected, and the
+  published relative energy is named for it — `G_rel(kcal/mol)` rather than
+  `E_rel(kcal/mol)`. Duplicate detection is deliberately *not* switched:
+  whether two records are the same structure is a question about geometry and
+  electronic energy, not about which is favoured at temperature.
 
   This is the quantity conformer populations are built from: a Boltzmann weight
   goes as `exp(-ΔG/RT)`, and at 298 K `RT` is 0.59 kcal/mol while conformer
