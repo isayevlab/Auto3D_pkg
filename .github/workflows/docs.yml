@@ -100,14 +100,16 @@ jobs:
   # current shape: the misleading version read as coverage nobody had.
   #
   # Executing them belongs in the slow tier, next to the model cache: every one
-  # of the 20 needs a neural network potential. Two of them now run there for
-  # real (see `Execute the notebooks that run on a prepared SDF` in tests.yml),
-  # chosen by measured runtime -- the end-to-end ones exceed 10 minutes on CPU.
+  # of the 20 needs a neural network potential. Exactly one runs there for real
+  # (see `Execute the single-point notebook` in tests.yml). The limit is CPU
+  # time, measured rather than guessed: a single point over four records takes
+  # 5.9 s, the same four records through `opt_geometry` take over 600 s, and
+  # every other notebook either optimizes or runs `main()` end to end.
   #
-  # So the other 18 are still parse-checked only, and an API change can still
-  # invalidate them without turning anything red. The narrower guard that does
-  # cover all 20 is tests/test_notebook_properties.py, which fails when a
-  # notebook reads an SD property no Auto3D writer sets.
+  # So 19 are still parse-checked only, and an API change can invalidate them
+  # without turning anything red. The narrower guard that does cover all 20 is
+  # tests/test_notebook_properties.py, which fails when a notebook reads an SD
+  # property no Auto3D writer sets.
   validate-notebooks:
     name: Validate Notebooks (JSON only)
     runs-on: ubuntu-latest
