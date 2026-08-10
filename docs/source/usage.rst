@@ -503,7 +503,13 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   relaxed geometry, since ``calc_thermo`` relaxes to a tighter threshold than
   conformer generation uses
 - **G_rel(kcal/mol)**: Gibbs free energy relative to the lowest-*G* conformer of
-  the same molecule
+  the same molecule — **only when asked for**, with ``--relative-gibbs`` or
+  ``calc_thermo(..., relative_gibbs=True)``
+
+The Gibbs quantity is opt-in because it is the entry point to the expensive
+path: obtaining a Δ*G* at all costs a Hessian per conformer. Conformer
+*selection* stays on the electronic energy in every case — ``ConformerRanker``
+ranks on ``E_tot`` and never on *G*.
 
 Use ``G_rel(kcal/mol)`` for conformer populations. A Boltzmann weight goes as
 ``exp(-ΔG/RT)``, and at 298 K ``RT`` is 0.59 kcal/mol while differences in

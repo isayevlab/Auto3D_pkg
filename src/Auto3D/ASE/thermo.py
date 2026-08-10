@@ -1587,7 +1587,8 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
                 opt_steps=DEFAULT_OPT_STEPS,
                 use_gpu: bool = True, allow_tf32: bool = False,
                 out_path: str | None = None, overwrite: bool = True,
-                low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM):
+                low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+                relative_gibbs: bool = False):
     """ASE interface for calculating thermo properties using ANI2x, ANI2xt or AIMNET.
 
     Args:
@@ -1615,6 +1616,15 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
             Hessian cannot resolve. Defaults to 100 cm^-1; pass 0.0 for plain
             RRHO. Whichever value is used is recorded in each record's
             ``Thermo_convention`` property.
+        relative_gibbs: Also write ``G_rel(kcal/mol)`` -- the Gibbs energy
+            relative to the lowest-*G* conformer of the same molecule, which is
+            what a Boltzmann population should be built from. Off by default:
+            the number itself is free here, but it is the entry point to a
+            workflow that is not, since obtaining a dG at all costs a Hessian
+            per conformer. Conformer *selection* stays on the electronic energy
+            regardless -- see ``Auto3D.ranking``. Withheld for any molecule
+            whose conformers span more than one temperature, because *G(T)*
+            carries a ``-T*S`` term.
 
     Notes:
         Gibbs energies are reported at the 1 atm standard state (matching
@@ -1804,12 +1814,16 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     # what makes the mixed-level-of-theory caveat in CHANGELOG a property of the
     # file rather than something the reader has to remember.
     set_relative_energies(out_mols)
-    # And the Gibbs one beside it, which is what a conformer population is
-    # actually built from -- p goes as exp(-dG/RT), and at 298 K RT is
-    # 0.59 kcal/mol against ZPE and S_vib differences of 0.3-1 kcal/mol between
-    # conformers. It picks its own reference: the lowest-G conformer need not be
-    # the lowest-E one once those terms enter.
-    set_relative_gibbs_energies(out_mols)
+    # The Gibbs one only on request. Computing it here is free -- every record
+    # already has `G_hartree` -- but it is the entry point to a workflow that is
+    # not: obtaining a dG at all costs a Hessian per conformer, and a default
+    # that quietly depends on one turns the cheap path expensive. So the
+    # electronic quantity is what a run produces unless the caller asks.
+    #
+    # It picks its own reference: the lowest-G conformer need not be the
+    # lowest-E one once ZPE and S_vib enter.
+    if relative_gibbs:
+        set_relative_gibbs_energies(out_mols)
     # And the failures keep no relative energy at all: theirs derives from an
     # `E_tot` this run did not recompute, and leaving it would mean the property
     # survives on exactly the records a user must discard.

@@ -145,8 +145,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`G_rel(kcal/mol)` on a `calc_thermo` output** — Gibbs free energy relative
-  to the lowest-*G* conformer of the same molecule.
+- **`G_rel(kcal/mol)` on a `calc_thermo` output, opt-in** — Gibbs free energy
+  relative to the lowest-*G* conformer of the same molecule. Request it with
+  `--relative-gibbs` or `calc_thermo(..., relative_gibbs=True)`.
+
+  Opt-in on purpose. The number is free once thermochemistry has run, but it is
+  the entry point to the path that is not: obtaining a Δ*G* at all costs a
+  Hessian per conformer, and a default that quietly depends on one turns the
+  cheap path expensive. **Conformer selection is unaffected in every case** —
+  `ConformerRanker` ranks on `E_tot` and never on *G*.
 
   This is the quantity conformer populations are built from: a Boltzmann weight
   goes as `exp(-ΔG/RT)`, and at 298 K `RT` is 0.59 kcal/mol while conformer

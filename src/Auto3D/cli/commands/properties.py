@@ -119,6 +119,7 @@ def execute_thermo(
     temperature: float, opt_tol: float, opt_steps: int,
     allow_tf32: bool, json_output: bool,
     verbose: int = 0, force: bool = False,
+    relative_gibbs: bool = False,
 ) -> None:
     """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra.
 
@@ -147,6 +148,7 @@ def execute_thermo(
             opt_tol=opt_tol, opt_steps=opt_steps, use_gpu=gpu, allow_tf32=allow_tf32,
             out_path=str(output) if output else None,
             overwrite=force,
+            relative_gibbs=relative_gibbs,
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001
