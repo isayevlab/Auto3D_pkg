@@ -136,5 +136,21 @@ dmypy.json
 
 # Local scratch workspace for staged refactoring work: progress ledgers,
 # task briefs, generated diffs and review reports. Not part of the package.
-# The plans themselves are tracked, under docs/superpowers/plans/.
 /.superpowers/
+
+# Planning and review notes: working records for whoever is doing the work,
+# not part of the package and not shipped. Kept on disk, out of git.
+#
+# These were partly tracked before, and the split was the problem: the same
+# kind of document lived in two places with opposite rules, and a local
+# `.git/info/exclude` entry silently stopped new files from joining the tracked
+# ones -- so a plan written under docs/superpowers/plans/ looked saved and was
+# never committed. One rule, stated here where it is shared, rather than a
+# committed comment claiming these are tracked and a local rule ensuring they
+# are not.
+#
+# What this means in practice: a plan or spec here does NOT survive a fresh
+# clone. Anything that has to outlive the working copy belongs in CHANGELOG.md,
+# in a docstring next to the code it describes, or in docs/source/.
+/docs/superpowers/
+/docs/plans/
