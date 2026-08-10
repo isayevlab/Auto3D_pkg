@@ -208,3 +208,117 @@ class TestCalcThermoWiring:
             "calc_thermo no longer strips the stale relative energy from failed "
             "records, so the property survives only where it is meaningless"
         )
+
+
+class TestRelativeGibbsEnergies:
+    """``G_rel(kcal/mol)`` -- the quantity conformer populations are built from.
+
+    Populations go as ``exp(-dG/RT)``. At 298 K ``RT`` is 0.59 kcal/mol while
+    conformer differences in ZPE and vibrational entropy run 0.3-1 kcal/mol, so
+    a population built from the electronic energy is wrong by a factor of a few
+    in exactly the regime it is used for.
+    """
+
+    @staticmethod
+    def _thermo_record(name, g_hartree, t_k=298.15, e_ev=-10.0, smiles="CCO"):
+        mol = _conformer(name, e_ev, smiles)
+        mol.SetProp("G_hartree", str(g_hartree))
+        mol.SetProp("T_K", str(t_k))
+        return mol
+
+    def test_referenced_to_the_lowest_gibbs_energy_in_the_group(self):
+        from Auto3D.utils import energy as energy_mod
+
+        mols = [
+            self._thermo_record("m", -100.0),
+            self._thermo_record("m", -99.5),
+        ]
+
+        energy_mod.set_relative_gibbs_energies(mols)
+
+        assert float(mols[0].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(mols[1].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(
+            0.5 * energy_mod.hartree2kcalpermol
+        )
+
+    def test_the_gibbs_reference_is_independent_of_the_electronic_one(self):
+        """The G-minimum and the E-minimum need not be the same conformer.
+
+        Once ZPE and vibrational entropy enter, the ordering can change. That is
+        ordinary chemistry, not an inconsistency to be reconciled -- so the two
+        properties pick their references separately.
+        """
+        from Auto3D.utils import energy as energy_mod
+
+        # Record A is lower in electronic energy; record B is lower in G.
+        low_e = self._thermo_record("m", g_hartree=-99.0, e_ev=-20.0)
+        low_g = self._thermo_record("m", g_hartree=-100.0, e_ev=-10.0)
+        mols = [low_e, low_g]
+
+        energy_mod.set_relative_energies(mols)
+        energy_mod.set_relative_gibbs_energies(mols)
+
+        assert float(low_e.GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(low_g.GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(low_g.GetProp(E_REL_KCAL_PROP)) > 0.0
+        assert float(low_e.GetProp(energy_mod.G_REL_KCAL_PROP)) > 0.0
+
+    def test_a_group_at_mixed_temperatures_is_refused(self):
+        """``G(T)`` contains ``-T*S``; a difference across two T is not a
+        conformational preference. ``mol_info_func`` returns a per-record
+        temperature, so one output file can legitimately hold both.
+        """
+        from Auto3D.utils import energy as energy_mod
+
+        mols = [
+            self._thermo_record("m", -100.0, t_k=298.15),
+            self._thermo_record("m", -99.5, t_k=310.0),
+        ]
+
+        energy_mod.set_relative_gibbs_energies(mols)
+
+        assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
+
+    def test_a_stale_value_is_cleared_when_the_group_is_refused(self):
+        from Auto3D.utils import energy as energy_mod
+
+        mols = [
+            self._thermo_record("m", -100.0, t_k=298.15),
+            self._thermo_record("m", -99.5, t_k=310.0),
+        ]
+        for m in mols:
+            m.SetProp(energy_mod.G_REL_KCAL_PROP, "7.0")
+
+        energy_mod.set_relative_gibbs_energies(mols)
+
+        assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
+
+    def test_a_record_without_a_gibbs_energy_is_skipped(self):
+        from Auto3D.utils import energy as energy_mod
+
+        mols = [self._thermo_record("m", -100.0), _conformer("m", -10.0)]
+
+        energy_mod.set_relative_gibbs_energies(mols)
+
+        assert float(mols[0].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert not mols[1].HasProp(energy_mod.G_REL_KCAL_PROP)
+
+    def test_different_compounds_sharing_a_title_are_refused(self):
+        from Auto3D.utils import energy as energy_mod
+
+        mols = [
+            self._thermo_record("shared", -100.0, smiles="CCO"),
+            self._thermo_record("shared", -200.0, smiles="c1ccccc1"),
+        ]
+
+        energy_mod.set_relative_gibbs_energies(mols)
+
+        assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
+
+    def test_calc_thermo_publishes_it(self):
+        import inspect
+
+        import Auto3D.ASE.thermo as thermo_mod
+
+        source = inspect.getsource(thermo_mod.calc_thermo)
+        assert "set_relative_gibbs_energies(out_mols)" in source

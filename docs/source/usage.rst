@@ -494,3 +494,29 @@ The output SDF contains:
 
 The input SMILES is *not* carried into the output; recover it by joining on
 ``_Name``/``ID`` against your input file.
+
+A ``calc_thermo`` output carries more, and two of them are relative:
+
+- **G_hartree** / **H_hartree** / **S_hartree_per_K** / **T_K**: absolute
+  thermochemistry at the recorded temperature
+- **E_tot** / **E_tot(Hartree)** and **E_rel(kcal/mol)**: recomputed for the
+  relaxed geometry, since ``calc_thermo`` relaxes to a tighter threshold than
+  conformer generation uses
+- **G_rel(kcal/mol)**: Gibbs free energy relative to the lowest-*G* conformer of
+  the same molecule
+
+Use ``G_rel(kcal/mol)`` for conformer populations. A Boltzmann weight goes as
+``exp(-ΔG/RT)``, and at 298 K ``RT`` is 0.59 kcal/mol while differences in
+zero-point energy and vibrational entropy between conformers run 0.3–1
+kcal/mol — so populations taken from the electronic ``E_rel(kcal/mol)`` are
+wrong by a factor of a few. Note the lowest-*G* conformer need not be the
+lowest-*E* one; the two properties reference their own minima.
+
+Both relative properties are written only where they are meaningful. Records
+that failed the stationary-point gate and confirmed saddle points carry
+neither, so a group cannot be measured against a structure that is not a
+minimum, and ``G_rel(kcal/mol)`` is additionally withheld from any molecule
+whose conformers were evaluated at more than one temperature — *G*\ (*T*)
+carries a ``-T·S`` term, so a difference across two temperatures is a thermal
+term rather than a conformational preference. Filter on
+``Thermo_failed == ""`` before comparing the absolute energies.

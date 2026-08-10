@@ -43,6 +43,7 @@ from Auto3D.utils.energy import (
     clear_relative_energies,
     set_e_tot_from_ev,
     set_relative_energies,
+    set_relative_gibbs_energies,
 )
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
@@ -1803,6 +1804,12 @@ def calc_thermo(path: str, model_name: str, mol_info_func=None,
     # what makes the mixed-level-of-theory caveat in CHANGELOG a property of the
     # file rather than something the reader has to remember.
     set_relative_energies(out_mols)
+    # And the Gibbs one beside it, which is what a conformer population is
+    # actually built from -- p goes as exp(-dG/RT), and at 298 K RT is
+    # 0.59 kcal/mol against ZPE and S_vib differences of 0.3-1 kcal/mol between
+    # conformers. It picks its own reference: the lowest-G conformer need not be
+    # the lowest-E one once those terms enter.
+    set_relative_gibbs_energies(out_mols)
     # And the failures keep no relative energy at all: theirs derives from an
     # `E_tot` this run did not recompute, and leaving it would mean the property
     # survives on exactly the records a user must discard.
