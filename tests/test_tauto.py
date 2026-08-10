@@ -1,9 +1,11 @@
 import os
-import torch
-import pytest
 import shutil
-from send2trash import send2trash
+
+import pytest
+import torch
 from rdkit import Chem
+from send2trash import send2trash
+
 from Auto3D.config import Auto3DOptions
 from Auto3D.tautomer import get_stable_tautomers
 

@@ -279,6 +279,7 @@ class TestFactoryReturnsAdapter:
 
 def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
     import torch
+
     from Auto3D import model_factory
 
     captured = {}
@@ -295,6 +296,7 @@ def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
 
 def test_registry_name_routes_to_aimnet2(monkeypatch):
     import torch
+
     from Auto3D import model_factory
 
     captured = {}
@@ -311,6 +313,7 @@ def test_registry_name_routes_to_aimnet2(monkeypatch):
 
 def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
     import torch
+
     from Auto3D import model_factory
 
     f = tmp_path / "my.pt"
@@ -341,6 +344,7 @@ def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
     an error naming the mismatch.
     """
     import torch
+
     from Auto3D import model_factory
 
     monkeypatch.chdir(tmp_path)

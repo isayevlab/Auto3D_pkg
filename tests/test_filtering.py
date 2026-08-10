@@ -662,6 +662,7 @@ def test_filter_within_cluster_removehs_is_linear_and_nondestructive(monkeypatch
 def test_rmsd_failure_keeps_both(monkeypatch):
     from rdkit import Chem
     from rdkit.Chem import AllChem, rdMolAlign
+
     from Auto3D.filtering import _filter_within_cluster
 
     def make(name, e):

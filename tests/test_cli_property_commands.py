@@ -13,14 +13,14 @@ import pytest
 import torch
 from typer.testing import CliRunner
 
-from Auto3D.cli.app import app
 import Auto3D.ASE.geometry
 import Auto3D.ASE.thermo
-import Auto3D.SPE
 import Auto3D.auto3D
 import Auto3D.model_factory
+import Auto3D.SPE
 import Auto3D.tautomer
 import Auto3D.workflow
+from Auto3D.cli.app import app
 
 runner = CliRunner()
 

@@ -38,8 +38,8 @@ import pytest
 import torch
 from typer.testing import CliRunner
 
-from Auto3D.cli.app import app
 import Auto3D.model_factory
+from Auto3D.cli.app import app
 
 runner = CliRunner()
 

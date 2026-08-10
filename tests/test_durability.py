@@ -27,9 +27,8 @@ replaced.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import os
+from pathlib import Path
 
 import pytest
 import torch
@@ -38,7 +37,6 @@ from rdkit.Chem import AllChem
 
 from Auto3D.utils.sdf_io import reorder_sdf
 from tests.helpers_adapter import FakeAdapter
-
 
 # Captured once, at import time, before any test monkeypatches Chem.SDWriter.
 # Constructing a real Chem.SDWriter on an existing path truncates it

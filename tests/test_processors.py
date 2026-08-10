@@ -91,8 +91,8 @@ class TestTautomerProcessorConfigOptions:
 
 
 def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
-    from Auto3D.config import Auto3DOptions
     import Auto3D.processors as proc
+    from Auto3D.config import Auto3DOptions
 
     calls = {}
 

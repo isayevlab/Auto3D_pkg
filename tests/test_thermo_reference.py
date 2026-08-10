@@ -186,8 +186,8 @@ class TestHessianGeometry:
         from Auto3D.ASE import thermo as thermo_mod
         from Auto3D.ASE.thermo import (
             _load_hessian_model,
-            mol2atoms,
             model_name2model_calculator,
+            mol2atoms,
         )
         from Auto3D.model_factory import get_device
 

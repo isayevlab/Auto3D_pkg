@@ -15,6 +15,7 @@ Hermetic: every model here is a few-line ``torch.nn.Module`` written to
 from __future__ import annotations
 
 import inspect
+
 import pytest
 import torch
 

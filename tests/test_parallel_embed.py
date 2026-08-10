@@ -8,8 +8,8 @@ from concurrent.futures.process import BrokenProcessPool
 import pytest
 from rdkit import Chem
 
-from Auto3D.embedding import _embed_single, embed_conformers_parallel
 import Auto3D.embedding
+from Auto3D.embedding import _embed_single, embed_conformers_parallel
 
 
 def _suicide_embed(smi, name, n_conformers, threshold, np_threads):

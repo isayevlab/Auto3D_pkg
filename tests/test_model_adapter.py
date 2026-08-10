@@ -437,6 +437,7 @@ def test_custom_model_adapter_runs(tmp_path):
     """Custom-NNP path: a scripted (species, coords, charges)->energies model
     must run through CustomModelAdapter and yield finite energy/forces."""
     import torch
+
     from Auto3D.models.adapter import CustomModelAdapter
 
     class _Toy(torch.nn.Module):

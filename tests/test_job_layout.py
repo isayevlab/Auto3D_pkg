@@ -1,11 +1,11 @@
 """Tests for Auto3D.job_layout module."""
 
+import shutil
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
 
 from Auto3D.job_layout import create_chunk_meta_names, housekeeping
-import shutil
 
 # Get the test files directory
 TEST_DIR = Path(__file__).parent

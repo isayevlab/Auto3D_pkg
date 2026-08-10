@@ -47,7 +47,7 @@ def test_console_does_not_force_plain_on_a_real_tty(monkeypatch):
 
 def test_print_success(capsys):
     """print_success should output green checkmark."""
-    from Auto3D.cli.console import print_success, console
+    from Auto3D.cli.console import console, print_success
 
     # Force no markup for testing
     console._force_terminal = False

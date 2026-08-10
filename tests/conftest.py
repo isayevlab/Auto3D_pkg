@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import torch
+
 import Auto3D.cli.errors
 
 # Test file paths

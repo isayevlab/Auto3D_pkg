@@ -1,9 +1,10 @@
 # tests/test_optimization_engine_validation.py
 """Tests for validation in optimization_engine.py."""
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
-from unittest.mock import MagicMock
 
 from Auto3D.batch_opt.optimization_engine import n_steps
 

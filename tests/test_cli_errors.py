@@ -24,11 +24,11 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+import Auto3D.model_factory
+import Auto3D.SPE
 from Auto3D.cli.app import app
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError
-import Auto3D.SPE
-import Auto3D.model_factory
 
 runner = CliRunner()
 

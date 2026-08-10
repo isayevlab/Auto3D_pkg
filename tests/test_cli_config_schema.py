@@ -1,8 +1,9 @@
 # tests/test_cli_config_schema.py
 """Tests for CLI configuration schema."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 def test_config_defaults():
@@ -17,8 +18,9 @@ def test_config_defaults():
 
 def test_config_validation_k_positive():
     """k must be positive if set."""
-    from Auto3D.cli.config_schema import CLIConfig
     from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import CLIConfig
 
     with pytest.raises(ValidationError):
         CLIConfig(path=Path("test.smi"), k=-1)
@@ -26,8 +28,9 @@ def test_config_validation_k_positive():
 
 def test_config_validation_engine():
     """optimizing_engine must be valid."""
-    from Auto3D.cli.config_schema import CLIConfig
     from pydantic import ValidationError
+
+    from Auto3D.cli.config_schema import CLIConfig
 
     with pytest.raises(ValidationError):
         CLIConfig(path=Path("test.smi"), optimizing_engine="INVALID")
@@ -156,6 +159,7 @@ def test_config_accepts_case_insensitive_engine_names(raw, canonical):
 
 def test_config_rejects_garbage_engine():
     import pytest
+
     from Auto3D.cli.config_schema import CLIConfig
 
     with pytest.raises(Exception):

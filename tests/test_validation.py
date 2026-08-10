@@ -3,12 +3,14 @@
 This module tests that check_input raises proper exceptions instead of sys.exit().
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
-from unittest.mock import patch, MagicMock
+
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError, DependencyError, GPUError, ModelLoadError
 from Auto3D.utils.validation import check_input
-from Auto3D.exceptions import GPUError, DependencyError, ConfigurationError, ModelLoadError
 
 
 class TestCheckInputExceptions:
@@ -171,6 +173,7 @@ class TestCheckInputExceptions:
         reject them (they are AIMNet engines, not ANI2x/ANI2xt).
         """
         from types import SimpleNamespace
+
         from Auto3D.utils.validation import check_input
 
         smi = tmp_path / "in.smi"

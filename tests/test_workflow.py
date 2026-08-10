@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing as mp
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
-from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 import Auto3D.workflow
-import multiprocessing as mp
+from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
 
 
 class TestWorkflowExceptions:
@@ -928,10 +928,11 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
     not a stand-in, so a regression to zero callers would fail this test."""
     import logging
 
-    import Auto3D.auto3D as auto3D_mod
-    from Auto3D.config import Auto3DOptions
     from rdkit import Chem
     from rdkit.Chem import inchi
+
+    import Auto3D.auto3D as auto3D_mod
+    from Auto3D.config import Auto3DOptions
 
     ethanol_id = inchi.MolToInchiKey(Chem.MolFromSmiles("CCO"))
     written: dict[str, str] = {}

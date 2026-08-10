@@ -51,7 +51,7 @@ def test_print_results_summary(capsys):
     the failed-count row entirely when nothing failed, not merely avoid
     crashing on either input.
     """
-    from Auto3D.cli.results import print_results_summary, WorkflowResults
+    from Auto3D.cli.results import WorkflowResults, print_results_summary
 
     with_failures = WorkflowResults(
         success_count=10,
@@ -93,7 +93,7 @@ def test_print_failures_empty(capsys):
 
 def test_print_failures_verbose(capsys):
     """print_failures(verbose=True) must render the actual failure table."""
-    from Auto3D.cli.results import print_failures, FailedMolecule
+    from Auto3D.cli.results import FailedMolecule, print_failures
 
     failures = [FailedMolecule(name=f"mol{i}", error="Error") for i in range(5)]
     print_failures(failures, verbose=True)
@@ -110,7 +110,7 @@ def test_output_json(capsys):
     """output_json must emit the exact result fields as parseable JSON."""
     import json
 
-    from Auto3D.cli.results import output_json, WorkflowResults, FailedMolecule
+    from Auto3D.cli.results import FailedMolecule, WorkflowResults, output_json
 
     results = WorkflowResults(
         success_count=10,

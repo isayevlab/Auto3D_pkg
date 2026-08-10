@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+import Auto3D.chunk_manager
 from Auto3D.chunk_manager import ChunkManager
 from Auto3D.config import Auto3DOptions
-import Auto3D.chunk_manager
 
 
 class TestChunkManagerInit:

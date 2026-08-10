@@ -32,11 +32,11 @@ import pytest
 import torch
 from pydantic import ValidationError
 
+import Auto3D.auto3D
+import Auto3D.cli.errors
 from Auto3D.cli.config_schema import CLIConfig
 from Auto3D.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
 from Auto3D.exceptions import Auto3DError, ConfigurationError
-import Auto3D.auto3D
-import Auto3D.cli.errors
 from tests.helpers_adapter import FakeAdapter
 
 

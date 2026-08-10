@@ -1,8 +1,10 @@
 import os
 import tempfile
+
 import pytest
-from rdkit import Chem
 import torch
+from rdkit import Chem
+
 from Auto3D.SPE import calc_spe
 from tests.helpers_adapter import FakeAdapter
 

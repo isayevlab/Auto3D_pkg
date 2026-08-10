@@ -172,8 +172,9 @@ class TestConformerRankerTopK:
 
     def test_top_k_with_optimized_filtering(self, tmp_path):
         """top_k should work correctly with optimized filtering."""
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
         mol2 = _create_mol_with_energy("C", -9.0, "mol")
@@ -207,8 +208,9 @@ class TestConformerRankerTopK:
         This optimization returns the lowest-energy conformer directly
         without calculating RMSD distances between conformers.
         """
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         # Create multiple identical molecules with different energies
         mol1 = _create_mol_with_energy("C", -10.0, "mol")  # Lowest energy
@@ -272,8 +274,9 @@ class TestConformerRankerTopK:
         (check_connectivity), returning the lowest-energy *valid* conformer
         rather than blindly emitting a structure with a broken bond.
         """
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         # mol_broken: lowest energy but has a broken C-C bond.
         mol_broken = _create_mol_with_energy("CC", -10.0, "mol")
@@ -314,8 +317,9 @@ class TestConformerRankerTopK:
 
     def test_top_k_equals_1_returns_empty_when_all_broken(self, tmp_path):
         """When k=1 and no conformer passes connectivity, return an empty list."""
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         mol_broken = _create_mol_with_energy("CC", -10.0, "mol")
         conf = mol_broken.GetConformer()
@@ -350,8 +354,9 @@ class TestConformerRankerTopWindow:
 
     def test_top_window_with_optimized_filtering(self, tmp_path):
         """top_window should work correctly with optimized filtering."""
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
         mol2 = _create_mol_with_energy("CC", -9.5, "mol")  # Different structure
@@ -456,8 +461,9 @@ class TestConformerRankerValidation:
 
     def test_top_k_raises_on_mismatched_names(self, tmp_path):
         """top_k should raise ValueError when molecules have different names."""
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
         mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
@@ -485,8 +491,9 @@ class TestConformerRankerValidation:
 
     def test_top_window_raises_on_negative_window(self, tmp_path):
         """top_window should raise ValueError when window is negative."""
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
 
@@ -513,8 +520,9 @@ class TestConformerRankerValidation:
 
     def test_top_window_raises_on_mismatched_names(self, tmp_path):
         """top_window should raise ValueError when molecules have different names."""
-        from Auto3D.ranking import ConformerRanker
         import pandas as pd
+
+        from Auto3D.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
         mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
