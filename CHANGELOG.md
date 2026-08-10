@@ -74,17 +74,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `select_tautomers` both read `E_tot`.
 
   `E_tot` and `E_tot(Hartree)` are now written for the relaxed geometry, through
-  `utils/energy.py`. `E_rel(kcal/mol)` is **cleared** rather than recomputed: it
-  is defined against the best conformer of a molecule and `do_mol_thermo` sees
-  one molecule at a time.
+  `utils/energy.py`, and **`E_rel(kcal/mol)` is recomputed against them** once
+  the whole set is in hand. Each record's inherited value is cleared as it is
+  processed — `do_mol_thermo` sees one molecule and the quantity is defined
+  across a conformer group — and `calc_thermo` restores it in a second pass
+  after the loop.
+
+  The second pass is deliberately narrow, because a relative energy is only
+  meaningful within one compound:
+
+  - **Successes only.** A saddle point's thermochemistry is not a minimum's, and
+    a record that failed the stationary-point gate never reached the relaxation,
+    so it still holds the *input* `E_tot` from whatever engine wrote the file.
+    Either one as a group member would pollute the comparison; as the reference
+    it would shift every other conformer in the group. Failed records now carry
+    no relative energy at all.
+  - **Grouped on `_Name` verbatim**, not through `ranking.species_id`. That
+    helper strips `<isomer>_<conformer>`, and by the time a file is written the
+    name has already been stripped once — applying it again is not idempotent
+    and would turn `aspirin_analog_3` into `aspirin`, merging compounds that
+    merely share a prefix.
+  - **Withheld, not guessed**, for a group whose members are not the same
+    compound (judged by canonical species key and formal charge) or that has no
+    title. Reusing a title across molecules is ordinary in a hand-built SDF, and
+    the difference between two compounds' energies looks exactly like a
+    conformational preference.
+
+  So the property present on a record now means "this took part in a valid
+  comparison".
 
   **What changes:** every `calc_thermo` output. `E_tot` moves to the relaxed
-  geometry's energy, a thermo run on an SDF that never had `E_tot` now gains it
-  (and `E_tot(Hartree)`), and `E_rel(kcal/mol)` disappears. Note that a
-  partially-failed run can mix levels of theory under one property name — records
-  that fail the stationary-point gate keep the *input* `E_tot`, from whichever
-  engine produced it, while successful records carry `calc_thermo`'s. Filter on
-  `Thermo_failed == ""` before comparing energies across a thermo output.
+  geometry's energy; a thermo run on an SDF that never had `E_tot` now gains it
+  (and `E_tot(Hartree)`); `E_rel(kcal/mol)` is recomputed on successes and
+  removed from failures. Note that a partially-failed run can still mix levels
+  of theory under `E_tot` — failures keep the input value while successes carry
+  `calc_thermo`'s. Filter on `Thermo_failed == ""` before comparing `E_tot`
+  across a thermo output; `E_rel(kcal/mol)` already enforces that filter by
+  construction.
 
 - **A single-point energy no longer holds every sub-batch's autograd graph.**
   `energy_batched` accumulated graph-connected results until the final `cat`, so
