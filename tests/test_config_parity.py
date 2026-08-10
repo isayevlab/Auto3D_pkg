@@ -35,6 +35,8 @@ from pydantic import ValidationError
 from Auto3D.cli.config_schema import CLIConfig
 from Auto3D.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
 from Auto3D.exceptions import Auto3DError, ConfigurationError
+import Auto3D.auto3D
+import Auto3D.cli.errors
 
 
 class TestAuto3DOptionsBounds:
@@ -560,7 +562,7 @@ class TestValidationParityAcrossEntryPoints:
             captured["options"] = options
             return "fake_output.sdf"
 
-        monkeypatch.setattr("Auto3D.auto3D.main", fake_main)
+        monkeypatch.setattr(Auto3D.auto3D, "main", fake_main)
 
         errors: list[Exception] = []
 
@@ -575,7 +577,7 @@ class TestValidationParityAcrossEntryPoints:
         def _capture(error, *args, **kwargs):
             errors.append(error)
 
-        monkeypatch.setattr("Auto3D.cli.errors.handle_error", _capture)
+        monkeypatch.setattr(Auto3D.cli.errors, "handle_error", _capture)
 
         _run_legacy_yaml(str(yaml_path))
         if errors:

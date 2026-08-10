@@ -22,6 +22,7 @@ from Auto3D.exceptions import (
     FileFormatError,
     OptimizationError,
 )
+import Auto3D.auto3D
 
 
 # =============================================================================
@@ -282,7 +283,7 @@ class TestCLIExceptionHandling:
 
     def _run_legacy_with_error(self, error):
         """Drive the legacy YAML path with main() raising `error`; return exit code."""
-        with patch("Auto3D.auto3D.main") as mock_main:
+        with patch.object(Auto3D.auto3D, "main") as mock_main:
             mock_main.side_effect = error
             with patch.object(sys, "argv", ["auto3d", "config.yaml"]):
                 with patch("yaml.safe_load", return_value=dict(self._LEGACY_YAML)):

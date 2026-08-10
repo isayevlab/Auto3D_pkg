@@ -113,7 +113,7 @@ class TestModelFactory:
         assert isinstance(aimnet_model, AIMNet2Adapter)
         assert aimnet_model.model_name == "aimnet2"
 
-    @patch("Auto3D.model_factory.Path.exists")
+    @patch.object(Path, "exists")
     @patch.object(torch.jit, "load")
     def test_create_custom_model_from_path(self, mock_load, mock_exists):
         """Test that custom model paths are loaded correctly."""
@@ -253,7 +253,7 @@ class TestFactoryReturnsAdapter:
         assert isinstance(model, ANI2xAdapter)
         assert model.species_pad == -1
 
-    @patch("Auto3D.model_factory.Path.exists")
+    @patch.object(Path, "exists")
     @patch.object(torch.jit, "load")
     def test_factory_returns_custom_adapter(self, mock_load, mock_exists):
         """Factory should return CustomModelAdapter for custom model paths."""

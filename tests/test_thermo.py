@@ -13,6 +13,7 @@ from tests.helpers_pipeline_output import (
     assert_opt_geometry_output,
     write_perturbed_sdf,
 )
+import Auto3D.ASE.thermo
 
 # Every real-model test below is marked @pytest.mark.slow individually
 # (thermodynamic calculations, each loading a real NNP). NOT a module-level
@@ -183,7 +184,7 @@ def test_model_name2model_calculator_uses_factory():
             return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
 
     stub = _StubAdapter()
-    with patch("Auto3D.ASE.thermo.create_model", return_value=stub) as mock_factory:
+    with patch.object(Auto3D.ASE.thermo, "create_model", return_value=stub) as mock_factory:
         model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
 
     mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))

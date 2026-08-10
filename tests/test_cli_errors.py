@@ -27,6 +27,8 @@ from typer.testing import CliRunner
 from Auto3D.cli.app import app
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError
+import Auto3D.SPE
+import Auto3D.model_factory
 
 runner = CliRunner()
 
@@ -228,12 +230,12 @@ def test_energy_verbose_flag_reaches_handle_error(tmp_path):
     sdf = tmp_path / "mols.sdf"
     sdf.write_text("")
 
-    with patch("Auto3D.SPE.calc_spe", side_effect=KeyError("ID")):
+    with patch.object(Auto3D.SPE, "calc_spe", side_effect=KeyError("ID")):
         quiet = runner.invoke(app, ["energy", str(sdf), "--no-gpu"])
     assert quiet.exit_code == 1
     assert "Traceback" not in quiet.stderr
 
-    with patch("Auto3D.SPE.calc_spe", side_effect=KeyError("ID")):
+    with patch.object(Auto3D.SPE, "calc_spe", side_effect=KeyError("ID")):
         verbose = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "-v"])
     assert verbose.exit_code == 1
     assert "Traceback" not in verbose.stdout
@@ -250,10 +252,11 @@ def test_models_test_verbose_flag_reaches_handle_error(monkeypatch):
         raise DependencyError("torchani not installed")
 
     monkeypatch.setattr(
-        "Auto3D.model_factory.get_device",
+        Auto3D.model_factory,
+        "get_device",
         lambda *a, **k: __import__("torch").device("cpu"),
     )
-    monkeypatch.setattr("Auto3D.model_factory.create_model", _boom)
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", _boom)
 
     quiet = runner.invoke(app, ["models", "test", "ANI2x", "--no-gpu"])
     assert quiet.exit_code == 3  # DependencyError -> 3, unchanged mapping

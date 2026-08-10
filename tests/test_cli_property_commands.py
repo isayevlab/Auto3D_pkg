@@ -14,6 +14,13 @@ import torch
 from typer.testing import CliRunner
 
 from Auto3D.cli.app import app
+import Auto3D.ASE.geometry
+import Auto3D.ASE.thermo
+import Auto3D.SPE
+import Auto3D.auto3D
+import Auto3D.model_factory
+import Auto3D.tautomer
+import Auto3D.workflow
 
 runner = CliRunner()
 
@@ -36,7 +43,7 @@ def smi(tmp_path):
 
 
 def test_energy_invokes_calc_spe(sdf):
-    with patch("Auto3D.SPE.calc_spe", return_value="out_E.sdf") as m:
+    with patch.object(Auto3D.SPE, "calc_spe", return_value="out_E.sdf") as m:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "--engine", "ANI2x"])
     assert res.exit_code == 0, res.output
     _, kwargs = m.call_args
@@ -47,21 +54,21 @@ def test_energy_invokes_calc_spe(sdf):
 
 def test_energy_output_flag(sdf, tmp_path):
     out = tmp_path / "custom.sdf"
-    with patch("Auto3D.SPE.calc_spe", return_value=str(out)) as m:
+    with patch.object(Auto3D.SPE, "calc_spe", return_value=str(out)) as m:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "-o", str(out)])
     assert res.exit_code == 0, res.output
     assert m.call_args.kwargs["out_path"] == str(out)
 
 
 def test_optimize_invokes_opt_geometry(sdf):
-    with patch("Auto3D.ASE.geometry.opt_geometry", return_value="out_opt.sdf") as m:
+    with patch.object(Auto3D.ASE.geometry, "opt_geometry", return_value="out_opt.sdf") as m:
         res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", "--opt-steps", "5"])
     assert res.exit_code == 0, res.output
     assert m.call_args.kwargs["opt_steps"] == 5
 
 
 def test_tautomers_invokes_get_stable_tautomers(smi):
-    with patch("Auto3D.tautomer.get_stable_tautomers", return_value="out_taut.sdf") as m:
+    with patch.object(Auto3D.tautomer, "get_stable_tautomers", return_value="out_taut.sdf") as m:
         res = runner.invoke(app, ["tautomers", str(smi), "--no-gpu", "--tauto-k", "3"])
     assert res.exit_code == 0, res.output
     assert m.call_args.kwargs["tauto_k"] == 3
@@ -109,7 +116,7 @@ def test_thermo_without_ase_raises_dependency_error(sdf, monkeypatch):
 
 
 def test_energy_rejects_unknown_engine_before_doing_any_work(sdf):
-    with patch("Auto3D.SPE.calc_spe") as m:
+    with patch.object(Auto3D.SPE, "calc_spe") as m:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -117,7 +124,7 @@ def test_energy_rejects_unknown_engine_before_doing_any_work(sdf):
 
 
 def test_optimize_rejects_unknown_engine_before_doing_any_work(sdf):
-    with patch("Auto3D.ASE.geometry.opt_geometry") as m:
+    with patch.object(Auto3D.ASE.geometry, "opt_geometry") as m:
         res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -125,7 +132,7 @@ def test_optimize_rejects_unknown_engine_before_doing_any_work(sdf):
 
 
 def test_thermo_rejects_unknown_engine_before_doing_any_work(sdf):
-    with patch("Auto3D.ASE.thermo.calc_thermo") as m:
+    with patch.object(Auto3D.ASE.thermo, "calc_thermo") as m:
         res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -144,7 +151,7 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
     fixed for load_yaml_config/merge_configs, just not previously pinned here
     (this test only asserted `exit_code != 0` before this fix).
     """
-    with patch("Auto3D.tautomer.get_stable_tautomers") as m:
+    with patch.object(Auto3D.tautomer, "get_stable_tautomers") as m:
         res = runner.invoke(app, ["tautomers", str(smi), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -168,7 +175,7 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
 def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
     with (
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch("Auto3D.SPE.calc_spe") as m,
+        patch.object(Auto3D.SPE, "calc_spe") as m,
     ):
         res = runner.invoke(app, ["energy", str(sdf)])  # gpu defaults to True
     assert res.exit_code == 4  # GPUError -> exit 4
@@ -179,7 +186,7 @@ def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
 def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
     with (
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch("Auto3D.ASE.geometry.opt_geometry") as m,
+        patch.object(Auto3D.ASE.geometry, "opt_geometry") as m,
     ):
         res = runner.invoke(app, ["optimize", str(sdf)])
     assert res.exit_code == 4
@@ -190,7 +197,7 @@ def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
 def test_thermo_rejects_when_gpu_requested_without_cuda(sdf):
     with (
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch("Auto3D.ASE.thermo.calc_thermo") as m,
+        patch.object(Auto3D.ASE.thermo, "calc_thermo") as m,
     ):
         res = runner.invoke(app, ["thermo", str(sdf)])
     assert res.exit_code == 4
@@ -202,7 +209,7 @@ def test_energy_no_gpu_still_works_without_cuda(sdf):
     """--no-gpu must keep working on a CPU-only box (not a blanket failure)."""
     with (
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch("Auto3D.SPE.calc_spe", return_value="out_E.sdf") as m,
+        patch.object(Auto3D.SPE, "calc_spe", return_value="out_E.sdf") as m,
     ):
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu"])
     assert res.exit_code == 0, res.output
@@ -229,8 +236,8 @@ def test_run_rejects_when_gpu_requested_without_cuda(smi):
     """
     with (
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch("Auto3D.workflow.check_input") as mock_check_input,
-        patch("Auto3D.workflow.preflight_model") as mock_preflight,
+        patch.object(Auto3D.workflow, "check_input") as mock_check_input,
+        patch.object(Auto3D.workflow, "preflight_model") as mock_preflight,
     ):
         res = runner.invoke(app, ["run", str(smi), "--k", "1"])
     assert res.exit_code == 4  # GPUError -> exit 4, not 2 (ConfigurationError)
@@ -280,7 +287,7 @@ def test_run_save_intermediate_sets_verbose(smi):
         captured["verbose"] = options.verbose
         return WorkflowResult("nonexistent_out.sdf")  # counts -> 0 (missing file)
 
-    with patch("Auto3D.auto3D.main", side_effect=fake_main):
+    with patch.object(Auto3D.auto3D, "main", side_effect=fake_main):
         res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", "--save-intermediate"])
     assert res.exit_code == 0, res.output
     assert captured.get("verbose") is True
@@ -295,7 +302,7 @@ def test_run_without_save_intermediate_keeps_verbose_false(smi):
         captured["verbose"] = options.verbose
         return WorkflowResult("nonexistent_out.sdf")
 
-    with patch("Auto3D.auto3D.main", side_effect=fake_main):
+    with patch.object(Auto3D.auto3D, "main", side_effect=fake_main):
         res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
     assert res.exit_code == 0, res.output
     assert captured.get("verbose") is False
@@ -338,8 +345,8 @@ def test_models_test_success(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
+    monkeypatch.setattr(Auto3D.model_factory, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", lambda *a, **k: _StubAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
     assert res.exit_code == 0, res.output
     assert "working" in res.output
@@ -353,9 +360,9 @@ def test_models_test_load_failure_exit_code(monkeypatch):
         raise DependencyError("torchani not installed")
 
     monkeypatch.setattr(
-        "Auto3D.model_factory.get_device", lambda *a, **k: __import__("torch").device("cpu")
+        Auto3D.model_factory, "get_device", lambda *a, **k: __import__("torch").device("cpu")
     )
-    monkeypatch.setattr("Auto3D.model_factory.create_model", _boom)
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", _boom)
     res = runner.invoke(app, ["models", "test", "ANI2x", "--no-gpu"])
     assert res.exit_code == 3  # DependencyError -> 3
     assert "Traceback" not in res.output
@@ -374,8 +381,8 @@ def test_models_test_non_finite_exit_code(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _NanAdapter())
+    monkeypatch.setattr(Auto3D.model_factory, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", lambda *a, **k: _NanAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
     assert res.exit_code == 5  # NumericalError (ModelError) -> 5
 
@@ -390,7 +397,7 @@ def test_models_test_rejects_when_gpu_requested_without_cuda(monkeypatch):
     (before the model would even be constructed, let alone downloaded)."""
     with (
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch("Auto3D.model_factory.create_model") as m,
+        patch.object(Auto3D.model_factory, "create_model") as m,
     ):
         res = runner.invoke(app, ["models", "test", "AIMNET"])  # gpu defaults to True
     assert res.exit_code == 4  # GPUError -> exit 4
@@ -412,8 +419,8 @@ def test_models_test_no_gpu_still_works_without_cuda(monkeypatch):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
+    monkeypatch.setattr(Auto3D.model_factory, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", lambda *a, **k: _StubAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
     assert res.exit_code == 0, res.output
 
@@ -432,8 +439,8 @@ def test_models_test_gpu_works_when_cuda_present(monkeypatch):
             return torch.zeros(1), torch.zeros(1, 5, 3)
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _StubAdapter())
+    monkeypatch.setattr(Auto3D.model_factory, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(Auto3D.model_factory, "create_model", lambda *a, **k: _StubAdapter())
     res = runner.invoke(app, ["models", "test", "AIMNET"])  # gpu defaults to True
     assert res.exit_code == 0, res.output
 
@@ -452,7 +459,7 @@ def test_run_interactive_forwards_progress_callback(smi):
             )
         return WorkflowResult("nonexistent_out.sdf")
 
-    with patch("Auto3D.auto3D.main", side_effect=fake_main):
+    with patch.object(Auto3D.auto3D, "main", side_effect=fake_main):
         res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
     assert res.exit_code == 0, res.output
     assert callable(captured["cb"])
@@ -468,7 +475,7 @@ def test_run_quiet_passes_no_progress_callback(smi):
         captured["cb"] = progress_callback
         return WorkflowResult("nonexistent_out.sdf")
 
-    with patch("Auto3D.auto3D.main", side_effect=fake_main):
+    with patch.object(Auto3D.auto3D, "main", side_effect=fake_main):
         res = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", "--quiet"])
     assert res.exit_code == 0
     assert captured["cb"] is None
@@ -503,7 +510,7 @@ def test_tautomers_refuses_output_equal_to_input(smi):
     test fails rather than silently permitting the destructive move.
     """
     original = smi.read_bytes()
-    with patch("Auto3D.tautomer.get_stable_tautomers") as m:
+    with patch.object(Auto3D.tautomer, "get_stable_tautomers") as m:
         res = runner.invoke(app, ["tautomers", str(smi), "--no-gpu", "-o", str(smi)])
     assert res.exit_code == 2, res.output
     assert "same file" in res.output
@@ -533,7 +540,7 @@ def test_tautomers_refuses_output_equal_to_input(smi):
     [([], False), (["--force"], True), (["-f"], True)],
 )
 def test_energy_maps_force_to_calc_spe_overwrite(sdf, argv, expected_overwrite):
-    with patch("Auto3D.SPE.calc_spe", return_value="out_E.sdf") as m:
+    with patch.object(Auto3D.SPE, "calc_spe", return_value="out_E.sdf") as m:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", *argv])
     assert res.exit_code == 0, res.output
     assert m.call_args.kwargs["overwrite"] is expected_overwrite
@@ -541,7 +548,7 @@ def test_energy_maps_force_to_calc_spe_overwrite(sdf, argv, expected_overwrite):
 
 @pytest.mark.parametrize(("argv", "expected_overwrite"), [([], False), (["--force"], True)])
 def test_optimize_maps_force_to_opt_geometry_overwrite(sdf, argv, expected_overwrite):
-    with patch("Auto3D.ASE.geometry.opt_geometry", return_value="out_opt.sdf") as m:
+    with patch.object(Auto3D.ASE.geometry, "opt_geometry", return_value="out_opt.sdf") as m:
         res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", *argv])
     assert res.exit_code == 0, res.output
     assert m.call_args.kwargs["overwrite"] is expected_overwrite
@@ -549,7 +556,7 @@ def test_optimize_maps_force_to_opt_geometry_overwrite(sdf, argv, expected_overw
 
 @pytest.mark.parametrize(("argv", "expected_overwrite"), [([], False), (["--force"], True)])
 def test_thermo_maps_force_to_calc_thermo_overwrite(sdf, argv, expected_overwrite):
-    with patch("Auto3D.ASE.thermo.calc_thermo", return_value="out_G.sdf") as m:
+    with patch.object(Auto3D.ASE.thermo, "calc_thermo", return_value="out_G.sdf") as m:
         res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu", *argv])
     assert res.exit_code == 0, res.output
     assert m.call_args.kwargs["overwrite"] is expected_overwrite
@@ -569,7 +576,10 @@ def test_energy_refuses_to_overwrite_an_existing_output(sdf, tmp_path):
     def never(*args, **kwargs):
         raise AssertionError("calc_spe built a model before checking --force")
 
-    with patch("Auto3D.SPE.get_device", never), patch("Auto3D.SPE.create_model", never):
+    with (
+        patch.object(Auto3D.SPE, "get_device", never),
+        patch.object(Auto3D.SPE, "create_model", never),
+    ):
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "-o", str(precious)])
 
     assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
@@ -596,7 +606,7 @@ def test_tautomers_refuses_to_overwrite_an_existing_output(smi, tmp_path):
     precious = tmp_path / "precious.sdf"
     precious.write_bytes(b"IRREPLACEABLE USER DATA\n")
 
-    with patch("Auto3D.tautomer.get_stable_tautomers") as m:
+    with patch.object(Auto3D.tautomer, "get_stable_tautomers") as m:
         res = runner.invoke(app, ["tautomers", str(smi), "--no-gpu", "-o", str(precious)])
 
     assert res.exit_code == 2, res.output
@@ -612,7 +622,7 @@ def test_tautomers_force_allows_the_overwrite(smi, tmp_path):
     produced = tmp_path / "derived_out.sdf"
     produced.write_bytes(b"NEW RESULTS\n")
 
-    with patch("Auto3D.tautomer.get_stable_tautomers", return_value=str(produced)) as m:
+    with patch.object(Auto3D.tautomer, "get_stable_tautomers", return_value=str(produced)) as m:
         res = runner.invoke(
             app, ["tautomers", str(smi), "--no-gpu", "--force", "-o", str(precious)]
         )

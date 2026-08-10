@@ -5,6 +5,7 @@ import re
 
 import pytest
 from typer.testing import CliRunner
+import Auto3D.auto3D
 
 
 @pytest.fixture
@@ -442,7 +443,7 @@ def test_config_validate_accepts_a_settings_only_config(runner, tmp_path_cwd):
     # And the run it predicts really does accept it.
     smi = tmp_path_cwd / "mols.smi"
     smi.write_text("CCO m1\n")
-    with patch("Auto3D.auto3D.main", return_value="out.sdf") as m:
+    with patch.object(Auto3D.auto3D, "main", return_value="out.sdf") as m:
         run_result = runner.invoke(app, ["run", str(smi), "-c", str(cfg), "--no-gpu"])
     assert run_result.exit_code == 0, run_result.output
     assert m.called, "run rejected the config that config validate approved"
@@ -1116,7 +1117,7 @@ def test_run_forwards_each_new_flag_to_auto3d_options(
     smi = tmp_path_cwd / "mols.smi"
     smi.write_text("CCO m1\n")
 
-    with patch("Auto3D.auto3D.main", return_value="out.sdf") as m:
+    with patch.object(Auto3D.auto3D, "main", return_value="out.sdf") as m:
         result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", flag, value])
 
     assert result.exit_code == 0, result.output

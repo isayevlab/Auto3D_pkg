@@ -9,6 +9,7 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.embedding import _embed_single, embed_conformers_parallel
+import Auto3D.embedding
 
 
 def _suicide_embed(smi, name, n_conformers, threshold, np_threads):
@@ -254,7 +255,7 @@ class TestEmbedConformersParallel:
             pytest.skip("relies on fork to propagate the monkeypatched worker into the pool")
 
         # Replace the worker with one that kills its process mid-task.
-        monkeypatch.setattr("Auto3D.embedding._embed_single", _suicide_embed)
+        monkeypatch.setattr(Auto3D.embedding, "_embed_single", _suicide_embed)
 
         with pytest.raises(BrokenProcessPool):
             list(

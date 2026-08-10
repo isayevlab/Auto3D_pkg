@@ -11,6 +11,8 @@ import pandas as pd
 import pytest
 
 from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
+import Auto3D.workflow
+import multiprocessing as mp
 
 
 class TestWorkflowExceptions:
@@ -85,8 +87,9 @@ class TestWorkflowExceptions:
         config = Auto3DOptions(path=str(smi_file), k=1)
         orchestrator = WorkflowOrchestrator(config)
 
-        with patch(
-            "Auto3D.workflow.check_valid_configuration",
+        with patch.object(
+            Auto3D.workflow,
+            "check_valid_configuration",
             return_value=["GPU index 5 is invalid. Available GPUs: 1"],
         ):
             with pytest.raises(ConfigurationError, match="GPU index 5 is invalid"):
@@ -481,7 +484,7 @@ def test_unsupported_extension_rejected_before_encoding(tmp_path):
     bad.write_text("stuff\n")
     orch = WorkflowOrchestrator(Auto3DOptions(path=str(bad), k=1, use_gpu=False))
 
-    with patch("Auto3D.workflow.encode_ids") as enc:
+    with patch.object(Auto3D.workflow, "encode_ids") as enc:
         with pytest.raises(FileFormatError, match="not supported"):
             orch.run()
         enc.assert_not_called()  # format is validated before any encoding
@@ -573,8 +576,8 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
             return 0
 
     with (
-        patch("Auto3D.workflow.mp.Manager") as mock_manager,
-        patch("Auto3D.workflow.mp.Process", _FakeProcess),
+        patch.object(mp, "Manager") as mock_manager,
+        patch.object(mp, "Process", _FakeProcess),
     ):
         mock_manager.return_value.Queue.return_value = MagicMock()
         orch._run_pipeline([("chunk.smi", "job1")])
