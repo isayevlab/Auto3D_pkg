@@ -74,7 +74,12 @@ dev = [
     # requests ships no inline types; without the stubs mypy reports
     # `import-untyped` at models/preflight.py's download path.
     "types-requests",
-    "ruff>=0.1.0",
+    # Pinned, not floored, and kept identical to the version the `lint` CI job
+    # installs. `ruff format` is a gate now, and a range lets a contributor
+    # format with one style while CI checks against another -- the failure would
+    # arrive as a red build on a diff that never touched the offending lines.
+    # `>=0.1.0` was the old floor, spanning every formatting style ruff has had.
+    "ruff==0.15.9",
     "pre-commit>=3.0",
 ]
 docs = [

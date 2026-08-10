@@ -169,3 +169,31 @@ def test_mypy_does_not_pin_python_version():
         "stubs that use newer syntax; the run then checks nothing and still "
         "exits looking successful"
     )
+
+
+def test_ci_and_dev_extra_install_the_same_ruff():
+    """The formatter CI checks with must be the one `[dev]` installs.
+
+    `ruff format --check` is a merge gate, and ruff moves formatting changes
+    into its stable style across minor releases without any settings changing.
+    So the version is part of the gate's definition, in two places: the `lint`
+    job's install step and the `dev` extra. If they drift, a contributor formats
+    with one style, CI checks against another, and the build goes red on a diff
+    that never touched the reported lines.
+
+    Both are exact pins rather than ranges, and this asserts they are the same
+    exact pin -- bumping one alone is the failure this catches.
+    """
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "tests.yml").read_text())
+    steps = workflow["jobs"]["lint"]["steps"]
+    install = next(s for s in steps if s.get("name") == "Install tooling")
+    ci_pin = install["run"].split("install", 1)[1].strip()
+
+    dev_pins = [r for r in _pyproject()["project"]["optional-dependencies"]["dev"] if "ruff" in r]
+    assert dev_pins == [ci_pin], (
+        f"the lint job installs {ci_pin!r} while the dev extra declares "
+        f"{dev_pins!r}; both must name the same exact ruff version"
+    )
+    assert "==" in ci_pin, f"ruff must be pinned exactly, not ranged: {ci_pin!r}"
