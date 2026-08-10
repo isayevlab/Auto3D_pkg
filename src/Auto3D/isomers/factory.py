@@ -4,7 +4,7 @@ Two constructors, deliberately asymmetric:
 
 * :meth:`IsomerEngineFactory.create` is the only supported way to build an
   isomer engine. A module-level ``create_isomer_engine`` wrapper existed
-  alongside it until 4.0 and was deleted: it had zero ``src/`` callers (both
+  alongside it until 3.0.0 and was deleted: it had zero ``src/`` callers (both
   production sites -- ``auto3D.py`` and ``workflow_workers.py`` -- call the
   classmethod), was documented at no public path, and had already *diverged*
   from what it wrapped by omitting ``input_format``, so it could not express the

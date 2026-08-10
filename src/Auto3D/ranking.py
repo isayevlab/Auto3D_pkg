@@ -10,7 +10,11 @@ from Auto3D.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
 from Auto3D.exceptions import ConfigurationError, InputValidationError
 from Auto3D.filtering import FilterResult, filter_conformers
 from Auto3D.utils.connectivity import check_connectivity
-from Auto3D.utils.convergence import converged_or_unfiltered, has_convergence_flag
+from Auto3D.utils.convergence import (
+    converged_or_unfiltered,
+    has_convergence_flag,
+    thermo_succeeded_or_unfiltered,
+)
 from Auto3D.utils.energy import (
     E_REL_KCAL_PROP,
     E_TOT_HARTREE_PROP,
@@ -65,7 +69,7 @@ def species_id(name: str) -> str:
     like ``KEY_2`` stays distinct from ``KEY``.
 
     That disambiguation is only recoverable because every producer appends
-    the same NUMBER of components. Until 4.0 the SMILES path with
+    the same NUMBER of components. Until 3.0.0 the SMILES path with
     ``enumerate_isomer=False`` appended only the conformer index, which made
     ``KEY_2_0`` mean either species "KEY_2" conformer 0 or species "KEY"
     isomer 2 conformer 0 -- indistinguishable here, so an InChIKey collision
@@ -294,6 +298,8 @@ class ConformerRanker:
             for mol in df2["mols"]:
                 if not converged_or_unfiltered(mol):
                     reason = "unconverged"
+                elif not thermo_succeeded_or_unfiltered(mol):
+                    reason = "thermo_failed"
                 elif not stereo_preserved(mol):
                     reason = "stereochemistry"
                 elif not check_connectivity(mol):

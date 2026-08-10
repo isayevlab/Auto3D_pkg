@@ -15,7 +15,7 @@ also supplies ``species_pad``, so the remap and the padding sentinel cannot come
 from two sources and disagree (audit findings C3/C4).
 
 A name-keyed ``to_model_species(atomic_numbers, model_name)`` lived here until
-4.0.1 as a documented residual, for the two ``Auto3D.ASE.thermo`` callers that
+3.0.0 as a documented residual, for the two ``Auto3D.ASE.thermo`` callers that
 held an engine *name* rather than a model. Both now hold an adapter, so it is
 deleted: deciding the species convention from a string is what let the remap and
 the padding sentinel come from different places, and the only way that cannot

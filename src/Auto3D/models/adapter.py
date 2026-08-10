@@ -40,15 +40,22 @@ def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
             #24); dynamic default mode avoids that.
 
     Returns:
-        Compiled model, or original model if compilation fails.
+        The compiled model. Compilation is lazy, so this returns an
+        ``OptimizedModule`` immediately and any Dynamo/Inductor failure surfaces
+        at the **first forward** -- which happens inside the FIRE step loop,
+        far from here.
+
+        That is why there is no try/except around the call. An earlier version
+        had one and its docstring promised "the original model if compilation
+        fails"; it could never deliver that, because nothing fails here. The
+        fallback is `suppress_errors` below, which is the mechanism that
+        actually degrades to eager at the point of failure.
     """
-    if not hasattr(torch, 'compile'):
-        return model
-    try:
-        return torch.compile(model, mode=mode, fullgraph=False, dynamic=True)
-    except Exception as e:
-        warnings.warn(f"torch.compile failed, using eager mode: {e}")
-        return model
+    # Opting in to compilation opts in to falling back rather than crashing
+    # mid-optimization: without this a graph break Inductor cannot handle takes
+    # down a run that was already thousands of steps in.
+    torch._dynamo.config.suppress_errors = True
+    return torch.compile(model, mode=mode, fullgraph=False, dynamic=True)
 
 
 def _raise_for_energy(energy: torch.Tensor) -> None:
@@ -724,9 +731,23 @@ class CustomModelAdapter(BaseModelAdapter):
         # getattr defaults that disagreed with BaseModelAdapter's) is what keeps
         # one padding value in play instead of two.
         model = load_custom_nnp(model_path, device)
-        # TorchScript models don't benefit from torch.compile
+        # TorchScript archives are already a compiled graph, so `torch.compile`
+        # has nothing to add; an eager `nn.Module` -- which `load_custom_nnp`
+        # also accepts, and which every AIMNet2-derived custom model is -- does
+        # benefit. Honouring the flag only in that case is what stops
+        # `compile_model=True` from being silently ignored on the one adapter a
+        # user supplies the model for.
+        compile_custom = compile_model and not isinstance(model, torch.jit.ScriptModule)
+        if compile_model and not compile_custom:
+            warnings.warn(
+                "compile_model=True ignored: a TorchScript archive is already a "
+                "compiled graph. Save the model eagerly (torch.save) to use "
+                "torch.compile.",
+                stacklevel=2,
+            )
         super().__init__(
-            model, device, model.coord_pad, model.species_pad, compile_model=False
+            model, device, model.coord_pad, model.species_pad,
+            compile_model=compile_custom
         )
 
     def energy(

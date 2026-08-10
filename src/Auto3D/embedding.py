@@ -15,9 +15,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from typing import Any
 
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdDistGeom
 
 from Auto3D.clash_relief import relieve_clash
 from Auto3D.constants import CONFORMER_RANDOM_SEED
@@ -25,6 +26,41 @@ from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.molprops import calculate_conformer_count
 
 logger = get_logger(__name__)
+
+
+def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
+    """The ETKDG settings every Auto3D embedding uses, in one place.
+
+    ``EmbedMultipleConfs``'s keyword form cannot express two of these:
+    ``onlyHeavyAtomsForRMS`` and ``useSymmetryForPruning`` exist only on the
+    parameters object. Left to their defaults, the size of the pool that
+    ``pruneRmsThresh`` leaves behind depends on **which RDKit is installed** --
+    both default True on 2025.09 but have not always, and ``pyproject.toml``
+    floors at ``rdkit>=2022.9.5`` with no upper bound. Stating them makes the
+    conformer pool a property of this code, in the same way
+    ``CONFORMER_RANDOM_SEED`` does.
+
+    ``ETKDGv3()`` rather than a bare ``EmbedParameters()``: it is exactly the
+    parameterization the keyword form applied. Verified field by field --
+    ``useExpTorsionAnglePrefs``, ``useBasicKnowledge``, ``useMacrocycleTorsions``
+    and ``useMacrocycle14config`` are the four a bare object gets wrong, and
+    ``ETversion`` is 2 in both -- so this switch changes no geometry. A bare
+    object would silently disable the torsion knowledge ETKDG is named for.
+    """
+    # Typed `Any` rather than `EmbedParameters`, and deliberately: RDKit's
+    # stubs declare this class's attributes as `EmbedParameters` rather than as
+    # their value types, so every assignment below is a false positive and the
+    # honest return type is unknowable from the stubs. Confining that to this
+    # one function is better than scattering per-line ignores across four call
+    # sites; the returned object is only ever handed straight to
+    # `EmbedMultipleConfs`.
+    params: Any = rdDistGeom.ETKDGv3()
+    params.randomSeed = CONFORMER_RANDOM_SEED
+    params.numThreads = n_threads
+    params.pruneRmsThresh = prune_rms_thresh
+    params.onlyHeavyAtomsForRMS = True
+    params.useSymmetryForPruning = True
+    return params
 
 
 def _embed_single(
@@ -77,9 +113,7 @@ def _embed_single(
     AllChem.EmbedMultipleConfs(
         mol,
         numConfs=n_conformers,
-        randomSeed=CONFORMER_RANDOM_SEED,
-        numThreads=np_threads,
-        pruneRmsThresh=threshold,
+        params=embed_params(n_threads=np_threads, prune_rms_thresh=threshold),
     )
 
     results = []

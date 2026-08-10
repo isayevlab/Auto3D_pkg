@@ -51,6 +51,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A saddle point could be selected as a molecule's most stable conformer.**
+  `calc_thermo` writes `Thermo_failed` — `""` for a genuine minimum, otherwise
+  `"transition_state"`, `"not_converged"`, or an exception name — and the docs
+  tell readers to filter on it. No filter did. A transition state's electronic
+  energy can sit below another conformer's minimum, so ranking a thermo output
+  could publish a structure that is not a minimum at all as the best conformer.
+
+  Both filter chains now drop it: `filter_conformers` and `ConformerRanker`'s
+  `k == 1` fast path, which duplicates the predicate list. Absence of the
+  property still means "not filtered on it", exactly as for `Converged` — an
+  optimizer output has never carried it.
+
+- **The conformer pool no longer depends on which RDKit is installed.**
+  `EmbedMultipleConfs`'s keyword form cannot express `onlyHeavyAtomsForRMS` or
+  `useSymmetryForPruning`; they exist only on the parameters object. Both
+  default True on RDKit 2025.09 but have not always, and `pyproject.toml`
+  floors at `rdkit>=2022.9.5` with no upper bound, so the size of the pool
+  `pruneRmsThresh` left behind varied with the installed version.
+
+  All four embed sites now share one `embed_params()` factory built on
+  `ETKDGv3()`, which was verified field by field to be exactly the
+  parameterization the keyword form applied — a bare `EmbedParameters()` would
+  have silently disabled the torsion knowledge ETKDG is named for. A test
+  asserts the geometry is bit-identical to the previous call form.
+
+- **The float32 charge contract is now true on every path.** `vib_hessian`
+  built `torch.tensor([charge])` — int64 — and `AIMNet2Adapter.analytic_hessian`
+  deliberately does not cast, so the *default* engine's analytic Hessian was the
+  one place still receiving an int64 charge after the optimizer path was fixed.
+
+- **`torch.compile` opt-in works as documented.** `_try_compile`'s `try/except`
+  promised "the original model if compilation fails" and could never deliver
+  it: compilation is lazy, so Dynamo/Inductor failures surface at the first
+  forward, inside the FIRE loop. It now sets `suppress_errors`, which is the
+  mechanism that actually degrades to eager at the point of failure, and the
+  dead `hasattr(torch, "compile")` guard is gone.
+
+  `compile_model=True` is also no longer silently dropped for a custom NNP: it
+  is honoured for an eager module and warn-and-skipped for a TorchScript
+  archive, which is already a compiled graph.
+
 - **A TorchScript custom NNP is now put in eval mode on load.** `load_custom_nnp`
   called `.eval()` only on the eager `torch.load` branch. `torch.jit.save`
   records the module's `training` flag, so a scripted archive saved before its

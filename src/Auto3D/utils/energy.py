@@ -6,7 +6,7 @@ the unit README, ``docs/legacy-v2/source/usage.rst`` and ``main()``'s own
 "Energy unit: Hartree if implicit." log line have always claimed, and the unit
 ``Auto3D.tautomer.select_tautomers`` has always read.
 
-Until 4.0.1 it was only *sometimes* true. ``batch_opt.optimizing.run`` wrote
+Until 3.0.0 it was only *sometimes* true. ``batch_opt.optimizing.run`` wrote
 ``E_tot`` in eV and ``ASE/geometry.opt_geometry`` converted the same tag to
 Hartree afterwards, so the identical property name carried two units depending
 on which entry point produced the file -- and the five in-package consumers
@@ -47,7 +47,9 @@ __all__ = [
     "E_TOT_PROP",
     "E_TOT_HARTREE_PROP",
     "E_REL_KCAL_PROP",
+    "E_HARTREE_PROP",
     "set_e_tot_from_ev",
+    "set_e_hartree_from_ev",
     "G_REL_KCAL_PROP",
     "G_HARTREE_PROP",
     "T_K_PROP",
@@ -76,6 +78,10 @@ E_TOT_HARTREE_PROP = "E_tot(Hartree)"
 #: ``ranking.run`` for a ``main()`` output and by :func:`set_relative_energies`
 #: for a ``calc_thermo`` one.
 E_REL_KCAL_PROP = "E_rel(kcal/mol)"
+#: Electronic energy in Hartree, written by the single-point and thermo paths.
+#: The same quantity and unit as :data:`E_TOT_HARTREE_PROP` under a third
+#: spelling -- kept because both are published, but written from one place.
+E_HARTREE_PROP = "E_hartree"
 #: Gibbs free energy relative to the lowest-G conformer of the same molecule,
 #: kcal/mol. Written by :func:`set_relative_gibbs_energies` for a thermo output.
 G_REL_KCAL_PROP = "G_rel(kcal/mol)"
@@ -107,6 +113,17 @@ def set_e_tot_from_ev(mol: Chem.Mol, energy_ev: float, *, labeled: bool = True) 
     mol.SetProp(E_TOT_PROP, str(hartree))
     if labeled:
         mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
+
+
+def set_e_hartree_from_ev(mol: Chem.Mol, energy_ev: float) -> None:
+    """Write ``E_hartree`` from an energy the model produced in eV.
+
+    ``SPE.calc_spe`` and ``ASE.thermo.do_mol_thermo`` both publish this, and
+    both used to do the multiply by hand. That is two raw conversions of the
+    same quantity outside the module that owns what the unit is -- the shape of
+    the defect this module's docstring opens with, one property over.
+    """
+    mol.SetProp(E_HARTREE_PROP, str(float(energy_ev) / HARTREE_TO_EV))
 
 
 def e_tot_hartree(mol: Chem.Mol) -> float:

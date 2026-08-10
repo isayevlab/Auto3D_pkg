@@ -20,7 +20,8 @@ from rdkit.Chem.MolStandardize import rdMolStandardize
 from tqdm import tqdm
 
 from Auto3D.clash_relief import relieve_clash
-from Auto3D.constants import CONFORMER_RANDOM_SEED, MAX_STEREOISOMERS
+from Auto3D.constants import MAX_STEREOISOMERS
+from Auto3D.embedding import embed_params
 from Auto3D.utils.molprops import calculate_conformer_count
 from Auto3D.utils.smi_io import (
     combine_smi,
@@ -76,7 +77,7 @@ class RDKitOrOEChemTautomerEngine:
     Named for its backends, like ``RDKitIsomer``/``RDKitSdfIsomer`` beside it,
     and *not* ``TautomerEngine``: that name belongs to the role Protocol in
     :mod:`Auto3D.isomers.base`, which this class structurally satisfies. The two
-    shared the name until 4.0, which forced :mod:`Auto3D.isomers.factory` to
+    shared the name until 3.0.0, which forced :mod:`Auto3D.isomers.factory` to
     import this one under a local alias to keep them apart within a single file
     -- a per-file workaround for a package-wide collision, and one whose alias
     said "Omega" although tautomers come from ``oequacpac`` and Omega is the
@@ -300,13 +301,15 @@ class RDKitIsomer:
             # are explicit, so the with-H count samples hydroxyl/amine rotors
             # that the no-H count drops (e.g. glycerol 238 vs 52 conformers).
             n_conformers = calculate_conformer_count(mol)
-            AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers,
-                                    randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np,
-                                    pruneRmsThresh=self.threshold)
+            AllChem.EmbedMultipleConfs(
+                mol, numConfs=n_conformers,
+                params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
+            )
         else:
-            AllChem.EmbedMultipleConfs(mol, numConfs=self.n_conformers,
-                                    randomSeed=CONFORMER_RANDOM_SEED, numThreads=self.np,
-                                    pruneRmsThresh=self.threshold)
+            AllChem.EmbedMultipleConfs(
+                mol, numConfs=self.n_conformers,
+                params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
+            )
         return mol
 
     def run(self) -> str:
@@ -558,9 +561,9 @@ class RDKitSdfIsomer:
                     AllChem.EmbedMultipleConfs(
                         mol2,
                         numConfs=n_conformers,
-                        randomSeed=CONFORMER_RANDOM_SEED,
-                        numThreads=self.np,
-                        pruneRmsThresh=self.threshold,
+                        params=embed_params(
+                            n_threads=self.np, prune_rms_thresh=self.threshold
+                        ),
                     )
                     if mol2.GetNumConformers() == 0:
                         logger.warning(
