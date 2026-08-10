@@ -21,6 +21,9 @@ _PATCH_CALL = r"(?:monkeypatch\.(?:setattr|delattr)|patch(?:\.object)?)"
 _STRING_TARGET = r'\(\s*["\']' + "Auto3D" + r'\.[A-Za-z0-9_.]+["\']'
 STRING_PATCH = re.compile(_PATCH_CALL + _STRING_TARGET)
 
+# A string literal that is nothing but a source reference: `path/to/file.py:33`.
+SOURCE_LINE_REF = re.compile(r"[\w./-]+\.py:\d+")
+
 
 def _test_sources():
     for path in sorted(TESTS_DIR.rglob("*.py")):
@@ -63,20 +66,25 @@ def test_no_test_asserts_a_source_line_number():
     lines are inserted above its subject measures edit distance, not the property
     it is named for.
     """
-    pattern = re.compile(r'["\'][^"\']*\.py:\d+["\']')
+    # A whole string literal that is exactly `some/path.py:12`, so prose in a
+    # docstring that happens to mention a line reference is not flagged.
+    assert SOURCE_LINE_REF.fullmatch("Auto3D/isomers/base.py:33"), (
+        "this pattern must match the literal that motivated the rule, or the "
+        "test below passes by never matching anything"
+    )
+    assert not SOURCE_LINE_REF.fullmatch("see base.py:33 for context")
+
     offenders = []
     for path in _test_sources():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                # Only flag a bare `path.py:NN`, not prose in a docstring.
-                if re.fullmatch(r"[\w./-]+\.py:\d+", node.value):
+                if SOURCE_LINE_REF.fullmatch(node.value):
                     offenders.append(f"{path.relative_to(TESTS_DIR)}:{node.lineno}: {node.value!r}")
     assert not offenders, (
         "assert the file, not the line -- line numbers move for reasons unrelated "
         "to what these tests check:\n  " + "\n  ".join(offenders)
     )
-    assert pattern.search('"a/b.py:12"'), "the pattern itself must be able to match"
 
 
 def test_the_shared_test_doubles_are_not_shadowed():
