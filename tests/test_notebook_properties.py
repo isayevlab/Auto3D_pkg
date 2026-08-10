@@ -18,6 +18,7 @@ cell. This test is the check that can run in the fast tier -- it compares the
 property names notebooks *read* against the ones ``src/`` demonstrably *writes*,
 so the two cannot drift again without a failure here.
 """
+
 from __future__ import annotations
 
 import ast

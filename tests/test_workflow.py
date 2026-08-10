@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Tests for workflow orchestration, including multi-GPU handling."""
+
 from __future__ import annotations
 
 import logging
@@ -85,7 +86,7 @@ class TestWorkflowExceptions:
         orchestrator = WorkflowOrchestrator(config)
 
         with patch(
-            'Auto3D.workflow.check_valid_configuration',
+            "Auto3D.workflow.check_valid_configuration",
             return_value=["GPU index 5 is invalid. Available GPUs: 1"],
         ):
             with pytest.raises(ConfigurationError, match="GPU index 5 is invalid"):
@@ -183,10 +184,7 @@ class TestChunkCreation:
         )
 
         # Create DataFrame with 3 molecules
-        df = pd.DataFrame({
-            0: ["CCO", "CCCO", "CCCCO"],
-            1: ["ethanol", "propanol", "butanol"]
-        })
+        df = pd.DataFrame({0: ["CCO", "CCCO", "CCCCO"], 1: ["ethanol", "propanol", "butanol"]})
 
         # Create chunk indices - each chunk has one molecule
         chunk_idxes = [[0], [1], [2]]
@@ -249,8 +247,13 @@ class TestOptimizerEmptyInput:
         nonexistent = str(tmp_path / "nonexistent.sdf")
         # An injected double, because `optimizing` no longer constructs its own
         # adapter -- and this test returns before the model is touched anyway.
-        optimizer = optimizing(nonexistent, str(tmp_path / "out.sdf"),
-                               adapter=FakeAdapter(), device=device, config=config)
+        optimizer = optimizing(
+            nonexistent,
+            str(tmp_path / "out.sdf"),
+            adapter=FakeAdapter(),
+            device=device,
+            config=config,
+        )
 
         # Should not raise, just log warning and return
         with caplog.at_level(logging.WARNING):
@@ -279,8 +282,13 @@ class TestOptimizerEmptyInput:
         empty_sdf = tmp_path / "empty.sdf"
         empty_sdf.write_text("")
 
-        optimizer = optimizing(str(empty_sdf), str(tmp_path / "out.sdf"),
-                               adapter=FakeAdapter(), device=device, config=config)
+        optimizer = optimizing(
+            str(empty_sdf),
+            str(tmp_path / "out.sdf"),
+            adapter=FakeAdapter(),
+            device=device,
+            config=config,
+        )
 
         # Should not raise, just log warning and return
         with caplog.at_level(logging.WARNING):
@@ -297,6 +305,7 @@ class TestOptimizerEmptyInput:
 
 def test_workers_importable_from_workflow_workers():
     from Auto3D.workflow_workers import isomer_wrapper, logger_process, optim_rank_wrapper
+
     assert all(callable(f) for f in (isomer_wrapper, optim_rank_wrapper, logger_process))
 
 
@@ -351,8 +360,13 @@ class TestAFailedChunksCauseReachesTheUser:
         import logging as logging_mod
 
         return logging_mod.LogRecord(
-            name="auto3d", level=level, pathname=__file__, lineno=1,
-            msg=message, args=(), exc_info=None,
+            name="auto3d",
+            level=level,
+            pathname=__file__,
+            lineno=1,
+            msg=message,
+            args=(),
+            exc_info=None,
         )
 
     def test_an_error_from_a_worker_is_written_to_stderr(self, tmp_path, capfd):
@@ -494,9 +508,7 @@ def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
     orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1, use_gpu=False))
 
     # Fail after _validate_input has already written the encoded temp file.
-    monkeypatch.setattr(
-        orch, "_setup_logging", MagicMock(side_effect=RuntimeError("boom"))
-    )
+    monkeypatch.setattr(orch, "_setup_logging", MagicMock(side_effect=RuntimeError("boom")))
 
     with pytest.raises(RuntimeError, match="boom"):
         orch.run()
@@ -551,9 +563,7 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
         def start(self):
             # Record every Auto3DOptions passed to a worker (positions differ
             # between the isomer and optimization workers).
-            captured_configs.extend(
-                a for a in self._args if isinstance(a, Auto3DOptions)
-            )
+            captured_configs.extend(a for a in self._args if isinstance(a, Auto3DOptions))
 
         def join(self, timeout=None):
             return None
@@ -562,8 +572,10 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
         def exitcode(self):
             return 0
 
-    with patch("Auto3D.workflow.mp.Manager") as mock_manager, \
-         patch("Auto3D.workflow.mp.Process", _FakeProcess):
+    with (
+        patch("Auto3D.workflow.mp.Manager") as mock_manager,
+        patch("Auto3D.workflow.mp.Process", _FakeProcess),
+    ):
         mock_manager.return_value.Queue.return_value = MagicMock()
         orch._run_pipeline([("chunk.smi", "job1")])
 
@@ -601,9 +613,7 @@ def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
 
     smi = tmp_path / "mol.smi"
     smi.write_text("CCO ethanol\n")
-    shared_config = Auto3DOptions(
-        path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
-    )
+    shared_config = Auto3DOptions(path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt")
     assert shared_config.job_name == ""
 
     class _StopAfterValidateError(Exception):
@@ -612,9 +622,7 @@ def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
     def _stub_setup_job_directory(self):
         raise _StopAfterValidateError()
 
-    monkeypatch.setattr(
-        WorkflowOrchestrator, "_setup_job_directory", _stub_setup_job_directory
-    )
+    monkeypatch.setattr(WorkflowOrchestrator, "_setup_job_directory", _stub_setup_job_directory)
 
     orch1 = WorkflowOrchestrator(shared_config)
     with pytest.raises(_StopAfterValidateError):
@@ -678,9 +686,7 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
                 w.write(mol)
             return []
 
-    monkeypatch.setattr(
-        auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create)
-    )
+    monkeypatch.setattr(auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create))
     monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
     monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
     monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
@@ -763,9 +769,7 @@ class TestFinalizeOutputReconciliation:
             "the missing id was not logged anywhere"
         )
 
-        produced = {
-            m.GetProp("_Name") for m in Chem.SDMolSupplier(path_output) if m is not None
-        }
+        produced = {m.GetProp("_Name") for m in Chem.SDMolSupplier(path_output) if m is not None}
         assert produced == {"mol_a", "mol_b"}
 
     def test_smi_input_reports_no_failures_when_everything_present(self, tmp_path):
@@ -832,9 +836,7 @@ class TestFinalizeOutputReconciliation:
         orch._finalize_output(start_time=0.0)
         assert orch.failures == ["mol_c"], orch.failures
 
-    def test_workflow_uses_the_canonical_reconciliation_functions(
-        self, monkeypatch, tmp_path
-    ):
+    def test_workflow_uses_the_canonical_reconciliation_functions(self, monkeypatch, tmp_path):
         """Guard against a regression to a hand-rolled duplicate: `_reconcile_output`
         must actually call the imported `find_smiles_not_in_sdf`/`find_ids_not_in_sdf`
         at its call site, not merely import them.
@@ -916,9 +918,7 @@ def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch,
     assert getattr(result, "failures", None) == ["mol_c"]
 
 
-def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(
-    monkeypatch, caplog
-):
+def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatch, caplog):
     """smiles2mols must reconcile its SMILES input against what it produced,
     the same way main()/_finalize_output do, and the report must name the
     molecule that vanished -- proven against the real find_smiles_not_in_sdf,
@@ -960,9 +960,7 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(
                 w.write(mol)
             return []
 
-    monkeypatch.setattr(
-        auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create)
-    )
+    monkeypatch.setattr(auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create))
     monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
     monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
     monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
@@ -1030,12 +1028,17 @@ class TestQuietPathsNameWhatTheyDropped:
         bad_sdf.write_text("\n".join(block) + "\n$$$$\n")
 
         config = {
-            "opt_steps": 100, "opttol": 0.003, "patience": 100,
+            "opt_steps": 100,
+            "opttol": 0.003,
+            "patience": 100,
             "batchsize_atoms": 1024,
         }
         optimizer = optimizing(
-            str(bad_sdf), str(tmp_path / "out.sdf"), adapter=FakeAdapter(),
-            device=torch.device("cpu"), config=config,
+            str(bad_sdf),
+            str(tmp_path / "out.sdf"),
+            adapter=FakeAdapter(),
+            device=torch.device("cpu"),
+            config=config,
         )
 
         with caplog.at_level(logging.WARNING):
@@ -1046,9 +1049,7 @@ class TestQuietPathsNameWhatTheyDropped:
             f"all-failed case was reported. Log was: {caplog.text!r}"
         )
 
-    def test_the_parallel_embed_path_names_a_species_it_produced_nothing_for(
-        self, caplog
-    ):
+    def test_the_parallel_embed_path_names_a_species_it_produced_nothing_for(self, caplog):
         """The serial path warns twice here; the parallel path warned not at all.
 
         `_embed_single` returned `[]` for an unparseable SMILES in silence, and
@@ -1083,9 +1084,7 @@ class TestQuietPathsNameWhatTheyDropped:
 
         with caplog.at_level(logging.WARNING):
             results = list(
-                embed_conformers_parallel(
-                    [("CCO", "ethanol")], n_conformers=2, n_workers=1
-                )
+                embed_conformers_parallel([("CCO", "ethanol")], n_conformers=2, n_workers=1)
             )
 
         assert results, "test premise: ethanol should embed"

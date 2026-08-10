@@ -106,7 +106,7 @@ def select_tautomers(
         group = group.sort_values(by="energy")
         out_mols0 = list(group["mol"])
         ref_energy = e_tot_hartree(out_mols0[0]) * hartree2kcalpermol
-        #select top k
+        # select top k
         if k is not None:
             if k >= len(out_mols0):
                 out_mols = out_mols0
@@ -117,8 +117,8 @@ def select_tautomers(
                 e_rel = mol_energy - ref_energy
                 mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
                 mol.SetProp("_Name", group_name)
-        #select E <= window -- window is not None here, guaranteed by the
-        #argument check above
+        # select E <= window -- window is not None here, guaranteed by the
+        # argument check above
         else:
             out_mols = []
             for mol in out_mols0:
@@ -139,9 +139,7 @@ def select_tautomers(
 
 
 def get_stable_tautomers(
-    args: Auto3DOptions,
-    tauto_k: int | None = None,
-    tauto_window: float | None = None
+    args: Auto3DOptions, tauto_k: int | None = None, tauto_window: float | None = None
 ) -> str:
     """Get stable tautomers for input molecules.
 

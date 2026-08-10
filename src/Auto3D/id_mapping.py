@@ -9,6 +9,7 @@ suffix survives it, which is why they live together and above
 ``Auto3D.utils`` -- ``utils`` is a leaf of generic helpers, and this is a
 decision about how an Auto3D run is shaped.
 """
+
 from __future__ import annotations
 
 import os
@@ -96,13 +97,10 @@ def encode_ids(
         # index space, which is inconsistent with the dense positions the chunk
         # manager assumes downstream. The original file line_no is still used in
         # the error message so it points at the real offending line.
-        for i, (line_no, smi, id) in enumerate(
-            iter_smi_records(path, on_malformed="raise")
-        ):
+        for i, (line_no, smi, id) in enumerate(iter_smi_records(path, on_malformed="raise")):
             if id in mapping:
                 raise InputValidationError(
-                    f"Duplicate molecule ID {id!r} on line {line_no}. "
-                    "IDs must be unique."
+                    f"Duplicate molecule ID {id!r} on line {line_no}. IDs must be unique."
                 )
             mapping[id] = i
             new_data.append(f"{smi} {i}\n")
@@ -126,8 +124,7 @@ def encode_ids(
                     )
                 if id in mapping:
                     raise InputValidationError(
-                        f"Duplicate molecule name {id!r} at index {i}. "
-                        "Names must be unique."
+                        f"Duplicate molecule name {id!r} at index {i}. Names must be unique."
                     )
                 mapping[id] = i
                 mol.SetProp("_Name", str(i))
@@ -135,9 +132,7 @@ def encode_ids(
         return str(new_path), mapping
 
 
-def decode_ids(
-    path: str, mapping: dict[str, int], *, overwrite: bool = False
-) -> str:
+def decode_ids(path: str, mapping: dict[str, int], *, overwrite: bool = False) -> str:
     """Decode numeric IDs back to original molecule IDs.
 
     For an SDF file with numeric IDs, restores the original IDs using
@@ -186,9 +181,7 @@ def decode_ids(
             name = mol.GetProp("_Name").strip()
             if "@taut" in name:
                 components = name.split("@taut")
-                new_name = (
-                    inverse_mapping[int(components[0])] + "@taut" + "".join(components[1:])
-                )
+                new_name = inverse_mapping[int(components[0])] + "@taut" + "".join(components[1:])
             else:
                 new_name = inverse_mapping[int(name)]
             mol.SetProp("_Name", new_name)

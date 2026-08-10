@@ -12,6 +12,7 @@ This is the only path to these two names. ``utils/validation.py`` re-exported
 them for one release while call sites moved over; that re-export is gone, so
 importing them from ``validation`` now fails rather than quietly working.
 """
+
 from __future__ import annotations
 
 import os

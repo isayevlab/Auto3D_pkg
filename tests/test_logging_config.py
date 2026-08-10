@@ -1,4 +1,5 @@
 """Tests for Auto3D.utils.logging_config."""
+
 from __future__ import annotations
 
 import logging
@@ -20,11 +21,7 @@ def test_configure_logging_uses_stderr_not_stdout():
     auto3d_logger.handlers = []
     try:
         configure_logging(verbose=False)
-        streams = [
-            h.stream
-            for h in auto3d_logger.handlers
-            if isinstance(h, logging.StreamHandler)
-        ]
+        streams = [h.stream for h in auto3d_logger.handlers if isinstance(h, logging.StreamHandler)]
         assert streams, "configure_logging attached no StreamHandler"
         assert all(s is sys.stderr for s in streams)
         assert sys.stdout not in streams
@@ -82,9 +79,7 @@ def test_attach_run_log_handlers_is_idempotent_per_queue():
     second = _attach_run_log_handlers(q)
     try:
         assert first, "first call should attach at least one handler"
-        assert second == [], (
-            "a second call with the same queue must attach nothing new"
-        )
+        assert second == [], "a second call with the same queue must attach nothing new"
 
         mod_logger = get_logger("Auto3D.test_logging_config_idempotent")
         mod_logger.setLevel(logging.INFO)

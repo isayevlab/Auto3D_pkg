@@ -1,4 +1,5 @@
 """Physical and computational constants for Auto3D."""
+
 from __future__ import annotations
 
 # Energy conversion factors (CODATA 2018)
@@ -22,7 +23,7 @@ MAX_CONFORMERS_CAP = 1000  # Maximum conformers per molecule
 # maxIsomers to 1024, which silently truncates molecules with >=11 unspecified
 # stereocenters. Raise the cap high so realistic inputs are not silently lost,
 # and warn when the enumerator returns exactly the cap (likely truncated).
-MAX_STEREOISOMERS = 2 ** 16  # 65536
+MAX_STEREOISOMERS = 2**16  # 65536
 
 # Chunk sizing
 DEFAULT_CAPACITY = 42  # molecules per GB of GPU/CPU memory for chunk sizing
@@ -30,9 +31,9 @@ DEFAULT_CAPACITY = 42  # molecules per GB of GPU/CPU memory for chunk sizing
 # Conformer generation formula coefficients
 # Based on: https://doi.org/10.1021/acs.jctc.0c01213
 CONFORMER_ROTATABLE_COEFF = 8.481  # Coefficient for rotatable bond count
-CONFORMER_ROTATABLE_EXP = 1.642    # Exponent for rotatable bond count
-CONFORMER_MULTIPLIER = 2           # Multiplier for the formula
-CONFORMER_RANDOM_SEED = 42         # Random seed for reproducible embedding
+CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
+CONFORMER_MULTIPLIER = 2  # Multiplier for the formula
+CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
 # Optimization sentinel values
 INITIAL_FMAX_SENTINEL = 999.0  # Initial value for max force (unconverged)

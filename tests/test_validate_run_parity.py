@@ -14,6 +14,7 @@ These tests check both directions for both defects: a file that passes
 `validate_smiles_file` must not fail `encode_ids`, and a file that fails one
 must fail the other.
 """
+
 from __future__ import annotations
 
 import pytest

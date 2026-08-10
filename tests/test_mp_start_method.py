@@ -12,6 +12,7 @@ swallow it, and the pipeline silently ran on fork -- which is exactly the
 ordering/isolation failure this guards against. ``main()`` must therefore
 *force* spawn.
 """
+
 from __future__ import annotations
 
 import multiprocessing as mp

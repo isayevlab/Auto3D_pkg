@@ -38,6 +38,7 @@ folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import torchani
+
     class userNNP1(torch.nn.Module):
         def __init__(self):
             super(userNNP1, self).__init__()
@@ -56,32 +57,33 @@ try:
             self.species_pad = -1  # int, the padding value for species.
             # self.state_dict = None
 
-        def forward(self,
-                    species: torch.Tensor,
-                    coords: torch.Tensor,
-                    charges: torch.Tensor) -> torch.Tensor:
+        def forward(
+            self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
+        ) -> torch.Tensor:
             """
             Your NNP should take species, coords, and charges as input
             and return the energies of the molecules.
 
             species contains the atomic numbers of the atoms in the molecule: [B, N]
             where B is the batch size, N is the number of atoms in the largest molecule.
-            
+
             coords contains the coordinates of the atoms in the molecule: [B, N, 3]
             where B is the batch size, N is the number of atoms in the largest molecule,
             and 3 represents the x, y, z coordinates.
-            
+
             charges contains the molecular charges: [B]
-            
+
             The forward function returns the energies of the molecules: [B],
             output energy unit: eV"""
 
             # an example for computing molecular energy, replace with your NNP model
             energies = self.model((species, coords)).energies * 27.211386245988
             return energies
+
     test_userNNP1 = True
 except ImportError:
     test_userNNP1 = False
+
 
 class userNNP2(torch.nn.Module):
     def __init__(self):
@@ -110,28 +112,28 @@ class userNNP2(torch.nn.Module):
         # submitted. Matches docs/source/howto/custom_nnp.rst.
         self.species_pad = -1  # int, the padding value for species.
 
-    def forward(self,
-                species: torch.Tensor,
-                coords: torch.Tensor,
-                charges: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, species: torch.Tensor, coords: torch.Tensor, charges: torch.Tensor
+    ) -> torch.Tensor:
         """
         Your NNP should take species, coords, and charges as input
         and return the energies of the molecules.
 
         species contains the atomic numbers of the atoms in the molecule: [B, N]
         where B is the batch size, N is the number of atoms in the largest molecule.
-        
+
         coords contains the coordinates of the atoms in the molecule: [B, N, 3]
         where B is the batch size, N is the number of atoms in the largest molecule,
         and 3 represents the x, y, z coordinates.
-        
+
         charges contains the molecular charges: [B]
-        
+
         The forward function returns the energies of the molecules: [B],
         output energy unit: eV"""
 
         if self._calc is None or self._calc_device != species.device:
             from aimnet.calculators import AIMNet2Calculator
+
             self._calc = AIMNet2Calculator("aimnet2", device=str(species.device))
             self._calc_device = species.device
         # Auto3D feeds padded (B, N) batches; use ragged mol_idx batching to drop
@@ -146,11 +148,15 @@ class userNNP2(torch.nn.Module):
         # forces via autograd (the calculator preserves the graph when coord
         # requires grad).
         out = self._calc(
-            dict(coord=coord_flat, numbers=numbers_flat,
-                 charge=charges.to(coord_flat.dtype), mol_idx=mol_idx),
+            dict(
+                coord=coord_flat,
+                numbers=numbers_flat,
+                charge=charges.to(coord_flat.dtype),
+                mol_idx=mol_idx,
+            ),
             forces=False,
         )
-        return out['energy'].reshape(-1)
+        return out["energy"].reshape(-1)
 
 
 def test_model_name2model_calculator_uses_factory():
@@ -177,7 +183,7 @@ def test_model_name2model_calculator_uses_factory():
             return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
 
     stub = _StubAdapter()
-    with patch('Auto3D.ASE.thermo.create_model', return_value=stub) as mock_factory:
+    with patch("Auto3D.ASE.thermo.create_model", return_value=stub) as mock_factory:
         model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
 
     mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))
@@ -200,9 +206,7 @@ REFERENCE_H_HARTREE = -314.45168666
 #: Entropy the reference numbers imply: G = H - T*S, so S = (H - G)/T. At 298.15 K
 #: this is 1.3644e-4 Hartree/K (85.6 cal/mol/K), a plausible cyclooctane value.
 REFERENCE_T_K = 298.15
-REFERENCE_S_HARTREE_PER_K = (
-    (REFERENCE_H_HARTREE - REFERENCE_G_HARTREE) / REFERENCE_T_K
-)
+REFERENCE_S_HARTREE_PER_K = (REFERENCE_H_HARTREE - REFERENCE_G_HARTREE) / REFERENCE_T_K
 
 
 def assert_thermo_record(mol, *, reference_G=None, reference_H=None):
@@ -251,13 +255,11 @@ def assert_thermo_record(mol, *, reference_G=None, reference_H=None):
 
     if reference_G is not None:
         assert abs(reference_G - G) <= 0.02, (
-            f"G {G} is more than 0.02 Hartree (12.5 kcal/mol) from the "
-            f"reference {reference_G}"
+            f"G {G} is more than 0.02 Hartree (12.5 kcal/mol) from the reference {reference_G}"
         )
     if reference_H is not None:
         assert abs(reference_H - H) <= 0.02, (
-            f"H {H} is more than 0.02 Hartree (12.5 kcal/mol) from the "
-            f"reference {reference_H}"
+            f"H {H} is more than 0.02 Hartree (12.5 kcal/mol) from the reference {reference_H}"
         )
 
 
@@ -275,13 +277,12 @@ def test_calc_thermo_aimnet():
     out = calc_thermo(path, "AIMNET", opt_tol=0.003, use_gpu=False)
     mol = next(Chem.SDMolSupplier(out, removeHs=False))
 
-    assert_thermo_record(
-        mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE
-    )
+    assert_thermo_record(mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE)
     try:
         os.remove(out)
     except OSError:
         pass
+
 
 @pytest.mark.slow
 def test_vib_hessian_includes_external_dispersion():
@@ -309,8 +310,8 @@ def test_vib_hessian_includes_external_dispersion():
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")
     mol = next(Chem.SDMolSupplier(path, removeHs=False))
 
-    _, calculator = model_name2model_calculator('AIMNET')
-    device = torch.device('cpu')
+    _, calculator = model_name2model_calculator("AIMNET")
+    device = torch.device("cpu")
     # This is exactly what calc_thermo loads and passes to vib_hessian: an
     # AIMNet2Adapter, whose analytic_hessian runs the full pipeline. It used to be
     # the bare AIMNet2Calculator, reached through an adapter property that existed
@@ -318,7 +319,8 @@ def test_vib_hessian_includes_external_dispersion():
     from Auto3D.models.adapter import AIMNet2Adapter
 
     from Auto3D.ASE.thermo import _load_hessian_model
-    adapter = _load_hessian_model('AIMNET', device)
+
+    adapter = _load_hessian_model("AIMNET", device)
     assert isinstance(adapter, AIMNet2Adapter)
     assert adapter.analytic_hessian is not None
     # Sanity: this model really does externalize the terms the bug would drop.
@@ -337,6 +339,7 @@ def test_vib_hessian_includes_external_dispersion():
     from rdkit.Chem import rdmolops
     from ase import Atoms
     from ase.vibrations import VibrationsData
+
     charge = rdmolops.GetFormalCharge(mol)
     atoms = Atoms(species, coord)
     num_atoms = len(species)
@@ -346,7 +349,7 @@ def test_vib_hessian_includes_external_dispersion():
     bare_model = aimnet_calc.model
 
     def _bare_energy(c):
-        return bare_model(dict(coord=c, numbers=numbers, charge=charge_t))['energy']
+        return bare_model(dict(coord=c, numbers=numbers, charge=charge_t))["energy"]
 
     bare_hess = torch.autograd.functional.hessian(_bare_energy, coord_t)
     bare_hess = bare_hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
@@ -361,6 +364,7 @@ def test_vib_hessian_includes_external_dispersion():
     )
     # 2. Including the attractive D3 term must SOFTEN, not stiffen, the bonds.
     assert fixed_max < bare_max
+
 
 #: Uniform expansion applied to the DA.sdf geometries before they are handed
 #: to ``opt_geometry`` below. ``tests/files/DA.sdf`` is *already* a relaxed
@@ -392,25 +396,30 @@ def _perturbed_DA(tmp_path) -> tuple[str, list]:
 def test_opt_geometry1(tmp_path):
     """ANI2x relaxes a displaced geometry and annotates it correctly."""
     path, inputs = _perturbed_DA(tmp_path)
-    out = opt_geometry(path, 'ANI2x', opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    assert_opt_geometry_output(out, input_mols=inputs,
-                               moved_at_least=DA_MIN_RELAXATION, label="ANI2x")
+    out = opt_geometry(path, "ANI2x", opt_tol=0.1, opt_steps=5000, use_gpu=False)
+    assert_opt_geometry_output(
+        out, input_mols=inputs, moved_at_least=DA_MIN_RELAXATION, label="ANI2x"
+    )
+
 
 @pytest.mark.slow
 def test_opt_geometry2(tmp_path):
     """ANI2xt relaxes a displaced geometry and annotates it correctly."""
     path, inputs = _perturbed_DA(tmp_path)
-    out = opt_geometry(path, 'ANI2xt', opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    assert_opt_geometry_output(out, input_mols=inputs,
-                               moved_at_least=DA_MIN_RELAXATION, label="ANI2xt")
+    out = opt_geometry(path, "ANI2xt", opt_tol=0.1, opt_steps=5000, use_gpu=False)
+    assert_opt_geometry_output(
+        out, input_mols=inputs, moved_at_least=DA_MIN_RELAXATION, label="ANI2xt"
+    )
+
 
 @pytest.mark.slow
 def test_opt_geometry3(tmp_path):
     """AIMNet2 relaxes a displaced geometry and annotates it correctly."""
     path, inputs = _perturbed_DA(tmp_path)
-    out = opt_geometry(path, 'AIMNET', opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    assert_opt_geometry_output(out, input_mols=inputs,
-                               moved_at_least=DA_MIN_RELAXATION, label="AIMNET")
+    out = opt_geometry(path, "AIMNET", opt_tol=0.1, opt_steps=5000, use_gpu=False)
+    assert_opt_geometry_output(
+        out, input_mols=inputs, moved_at_least=DA_MIN_RELAXATION, label="AIMNET"
+    )
 
 
 @pytest.mark.slow
@@ -419,7 +428,7 @@ def test_opt_geometry_with_patience_and_batchsize():
     path = os.path.join(folder, "tests/files/DA.sdf")
     out = opt_geometry(
         path,
-        'AIMNET',
+        "AIMNET",
         opt_tol=0.1,
         opt_steps=100,
         patience=50,
@@ -432,49 +441,51 @@ def test_opt_geometry_with_patience_and_batchsize():
     except OSError:
         pass
 
+
 @pytest.mark.slow
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
 def test_opt_geometry4(tmp_path):
     """A scripted custom NNP relaxes a displaced geometry through opt_geometry."""
     path, inputs = _perturbed_DA(tmp_path)
     with tempfile.TemporaryDirectory() as tmpdir:
-        model_path = os.path.join(tmpdir, 'myNNP.pt')
+        model_path = os.path.join(tmpdir, "myNNP.pt")
         myNNP = userNNP1()
         myNNP_jit = torch.jit.script(myNNP)
         myNNP_jit.save(model_path)
 
         out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    assert_opt_geometry_output(out, input_mols=inputs,
-                               moved_at_least=DA_MIN_RELAXATION,
-                               label="scripted userNNP1")
+    assert_opt_geometry_output(
+        out, input_mols=inputs, moved_at_least=DA_MIN_RELAXATION, label="scripted userNNP1"
+    )
+
 
 @pytest.mark.slow
 def test_opt_geometry5(tmp_path):
     """An eager AIMNet2-backed custom NNP relaxes a displaced geometry."""
     path, inputs = _perturbed_DA(tmp_path)
     with tempfile.TemporaryDirectory() as tmpdir:
-        model_path = os.path.join(tmpdir, 'myNNP.pt')
+        model_path = os.path.join(tmpdir, "myNNP.pt")
         myNNP = userNNP2()
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
 
         out = opt_geometry(path, model_path, opt_tol=0.1, opt_steps=5000, use_gpu=False)
-    assert_opt_geometry_output(out, input_mols=inputs,
-                               moved_at_least=DA_MIN_RELAXATION,
-                               label="eager userNNP2")
+    assert_opt_geometry_output(
+        out, input_mols=inputs, moved_at_least=DA_MIN_RELAXATION, label="eager userNNP2"
+    )
 
 
 @pytest.mark.slow
 @pytest.mark.skipif(not test_userNNP1, reason="TorchANI is not  installed.")
 def test_calc_thermo_userNNP1():
-    #load wB97m-D4/Def2-TZVPP output file
+    # load wB97m-D4/Def2-TZVPP output file
     # Note that this is not the target DFT level for ANI2x
     # The purpose is just to verify the correctness of ani2x_jit
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")
 
-    #compute thermodynamic properties with ani2x_jit
+    # compute thermodynamic properties with ani2x_jit
     with tempfile.TemporaryDirectory() as tmpdir:
-        model_path = os.path.join(tmpdir, 'myNNP.pt')
+        model_path = os.path.join(tmpdir, "myNNP.pt")
         myNNP = userNNP1()
         myNNP_jit = torch.jit.script(myNNP)
         myNNP_jit.save(model_path)
@@ -490,8 +501,8 @@ def test_calc_thermo_userNNP1():
     G_out2 = float(mol2.GetProp("G_hartree"))
     H_out2 = float(mol2.GetProp("H_hartree"))
 
-    assert(abs(G_out - G_out2) <= 0.02)
-    assert(abs(H_out - H_out2) <= 0.02)
+    assert abs(G_out - G_out2) <= 0.02
+    assert abs(H_out - H_out2) <= 0.02
     try:
         os.remove(out)
     except OSError:
@@ -504,12 +515,12 @@ def test_calc_thermo_userNNP1():
 
 @pytest.mark.slow
 def test_calc_thermo_userNNP2():
-    #load wB97m-D4/Def2-TZVPP output file
+    # load wB97m-D4/Def2-TZVPP output file
     path = os.path.join(folder, "tests/files/cyclooctane.sdf")
 
-    #compare Auto3D output with the above
+    # compare Auto3D output with the above
     with tempfile.TemporaryDirectory() as tmpdir:
-        model_path = os.path.join(tmpdir, 'myNNP.pt')
+        model_path = os.path.join(tmpdir, "myNNP.pt")
         myNNP = userNNP2()
         # AIMNet2-based models are not torch.jit.script-able; save eager.
         torch.save(myNNP, model_path)
@@ -518,9 +529,7 @@ def test_calc_thermo_userNNP2():
 
     # The example wraps the full AIMNet2 calculator (with D3), so thermochemistry
     # matches the D3-inclusive reference; also exercises the eager custom-NNP load.
-    assert_thermo_record(
-        mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE
-    )
+    assert_thermo_record(mol, reference_G=REFERENCE_G_HARTREE, reference_H=REFERENCE_H_HARTREE)
     try:
         os.remove(out)
     except OSError:
@@ -541,7 +550,6 @@ if __name__ == "__main__":
     # supp = Chem.SDMolSupplier(path, removeHs=False)
     # print(f'Number of conformers: {len(supp)}')
     # mol = supp[0]
-    
 
     # # original ani2x
     # ani2x = torchani.models.ANI2x()
@@ -553,14 +561,13 @@ if __name__ == "__main__":
     # print(e)
     # print(f)
 
-
     # myNNP2
     # myNNP = userNNP2()
     # myNNP_jit = torch.jit.script(myNNP)
     # myNNP_jit.save('/home/jack/Auto3D_pkg/example/myNNP2.pt')
 
     # myNNP = torch.jit.load('/home/jack/Auto3D_pkg/example/myNNP2.pt', map_location=device).double()
-    
+
     # my_e = myNNP(dct['numbers'], dct['coord'], dct['charge'])
     # print(my_e)
 

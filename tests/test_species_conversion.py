@@ -15,6 +15,7 @@ The decisive asymmetry: ANI2x gets periodic_table_index=True at both of its
 sites (thermo.py:338, models/adapter.py:346), so it was always correct and
 needs no conversion.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -44,9 +45,7 @@ class TestBatchPathIsCorrect:
 
         from Auto3D.model_factory import create_model
 
-        _, species, _, _ = pad_from_mols(
-            [mol], create_model("ANI2xt", device), device
-        )
+        _, species, _, _ = pad_from_mols([mol], create_model("ANI2xt", device), device)
         values = sorted(int(v) for v in species[0])
 
         # ANI2XT_INDEX: H=0, C=1. Methane is one carbon and four hydrogens.
@@ -78,9 +77,7 @@ class TestThermoPathConverts:
 
         thermo_in = mol2aimnet_input(mol, device, adapter=model)
         e_thermo = float(
-            model.forward(
-                thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]
-            )[0][0]
+            model.forward(thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"])[0][0]
         )
 
         assert abs(e_batch - e_thermo) < 1e-4, (
@@ -103,9 +100,7 @@ class TestThermoPathConverts:
         model = create_model("ANI2xt", device)
         thermo_in = mol2aimnet_input(mol, device, adapter=model)
 
-        energy, _ = model.forward(
-            thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"]
-        )
+        energy, _ = model.forward(thermo_in["coord"], thermo_in["numbers"], thermo_in["charge"])
         assert torch_isfinite(energy), "energy is not finite"
 
 

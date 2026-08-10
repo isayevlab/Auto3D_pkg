@@ -1,4 +1,5 @@
 """Tests for Auto3D.utils.reconciliation module."""
+
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
@@ -11,7 +12,6 @@ TEST_DIR = Path(__file__).parent
 FILES_DIR = TEST_DIR / "files"
 
 
-
 def _make_mol(name):
     """Build a tiny named RDKit mol for SDF round-trips."""
     from rdkit import Chem
@@ -19,7 +19,6 @@ def _make_mol(name):
     mol = Chem.MolFromSmiles("C")
     mol.SetProp("_Name", name)
     return mol
-
 
 
 class TestNoneAndMalformedInputHardening:
@@ -33,9 +32,7 @@ class TestNoneAndMalformedInputHardening:
 
         valid = Chem.MolFromSmiles("C")
         valid.SetProp("_Name", "mol_a")
-        monkeypatch.setattr(
-            reconciliation.Chem, "SDMolSupplier", lambda *a, **k: [valid, None]
-        )
+        monkeypatch.setattr(reconciliation.Chem, "SDMolSupplier", lambda *a, **k: [valid, None])
 
         smi = tmp_path / "in.smi"
         smi.write_text("C mol_a\nCC mol_b\n")
@@ -46,9 +43,8 @@ class TestNoneAndMalformedInputHardening:
         # mol_a is present (valid mol), mol_b is missing -> reported.
         assert ("mol_b", "CC") in bad
         assert all(mol_id != "mol_a" for mol_id, _ in bad)
-    def test_find_smiles_not_in_sdf_tolerates_blank_and_3token_lines(
-        self, tmp_path, monkeypatch
-    ):
+
+    def test_find_smiles_not_in_sdf_tolerates_blank_and_3token_lines(self, tmp_path, monkeypatch):
         """find_smiles_not_in_sdf tolerates blank and 3-token .smi lines."""
         from rdkit import Chem
 
@@ -56,9 +52,7 @@ class TestNoneAndMalformedInputHardening:
 
         valid = Chem.MolFromSmiles("C")
         valid.SetProp("_Name", "mol_a")
-        monkeypatch.setattr(
-            reconciliation.Chem, "SDMolSupplier", lambda *a, **k: [valid]
-        )
+        monkeypatch.setattr(reconciliation.Chem, "SDMolSupplier", lambda *a, **k: [valid])
 
         smi = tmp_path / "in.smi"
         # blank line + a 3-token line (first two tokens taken).
@@ -138,9 +132,7 @@ class TestFindIdsNotInSdf:
 
         assert find_ids_not_in_sdf(str(source), str(out)) == []
 
-    def test_an_unreadable_record_is_reported_on_the_input_side_only(
-        self, tmp_path, monkeypatch
-    ):
+    def test_an_unreadable_record_is_reported_on_the_input_side_only(self, tmp_path, monkeypatch):
         """The two sides of the comparison are not symmetric, and must not be.
 
         This test used to assert ``== []`` for a source file containing an
@@ -165,7 +157,7 @@ class TestFindIdsNotInSdf:
             calls["n"] += 1
             if calls["n"] == 1:
                 return [_make_mol("mol_a"), None]  # source: one good, one unreadable
-            return [None, _make_mol("mol_a")]      # output: mol_a made it
+            return [None, _make_mol("mol_a")]  # output: mol_a made it
 
         monkeypatch.setattr(reconciliation.Chem, "SDMolSupplier", fake_supplier)
 
@@ -211,9 +203,7 @@ class TestReconciliationSeesUnparseableInputRecords:
     def test_an_unparseable_source_record_is_reported_as_a_failure(self, tmp_path):
         source = tmp_path / "source.sdf"
         good = Chem.MolToMolBlock(_make_mol("mol_a"))
-        source.write_text(
-            good + "$$$$\n" + self._unparseable_record("mol_b") + "\n$$$$\n"
-        )
+        source.write_text(good + "$$$$\n" + self._unparseable_record("mol_b") + "\n$$$$\n")
         # Confirm the premise: RDKit reads one molecule and one None.
         parsed = list(Chem.SDMolSupplier(str(source), removeHs=False))
         assert [m is None for m in parsed] == [False, True], "test premise"

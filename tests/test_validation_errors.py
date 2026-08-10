@@ -9,6 +9,7 @@ format. (check_sdf_format used to raise a bare ValueError here -- an
 asymmetry with check_smi_format's InputValidationError for the same defect,
 fixed as part of M26/M29.)
 """
+
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -28,7 +29,7 @@ class TestCheckSmiFormatErrors:
         # Create file with only SMILES, no ID
         content = "CCO\n"  # Only SMILES, no ID
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             f.write(content)
             f.flush()
 
@@ -46,7 +47,7 @@ class TestCheckSmiFormatErrors:
         """Line with only whitespace after SMILES should raise InputValidationError."""
         content = "CCO   \n"  # SMILES with trailing whitespace only, no ID
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             f.write(content)
             f.flush()
 
@@ -64,7 +65,7 @@ class TestCheckSmiFormatErrors:
         """Empty/whitespace-only lines should be skipped without error."""
         content = "   \n\nCCO ethanol\n  \n"  # Empty lines + valid line
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             f.write(content)
             f.flush()
 
@@ -83,7 +84,7 @@ class TestCheckSmiFormatErrors:
         """Valid SMI format should not raise any error."""
         content = "CCO ethanol\nCCC propane\n"
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             f.write(content)
             f.flush()
 
@@ -107,7 +108,7 @@ class TestCheckSmiFormatErrors:
         """
         content = "CCO ethanol extra_info more_data\n"
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.smi', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smi", delete=False) as f:
             f.write(content)
             f.flush()
 
@@ -134,7 +135,7 @@ class TestCheckSdfFormatErrors:
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sdf", delete=False) as f:
             writer = Chem.SDWriter(f.name)
             # Set empty name
             mol.SetProp("_Name", "")
@@ -155,7 +156,7 @@ class TestCheckSdfFormatErrors:
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sdf", delete=False) as f:
             writer = Chem.SDWriter(f.name)
             mol.SetProp("_Name", "ethanol")
             writer.write(mol)
@@ -179,7 +180,7 @@ class TestCheckSdfFormatErrors:
         mol2 = Chem.MolFromSmiles("CCC")
         mol2 = Chem.AddHs(mol2)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sdf", delete=False) as f:
             writer = Chem.SDWriter(f.name)
             mol1.SetProp("_Name", "ethanol")
             mol2.SetProp("_Name", "propane")

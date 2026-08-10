@@ -117,13 +117,15 @@ def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) 
             ``_exit_if_incomplete``.
     """
     if json_output:
-        emit_json({
-            "success": False,
-            "error": str(error),
-            "error_type": type(error).__name__,
-            "hint": get_error_hint(error) if isinstance(error, Auto3DError) else None,
-            "exit_code": exit_code_for(error),
-        })
+        emit_json(
+            {
+                "success": False,
+                "error": str(error),
+                "error_type": type(error).__name__,
+                "hint": get_error_hint(error) if isinstance(error, Auto3DError) else None,
+                "exit_code": exit_code_for(error),
+            }
+        )
 
     if isinstance(error, Auto3DError):
         error_type = type(error).__name__.replace("Error", " Error")
@@ -133,11 +135,13 @@ def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) 
         if hint:
             content += f"\n\n[dim]{hint}[/dim]"
 
-        error_console.print(Panel(
-            content,
-            title=f"[red]{error_type}[/red]",
-            border_style="red",
-        ))
+        error_console.print(
+            Panel(
+                content,
+                title=f"[red]{error_type}[/red]",
+                border_style="red",
+            )
+        )
     else:
         # Anything that isn't an Auto3DError is by definition unexpected --
         # an internal bug, not a recognized user-facing failure mode. Before
@@ -147,12 +151,14 @@ def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) 
         # the user has nothing to act on otherwise, and nothing worth
         # reporting in a bug (see get_error_hint's docstring for the
         # Auto3DError case, which already has a real hint).
-        error_console.print(Panel(
-            f"[red]{type(error).__name__}: {error}[/red]"
-            "\n\n[dim]Run with -v/--verbose for a full traceback.[/dim]",
-            title="[red]Unexpected Error[/red]",
-            border_style="red",
-        ))
+        error_console.print(
+            Panel(
+                f"[red]{type(error).__name__}: {error}[/red]"
+                "\n\n[dim]Run with -v/--verbose for a full traceback.[/dim]",
+                title="[red]Unexpected Error[/red]",
+                border_style="red",
+            )
+        )
 
     if verbose > 0:
         # A fixed, generous width avoids the traceback panel wrapping at
@@ -236,9 +242,11 @@ def handle_interrupt(
             "\n[dim]No output SDF is combined for an interrupted run.[/dim]"
         )
 
-    error_console.print(Panel(
-        "\n".join(lines),
-        title="[yellow]Interrupted[/yellow]",
-        border_style="yellow",
-    ))
+    error_console.print(
+        Panel(
+            "\n".join(lines),
+            title="[yellow]Interrupted[/yellow]",
+            border_style="yellow",
+        )
+    )
     raise SystemExit(EXIT_INTERRUPTED)

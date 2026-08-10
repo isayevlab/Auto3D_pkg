@@ -16,6 +16,7 @@ Two layers of coverage:
   works correctly in isolation but is never passed the CLI's verbosity would
   still pass the direct tests above and silently ship broken.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -31,6 +32,7 @@ runner = CliRunner()
 
 
 # --- direct handle_error tests: formatting contract --------------------------
+
 
 def test_auto3derror_verbose0_shows_message_and_hint_no_traceback(capsys):
     """The existing clean presentation for a known Auto3DError is the
@@ -70,6 +72,7 @@ def test_auto3derror_verbose1_shows_traceback(capsys):
 # "unknown" and the openeye/torchani/ase entries in its hints map were dead.
 # A test asserting only `pytest.raises(DependencyError)` would not catch that
 # regression -- these pin the actual hint text handle_error prints.
+
 
 def test_dependency_error_hint_pins_openeye_install(capsys):
     from Auto3D.exceptions import DependencyError
@@ -143,6 +146,7 @@ def test_unexpected_error_verbose1_traceback_identifies_origin(capsys):
     """Pinned scenario from the brief: an unexpected KeyError('ID') must, at
     verbose=1, produce something that identifies where it came from -- the
     failing function name and the file it lives in, not just the message."""
+
     def _raise_keyerror_id():
         d: dict = {}
         return d["ID"]
@@ -173,6 +177,7 @@ def test_handle_error_default_verbose_is_zero(capsys):
 
 # --- CliRunner: verbosity threads through each command's real wiring --------
 
+
 def _raise_keyerror_id(*args, **kwargs):
     raise KeyError("ID")
 
@@ -192,9 +197,7 @@ def test_run_verbose_flag_reaches_handle_error(tmp_path, monkeypatch):
     assert "Traceback" not in quiet.stderr
     assert "KeyError" in quiet.stderr
 
-    verbose = runner.invoke(
-        app, ["run", str(smi), "--k", "1", "--no-gpu", "--quiet", "-v"]
-    )
+    verbose = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", "--quiet", "-v"])
     assert verbose.exit_code == 1
     # Judgment call: error_console is stderr-bound, so the traceback must
     # never land on stdout -- Task 4 made --json stdout load-bearing for a
@@ -204,9 +207,7 @@ def test_run_verbose_flag_reaches_handle_error(tmp_path, monkeypatch):
     assert "_raise_keyerror_id" in verbose.stderr
 
 
-def test_run_json_stdout_stays_clean_on_unexpected_error_with_verbose(
-    tmp_path, monkeypatch
-):
+def test_run_json_stdout_stays_clean_on_unexpected_error_with_verbose(tmp_path, monkeypatch):
     """Same pin as above, specifically with --json: the traceback (stderr)
     must never contaminate the --json stdout stream."""
     import Auto3D.auto3D as a3d
@@ -324,9 +325,7 @@ def test_an_explicit_hint_replaces_the_class_hint(capsys):
     """A non-empty hint is shown instead of the class hint -- the mechanism is
     an override, not just a suppression switch."""
     with pytest.raises(SystemExit):
-        handle_error(
-            ConfigurationError("bad gpu index", hint="Try --no-gpu"), verbose=0
-        )
+        handle_error(ConfigurationError("bad gpu index", hint="Try --no-gpu"), verbose=0)
 
     err = _flat(capsys.readouterr().err)
     assert "Try --no-gpu" in err

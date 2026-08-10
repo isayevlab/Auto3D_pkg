@@ -12,6 +12,7 @@ Slow tier: uses the real aimnet2 registry model on CPU. NOT a module-level
 network) and must run in the fast tier, so every real-pipeline test in this
 module is marked `@pytest.mark.slow` individually instead.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -57,15 +58,10 @@ class TestInputOutputAccounting:
         # Na is outside AIMNet2's 14-element set and guaranteed to fail; the
         # other three are simple, well-behaved organics guaranteed to succeed.
         smi.write_text(
-            "CCO ethanol\n"
-            "CCCO propanol\n"
-            "c1ccccc1 benzene\n"
-            "[Na+].CC(=O)[O-] sodium_acetate\n"
+            "CCO ethanol\nCCCO propanol\nc1ccccc1 benzene\n[Na+].CC(=O)[O-] sodium_acetate\n"
         )
 
-        args = Auto3DOptions(
-            path=str(smi), k=1, use_gpu=False, max_confs=2, capacity=1, memory=1
-        )
+        args = Auto3DOptions(path=str(smi), k=1, use_gpu=False, max_confs=2, capacity=1, memory=1)
         out = main(args)
 
         produced = set()
@@ -119,10 +115,7 @@ class TestInputOutputAccounting:
         smi = job_dir / "mixed.smi"
         # Na is outside AIMNet2's 14-element set; the other three are fine.
         smi.write_text(
-            "CCO ethanol\n"
-            "CCCO propanol\n"
-            "[Na+].CC(=O)[O-] sodium_acetate\n"
-            "c1ccccc1 benzene\n"
+            "CCO ethanol\nCCCO propanol\n[Na+].CC(=O)[O-] sodium_acetate\nc1ccccc1 benzene\n"
         )
 
         args = Auto3DOptions(path=str(smi), k=1, use_gpu=False, max_confs=2)
@@ -167,8 +160,7 @@ class TestInputOutputAccounting:
 
         for good in ("ethanol", "propanol", "benzene"):
             assert good in produced, (
-                f"{good} was lost because an unrelated molecule failed; produced "
-                f"{sorted(produced)}"
+                f"{good} was lost because an unrelated molecule failed; produced {sorted(produced)}"
             )
 
 
@@ -215,9 +207,7 @@ class TestEnergyAndRankingSanity:
         """E_tot must be negative and ascending within a conformer group."""
         from Auto3D.auto3D import main
 
-        args = Auto3DOptions(
-            path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=4
-        )
+        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=4)
         out = main(args)
 
         groups: dict[str, list[float]] = {}
@@ -249,9 +239,7 @@ class TestEnergyAndRankingSanity:
         """
         from Auto3D.auto3D import main
 
-        args = Auto3DOptions(
-            path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=6
-        )
+        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=6)
         out = main(args)
 
         groups: dict[str, list[float]] = {}
@@ -328,19 +316,13 @@ class TestClashReliefWarning:
         def fake_relieve_clash(mol, conf_id):
             return mol.GetNumAtoms() != bad_atom_count
 
-        monkeypatch.setattr(
-            isomer_engine_mod, "relieve_clash", fake_relieve_clash
-        )
+        monkeypatch.setattr(isomer_engine_mod, "relieve_clash", fake_relieve_clash)
 
         with caplog.at_level(logging.WARNING):
             out = engine.run()
 
-        warnings = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
-        clash_warnings = [
-            m for m in warnings if "produced no conformers after clash relief" in m
-        ]
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        clash_warnings = [m for m in warnings if "produced no conformers after clash relief" in m]
         assert len(clash_warnings) == 1, (
             f"expected exactly one clash-relief warning, got {clash_warnings}"
         )
@@ -352,9 +334,7 @@ class TestClashReliefWarning:
 
         # bad_mol is absent from the output entirely; good_mol made it through.
         produced = {
-            m.GetProp("_Name")
-            for m in Chem.SDMolSupplier(out, removeHs=False)
-            if m is not None
+            m.GetProp("_Name") for m in Chem.SDMolSupplier(out, removeHs=False) if m is not None
         }
         assert not any(name.startswith("bad_mol") for name in produced), produced
         assert any(name.startswith("good_mol") for name in produced), produced

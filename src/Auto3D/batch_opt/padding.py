@@ -6,6 +6,7 @@ for batch processing with neural network potentials. The functions replace
 the inefficient loop-based padding_coords and padding_species functions with
 vectorized PyTorch operations.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -67,29 +68,19 @@ def pad_from_mols(
 
     # Pre-allocate tensors with padding values
     coords_tensor = torch.full(
-        (batch_size, max_atoms, 3),
-        adapter.coord_pad,
-        dtype=torch.float32,
-        device=device
+        (batch_size, max_atoms, 3), adapter.coord_pad, dtype=torch.float32, device=device
     )
     species_tensor = torch.full(
-        (batch_size, max_atoms),
-        adapter.species_pad,
-        dtype=torch.long,
-        device=device
+        (batch_size, max_atoms), adapter.species_pad, dtype=torch.long, device=device
     )
-    atom_mask = torch.zeros(
-        (batch_size, max_atoms), dtype=torch.bool, device=device
-    )
+    atom_mask = torch.zeros((batch_size, max_atoms), dtype=torch.bool, device=device)
     charges = []
 
     # Fill in actual values - create tensors directly on target device
     for i, mol in enumerate(mols):
         n = mol.GetNumAtoms()
         conf = mol.GetConformer()
-        coords_tensor[i, :n] = torch.tensor(
-            conf.GetPositions(), dtype=torch.float32, device=device
-        )
+        coords_tensor[i, :n] = torch.tensor(conf.GetPositions(), dtype=torch.float32, device=device)
 
         spec = adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()])
         species_tensor[i, :n] = torch.tensor(spec, dtype=torch.long, device=device)

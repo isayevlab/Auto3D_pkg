@@ -1,5 +1,6 @@
 # tests/test_fire_optimizer.py
 """Unit tests for the FIRE optimizer module."""
+
 from __future__ import annotations
 
 import pytest
@@ -108,9 +109,7 @@ class TestFIREStep:
         """FIRE should move atoms in direction of forces (gradient descent)."""
         coord = torch.zeros(1, 3, 3)  # 1 molecule, 3 atoms
         # Forces pointing in positive x direction
-        forces = torch.tensor([[[1.0, 0.0, 0.0],
-                               [1.0, 0.0, 0.0],
-                               [1.0, 0.0, 0.0]]])
+        forces = torch.tensor([[[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]])
 
         optimizer = FIRE(coord)
         new_coord = optimizer(coord, forces)
@@ -146,7 +145,7 @@ class TestFIREStep:
         coord = torch.zeros(1, 2, 3)
         optimizer = FIRE(coord)
         optimizer.v = torch.full((1, 2, 3), 1e-10)  # finite v_norm
-        forces = torch.full((1, 2, 3), 1e-24)       # f^2 underflows to 0 in fp32
+        forces = torch.full((1, 2, 3), 1e-24)  # f^2 underflows to 0 in fp32
 
         # Precondition: this configuration really does trigger the degenerate
         # branch (progressing molecule with a zeroed force norm).
@@ -225,7 +224,6 @@ class TestFIREClean:
 
         assert optimizer.v.shape[0] == 3
         assert optimizer.Nsteps.shape[0] == 3
-
 
     def test_fire_clean_rejects_a_boolean_mask(self):
         """A boolean mask must fail loudly, because it would not fail otherwise.
@@ -421,7 +419,7 @@ class TestFIRETorchScript:
         # TorchScript classes have specific attributes
         # This test verifies the @torch.jit.script decorator worked
         assert callable(optimizer)
-        assert hasattr(optimizer, 'clean')
+        assert hasattr(optimizer, "clean")
 
     def test_fire_works_in_jit_context(self):
         """FIRE should work correctly when used in JIT-compiled code."""

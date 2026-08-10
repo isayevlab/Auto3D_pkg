@@ -157,7 +157,28 @@ jobs:
           python-version: "3.12"
       # ruff needs no dependencies installed; mypy does, so it runs in the
       # `test` job instead. See the note on that step.
+      # Pinned exactly, and matching the `dev` extra in pyproject.toml, because
+      # `ruff format --check` is a gate: ruff promotes formatting-style changes
+      # into its stable style across minor releases, with settings unchanged.
+      # An unpinned install turns any such release into a red build on whichever
+      # unrelated pull request happens to be open that day -- the same
+      # fails-on-luck failure mode the slow job's timeout comment describes.
+      #
+      # Bumping it is a deliberate act: raise both pins together, and if the new
+      # version reformats anything, that reformat is its own commit and its own
+      # `.git-blame-ignore-revs` entry.
       - name: Install tooling
-        run: pip install ruff
-      - name: ruff
+        run: pip install ruff==0.15.9
+      - name: ruff check
         run: ruff check src/Auto3D/ tests/
+
+      # CONTRIBUTING.md has told contributors to run `ruff format src/ tests/`
+      # since long before anything checked. Nothing did, so the tree drifted
+      # until the documented command produced a 169-file diff -- at which point
+      # nobody could follow the instruction on an ordinary pull request, and the
+      # drift compounded. The gate is the half that makes the instruction true.
+      #
+      # Unlike the mypy step, this one does NOT end in `|| true`. It starts from
+      # zero and the fix is one command, so there is no debt to grandfather.
+      - name: ruff format
+        run: ruff format --check src/ tests/

@@ -18,6 +18,7 @@ invented the name. Every gate is keyword-only, and every one is asserted in both
 directions -- a gate that refused legitimate writes would satisfy the "refuses"
 half of each pair and break the pipeline.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -82,9 +83,7 @@ class TestSelectTautomers:
         out = select_tautomers(sdf, k=1)
 
         assert out == str(tmp_path / "results_top_tautomers.sdf")
-        assert len(
-            [m for m in Chem.SDMolSupplier(out, removeHs=False) if m is not None]
-        ) == 1
+        assert len([m for m in Chem.SDMolSupplier(out, removeHs=False) if m is not None]) == 1
 
     def test_overwrite_true_replaces_it(self, tmp_path):
         """Inverse: the gate is a consent gate the caller can lift."""
@@ -129,9 +128,7 @@ class TestDecodeIds:
         out = decode_ids(sdf, {"mol_a": 0})
 
         assert out == str(tmp_path / "mols_out.sdf")
-        written = [
-            m for m in Chem.SDMolSupplier(out, removeHs=False) if m is not None
-        ]
+        written = [m for m in Chem.SDMolSupplier(out, removeHs=False) if m is not None]
         assert [m.GetProp("_Name") for m in written] == ["mol_a"]
 
     def test_overwrite_true_replaces_it(self, tmp_path):
@@ -240,27 +237,21 @@ class TestTheGateRefusesBeforeDoingTheWork:
     it. The check must come first.
     """
 
-    def test_select_tautomers_checks_before_reading_the_input(
-        self, tmp_path, monkeypatch
-    ):
+    def test_select_tautomers_checks_before_reading_the_input(self, tmp_path, monkeypatch):
         import Auto3D.tautomer as tautomer
 
         sdf = _tautomer_sdf(tmp_path / "results.sdf")
         (tmp_path / "results_top_tautomers.sdf").write_bytes(PRECIOUS)
 
         def _never(*args, **kwargs):
-            raise AssertionError(
-                "select_tautomers read its input before checking the output path"
-            )
+            raise AssertionError("select_tautomers read its input before checking the output path")
 
         monkeypatch.setattr(tautomer.Chem, "SDMolSupplier", _never)
 
         with pytest.raises(ConfigurationError, match="already exists"):
             select_tautomers(sdf, k=1)
 
-    def test_neither_k_nor_window_is_refused_before_reading_the_input(
-        self, tmp_path, monkeypatch
-    ):
+    def test_neither_k_nor_window_is_refused_before_reading_the_input(self, tmp_path, monkeypatch):
         """The docstring promises a raise when neither selector is given.
 
         It used to live inside the ``groupby("id")`` loop, so it could only fire
@@ -273,9 +264,7 @@ class TestTheGateRefusesBeforeDoingTheWork:
         sdf = _tautomer_sdf(tmp_path / "results.sdf")
 
         def _never(*args, **kwargs):
-            raise AssertionError(
-                "select_tautomers read its input before validating its arguments"
-            )
+            raise AssertionError("select_tautomers read its input before validating its arguments")
 
         monkeypatch.setattr(tautomer.Chem, "SDMolSupplier", _never)
 

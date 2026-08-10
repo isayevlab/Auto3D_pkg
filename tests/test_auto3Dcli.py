@@ -18,6 +18,7 @@ pins that directly: it is a distinct case from the four already covered
 unknown key is a well-formed *mapping* that only pydantic's ``extra="forbid"``
 rejects.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -16,6 +16,7 @@ scattered force on the dummy atom must be nonzero. No neural network potential
 is loaded -- ``AIMNet2Calculator`` is replaced by a recording stub and the
 adapter is built without its ``__init__``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,11 +26,13 @@ from torch import nn
 from Auto3D.batch_opt.padding import pad_from_mols
 from tests.helpers_adapter import FakeAdapter
 
+
 # Stands in for AIMNet2's padding convention (raw atomic numbers, species_pad=0)
 # without loading anything. `pad_from_mols` reads the species convention AND both
 # fill values off this one object, so they cannot disagree (audit C3/C4).
 def _aimnet_padding():
     return FakeAdapter(coord_pad=0.0, species_pad=0)
+
 
 from Auto3D.models.adapter import AIMNet2Adapter
 
@@ -138,8 +141,8 @@ class TestRealPaddingIsStillExcluded:
     """The mask must still drop genuine padded slots (AIMNet2 NaNs on them)."""
 
     def test_padded_slots_are_dropped_and_get_zero_force(self):
-        big = _embed("*CCO", "rgroup")   # 9 atoms
-        small = _embed("O", "water")     # 3 atoms
+        big = _embed("*CCO", "rgroup")  # 9 atoms
+        small = _embed("O", "water")  # 3 atoms
         coords, species, charges, atom_mask = pad_from_mols(
             [big, small], _aimnet_padding(), torch.device("cpu")
         )
@@ -163,9 +166,7 @@ class TestUnpaddedCallersNeedNoMask:
 
     def test_no_mask_treats_every_slot_as_real(self):
         mol = _embed("*CCO", "rgroup")
-        coords, species, charges, _ = pad_from_mols(
-            [mol], _aimnet_padding(), torch.device("cpu")
-        )
+        coords, species, charges, _ = pad_from_mols([mol], _aimnet_padding(), torch.device("cpu"))
         calc = _RecordingCalculator()
         energy, _ = _stub_adapter(calc).forward(coords, species, charges)
         assert calc.numbers.numel() == 9

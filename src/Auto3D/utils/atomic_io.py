@@ -19,6 +19,7 @@ duty, and matters on Windows: ``os.replace`` refuses a destination another open
 handle holds (``PermissionError``/``WinError 5``), and an RDKit
 ``SDMolSupplier`` on the target is exactly such a handle.
 """
+
 from __future__ import annotations
 
 import os

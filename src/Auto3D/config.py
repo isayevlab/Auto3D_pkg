@@ -175,13 +175,9 @@ def check_field_bounds(values: dict) -> None:
             # exception the CLI's `handle_error` treats as an "Unexpected
             # Error" (exit code 1, no hint) instead of a configuration
             # problem (exit code 2, "run auto3d config init").
-            raise ConfigurationError(
-                f"{name} must be a number, got {value!r}"
-            ) from exc
+            raise ConfigurationError(f"{name} must be a number, got {value!r}") from exc
         if not in_bounds:
-            raise ConfigurationError(
-                f"{name} must be {symbol} {limit}, got {value!r}"
-            )
+            raise ConfigurationError(f"{name} must be {symbol} {limit}, got {value!r}")
     check_selectors_mutually_exclusive(values)
 
 
@@ -250,14 +246,10 @@ def check_engine_choices(values: dict) -> None:
         value = values[name]
         if isinstance(value, str) and value.lower() in choices:
             continue
-        raise ConfigurationError(
-            f"{name} must be one of {', '.join(choices)}, got {value!r}"
-        )
+        raise ConfigurationError(f"{name} must be one of {', '.join(choices)}, got {value!r}")
 
 
-def optimizer_worker_indices(
-    use_gpu: bool, gpu_idx: "int | list[int]"
-) -> list[int]:
+def optimizer_worker_indices(use_gpu: bool, gpu_idx: "int | list[int]") -> list[int]:
     """Return the per-process indices for the optimizer worker pool.
 
     One worker per GPU when running on GPU with a list of indices; a single

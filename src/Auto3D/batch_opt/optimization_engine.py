@@ -35,6 +35,7 @@ more molecules reduced their force in the same step (with exactly one, the value
 had ``numel() == 1``, hit ATen's ``masked_fill_`` fast path and silently cast,
 so the crash was batch-size dependent).
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -63,9 +64,9 @@ def _validate_state(state: dict[str, Any]) -> None:
     Raises:
         ValueError: If tensor shapes are invalid.
     """
-    coord = state['coord']
-    numbers = state['numbers']
-    charges = state['charges']
+    coord = state["coord"]
+    numbers = state["numbers"]
+    charges = state["charges"]
 
     if len(coord.shape) != 3:
         raise ValueError(
@@ -76,9 +77,7 @@ def _validate_state(state: dict[str, Any]) -> None:
             f"numbers must be 2D tensor (batch, atoms), got shape {tuple(numbers.shape)}"
         )
     if len(charges.shape) != 1:
-        raise ValueError(
-            f"charges must be 1D tensor (batch,), got shape {tuple(charges.shape)}"
-        )
+        raise ValueError(f"charges must be 1D tensor (batch,), got shape {tuple(charges.shape)}")
 
 
 def optimization_counts(state: dict[str, Any], patience: int) -> tuple[int, int, int, int]:
@@ -88,9 +87,9 @@ def optimization_counts(state: dict[str, Any], patience: int) -> tuple[int, int,
     number still being optimized. Performs a small host-device sync (sum of two
     boolean masks), so callers gate how often they invoke it.
     """
-    num_total = int(state['numbers'].size()[0])
-    num_converged_dropped = int(torch.sum(state['converged_mask']).to('cpu'))
-    num_dropped = int(torch.sum(state['oscillating_count'].to('cpu') >= patience))
+    num_total = int(state["numbers"].size()[0])
+    num_converged_dropped = int(torch.sum(state["converged_mask"]).to("cpu"))
+    num_dropped = int(torch.sum(state["oscillating_count"].to("cpu") >= patience))
     num_converged = num_converged_dropped - num_dropped
     num_active = num_total - num_converged_dropped
     return num_total, num_converged, num_dropped, num_active
@@ -110,8 +109,10 @@ def print_stats(state: dict[str, Any], patience: int) -> None:
         patience: Number of steps without force decrease before dropping a structure.
     """
     num_total, num_converged, num_dropped, num_active = optimization_counts(state, patience)
-    logger.info("Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i" %
-          (num_total, num_converged, num_dropped, num_active))
+    logger.info(
+        "Total 3D structures: %i  Converged: %i   Dropped(Oscillating): %i    Active: %i"
+        % (num_total, num_converged, num_dropped, num_active)
+    )
 
 
 def _emit_progress(
@@ -138,8 +139,15 @@ def _emit_progress(
         return
     try:
         total, converged, dropped, active = optimization_counts(state, patience)
-        progress_cb({"step": istep, "total": total, "converged": converged,
-                     "dropped": dropped, "active": active})
+        progress_cb(
+            {
+                "step": istep,
+                "total": total,
+                "converged": converged,
+                "dropped": dropped,
+                "active": active,
+            }
+        )
     except Exception:
         pass
 
@@ -194,20 +202,22 @@ def _step_active_subset(
     Returns:
         A ``_StepResult`` aligned with ``active_idx``.
     """
-    coord = state['coord'].index_select(0, active_idx)
-    numbers = state['numbers'].index_select(0, active_idx)
-    charges = state['charges'].index_select(0, active_idx)
-    atom_mask_subset = state['atom_mask'].index_select(0, active_idx)
+    coord = state["coord"].index_select(0, active_idx)
+    numbers = state["numbers"].index_select(0, active_idx)
+    charges = state["charges"].index_select(0, active_idx)
+    atom_mask_subset = state["atom_mask"].index_select(0, active_idx)
     smallest_fmax = smallest_fmax0.index_select(0, active_idx)
-    oscillating_count = state['oscillating_count'].index_select(0, active_idx)
+    oscillating_count = state["oscillating_count"].index_select(0, active_idx)
 
     coord.requires_grad_(True)
     # atom_mask goes to the model too, not just to the force reduction below:
     # an adapter that has to flatten a padded batch (AIMNet2) needs to know
     # which slots are real, and deriving that from a species sentinel is what
     # audit C13 forbids.
-    e, f = state['nn'].forward_batched(
-        coord, numbers, charges,
+    e, f = state["nn"].forward_batched(
+        coord,
+        numbers,
+        charges,
         atom_mask=atom_mask_subset,
     )  # Key step to calculate all energies and forces.
     coord.requires_grad_(False)
@@ -262,13 +272,16 @@ def _step_active_subset(
     # `_validate_outputs` should make NaN unreachable through the adapters, but
     # "should be unreachable" is not a reason to change semantics.
     fmax_col = fmax.reshape(-1, 1)
-    fmax_reduced = (fmax_col < smallest_fmax).reshape(-1, )
+    fmax_reduced = (fmax_col < smallest_fmax).reshape(
+        -1,
+    )
     smallest_fmax = torch.where(fmax_reduced.unsqueeze(-1), fmax_col, smallest_fmax)
     # Reduced -> reset to 0; not reduced -> increment. This is one `where` in
     # place of "zero the reduced entries, then add ~reduced", whose ordering was
     # load-bearing: a reduced molecule was zeroed and then incremented by False.
     oscillating_count = torch.where(
-        fmax_reduced, torch.zeros_like(oscillating_count), oscillating_count + 1)
+        fmax_reduced, torch.zeros_like(oscillating_count), oscillating_count + 1
+    )
     not_oscillating = oscillating_count < patience
 
     # Combine the convergence criteria. An `& ~energy_converged` term stood
@@ -315,18 +328,16 @@ def _scatter_back(
         result: The values returned by ``_step_active_subset``.
     """
     # Converged structures are excluded from every subsequent step.
-    state['converged_mask'].index_copy_(
-        0, active_idx, (~result.still_active).to(state['converged_mask'].dtype))
-    state['fmax'].index_copy_(
-        0, active_idx, result.fmax.to(state['fmax'].dtype))
-    state['energy'].index_copy_(
-        0, active_idx, result.energy.to(state['energy'].dtype))
-    state['coord'].index_copy_(
-        0, active_idx, result.coord.to(state['coord'].dtype))
-    smallest_fmax0.index_copy_(
-        0, active_idx, result.smallest_fmax.to(smallest_fmax0.dtype))
-    state['oscillating_count'].index_copy_(
-        0, active_idx, result.oscillating_count.to(state['oscillating_count'].dtype))
+    state["converged_mask"].index_copy_(
+        0, active_idx, (~result.still_active).to(state["converged_mask"].dtype)
+    )
+    state["fmax"].index_copy_(0, active_idx, result.fmax.to(state["fmax"].dtype))
+    state["energy"].index_copy_(0, active_idx, result.energy.to(state["energy"].dtype))
+    state["coord"].index_copy_(0, active_idx, result.coord.to(state["coord"].dtype))
+    smallest_fmax0.index_copy_(0, active_idx, result.smallest_fmax.to(smallest_fmax0.dtype))
+    state["oscillating_count"].index_copy_(
+        0, active_idx, result.oscillating_count.to(state["oscillating_count"].dtype)
+    )
 
 
 def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
@@ -342,17 +353,19 @@ def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
     Args:
         state: Optimization state dictionary, mutated in place.
     """
-    final_coord = state['coord'].detach().clone().requires_grad_(True)
-    e_final, f_final = state['nn'].forward_batched(
-        final_coord, state['numbers'], state['charges'],
-        atom_mask=state['atom_mask'],
+    final_coord = state["coord"].detach().clone().requires_grad_(True)
+    e_final, f_final = state["nn"].forward_batched(
+        final_coord,
+        state["numbers"],
+        state["charges"],
+        atom_mask=state["atom_mask"],
     )
-    state['energy'] = e_final.detach().to(state['energy'].dtype)
+    state["energy"] = e_final.detach().to(state["energy"].dtype)
     # Zero padded-atom force slots before the reduction, matching the in-loop
     # convergence check, so reported fmax is independent of how the model treats
     # ghost atoms. atom_mask is True for real atoms (audit C13).
-    f_final = f_final.detach().masked_fill(~state['atom_mask'].unsqueeze(-1), 0.0)
-    state['fmax'] = f_final.norm(dim=-1).max(dim=-1)[0].to(state['fmax'].dtype)
+    f_final = f_final.detach().masked_fill(~state["atom_mask"].unsqueeze(-1), 0.0)
+    state["fmax"] = f_final.norm(dim=-1).max(dim=-1)[0].to(state["fmax"].dtype)
 
 
 def n_steps(
@@ -410,12 +423,12 @@ def n_steps(
         progress_cb: Optional callback invoked every 10 steps and once at the
             end with a dict of step/total/converged/dropped/active counts.
     """
-    numbers = state['numbers']
-    coord = state['coord']
+    numbers = state["numbers"]
+    coord = state["coord"]
 
     if atom_mask is None:
         atom_mask = torch.ones_like(numbers, dtype=torch.bool)
-    state['atom_mask'] = atom_mask
+    state["atom_mask"] = atom_mask
 
     # Validate input state tensors before processing
     _validate_state(state)
@@ -423,13 +436,13 @@ def n_steps(
     optimizer = FIRE(coord)
 
     # The following two terms are used to detect oscillating conformers
-    smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999,
-                                  dtype=torch.float).to(coord.device)
+    smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999, dtype=torch.float).to(
+        coord.device
+    )
     # Integer step counter: only ever compared to `patience` and reset to zero,
     # so use torch.long rather than float for a quantity that is conceptually
     # an integer count.
-    state["oscillating_count"] = torch.zeros(len(coord), dtype=torch.long,
-                                             device=coord.device)
+    state["oscillating_count"] = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
 
     istep = 0  # Initialize in case loop doesn't execute (n=0)
     # Plain range, not tqdm. A bar over `range(1, n+1)` measures the *step
@@ -442,7 +455,7 @@ def n_steps(
     # by the `progress_cb` events below, both of which carry converged/active/
     # dropped counts rather than a step ratio.
     for istep in range(1, n + 1):
-        not_converged = ~ state['converged_mask']  # Essential tracker handle, size fixed
+        not_converged = ~state["converged_mask"]  # Essential tracker handle, size fixed
         # Stop optimization if all structures converged. The all-converged check
         # `not not_converged.any()` forces a GPU->CPU sync, so throttle it to
         # every 10 steps. `not_converged` itself is still recomputed every step
@@ -464,8 +477,7 @@ def n_steps(
         if active_idx.numel() == 0:
             break
 
-        result = _step_active_subset(
-            state, optimizer, active_idx, smallest_fmax0, opttol, patience)
+        result = _step_active_subset(state, optimizer, active_idx, smallest_fmax0, opttol, patience)
         _scatter_back(state, active_idx, smallest_fmax0, result)
 
         # Print stats every 10% of steps (avoid division by zero for small n)

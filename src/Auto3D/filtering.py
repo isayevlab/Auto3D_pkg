@@ -17,6 +17,7 @@ species whose conformers were all dropped for *stereochemistry* -- a message
 that sent the reader to the optimizer settings for a problem in the input's
 stereo definitions.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -101,8 +102,7 @@ class FilterResult:
         unknown = sorted(set(self.dropped) - set(DROP_REASONS))
         if unknown:
             raise ValueError(
-                f"unknown filter drop reason(s) {unknown}; expected one of "
-                f"{list(DROP_REASONS)}"
+                f"unknown filter drop reason(s) {unknown}; expected one of {list(DROP_REASONS)}"
             )
 
     @property
@@ -117,8 +117,7 @@ class FilterResult:
         truth rather than special-casing a placeholder.
         """
         return ", ".join(
-            f"{self.dropped[reason]} {_REASON_PHRASES[reason]}"
-            for reason in self.reasons
+            f"{self.dropped[reason]} {_REASON_PHRASES[reason]}" for reason in self.reasons
         )
 
 
@@ -367,9 +366,7 @@ def _filter_within_cluster(
             # Heavy-atom RMSD alone collapses distinct H-rotamers; require the
             # energies to also agree before declaring a duplicate. Missing/NaN
             # energy => fall back to RMSD-only (energy guard cannot apply).
-            energy_close = (
-                e_i is None or e_j is None or abs(e_i - e_j) < energy_tol
-            )
+            energy_close = e_i is None or e_j is None or abs(e_i - e_j) < energy_tol
             if rmsd < rmsd_threshold and energy_close:
                 is_unique = False
                 break
@@ -392,4 +389,3 @@ def _mol_energy(mol: Chem.Mol) -> float | None:
     comparison.
     """
     return try_e_tot_ev(mol)
-

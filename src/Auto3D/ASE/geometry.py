@@ -2,6 +2,7 @@
 """
 Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 """
+
 from __future__ import annotations
 
 import os
@@ -221,8 +222,7 @@ def opt_geometry(
     # `Auto3D.workflow_workers.optim_rank_wrapper` about why construction must
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
-    opt_engine = optimizing(path, outpath, adapter=adapter, device=device,
-                            config=opt_config)
+    opt_engine = optimizing(path, outpath, adapter=adapter, device=device, config=opt_config)
     opt_engine.run()
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds
@@ -230,5 +230,3 @@ def opt_geometry(
     # cannot destroy the completed optimization (C14)
     _annotate_and_rewrite(outpath)
     return outpath
-
-

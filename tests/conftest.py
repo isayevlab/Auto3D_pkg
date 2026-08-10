@@ -3,6 +3,7 @@
 This module provides session-scoped fixtures for expensive resources like
 neural network models, avoiding redundant loading across tests.
 """
+
 from __future__ import annotations
 
 import sys
@@ -28,6 +29,7 @@ def device():
 def aimnet_model(device):
     """Load AIMNET model once for all tests."""
     from Auto3D.model_factory import create_model
+
     return create_model("AIMNET", device)
 
 
@@ -36,6 +38,7 @@ def ani2x_model(device):
     """Load ANI2x model once for all tests."""
     pytest.importorskip("torchani")
     from Auto3D.model_factory import create_model
+
     return create_model("ANI2x", device)
 
 
@@ -43,6 +46,7 @@ def ani2x_model(device):
 def ani2xt_model(device):
     """Load ANI2xt model once for all tests."""
     from Auto3D.model_factory import create_model
+
     return create_model("ANI2xt", device)
 
 
@@ -228,9 +232,7 @@ def _fail_on_auto3d_state_a_test_leaves_behind(request):
                 continue
             if not _is_defined_in_the_test_tree(value):
                 continue
-            leaked.append(
-                f"{name}.{attr} = {value!r}\n      defined in {_defining_file(value)}"
-            )
+            leaked.append(f"{name}.{attr} = {value!r}\n      defined in {_defining_file(value)}")
             if attr in original_attrs:
                 setattr(module, attr, original_attrs[attr])
             else:
@@ -242,8 +244,7 @@ def _fail_on_auto3d_state_a_test_leaves_behind(request):
         "test leaves behind is inherited by whatever runs next, so without "
         "this check the failure surfaces somewhere else entirely. Patch the "
         "module that *reads* a name rather than the one that defines it, and "
-        "restore anything removed from sys.modules:\n    "
-        + "\n    ".join(leaked)
+        "restore anything removed from sys.modules:\n    " + "\n    ".join(leaked)
     )
 
 

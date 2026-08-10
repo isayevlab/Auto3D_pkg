@@ -1,5 +1,6 @@
 # tests/test_padding.py
 """Tests for vectorized padding module."""
+
 import pytest
 import torch
 from rdkit import Chem
@@ -98,7 +99,7 @@ class TestPadFromMols:
 
         c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
-        assert q[0].item() == 0   # Methane is neutral
+        assert q[0].item() == 0  # Methane is neutral
         assert q[1].item() == -1  # Hydroxide has -1 charge
 
     def test_charges_are_float(self):
@@ -125,9 +126,10 @@ class TestPadFromMols:
         expected_positions = conf.GetPositions()
 
         # Compare coordinates (detach since c requires grad)
-        actual_positions = c[0, :mol.GetNumAtoms()].detach().numpy()
+        actual_positions = c[0, : mol.GetNumAtoms()].detach().numpy()
 
         import numpy as np
+
         np.testing.assert_array_almost_equal(actual_positions, expected_positions)
 
     def test_requires_grad_enabled(self):
@@ -247,9 +249,7 @@ class TestThePadderCannotDisagreeWithTheAdapter:
         from tests.helpers_adapter import FakeAdapter
 
         # Deliberately not any real engine's convention: H -> 77, C -> 88, O -> 99.
-        adapter = FakeAdapter(
-            coord_pad=-5.5, species_pad=-42, species_map={1: 77, 6: 88, 8: 99}
-        )
+        adapter = FakeAdapter(coord_pad=-5.5, species_pad=-42, species_map={1: 77, 6: 88, 8: 99})
         coords, species, charges, mask = pad_from_mols(
             self._molecules(), adapter, torch.device("cpu")
         )

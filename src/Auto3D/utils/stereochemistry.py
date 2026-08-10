@@ -7,6 +7,7 @@ in molecular structures, including:
 - Stereo center enumeration and validation
 - Stereochemistry information extraction from SMILES
 """
+
 from __future__ import annotations
 
 import math
@@ -92,9 +93,7 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
         True
     """
     if len(l1) != len(l2):
-        raise ValueError(
-            f"Stereo center lists must have same length: {len(l1)} vs {len(l2)}"
-        )
+        raise ValueError(f"Stereo center lists must have same length: {len(l1)} vs {len(l2)}")
     # Two molecules with no stereo centers at all are not an enantiomeric pair:
     # they are either the same molecule or two unrelated achiral compounds. The
     # loop below cannot express that, because an empty loop leaves `indicator`
@@ -107,9 +106,7 @@ def enantiomer(l1: list[tuple[int, str]], l2: list[tuple[int, str]]) -> bool:
         idx1, stereo1 = tp1
         idx2, stereo2 = tp2
         if idx1 != idx2:
-            raise ValueError(
-                f"Stereo center indices must match: {idx1} vs {idx2} at position {i}"
-            )
+            raise ValueError(f"Stereo center indices must match: {idx1} vs {idx2} at position {i}")
         if stereo1 == stereo2:
             return False
     return True
@@ -312,9 +309,7 @@ def no_enantiomer_helper(info1: list[str], info2: list[str]) -> bool:
         ValueError: If info1 and info2 have different lengths.
     """
     if len(info1) != len(info2):
-        raise ValueError(
-            f"Stereo info lists must have same length: {len(info1)} vs {len(info2)}"
-        )
+        raise ValueError(f"Stereo info lists must have same length: {len(info1)} vs {len(info2)}")
     for i in range(len(info1)):
         if info1[i].strip() == info2[i].strip():
             return False
@@ -537,9 +532,7 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
                 # ValueError: from create_enantiomer or enumeration validation
                 # KeyError: from stereo_info dictionary access
                 # IndexError: from list indexing in create_enantiomer
-                logger.debug(
-                    f"Stereo enumeration failed for {key}: {type(e).__name__}: {e}"
-                )
+                logger.debug(f"Stereo enumeration failed for {key}: {type(e).__name__}: {e}")
                 logger.warning(f"Stereo centers for {key} are not fully enumerated.")
     return dct
 

@@ -3,6 +3,7 @@
 This module provides a simple logging setup that can be configured
 via the verbose parameter in Auto3D options.
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,6 +62,6 @@ def configure_logging(verbose: bool = False) -> None:
         handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(level)
         # Simple format - just the message (like print)
-        formatter = logging.Formatter('%(message)s')
+        formatter = logging.Formatter("%(message)s")
         handler.setFormatter(formatter)
         auto3d_logger.addHandler(handler)

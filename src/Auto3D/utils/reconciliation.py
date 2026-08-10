@@ -7,6 +7,7 @@ molecules than its input contained and still exits 0 is the defect these
 helpers exist to prevent, so both of them report a record they could not even
 parse rather than skipping it.
 """
+
 from __future__ import annotations
 
 from rdkit import Chem

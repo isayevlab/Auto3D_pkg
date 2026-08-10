@@ -54,6 +54,7 @@ the second bullet above gives for ``AIMNet2Calculator``: ``preflight_model``
 does ``from aimnet.calculators.model_registry import get_registry_model_path``
 INSIDE the function, so the module attribute is what a monkeypatch must target.
 """
+
 from __future__ import annotations
 
 import os
@@ -73,9 +74,7 @@ class TestRegistryNameValidation:
 
     def test_unknown_registry_name_is_rejected_up_front(self, isolated_input):
         """--engine aimnet2-2025x must fail validation and name valid options."""
-        args = Auto3DOptions(
-            path=isolated_input("smiles2.smi"), k=1, use_gpu=False
-        )
+        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, use_gpu=False)
         args.optimizing_engine = "aimnet2-2025x"
 
         orchestrator = WorkflowOrchestrator(args)
@@ -329,9 +328,7 @@ class TestNamedEngineNotHijackedByCwdFile:
     is enough, since this is all offline path/dict logic.
     """
 
-    def test_file_named_aimnet_in_cwd_still_resolves_to_the_registry(
-        self, tmp_path, monkeypatch
-    ):
+    def test_file_named_aimnet_in_cwd_still_resolves_to_the_registry(self, tmp_path, monkeypatch):
         from Auto3D.models.preflight import resolve_engine_name
 
         (tmp_path / "AIMNET").write_bytes(b"not a model")
@@ -339,9 +336,7 @@ class TestNamedEngineNotHijackedByCwdFile:
 
         assert resolve_engine_name("AIMNET") == "aimnet2-wb97m-d3_0"
 
-    def test_file_named_ani2x_in_cwd_still_resolves_to_the_builtin(
-        self, tmp_path, monkeypatch
-    ):
+    def test_file_named_ani2x_in_cwd_still_resolves_to_the_builtin(self, tmp_path, monkeypatch):
         from Auto3D.models.preflight import resolve_engine_name
 
         (tmp_path / "ANI2x").write_bytes(b"not a model")
@@ -349,9 +344,7 @@ class TestNamedEngineNotHijackedByCwdFile:
 
         assert resolve_engine_name("ANI2x") == "ANI2x"
 
-    def test_file_named_ani2xt_in_cwd_still_resolves_to_the_builtin(
-        self, tmp_path, monkeypatch
-    ):
+    def test_file_named_ani2xt_in_cwd_still_resolves_to_the_builtin(self, tmp_path, monkeypatch):
         from Auto3D.models.preflight import resolve_engine_name
 
         (tmp_path / "ANI2xt").write_bytes(b"not a model")
@@ -359,9 +352,7 @@ class TestNamedEngineNotHijackedByCwdFile:
 
         assert resolve_engine_name("ANI2xt") == "ANI2xt"
 
-    def test_unrelated_cwd_file_is_still_usable_as_a_custom_path(
-        self, tmp_path, monkeypatch
-    ):
+    def test_unrelated_cwd_file_is_still_usable_as_a_custom_path(self, tmp_path, monkeypatch):
         """The fix must not disable custom-NNP-by-path for names that are not
         reserved engine identifiers."""
         from Auto3D.models.preflight import resolve_engine_name

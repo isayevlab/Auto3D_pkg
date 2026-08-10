@@ -1,4 +1,5 @@
 """Tests for Auto3D.chunk_manager module."""
+
 from __future__ import annotations
 
 import shutil
@@ -206,9 +207,12 @@ class TestGpuFreeMemoryGb:
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
         recorded = {}
         monkeypatch.setattr(
-            subprocess, "run",
-            lambda cmd, **kw: (recorded.__setitem__("cmd", cmd),
-                               MagicMock(stdout="4096\n", returncode=0))[1],
+            subprocess,
+            "run",
+            lambda cmd, **kw: (
+                recorded.__setitem__("cmd", cmd),
+                MagicMock(stdout="4096\n", returncode=0),
+            )[1],
         )
 
         assert _gpu_free_memory_gb(1) == 4
@@ -238,8 +242,7 @@ class TestGpuFreeMemoryGb:
         monkeypatch.setattr(shutil, "which", lambda name: None)
 
         def fail_run(*a, **k):
-            raise AssertionError("subprocess.run must not be called when "
-                                  "nvidia-smi is not on PATH")
+            raise AssertionError("subprocess.run must not be called when nvidia-smi is not on PATH")
 
         monkeypatch.setattr(subprocess, "run", fail_run)
 
@@ -250,9 +253,7 @@ class TestGpuFreeMemoryGb:
         from Auto3D.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(
-            subprocess, "run", lambda *a, **k: MagicMock(stdout="not-a-number\n")
-        )
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: MagicMock(stdout="not-a-number\n"))
 
         assert _gpu_free_memory_gb(0) is None
 
@@ -300,9 +301,7 @@ class TestCalculateMemoryNeverTouchesCuda:
         # Exercise the real nvidia-smi code path (not the "missing binary"
         # short-circuit) without touching the real subprocess or torch.cuda.
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-        monkeypatch.setattr(
-            subprocess, "run", lambda *a, **k: MagicMock(stdout="8192\n")
-        )
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: MagicMock(stdout="8192\n"))
 
         config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=0)
         manager = ChunkManager(
@@ -316,9 +315,7 @@ class TestCalculateMemoryNeverTouchesCuda:
         memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
         assert memory_gb == 8
 
-    def test_gpu_path_falls_back_without_cuda_when_nvidia_smi_absent(
-        self, tmp_path, monkeypatch
-    ):
+    def test_gpu_path_falls_back_without_cuda_when_nvidia_smi_absent(self, tmp_path, monkeypatch):
         """No nvidia-smi -> a conservative default, still with no CUDA touch."""
         import torch
 
@@ -352,7 +349,10 @@ class TestScaledBatchsizeAtomsClamp:
         input_file.write_text("CCO ethanol\n")
 
         config = Auto3DOptions(
-            path=str(tmp_path / "test.smi"), k=1, use_gpu=True, gpu_idx=0,
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            use_gpu=True,
+            gpu_idx=0,
             batchsize_atoms=1024,
         )
         manager = ChunkManager(
@@ -376,7 +376,9 @@ class TestScaledBatchsizeAtomsClamp:
         input_file.write_text("CCO ethanol\n")
 
         config = Auto3DOptions(
-            path=str(tmp_path / "test.smi"), k=1, memory=1,
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            memory=1,
             batchsize_atoms=20_000,
         )
         manager = ChunkManager(
@@ -429,10 +431,12 @@ class TestCreateChunkFiles:
         )
 
         # Three molecules, one per chunk
-        df = pd.DataFrame({
-            0: ["CCO", "CCCO", "CCCCO"],
-            1: ["ethanol", "propanol", "butanol"],
-        })
+        df = pd.DataFrame(
+            {
+                0: ["CCO", "CCCO", "CCCCO"],
+                1: ["ethanol", "propanol", "butanol"],
+            }
+        )
         chunk_idxes = [[0], [1], [2]]
 
         chunk_info = manager._create_chunk_files(df, chunk_idxes, 3)
@@ -625,9 +629,7 @@ class TestRaggedSmiAndChunkSizeClamp:
         assert len(chunk_info) >= 1
         total_rows = 0
         for path, _ in chunk_info:
-            total_rows += sum(
-                1 for ln in Path(path).read_text().splitlines() if ln.strip()
-            )
+            total_rows += sum(1 for ln in Path(path).read_text().splitlines() if ln.strip())
         assert total_rows == 2
 
     def test_chunk_size_clamped_to_at_least_one(self, tmp_path):
@@ -677,9 +679,7 @@ class TestSmiParserCrossAgreement:
     catch the divergence.
     """
 
-    def test_prepare_chunks_agrees_with_iter_smi_records_on_well_formed_input(
-        self, tmp_path
-    ):
+    def test_prepare_chunks_agrees_with_iter_smi_records_on_well_formed_input(self, tmp_path):
         """Both parsers must extract the same (smiles, id) pairs, in the same
         order, from a well-formed encoded .smi file."""
         from Auto3D.utils.smi_io import iter_smi_records
@@ -699,9 +699,7 @@ class TestSmiParserCrossAgreement:
         # order, so the chunk file's content is directly comparable to
         # iter_smi_records' output order (round-robin distribution across
         # multiple chunks would otherwise reorder rows relative to the input).
-        config = Auto3DOptions(
-            path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000
-        )
+        config = Auto3DOptions(path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000)
         manager = ChunkManager(
             config=config,
             input_path=input_file,
@@ -719,9 +717,7 @@ class TestSmiParserCrossAgreement:
             for line in Path(chunk_path).read_text().splitlines()
             if line.strip()
         ]
-        iter_rows = [
-            (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))
-        ]
+        iter_rows = [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))]
 
         assert pandas_rows == rows
         assert iter_rows == rows
@@ -736,9 +732,7 @@ class TestSmiParserCrossAgreement:
         input_file = tmp_path / "test_encoded.smi"
         input_file.write_text("CCO 0 inline_comment_column\nCCCO 1\n")
 
-        config = Auto3DOptions(
-            path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000
-        )
+        config = Auto3DOptions(path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000)
         manager = ChunkManager(
             config=config,
             input_path=input_file,
@@ -755,9 +749,7 @@ class TestSmiParserCrossAgreement:
             for line in Path(chunk_path).read_text().splitlines()
             if line.strip()
         ]
-        iter_rows = [
-            (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))
-        ]
+        iter_rows = [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))]
 
         assert pandas_rows == iter_rows == [("CCO", "0"), ("CCCO", "1")]
 
@@ -780,9 +772,7 @@ class TestSmiParserCrossAgreement:
         input_file = tmp_path / "test_encoded.smi"
         input_file.write_text("CCO 0\n# 1 2\nCCCO 3\n")
 
-        config = Auto3DOptions(
-            path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000
-        )
+        config = Auto3DOptions(path=str(tmp_path / "test.smi"), k=1, memory=1, capacity=1000)
         manager = ChunkManager(
             config=config,
             input_path=input_file,
@@ -797,9 +787,7 @@ class TestSmiParserCrossAgreement:
             for line in Path(chunk_path).read_text().splitlines()
             if line.strip()
         ]
-        iter_rows = [
-            (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))
-        ]
+        iter_rows = [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))]
 
         # pandas reads the '#' line as data; iter_smi_records skips it.
         assert pandas_rows == [("CCO", "0"), ("#", "1"), ("CCCO", "3")]

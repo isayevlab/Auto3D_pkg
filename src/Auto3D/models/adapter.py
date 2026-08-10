@@ -11,6 +11,7 @@ else from Auto3D. There is exactly one deliberate back-edge into
 ``Auto3D.batch_opt`` (``ANI2xtAdapter.__init__``'s deferred ``ANI2xt`` import);
 see the comment there before moving it.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -431,8 +432,8 @@ class AIMNet2Adapter(BaseModelAdapter):
             mask = torch.ones((b, n), dtype=torch.bool, device=species.device)
         else:
             mask = atom_mask.to(device=species.device, dtype=torch.bool)
-        coord_flat = coords[mask]                              # (M, 3)
-        numbers_flat = species[mask]                           # (M,)
+        coord_flat = coords[mask]  # (M, 3)
+        numbers_flat = species[mask]  # (M,)
         mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]  # (M,)
 
         result = self._calc(
@@ -445,7 +446,7 @@ class AIMNet2Adapter(BaseModelAdapter):
             forces=True,
         )
         energy = result["energy"].reshape(-1).to(torch.double)  # (B,)
-        forces_flat = result["forces"].reshape(-1, 3)           # (M, 3)
+        forces_flat = result["forces"].reshape(-1, 3)  # (M, 3)
 
         forces = torch.zeros(b, n, 3, dtype=forces_flat.dtype, device=forces_flat.device)
         forces[mask] = forces_flat
@@ -487,6 +488,7 @@ class ANI2xtAdapter(BaseModelAdapter):
             element_indices,
             self_atomic_energies,
         )
+
         model = ANI2xt(device)
         num_elements = len(model.networks)
         energy_shifts = model.energy_shifts
@@ -565,10 +567,8 @@ class ANI2xtAdapter(BaseModelAdapter):
         if helper is None:
             return self.model(species, coords)
         elem_index = helper(species, self._num_elements)
-        self_energies = self._self_atomic_energies(
-            species, self._energy_shifts, self._num_elements)
-        return self.model(species, coords, elem_index=elem_index,
-                          self_energies=self_energies)
+        self_energies = self._self_atomic_energies(species, self._energy_shifts, self._num_elements)
+        return self.model(species, coords, elem_index=elem_index, self_energies=self_energies)
 
     def forward(
         self,
@@ -621,6 +621,7 @@ class ANI2xAdapter(BaseModelAdapter):
             compile_model: Whether to apply torch.compile() for optimization.
         """
         import torchani
+
         model = torchani.models.ANI2x(periodic_table_index=True).to(device)
         super().__init__(model, device, coord_pad=0.0, species_pad=-1, compile_model=compile_model)
 
@@ -746,8 +747,7 @@ class CustomModelAdapter(BaseModelAdapter):
                 stacklevel=2,
             )
         super().__init__(
-            model, device, model.coord_pad, model.species_pad,
-            compile_model=compile_custom
+            model, device, model.coord_pad, model.species_pad, compile_model=compile_custom
         )
 
     def energy(

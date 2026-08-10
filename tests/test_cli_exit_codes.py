@@ -26,6 +26,7 @@ Box constraints (see the task brief): no NNP is ever loaded and no model is
 ever downloaded. Every invocation below fails before model construction, or
 mocks the API function outright.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -53,6 +54,7 @@ def _flat(text: str) -> str:
 
 # --- 0: success --------------------------------------------------------------
 
+
 def test_exit_0_clean_validate(tmp_path):
     smi = tmp_path / "ok.smi"
     smi.write_text("CCO ethanol\nCCC propane\n")
@@ -64,6 +66,7 @@ def test_exit_0_clean_validate(tmp_path):
 
 
 # --- 1: generic / unexpected error -------------------------------------------
+
 
 def test_exit_1_unexpected_internal_failure(tmp_path):
     """A non-``Auto3DError`` keeps the generic code.
@@ -106,6 +109,7 @@ def test_exit_1_panel_promise_of_verbose_traceback_is_real(tmp_path):
 
 
 # --- 2: configuration / input-validation error -------------------------------
+
 
 def test_exit_2_config_validate_agrees_with_the_run_it_predicts(tmp_path):
     """The headline defect: the same file, two codes.
@@ -225,6 +229,7 @@ def test_exit_2_click_usage_error(tmp_path):
 
 # --- 3: missing optional dependency ------------------------------------------
 
+
 def _hide_torchani(monkeypatch):
     """Make ``import torchani`` fail exactly as an uninstalled package does.
 
@@ -320,8 +325,9 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
     import Auto3D.model_factory as mf
 
     def _broken_adapter(device, compile_model=False):
-        raise ModuleNotFoundError("No module named 'some_transitive_dep'",
-                                  name="some_transitive_dep")
+        raise ModuleNotFoundError(
+            "No module named 'some_transitive_dep'", name="some_transitive_dep"
+        )
 
     monkeypatch.setitem(mf.ModelFactory._adapters, "ANI2X", _broken_adapter)
     monkeypatch.setattr(mf.ModelFactory, "_cache", {})
@@ -450,6 +456,7 @@ class TestGetDeviceBoundsCheck:
 
 # --- 5: model error ----------------------------------------------------------
 
+
 def test_exit_5_unloadable_custom_model(tmp_path):
     """A custom NNP path that is not a loadable model.
 
@@ -478,12 +485,8 @@ def test_exit_5_non_finite_model_output(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr(
-        "Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu")
-    )
-    monkeypatch.setattr(
-        "Auto3D.model_factory.create_model", lambda *a, **k: _NanAdapter()
-    )
+    monkeypatch.setattr("Auto3D.model_factory.get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr("Auto3D.model_factory.create_model", lambda *a, **k: _NanAdapter())
 
     result = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
 
@@ -492,6 +495,7 @@ def test_exit_5_non_finite_model_output(monkeypatch):
 
 
 # --- 6: partial success ------------------------------------------------------
+
 
 def test_exit_6_run_with_missing_molecules(tmp_path, monkeypatch):
     """``run`` completed, but an input molecule produced no output.
@@ -562,9 +566,7 @@ def test_exit_6_is_not_used_for_a_clean_run(tmp_path, monkeypatch):
     smi.write_text("CCO m1\n")
     out = tmp_path / "out.sdf"
 
-    monkeypatch.setattr(
-        a3d, "main", lambda options, **kw: WorkflowResult(str(out), failures=[])
-    )
+    monkeypatch.setattr(a3d, "main", lambda options, **kw: WorkflowResult(str(out), failures=[]))
 
     result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
 
@@ -572,6 +574,7 @@ def test_exit_6_is_not_used_for_a_clean_run(tmp_path, monkeypatch):
 
 
 # --- 130: interrupted --------------------------------------------------------
+
 
 def _squash(text: str) -> str:
     """Strip ANSI and box-drawing characters, then remove all whitespace.
@@ -622,8 +625,7 @@ def test_exit_130_ctrl_c_reports_how_far_the_run_got(tmp_path, monkeypatch):
     # `aimnet`/`warp` for a run that is stubbed out anyway.
     result = runner.invoke(
         app,
-        ["run", str(smi), "--k", "1", "--no-gpu", "--engine", "ANI2xt",
-         "--job-name", "kestrel"],
+        ["run", str(smi), "--k", "1", "--no-gpu", "--engine", "ANI2xt", "--job-name", "kestrel"],
     )
 
     assert result.exit_code == EXIT_INTERRUPTED, result.output
@@ -638,6 +640,7 @@ def test_exit_130_ctrl_c_reports_how_far_the_run_got(tmp_path, monkeypatch):
 
 
 # --- the table itself --------------------------------------------------------
+
 
 def test_documented_table_lists_exactly_the_codes_the_cli_can_emit():
     """``cli.rst`` must document every code and no phantom ones.
@@ -671,10 +674,7 @@ def test_documented_table_lists_exactly_the_codes_the_cli_can_emit():
     # `\d+`, not `\d`: a single-digit pattern silently stopped matching the row
     # for 130 rather than failing on it, which would have left the newest code
     # documented-but-unchecked -- the table drifting again, quietly.
-    documented = {
-        int(m) for m in re.findall(r"^\s+\* - ``(\d+)``$", section, re.MULTILINE)
-    }
+    documented = {int(m) for m in re.findall(r"^\s+\* - ``(\d+)``$", section, re.MULTILINE)}
     assert documented == expected, (
-        f"cli.rst documents exit codes {sorted(documented)} but the CLI emits "
-        f"{sorted(expected)}"
+        f"cli.rst documents exit codes {sorted(documented)} but the CLI emits {sorted(expected)}"
     )

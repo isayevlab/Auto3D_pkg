@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Tests for the single conformer filter (RMSD dedup with energy clustering)."""
+
 from __future__ import annotations
 
 import os
@@ -31,7 +32,7 @@ def _create_mol_with_energy(smiles: str, energy_ev: float, converged: bool = Tru
     mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, randomSeed=42)
     AllChem.MMFFOptimizeMolecule(mol)
-    mol.SetProp('Converged', 'true' if converged else 'false')
+    mol.SetProp("Converged", "true" if converged else "false")
     set_e_tot_from_ev(mol, energy_ev)
     return mol
 
@@ -50,9 +51,7 @@ class TestConvergenceFilterIsNotAnEraser:
         assert not mol.HasProp("Converged"), "test premise"
 
         result = filter_unique_optimized([mol], rmsd_threshold=0.3)
-        assert len(result) == 1, (
-            "a record that never claimed to be an optimizer output was deleted"
-        )
+        assert len(result) == 1, "a record that never claimed to be an optimizer output was deleted"
 
     def test_explicit_false_is_still_dropped(self):
         """Absence is not failure -- but a stated failure still is."""
@@ -117,9 +116,7 @@ class TestFilterWithinCluster:
         """A wide energy_tol collapses energy-distinct duplicates again."""
         mol1 = _create_mol_with_energy("C", -10.0)
         mol2 = _create_mol_with_energy("C", -10.5)
-        result = _filter_within_cluster(
-            [mol1, mol2], rmsd_threshold=0.5, energy_tol=1.0
-        )
+        result = _filter_within_cluster([mol1, mol2], rmsd_threshold=0.5, energy_tol=1.0)
         assert len(result) == 1
 
     def test_different_conformers_returns_both(self):
@@ -220,9 +217,7 @@ class TestDuplicatesCannotEscapeAcrossAnEnergyBoundary:
         energies = [base, base + 0.099999, base + 0.100001]
         mols = [_create_mol_with_energy("CCO", e) for e in energies]
 
-        result = filter_unique_optimized(
-            mols, rmsd_threshold=0.5, energy_cluster_window=0.1
-        )
+        result = filter_unique_optimized(mols, rmsd_threshold=0.5, energy_cluster_window=0.1)
 
         assert len(result) == 2, (
             "a duplicate pair 2e-6 eV apart survived because the two halves "
@@ -271,10 +266,7 @@ class TestFilterUniqueOptimized:
         mol_low = _create_mol_with_energy("CC", -15.0)
         mol_mid = _create_mol_with_energy("CCC", -10.0)
 
-        result = filter_unique_optimized(
-            [mol_high, mol_low, mol_mid],
-            rmsd_threshold=0.5
-        )
+        result = filter_unique_optimized([mol_high, mol_low, mol_mid], rmsd_threshold=0.5)
 
         from Auto3D.utils.energy import e_tot_ev
 
@@ -295,9 +287,7 @@ class TestFilterUniqueOptimized:
         mol3 = _create_mol_with_energy("CCO", -15.0)
 
         result = filter_unique_optimized(
-            [mol1, mol2, mol3],
-            rmsd_threshold=0.5,
-            energy_cluster_window=0.1
+            [mol1, mol2, mol3], rmsd_threshold=0.5, energy_cluster_window=0.1
         )
 
         # mol1 and mol2 are in the same cluster, identical geometry AND
@@ -317,7 +307,7 @@ class TestFilterUniqueOptimized:
         result = filter_unique_optimized(
             [mol1, mol2],
             rmsd_threshold=0.5,
-            energy_cluster_window=10.0  # one cluster
+            energy_cluster_window=10.0,  # one cluster
         )
 
         # Different energies => not duplicates, both kept.
@@ -331,7 +321,7 @@ class TestFilterUniqueOptimized:
         result = filter_unique_optimized(
             [mol1, mol2],
             rmsd_threshold=0.5,
-            energy_cluster_window=0.01  # Very small window
+            energy_cluster_window=0.01,  # Very small window
         )
 
         # Same molecule but in different energy clusters - both kept
@@ -385,9 +375,7 @@ class TestMissingEnergyPropertyMustNotCrash:
 
         mol_with_energy = _create_mol_with_energy("CC", -10.0)
 
-        result = filter_unique_optimized(
-            [mol_no_energy, mol_with_energy], rmsd_threshold=0.3
-        )
+        result = filter_unique_optimized([mol_no_energy, mol_with_energy], rmsd_threshold=0.3)
 
         # Correct behavior: no crash, and a mol with no usable energy simply
         # cannot be deduped by energy -- it must survive alongside the other.
@@ -401,9 +389,7 @@ class TestMissingEnergyPropertyMustNotCrash:
 
         mol_with_energy = _create_mol_with_energy("CC", -10.0)
 
-        result = filter_unique_optimized(
-            [mol_garbled, mol_with_energy], rmsd_threshold=0.3
-        )
+        result = filter_unique_optimized([mol_garbled, mol_with_energy], rmsd_threshold=0.3)
         assert len(result) == 2
 
     def test_an_energyless_record_sorts_last_whatever_the_real_energies_are(self):
@@ -428,9 +414,7 @@ class TestMissingEnergyPropertyMustNotCrash:
         positive = _create_mol_with_energy("CCCCCCO", +25.0)
         unknown = _energyless("CCCCO", seed=7)
 
-        result = filter_unique_optimized(
-            [unknown, positive, high, low], rmsd_threshold=0.3
-        )
+        result = filter_unique_optimized([unknown, positive, high, low], rmsd_threshold=0.3)
 
         assert len(result) == 4
         assert [Chem.MolToSmiles(Chem.RemoveHs(m)) for m in result] == [
@@ -502,6 +486,7 @@ class TestTheSurvivingFilterKeepsTheLegacyVerdicts:
 
         Both filters returned 3 for this input.
         """
+
         def conformer(seed: int, energy_ev: float) -> Chem.Mol:
             m = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))  # flexible chain
             AllChem.EmbedMolecule(m, randomSeed=seed)
@@ -515,11 +500,9 @@ class TestTheSurvivingFilterKeepsTheLegacyVerdicts:
         assert len(filter_unique_optimized(mols, rmsd_threshold=0.3)) == 3
         # A single cluster (huge window) must give the same answer -- that
         # equivalence is the whole justification for the energy partitioning.
-        assert len(
-            filter_unique_optimized(
-                mols, rmsd_threshold=0.3, energy_cluster_window=100.0
-            )
-        ) == 3
+        assert (
+            len(filter_unique_optimized(mols, rmsd_threshold=0.3, energy_cluster_window=100.0)) == 3
+        )
 
     def test_a_malformed_mixed_list_keeps_the_recorded_three(self):
         """The input the two filters used to DISAGREE about.
@@ -555,7 +538,7 @@ class TestTheSurvivingFilterKeepsTheLegacyVerdicts:
         """
         from rdkit.Chem import rdMolAlign
 
-        first = _create_mol_with_energy("CCCCCCCC", -100.0)   # octane
+        first = _create_mol_with_energy("CCCCCCCC", -100.0)  # octane
         second = Chem.Mol(first)
         AllChem.EmbedMolecule(second, randomSeed=99)
         AllChem.MMFFOptimizeMolecule(second)
@@ -594,9 +577,7 @@ class TestConvergencePropertyAbsenceFiltersLikeTrue:
     treating that as "did not converge" deleted every record.
     """
 
-    _SDF = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "files", "example.sdf"
-    )
+    _SDF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "example.sdf")
 
     def _mols(self) -> list[Chem.Mol]:
         supp = Chem.SDMolSupplier(self._SDF, removeHs=False)
@@ -692,6 +673,7 @@ def test_rmsd_failure_keeps_both(monkeypatch):
 
     def boom(*a, **k):
         raise RuntimeError("GetBestRMS failed")
+
     monkeypatch.setattr(rdMolAlign, "GetBestRMS", boom)
 
     cluster = [make("a", -1.0), make("b", -0.9)]
@@ -739,9 +721,7 @@ class TestTheFilterSaysWhyItDroppedThings:
         A result object that always carried a non-empty ``dropped`` would make
         every ranking message name a cause that did not happen.
         """
-        result = filter_conformers(
-            [_create_mol_with_energy("CCO", -100.0)], rmsd_threshold=0.3
-        )
+        result = filter_conformers([_create_mol_with_energy("CCO", -100.0)], rmsd_threshold=0.3)
         assert result.dropped == {}
         assert result.reasons == ()
         assert result.summary() == ""

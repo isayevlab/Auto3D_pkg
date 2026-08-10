@@ -10,6 +10,7 @@ molecule object immediately before and immediately after its coordinates are
 overwritten, so atom and bond indices match by construction and no atom
 mapping or reference SMILES is required.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -23,9 +24,7 @@ STEREO_CHANGED_PROP = "Stereo_changed"
 StereoDescriptors = tuple[tuple[tuple[int, str], ...], tuple[tuple[int, str], ...]]
 
 
-def stereo_descriptors_from_3d(
-    mol: Chem.Mol, conf_id: int = -1
-) -> StereoDescriptors:
+def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescriptors:
     """Perceive ``mol``'s stereochemistry from its 3D coordinates.
 
     Args:
@@ -67,16 +66,20 @@ def stereo_descriptors_from_3d(
     """
     work = Chem.Mol(mol)
     Chem.AssignStereochemistryFrom3D(work, confId=conf_id)
-    atoms = tuple(sorted(
-        (atom.GetIdx(), atom.GetProp("_CIPCode"))
-        for atom in work.GetAtoms()
-        if atom.HasProp("_CIPCode")
-    ))
-    bonds = tuple(sorted(
-        (bond.GetIdx(), str(bond.GetStereo()))
-        for bond in work.GetBonds()
-        if bond.GetStereo() != Chem.BondStereo.STEREONONE
-    ))
+    atoms = tuple(
+        sorted(
+            (atom.GetIdx(), atom.GetProp("_CIPCode"))
+            for atom in work.GetAtoms()
+            if atom.HasProp("_CIPCode")
+        )
+    )
+    bonds = tuple(
+        sorted(
+            (bond.GetIdx(), str(bond.GetStereo()))
+            for bond in work.GetBonds()
+            if bond.GetStereo() != Chem.BondStereo.STEREONONE
+        )
+    )
     return atoms, bonds
 
 
@@ -126,9 +129,7 @@ def species_key(mol: Chem.Mol) -> str:
     return Chem.MolToSmiles(probe)
 
 
-def apply_optimized_coords(
-    mol: Chem.Mol, coords: Sequence[Sequence[float]]
-) -> bool:
+def apply_optimized_coords(mol: Chem.Mol, coords: Sequence[Sequence[float]]) -> bool:
     """Write optimized coordinates into ``mol`` and record any stereo change.
 
     Reads the molecule's configuration from its current (pre-optimization)

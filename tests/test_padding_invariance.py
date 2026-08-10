@@ -8,6 +8,7 @@ being torchani's masked-atom sentinel. ``ANI2xt.forward`` in
 TorchANI's masked-atom convention) as depended-upon but not independently
 verified there. These tests verify it (audit M32, C13).
 """
+
 from __future__ import annotations
 
 import pytest

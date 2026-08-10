@@ -8,6 +8,7 @@ forces are chosen so the *exact* number of converged structures is known in
 advance -- which is the point, because the defect this file now pins is a
 progress report whose numbers did not correspond to any real work.
 """
+
 from __future__ import annotations
 
 import io
@@ -64,10 +65,12 @@ def test_display_single_job():
 
 def test_display_multi_job_aggregates():
     d = OptimizationDisplay(0)
-    d.update_from_jobs({
-        1: {"total": 5, "converged": 2, "dropped": 1, "active": 2, "step": 30},
-        2: {"total": 3, "converged": 3, "dropped": 0, "active": 0, "step": 50},
-    })
+    d.update_from_jobs(
+        {
+            1: {"total": 5, "converged": 2, "dropped": 1, "active": 2, "step": 30},
+            2: {"total": 3, "converged": 3, "dropped": 0, "active": 0, "step": 50},
+        }
+    )
     assert d.total == 8
     assert d.converged == 5
     assert d.dropped == 1
@@ -126,13 +129,15 @@ def _state_with_known_convergence():
     species 6 feels a force of 5.0, three orders of magnitude above ``opttol``,
     and it never decreases, so those two stay active for the whole run.
     """
-    numbers = torch.stack([
-        torch.full((3,), 1, dtype=torch.long),
-        torch.full((3,), 6, dtype=torch.long),
-        torch.full((3,), 1, dtype=torch.long),
-        torch.full((3,), 6, dtype=torch.long),
-        torch.full((3,), 1, dtype=torch.long),
-    ])
+    numbers = torch.stack(
+        [
+            torch.full((3,), 1, dtype=torch.long),
+            torch.full((3,), 6, dtype=torch.long),
+            torch.full((3,), 1, dtype=torch.long),
+            torch.full((3,), 6, dtype=torch.long),
+            torch.full((3,), 1, dtype=torch.long),
+        ]
+    )
     return {
         "numbers": numbers,
         "charges": torch.zeros(5, dtype=torch.long),
@@ -169,7 +174,10 @@ def test_reported_counts_equal_the_work_actually_done():
     assert events, "the optimizer emitted no progress events at all"
     for event in events:
         assert (event["total"], event["converged"], event["dropped"], event["active"]) == (
-            5, 3, 0, 2,
+            5,
+            3,
+            0,
+            2,
         ), f"event {event} does not describe the 5 structures actually optimized"
     assert events[-1]["step"] == 40
 
@@ -211,10 +219,14 @@ def test_the_panel_does_not_run_backwards_across_successive_batches():
     """
     display = OptimizationDisplay(0)
 
-    display.update_from_jobs({0: {"total": 4, "converged": 4, "dropped": 0, "active": 0, "step": 210}})
+    display.update_from_jobs(
+        {0: {"total": 4, "converged": 4, "dropped": 0, "active": 0, "step": 210}}
+    )
     finished_small_chunk = _render(display.make_panel())
 
-    display.update_from_jobs({0: {"total": 100, "converged": 2, "dropped": 0, "active": 98, "step": 10}})
+    display.update_from_jobs(
+        {0: {"total": 100, "converged": 2, "dropped": 0, "active": 98, "step": 10}}
+    )
     fresh_big_chunk = _render(display.make_panel())
 
     assert "%" not in finished_small_chunk

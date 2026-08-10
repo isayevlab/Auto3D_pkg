@@ -26,6 +26,7 @@ on convergence" -- the record is kept, and the other filters (connectivity,
 stereochemistry, RMSD, energy) still apply to it. An **explicit**
 ``Converged=False`` still means what it says and is still dropped.
 """
+
 from __future__ import annotations
 
 from rdkit import Chem

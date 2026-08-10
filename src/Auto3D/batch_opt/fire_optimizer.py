@@ -17,6 +17,7 @@ Example:
     >>> forces = torch.randn(10, 20, 3)
     >>> new_coord = optimizer(coord, forces)
 """
+
 from __future__ import annotations
 
 import torch
@@ -139,8 +140,7 @@ class FIRE:
 
         # a: same selection structure as dt.
         a_prog = torch.where(speedup, self.a * self.fa, self.a)
-        self.a = torch.where(progressing, a_prog,
-                             torch.full_like(self.a, self.astart))
+        self.a = torch.where(progressing, a_prog, torch.full_like(self.a, self.astart))
 
         # Nsteps:
         #   progressing & (all_progressing | past_nmin) -> Nsteps + 1
@@ -148,8 +148,7 @@ class FIRE:
         #   not progressing                             -> 0  (reset)
         nsteps_inc = progressing & (all_progressing | past_nmin)
         nsteps_prog = torch.where(nsteps_inc, self.Nsteps + 1, self.Nsteps)
-        self.Nsteps = torch.where(progressing, nsteps_prog,
-                                  torch.zeros_like(self.Nsteps))
+        self.Nsteps = torch.where(progressing, nsteps_prog, torch.zeros_like(self.Nsteps))
 
         # Velocity Verlet-like update
         dt = self.dt.unsqueeze(-1).unsqueeze(-1)

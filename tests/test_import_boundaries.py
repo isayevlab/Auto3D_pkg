@@ -45,6 +45,7 @@ test runs (see ``_import_every_auto3d_module_before_any_test``), so by the time
 any assertion here executes, ``sys.modules`` already holds torch, rdkit, and all
 of Auto3D. An in-process version of these tests would pass unconditionally.
 """
+
 from __future__ import annotations
 
 import ast
@@ -120,6 +121,7 @@ def bare_import():
 # Import cost
 # --------------------------------------------------------------------------- #
 
+
 def test_bare_import_does_not_load_torch_or_rdkit(bare_import):
     """The two heavyweight third-party dependencies stay unimported.
 
@@ -168,6 +170,7 @@ def test_bare_import_still_reports_a_version(bare_import):
 # Public surface: __dir__ (PEP 562)
 # --------------------------------------------------------------------------- #
 
+
 def test_dir_reports_the_public_api():
     """Every ``__all__`` name is visible to ``dir()`` and to tab-completion."""
     import Auto3D
@@ -193,14 +196,14 @@ def test_dir_does_not_leak_import_machinery(bare_import):
     leaked_here = sorted(n for n in LEAK_CANDIDATES if n in listed)
     assert not leaked_here, f"dir(Auto3D) leaks import machinery: {leaked_here}"
     assert not bare_import["reachable_leaks"], (
-        "package root exposes non-public attributes: "
-        f"{bare_import['reachable_leaks']}"
+        f"package root exposes non-public attributes: {bare_import['reachable_leaks']}"
     )
 
 
 # --------------------------------------------------------------------------- #
 # Public surface: _LAZY_API
 # --------------------------------------------------------------------------- #
+
 
 def test_lazy_api_is_a_bijection_with_all():
     """``_LAZY_API`` and ``__all__`` describe the same surface.
@@ -245,9 +248,7 @@ def test_getattr_does_not_cache_resolved_attributes():
 
     first = Auto3D.Auto3DOptions
     assert first is not None
-    assert "Auto3DOptions" not in vars(Auto3D), (
-        "__getattr__ cached into the module namespace"
-    )
+    assert "Auto3DOptions" not in vars(Auto3D), "__getattr__ cached into the module namespace"
 
     sentinel = object()
     module = importlib.import_module("Auto3D.config")
@@ -255,8 +256,7 @@ def test_getattr_does_not_cache_resolved_attributes():
     try:
         module.Auto3DOptions = sentinel
         assert Auto3D.Auto3DOptions is sentinel, (
-            "second access returned a cached value instead of re-reading "
-            "Auto3D.config"
+            "second access returned a cached value instead of re-reading Auto3D.config"
         )
     finally:
         module.Auto3DOptions = original
@@ -376,12 +376,9 @@ def test_every_exported_name_is_documented_in_api_rst():
     import Auto3D
 
     documented_leaves = {path.rsplit(".", 1)[1] for path in _api_rst_entries()}
-    undocumented = sorted(
-        set(Auto3D.__all__) - documented_leaves - UNDOCUMENTED_BY_DESIGN
-    )
+    undocumented = sorted(set(Auto3D.__all__) - documented_leaves - UNDOCUMENTED_BY_DESIGN)
     assert not undocumented, (
-        "names exported from Auto3D.__all__ but absent from docs/source/api.rst: "
-        f"{undocumented}"
+        f"names exported from Auto3D.__all__ but absent from docs/source/api.rst: {undocumented}"
     )
 
 
@@ -397,6 +394,7 @@ def test_every_exported_name_is_documented_in_api_rst():
 # Everything below is scoped to ``src/Auto3D/**`` only.
 
 SRC_ROOT = pathlib.Path(__file__).resolve().parents[1] / "src" / "Auto3D"
+
 
 def _submodules(package: str) -> frozenset[str]:
     """Names that are *modules* inside ``package``, not re-exports.
@@ -517,17 +515,18 @@ def test_utils_init_imports_nothing():
         if isinstance(node, (ast.Import, ast.ImportFrom))
     ]
     assert not imports, f"utils/__init__.py imports something: {imports}"
-    non_docstring = [
-        type(node).__name__ for node in tree.body if not _is_docstring(node)
-    ]
+    non_docstring = [type(node).__name__ for node in tree.body if not _is_docstring(node)]
     assert not non_docstring, (
         f"utils/__init__.py has statements beyond its docstring: {non_docstring}"
     )
 
 
 def _is_docstring(node: ast.stmt) -> bool:
-    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) \
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
         and isinstance(node.value.value, str)
+    )
 
 
 def test_utils_package_exposes_no_names():
@@ -591,9 +590,7 @@ def test_isomer_engine_does_not_import_the_isomers_package():
                 offenders.append(f"line {node.lineno}: from {module} import ...")
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "Auto3D.isomers" or alias.name.startswith(
-                    "Auto3D.isomers."
-                ):
+                if alias.name == "Auto3D.isomers" or alias.name.startswith("Auto3D.isomers."):
                     offenders.append(f"line {node.lineno}: import {alias.name}")
     assert not offenders, (
         "isomer_engine.py imports from the Auto3D.isomers package it is wrapped "
@@ -642,17 +639,14 @@ def test_no_src_module_imports_batchopt_reexports():
             names = [a.name for a in node.names if a.name in BATCHOPT_REEXPORTS]
             if names:
                 offenders.append(f"{path.relative_to(SRC_ROOT.parent)}:{node.lineno}: {names}")
-    assert not offenders, (
-        "imports of batchopt's compat re-exports:\n" + "\n".join(offenders)
-    )
+    assert not offenders, "imports of batchopt's compat re-exports:\n" + "\n".join(offenders)
 
 
 def test_batchopt_does_not_re_export_print_stats():
     """The one name ``batchopt`` re-exported without using it is gone."""
     batchopt = importlib.import_module("Auto3D.batch_opt.batchopt")
     assert not hasattr(batchopt, "print_stats"), (
-        "batchopt still re-exports print_stats; its home is "
-        "Auto3D.batch_opt.optimization_engine"
+        "batchopt still re-exports print_stats; its home is Auto3D.batch_opt.optimization_engine"
     )
 
 
@@ -693,9 +687,7 @@ def test_importing_utils_validation_does_not_load_models():
     )
     assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
     loaded = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert not loaded, (
-        f"importing Auto3D.utils.validation pulled in the models package: {loaded}"
-    )
+    assert not loaded, f"importing Auto3D.utils.validation pulled in the models package: {loaded}"
 
 
 # Subprocess probe: what the split-out file-I/O modules cost to import.
@@ -741,8 +733,7 @@ def test_file_io_modules_do_not_load_torch_or_the_model_tree():
     result = json.loads(proc.stdout.strip().splitlines()[-1])
     assert not result["torch"], "importing the .smi/.sdf writers pulled in torch"
     assert not result["models"], (
-        "importing the .smi/.sdf writers pulled in the models package: "
-        f"{result['models']}"
+        f"importing the .smi/.sdf writers pulled in the models package: {result['models']}"
     )
 
 
@@ -848,8 +839,7 @@ def test_cli_app_and_console_names_resolve_to_their_modules():
     namespace: dict[str, object] = {}
     exec("from Auto3D.cli import app, console", namespace)  # noqa: S102
     assert inspect.ismodule(namespace["app"]), (
-        "Auto3D.cli.app is shadowed by a re-exported object; the Typer app is "
-        "Auto3D.cli.app.app"
+        "Auto3D.cli.app is shadowed by a re-exported object; the Typer app is Auto3D.cli.app.app"
     )
     assert inspect.ismodule(namespace["console"]), (
         "Auto3D.cli.console is shadowed by a re-exported object; the Rich "
@@ -893,6 +883,7 @@ def test_models_submodule_imports_still_work():
 # One name, one meaning: the TautomerEngine collision
 # --------------------------------------------------------------------------- #
 
+
 def test_only_one_class_in_the_package_is_named_tautomer_engine():
     """``TautomerEngine`` names the Protocol in ``isomers/base.py``, nothing else.
 
@@ -908,16 +899,20 @@ def test_only_one_class_in_the_package_is_named_tautomer_engine():
     with ``IsomerEngine`` beside it.
 
     Static, so it holds for a class nobody imports yet.
+
+    Asserted as a file, not a ``file:line``. The line number was part of the
+    expected value until a whole-repo ``ruff format`` moved the class down the
+    file and turned a passing test red without anything about the collision
+    changing. A test that fails when unrelated lines are inserted above its
+    subject reports edit distance, not the property in its name.
     """
     definitions = []
     for path in _source_files():
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name == "TautomerEngine":
-                definitions.append(f"{path.relative_to(SRC_ROOT.parent)}:{node.lineno}")
-    assert definitions == ["Auto3D/isomers/base.py:33"], (
-        f"TautomerEngine is defined at: {definitions}"
-    )
+                definitions.append(str(path.relative_to(SRC_ROOT.parent)))
+    assert definitions == ["Auto3D/isomers/base.py"], f"TautomerEngine is defined in: {definitions}"
 
 
 def test_isomer_engine_no_longer_binds_either_tautomer_engine_spelling():

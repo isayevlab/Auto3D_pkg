@@ -15,6 +15,7 @@ over the records that are actually comparable.
 
 Nothing here loads a neural network potential.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -62,9 +63,7 @@ class TestGrouping:
         set_relative_energies(mols)
 
         assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
-        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(
-            2.0 * ev2kcalpermol
-        )
+        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(2.0 * ev2kcalpermol)
 
     def test_relative_energies_are_never_negative(self):
         mols = [_conformer("m", e) for e in (-8.0, -12.0, -10.0)]
@@ -140,9 +139,7 @@ class TestGuards:
         set_relative_energies(mols)
 
         assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
-        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(
-            1.0 * ev2kcalpermol
-        )
+        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * ev2kcalpermol)
 
     def test_a_stale_value_is_cleared_when_the_group_is_refused(self):
         """Refusing to compute must not leave the old number in place."""
@@ -356,10 +353,8 @@ class TestGibbsIsOptIn:
         assert "set_relative_energies(out_mols)" in source
         # The Gibbs call must sit behind the flag, not beside it.
         gibbs_line = next(
-            line for line in source.splitlines()
-            if "set_relative_gibbs_energies(out_mols)" in line
+            line for line in source.splitlines() if "set_relative_gibbs_energies(out_mols)" in line
         )
         assert gibbs_line.startswith("        "), (
-            "set_relative_gibbs_energies is not nested under a conditional; "
-            f"got {gibbs_line!r}"
+            f"set_relative_gibbs_energies is not nested under a conditional; got {gibbs_line!r}"
         )

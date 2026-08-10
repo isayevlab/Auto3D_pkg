@@ -23,6 +23,7 @@ the GPU policy: calc_spe, opt_geometry and calc_thermo now also call
 without CUDA is fatal through the Python API too, not only through the CLI
 wrappers in cli/commands/properties.py.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -51,9 +52,7 @@ class TestAuto3DOptionsBounds:
     def test_zero_convergence_threshold_is_rejected(self, isolated_input):
         """A zero force threshold is unsatisfiable and must be refused."""
         with pytest.raises(Auto3DError):
-            Auto3DOptions(
-                path=isolated_input("smiles2.smi"), k=1, convergence_threshold=0
-            )
+            Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, convergence_threshold=0)
 
 
 class TestMutuallyExclusiveSelectors:
@@ -186,9 +185,7 @@ class TestAuxiliaryEntryPointGuards:
         # are siblings, so narrowing the expected type makes the wrong reason
         # structurally unable to satisfy this test.
         with pytest.raises(ConfigurationError):
-            calc_spe(
-                str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
-            )
+            calc_spe(str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf"))
 
     def test_opt_geometry_rejects_charged_input_for_ani(self, job_dir, monkeypatch):
         """opt_geometry must run the same check_engine_supports_molecules
@@ -223,10 +220,7 @@ class TestAuxiliaryEntryPointGuards:
                 self.out_f = out_f
 
             def run(self):
-                mols = [
-                    m for m in Chem.SDMolSupplier(self.in_f, removeHs=False)
-                    if m is not None
-                ]
+                mols = [m for m in Chem.SDMolSupplier(self.in_f, removeHs=False) if m is not None]
                 with Chem.SDWriter(self.out_f) as w:
                     for m in mols:
                         m.SetProp("E_tot", "0.0")
@@ -239,9 +233,7 @@ class TestAuxiliaryEntryPointGuards:
         # use_gpu=False, but the narrow type is what keeps a GPUError (or any
         # other unrelated Auto3DError) from satisfying it if that ever changes.
         with pytest.raises(ConfigurationError):
-            opt_geometry(
-                str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
-            )
+            opt_geometry(str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf"))
 
     def test_calc_thermo_rejects_charged_input_for_ani(self, job_dir, monkeypatch):
         """calc_thermo must run the same check_engine_supports_molecules
@@ -289,9 +281,7 @@ class TestAuxiliaryEntryPointGuards:
         # use_gpu=False, but the narrow type is what keeps a GPUError (or any
         # other unrelated Auto3DError) from satisfying it if that ever changes.
         with pytest.raises(ConfigurationError):
-            calc_thermo(
-                str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf")
-            )
+            calc_thermo(str(sdf), "ANI2x", use_gpu=False, out_path=str(job_dir / "out.sdf"))
 
 
 class TestAuxiliaryEntryPointGPUGuard:
@@ -403,9 +393,7 @@ class TestSmiles2MolsHonesty:
 
         self._stub_pipeline(monkeypatch)
 
-        args = Auto3DOptions(
-            path=isolated_input("smiles2.smi"), k=1, use_gpu=False
-        )
+        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, use_gpu=False)
         args.enumerate_tautomer = True
 
         with pytest.raises((Auto3DError, NotImplementedError)):
@@ -422,9 +410,7 @@ class TestSmiles2MolsHonesty:
 
         self._stub_pipeline(monkeypatch)
 
-        args = Auto3DOptions(
-            path=isolated_input("smiles2.smi"), k=1, use_gpu=False
-        )
+        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, use_gpu=False)
         before = args.path
 
         try:
@@ -432,9 +418,7 @@ class TestSmiles2MolsHonesty:
         except Exception:
             pass  # only the mutation matters here, not whether the run succeeded
 
-        assert args.path == before, (
-            f"caller's config was mutated: {before!r} -> {args.path!r}"
-        )
+        assert args.path == before, f"caller's config was mutated: {before!r} -> {args.path!r}"
 
 
 class TestDuplicateInchikeyInputs:
@@ -473,11 +457,7 @@ class TestDuplicateInchikeyInputs:
                 self.out_f = out_f
 
             def run(self):
-                mols = [
-                    m
-                    for m in Chem.SDMolSupplier(self.in_f, removeHs=False)
-                    if m is not None
-                ]
+                mols = [m for m in Chem.SDMolSupplier(self.in_f, removeHs=False) if m is not None]
                 with Chem.SDWriter(self.out_f) as w:
                     for i, m in enumerate(mols):
                         m.SetProp("Converged", "True")
@@ -486,9 +466,7 @@ class TestDuplicateInchikeyInputs:
 
         monkeypatch.setattr(auto3D_mod, "optimizing", _FakeOptimizing)
 
-        args = Auto3DOptions(
-            path=isolated_input("smiles2.smi"), k=1, use_gpu=False, mpi_np=1
-        )
+        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, use_gpu=False, mpi_np=1)
         mols = smiles2mols(["CCO", "CCO"], args)
 
         assert len(mols) == 2, (
@@ -603,9 +581,7 @@ class TestValidationParityAcrossEntryPoints:
             return None, errors[0]
         return captured["options"], None
 
-    def test_valid_config_agrees_across_entry_points(
-        self, tmp_path, isolated_input, monkeypatch
-    ):
+    def test_valid_config_agrees_across_entry_points(self, tmp_path, isolated_input, monkeypatch):
         """A config every path accepts must produce the same Auto3DOptions."""
         params = self._params(isolated_input)
 
@@ -622,9 +598,16 @@ class TestValidationParityAcrossEntryPoints:
             assert bool(getattr(via_cliconfig, field)) == bool(getattr(via_api, field)), field
             assert bool(getattr(via_legacy, field)) == bool(getattr(via_api, field)), field
         for field in (
-            "threshold", "convergence_threshold", "max_confs",
-            "optimizing_engine", "opt_steps", "mpi_np", "patience",
-            "batchsize_atoms", "memory", "capacity",
+            "threshold",
+            "convergence_threshold",
+            "max_confs",
+            "optimizing_engine",
+            "opt_steps",
+            "mpi_np",
+            "patience",
+            "batchsize_atoms",
+            "memory",
+            "capacity",
         ):
             assert getattr(via_cliconfig, field) == getattr(via_api, field), field
             assert getattr(via_legacy, field) == getattr(via_api, field), field

@@ -7,6 +7,7 @@ making `window` inert with no error, warning, or test failure. This module
 is the guard that would have caught that: every preset must be internally
 self-consistent.
 """
+
 from __future__ import annotations
 
 from Auto3D.cli.commands.config import PRESETS
@@ -22,6 +23,5 @@ def test_no_preset_sets_both_k_and_window():
     """
     for name, preset in PRESETS.items():
         assert not ("k" in preset and "window" in preset), (
-            f"preset {name!r} sets both k and window, so one is silently "
-            f"inert: {preset!r}"
+            f"preset {name!r} sets both k and window, so one is silently inert: {preset!r}"
         )

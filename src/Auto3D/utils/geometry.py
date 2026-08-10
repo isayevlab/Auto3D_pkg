@@ -6,6 +6,7 @@ consults a force field, or decides whether a structure is acceptable -- those
 belong to ``utils/connectivity.py``, ``Auto3D.clash_relief`` and
 ``Auto3D.filtering`` respectively.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,7 +47,7 @@ def min_pairwise_distance(points: np.ndarray) -> float:
     # Guard for single atom or empty input
     if n < 2:
         # Single atom: no pairwise distance exists
-        return float('inf')
+        return float("inf")
 
     # Expand dimensions of points to enable broadcasting
     points_expanded = np.expand_dims(points, axis=1).repeat(n, axis=1)

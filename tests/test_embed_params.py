@@ -12,6 +12,7 @@ parameterization the keyword form applied, which is what these tests pin. A
 bare ``EmbedParameters()`` is not: it turns off the torsion knowledge ETKDG is
 named for.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -65,18 +66,23 @@ def test_a_bare_parameters_object_would_have_been_wrong():
 @pytest.mark.parametrize("smiles", ["CCO", "OCC(O)CO", "CC(=O)Nc1ccc(O)cc1"])
 def test_geometry_is_unchanged_by_the_switch(smiles):
     """The switch must move no atom. Compares against the keyword form."""
+
     def kwarg_form():
         mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
         AllChem.EmbedMultipleConfs(
-            mol, numConfs=30, randomSeed=CONFORMER_RANDOM_SEED,
-            numThreads=1, pruneRmsThresh=0.3,
+            mol,
+            numConfs=30,
+            randomSeed=CONFORMER_RANDOM_SEED,
+            numThreads=1,
+            pruneRmsThresh=0.3,
         )
         return mol
 
     def params_form():
         mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
         AllChem.EmbedMultipleConfs(
-            mol, numConfs=30,
+            mol,
+            numConfs=30,
             params=embed_params(n_threads=1, prune_rms_thresh=0.3),
         )
         return mol

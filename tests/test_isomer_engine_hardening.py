@@ -4,6 +4,7 @@
 These tests are intentionally fast (no full embedding pipelines where avoidable)
 and exercise the narrowest function that contains each guard.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,16 +47,17 @@ def _make_engine(tmp_path, smi_path, flipper=True, max_confs=None):
 # FIX 1 — one invalid SMILES must not abort the whole batch
 # ---------------------------------------------------------------------------
 
+
 class TestInvalidSmilesDoesNotAbort:
     def test_read_skips_malformed_lines(self, tmp_path):
         """RDKitIsomer.read must skip blank / 1-col / 3-col lines, not crash."""
         smi = tmp_path / "in.smi"
         smi.write_text(
             "CCO mol_valid\n"
-            "\n"                       # blank line
-            "   \n"                    # whitespace-only line
-            "C1CCCCC1\n"               # missing ID (1 token)
-            "CCN extra_a extra_b\n"    # 3 tokens -> take first two
+            "\n"  # blank line
+            "   \n"  # whitespace-only line
+            "C1CCCCC1\n"  # missing ID (1 token)
+            "CCN extra_a extra_b\n"  # 3 tokens -> take first two
         )
         out = RDKitIsomer.read(str(smi))
         # valid 2-col line and the 3-col line (first two tokens) survive
@@ -106,9 +108,7 @@ class TestInvalidSmilesDoesNotAbort:
         infile = tmp_path / "in.smi"
         outfile = tmp_path / "out.smi"
         infile.write_text("CCO valid_mol\nC(C invalid_mol\n")
-        eng = RDKitOrOEChemTautomerEngine(
-            "rdkit", str(infile), str(outfile), pKaNorm=False
-        )
+        eng = RDKitOrOEChemTautomerEngine("rdkit", str(infile), str(outfile), pKaNorm=False)
         eng.rd_taut()  # must not raise
         text = outfile.read_text()
         assert "valid_mol" in text
@@ -145,6 +145,7 @@ class TestInvalidSmilesDoesNotAbort:
 # ---------------------------------------------------------------------------
 # FIX 2 — silent stereoisomer truncation at maxIsomers=1024
 # ---------------------------------------------------------------------------
+
 
 class TestStereoisomerTruncation:
     def test_many_stereocenters_not_silently_truncated(self, caplog):
@@ -190,9 +191,7 @@ class TestStereoisomerTruncation:
         with caplog.at_level(logging.WARNING):
             isomers = RDKitIsomer.enumerate_func(mol)
 
-        assert len(isomers) == 1024, (
-            f"expected the patched cap to bind, got {len(isomers)}"
-        )
+        assert len(isomers) == 1024, f"expected the patched cap to bind, got {len(isomers)}"
         assert any("truncat" in r.message.lower() for r in caplog.records), (
             "hitting the isomer cap must log a truncation warning"
         )
@@ -201,6 +200,7 @@ class TestStereoisomerTruncation:
 # ---------------------------------------------------------------------------
 # FIX 3 — clash dead-band + MMFF->UFF fallback for unparameterizable elements
 # ---------------------------------------------------------------------------
+
 
 class TestClashFallback:
     def test_boronic_acid_not_silently_dropped(self, tmp_path):
@@ -225,6 +225,7 @@ class TestClashFallback:
 # ---------------------------------------------------------------------------
 # FIX 4 — conformer count floored at 1 and unified across SMILES/SDF paths
 # ---------------------------------------------------------------------------
+
 
 class TestConformerCount:
     def test_floored_at_one_for_single_atom(self):
@@ -321,6 +322,7 @@ class TestConformerCount:
 # ---------------------------------------------------------------------------
 # FIX 5 — SPE.py: drop None/conformerless records + keep es[i] aligned
 # ---------------------------------------------------------------------------
+
 
 class TestSpeFiltersAndAligns:
     def test_calc_spe_skips_none_and_aligns_indices(self, tmp_path, monkeypatch):
@@ -473,9 +475,7 @@ class TestConformerNameShapeIsModeIndependent:
                 f"conformer name {name!r} has {len(parts)} component(s); "
                 "species_id strips two, so anything else is unparseable"
             )
-            assert parts[1] == "0", (
-                f"{name!r}: the sole isomer must be index 0, got {parts[1]!r}"
-            )
+            assert parts[1] == "0", f"{name!r}: the sole isomer must be index 0, got {parts[1]!r}"
             assert species_id(name) == "KEY"
             # The user-visible ID property carries the same name.
             assert mol.GetProp("ID") == name
@@ -507,16 +507,11 @@ class TestConformerNameShapeIsModeIndependent:
         for flipper in (True, False):
             engine = _make_engine(str(tmp_path), smi, flipper=flipper, max_confs=2)
             engine.run()
-            mols = [
-                m for m in Chem.SDMolSupplier(engine.enumerated_sdf)
-                if m is not None
-            ]
+            mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
             assert mols, f"no conformers written with flipper={flipper}"
             shapes[flipper] = {len(m.GetProp("_Name").split("_")) for m in mols}
 
-        assert shapes[True] == shapes[False] == {3}, (
-            f"name shapes differ between modes: {shapes}"
-        )
+        assert shapes[True] == shapes[False] == {3}, f"name shapes differ between modes: {shapes}"
 
 
 def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
@@ -538,9 +533,7 @@ def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
     count = calculate_conformer_count(glycerol)
 
     assert num_heavy == 6, "test premise: glycerol has 6 heavy atoms"
-    assert count == 238, (
-        f"the documented conformer budget for glycerol is 238, got {count}"
-    )
+    assert count == 238, f"the documented conformer budget for glycerol is 238, got {count}"
     assert count > num_heavy - 1, (
         "the retired 'num_heavy_atoms - 1' claim would still be defensible"
     )

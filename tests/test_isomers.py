@@ -9,6 +9,7 @@ tests below check it the way that actually pins the behavior -- by driving
 ``run()`` and asserting on the arguments the concrete engine
 (``RDKitIsomer``/``RDKitSdfIsomer``/``oe_isomer``) is handed.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -59,6 +60,7 @@ class TestIsomerEngineProtocol:
 
     def test_protocol_is_runtime_checkable(self):
         """Test that IsomerEngine is runtime checkable."""
+
         # Create a class that implements the protocol
         class MockEngine:
             def run(self) -> str:
@@ -424,9 +426,7 @@ class TestCreateTautomerEngine:
         """
         from Auto3D.isomer_engine import RDKitOrOEChemTautomerEngine
 
-        engine = create_tautomer_engine(
-            "RDKIT", input_path="/input.smi", output_path="/output.smi"
-        )
+        engine = create_tautomer_engine("RDKIT", input_path="/input.smi", output_path="/output.smi")
         assert isinstance(engine, RDKitOrOEChemTautomerEngine)
         assert engine.mode == "rdkit"
 

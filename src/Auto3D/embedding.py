@@ -10,6 +10,7 @@ into ``isomers.parallel_embed``), a cycle that only stayed latent because
 every edge of it was a function-scope import. Moving this module out is what
 removes the cycle rather than deferring it.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -162,9 +163,10 @@ def embed_conformers_parallel(
 
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = {
-            executor.submit(
-                _embed_single, smi, name, n_conformers, threshold, np_threads
-            ): (smi, name)
+            executor.submit(_embed_single, smi, name, n_conformers, threshold, np_threads): (
+                smi,
+                name,
+            )
             for smi, name in smiles_names
         }
 
@@ -198,8 +200,7 @@ def embed_conformers_parallel(
                 # ProcessPoolExecutor worker depends on that child's logging
                 # configuration, while this one does not.
                 logger.warning(
-                    f"{name!r} produced no conformers; this species is absent "
-                    "from the output."
+                    f"{name!r} produced no conformers; this species is absent from the output."
                 )
                 continue
             yield from conformers

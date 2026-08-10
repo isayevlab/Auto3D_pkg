@@ -1,4 +1,5 @@
 """Tests for Auto3D.id_mapping module (encode_ids / decode_ids)."""
+
 from pathlib import Path
 
 import pytest
@@ -187,9 +188,7 @@ class TestNoneMolHardening:
         valid.SetProp("_Name", "0")
         valid.SetProp("ID", "0_conf1")
 
-        monkeypatch.setattr(
-            id_mapping.Chem, "SDMolSupplier", lambda *a, **k: [valid, None]
-        )
+        monkeypatch.setattr(id_mapping.Chem, "SDMolSupplier", lambda *a, **k: [valid, None])
 
         # decode_ids expects a stem with at least two underscore parts.
         sdf = tmp_path / "mols_3d_encoded.sdf"

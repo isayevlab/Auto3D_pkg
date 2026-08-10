@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Finding 3D structures that satisfy the input requirement."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -97,9 +98,7 @@ def species_id(name: str) -> str:
 _SELECTORS: dict[str, str] = {"k": "top_k", "window": "top_window"}
 
 
-def _verify_selector_registry(
-    registry: dict[str, str], fields: tuple[str, ...], cls: type
-) -> None:
+def _verify_selector_registry(registry: dict[str, str], fields: tuple[str, ...], cls: type) -> None:
     """Raise unless ``registry`` covers ``fields`` with methods that exist.
 
     Called at import time, and a plain function rather than inline module code
@@ -196,9 +195,7 @@ class ConformerRanker:
         self.window = window
         self.energy_cluster_window = energy_cluster_window
         if rank_by not in _RANK_BASES:
-            raise ValueError(
-                f"rank_by must be one of {sorted(_RANK_BASES)}, got {rank_by!r}"
-            )
+            raise ValueError(f"rank_by must be one of {sorted(_RANK_BASES)}, got {rank_by!r}")
         #: Which energy selection compares. Electronic by default: a Gibbs
         #: energy exists only after a thermochemistry run, so defaulting to it
         #: would make the cheap path depend on the expensive one. Duplicate
@@ -260,9 +257,7 @@ class ConformerRanker:
         if set(result.dropped) <= {"unconverged"}:
             logger.info(f"No structure converged for {name}.")
         else:
-            logger.info(
-                "No structure selected for %s: %s.", name, result.summary()
-            )
+            logger.info("No structure selected for %s: %s.", name, result.summary())
 
     def top_k(self, df_group: pd.DataFrame, k: int = 1) -> list[Chem.Mol]:
         """Select top-k lowest-energy structures from a group.
@@ -279,7 +274,7 @@ class ConformerRanker:
         if len(set(names)) != 1:
             raise ValueError(f"All molecules must have the same name, got: {set(names)}")
 
-        df2 = df_group.sort_values(by=['energies'])
+        df2 = df_group.sort_values(by=["energies"])
 
         # Optimization: when k=1, skip the expensive RMSD dedup but still
         # apply the validity checks. Return the lowest-energy conformer that
@@ -322,7 +317,7 @@ class ConformerRanker:
             # like "KEY_2" would misreport as "KEY" in this message.
             self._log_nothing_selected(names[0].strip(), result)
         else:
-            #Adding relative energies
+            # Adding relative energies
             # Both sides are eV: the readers convert from whatever unit the
             # source property is stored in (E_tot is Hartree, G_hartree is
             # Hartree), so `E_rel(eV)` is eV whichever basis is selected.
@@ -330,9 +325,8 @@ class ConformerRanker:
             for mol in out_mols:
                 my_energy = self._read_energy_ev(mol)
                 rel_energy = my_energy - ref_energy
-                mol.SetProp('E_rel(eV)', str(rel_energy))
+                mol.SetProp("E_rel(eV)", str(rel_energy))
         return out_mols
-
 
     def top_window(self, df_group: pd.DataFrame, window: float = 1.0) -> list[Chem.Mol]:
         """Select structures within energy window of the minimum.
@@ -344,15 +338,15 @@ class ConformerRanker:
         Returns:
             List of RDKit Mol objects within the energy window.
         """
-        window = (window/ev2kcalpermol)  # convert energy window into eV unit
+        window = window / ev2kcalpermol  # convert energy window into eV unit
         names = list(df_group["names"])
         if window < 0:
             raise ValueError(f"window must be non-negative, got: {window * ev2kcalpermol} kcal/mol")
         if len(set(names)) != 1:
             raise ValueError(f"All molecules must have the same name, got: {set(names)}")
 
-        df2 = df_group.sort_values(by=['energies'])
-        result = self._account(self._filter_mols(list(df2['mols'])))
+        df2 = df_group.sort_values(by=["energies"])
+        result = self._account(self._filter_mols(list(df2["mols"])))
         out_mols = []
 
         if len(result.kept) == 0:
@@ -369,7 +363,7 @@ class ConformerRanker:
                 my_energy = self._read_energy_ev(mol)
                 rel_energy = my_energy - ref_energy
                 if rel_energy <= window:
-                    mol.SetProp('E_rel(eV)', str(rel_energy))
+                    mol.SetProp("E_rel(eV)", str(rel_energy))
                     out_mols.append(mol)
                 else:
                     break
@@ -380,9 +374,7 @@ class ConformerRanker:
             # energy, so every remaining conformer is outside the window too.
             n_outside = len(result.kept) - len(out_mols)
             if n_outside:
-                self._account(
-                    FilterResult(kept=out_mols, dropped={"energy_window": n_outside})
-                )
+                self._account(FilterResult(kept=out_mols, dropped={"energy_window": n_outside}))
         return out_mols
 
     def run(self) -> list[Chem.Mol]:
@@ -439,7 +431,8 @@ class ConformerRanker:
                     n_unparsed += 1
                     logger.warning(
                         "Skipping record %d of %s: RDKit could not parse it.",
-                        position, self.input_path,
+                        position,
+                        self.input_path,
                     )
                     continue
                 n_records += 1
@@ -460,8 +453,8 @@ class ConformerRanker:
                     hint = (
                         f"Add {E_TOT_PROP!r} (Hartree) to every record, or "
                         "rank a file produced by Auto3D's optimizer."
-                        if self.rank_by == RANK_BY_ELECTRONIC else
-                        "A Gibbs energy comes from a thermochemistry run: "
+                        if self.rank_by == RANK_BY_ELECTRONIC
+                        else "A Gibbs energy comes from a thermochemistry run: "
                         "produce the file with `calc_thermo` (or `auto3d "
                         "thermo`) before ranking on it, or rank on the "
                         f"electronic energy with rank_by={RANK_BY_ELECTRONIC!r}."
@@ -475,13 +468,15 @@ class ConformerRanker:
                         hint=hint,
                     )
                 mols.append(mol)
-                names.append(species_id(mol.GetProp('_Name')))
+                names.append(species_id(mol.GetProp("_Name")))
                 energies.append(self._read_energy_ev(mol))
         if n_unflagged:
             logger.info(
                 "%d of %d record(s) in %s carry no 'Converged' property; they "
                 "are not filtered on convergence.",
-                n_unflagged, n_records, self.input_path,
+                n_unflagged,
+                n_records,
+                self.input_path,
             )
 
         df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
@@ -503,7 +498,7 @@ class ConformerRanker:
                     break
             else:
                 raise ConfigurationError(
-                    'Parameter k or window needs to be specified. '
+                    "Parameter k or window needs to be specified. "
                     'Append "--k=1" if you only want one structure per SMILES'
                 )
             results += top_results
@@ -525,15 +520,17 @@ class ConformerRanker:
             # filter and so are not double-counted.
             totals = dict(self._drop_totals)
             for reason, count in (
-                ("unparsed", n_unparsed), ("unconverged", n_unconverged),
+                ("unparsed", n_unparsed),
+                ("unconverged", n_unconverged),
             ):
                 if count:
                     totals[reason] = totals.get(reason, 0) + count
             summary = FilterResult(kept=[], dropped=totals).summary()
             logger.warning(
-                "Selected 0 structures from %d record(s) in %s, so %s is "
-                "empty: %s.",
-                n_records, self.input_path, self.out_path,
+                "Selected 0 structures from %d record(s) in %s, so %s is empty: %s.",
+                n_records,
+                self.input_path,
+                self.out_path,
                 summary or "no filter reported a reason",
             )
 
@@ -552,9 +549,9 @@ class ConformerRanker:
                 # electronic property's name.
                 mol.SetProp(
                     self._rel_prop,
-                    str(float(mol.GetProp('E_rel(eV)')) * ev2kcalpermol),
+                    str(float(mol.GetProp("E_rel(eV)")) * ev2kcalpermol),
                 )
-                mol.ClearProp('E_rel(eV)')
+                mol.ClearProp("E_rel(eV)")
                 # Strip the trailing <isomer>_<conformer> suffix, keeping the
                 # species id intact (see species_id()) so a disambiguated
                 # "KEY_2" is not re-collapsed onto "KEY" in the final output.

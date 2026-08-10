@@ -124,33 +124,48 @@ def ensemble_opt(
         else:
             atom_mask = atom_mask.detach().to(dtype=torch.bool, device=device)
     converged_mask = torch.zeros(coord.shape[0], dtype=torch.bool, device=device)
-    fmax = torch.full(coord.shape[:1], INITIAL_FMAX_SENTINEL,
-                      device=coord.device)  # size=N, representing the current maximum forces at each conformer.
-    energy = torch.full(coord.shape[:1], INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=coord.device)
+    fmax = torch.full(
+        coord.shape[:1], INITIAL_FMAX_SENTINEL, device=coord.device
+    )  # size=N, representing the current maximum forces at each conformer.
+    energy = torch.full(
+        coord.shape[:1], INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=coord.device
+    )
     ids = torch.arange(coord.shape[0], device=coord.device)  # Returns a 1D tensor
 
     state = dict(
         ids=ids,
-        coord=coord, numbers=numbers, converged_mask=converged_mask,
-        nn=net, fmax=fmax, energy=energy,
-        timing=defaultdict(float), charges=charges,
-        he=list(), close=list()  # !!! he and close?
+        coord=coord,
+        numbers=numbers,
+        converged_mask=converged_mask,
+        nn=net,
+        fmax=fmax,
+        energy=energy,
+        timing=defaultdict(float),
+        charges=charges,
+        he=list(),
+        close=list(),  # !!! he and close?
     )
 
-    n_steps(state, param['opt_steps'], param['opttol'], param['patience'],
-            atom_mask=atom_mask, progress_cb=progress_cb)
+    n_steps(
+        state,
+        param["opt_steps"],
+        param["opttol"],
+        param["patience"],
+        atom_mask=atom_mask,
+        progress_cb=progress_cb,
+    )
 
     return dict(
-        coord=state['coord'].tolist(),
-        ids=state['ids'].tolist(),
-        energy=state['energy'].tolist(),
-        fmax=state['fmax'].tolist(),
-        he=state['he'],
-        close=state['close'],
-        timing=dict(state['timing']),
-        numbers=state['numbers'].tolist(),
-        converged_mask=state['converged_mask'].tolist(),
-        oscillating_count=state['oscillating_count'].tolist()
+        coord=state["coord"].tolist(),
+        ids=state["ids"].tolist(),
+        energy=state["energy"].tolist(),
+        fmax=state["fmax"].tolist(),
+        he=state["he"],
+        close=state["close"],
+        timing=dict(state["timing"]),
+        numbers=state["numbers"].tolist(),
+        converged_mask=state["converged_mask"].tolist(),
+        oscillating_count=state["oscillating_count"].tolist(),
     )
 
 
@@ -249,8 +264,7 @@ class optimizing:
         cur_min = None
         for i in order:
             n = mols[i].GetNumAtoms()
-            if cur and (len(cur) >= self.BUCKET_MAX_COUNT
-                        or n > self.BUCKET_SIZE_FACTOR * cur_min):
+            if cur and (len(cur) >= self.BUCKET_MAX_COUNT or n > self.BUCKET_SIZE_FACTOR * cur_min):
                 buckets.append(cur)
                 cur = []
                 cur_min = None
@@ -283,15 +297,23 @@ class optimizing:
         # torch.jit.optimized_execution only affects TorchScript modules; the
         # default AIMNet2 path is eager and ANI uses torch.compile, so the old
         # `with torch.jit.optimized_execution(False)` guard here was a no-op.
-        optdict = ensemble_opt(model, coord_padded, numbers_padded, charges,
-                               self._config_dict, self.device,
-                               atom_mask=atom_mask,
-                               progress_cb=self.progress_cb)  # Magic step
+        optdict = ensemble_opt(
+            model,
+            coord_padded,
+            numbers_padded,
+            charges,
+            self._config_dict,
+            self.device,
+            atom_mask=atom_mask,
+            progress_cb=self.progress_cb,
+        )  # Magic step
         return optdict
 
     def run(self):
-        logger.info("Preparing for parallel optimizing... (Max optimization steps: %i)" % self._config_dict[
-            "opt_steps"])
+        logger.info(
+            "Preparing for parallel optimizing... (Max optimization steps: %i)"
+            % self._config_dict["opt_steps"]
+        )
 
         # Check if input file exists and is not empty
         input_path = Path(self.in_f)
@@ -314,9 +336,7 @@ class optimizing:
         mols = []
         for index, mol in enumerate(Chem.SDMolSupplier(self.in_f, removeHs=False)):
             if mol is None:
-                logger.warning(
-                    "Skipping molecule at index %d: failed to parse", index
-                )
+                logger.warning("Skipping molecule at index %d: failed to parse", index)
                 continue
             mols.append(mol)
 
@@ -333,7 +353,7 @@ class optimizing:
         converged_flags = [None] * len(mols)
         osc_counts = [None] * len(mols)
         coords_out = [None] * len(mols)
-        patience = self._config_dict['patience']
+        patience = self._config_dict["patience"]
 
         # Split into size-homogeneous buckets. Padding each bucket to its LOCAL
         # max atom count (instead of the global max) avoids computing AEVs/forces
@@ -352,11 +372,11 @@ class optimizing:
             bucket_mols = [mols[i] for i in bucket]
             optdict = self._optimize_bucket(bucket_mols, model)
             for local_i, orig_i in enumerate(bucket):
-                energies[orig_i] = optdict['energy'][local_i]
-                fmaxs[orig_i] = optdict['fmax'][local_i]
-                converged_flags[orig_i] = optdict['converged_mask'][local_i]
-                osc_counts[orig_i] = optdict['oscillating_count'][local_i]
-                coords_out[orig_i] = optdict['coord'][local_i]
+                energies[orig_i] = optdict["energy"][local_i]
+                fmaxs[orig_i] = optdict["fmax"][local_i]
+                converged_flags[orig_i] = optdict["converged_mask"][local_i]
+                osc_counts[orig_i] = optdict["oscillating_count"][local_i]
+                coords_out[orig_i] = optdict["coord"][local_i]
 
             # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
             # or fragment across many buckets. The final empty_cache() below still
@@ -368,7 +388,7 @@ class optimizing:
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):
                 mol = mols[i]
-                idx = mol.GetProp('_Name')
+                idx = mol.GetProp("_Name")
                 # Determine true convergence status:
                 # - Converged: converged AND not oscillating (osc_count < patience)
                 # - Dropped: converged AND oscillating (osc_count >= patience)
@@ -385,15 +405,15 @@ class optimizing:
                 set_e_tot_from_ev(mol, energies[i])
                 # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
                 # an energy, and no consumer converts it.
-                mol.SetProp('fmax', str(fmaxs[i]))
+                mol.SetProp("fmax", str(fmaxs[i]))
                 # Routed through the single owner of this property so the
                 # writer and the three filters that read it cannot drift
                 # (Auto3D.utils.convergence).
                 set_converged(mol, convergence_i)
                 # Mark structures dropped due to oscillation for diagnostics
                 is_oscillating = converged_i and osc_count_i >= patience
-                mol.SetProp('Dropped_Oscillating', str(is_oscillating))
-                mol.SetProp('ID', idx)
+                mol.SetProp("Dropped_Oscillating", str(is_oscillating))
+                mol.SetProp("ID", idx)
                 # Reads the configuration from the pre-optimization coordinates,
                 # writes the optimized ones, reads again, and records the
                 # comparison on the molecule. Both readings come from this same

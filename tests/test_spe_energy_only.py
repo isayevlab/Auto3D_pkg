@@ -22,6 +22,7 @@ path built on it, and pin the two properties that make it safe to use:
 
 Nothing here loads a neural network potential.
 """
+
 from __future__ import annotations
 
 import weakref
@@ -63,9 +64,11 @@ class _GradCountingAdapter(AdapterModuleMixin, nn.Module):
 
 
 def _batch(n_mols: int = 6, n_atoms: int = 4):
-    coords = torch.arange(
-        n_mols * n_atoms * 3, dtype=torch.float32
-    ).reshape(n_mols, n_atoms, 3).requires_grad_(True)
+    coords = (
+        torch.arange(n_mols * n_atoms * 3, dtype=torch.float32)
+        .reshape(n_mols, n_atoms, 3)
+        .requires_grad_(True)
+    )
     species = torch.ones(n_mols, n_atoms, dtype=torch.long)
     charges = torch.zeros(n_mols)
     atom_mask = torch.ones(n_mols, n_atoms, dtype=torch.bool)
@@ -325,9 +328,7 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
         class _Toy(nn.Module):
             def forward(self, species_coords):
                 _species, coords = species_coords
-                return type(
-                    "SpeciesEnergies", (), {"energies": coords.pow(2).sum(dim=(1, 2))}
-                )()
+                return type("SpeciesEnergies", (), {"energies": coords.pow(2).sum(dim=(1, 2))})()
 
         calls = _count_autograd_grad(monkeypatch)
         adapter = self._bypassed(ANI2xAdapter, _Toy())
@@ -388,33 +389,23 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
                 pass
 
             def forward_batched(self, *a, **k):
-                raise AssertionError(
-                    "calc_spe computed forces it does not use (M39)"
-                )
+                raise AssertionError("calc_spe computed forces it does not use (M39)")
 
             def energy_batched(self, coords, numbers, charges, atom_mask=None):
                 return torch.full((coords.shape[0],), -1.0, dtype=torch.double)
 
-        monkeypatch.setattr(
-            spe_mod, "get_device", lambda *a, **k: torch.device("cpu")
-        )
-        monkeypatch.setattr(
-            spe_mod, "create_model", lambda *a, **k: FakeAdapter()
-        )
+        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
         monkeypatch.setattr(spe_mod, "EnForce_ANI", _EnergyOnlyEnForce)
 
         out = tmp_path / "out.sdf"
-        spe_mod.calc_spe(
-            str(sdf), "AIMNET", use_gpu=False, out_path=str(out)
-        )
+        spe_mod.calc_spe(str(sdf), "AIMNET", use_gpu=False, out_path=str(out))
 
         written = [m for m in Chem.SDMolSupplier(str(out), removeHs=False)]
         assert len(written) == 1
         from Auto3D.constants import EV_TO_HARTREE
 
-        assert float(written[0].GetProp("E_hartree")) == pytest.approx(
-            -1.0 * EV_TO_HARTREE
-        )
+        assert float(written[0].GetProp("E_hartree")) == pytest.approx(-1.0 * EV_TO_HARTREE)
 
 
 class TestEnergyBatchedDoesNotRetainSubBatchGraphs:

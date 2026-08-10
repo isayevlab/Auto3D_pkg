@@ -151,6 +151,27 @@ mypy src/Auto3D/
 pytest tests/
 ```
 
+The first two run in CI on every pull request (the `ruff` job) and turn it red
+if they fail. They are not currently *required* status checks on `main`, so a
+red `ruff` job does not by itself block a merge — treat it as blocking anyway.
+`mypy` runs there too but is advisory by construction: it reports a known
+backlog of pre-existing errors and its step ends in `|| true`.
+
+CI installs an exact `ruff` version, and the `dev` extra pins the same one, so
+`pip install -e ".[dev]"` gives you the formatter CI will check against. A
+different version may format differently even with identical settings.
+
+`ruff format` used to be documented here without anything checking it, and the
+tree drifted until running it touched 96% of the files. It was normalized in one
+commit, listed in `.git-blame-ignore-revs`. Run this once so `git blame` skips
+that commit and keeps pointing at whoever last changed the logic:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+GitHub's blame view picks the file up automatically; only local git needs telling.
+
 ## Testing
 
 ### Running Tests

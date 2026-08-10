@@ -24,6 +24,7 @@ real file intact. A `TestStagingLocation` class used to pin the sibling-and-mode
 properties against `ASE.geometry._stage_beside`, which the shared helper
 replaced.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -135,9 +136,7 @@ class TestReorderSdfDurability:
         with pytest.raises(Exception):
             reorder_sdf(str(sdf), str(smi))
 
-        leftovers = sorted(
-            p.name for p in job_dir.iterdir() if p.name not in {"out.sdf", "in.smi"}
-        )
+        leftovers = sorted(p.name for p in job_dir.iterdir() if p.name not in {"out.sdf", "in.smi"})
         assert not leftovers, f"temp files left behind: {leftovers}"
 
 
@@ -230,9 +229,7 @@ class TestOptGeometryDurability:
             # -- FakeOptimizing.__init__ doesn't even store it -- the point of
             # this test is durability of the input file against a failed
             # rewrite, not the model name, so a valid engine name is used.
-            geometry.opt_geometry(
-                str(sdf), "AIMNET", out_path=str(outpath), use_gpu=False
-            )
+            geometry.opt_geometry(str(sdf), "AIMNET", out_path=str(outpath), use_gpu=False)
 
         assert "bytes" in completed, "the fake optimizer never ran"
         assert outpath.read_bytes() == completed["bytes"], (
@@ -452,9 +449,7 @@ class TestSameFileGuard:
         monkeypatch.setattr(geometry, "get_device", _never)
 
         with pytest.raises(ConfigurationError, match="same file"):
-            geometry.opt_geometry(
-                str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False
-            )
+            geometry.opt_geometry(str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False)
 
         assert sdf.read_bytes() == original, "opt_geometry modified the input file"
 
@@ -486,9 +481,7 @@ class TestSameFileGuard:
         monkeypatch.setattr(thermo_mod, "model_name2model_calculator", _never)
 
         with pytest.raises(ConfigurationError, match="same file"):
-            thermo_mod.calc_thermo(
-                str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False
-            )
+            thermo_mod.calc_thermo(str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False)
 
         assert sdf.read_bytes() == original, "calc_thermo modified the input file"
 
@@ -604,9 +597,7 @@ class TestConformerRankerSameFileGuard:
         original = sdf.read_bytes()
 
         with pytest.raises(ConfigurationError, match="same file"):
-            ConformerRanker(
-                input_path=str(sdf), out_path=str(sdf), threshold=0.3, k=1
-            )
+            ConformerRanker(input_path=str(sdf), out_path=str(sdf), threshold=0.3, k=1)
 
         assert sdf.read_bytes() == original, "the input was modified anyway"
 
@@ -617,8 +608,10 @@ class TestConformerRankerSameFileGuard:
         sdf = job_dir / "opt.sdf"
         _write_sdf(sdf, ["a"])
         ranker = ConformerRanker(
-            input_path=str(sdf), out_path=str(job_dir / "ranked.sdf"),
-            threshold=0.3, k=1,
+            input_path=str(sdf),
+            out_path=str(job_dir / "ranked.sdf"),
+            threshold=0.3,
+            k=1,
         )
         assert ranker.out_path.endswith("ranked.sdf")
 
@@ -656,9 +649,7 @@ class TestEncodedInputStaging:
     just the location.
     """
 
-    def test_a_users_encoded_file_is_untouched_byte_for_byte(
-        self, job_dir, monkeypatch
-    ):
+    def test_a_users_encoded_file_is_untouched_byte_for_byte(self, job_dir, monkeypatch):
         """The whole point: run the pipeline over `mols.smi` with a user's
         `mols_encoded.smi` sitting beside it, and that file must come back
         identical -- not merely still present.
@@ -679,16 +670,12 @@ class TestEncodedInputStaging:
         users_file.write_bytes(b"IRREPLACEABLE USER DATA\n")
         original = users_file.read_bytes()
 
-        monkeypatch.setattr(
-            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
-        )
+        monkeypatch.setattr(WorkflowOrchestrator, "_setup_logging", _stop_after_encoding)
         # ANI2xt is bundled, so Phase 1's real preflight_model stays offline
         # (no registry lookup, no download); use_gpu=False keeps the GPU check
         # from failing for an unrelated reason.
         orch = WorkflowOrchestrator(
-            Auto3DOptions(
-                path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
-            )
+            Auto3DOptions(path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt")
         )
 
         with pytest.raises(_StopAfterEncodingError):
@@ -734,13 +721,14 @@ class TestEncodedInputStaging:
         precious = squatted / "results.sdf"
         precious.write_bytes(b"EARLIER RUN\n")
 
-        monkeypatch.setattr(
-            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
-        )
+        monkeypatch.setattr(WorkflowOrchestrator, "_setup_logging", _stop_after_encoding)
         orch = WorkflowOrchestrator(
             Auto3DOptions(
-                path=str(smi), k=1, use_gpu=False,
-                optimizing_engine="ANI2xt", job_name="pinned",
+                path=str(smi),
+                k=1,
+                use_gpu=False,
+                optimizing_engine="ANI2xt",
+                job_name="pinned",
             )
         )
 
@@ -806,7 +794,10 @@ class TestOutputOverwriteGuard:
 
         with pytest.raises(ConfigurationError, match="already exists"):
             spe_mod.calc_spe(
-                str(sdf), "AIMNET", out_path=str(precious), use_gpu=False,
+                str(sdf),
+                "AIMNET",
+                out_path=str(precious),
+                use_gpu=False,
                 overwrite=False,
             )
 
@@ -868,9 +859,7 @@ class TestOutputOverwriteGuard:
         # Python-API caller working.
         spe_mod.calc_spe(str(sdf), "AIMNET", out_path=str(stale), use_gpu=False)
 
-    def test_the_derived_default_output_path_is_guarded_too(
-        self, job_dir, monkeypatch
-    ):
+    def test_the_derived_default_output_path_is_guarded_too(self, job_dir, monkeypatch):
         """The guard is on the resolved path, not on `out_path is not None`.
 
         A second `auto3d energy mols.sdf` writes `mols_AIMNET_E.sdf` -- the
@@ -917,7 +906,10 @@ class TestOutputOverwriteGuard:
 
         with pytest.raises(ConfigurationError, match="already exists"):
             geometry.opt_geometry(
-                str(sdf), "AIMNET", out_path=str(precious), use_gpu=False,
+                str(sdf),
+                "AIMNET",
+                out_path=str(precious),
+                use_gpu=False,
                 overwrite=False,
             )
 
@@ -944,7 +936,10 @@ class TestOutputOverwriteGuard:
 
         with pytest.raises(ConfigurationError, match="already exists"):
             thermo_mod.calc_thermo(
-                str(sdf), "AIMNET", out_path=str(precious), use_gpu=False,
+                str(sdf),
+                "AIMNET",
+                out_path=str(precious),
+                use_gpu=False,
                 overwrite=False,
             )
 
@@ -963,17 +958,18 @@ class TestOutputOverwriteGuard:
 
         with pytest.raises(ConfigurationError, match="already exists"):
             ConformerRanker(
-                input_path=str(sdf), out_path=str(precious), threshold=0.3,
-                k=1, overwrite=False,
+                input_path=str(sdf),
+                out_path=str(precious),
+                threshold=0.3,
+                k=1,
+                overwrite=False,
             )
 
         assert precious.read_bytes() == b"IRREPLACEABLE USER DATA\n"
 
         # Default stays permissive: Auto3D's own pipeline always writes into a
         # job directory it just created, and every existing caller relies on it.
-        ranker = ConformerRanker(
-            input_path=str(sdf), out_path=str(precious), threshold=0.3, k=1
-        )
+        ranker = ConformerRanker(input_path=str(sdf), out_path=str(precious), threshold=0.3, k=1)
         assert ranker.out_path == str(precious)
 
     def test_the_guard_permits_everything_it_should(self, job_dir):
@@ -1025,7 +1021,10 @@ class TestOutputOverwriteGuard:
 
         with pytest.raises(ConfigurationError, match="same file"):
             spe_mod.calc_spe(
-                str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False,
+                str(sdf),
+                "AIMNET",
+                out_path=str(sdf),
+                use_gpu=False,
                 overwrite=True,
             )
 
@@ -1052,9 +1051,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
     `Path(".")` holds at runtime.
     """
 
-    def test_a_users_cwd_file_matching_the_sweep_globs_is_untouched(
-        self, job_dir, monkeypatch
-    ):
+    def test_a_users_cwd_file_matching_the_sweep_globs_is_untouched(self, job_dir, monkeypatch):
         """Byte-identical, not merely present.
 
         `shutil.move` across filesystems copies and then unlinks, and the
@@ -1110,9 +1107,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
             "oeomega_settings.txt",
         ]
 
-    def test_openeye_logfiles_land_in_the_chunk_directory(
-        self, job_dir, monkeypatch
-    ):
+    def test_openeye_logfiles_land_in_the_chunk_directory(self, job_dir, monkeypatch):
         """The other half: the sweep was removed, not merely narrowed.
 
         The logfiles it collected are real, so `oe_isomer` now runs the
@@ -1194,13 +1189,9 @@ class TestRejectedRunLeavesNoTrace:
 
         # Safety net only: the rejection happens before this is reached, but
         # if it ever stops happening this stops the test forking workers.
-        monkeypatch.setattr(
-            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
-        )
+        monkeypatch.setattr(WorkflowOrchestrator, "_setup_logging", _stop_after_encoding)
         orch = WorkflowOrchestrator(
-            Auto3DOptions(
-                path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt"
-            )
+            Auto3DOptions(path=str(smi), k=1, use_gpu=False, optimizing_engine="ANI2xt")
         )
 
         with pytest.raises(InputValidationError, match="Duplicate molecule ID"):
@@ -1215,14 +1206,10 @@ class TestRejectedRunLeavesNoTrace:
             "the run never reached _setup_job_directory, so this test is no "
             "longer exercising the cleanup it was written for"
         )
-        assert not orch.job_dir.exists(), (
-            f"rejected run left {orch.job_dir} behind"
-        )
+        assert not orch.job_dir.exists(), f"rejected run left {orch.job_dir} behind"
         assert sorted(p.name for p in job_dir.iterdir()) == ["dupes.smi"]
 
-    def test_a_partially_written_encoded_sdf_goes_with_the_directory(
-        self, job_dir, monkeypatch
-    ):
+    def test_a_partially_written_encoded_sdf_goes_with_the_directory(self, job_dir, monkeypatch):
         """The `.sdf` branch opens `Chem.SDWriter` before it sees the
         duplicate, so the rejected run has already written a partial encoded
         file inside the job directory. It must not survive either."""
@@ -1233,13 +1220,9 @@ class TestRejectedRunLeavesNoTrace:
         sdf = job_dir / "dupes.sdf"
         _write_sdf(sdf, ["a", "a"])
 
-        monkeypatch.setattr(
-            WorkflowOrchestrator, "_setup_logging", _stop_after_encoding
-        )
+        monkeypatch.setattr(WorkflowOrchestrator, "_setup_logging", _stop_after_encoding)
         orch = WorkflowOrchestrator(
-            Auto3DOptions(
-                path=str(sdf), k=1, use_gpu=False, optimizing_engine="ANI2xt"
-            )
+            Auto3DOptions(path=str(sdf), k=1, use_gpu=False, optimizing_engine="ANI2xt")
         )
 
         with pytest.raises(InputValidationError, match="Duplicate molecule name"):

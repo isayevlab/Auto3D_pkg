@@ -8,6 +8,7 @@ folder the caller then tars and deletes. The two are a matched pair -- the
 sweep is only safe because the names it collects were all minted inside a
 directory Auto3D created -- so they live together, above ``Auto3D.utils``.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -121,6 +122,4 @@ def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
         try:
             shutil.move(str(file), folder)
         except OSError:
-            logger.warning(
-                "Could not move %s into %s; leaving it where it is.", file, folder
-            )
+            logger.warning("Could not move %s into %s; leaving it where it is.", file, folder)

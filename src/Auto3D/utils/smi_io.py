@@ -14,6 +14,7 @@ tree in through a validation import would make an ordinary ``.smi`` write cost
 the whole ``Auto3D.models`` package. The overwrite guards live in
 ``utils/output_guard.py`` for the same reason.
 """
+
 from __future__ import annotations
 
 import collections
@@ -60,9 +61,7 @@ def iter_smi_records(path, *, on_malformed="skip"):
         ValueError: If on_malformed is not "skip" or "raise".
     """
     if on_malformed not in ("skip", "raise"):
-        raise ValueError(
-            f"on_malformed must be 'skip' or 'raise', got: {on_malformed!r}"
-        )
+        raise ValueError(f"on_malformed must be 'skip' or 'raise', got: {on_malformed!r}")
     with open(path) as f:
         data = f.readlines()
     for line_no, line in enumerate(data, start=1):
@@ -131,8 +130,7 @@ def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:
         mol = Chem.MolFromSmiles(smi)
         if mol is None:
             raise InputValidationError(
-                f"Invalid SMILES at index {idx}: {smi!r} could not be parsed "
-                "by RDKit."
+                f"Invalid SMILES at index {idx}: {smi!r} could not be parsed by RDKit."
             )
         inchikey = inchi.MolToInchiKey(mol)
         # Distinct inputs can share a standard InChIKey (e.g. tautomers the

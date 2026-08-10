@@ -5,6 +5,7 @@ Every test drives the production ``rdkit_sdf`` engine through
 ``workflow_workers.py`` use -- not RDKit in isolation, and inspects the SDF file
 Auto3D actually writes.
 """
+
 from __future__ import annotations
 
 from rdkit import Chem
@@ -48,8 +49,7 @@ def _run_engine(job_dir, smiles, name, three_d, **kwargs):
             continue
         species = mol.GetProp("_Name").rsplit("_", 1)[0]
         Chem.AssignStereochemistryFrom3D(mol)
-        codes = {code for _, code in
-                 Chem.FindMolChiralCenters(mol, useLegacyImplementation=False)}
+        codes = {code for _, code in Chem.FindMolChiralCenters(mol, useLegacyImplementation=False)}
         per_species.setdefault(species, set()).update(codes)
     return per_species
 
@@ -119,9 +119,11 @@ class TestUnspecifiedCentersEnumerate:
             n_jobs=1,
         ).run()
 
-        names = [m.GetProp("_Name")
-                 for m in Chem.SDMolSupplier(str(output_sdf), removeHs=False)
-                 if m is not None]
+        names = [
+            m.GetProp("_Name")
+            for m in Chem.SDMolSupplier(str(output_sdf), removeHs=False)
+            if m is not None
+        ]
         assert names, "the engine wrote nothing"
         for name in names:
             assert name.count("_") == 2, f"unexpected name shape: {name}"
@@ -146,9 +148,7 @@ class TestUnspecifiedCentersEnumerate:
 class TestSpecifiedStereoIsNotDisturbed:
     def test_3d_sdf_with_a_specified_center_stays_one_species(self, job_dir):
         """3D SDF input was already safe and must remain a single species."""
-        per_species = _run_engine(
-            job_dir, "C[C@H](N)C(=O)O", "lalanine", three_d=True
-        )
+        per_species = _run_engine(job_dir, "C[C@H](N)C(=O)O", "lalanine", three_d=True)
         assert len(per_species) == 1, f"a specified center was enumerated: {per_species}"
         codes = next(iter(per_species.values()))
         assert codes == {"S"}, f"the specified configuration changed: {codes}"
@@ -161,7 +161,10 @@ class TestEnumerationDisabled:
 
         with caplog.at_level(logging.WARNING, logger="Auto3D.isomer_engine"):
             per_species = _run_engine(
-                job_dir, "CC(N)C(=O)O", "alanine_off", three_d=False,
+                job_dir,
+                "CC(N)C(=O)O",
+                "alanine_off",
+                three_d=False,
                 enumerate_isomers=False,
             )
         assert len(per_species) == 1, f"enumeration ran while disabled: {per_species}"
@@ -169,9 +172,7 @@ class TestEnumerationDisabled:
             f"no warning about the mixture: {[r.message for r in caplog.records]}"
         )
 
-    def test_disabled_enumeration_warns_about_an_unspecified_double_bond(
-        self, job_dir, caplog
-    ):
+    def test_disabled_enumeration_warns_about_an_unspecified_double_bond(self, job_dir, caplog):
         """A flat, undrawn C=C must trigger the mixture warning too.
 
         RDKit reports a double bond with no drawn geometry as
@@ -185,13 +186,15 @@ class TestEnumerationDisabled:
 
         with caplog.at_level(logging.WARNING, logger="Auto3D.isomer_engine"):
             per_species = _run_engine(
-                job_dir, "OC(=O)C=CC(=O)O", "fumaric_off", three_d=False,
+                job_dir,
+                "OC(=O)C=CC(=O)O",
+                "fumaric_off",
+                three_d=False,
                 enumerate_isomers=False,
             )
         assert len(per_species) == 1, f"enumeration ran while disabled: {per_species}"
         assert any(
-            "1 unspecified stereo element" in record.message
-            and "fumaric_off" in record.message
+            "1 unspecified stereo element" in record.message and "fumaric_off" in record.message
             for record in caplog.records
         ), (
             "no warning naming the unspecified stereo element: "

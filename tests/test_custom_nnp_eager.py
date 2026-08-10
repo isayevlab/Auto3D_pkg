@@ -4,6 +4,7 @@ Modern AIMNet2-based models are no longer torch.jit.script-able, so the
 custom-NNP adapter must accept eager modules, not only TorchScript archives.
 This needs no torchani and no aimnet -- a trivial analytic energy module suffices.
 """
+
 from __future__ import annotations
 
 import torch

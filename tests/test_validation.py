@@ -23,7 +23,7 @@ class TestCheckInputExceptions:
         args.input_format = "smi"
         args.path = "/fake/path.smi"
 
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=False):
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device"):
                 check_input(args)
 
@@ -37,7 +37,7 @@ class TestCheckInputExceptions:
         args.input_format = "smi"
         args.path = "/fake/path.smi"
 
-        with patch.dict('os.environ', {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(DependencyError, match="OE_LICENSE") as exc_info:
                 check_input(args)
         # M26: dependency_name must be set so cli/errors.get_error_hint can
@@ -55,10 +55,12 @@ class TestCheckInputExceptions:
         args.path = "/fake/path.smi"
 
         # Simulate OE_LICENSE present but openeye not installed
-        with patch.dict('os.environ', {'OE_LICENSE': '/path/to/license'}):
+        with patch.dict("os.environ", {"OE_LICENSE": "/path/to/license"}):
             # Import of openeye should fail
-            with patch.dict('sys.modules', {'openeye': None, 'openeye.oechem': None}):
-                with patch('builtins.__import__', side_effect=ImportError("No module named 'openeye'")):
+            with patch.dict("sys.modules", {"openeye": None, "openeye.oechem": None}):
+                with patch(
+                    "builtins.__import__", side_effect=ImportError("No module named 'openeye'")
+                ):
                     with pytest.raises(DependencyError, match="openeye") as exc_info:
                         check_input(args)
         assert exc_info.value.dependency_name == "openeye"
@@ -66,6 +68,7 @@ class TestCheckInputExceptions:
     def test_ani2x_without_torchani_raises_dependency_error(self):
         """Should raise DependencyError when ANI2x used but torchani not installed."""
         import builtins
+
         args = MagicMock()
         args.use_gpu = False
         args.isomer_engine = "rdkit"
@@ -78,11 +81,11 @@ class TestCheckInputExceptions:
         original_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
-            if name == 'torchani':
+            if name == "torchani":
                 raise ImportError("No module named 'torchani'")
             return original_import(name, *args, **kwargs)
 
-        with patch('builtins.__import__', side_effect=mock_import):
+        with patch("builtins.__import__", side_effect=mock_import):
             with pytest.raises(DependencyError, match="TorchANI") as exc_info:
                 check_input(args)
         assert exc_info.value.dependency_name == "torchani"
@@ -168,12 +171,20 @@ class TestCheckInputExceptions:
         """
         from types import SimpleNamespace
         from Auto3D.utils.validation import check_input
+
         smi = tmp_path / "in.smi"
         smi.write_text("CCO mol1\n")
         args = SimpleNamespace(
-            path=str(smi), input_format="smi", optimizing_engine="aimnet2-2025",
-            enumerate_isomer=True, opt_steps=10, k=1, window=False, use_gpu=False,
-            isomer_engine="rdkit", verbose=False,
+            path=str(smi),
+            input_format="smi",
+            optimizing_engine="aimnet2-2025",
+            enumerate_isomer=True,
+            opt_steps=10,
+            k=1,
+            window=False,
+            use_gpu=False,
+            isomer_engine="rdkit",
+            verbose=False,
         )
         check_input(args)  # must not raise for a valid registry engine
 
@@ -184,10 +195,13 @@ class TestCheckValidConfigurationGpuIndex:
 
     def test_out_of_range_index_flagged(self, tmp_path):
         from Auto3D.utils.validation import check_valid_configuration
+
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True), \
-             patch('Auto3D.utils.validation.torch.cuda.device_count', return_value=1):
+        with (
+            patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=True),
+            patch("Auto3D.utils.validation.torch.cuda.device_count", return_value=1),
+        ):
             errors = check_valid_configuration(
                 Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=5)
             )
@@ -195,10 +209,13 @@ class TestCheckValidConfigurationGpuIndex:
 
     def test_valid_index_not_flagged(self, tmp_path):
         from Auto3D.utils.validation import check_valid_configuration
+
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True), \
-             patch('Auto3D.utils.validation.torch.cuda.device_count', return_value=4):
+        with (
+            patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=True),
+            patch("Auto3D.utils.validation.torch.cuda.device_count", return_value=4),
+        ):
             errors = check_valid_configuration(
                 Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=0)
             )
@@ -215,7 +232,8 @@ class TestGpuPolicyIsUniform:
 
     def test_check_gpu_requested_raises_gpu_error_without_cuda(self):
         from Auto3D.utils.validation import check_gpu_requested
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=False):
+
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 check_gpu_requested(True)
         assert "--no-gpu" in str(exc_info.value)
@@ -223,17 +241,17 @@ class TestGpuPolicyIsUniform:
     def test_check_gpu_requested_noop_when_use_gpu_false(self):
         """use_gpu=False must never raise, CUDA available or not."""
         from Auto3D.utils.validation import check_gpu_requested
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=False):
+
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
             check_gpu_requested(False)  # must not raise
 
     def test_check_gpu_requested_noop_when_cuda_available(self):
         from Auto3D.utils.validation import check_gpu_requested
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=True):
+
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=True):
             check_gpu_requested(True)  # must not raise
 
-    def test_check_valid_configuration_raises_gpu_error_not_configuration_error(
-        self, tmp_path
-    ):
+    def test_check_valid_configuration_raises_gpu_error_not_configuration_error(self, tmp_path):
         """Before this fix, check_valid_configuration folded the no-CUDA
         finding into its generic `errors` list, so every caller (main() via
         WorkflowOrchestrator._validate_input, and smiles2mols) wrapped it in
@@ -241,9 +259,10 @@ class TestGpuPolicyIsUniform:
         init' hint instead of GPUError's '--no-gpu' hint (M23). It must now
         raise GPUError directly, matching check_input."""
         from Auto3D.utils.validation import check_valid_configuration
+
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=False):
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
             with pytest.raises(GPUError):
                 check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
@@ -263,12 +282,10 @@ class TestGpuPolicyIsUniform:
         args.input_format = "smi"
         args.path = str(p)
 
-        with patch('Auto3D.utils.validation.torch.cuda.is_available', return_value=False):
+        with patch("Auto3D.utils.validation.torch.cuda.is_available", return_value=False):
             with pytest.raises(GPUError) as exc_via_check_input:
                 check_input(args)
             with pytest.raises(GPUError) as exc_via_check_valid_configuration:
                 check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
-        assert type(exc_via_check_input.value) is type(
-            exc_via_check_valid_configuration.value
-        )
+        assert type(exc_via_check_input.value) is type(exc_via_check_valid_configuration.value)

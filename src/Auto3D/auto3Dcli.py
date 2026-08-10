@@ -47,6 +47,7 @@ def cli() -> None:
 
     # Modern Typer CLI
     from Auto3D.cli.app import app
+
     app()
 
 

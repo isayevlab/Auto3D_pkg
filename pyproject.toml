@@ -74,7 +74,12 @@ dev = [
     # requests ships no inline types; without the stubs mypy reports
     # `import-untyped` at models/preflight.py's download path.
     "types-requests",
-    "ruff>=0.1.0",
+    # Pinned, not floored, and kept identical to the version the `lint` CI job
+    # installs. `ruff format` is a gate now, and a range lets a contributor
+    # format with one style while CI checks against another -- the failure would
+    # arrive as a red build on a diff that never touched the offending lines.
+    # `>=0.1.0` was the old floor, spanning every formatting style ruff has had.
+    "ruff==0.15.9",
     "pre-commit>=3.0",
 ]
 docs = [
@@ -183,6 +188,23 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["Auto3D"]
+
+# Every value here is a ruff default. They are written down anyway, because the
+# formatter is a gate now (`ruff format --check` in the `lint` CI job) and a gate
+# whose behavior lives in someone else's defaults moves when that someone else
+# ships a release. Pinning them makes a reformat land when *we* change this
+# section, not when ruff changes its mind.
+#
+# `docstring-code-format` stays off deliberately: many docstrings here carry
+# illustrative snippets that are not valid standalone Python (elided bodies,
+# `...` continuations), and formatting them is a silent rewrite of documentation
+# that no test covers.
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+docstring-code-format = false
 
 [tool.mypy]
 # Deliberately no `python_version`. Setting it to the declared floor ("3.11")

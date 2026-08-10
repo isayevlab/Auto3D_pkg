@@ -43,6 +43,7 @@ class ConfigurationError(Auto3DError):
     This includes missing required parameters, invalid parameter values,
     or incompatible parameter combinations.
     """
+
     pass
 
 
@@ -52,11 +53,13 @@ class InputValidationError(Auto3DError):
     This includes invalid SMILES strings, malformed SDF files,
     or files with missing required fields.
     """
+
     pass
 
 
 class ModelError(Auto3DError):
     """Base exception for model-related errors."""
+
     pass
 
 
@@ -65,6 +68,7 @@ class ModelLoadError(ModelError):
 
     This includes corrupted model files or incompatible model formats.
     """
+
     pass
 
 
@@ -75,6 +79,7 @@ class NumericalError(ModelError):
     neural network potential calculations. Usually indicates
     problematic molecular geometries or model limitations.
     """
+
     pass
 
 
@@ -85,6 +90,7 @@ class OptimizationError(Auto3DError):
     for a molecule; see WorkflowOrchestrator._run_pipeline and
     batch_opt/model_wrapper.py.
     """
+
     pass
 
 
@@ -93,6 +99,7 @@ class FileFormatError(Auto3DError):
 
     Auto3D supports .smi (SMILES) and .sdf (SDF) file formats.
     """
+
     pass
 
 
@@ -133,4 +140,5 @@ class GPUError(Auto3DError):
     This includes missing CUDA devices when GPU computation is requested,
     or GPU memory issues.
     """
+
     pass

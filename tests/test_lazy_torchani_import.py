@@ -1,4 +1,5 @@
 """The optional torchani extra must not be required just to import thermo."""
+
 from __future__ import annotations
 
 import builtins

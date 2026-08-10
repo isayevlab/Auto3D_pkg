@@ -1,4 +1,5 @@
 """Workflow orchestration for Auto3D conformer generation pipeline."""
+
 from __future__ import annotations
 
 import logging
@@ -258,9 +259,7 @@ class WorkflowOrchestrator:
         # validates the index against torch.cuda.device_count(); reuse it.
         config_errors = check_valid_configuration(self.config)
         if config_errors:
-            raise ConfigurationError(
-                "Invalid configuration:\n  - " + "\n  - ".join(config_errors)
-            )
+            raise ConfigurationError("Invalid configuration:\n  - " + "\n  - ".join(config_errors))
 
         check_input(self.config)
 
@@ -310,9 +309,7 @@ class WorkflowOrchestrator:
         before this call, so it is provably new and nothing in it can belong
         to the user.
         """
-        encoded_path, self.id_mapping = encode_ids(
-            self.config.path, out_dir=self.job_dir
-        )
+        encoded_path, self.id_mapping = encode_ids(self.config.path, out_dir=self.job_dir)
         self.input_path = Path(encoded_path)
 
     def _setup_logging(self) -> None:
@@ -416,17 +413,13 @@ class WorkflowOrchestrator:
         # progress callback was supplied (interactive `auto3d run`). When None,
         # the optimizer workers emit nothing and the supervise loop below falls
         # back to plain blocking joins -- the default/library path is unchanged.
-        progress_queue = (
-            mp.Manager().Queue() if self.progress_callback is not None else None
-        )
+        progress_queue = mp.Manager().Queue() if self.progress_callback is not None else None
 
         # Per-run config carrying the memory-scaled batch size for optimization.
         # Built with dataclasses.replace so self.config (itself already a
         # private copy made at the top of run(), see M16) is left holding the
         # unscaled value -- only the optimizer workers get the scaled one.
-        opt_config = replace(
-            self.config, batchsize_atoms=self.scaled_batchsize_atoms
-        )
+        opt_config = replace(self.config, batchsize_atoms=self.scaled_batchsize_atoms)
 
         # Create isomer generation process
         p1 = mp.Process(
@@ -440,14 +433,11 @@ class WorkflowOrchestrator:
         # (N model loads -> OOM risk); optimizer_worker_indices collapses that to
         # one, and the isomer worker derives its sentinel count the same way.
         p2s: list[mp.Process] = []
-        for idx in optimizer_worker_indices(
-            self.config.use_gpu, self.config.gpu_idx
-        ):
+        for idx in optimizer_worker_indices(self.config.use_gpu, self.config.gpu_idx):
             p2s.append(
                 mp.Process(
                     target=optim_rank_wrapper,
-                    args=(opt_config, chunk_queue, self.logging_queue, idx,
-                          progress_queue),
+                    args=(opt_config, chunk_queue, self.logging_queue, idx, progress_queue),
                 )
             )
 
@@ -473,7 +463,8 @@ class WorkflowOrchestrator:
         if proc.exitcode not in (0, None):
             logger.error(
                 "%s process exited with code %s; output may be incomplete.",
-                label, proc.exitcode,
+                label,
+                proc.exitcode,
             )
 
     def _log_both(self, msg: str, *, warning: bool = False) -> None:

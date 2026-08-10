@@ -1,4 +1,5 @@
 """Tests for Auto3D.utils.sdf_io module."""
+
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
@@ -14,7 +15,6 @@ from Auto3D.utils.sdf_io import (
 # Get the test files directory
 TEST_DIR = Path(__file__).parent
 FILES_DIR = TEST_DIR / "files"
-
 
 
 def _make_mol(name):
@@ -217,14 +217,13 @@ class TestNoneMolHardening:
         import Auto3D.utils.sdf_io as sdf_io
 
         valid = _make_mol("mol_a")
-        monkeypatch.setattr(
-            sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid, None]
-        )
+        monkeypatch.setattr(sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid, None])
 
         sdf = tmp_path / "mols.sdf"
         sdf.write_text("placeholder")  # path only needs to exist for the call
 
         assert count_sdf(str(sdf)) == 1
+
     def test_reorder_sdf_skips_none_records(self, tmp_path, monkeypatch):
         """reorder_sdf must skip None records in the target SDF."""
 
@@ -235,9 +234,7 @@ class TestNoneMolHardening:
 
         valid_a = _make_mol("mol_a")
         valid_b = _make_mol("mol_b")
-        monkeypatch.setattr(
-            sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid_a, None, valid_b]
-        )
+        monkeypatch.setattr(sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid_a, None, valid_b])
 
         sdf = tmp_path / "target.sdf"
         sdf.write_text("placeholder")
@@ -301,10 +298,7 @@ class TestSDF2chunksTrailingRecord:
         """SDF2chunks keeps a terminator-less trailing record as its own chunk."""
         sdf = tmp_path / "ragged.sdf"
         # First record has $$$$; second record lacks it.
-        sdf.write_text(
-            "mol1\n  line1\n$$$$\n"
-            "mol2\n  line2\n  line3\n"
-        )
+        sdf.write_text("mol1\n  line1\n$$$$\nmol2\n  line2\n  line3\n")
 
         chunks = SDF2chunks(str(sdf))
 

@@ -1,5 +1,6 @@
 # tests/test_parallel_embed.py
 """Tests for Auto3D.embedding (parallel conformer embedding)."""
+
 import multiprocessing as mp
 import os
 from concurrent.futures.process import BrokenProcessPool
@@ -94,13 +95,15 @@ class TestEmbedConformersParallel:
             ("C", "methane"),
             ("CC", "ethane"),
         ]
-        results = list(embed_conformers_parallel(
-            smiles_names,
-            n_conformers=5,
-            threshold=0.3,
-            np_threads=1,
-            n_workers=2,
-        ))
+        results = list(
+            embed_conformers_parallel(
+                smiles_names,
+                n_conformers=5,
+                threshold=0.3,
+                np_threads=1,
+                n_workers=2,
+            )
+        )
 
         assert len(results) >= 2  # At least one conformer per input
         for mol, conf_idx, conf_id in results:
@@ -115,11 +118,13 @@ class TestEmbedConformersParallel:
             ("CCC", "propane"),
             ("CCCC", "butane"),
         ]
-        results = list(embed_conformers_parallel(
-            smiles_names,
-            n_conformers=3,
-            n_workers=1,
-        ))
+        results = list(
+            embed_conformers_parallel(
+                smiles_names,
+                n_conformers=3,
+                n_workers=1,
+            )
+        )
 
         assert len(results) >= 2
 
@@ -131,11 +136,13 @@ class TestEmbedConformersParallel:
     def test_parallel_embed_conf_id_format(self):
         """Conformer IDs should follow name_idx format."""
         smiles_names = [("C", "mol1")]
-        results = list(embed_conformers_parallel(
-            smiles_names,
-            n_conformers=3,
-            n_workers=1,
-        ))
+        results = list(
+            embed_conformers_parallel(
+                smiles_names,
+                n_conformers=3,
+                n_workers=1,
+            )
+        )
 
         for mol, conf_idx, conf_id in results:
             assert conf_id.startswith("mol1_")
@@ -149,13 +156,15 @@ class TestEmbedConformersParallel:
             ("c1ccccc1", "benzene"),  # aromatic ring
             ("CCO", "ethanol"),  # small functional group
         ]
-        results = list(embed_conformers_parallel(
-            smiles_names,
-            n_conformers=5,
-            threshold=0.3,
-            np_threads=1,
-            n_workers=2,
-        ))
+        results = list(
+            embed_conformers_parallel(
+                smiles_names,
+                n_conformers=5,
+                threshold=0.3,
+                np_threads=1,
+                n_workers=2,
+            )
+        )
 
         assert len(results) >= 2
 
@@ -189,11 +198,13 @@ class TestEmbedConformersParallel:
             ("CC", "ethane"),  # valid
         ]
 
-        results = list(embed_conformers_parallel(
-            smiles_names,
-            n_conformers=3,
-            n_workers=2,
-        ))
+        results = list(
+            embed_conformers_parallel(
+                smiles_names,
+                n_conformers=3,
+                n_workers=2,
+            )
+        )
 
         # Should get results from valid molecules only
         assert len(results) >= 2
@@ -216,11 +227,13 @@ class TestEmbedConformersParallel:
             ("CC", "s2"),
             ("CCC", "s3"),
         ]
-        results = list(embed_conformers_parallel(
-            smiles_names,
-            n_conformers=3,
-            n_workers=4,
-        ))
+        results = list(
+            embed_conformers_parallel(
+                smiles_names,
+                n_conformers=3,
+                n_workers=4,
+            )
+        )
 
         first_seen = []
         for _, _, conf_id in results:
@@ -241,13 +254,9 @@ class TestEmbedConformersParallel:
             pytest.skip("relies on fork to propagate the monkeypatched worker into the pool")
 
         # Replace the worker with one that kills its process mid-task.
-        monkeypatch.setattr(
-            "Auto3D.embedding._embed_single", _suicide_embed
-        )
+        monkeypatch.setattr("Auto3D.embedding._embed_single", _suicide_embed)
 
         with pytest.raises(BrokenProcessPool):
             list(
-                embed_conformers_parallel(
-                    [("C", "m1"), ("CC", "m2")], n_conformers=1, n_workers=1
-                )
+                embed_conformers_parallel([("C", "m1"), ("CC", "m2")], n_conformers=1, n_workers=1)
             )
