@@ -588,7 +588,7 @@ class TestAni2xtNetworksAreTableDriven:
         import torch
         from torch import nn
 
-        from Auto3D.batch_opt.ANI2xt_no_rep import WIDTHS, _atomic_mlp
+        from Auto3D.models.ani2xt import WIDTHS, _atomic_mlp
 
         checkpoint = torch.load(self.CHECKPOINT, map_location="cpu", weights_only=True)
         # Read the AEV width off the checkpoint rather than hardcoding it, so a
@@ -617,7 +617,7 @@ class TestAni2xtNetworksAreTableDriven:
         the same widths the mix-up was harmless -- and undetectable. The table
         makes the order the only order there is.
         """
-        from Auto3D.batch_opt.ANI2xt_no_rep import WIDTHS
+        from Auto3D.models.ani2xt import WIDTHS
         from Auto3D.models.species import ANI2XT_INDEX
 
         assert len(WIDTHS) == len(ANI2XT_INDEX) == 7
@@ -635,7 +635,7 @@ class TestAni2xtNetworksAreTableDriven:
     def test_the_factory_builds_the_documented_shape(self):
         from torch import nn
 
-        from Auto3D.batch_opt.ANI2xt_no_rep import _atomic_mlp
+        from Auto3D.models.ani2xt import _atomic_mlp
 
         net = _atomic_mlp(11, (5, 4, 3))
         kinds = [type(layer) for layer in net]

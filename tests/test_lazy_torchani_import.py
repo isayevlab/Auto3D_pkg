@@ -7,7 +7,7 @@ import sys
 
 # Module names this test evicts from sys.modules so their module-level code
 # re-runs under the import block.
-_RELOADED = ("Auto3D.ASE.thermo", "Auto3D.batch_opt.ANI2xt_no_rep")
+_RELOADED = ("Auto3D.ASE.thermo", "Auto3D.models.ani2xt")
 
 
 def test_thermo_imports_with_torchani_blocked(monkeypatch):

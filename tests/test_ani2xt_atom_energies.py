@@ -39,7 +39,7 @@ import pytest
 import torch
 from torch import nn
 
-from Auto3D.batch_opt.ANI2xt_no_rep import (
+from Auto3D.models.ani2xt import (
     NUM_ELEMENTS,
     _atom_energies,
     element_indices,

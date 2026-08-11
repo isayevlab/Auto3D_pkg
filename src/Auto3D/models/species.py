@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 # Atomic number -> ANI2xt network index. The order matches the ModuleList in
-# batch_opt/ANI2xt_no_rep.py; changing one without the other misroutes elements.
+# models/ani2xt.py; changing one without the other misroutes elements.
 ANI2XT_INDEX: dict[int, int] = {1: 0, 6: 1, 7: 2, 8: 3, 9: 4, 16: 5, 17: 6}
 
 __all__ = ["ANI2XT_INDEX", "to_ani2xt_species"]

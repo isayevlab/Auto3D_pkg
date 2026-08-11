@@ -41,7 +41,7 @@ __version__ = _detect_version()
 # and where its result is actually used:
 #   * openeye  -> isomer_engine.py (names used at call time) and
 #                 utils/validation.py (raises DependencyError with a fix hint)
-#   * torchani -> utils/validation.py (same) and batch_opt/ANI2xt_no_rep.py
+#   * torchani -> utils/validation.py (same) and models/ani2xt.py
 #   * ANI2xt   -> constructed only through model_factory / models.adapter
 # Do not reintroduce a probe here. A dependency is checked where it is needed.
 

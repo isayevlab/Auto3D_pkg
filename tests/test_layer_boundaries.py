@@ -65,15 +65,14 @@ UPWARD_EXEMPTIONS: dict[tuple[str, str], str] = {
 }
 
 #: Mutually-importing package pairs, counting function-scope imports too.
-CYCLE_EXEMPTIONS: dict[tuple[str, str], str] = {
-    ("Auto3D.batch_opt", "Auto3D.models"): (
-        "2026-08-10: batch_opt imports models at module scope; models/adapter.py "
-        "imports batch_opt.ANI2xt_no_rep back, inside a function, which is the "
-        "only reason this is not an import cycle. Removed by the plan's item 2, "
-        "which moves ANI2xt_no_rep.py to models/ani2xt.py -- where its weights "
-        "already live."
-    ),
-}
+#:
+#: Empty, and it should stay that way. It held one entry when this file was
+#: written -- ``batch_opt`` <-> ``models``, where ``models/adapter.py`` reached
+#: back into ``batch_opt.ANI2xt_no_rep`` from inside a method, which was the only
+#: reason that pair was not an import cycle. The plan's item 2 moved that module
+#: to ``models/ani2xt.py``, beside the weights it loads, and this test reported
+#: the exemption as stale on the next run.
+CYCLE_EXEMPTIONS: dict[tuple[str, str], str] = {}
 
 _OWNER = {prefix: layer for layer, prefixes in LAYERS.items() for prefix in prefixes}
 

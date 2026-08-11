@@ -23,6 +23,7 @@ import torch.nn as nn
 
 from Auto3D.constants import HARTREE_TO_EV
 from Auto3D.exceptions import NumericalError
+from Auto3D.models.ani2xt import ANI2xt, element_indices, self_atomic_energies
 from Auto3D.models.loading import load_custom_nnp
 from Auto3D.models.species import to_ani2xt_species
 
@@ -478,17 +479,6 @@ class ANI2xtAdapter(BaseModelAdapter):
             device: Target device for computations.
             compile_model: Whether to apply torch.compile() for optimization.
         """
-        # THE ONE deliberate back-edge from Auto3D.models into
-        # Auto3D.batch_opt, and it MUST stay inside this method. Promoting it to
-        # module scope creates models -> batch_opt -> models, and because
-        # Auto3D/__init__.py eagerly imports Auto3D.batch_opt.ANI2xt_no_rep that
-        # becomes an import cycle at package-import time.
-        from Auto3D.batch_opt.ANI2xt_no_rep import (
-            ANI2xt,
-            element_indices,
-            self_atomic_energies,
-        )
-
         model = ANI2xt(device)
         num_elements = len(model.networks)
         energy_shifts = model.energy_shifts
