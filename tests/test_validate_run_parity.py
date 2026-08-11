@@ -90,7 +90,7 @@ class TestValidateRunnerParity:
 
 
 class TestValidateCheckSmiFormatParity:
-    """check_smi_format (utils/validation.py) is the other runner-side check
+    """check_smi_format (pipeline/input_checks.py) is the other runner-side check
     that reads the raw user .smi file directly (via check_input, called from
     both main() and smiles2mols) -- it must agree with the validator too."""
 
@@ -98,7 +98,7 @@ class TestValidateCheckSmiFormatParity:
     def _check_smi_format_accepts(path) -> bool:
         from types import SimpleNamespace
 
-        from Auto3D.utils.validation import check_smi_format
+        from Auto3D.pipeline.input_checks import check_smi_format
 
         args = SimpleNamespace(path=str(path), enumerate_isomer=True)
         try:

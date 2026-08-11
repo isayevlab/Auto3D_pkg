@@ -7,13 +7,13 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.utils.connectivity import check_connectivity
-from Auto3D.utils.validation import (
+from Auto3D.pipeline.input_checks import (
     check_input,
     check_sdf_format,
     check_smi_format,
     check_valid_configuration,
 )
+from Auto3D.utils.connectivity import check_connectivity
 
 # Set up test file paths
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -422,7 +422,7 @@ class AIMNet2Adapter(BaseModelAdapter):
         ``species != self.species_pad``. This adapter's ``species_pad`` is 0
         and it consumes raw atomic numbers, so the sentinel comparison deleted
         atomic number 0 -- an R-group/dummy ``*`` atom, which
-        ``utils.validation._requires_aimnet`` routes to precisely this engine.
+        ``models.policy._requires_aimnet`` routes to precisely this engine.
         For ``*CCO`` the padder reported 9 real atoms and this adapter scored
         8: the energy belonged to a different species, and the dummy atom got
         exactly zero force and stayed frozen for the whole optimization. That

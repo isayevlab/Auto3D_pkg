@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Auto3D.utils.validation` is gone, split in two.** The module mixed two
+  unrelated jobs — asking whether a model can run here, and parsing what the
+  caller supplied — which is why a leaf helper package ended up reaching into
+  the model layer.
+
+  | before | after |
+  |---|---|
+  | `from Auto3D.utils.validation import check_gpu_requested` | `from Auto3D.models.policy import check_gpu_requested` |
+  | `from Auto3D.utils.validation import check_engine_supports_molecules` | `from Auto3D.models.policy import check_engine_supports_molecules` |
+  | `from Auto3D.utils.validation import check_input` | `from Auto3D.pipeline.input_checks import check_input` |
+  | `from Auto3D.utils.validation import check_valid_configuration` | `from Auto3D.pipeline.input_checks import check_valid_configuration` |
+  | `from Auto3D.utils.validation import check_smi_format` | `from Auto3D.pipeline.input_checks import check_smi_format` |
+  | `from Auto3D.utils.validation import check_sdf_format` | `from Auto3D.pipeline.input_checks import check_sdf_format` |
+
+  `Auto3D.pipeline` is a new package. None of these names were in
+  `docs/source/api.rst`, so no documented API changed.
+
+  **`Auto3D.utils` is now a true leaf**: nothing under it imports
+  `Auto3D.models`, or anything else above `constants` and `exceptions`. The two
+  imports that broke that were written at function scope specifically to dodge
+  an import cycle; from `pipeline/`, which sits above the model layer, they are
+  ordinary module-scope imports.
+
+  The new module is `input_checks`, not `preflight` as originally sketched:
+  `models/preflight.py` already exists and resolves a model *name* before
+  forking, and two modules called preflight doing different jobs is the
+  near-identical-name problem this codebase has been bitten by before.
+
 - **`Auto3D.batch_opt.ANI2xt_no_rep` is now `Auto3D.models.ani2xt`.** The module
   defines the ANI2xt network and loads `models/ani2xt_no_repulsion.pt`, so it
   lived one package away from both the weights it reads and the adapter that

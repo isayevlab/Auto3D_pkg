@@ -31,7 +31,7 @@ from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
 from Auto3D.isomer_engine import RDKitIsomer
-from Auto3D.utils.validation import check_smi_format
+from Auto3D.pipeline.input_checks import check_smi_format
 
 #: Canonical SMILES of the two 2-butene geometries, for readability below.
 TRANS_2_BUTENE = "C/C=C/C"

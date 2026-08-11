@@ -259,7 +259,7 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose
 
         from Auto3D.exceptions import NumericalError
         from Auto3D.model_factory import create_model, get_device
-        from Auto3D.utils.validation import check_gpu_requested
+        from Auto3D.models.policy import check_gpu_requested
 
         # `energy`/`optimize`/`thermo` (cli/commands/properties.py) already call
         # this before doing any work; `models test` reached

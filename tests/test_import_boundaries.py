@@ -556,10 +556,10 @@ def test_utils_submodule_imports_still_work():
     ``__init__.py`` importing nothing is exactly the condition under which it is
     easy to assume otherwise.
     """
-    from Auto3D.utils import energy, validation
+    from Auto3D.utils import energy, output_guard
 
     assert energy.hartree2ev > 0  # a float constant, not a function
-    assert callable(validation.check_input)
+    assert callable(output_guard.check_output_overwrite)
 
 
 def test_isomer_engine_does_not_import_the_isomers_package():
@@ -658,30 +658,38 @@ def test_batchopt_does_not_re_export_print_stats():
 # every Auto3D module before any test runs, so in-process this would pass
 # unconditionally.
 _LEAF_PROBE_SOURCE = """
-import json, sys
-import Auto3D.utils.validation  # noqa: F401
+import importlib, json, pkgutil, sys
+import Auto3D.utils
+
+for info in pkgutil.iter_modules(Auto3D.utils.__path__):
+    importlib.import_module(f"Auto3D.utils.{info.name}")
+
 print(json.dumps(sorted(
     m for m in sys.modules if m == "Auto3D.models" or m.startswith("Auto3D.models.")
 )))
 """
 
 
-def test_importing_utils_validation_does_not_load_models():
+def test_importing_any_utils_module_does_not_load_models():
     """``utils/`` must not depend on the ``models/`` domain package.
 
     ``utils`` is a leaf by intent -- generic helpers every layer may use -- and
-    ``validation.py`` was the single module breaking that, with two module-level
-    imports of ``Auto3D.models.*`` whose only consumers are function-scope. A
-    domain package reached from the bottom of the stack is what let one probe in
-    ``Auto3D/__init__.py`` drag in the entire model layer.
+    ``validation.py`` was the single module breaking that, reaching up into
+    ``Auto3D.models`` through two function-scope imports written that way
+    specifically to avoid an import cycle. A domain package reached from the
+    bottom of the stack is what let one probe in ``Auto3D/__init__.py`` drag in
+    the entire model layer.
 
-    Scoped to ``Auto3D.models`` on purpose: ``validation.py`` imports torch and
-    rdkit at module scope, and this test takes no position on that. It used to,
-    for a test-mechanical reason -- twenty-two sites patched
-    ``Auto3D.utils.validation.torch.cuda.is_available``, so the module needed a
-    ``torch`` attribute for those strings to resolve. Those sites now patch
-    ``torch.cuda`` directly, which is the object they were reaching all along,
-    so nothing in the suite constrains this module's import style any more.
+    That module is gone: its GPU and element-support policy moved to
+    ``models/policy.py`` and its input parsing to ``pipeline/input_checks.py``.
+    So this now enumerates and imports **every** module in the package rather
+    than the one that used to be the offender -- the property is about ``utils``,
+    and naming a single file made it a test about that file.
+
+    Complements ``tests/test_layer_boundaries.py``, which asserts the same
+    direction statically over the whole package. This one runs the imports, so
+    it also catches a dependency that only appears when module-level code
+    executes.
     """
     proc = subprocess.run(
         [sys.executable, "-c", _LEAF_PROBE_SOURCE],
@@ -690,7 +698,7 @@ def test_importing_utils_validation_does_not_load_models():
     )
     assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
     loaded = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert not loaded, f"importing Auto3D.utils.validation pulled in the models package: {loaded}"
+    assert not loaded, f"importing Auto3D.utils.* pulled in the models package: {loaded}"
 
 
 # Subprocess probe: what the split-out file-I/O modules cost to import.

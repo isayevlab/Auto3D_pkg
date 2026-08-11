@@ -18,7 +18,7 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.exceptions import InputValidationError
-from Auto3D.utils.validation import check_sdf_format, check_smi_format
+from Auto3D.pipeline.input_checks import check_sdf_format, check_smi_format
 
 
 class TestCheckSmiFormatErrors:

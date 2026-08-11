@@ -6,7 +6,7 @@ comparing ``species`` against ``species_pad``, because a padding value can
 collide with a real species index. ``AIMNet2Adapter`` declares
 ``species_pad = 0`` and consumes raw atomic numbers, so the comparison it used
 to make deleted atomic number 0 -- an R-group / dummy ``*`` atom.
-``utils.validation._requires_aimnet`` routes exactly those molecules here
+``models.policy._requires_aimnet`` routes exactly those molecules here
 (element 0 is outside the ANI set), so the collision was reachable by the
 default engine on ordinary input.
 

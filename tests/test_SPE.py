@@ -21,7 +21,7 @@ skip_ani2xt_test = False
 # Every calc_spe call below passes use_gpu=False on purpose. calc_spe's
 # `use_gpu` default is True, and Auto3D 3.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
-# (Auto3D.utils.validation.check_gpu_requested, called first thing inside
+# (Auto3D.models.policy.check_gpu_requested, called first thing inside
 # calc_spe). The slow CI job runs on ubuntu-latest -- CPU-only, like every
 # runner in this repo -- so leaving the default in place would make each of
 # these raise GPUError instead of computing anything. Same reason

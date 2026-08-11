@@ -12,7 +12,7 @@ So the map is declared here, and both directions are asserted:
     L5  presentation   cli/**, auto3Dcli, the package root
     L4  entry          auto3D, SPE, ASE/**
     L3  orchestration  workflow, workflow_workers, chunk_manager, job_layout,
-                       processors
+                       processors, pipeline/**
     L2  engines        models/**, model_factory, isomers/**, isomer_engine,
                        tautomer, batch_opt/**
     L1  domain         ranking, filtering, embedding, clash_relief, id_mapping
@@ -47,7 +47,7 @@ PKG = SRC / "Auto3D"
 LAYERS: dict[int, list[str]] = {
     5: ["", "cli", "auto3Dcli"],
     4: ["auto3D", "SPE", "ASE"],
-    3: ["workflow", "workflow_workers", "chunk_manager", "job_layout", "processors"],
+    3: ["workflow", "workflow_workers", "chunk_manager", "job_layout", "processors", "pipeline"],
     2: ["models", "model_factory", "isomers", "isomer_engine", "tautomer", "batch_opt"],
     1: ["ranking", "filtering", "embedding", "clash_relief", "id_mapping"],
     0: ["config", "constants", "exceptions", "results", "torch_config", "utils"],

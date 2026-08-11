@@ -210,7 +210,8 @@ def test_opt_steps_has_exactly_one_declared_minimum():
     """
     from Auto3D.config import FIELD_BOUNDS, Auto3DOptions, check_field_bounds
     from Auto3D.exceptions import ConfigurationError
-    from Auto3D.utils import validation as validation_mod
+    from Auto3D.models import policy as policy_mod
+    from Auto3D.pipeline import input_checks as input_checks_mod
 
     kind, bound_min = FIELD_BOUNDS["opt_steps"]
     assert (kind, bound_min) == ("ge", 10)
@@ -233,19 +234,23 @@ def test_opt_steps_has_exactly_one_declared_minimum():
     # actually forbidden here.
     import ast
 
-    tree = ast.parse(Path(validation_mod.__file__).read_text())
-    offenders = [
-        ast.unparse(node)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Compare)
-        and "opt_steps" in ast.unparse(node)
-        and any(
-            isinstance(c, ast.Constant) and isinstance(c.value, (int, float))
-            for c in node.comparators
-        )
-    ]
+    # Both halves of what `utils/validation.py` split into, so the bound cannot
+    # reappear in whichever one a future edit happens to touch.
+    offenders = []
+    for module in (policy_mod, input_checks_mod):
+        tree = ast.parse(Path(module.__file__).read_text())
+        offenders += [
+            f"{Path(module.__file__).name}: {ast.unparse(node)}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Compare)
+            and "opt_steps" in ast.unparse(node)
+            and any(
+                isinstance(c, ast.Constant) and isinstance(c.value, (int, float))
+                for c in node.comparators
+            )
+        ]
     assert not offenders, (
-        f"utils/validation.py hand-writes an opt_steps bound again: {offenders}. "
+        f"an opt_steps bound is hand-written again: {offenders}. "
         "The bound belongs in Auto3D.config.FIELD_BOUNDS only."
     )
 

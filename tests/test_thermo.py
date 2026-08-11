@@ -26,7 +26,7 @@ from tests.helpers_pipeline_output import (
 # Every opt_geometry/calc_thermo call below passes use_gpu=False on purpose.
 # Both default to use_gpu=True, and Auto3D 3.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
-# (Auto3D.utils.validation.check_gpu_requested, called first thing inside each
+# (Auto3D.models.policy.check_gpu_requested, called first thing inside each
 # function). The slow CI job runs on ubuntu-latest -- CPU-only, like every
 # runner in this repo -- so leaving the default in place would make each of
 # these raise GPUError instead of computing anything. `gpu_idx` is deliberately

@@ -168,7 +168,7 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
 # init" hint, or GPUError, depending on entry point). This dev box has 8 CUDA
 # devices (see task-7 brief), so the no-CUDA case is simulated by patching
 # torch.cuda.is_available where check_gpu_requested (the single source of
-# truth for this check, Auto3D.utils.validation) reads it. The mocked API
+# truth for this check, Auto3D.models.policy) reads it. The mocked API
 # function must never be called: the check must happen before any real work.
 
 
