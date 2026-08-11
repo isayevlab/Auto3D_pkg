@@ -7,7 +7,6 @@ YAML file loading, CLI overrides, and conversion to Auto3DOptions.
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 from typing import Any, Literal
 
@@ -64,16 +63,6 @@ def _to_options_path(value: Path | None) -> str | None:
     return str(value) if value is not None else None
 
 
-def _to_options_selector(value: Any) -> Any:
-    """``CLIConfig``'s ``None`` "unset" sentinel -> ``Auto3DOptions``'s ``False``.
-
-    Only ``k``/``window`` need this. The other two ``SENTINEL_FIELDS``
-    (``memory``, ``max_confs``) are typed ``int | None`` on *both* classes, so
-    ``None`` carries across unchanged.
-    """
-    return value if value else False
-
-
 def _to_options_engine(value: str) -> str:
     return _ENGINE_CANONICAL_CASE.get(value.upper(), value)
 
@@ -85,8 +74,6 @@ def _to_options_engine(value: str) -> str:
 #: checked that the mapper actually forwarded every field).
 _TO_OPTIONS_TRANSFORMS: dict[str, Any] = {
     "path": _to_options_path,
-    "k": _to_options_selector,
-    "window": _to_options_selector,
     "optimizing_engine": _to_options_engine,
 }
 
@@ -282,8 +269,8 @@ class CLIConfig(BaseModel):
                     "-c config.yaml'."
                 ),
             )
-        # Driven off `dataclasses.fields(Auto3DOptions)` -- the authoritative
-        # schema -- rather than 27 hand-written `field=self.field` assignments.
+        # Driven off `Auto3DOptions.model_fields` -- the authoritative schema --
+        # rather than 27 hand-written `field=self.field` assignments.
         # Those assignments were the one place drift could not be caught:
         # `test_cliconfig_covers_all_auto3doptions_fields` compared field *name*
         # sets, so deleting a line here silently dropped a user's setting on the
@@ -292,12 +279,12 @@ class CLIConfig(BaseModel):
         # that exists on only one is a KeyError/TypeError here rather than a
         # silent default.
         values: dict[str, Any] = {}
-        for spec in dataclasses.fields(Auto3DOptions):
-            if spec.name in OPTIONS_ONLY_FIELDS:
+        for name in Auto3DOptions.model_fields:
+            if name in OPTIONS_ONLY_FIELDS:
                 continue
-            value = getattr(self, spec.name)
-            transform = _TO_OPTIONS_TRANSFORMS.get(spec.name)
-            values[spec.name] = transform(value) if transform else value
+            value = getattr(self, name)
+            transform = _TO_OPTIONS_TRANSFORMS.get(name)
+            values[name] = transform(value) if transform else value
 
         return Auto3DOptions(**values)
 

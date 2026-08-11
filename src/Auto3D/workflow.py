@@ -6,7 +6,6 @@ import logging
 import multiprocessing as mp
 import shutil
 import time
-from dataclasses import replace
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
@@ -123,7 +122,7 @@ class WorkflowOrchestrator:
         # This is what makes _run_pipeline's own `replace()` comment further
         # down ("the caller's shared config is never mutated") true for the
         # whole run, not just that one local copy.
-        self.config = replace(self.config)
+        self.config = self.config.replace()
 
         start_time = time.time()
 
@@ -419,7 +418,7 @@ class WorkflowOrchestrator:
         # Built with dataclasses.replace so self.config (itself already a
         # private copy made at the top of run(), see M16) is left holding the
         # unscaled value -- only the optimizer workers get the scaled one.
-        opt_config = replace(self.config, batchsize_atoms=self.scaled_batchsize_atoms)
+        opt_config = self.config.replace(batchsize_atoms=self.scaled_batchsize_atoms)
 
         # Create isomer generation process
         p1 = mp.Process(

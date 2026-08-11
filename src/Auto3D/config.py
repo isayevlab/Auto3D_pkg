@@ -1,13 +1,23 @@
 """
 Configuration classes for Auto3D.
 
-This module provides typed configuration using dataclasses and TypedDicts
-for better type safety and IDE support.
+``Auto3DOptions`` is a pydantic model; the smaller helper configs below are
+still plain dataclasses. Making the main options object pydantic is what let
+``cli/config_schema.py``'s ``CLIConfig`` be deleted: it was a second declaration
+of 27 of these 28 fields, kept in step by a 708-line parity test suite whose
+existence was the symptom.
+
+``extra="forbid"`` means an unknown key is an error rather than a silently
+ignored typo -- the behavior the CLI already had, now on every entry point
+including the Python API.
 """
 
 import operator
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Any, TypedDict
+
+from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import ValidationError as PydanticValidationError
 
 from Auto3D.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
@@ -127,6 +137,20 @@ _BOUND_OPS: dict[str, tuple[object, str]] = {
 }
 
 
+def _format_validation_error(exc: PydanticValidationError) -> str:
+    """Pydantic's error report as one line per offending field.
+
+    Kept close to pydantic's own wording -- it names the field and the value it
+    received, which is the useful part -- but flattened, because the default
+    multi-line rendering inside a CLI error panel is unreadable.
+    """
+    parts = []
+    for err in exc.errors():
+        field = ".".join(str(p) for p in err["loc"]) or "<config>"
+        parts.append(f"{field}: {err['msg']}")
+    return "; ".join(parts)
+
+
 def check_field_bounds(values: dict) -> None:
     """Validate ``values`` (field name -> value) against ``FIELD_BOUNDS``.
 
@@ -232,8 +256,7 @@ def check_engine_choices(values: dict) -> None:
     Unconditional, unlike the check it replaces: ``check_valid_configuration``
     validated ``tauto_engine`` only when ``enumerate_tautomer`` was true, while
     ``CLIConfig``'s ``Literal["rdkit", "oechem"]`` has always rejected a bad
-    value regardless. That was an entry-point divergence -- ``Auto3DOptions(
-    tauto_engine="bogus")`` was accepted from Python and refused from the CLI --
+    value regardless. That was an entry-point divergence -- ``Auto3DOptions(tauto_engine="bogus")`` was accepted from Python and refused from the CLI --
     so the stricter of the two is what survives.
 
     Raises:
@@ -268,12 +291,12 @@ def optimizer_worker_indices(use_gpu: bool, gpu_idx: "int | list[int]") -> list[
     return [gpu_idx[0] if gpu_idx else 0]
 
 
-@dataclass
-class Auto3DOptions:
+class Auto3DOptions(BaseModel):
     """Configuration options for Auto3D conformer generation.
 
-    This dataclass provides proper type hints, validation, and IDE support
-    for Auto3D configuration.
+    The single configuration object: the CLI, a YAML file and the Python API all
+    build this one class, so a value is accepted or refused identically whichever
+    way it arrives.
 
     Example:
         >>> from Auto3D import Auto3DOptions, main
@@ -281,15 +304,49 @@ class Auto3DOptions:
         >>> result = main(config)
     """
 
+    #: ``extra="forbid"``: an unrecognized key is an error, not a typo that
+    #: silently does nothing. ``validate_assignment`` stays off deliberately --
+    #: the orchestrator writes ``job_name`` and ``input_format`` onto the config
+    #: after construction, and re-running the whole validator on each assignment
+    #: would re-check unrelated fields on a half-populated object.
+    model_config = ConfigDict(extra="forbid", validate_assignment=False)
+
+    def __init__(self, **data: Any) -> None:
+        """Construct, reporting a bad value as ``ConfigurationError``.
+
+        Pydantic's own type checking runs *before* the model validator below, so
+        without this a wrong type raises ``pydantic.ValidationError`` while a
+        wrong *value* raises ``ConfigurationError`` -- two exception types for
+        one kind of mistake, from one constructor. That distinction is invisible
+        to a caller and load-bearing for the CLI, whose ``handle_error`` maps
+        ``ConfigurationError`` to exit 2 with a "run auto3d config init" hint and
+        anything else to exit 1 as an unexpected error.
+
+        So every construction failure is a ``ConfigurationError``, on the Python
+        API as much as the CLI, and pydantic's message is kept as the text rather
+        than replaced -- it names the field and what it received.
+        """
+        try:
+            super().__init__(**data)
+        except PydanticValidationError as exc:
+            raise ConfigurationError(_format_validation_error(exc)) from exc
+
     # Input/Output
     path: str | None = None
     """Path to input .smi or .sdf file containing SMILES/molecules."""
 
-    k: int | bool = False
-    """Output top-k structures for each SMILES. Set to int or False."""
+    k: int | None = None
+    """Output top-k structures for each SMILES. ``None`` means not specified.
 
-    window: float | bool = False
-    """Output structures within x kcal/mol of lowest energy. Set to float or False."""
+    Was ``int | bool = False``. ``False`` as "unset" was a sentinel only this
+    class used -- ``memory`` and ``max_confs`` already meant it with ``None``,
+    and the CLI schema meant it with ``None`` on all four, so a translation
+    layer existed purely to convert between them. One sentinel, and the type no
+    longer advertises a ``True`` that nothing gives a meaning to.
+    """
+
+    window: float | None = None
+    """Output structures within x kcal/mol of lowest energy. ``None`` if unset."""
 
     verbose: bool = False
     """When True, save all metadata while running."""
@@ -409,33 +466,56 @@ class Auto3DOptions:
     setup. Declared as a real field (rather than a dynamic attribute) so it
     survives dataclasses.replace()/pickling and stays in the dict-like API."""
 
-    def __post_init__(self):
-        """Normalize string values to lowercase, then validate choices and ranges."""
+    @model_validator(mode="after")
+    def _normalize_and_validate(self) -> "Auto3DOptions":
+        """Lowercase the enumerable engine fields, then validate choices and ranges.
+
+        Was ``__post_init__``. It runs the same two shared checkers, on the same
+        two tables, so the rules did not move when the class did -- which is the
+        property ``tests/test_config.py`` pins by refusing a second hand-written
+        copy of any bound.
+
+        Assigning inside a ``mode="after"`` validator does not re-enter it,
+        because ``validate_assignment`` is off.
+        """
         self.tauto_engine = self.tauto_engine.lower()
         self.isomer_engine = self.isomer_engine.lower()
         self.mode_oe = self.mode_oe.lower()
         check_engine_choices({name: getattr(self, name) for name in ENGINE_CHOICES})
         check_field_bounds({name: getattr(self, name) for name in FIELD_BOUNDS})
+        return self
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Any:
         """Allow dict-like access for backward compatibility."""
         return getattr(self, key)
 
-    def __setitem__(self, key: str, value):
+    def __setitem__(self, key: str, value: Any) -> None:
         """Allow dict-like assignment for backward compatibility."""
         setattr(self, key, value)
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         """Dict-like get method for backward compatibility."""
         return getattr(self, key, default)
 
-    def keys(self):
+    def keys(self) -> list[str]:
         """Return field names for backward compatibility."""
-        return [f.name for f in self.__dataclass_fields__.values()]
+        return list(type(self).model_fields)
 
     def items(self):
         """Return field name-value pairs for backward compatibility."""
         return [(k, getattr(self, k)) for k in self.keys()]
+
+    def replace(self, **changes: Any) -> "Auto3DOptions":
+        """A **validated** copy of this config with ``changes`` applied.
+
+        The replacement for ``dataclasses.replace(config, ...)``, and not a
+        synonym for ``model_copy(update=...)``: ``model_copy`` skips validators
+        entirely, so swapping one for the other would have quietly turned every
+        copy into an unchecked one. Here the values go back through the same
+        constructor as any other config, so a bad ``batchsize_atoms`` is refused
+        on a copy exactly as it is on an original.
+        """
+        return type(self)(**{**self.model_dump(), **changes})
 
     def to_optimization_config(self) -> "OptimizationConfig":
         """Create an OptimizationConfig from these options.

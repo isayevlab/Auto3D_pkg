@@ -201,7 +201,7 @@ def _sdf_formulas() -> dict[str, str]:
 def test_auto3D_rdkit_aimnet(isolated_input):
     """RDKit isomers + AIMNet2: one conformer per input, correctly assembled."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -217,7 +217,7 @@ def test_auto3D_rdkit_aimnet(isolated_input):
 def test_auto3D_rdkit_ani2xt(isolated_input):
     """RDKit isomers + ANI2xt: one conformer per input, correctly assembled."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -232,7 +232,7 @@ def test_auto3D_rdkit_ani2xt(isolated_input):
 def test_auto3D_rdkit_ani2x(isolated_input):
     """RDKit isomers + ANI2x: one conformer per input, correctly assembled."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -247,7 +247,7 @@ def test_auto3D_rdkit_ani2x(isolated_input):
 def test_auto3D_omega_aimnet(isolated_input):
     """OMEGA isomers + AIMNet2: one conformer per input, correctly assembled."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -263,7 +263,7 @@ def test_auto3D_omega_aimnet(isolated_input):
 def test_auto3D_omega_ani2xt(isolated_input):
     """OMEGA isomers + ANI2xt: one conformer per input, correctly assembled."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -278,7 +278,7 @@ def test_auto3D_omega_ani2xt(isolated_input):
 def test_auto3D_omega_ani2x(isolated_input):
     """OMEGA isomers + ANI2x: one conformer per input, correctly assembled."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -293,7 +293,7 @@ def test_auto3D_omega_ani2x(isolated_input):
 def test_auto3D_config1(isolated_input):
     """Energy-window selection: every kept conformer lies inside the window."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         window=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -310,7 +310,7 @@ def test_auto3D_config1(isolated_input):
 def test_auto3D_config2(isolated_input):
     """GPU run with an explicit memory budget still produces complete output."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         window=1,
         use_gpu=True,
         convergence_threshold=1,
@@ -327,7 +327,7 @@ def test_auto3D_config2(isolated_input):
 def test_auto3D_config3(isolated_input):
     """Chunked run (capacity=2): chunking must not lose or duplicate molecules."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         k=1,
         use_gpu=False,
         convergence_threshold=1,
@@ -343,7 +343,7 @@ def test_auto3D_config3(isolated_input):
 def test_auto3D_config4(isolated_input):
     """Energy window of 2 kcal/mol over up to three embedded conformers."""
     args = Auto3DOptions(
-        isolated_input("smiles2.smi"),
+        path=isolated_input("smiles2.smi"),
         window=2,
         use_gpu=False,
         convergence_threshold=1,
@@ -361,7 +361,7 @@ def test_auto3D_config4(isolated_input):
 def test_auto3D_config5(isolated_input):
     """Multi-GPU, multi-chunk run over ten inputs: all ten must be accounted for."""
     args = Auto3DOptions(
-        isolated_input("smiles10.smi"),
+        path=isolated_input("smiles10.smi"),
         k=1,
         use_gpu=True,
         convergence_threshold=1,
@@ -382,7 +382,7 @@ def test_auto3D_config5(isolated_input):
 def test_auto3D_config6(isolated_input):
     """Multi-GPU run from SDF input: ids and formulas survive the round trip."""
     args = Auto3DOptions(
-        isolated_input("example.sdf"),
+        path=isolated_input("example.sdf"),
         k=1,
         use_gpu=True,
         convergence_threshold=1,
@@ -403,7 +403,7 @@ def test_auto3D_config6(isolated_input):
 def test_auto3D_sdf_omega_aimnet(isolated_input):
     """SDF input + OMEGA isomers + AIMNet2, selected by a 2 kcal/mol window."""
     args = Auto3DOptions(
-        isolated_input("example.sdf"),
+        path=isolated_input("example.sdf"),
         window=2,
         use_gpu=False,
         convergence_threshold=1,
@@ -418,7 +418,7 @@ def test_auto3D_sdf_omega_aimnet(isolated_input):
 def test_auto3D_sdf_rdkit_aimnet(isolated_input):
     """SDF input + RDKit isomers + AIMNet2, selected by a 2 kcal/mol window."""
     args = Auto3DOptions(
-        isolated_input("example.sdf"),
+        path=isolated_input("example.sdf"),
         window=2,
         use_gpu=False,
         convergence_threshold=1,
@@ -433,7 +433,7 @@ def test_auto3D_sdf_rdkit_aimnet(isolated_input):
 def test_auto3D_sdf_rdkit_ani2x(isolated_input):
     """SDF input + RDKit isomers + ANI2x, selected by a 2 kcal/mol window."""
     args = Auto3DOptions(
-        isolated_input("example.sdf"),
+        path=isolated_input("example.sdf"),
         window=2,
         use_gpu=False,
         convergence_threshold=1,
@@ -448,7 +448,7 @@ def test_auto3D_sdf_rdkit_ani2x(isolated_input):
 def test_auto3D_sdf_rdkit_ani2xt(isolated_input):
     """SDF input + RDKit isomers + ANI2xt, selected by a 2 kcal/mol window."""
     args = Auto3DOptions(
-        isolated_input("example.sdf"),
+        path=isolated_input("example.sdf"),
         window=2,
         use_gpu=False,
         convergence_threshold=1,
@@ -500,7 +500,7 @@ def test_auto3D_optimization_moves_the_embedded_geometry(job_dir):
     smi.write_text("CCO ethanol\n")
 
     args = Auto3DOptions(
-        str(smi),
+        path=str(smi),
         k=1,
         use_gpu=False,
         max_confs=2,
@@ -566,7 +566,9 @@ def test_auto3D_userNNP1():
         smi_path = os.path.join(temp_dir, os.path.basename(path))
         shutil.copyfile(path, smi_path)
 
-        args = Auto3DOptions(smi_path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
+        args = Auto3DOptions(
+            path=smi_path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0
+        )
         out = main(args)
         assert_pipeline_output(
             out, formula_by_id=_smi_formulas(), k=1, label="gpu userNNP1 (scripted ANI2x)"
@@ -596,7 +598,7 @@ def test_auto3D_userNNP2():
 
         smi_path = os.path.join(temp_dir, os.path.basename(path))
         shutil.copyfile(path, smi_path)
-        args = Auto3DOptions(smi_path, k=1, optimizing_engine=model_path, use_gpu=False)
+        args = Auto3DOptions(path=smi_path, k=1, optimizing_engine=model_path, use_gpu=False)
         out = main(args)
         assert_pipeline_output(
             out, formula_by_id=_smi_formulas(), k=1, label="cpu userNNP1 (scripted ANI2x)"
@@ -614,7 +616,9 @@ def test_auto3D_userNNP3():
 
         smi_path = os.path.join(temp_dir, os.path.basename(path))
         shutil.copyfile(path, smi_path)
-        args = Auto3DOptions(smi_path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0)
+        args = Auto3DOptions(
+            path=smi_path, k=1, optimizing_engine=model_path, use_gpu=True, gpu_idx=0
+        )
         out = main(args)
         assert_pipeline_output(
             out, formula_by_id=_smi_formulas(), k=1, label="gpu userNNP2 (eager AIMNet2 calculator)"

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError
 
 
 def test_input_format_is_real_field_surviving_replace():
-    """input_format must be a declared field so dataclasses.replace() preserves it.
+    """input_format must be a declared field so ``replace()`` preserves it.
 
     It was previously set as a dynamic attribute via __setitem__, which
     replace() silently dropped -- a latent AttributeError for any consumer
@@ -22,8 +22,25 @@ def test_input_format_is_real_field_surviving_replace():
     cfg["input_format"] = "smi"  # dict-like write, as workflow.py does
     assert cfg.input_format == "smi"
     assert "input_format" in cfg.keys()  # part of the dict-like contract
-    cfg2 = replace(cfg, batchsize_atoms=2048)
+    cfg2 = cfg.replace(batchsize_atoms=2048)
     assert cfg2.input_format == "smi"  # survives replace()
+
+
+def test_replace_revalidates_rather_than_copying_blindly():
+    """``Auto3DOptions.replace`` must run the validators, as ``dataclasses.replace`` did.
+
+    The method exists because the obvious pydantic translation --
+    ``model_copy(update=...)`` -- skips validation entirely. Swapping one for
+    the other would have left every copied config unchecked, and nothing else in
+    the suite would have noticed: the copy is only made on the way into the
+    optimizer, where an out-of-range value surfaces as a bad run rather than an
+    error.
+    """
+    cfg = Auto3DOptions(path="x.smi", k=1)
+    with pytest.raises(ConfigurationError):
+        cfg.replace(batchsize_atoms=0)  # FIELD_BOUNDS: ge 1
+    # And the unvalidated escape hatch really is the one that would have passed.
+    assert cfg.model_copy(update={"batchsize_atoms": 0}).batchsize_atoms == 0
 
 
 class TestAuto3DOptions:

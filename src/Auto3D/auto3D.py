@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -146,7 +145,7 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     # object it was given (M15). Every assignment below (path, input_format)
     # lands on this private copy; `args` no longer refers to the caller's
     # object for the rest of this function.
-    args = replace(args)
+    args = args.replace()
 
     # smiles2mols has no tautomer-enumeration step and hardcodes the RDKit
     # isomer engine below (mode_oe only ever affects the omega engine, so it
