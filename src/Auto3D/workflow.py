@@ -20,11 +20,11 @@ from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationE
 from Auto3D.id_mapping import decode_ids, encode_ids
 from Auto3D.model_factory import ModelFactory
 from Auto3D.models.preflight import preflight_model
+from Auto3D.pipeline.input_checks import check_input, check_valid_configuration
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
 from Auto3D.utils.sdf_io import reorder_sdf
-from Auto3D.utils.validation import check_input, check_valid_configuration
 from Auto3D.workflow_workers import (
     ProgressEvent,
     isomer_wrapper,

@@ -9,7 +9,7 @@ CLIConfig and convert it with `.to_auto3d_options()`, so both also get
 extra="forbid", the engine registry check, and Literal validation -- the
 legacy path no longer constructs Auto3DOptions directly. Task 3 (C11) closed
 the last gap: calc_spe, opt_geometry and calc_thermo now call
-`Auto3D.utils.validation.check_engine_supports_molecules` (the guard
+`Auto3D.models.policy.check_engine_supports_molecules` (the guard
 extracted from check_smi_format/check_sdf_format's formerly-duplicated
 element set) and `resolve_engine_name`, the same two checks main() and
 smiles2mols already ran via check_input. Task 4 (M15) closed
@@ -19,7 +19,7 @@ them, calls check_valid_configuration the same way main() does, and takes a
 private copy of its config argument up front so it never mutates the
 caller's object. `TestAuxiliaryEntryPointGPUGuard` closes the sibling gap for
 the GPU policy: calc_spe, opt_geometry and calc_thermo now also call
-`Auto3D.utils.validation.check_gpu_requested` directly, so `use_gpu=True`
+`Auto3D.models.policy.check_gpu_requested` directly, so `use_gpu=True`
 without CUDA is fatal through the Python API too, not only through the CLI
 wrappers in cli/commands/properties.py.
 """
@@ -286,7 +286,7 @@ class TestAuxiliaryEntryPointGuards:
 
 class TestAuxiliaryEntryPointGPUGuard:
     """calc_spe / opt_geometry / calc_thermo must also run
-    `Auto3D.utils.validation.check_gpu_requested` directly, not only through
+    `Auto3D.models.policy.check_gpu_requested` directly, not only through
     their CLI wrappers (cli/commands/properties.py).
 
     Each function reaches `model_factory.get_device`, which never raises --

@@ -199,11 +199,11 @@ def test_transposed_forward_is_rejected_through_the_adapter(tmp_path):
 
 
 def test_transposed_forward_is_rejected_by_input_validation(tmp_path):
-    """utils.validation preflights a custom engine path; it must reject there
+    """pipeline.input_checks preflights a custom engine path; it must reject there
     too, before any conformer work starts."""
     from types import SimpleNamespace
 
-    from Auto3D.utils.validation import check_input
+    from Auto3D.pipeline.input_checks import check_input
 
     path = _save(TransposedNNP(), tmp_path, "transposed_preflight.pt")
     smi = tmp_path / "in.smi"

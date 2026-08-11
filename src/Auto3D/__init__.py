@@ -40,8 +40,8 @@ __version__ = _detect_version()
 # Auto3D submodules. Every probe is already duplicated where it is load-bearing
 # and where its result is actually used:
 #   * openeye  -> isomer_engine.py (names used at call time) and
-#                 utils/validation.py (raises DependencyError with a fix hint)
-#   * torchani -> utils/validation.py (same) and models/ani2xt.py
+#                 pipeline/input_checks.py (raises DependencyError with a hint)
+#   * torchani -> pipeline/input_checks.py (same) and models/ani2xt.py
 #   * ANI2xt   -> constructed only through model_factory / models.adapter
 # Do not reintroduce a probe here. A dependency is checked where it is needed.
 

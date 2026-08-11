@@ -37,6 +37,10 @@ from Auto3D.constants import (
 )
 from Auto3D.model_factory import create_model, get_device
 from Auto3D.models.contract import ModelAdapter, missing_adapter_members
+from Auto3D.models.policy import (
+    check_engine_supports_molecules,
+    check_gpu_requested,
+)
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.torch_config import TorchConfig, configure_torch
 from Auto3D.utils.energy import (
@@ -49,10 +53,6 @@ from Auto3D.utils.energy import (
 )
 from Auto3D.utils.logging_config import get_logger
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
-from Auto3D.utils.validation import (
-    check_engine_supports_molecules,
-    check_gpu_requested,
-)
 
 __all__ = ["calc_thermo"]
 

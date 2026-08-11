@@ -132,7 +132,7 @@ def preflight_model(engine: str) -> None:
     there is no cache/download/checksum step to preflight for them: ANI2xt's
     weights are bundled in the package; ANI2x's torchani dependency and a
     custom NNP path's loadability are already checked by ``check_input``
-    (utils/validation.py), which always runs before this. This function is a
+    (pipeline/input_checks.py), which always runs first. This function is a
     no-op for those engines.
 
     Only the failure modes below are translated. Anything else -- a corrupt

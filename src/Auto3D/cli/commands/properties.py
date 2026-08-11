@@ -18,9 +18,9 @@ from pathlib import Path
 from Auto3D.cli.console import emit_json, print_success
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError, DependencyError
+from Auto3D.models.policy import check_gpu_requested
 from Auto3D.models.preflight import resolve_engine_name
 from Auto3D.utils.output_guard import check_output_not_input, check_output_overwrite
-from Auto3D.utils.validation import check_gpu_requested
 
 # Engine names offered for shell completion. Free-form registry names and custom
 # model paths are also accepted -- each command below validates them with
