@@ -7,7 +7,12 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from Auto3D.cli.config_schema import build_cli_config, load_yaml_config, merge_configs
+from Auto3D.cli.config_schema import (
+    build_cli_config,
+    load_yaml_config,
+    merge_configs,
+    require_input_path,
+)
 from Auto3D.cli.console import (
     console,
     error_console,
@@ -218,7 +223,7 @@ def execute_run(
                 console.print()
 
             # Convert to Auto3DOptions and run
-            options = config.to_auto3d_options()
+            options = require_input_path(config)
             job_hint = job_directory_hint(config.path, config.job_name)
 
             from Auto3D.auto3D import main

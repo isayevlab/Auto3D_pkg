@@ -8,23 +8,14 @@ YAML file loading, CLI overrides, and conversion to Auto3DOptions.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import ValidationError
 
 from Auto3D.config import (
     SELECTOR_FIELDS,
     Auto3DOptions,
-    check_field_bounds,
-)
-from Auto3D.constants import (
-    DEFAULT_BATCHSIZE_ATOMS,
-    DEFAULT_CAPACITY,
-    DEFAULT_CONVERGENCE_THRESHOLD,
-    DEFAULT_OPT_STEPS,
-    DEFAULT_PATIENCE,
-    DEFAULT_RMSD_THRESHOLD,
 )
 from Auto3D.exceptions import ConfigurationError
 from Auto3D.models.preflight import resolve_engine_name
@@ -77,197 +68,8 @@ _TO_OPTIONS_TRANSFORMS: dict[str, Any] = {
 }
 
 
-class CLIConfig(BaseModel):
-    """Validated configuration for Auto3D CLI."""
-
-    # Input
-    path: Path | None = None
-    """Path to input .smi or .sdf file, or None for a settings-only config.
-
-    Optional, because the input is supplied on the command line by the modern
-    entry point: ``auto3d run INPUT -c cfg.yaml`` overrides whatever ``path``
-    the file carries (``run`` explicitly excludes the key -- see
-    ``cli/commands/run.py``). Requiring it
-    here made the natural reusable config -- settings only, input per run --
-    the one shape the CLI refused: ``auto3d config validate cfg.yaml`` and
-    ``auto3d run in.smi -c cfg.yaml`` both died on ``path / Field required``
-    for a file that describes a perfectly runnable set of options.
-
-    What "optional" must NOT mean is "runnable without an input", so the
-    obligation moves to :meth:`to_auto3d_options`, which refuses to build an
-    ``Auto3DOptions`` with no path. The deprecated ``auto3d config.yaml``
-    form -- the one entry point with no other source of an input path --
-    therefore still fails, as a ``ConfigurationError`` at exit 2 exactly as
-    before, and now says which key is missing instead of quoting pydantic.
-    """
-
-    # Output control
-    k: int | None = Field(None, description="Top-k conformers per molecule")
-    window: float | None = Field(None, description="Energy window in kcal/mol")
-
-    # Engine settings
-    optimizing_engine: str = "AIMNET"
-    use_gpu: bool = True
-    gpu_idx: int | list[int] = 0
-
-    # Isomer settings.
-    #
-    # The two Literals below are the *typed* view of Auto3D.config.ENGINE_CHOICES,
-    # which is where those whitelists are declared and where
-    # Auto3DOptions.__post_init__ enforces them. They stay written out here
-    # because a Literal is what mypy and pydantic's error messages can use and
-    # neither can read a dict at type-check time --
-    # test_engine_choices_table_matches_cliconfig_literals asserts the two agree,
-    # so this copy cannot drift. (Contrast the numeric bounds, which are in
-    # FIELD_BOUNDS *only*: a Field(ge=) buys nothing a type can use.)
-    enumerate_tautomer: bool = False
-    tauto_engine: Literal["rdkit", "oechem"] = "rdkit"
-    pKaNorm: bool = True
-    enumerate_isomer: bool = True
-    isomer_engine: Literal["rdkit", "omega"] = "rdkit"
-    mode_oe: str = "classic"
-    max_confs: int | None = None
-    mpi_np: int = 4
-
-    # Optimization settings
-    opt_steps: int = DEFAULT_OPT_STEPS
-    convergence_threshold: float = DEFAULT_CONVERGENCE_THRESHOLD
-    patience: int = DEFAULT_PATIENCE
-    threshold: float = DEFAULT_RMSD_THRESHOLD
-    batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
-
-    # Parallel conformer embedding. Mirrors Auto3DOptions, which
-    # test_cliconfig_covers_all_auto3doptions_fields requires -- and which is what
-    # makes these reachable from a YAML config rather than Python only.
-    # No Field(ge=1) here: the bounds live in Auto3D.config.FIELD_BOUNDS and are
-    # enforced by _check_bounds below. A second constraint declared here is the
-    # drift that validator's own docstring warns against.
-    use_parallel_embedding: bool = False
-    parallel_workers: int = 4
-    parallel_embedding_threshold: int = 10
-
-    # Resource settings
-    memory: int | None = None
-    capacity: int = DEFAULT_CAPACITY
-    allow_tf32: bool = False
-
-    # Output settings
-    verbose: bool = False
-    job_name: str = ""
-
-    model_config = {"extra": "forbid"}
-
-    # `_false_means_unset` stood here. It mapped the legacy ``False`` sentinel
-    # to ``None`` so this class agreed with ``Auto3DOptions``, which spelled
-    # "not specified" as ``False``. Both now spell it ``None`` and both refuse a
-    # bool on these fields, so there is nothing left to translate.
-
-    @field_validator("gpu_idx", mode="before")
-    @classmethod
-    def parse_gpu_idx(cls, v: Any) -> int | list[int]:
-        """Parse gpu_idx from string, int, or list."""
-        if isinstance(v, str):
-            if "," in v:
-                return [int(x.strip()) for x in v.split(",")]
-            return int(v)
-        if isinstance(v, list):
-            return [int(x) for x in v]
-        return int(v) if v is not None else 0
-
-    @field_validator("optimizing_engine")
-    @classmethod
-    def _validate_engine(cls, v: str) -> str:
-        """Reject engine names the registry doesn't recognize.
-
-        Delegates to ``resolve_engine_name`` -- the same single source of
-        truth used by ``check_valid_configuration`` and (after this fix) the
-        auxiliary ``energy``/``optimize``/``thermo`` CLI commands -- instead
-        of re-implementing a prefix match here. The prefix match this
-        replaced (``v.lower().startswith("aimnet2")``) accepted any typo
-        sharing that prefix, e.g. ``aimnet2-2025x``, which then survived
-        config parsing and failed later inside a spawned worker where the
-        error is swallowed.
-        """
-        try:
-            resolve_engine_name(v)
-        except ConfigurationError as exc:
-            raise ValueError(str(exc)) from exc
-        return v
-
-    @field_validator("tauto_engine", "isomer_engine", mode="before")
-    @classmethod
-    def normalize_lowercase(cls, v: str) -> str:
-        """Normalize to lowercase."""
-        return v.lower() if isinstance(v, str) else v
-
-    @model_validator(mode="after")
-    def _check_bounds(self) -> CLIConfig:
-        """Enforce Auto3D.config.FIELD_BOUNDS -- the same table Auto3DOptions
-        uses -- instead of a second, hand-maintained set of Field(ge=/gt=)
-        constraints that could silently drift from it.
-        """
-        try:
-            check_field_bounds(self.__dict__)
-        except ConfigurationError as exc:
-            raise ValueError(str(exc)) from exc
-        return self
-
-    def to_auto3d_options(self, allow_missing_path: bool = False) -> Auto3DOptions:
-        """Convert to Auto3DOptions for core workflow.
-
-        Args:
-            allow_missing_path: Permit ``path=None``. No caller in the package
-                currently sets it; it exists for a caller that supplies its
-                molecules by some route other than a file on disk (as
-                ``smiles2mols`` does, writing them to a temporary ``.smi`` and
-                assigning ``args.path`` itself before validating anything).
-                Supplying a placeholder path instead would put a path in the
-                options object that names no file the user ever mentioned,
-                which is worse than declaring the absence.
-
-        Raises:
-            ConfigurationError: ``path`` is unset and ``allow_missing_path``
-                is False. ``path`` is optional on this model so a
-                settings-only config file is valid (see the field's
-                docstring), but an ``Auto3DOptions`` with no input is not
-                runnable through ``main()`` -- it would fail inside
-                ``check_valid_configuration`` on ``path=None``. This is the
-                single place that obligation is discharged, so every consumer
-                (``run``/``tautomers``, the legacy YAML form, a direct caller)
-                gets the same refusal.
-        """
-        if self.path is None and not allow_missing_path:
-            raise ConfigurationError(
-                "No input path: this configuration sets options only.",
-                hint=(
-                    "Add a 'path:' key to the config file, or supply the "
-                    "input on the command line, e.g. 'auto3d run mols.smi "
-                    "-c config.yaml'."
-                ),
-            )
-        # Driven off `Auto3DOptions.model_fields` -- the authoritative schema --
-        # rather than 27 hand-written `field=self.field` assignments.
-        # Those assignments were the one place drift could not be caught:
-        # `test_cliconfig_covers_all_auto3doptions_fields` compared field *name*
-        # sets, so deleting a line here silently dropped a user's setting on the
-        # floor and every test still passed. Iterating the dataclass means a new
-        # field is forwarded the moment it exists on both classes, and a field
-        # that exists on only one is a KeyError/TypeError here rather than a
-        # silent default.
-        values: dict[str, Any] = {}
-        for name in Auto3DOptions.model_fields:
-            if name in OPTIONS_ONLY_FIELDS:
-                continue
-            value = getattr(self, name)
-            transform = _TO_OPTIONS_TRANSFORMS.get(name)
-            values[name] = transform(value) if transform else value
-
-        return Auto3DOptions(**values)
-
-
-def build_cli_config(**kwargs: Any) -> CLIConfig:
-    """Construct a ``CLIConfig``, translating any construction failure into
-    Auto3D's own ``ConfigurationError``.
+def build_cli_config(**kwargs: Any) -> Auto3DOptions:
+    """Construct an ``Auto3DOptions``, translating any failure into ``ConfigurationError``.
 
     This is the one construction path every site that builds a ``CLIConfig``
     from external data (a YAML file, merged CLI overrides, a bare CLI
@@ -300,7 +102,7 @@ def build_cli_config(**kwargs: Any) -> CLIConfig:
     every other one.
     """
     try:
-        return CLIConfig(**kwargs)
+        config = Auto3DOptions(**kwargs)
     except ValidationError as exc:
         raise ConfigurationError(str(exc)) from exc
     except (TypeError, ValueError) as exc:
@@ -309,8 +111,53 @@ def build_cli_config(**kwargs: Any) -> CLIConfig:
         # rejected it instead of surfacing a bare "int() argument must be...".
         raise ConfigurationError(f"Invalid configuration value: {exc}") from exc
 
+    # Engine-name resolution happens HERE, not on the model, and the reason is
+    # not only layering. `resolve_engine_name` lives in `Auto3D.models`, so a
+    # validator on `Auto3DOptions` (foundation layer) would point upward at the
+    # engine layer -- the edge PR #159 removed. It would also run on *every*
+    # construction, including the pickled reconstruction inside each spawned
+    # worker, and resolving a registry name can reach the model registry. A
+    # config object validates values; whether a name resolves against a registry
+    # is a question for the layer that owns the registry.
+    #
+    # Doing it at this boundary keeps what CLIConfig's validator bought: a typo
+    # in `--engine` or a config file is refused while the user is still looking
+    # at their terminal, rather than inside a worker where the error is
+    # swallowed. `check_valid_configuration` checks it again on the run path.
+    try:
+        resolve_engine_name(config.optimizing_engine)
+    except (ConfigurationError, ValueError) as exc:
+        raise ConfigurationError(str(exc)) from exc
+    return config
 
-def load_yaml_config(yaml_path: Path) -> CLIConfig:
+
+def require_input_path(config: Auto3DOptions) -> Auto3DOptions:
+    """Refuse a settings-only config where a runnable one is needed.
+
+    ``path`` is optional so a reusable config file -- settings only, input named
+    per run -- is valid; ``auto3d run in.smi -c cfg.yaml`` supplies the input on
+    the command line. But a config with no input is not runnable, and that
+    obligation used to be discharged inside ``CLIConfig.to_auto3d_options``.
+    With one class there is no conversion step to hang it on, so it is a
+    function the entry points that need a runnable config call by name.
+
+    Returns ``config`` unchanged, so it reads as a gate at the call site.
+
+    Raises:
+        ConfigurationError: ``path`` is unset.
+    """
+    if config.path is None:
+        raise ConfigurationError(
+            "No input path: this configuration sets options only.",
+            hint=(
+                "Add a 'path:' key to the config file, or supply the input on "
+                "the command line, e.g. 'auto3d run mols.smi -c config.yaml'."
+            ),
+        )
+    return config
+
+
+def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
     """Load and validate configuration from a YAML file.
 
     Uses ``yaml.safe_load``, so Python-specific tags such as
@@ -318,7 +165,7 @@ def load_yaml_config(yaml_path: Path) -> CLIConfig:
 
     Raises:
         ConfigurationError: the file is empty, is not a YAML mapping, or is
-            not parseable as YAML; or the mapping fails ``CLIConfig``
+            not parseable as YAML; or the mapping fails ``Auto3DOptions``
             validation (via ``build_cli_config``).
     """
     try:
@@ -355,7 +202,7 @@ def load_yaml_config(yaml_path: Path) -> CLIConfig:
     return build_cli_config(**data)
 
 
-def merge_configs(base: CLIConfig, overrides: dict[str, Any]) -> CLIConfig:
+def merge_configs(base: Auto3DOptions, overrides: dict[str, Any]) -> Auto3DOptions:
     """Merge CLI overrides into base configuration.
 
     An override replaces the base's value for that field -- it does not

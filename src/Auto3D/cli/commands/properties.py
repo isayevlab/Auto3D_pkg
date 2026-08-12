@@ -251,7 +251,7 @@ def execute_tautomers(
         if tauto_k is None and tauto_window is None:
             tauto_k = 1  # sensible default: keep the single most stable tautomer
 
-        from Auto3D.cli.config_schema import build_cli_config
+        from Auto3D.cli.config_schema import build_cli_config, require_input_path
         from Auto3D.tautomer import get_stable_tautomers
 
         cfg = build_cli_config(
@@ -263,7 +263,7 @@ def execute_tautomers(
             enumerate_tautomer=True,
         )
         out = get_stable_tautomers(
-            cfg.to_auto3d_options(),
+            require_input_path(cfg),
             tauto_k=tauto_k,
             tauto_window=tauto_window,
         )

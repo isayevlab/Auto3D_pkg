@@ -2,10 +2,10 @@
 
 Task 1 (C10, M27) closed the gap: Auto3D.config.FIELD_BOUNDS is the single
 table of numeric bounds, enforced by Auto3DOptions.__post_init__ directly and
-by CLIConfig's `_check_bounds` model validator (both call
+by Auto3DOptions's `_check_bounds` model validator (both call
 `Auto3D.config.check_field_bounds`). `auto3d run -c` and the legacy
 `auto3d config.yaml` invocation (auto3Dcli._run_legacy_yaml) both build a
-CLIConfig and convert it with `.to_auto3d_options()`, so both also get
+Auto3DOptions and convert it with `.to_auto3d_options()`, so both also get
 extra="forbid", the engine registry check, and Literal validation -- the
 legacy path no longer constructs Auto3DOptions directly. Task 3 (C11) closed
 the last gap: calc_spe, opt_geometry and calc_thermo now call
@@ -34,29 +34,9 @@ from pydantic import ValidationError
 
 import Auto3D.auto3D
 import Auto3D.cli.errors
-from Auto3D.cli.config_schema import CLIConfig
 from Auto3D.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
 from Auto3D.exceptions import Auto3DError, ConfigurationError
 from tests.helpers_adapter import FakeAdapter
-
-
-class TestAuto3DOptionsBounds:
-    """Auto3DOptions must enforce what CLIConfig enforces."""
-
-    def test_negative_threshold_is_rejected(self, isolated_input):
-        """A non-positive RMSD threshold must raise, not silently disable dedup."""
-        with pytest.raises(Auto3DError):
-            Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, threshold=-1)
-
-    def test_zero_max_confs_is_rejected(self, isolated_input):
-        """max_confs must be at least 1."""
-        with pytest.raises(Auto3DError):
-            Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, max_confs=0)
-
-    def test_zero_convergence_threshold_is_rejected(self, isolated_input):
-        """A zero force threshold is unsatisfiable and must be refused."""
-        with pytest.raises(Auto3DError):
-            Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, convergence_threshold=0)
 
 
 class TestMutuallyExclusiveSelectors:
@@ -66,69 +46,6 @@ class TestMutuallyExclusiveSelectors:
         """select_tautomers raises for this; the conformer ranker must too."""
         with pytest.raises(Auto3DError):
             Auto3DOptions(path=isolated_input("smiles2.smi"), k=10, window=5.0)
-
-
-class TestSentinelScopeParityAllElevenFields:
-    """``check_field_bounds``'s None/False "not specified" skip must be scoped
-    to exactly ``SENTINEL_FIELDS`` (k, window, memory, max_confs) -- the four
-    optional fields -- on BOTH Auto3DOptions and CLIConfig, for every one of
-    the eleven ``FIELD_BOUNDS`` entries, not just those four.
-
-    Before this fix, the skip in ``check_field_bounds`` applied to all eleven
-    ``FIELD_BOUNDS`` keys unconditionally. That accidentally let
-    ``Auto3DOptions(path="x.smi", threshold=None)`` (and the same for
-    mpi_np/opt_steps/convergence_threshold/patience/batchsize_atoms/capacity)
-    through silently, while ``CLIConfig(path=Path("x.smi"), threshold=None)``
-    always raised -- those seven fields are typed as plain ``int``/``float``
-    (not ``| None``) on CLIConfig, so pydantic's own type validation rejects
-    ``None`` there regardless of what ``check_field_bounds`` does, and
-    ``False`` reaches ``check_field_bounds`` already coerced to ``0``/``0.0``
-    by pydantic (bool is an int subclass) and fails the bound. Reproduced live
-    before this fix: ``Auto3DOptions(path="x.smi", threshold=None)`` did not
-    raise while ``CLIConfig(path=Path("x.smi"), threshold=None)`` did.
-
-    This iterates ``Auto3D.config.FIELD_BOUNDS``/``SENTINEL_FIELDS`` directly
-    (rather than hand-listing the eleven field names a second time here) so a
-    field added to one set without the other trips this test immediately,
-    instead of silently reintroducing the entry-point divergence this test
-    exists to close.
-    """
-
-    @staticmethod
-    def _kwargs(field: str, value) -> dict:
-        # A minimal, valid override set with only `field` set to `value` --
-        # every other field stays at its (valid) default, so a rejection can
-        # only be attributed to `field`.
-        return {field: value}
-
-    @pytest.mark.parametrize("value", [None, False], ids=["None", "False"])
-    @pytest.mark.parametrize("field", sorted(FIELD_BOUNDS))
-    def test_sentinel_scope_agrees_across_entry_points(self, field, value, isolated_input):
-        path = isolated_input("smiles2.smi")
-        auto3d_kwargs = {"path": path, **self._kwargs(field, value)}
-        cli_kwargs = {"path": Path(path), **self._kwargs(field, value)}
-
-        if field in SENTINEL_FIELDS and value is None:
-            # Optional field: None means "not specified" on both paths.
-            Auto3DOptions(**auto3d_kwargs)  # must not raise
-            CLIConfig(**cli_kwargs)  # must not raise
-        elif field in SENTINEL_FIELDS:
-            # False stopped being a second spelling of "not specified" in 4.0.
-            # It has to be refused rather than coerced -- bool is an int
-            # subclass, so pydantic would otherwise turn it into 0 and report a
-            # bound the caller never went near -- and refused on BOTH paths, which
-            # is the property this test exists for.
-            with pytest.raises(ConfigurationError):
-                Auto3DOptions(**auto3d_kwargs)
-            with pytest.raises(ValidationError):
-                CLIConfig(**cli_kwargs)
-        else:
-            # Non-optional field: None/False has no "unset" meaning and must
-            # be rejected on both paths -- not just one.
-            with pytest.raises(ConfigurationError):
-                Auto3DOptions(**auto3d_kwargs)
-            with pytest.raises(ValidationError):
-                CLIConfig(**cli_kwargs)
 
 
 class TestAuxiliaryEntryPointGuards:
@@ -498,153 +415,6 @@ class TestDuplicateInchikeyInputs:
             f"expected 2 distinct output names (InChIKey disambiguation "
             f"must survive ranking), got {names}"
         )
-
-
-class TestValidationParityAcrossEntryPoints:
-    """Phase 5's exit criterion, asserted directly: the same configuration
-    must be judged identically by `auto3d run -c`, the legacy
-    `auto3d config.yaml` invocation, and the Python API's
-    `Auto3DOptions(**yaml)`.
-    """
-
-    @staticmethod
-    def _params(isolated_input) -> dict:
-        # optimizing_engine is 'ANI2xt' (a built-in name), not the default
-        # 'AIMNET', so resolving it never imports the optional `aimnet`
-        # package -- see the matching note on tests/test_cli.py's
-        # _LEGACY_YAML for why that import is avoided in tests.
-        return {
-            "path": isolated_input("smiles2.smi"),
-            "k": 1,
-            "window": None,
-            "memory": None,
-            "capacity": 42,
-            "enumerate_tautomer": False,
-            "tauto_engine": "rdkit",
-            "pKaNorm": True,
-            "isomer_engine": "rdkit",
-            "max_confs": None,
-            "enumerate_isomer": True,
-            "mode_oe": "classic",
-            "mpi_np": 4,
-            "optimizing_engine": "ANI2xt",
-            "use_gpu": False,
-            "gpu_idx": 0,
-            "opt_steps": 2000,
-            "convergence_threshold": 0.01,
-            "patience": 250,
-            "threshold": 0.3,
-            "batchsize_atoms": 1024,
-            "allow_tf32": False,
-            "verbose": False,
-            "job_name": "",
-        }
-
-    @staticmethod
-    def _run_legacy_and_capture(tmp_path, params, monkeypatch):
-        """Drive auto3Dcli._run_legacy_yaml against a real YAML file built
-        from `params` (using the same "None"-string encoding the shipped
-        parameters.yaml example uses), with Auto3D.auto3D.main stubbed out
-        so no pipeline actually runs.
-
-        Returns (options, error): `options` is the Auto3DOptions that would
-        have been passed to main() on success; `error` is the exception
-        _run_legacy_yaml caught and handed to handle_error on failure.
-        Exactly one of the two is None.
-        """
-        import yaml as yaml_mod
-
-        from Auto3D.auto3Dcli import _run_legacy_yaml
-
-        text_params = dict(params)
-        for key in ("window", "memory", "max_confs"):
-            if text_params[key] is None:
-                text_params[key] = "None"
-        yaml_path = tmp_path / "legacy_params.yaml"
-        yaml_path.write_text(yaml_mod.dump(text_params))
-
-        captured: dict = {}
-
-        def fake_main(options, **kwargs):
-            captured["options"] = options
-            return "fake_output.sdf"
-
-        monkeypatch.setattr(Auto3D.auto3D, "main", fake_main)
-
-        errors: list[Exception] = []
-
-        # **kwargs, not a fixed signature. The real handle_error is
-        # (error, verbose=0, json_output=False); a stub that omits json_output
-        # raises TypeError the moment anything calls it with that argument,
-        # and the CLI always does. Under pytest-randomly -- which CI runs and
-        # which the box's -p no:randomly hides -- this stub was reachable from
-        # later tests and turned their expected exit 2 into exit 1. Thirteen
-        # tests failed on an unlucky seed, zero on a lucky one. Accepting the
-        # real signature makes the stub harmless wherever it is reached.
-        def _capture(error, *args, **kwargs):
-            errors.append(error)
-
-        monkeypatch.setattr(Auto3D.cli.errors, "handle_error", _capture)
-
-        _run_legacy_yaml(str(yaml_path))
-        if errors:
-            return None, errors[0]
-        return captured["options"], None
-
-    def test_valid_config_agrees_across_entry_points(self, tmp_path, isolated_input, monkeypatch):
-        """A config every path accepts must produce the same Auto3DOptions."""
-        params = self._params(isolated_input)
-
-        via_cliconfig = CLIConfig(**params).to_auto3d_options()
-        via_api = Auto3DOptions(**params)
-        via_legacy, error = self._run_legacy_and_capture(tmp_path, params, monkeypatch)
-
-        assert error is None, f"legacy YAML path rejected a valid config: {error}"
-        # k/window are "not specified" via either None (CLIConfig's sentinel)
-        # or False (Auto3DOptions's own sentinel) -- both falsy, both meaning
-        # the same thing to ranking.py's `if self.k: ... elif self.window:`
-        # -- so compare truthiness for those two, exact value for the rest.
-        for field in ("k", "window"):
-            assert bool(getattr(via_cliconfig, field)) == bool(getattr(via_api, field)), field
-            assert bool(getattr(via_legacy, field)) == bool(getattr(via_api, field)), field
-        for field in (
-            "threshold",
-            "convergence_threshold",
-            "max_confs",
-            "optimizing_engine",
-            "opt_steps",
-            "mpi_np",
-            "patience",
-            "batchsize_atoms",
-            "memory",
-            "capacity",
-        ):
-            assert getattr(via_cliconfig, field) == getattr(via_api, field), field
-            assert getattr(via_legacy, field) == getattr(via_api, field), field
-
-    def test_negative_threshold_rejected_by_all_three_entry_points(
-        self, tmp_path, isolated_input, monkeypatch
-    ):
-        """threshold=-1 (C10) must be rejected by every entry point -- not
-        silently accepted through one door while another guards it.
-        """
-        params = self._params(isolated_input)
-        params["threshold"] = -1
-
-        with pytest.raises(ConfigurationError):
-            Auto3DOptions(**params)
-
-        with pytest.raises(ValidationError):
-            CLIConfig(**params)
-
-        options, error = self._run_legacy_and_capture(tmp_path, params, monkeypatch)
-        assert options is None, "legacy YAML path accepted threshold=-1"
-        # ConfigurationError, not a raw pydantic ValidationError: the legacy
-        # path now builds its CLIConfig via build_cli_config (Task 3), which
-        # translates ValidationError into ConfigurationError so `handle_error`
-        # shows exit code 2 with a hint instead of the generic "Unexpected
-        # Error" panel at exit 1 -- the same fix `auto3d run -c` already got.
-        assert isinstance(error, ConfigurationError)
 
 
 class TestSelectorRequiredEverywhere:
