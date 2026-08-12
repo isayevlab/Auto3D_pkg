@@ -431,11 +431,15 @@ def test_build_cli_config_translates_non_pydantic_validator_errors():
 
 
 def _auto3d_option_fields():
-    import dataclasses
+    """Name -> pydantic FieldInfo for every Auto3DOptions field.
 
+    ``Auto3DOptions`` became a pydantic model, so ``dataclasses.fields`` no
+    longer applies; ``model_fields`` is the equivalent authoritative schema, and
+    ``.default`` carries the same meaning on the FieldInfo it returns.
+    """
     from Auto3D.config import Auto3DOptions
 
-    return {f.name: f for f in dataclasses.fields(Auto3DOptions)}
+    return dict(Auto3DOptions.model_fields)
 
 
 def test_cliconfig_covers_all_auto3doptions_fields():
@@ -585,9 +589,12 @@ def test_to_auto3d_options_forwards_every_field(selector):
     setting: ``auto3d run in.smi -c cfg.yaml`` would read ``patience: 50`` from
     the file, validate it, print it, and then run with 250.
 
-    It is now a ``dataclasses.fields(Auto3DOptions)`` loop with an explicit
-    transform table for the four fields whose value genuinely differs across the
-    boundary, so forwarding is structural. This test is what keeps it structural.
+    It is now an ``Auto3DOptions.model_fields`` loop with an explicit transform
+    table for the fields whose value genuinely differs across the boundary, so
+    forwarding is structural. This test is what keeps it structural. The table
+    shrank to two entries when the sentinel was unified: ``k`` and ``window``
+    needed converting only while the two classes disagreed about how to spell
+    "not specified".
     """
     from Auto3D.cli.config_schema import CLIConfig
 
@@ -595,10 +602,10 @@ def test_to_auto3d_options_forwards_every_field(selector):
     config = CLIConfig(**_ROUND_TRIP_VALUES, **{selector: _ROUND_TRIP_SELECTORS[selector]})
     options = config.to_auto3d_options()
 
-    # The chosen selector crosses; the other stays "not specified", spelled
-    # False on the Auto3DOptions side.
+    # The chosen selector crosses; the other stays "not specified" -- spelled
+    # None on both sides since 4.0, so nothing is translated on the way across.
     assert options[selector] == _ROUND_TRIP_SELECTORS[selector]
-    assert options[other] is False
+    assert options[other] is None
 
     dropped = {}
     for name, value in _ROUND_TRIP_VALUES.items():

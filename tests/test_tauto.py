@@ -29,7 +29,7 @@ else:
 @pytest.mark.skipif(skip_omega, reason="No OE_LICENSE")
 def test_get_stable_tautomers1():
     args = Auto3DOptions(
-        input_path,
+        path=input_path,
         k=1,
         enumerate_tautomer=True,
         tauto_engine="rdkit",
@@ -60,7 +60,7 @@ def test_get_stable_tautomers1():
 
 def test_get_stable_tautomers2():
     args = Auto3DOptions(
-        input_path,
+        path=input_path,
         k=1,
         enumerate_tautomer=True,
         tauto_engine="rdkit",

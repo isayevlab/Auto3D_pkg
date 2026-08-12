@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError
 
 
 def test_input_format_is_real_field_surviving_replace():
-    """input_format must be a declared field so dataclasses.replace() preserves it.
+    """input_format must be a declared field so ``replace()`` preserves it.
 
     It was previously set as a dynamic attribute via __setitem__, which
     replace() silently dropped -- a latent AttributeError for any consumer
@@ -22,8 +22,25 @@ def test_input_format_is_real_field_surviving_replace():
     cfg["input_format"] = "smi"  # dict-like write, as workflow.py does
     assert cfg.input_format == "smi"
     assert "input_format" in cfg.keys()  # part of the dict-like contract
-    cfg2 = replace(cfg, batchsize_atoms=2048)
+    cfg2 = cfg.replace(batchsize_atoms=2048)
     assert cfg2.input_format == "smi"  # survives replace()
+
+
+def test_replace_revalidates_rather_than_copying_blindly():
+    """``Auto3DOptions.replace`` must run the validators, as ``dataclasses.replace`` did.
+
+    The method exists because the obvious pydantic translation --
+    ``model_copy(update=...)`` -- skips validation entirely. Swapping one for
+    the other would have left every copied config unchecked, and nothing else in
+    the suite would have noticed: the copy is only made on the way into the
+    optimizer, where an out-of-range value surfaces as a bad run rather than an
+    error.
+    """
+    cfg = Auto3DOptions(path="x.smi", k=1)
+    with pytest.raises(ConfigurationError):
+        cfg.replace(batchsize_atoms=0)  # FIELD_BOUNDS: ge 1
+    # And the unvalidated escape hatch really is the one that would have passed.
+    assert cfg.model_copy(update={"batchsize_atoms": 0}).batchsize_atoms == 0
 
 
 class TestAuto3DOptions:
@@ -34,8 +51,8 @@ class TestAuto3DOptions:
         config = Auto3DOptions()
 
         assert config.path is None
-        assert config.k is False  # False means not set
-        assert config.window is False  # False means not set
+        assert config.k is None  # None means not set
+        assert config.window is None  # None means not set
         assert config.verbose is False
         assert config.job_name == ""
         assert config.enumerate_tautomer is False
@@ -289,55 +306,37 @@ def test_zero_k_rejected():
 def test_default_and_valid_k_window_accepted():
     from Auto3D.config import Auto3DOptions
 
-    # defaults (False) and valid positives must NOT raise
+    # defaults (None) and valid positives must NOT raise
     Auto3DOptions(path="x.smi")
     Auto3DOptions(path="x.smi", k=5)
     Auto3DOptions(path="x.smi", window=2.0)
-    Auto3DOptions(path="x.smi", k=False)  # False is "not specified", allowed
+    Auto3DOptions(path="x.smi", k=None)  # None is "not specified", allowed
 
 
-def test_false_sentinel_accepted_on_every_bound_field_both_entry_points():
-    """False must mean "not specified" for k/window/memory/max_confs on BOTH
-    Auto3DOptions and CLIConfig, not just one.
+def test_false_is_refused_as_a_sentinel_on_every_field_that_has_one():
+    """``False`` no longer means "not specified" on any of the four fields.
 
-    Before this fix, Pydantic coerced `False` -> `0`/`0.0` (bool is an int
-    subclass) *before* CLIConfig's `_check_bounds` model validator ever saw
-    the value, so `check_field_bounds`'s `value is False` skip (config.py)
-    never fired on the CLIConfig path -- CLIConfig rejected all four fields
-    set to `False` (as an out-of-range 0/0.0) while Auto3DOptions (a plain
-    dataclass with no such coercion step) silently accepted them. Reproduced
-    live before this fix:
-    ``CLIConfig(path=Path("x.smi"), k=1, window=False)`` raised
-    ValidationError while
-    ``Auto3DOptions(path="x.smi", k=1, window=False)`` did not raise. The
-    shipped ``docs/legacy-v2/parameters.yaml`` sets exactly this
-    (``k: 1`` / ``window: False``), so this divergence broke a real,
-    in-repo example, not just a hypothetical one.
+    It used to, on ``Auto3DOptions`` only -- ``CLIConfig`` spelled the same idea
+    ``None``, and a translation function converted between them on the way
+    across. One sentinel means that function is gone, and it means ``False`` has
+    to be refused rather than coerced: ``bool`` is an ``int`` subclass, so
+    pydantic turns it into ``0`` and the user is told their value is below a
+    minimum they never approached.
+
+    The shipped ``docs/legacy-v2/parameters.yaml`` set ``window: False`` and was
+    updated with this change, so the in-repo example still loads.
     """
-    from pathlib import Path
+    from Auto3D.config import SENTINEL_FIELDS, Auto3DOptions
+    from Auto3D.exceptions import ConfigurationError
 
-    from Auto3D.cli.config_schema import CLIConfig
-    from Auto3D.config import Auto3DOptions
+    for field in sorted(SENTINEL_FIELDS):
+        with pytest.raises(ConfigurationError, match="None, not False"):
+            Auto3DOptions(path="x.smi", **{field: False})
 
-    # Auto3DOptions: all four False, together and individually.
-    opts = Auto3DOptions(path="x.smi", k=False, window=False, memory=False, max_confs=False)
-    assert opts.k is False
-    assert opts.window is False
-    assert opts.memory is False
-    assert opts.max_confs is False
-
-    # CLIConfig: same four fields, same False values -- must validate too,
-    # and must normalize False to CLIConfig's own "unset" sentinel (None).
-    cfg = CLIConfig(path=Path("x.smi"), k=False, window=False, memory=False, max_confs=False)
-    assert cfg.k is None
-    assert cfg.window is None
-    assert cfg.memory is None
-    assert cfg.max_confs is None
-
-    # And individually, mixed with a real value for the other selector, the
-    # way the shipped legacy example does (k=1, window=False).
-    Auto3DOptions(path="x.smi", k=1, window=False)
-    CLIConfig(path=Path("x.smi"), k=1, window=False)
+    # None is accepted on all four, together and mixed with a real value.
+    opts = Auto3DOptions(path="x.smi", k=None, window=None, memory=None, max_confs=None)
+    assert (opts.k, opts.window, opts.memory, opts.max_confs) == (None, None, None, None)
+    assert Auto3DOptions(path="x.smi", k=1, window=None).k == 1
 
 
 def test_non_numeric_threshold_raises_configuration_error():
@@ -355,7 +354,11 @@ def test_non_numeric_threshold_raises_configuration_error():
     from Auto3D.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError):
-        Auto3DOptions(path="x.smi", k=1, threshold="0.3")
+        Auto3DOptions(path="x.smi", k=1, threshold="not-a-number")
+
+    # A numeric *string* is a different case and is accepted: YAML hands every
+    # scalar over as text, so refusing "0.3" would refuse a valid config file.
+    assert Auto3DOptions(path="x.smi", k=1, threshold="0.3").threshold == 0.3
 
 
 class TestOptimizerWorkerIndices:
@@ -407,13 +410,21 @@ class TestSentinelsAreNotSilentlyReinterpreted:
         with pytest.raises(ConfigurationError, match="got True"):
             Auto3DOptions(path="in.smi", k=True)
 
-    def test_k_false_is_still_the_not_specified_sentinel(self):
-        """False must keep working: it is how "use window instead" is spelled."""
-        from Auto3D.config import Auto3DOptions
+    def test_k_false_is_refused_and_says_to_use_none(self):
+        """``False`` was the "use window instead" spelling; ``None`` is now.
 
-        options = Auto3DOptions(path="in.smi", k=False, window=2.0)
-        assert options.k is False
-        assert options.window == 2.0
+        It must not be quietly reinterpreted. ``bool`` is an ``int`` subclass,
+        so without an explicit guard pydantic coerces ``False`` to ``0`` and the
+        user is told ``k must be >= 1, got 0`` -- a complaint about a value they
+        never wrote. The message has to name the replacement instead.
+        """
+        from Auto3D.config import Auto3DOptions
+        from Auto3D.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="None, not False"):
+            Auto3DOptions(path="in.smi", k=False, window=2.0)
+
+        assert Auto3DOptions(path="in.smi", k=None, window=2.0).window == 2.0
 
     def test_a_real_k_is_unaffected(self):
         from Auto3D.config import Auto3DOptions

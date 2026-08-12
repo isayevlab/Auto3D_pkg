@@ -95,7 +95,7 @@ def _warnings_for(job_dir: Path, smiles: str) -> list[str]:
     job_dir.mkdir(parents=True, exist_ok=True)
     smi_path = job_dir / "probe.smi"
     smi_path.write_text(f"{smiles}\tprobe\n")
-    args = Auto3DOptions(str(smi_path), k=1, use_gpu=False, enumerate_isomer=False)
+    args = Auto3DOptions(path=str(smi_path), k=1, use_gpu=False, enumerate_isomer=False)
     args["input_format"] = "smi"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

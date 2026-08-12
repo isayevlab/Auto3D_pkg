@@ -108,10 +108,20 @@ class TestSentinelScopeParityAllElevenFields:
         auto3d_kwargs = {"path": path, **self._kwargs(field, value)}
         cli_kwargs = {"path": Path(path), **self._kwargs(field, value)}
 
-        if field in SENTINEL_FIELDS:
-            # Optional field: None/False means "not specified" on both paths.
+        if field in SENTINEL_FIELDS and value is None:
+            # Optional field: None means "not specified" on both paths.
             Auto3DOptions(**auto3d_kwargs)  # must not raise
             CLIConfig(**cli_kwargs)  # must not raise
+        elif field in SENTINEL_FIELDS:
+            # False stopped being a second spelling of "not specified" in 4.0.
+            # It has to be refused rather than coerced -- bool is an int
+            # subclass, so pydantic would otherwise turn it into 0 and report a
+            # bound the caller never went near -- and refused on BOTH paths, which
+            # is the property this test exists for.
+            with pytest.raises(ConfigurationError):
+                Auto3DOptions(**auto3d_kwargs)
+            with pytest.raises(ValidationError):
+                CLIConfig(**cli_kwargs)
         else:
             # Non-optional field: None/False has no "unset" meaning and must
             # be rejected on both paths -- not just one.

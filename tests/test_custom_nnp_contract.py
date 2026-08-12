@@ -219,7 +219,7 @@ def test_transposed_forward_is_rejected_by_input_validation(tmp_path):
         gpu_idx=0,
         capacity=42,
         k=1,
-        window=False,
+        window=None,
         max_confs=None,
         memory=None,
         verbose=False,
