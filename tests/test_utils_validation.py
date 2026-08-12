@@ -189,12 +189,12 @@ class TestCheckValidConfiguration:
 
     def test_missing_k_and_window(self):
         """Test that missing both k and window returns error."""
-        errors = check_valid_configuration(_options(k=False, window=False))
+        errors = check_valid_configuration(_options(k=None, window=None))
         assert any("k" in e.lower() or "window" in e.lower() for e in errors)
 
     def test_window_specified(self):
         """Test that window alone is sufficient."""
-        errors = check_valid_configuration(_options(k=False, window=5.0))
+        errors = check_valid_configuration(_options(k=None, window=5.0))
         assert not any("k" in e.lower() or "window" in e.lower() for e in errors)
 
     def test_invalid_optimizing_engine(self):

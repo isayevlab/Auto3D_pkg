@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Auto3DOptions` is a pydantic model, and "not specified" is `None`.** Three
+  changes to how the options object is built, none of them silent:
+
+  | before | after |
+  |---|---|
+  | `Auto3DOptions("in.smi", k=5)` | `Auto3DOptions(path="in.smi", k=5)` |
+  | `Auto3DOptions(k=False)` — "not specified" | `Auto3DOptions(k=None)`, or omit it |
+  | `dataclasses.replace(config, k=1)` | `config.replace(k=1)` |
+
+  Construction is **keyword-only**, as pydantic requires. `False` is refused
+  outright on `k`, `window`, `memory` and `max_confs` rather than coerced:
+  `bool` is an `int` subclass, so accepting it would report `k must be >= 1,
+  got 0` — a bound the caller never went near. The error names `None` as the
+  replacement. `memory` and `max_confs` already meant `None`; this makes all
+  four agree, which is what let the CLI schema's `False`→`None` translation be
+  deleted. The shipped `docs/legacy-v2/parameters.yaml` set `window: False` and
+  is updated.
+
+  **Every construction failure is now a `ConfigurationError`**, including a
+  wrong *type* and an unknown key, which previously raised
+  `pydantic.ValidationError` and `TypeError` respectively. The CLI maps
+  `ConfigurationError` to exit 2 with a hint and anything else to exit 1 as an
+  unexpected error, so one kind of mistake now gets one exit code from every
+  entry point.
+
+  **Numeric strings are accepted** where they were previously refused:
+  `threshold="0.3"` parses to `0.3`. YAML hands every scalar over as text, so
+  refusing it refused valid config files. `threshold="not-a-number"` still
+  raises.
+
+  `Auto3DOptions.replace()` is the replacement for `dataclasses.replace`, and
+  is deliberately not a synonym for pydantic's `model_copy(update=...)` — that
+  skips validators, which would have made every copied config unchecked.
+
+  `CLIConfig` still exists; collapsing the two into one class is the second half
+  of this work.
+
 - **`Auto3D.utils.validation` is gone, split in two.** The module mixed two
   unrelated jobs — asking whether a model can run here, and parsing what the
   caller supplied — which is why a leaf helper package ended up reaching into

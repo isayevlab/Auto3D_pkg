@@ -462,8 +462,8 @@ class TestSmiles2MolsExceptionHandling:
         # Create options without k or window (both set to False/default)
         args = Auto3DOptions(
             path=None,  # Will be set internally
-            k=False,
-            window=False,
+            k=None,
+            window=None,
             use_gpu=False,
         )
 

@@ -185,7 +185,7 @@ class TestCheckInputExceptions:
             enumerate_isomer=True,
             opt_steps=10,
             k=1,
-            window=False,
+            window=None,
             use_gpu=False,
             isomer_engine="rdkit",
             verbose=False,
