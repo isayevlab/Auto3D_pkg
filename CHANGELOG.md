@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Auto3D.cli.config_schema.CLIConfig` is gone. There is one configuration
+  class.** It declared 27 of `Auto3DOptions`' 28 fields a second time, and a
+  708-line parity suite existed to keep the two in step. `build_cli_config`,
+  `load_yaml_config` and `merge_configs` all return `Auto3DOptions` now, so
+  `config.to_auto3d_options()` has nothing left to convert and is removed.
+
+  | before | after |
+  |---|---|
+  | `CLIConfig(path=Path("in.smi"), k=1)` | `build_cli_config(path="in.smi", k=1)` |
+  | `config.to_auto3d_options()` | the config already *is* an `Auto3DOptions` |
+  | `config.to_auto3d_options()` refusing a path-less config | `require_input_path(config)` |
+
+  `Auto3DOptions` absorbed what only `CLIConfig` could do: it accepts a
+  `pathlib.Path` for `path` and stores a string, parses `gpu_idx` from `"0"`,
+  `"0,1"` or `[0, 1]`, and normalizes the three built-in engine names to their
+  canonical spelling (`ani2x` → `ANI2x`) at construction rather than on the way
+  across.
+
+  **Engine-name resolution deliberately did not move onto the model.**
+  `resolve_engine_name` lives in `Auto3D.models`, so a validator would point the
+  foundation layer at the engine layer, and would run a registry lookup on every
+  construction — including the pickled reconstruction inside each spawned
+  worker. It runs at the CLI boundary instead, where its value always was:
+  refusing a typo while the user is still looking at their terminal. The
+  principle, in one line: **the config validates values, not resolvability.**
+
+  One loss worth naming: `CLIConfig`'s `Literal["rdkit", "oechem"]` annotations
+  are gone, so mypy no longer sees those as types. `ENGINE_CHOICES` and the
+  model validator are the surviving guard, and they are checked at runtime on
+  every entry point rather than only where a type checker was run.
+
 - **`Auto3DOptions` is a pydantic model, and "not specified" is `None`.** Three
   changes to how the options object is built, none of them silent:
 

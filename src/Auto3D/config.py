@@ -14,6 +14,7 @@ including the Python API.
 
 import operator
 from dataclasses import dataclass
+from pathlib import PurePath
 from typing import Any, TypedDict
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -129,6 +130,18 @@ SELECTOR_FIELDS: tuple[str, ...] = ("k", "window")
 ENGINE_CHOICES: dict[str, tuple[str, ...]] = {
     "isomer_engine": ("rdkit", "omega"),
     "tauto_engine": ("rdkit", "oechem"),
+}
+
+# Built-in engine names mapped to the exact spelling the model factory compares
+# against, so `--engine ani2x` and `--engine ANI2X` both store "ANI2x". Came
+# from CLIConfig, where it was applied on the way across to Auto3DOptions;
+# with one class it is a normalization like the two engine fields' lowercasing.
+# A pure case table, so it carries no dependency on the model layer -- registry
+# names and custom paths are absent and pass through verbatim.
+ENGINE_CANONICAL_CASE: dict[str, str] = {
+    "ANI2X": "ANI2x",
+    "ANI2XT": "ANI2xt",
+    "AIMNET": "AIMNET",
 }
 
 _BOUND_OPS: dict[str, tuple[object, str]] = {
@@ -466,6 +479,34 @@ class Auto3DOptions(BaseModel):
     setup. Declared as a real field (rather than a dynamic attribute) so it
     survives dataclasses.replace()/pickling and stays in the dict-like API."""
 
+    @field_validator("path", mode="before")
+    @classmethod
+    def _path_to_str(cls, v: Any) -> Any:
+        """Accept a ``pathlib.Path`` and store it as a string.
+
+        The CLI naturally holds a ``Path`` (typer hands one over) while the
+        pipeline stores and pickles a ``str``. ``CLIConfig`` reconciled that by
+        typing the field ``Path | None`` and converting on the way across; with
+        one class the conversion happens here, at the edge, and ``str(None)``
+        cannot leak the literal ``"None"`` as a path that names nothing.
+        """
+        return str(v) if isinstance(v, PurePath) else v
+
+    @field_validator("gpu_idx", mode="before")
+    @classmethod
+    def _parse_gpu_idx(cls, v: Any) -> Any:
+        """Accept ``0``, ``"0"``, ``"0,1"`` or ``[0, 1]``.
+
+        Came from ``CLIConfig``. A YAML scalar and a ``--gpu-idx`` argument both
+        arrive as text, and the comma form is the documented way to name several
+        devices, so the parsing has to live on the class both paths build.
+        """
+        if isinstance(v, str):
+            return [int(x.strip()) for x in v.split(",")] if "," in v else int(v)
+        if isinstance(v, list):
+            return [int(x) for x in v]
+        return v
+
     @field_validator(*sorted(SENTINEL_FIELDS), mode="before")
     @classmethod
     def _no_bool_sentinels(cls, v: Any) -> Any:
@@ -504,6 +545,9 @@ class Auto3DOptions(BaseModel):
         self.tauto_engine = self.tauto_engine.lower()
         self.isomer_engine = self.isomer_engine.lower()
         self.mode_oe = self.mode_oe.lower()
+        self.optimizing_engine = ENGINE_CANONICAL_CASE.get(
+            self.optimizing_engine.upper(), self.optimizing_engine
+        )
         check_engine_choices({name: getattr(self, name) for name in ENGINE_CHOICES})
         check_field_bounds({name: getattr(self, name) for name in FIELD_BOUNDS})
         return self

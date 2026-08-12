@@ -98,7 +98,7 @@ def _run_legacy_yaml(yaml_path: str) -> None:
     try:
         from Auto3D.auto3D import main
         from Auto3D.cli.commands.run import _exit_if_incomplete
-        from Auto3D.cli.config_schema import load_yaml_config
+        from Auto3D.cli.config_schema import load_yaml_config, require_input_path
         from Auto3D.cli.results import (
             FailedMolecule,
             WorkflowResults,
@@ -143,7 +143,7 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         # source of an input path) is refused by `to_auto3d_options` with a
         # ConfigurationError naming the missing key, and announcing a run that
         # cannot start would be worse than not announcing it.
-        options = config.to_auto3d_options()
+        options = require_input_path(config)
 
         # Same three expressions `cli/commands/run.py` uses, on the same
         # validated object. The old `output_info` had a third branch --

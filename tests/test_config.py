@@ -205,11 +205,17 @@ def test_optimization_config_exposes_no_energy_criterion_knobs():
         OptimizationConfig(energy_tol=1e-3)
 
 
-def test_capacity_default_matches_across_layers():
-    from Auto3D.cli.config_schema import CLIConfig
-    from Auto3D.config import Auto3DOptions
+def test_capacity_default_comes_from_the_shared_constant():
+    """There is one class now, so "the layers agree" is not a thing to check.
 
-    assert Auto3DOptions(path="x.smi").capacity == CLIConfig(path="x.smi").capacity
+    What remains worth pinning is that the default is the shared constant rather
+    than a literal re-typed on the field -- which is what made the two-class
+    version drift-prone in the first place.
+    """
+    from Auto3D.config import Auto3DOptions
+    from Auto3D.constants import DEFAULT_CAPACITY
+
+    assert Auto3DOptions(path="x.smi").capacity == DEFAULT_CAPACITY
 
 
 def test_opt_steps_has_exactly_one_declared_minimum():

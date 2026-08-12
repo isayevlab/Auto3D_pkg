@@ -66,10 +66,10 @@ class TestOrdinaryConfigsStillLoad:
 
         config = load_yaml_config(cfg)
 
-        # load_yaml_config returns a validated CLIConfig, not a dict -- the
+        # load_yaml_config returns a validated Auto3DOptions, not a dict -- the
         # shim these tests used to call returned a dict, which is one reason
         # they could not have caught a change in the real function.
-        assert config.path == Path("mols.smi")
+        assert config.path == "mols.smi"  # stored as str, not Path
         assert config.k == 1
         assert config.use_gpu is False
 
