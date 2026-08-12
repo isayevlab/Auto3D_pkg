@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 
 from Auto3D.config import (
     SELECTOR_FIELDS,
-    SENTINEL_FIELDS,
     Auto3DOptions,
     check_field_bounds,
 )
@@ -158,33 +157,10 @@ class CLIConfig(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    # The field list is `Auto3D.config.SENTINEL_FIELDS` itself, not a second
-    # hand-maintained copy of the same four names: a fifth sentinel field
-    # added to that constant would otherwise keep `check_field_bounds`'s
-    # None/False skip but miss this False->None interception, silently
-    # reopening the exact entry-point divergence this phase closed (accepted
-    # by Auto3DOptions, rejected by CLIConfig). `sorted` only pins a
-    # deterministic argument order -- SENTINEL_FIELDS is a frozenset.
-    @field_validator(*sorted(SENTINEL_FIELDS), mode="before")
-    @classmethod
-    def _false_means_unset(cls, v: Any) -> Any:
-        """Map the legacy ``False`` "not specified" sentinel to ``None``.
-
-        Pydantic coerces ``bool`` to ``int``/``float`` (``bool`` is an
-        ``int`` subclass) as part of its own type validation, which runs
-        *before* the ``mode="after"`` model validator below
-        (``_check_bounds``) ever sees the value. So by the time
-        ``check_field_bounds``'s ``value is False`` skip runs, ``False`` has
-        already become ``0``/``0.0`` and fails the ``k``/``memory``/
-        ``max_confs`` >=1 or ``window`` >0 bound -- even though
-        ``Auto3DOptions`` (which has no such coercion step) accepts the same
-        input. This ``mode="before"`` validator runs first and intercepts
-        ``False`` ahead of that coercion, so both classes agree that
-        ``k=False``/``window=False``/``memory=False``/``max_confs=False``
-        mean "not specified", exactly like the shipped
-        ``docs/legacy-v2/parameters.yaml`` example (``window: False``).
-        """
-        return None if v is False else v
+    # `_false_means_unset` stood here. It mapped the legacy ``False`` sentinel
+    # to ``None`` so this class agreed with ``Auto3DOptions``, which spelled
+    # "not specified" as ``False``. Both now spell it ``None`` and both refuse a
+    # bool on these fields, so there is nothing left to translate.
 
     @field_validator("gpu_idx", mode="before")
     @classmethod

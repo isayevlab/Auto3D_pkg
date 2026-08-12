@@ -16,7 +16,7 @@ import operator
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from Auto3D.constants import (
@@ -465,6 +465,29 @@ class Auto3DOptions(BaseModel):
     """Input file format ('smi' or 'sdf'), inferred from the input suffix during
     setup. Declared as a real field (rather than a dynamic attribute) so it
     survives dataclasses.replace()/pickling and stays in the dict-like API."""
+
+    @field_validator(*sorted(SENTINEL_FIELDS), mode="before")
+    @classmethod
+    def _no_bool_sentinels(cls, v: Any) -> Any:
+        """Refuse ``True``/``False`` on the four fields where ``None`` means unset.
+
+        ``bool`` is a subclass of ``int``, so pydantic coerces ``False`` to ``0``
+        and ``True`` to ``1`` before any bound is checked. Left alone that turns
+        two distinct mistakes into confusing outcomes: ``k=False`` -- which used
+        to mean "not specified" -- becomes ``k must be >= 1, got 0``, naming a
+        value the caller never wrote, and ``k=True`` silently becomes "one
+        conformer", which is a meaning nobody assigned it.
+
+        ``mode="before"`` is what makes this reachable: it runs ahead of the
+        coercion, while the ``mode="after"`` validator below only ever sees the
+        integer.
+        """
+        if isinstance(v, bool):
+            raise ValueError(
+                f"got {v}, which is not a number. Since 4.0 the 'not specified' "
+                f"sentinel is None, not False -- omit the option, or pass None."
+            )
+        return v
 
     @model_validator(mode="after")
     def _normalize_and_validate(self) -> "Auto3DOptions":

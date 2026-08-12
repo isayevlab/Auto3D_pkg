@@ -2,8 +2,9 @@
 path: "tests/files/smiles2.smi"
 
 #k and window are mutually exclusive parameters. Just specify one of them.
-k: 1  
-window: False
+#The unset one is None (it was False before 4.0).
+k: 1
+window: None
 
 #general setting
 memory: None
