@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from Auto3D.cli.config_schema import build_cli_config
+from Auto3D.cli.config_schema import build_cli_config, require_input_path
 from Auto3D.config import Auto3DOptions
+from Auto3D.exceptions import ConfigurationError
 
 
 def test_config_defaults():
@@ -22,7 +23,7 @@ def test_config_validation_k_positive():
     """k must be positive if set."""
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ConfigurationError):
         build_cli_config(path=Path("test.smi"), k=-1)
 
 
@@ -30,7 +31,7 @@ def test_config_validation_engine():
     """optimizing_engine must be valid."""
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ConfigurationError):
         build_cli_config(path=Path("test.smi"), optimizing_engine="INVALID")
 
 
@@ -127,14 +128,16 @@ def test_config_accepts_case_insensitive_engine_names(raw, canonical):
     exact, case-sensitive equality. `auto3d run in.smi --engine ani2x` and
     any YAML with `optimizing_engine: ani2x` died on this.
 
-    The Auto3DOptions field itself preserves the caller's casing verbatim (see
-    test_config_accepts_registry_and_path_engines); `to_auto3d_options()` is
-    what normalizes the three named engines to their canonical mixed-case
-    spelling via `engine_map`, checked here.
+    With one configuration class the canonical spelling is applied at
+    construction rather than on the way across, so the field carries it
+    immediately. Registry names and custom paths still pass through verbatim
+    (see test_config_accepts_registry_and_path_engines) -- the table only names
+    the three built-in engines, which are the ones the model factory compares
+    with exact mixed-case
+    spelling, checked here.
     """
 
     config = build_cli_config(path="x.smi", optimizing_engine=raw)
-    assert config.optimizing_engine == raw
     assert config.optimizing_engine == canonical
 
 
@@ -151,10 +154,15 @@ def test_config_rejects_registry_name_typo():
     accepted it. Verified live before this fix:
     build_cli_config(path=Path("x.smi"), optimizing_engine="aimnet2-2025x") did not
     raise. The validator now delegates to resolve_engine_name, which performs
-    a real registry lookup instead of a prefix match."""
-    from pydantic import ValidationError
+    a real registry lookup instead of a prefix match.
 
-    with pytest.raises(ValidationError, match="aimnet2-2025x"):
+    The check now runs in ``build_cli_config`` rather than as a model validator,
+    so it raises ``ConfigurationError`` directly. It is not on the model on
+    purpose: ``resolve_engine_name`` lives in ``Auto3D.models``, and a validator
+    would both point the foundation layer at the engine layer and run a registry
+    lookup on every construction -- including the pickled reconstruction inside
+    each spawned worker."""
+    with pytest.raises(ConfigurationError, match="aimnet2-2025x"):
         build_cli_config(path=Path("x.smi"), optimizing_engine="aimnet2-2025x")
 
 
@@ -249,7 +257,7 @@ def test_shipped_parameters_yaml_loads():
     # k/window are mutually exclusive; the example sets k and leaves window unset.
     assert cfg.k == 1
     assert cfg.window is None
-    cfg  # must not raise
+    require_input_path(cfg)  # the shipped example is runnable, not settings-only
 
 
 def test_shipped_legacy_v2_parameters_yaml_loads():
@@ -279,10 +287,10 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
 
     config = load_yaml_config(yaml_path)  # must not raise
     assert config.k == 1
-    assert config.window is None  # False normalized to Auto3DOptions's own sentinel
+    assert config.window is None  # the example's `window: None`
     assert config.memory is None
     assert config.max_confs is None
-    config  # must not raise either
+    require_input_path(config)  # runnable too
 
 
 def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
