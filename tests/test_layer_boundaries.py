@@ -16,8 +16,8 @@ So the map is declared here, and both directions are asserted:
     L2  engines        models/**, model_factory, isomers/**, isomer_engine,
                        tautomer, batch_opt/**
     L1  domain         ranking, filtering, embedding, clash_relief, id_mapping
-    L0  foundation     config, constants, exceptions, results, torch_config,
-                       utils/**
+    L0  foundation     config, constants, exceptions, registry, results,
+                       torch_config, utils/**
 
 This map describes the package as it is today, at its current module names -- not
 the target layout in the plan, which renames and regroups. It is the thing that
@@ -50,7 +50,7 @@ LAYERS: dict[int, list[str]] = {
     3: ["workflow", "workflow_workers", "chunk_manager", "job_layout", "processors", "pipeline"],
     2: ["models", "model_factory", "isomers", "isomer_engine", "tautomer", "batch_opt"],
     1: ["ranking", "filtering", "embedding", "clash_relief", "id_mapping"],
-    0: ["config", "constants", "exceptions", "results", "torch_config", "utils"],
+    0: ["config", "constants", "exceptions", "registry", "results", "torch_config", "utils"],
 }
 
 #: Upward module-scope edges that are known, named and dated. An entry here is a
