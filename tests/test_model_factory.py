@@ -35,7 +35,10 @@ def test_the_factory_promises_the_contract_not_the_base_class():
     assert inspect.get_annotations(ModelFactory.create.__func__)["return"] == "ModelAdapter"
     # BaseModelAdapter survives in exactly one type position: a registry of
     # Auto3D's OWN adapter classes, which really is the concrete base.
-    assert inspect.get_annotations(ModelFactory)["_adapters"] == "dict[str, type[BaseModelAdapter]]"
+    assert (
+        inspect.get_annotations(ModelFactory)["_engines"]
+        == "Registry[type[BaseModelAdapter] | None]"
+    )
     # ...and it is no longer an incidental runtime re-export of this module.
     assert not hasattr(model_factory, "BaseModelAdapter")
 
@@ -51,8 +54,17 @@ class TestModelFactory:
         assert "ANI2x" in models
         assert "ANI2xt" in models
         # AIMNET is NOT a hard-coded adapter key anymore: only ANI engines are.
-        assert set(ModelFactory._adapters) == {"ANI2X", "ANI2XT"}
-        assert "AIMNET" not in ModelFactory._adapters
+        # The registry now holds every user-facing engine name; the ones built
+        # from a local adapter class are those whose entry carries one. AIMNET
+        # is registered (it is a name a user may pass) but resolves to None,
+        # because it is looked up through the aimnet registry instead.
+        built_locally = {
+            n.upper()
+            for n in ModelFactory._engines.available()
+            if ModelFactory._engines.resolve(n) is not None
+        }
+        assert built_locally == {"ANI2X", "ANI2XT"}
+        assert ModelFactory._engines.resolve("AIMNET") is None
 
     def test_create_unknown_model_raises_error(self, monkeypatch):
         """Unknown non-path names no longer raise a ValueError up front; they
@@ -93,11 +105,10 @@ class TestModelFactory:
             assert captured["aimnet"] == "aimnet2"
 
         # ANI engines resolve case-insensitively to their adapter class.
-        assert (
-            model_factory.ModelFactory._adapters["ani2x".upper()]
-            is model_factory.ModelFactory._adapters["ANI2X"]
-        )
-        assert "ANI2XT" in model_factory.ModelFactory._adapters
+        assert model_factory.ModelFactory._engines.resolve(
+            "ani2x"
+        ) is model_factory.ModelFactory._engines.resolve("ANI2X")
+        assert "ANI2XT" in model_factory.ModelFactory._engines
 
     @pytest.mark.slow
     def test_create_aimnet_returns_aimnet2_adapter(self, aimnet_model):
@@ -364,7 +375,13 @@ def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
         def __init__(self, device, **kw):
             captured["built_in"] = True
 
-    monkeypatch.setitem(model_factory.ModelFactory._adapters, "ANI2XT", _FakeANI2xtAdapter)
+    monkeypatch.setitem(
+        model_factory.ModelFactory._engines._entries,
+        "ANI2xt",
+        model_factory.ModelFactory._engines.entry("ANI2xt").__class__(
+            name="ANI2xt", value=_FakeANI2xtAdapter
+        ),
+    )
     model_factory.ModelFactory.clear_cache()
 
     result = model_factory.create_model("ANI2xt", torch.device("cpu"), use_cache=False)
