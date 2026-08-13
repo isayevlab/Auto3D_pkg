@@ -32,11 +32,25 @@ from Auto3D.isomer_engine import (
     oe_isomer,
 )
 from Auto3D.isomers.base import IsomerEngine, TautomerEngine
+from Auto3D.registry import Registry
 
 #: Engine names :meth:`IsomerEngineFactory.create` accepts. ``rdkit`` is also
 #: reachable as ``rdkit_sdf`` via the ``input_format="sdf"`` auto-selection
 #: below.
-_ENGINE_TYPES = ("rdkit", "rdkit_sdf", "omega")
+#:
+#: Registered rather than listed so the name set, the "unknown engine" message
+#: and ``available_engines()`` all read from one place -- the tuple was the
+#: first of those three, and the message hand-wrote the other two.
+#:
+#: Only the names live here. Construction stays in the if/elif ladder in
+#: :meth:`create`, deliberately: each branch names exactly the arguments its
+#: engine takes, so an argument no engine reads cannot survive unnoticed. A
+#: registry that also built the engine would need one signature for all three,
+#: which is the keyword bag that property exists to prevent.
+_ENGINES: Registry[type] = Registry("isomer engine type")
+_ENGINES.register("rdkit", RDKitIsomer)
+_ENGINES.register("rdkit_sdf", RDKitSdfIsomer)
+_ENGINES.register("omega", oe_isomer)
 
 
 class _DeferredIsomerEngine:
@@ -91,7 +105,7 @@ class IsomerEngineFactory:
         Returns:
             List of supported engine type names.
         """
-        return list(_ENGINE_TYPES)
+        return _ENGINES.available()
 
     @classmethod
     def create(
@@ -148,11 +162,10 @@ class IsomerEngineFactory:
         if engine_type == "rdkit" and input_format.lower() == "sdf":
             engine_type = "rdkit_sdf"
 
-        if engine_type not in _ENGINE_TYPES:
-            available = ", ".join(f"'{e}'" for e in _ENGINE_TYPES)
-            raise ValueError(
-                f"Unknown isomer engine type: '{engine_type}'. Supported types: {available}"
-            )
+        # Raises ConfigurationError naming the alternatives. Was a hand-written
+        # ValueError with its own wording; the registry's message is the one
+        # every backend lookup in the package now produces.
+        _ENGINES.resolve(engine_type)
 
         # The one kwarg-mapping site. Each branch names exactly the arguments
         # its engine takes, so an argument no engine reads cannot survive here
