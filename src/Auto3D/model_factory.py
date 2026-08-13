@@ -22,6 +22,7 @@ from Auto3D.models.adapter import (
     ANI2xtAdapter,
     CustomModelAdapter,
 )
+from Auto3D.registry import Registry
 
 if TYPE_CHECKING:
     # Annotation-only. Every signature here promises the CONTRACT
@@ -57,13 +58,27 @@ class ModelFactory:
         >>> ModelFactory.clear_cache()
     """
 
-    # Built-in (non-aimnet) engines kept for back-compat; keys are exactly the
-    # members of BUILTIN_ANI_MODELS.
-    _adapters: dict[str, type[BaseModelAdapter]] = {
-        MODEL_ANI2XT.upper(): ANI2xtAdapter,
-        MODEL_ANI2X.upper(): ANI2xAdapter,
-    }
-    assert set(_adapters) == set(BUILTIN_ANI_MODELS)
+    #: Every engine name a user may pass, in the order `auto3d models list`
+    #: shows them. The value is the adapter class for engines built from one
+    #: locally, and ``None`` for names resolved through the aimnet registry --
+    #: which is the distinction that made this three separate lists before.
+    #:
+    #: `_adapters` held only the two ANI engines, `available_models()` restated
+    #: all six as a hand-written literal derived from nothing, and
+    #: `cli/commands/models.py`'s `ENGINE_INFO` held six display entries keyed by
+    #: the same names. Nothing connected them; they agreed by hand. Two of the
+    #: three are collapsed here. `ENGINE_INFO` is the remaining one, and moving
+    #: it into `info=` is the follow-up -- it belongs with the CLI changes rather
+    #: than with this factory's.
+    _engines: Registry[type[BaseModelAdapter] | None] = Registry(
+        "optimizing engine", case_insensitive=True
+    )
+    _engines.register(MODEL_AIMNET, None)
+    _engines.register("aimnet2-2025", None)
+    _engines.register("aimnet2-nse", None)
+    _engines.register("aimnet2-pd", None)
+    _engines.register(MODEL_ANI2X, ANI2xAdapter)
+    _engines.register(MODEL_ANI2XT, ANI2xtAdapter)
 
     # Model instance cache: key = (name, device_str, compile_model)
     _cache: dict[tuple[str, str, bool], ModelAdapter] = {}
@@ -141,12 +156,14 @@ class ModelFactory:
         #    name first; that helper is gone -- the Hessian path takes a
         #    ModelAdapter now -- so this factory is the only name resolver
         #    left, and the reason above stands on its own.)
-        if name_upper in cls._adapters:
+        if name_upper in cls._engines and cls._engines.resolve(name_upper) is not None:
             cache_key = (name_upper, str(device), compile_model)
             if use_cache and cache_key in cls._cache:
                 return cls._cache[cache_key]
             try:
-                adapter = cls._adapters[name_upper](device, compile_model=compile_model)
+                adapter_cls = cls._engines.resolve(name_upper)
+                assert adapter_cls is not None  # guarded by the branch condition
+                adapter = adapter_cls(device, compile_model=compile_model)
             except ImportError as exc:
                 # Only translate the *absence of torchani itself*. A broken
                 # torchani whose own transitive import fails names a different
@@ -185,15 +202,25 @@ class ModelFactory:
 
     @classmethod
     def available_models(cls) -> list[str]:
-        """Return list of registered model names."""
-        return [
-            MODEL_AIMNET,
-            "aimnet2-2025",
-            "aimnet2-nse",
-            "aimnet2-pd",
-            MODEL_ANI2X,
-            MODEL_ANI2XT,
-        ]
+        """Registered engine names, in declaration order.
+
+        Was a hand-written literal that restated the registry's contents and was
+        derived from nothing -- so adding an engine and forgetting this list left
+        it working but undiscoverable.
+        """
+        return cls._engines.available()
+
+
+# The engines built from a local adapter class must be exactly
+# BUILTIN_ANI_MODELS. This was an assert over a hand-maintained dict; it is now
+# derived from the registry, so the two cannot drift apart. At module scope
+# because a comprehension inside a class body cannot see that class's own
+# attributes.
+assert {
+    name.upper()
+    for name in ModelFactory._engines.available()
+    if ModelFactory._engines.resolve(name) is not None
+} == set(BUILTIN_ANI_MODELS)
 
 
 def create_model(

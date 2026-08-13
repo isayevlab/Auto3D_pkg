@@ -345,7 +345,11 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
             "No module named 'some_transitive_dep'", name="some_transitive_dep"
         )
 
-    monkeypatch.setitem(mf.ModelFactory._adapters, "ANI2X", _broken_adapter)
+    monkeypatch.setitem(
+        mf.ModelFactory._engines._entries,
+        "ANI2x",
+        mf.ModelFactory._engines.entry("ANI2x").__class__(name="ANI2x", value=_broken_adapter),
+    )
     monkeypatch.setattr(mf.ModelFactory, "_cache", {})
 
     result = runner.invoke(app, ["models", "test", "ANI2x", "--no-gpu"])
