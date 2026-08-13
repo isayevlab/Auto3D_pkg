@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **An unknown isomer engine name raises `ConfigurationError`, not `ValueError`.**
+  `IsomerEngineFactory.create("bogus", ...)` used to raise a bare `ValueError`
+  with its own hand-written wording. The lookup now goes through the shared
+  backend registry, so it reports the same exception type as every other bad
+  backend name — which the CLI maps to exit 2 with a hint rather than exit 1 as
+  an unexpected error. The message also enumerates the alternatives, which the
+  old one did inconsistently.
+
 - **`Auto3D.cli.config_schema.CLIConfig` is gone. There is one configuration
   class.** It declared 27 of `Auto3DOptions`' 28 fields a second time, and a
   708-line parity suite existed to keep the two in step. `build_cli_config`,

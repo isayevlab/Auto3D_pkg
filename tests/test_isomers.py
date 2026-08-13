@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from Auto3D.exceptions import ConfigurationError
 from Auto3D.isomers import IsomerEngineFactory
 from Auto3D.isomers.base import IsomerEngine, TautomerEngine
 from Auto3D.isomers.factory import create_tautomer_engine
@@ -267,8 +268,13 @@ class TestCreateEngineTypeResolution:
     """
 
     def test_unknown_engine_raises_error(self):
-        """Test that unknown engine type raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown isomer engine type"):
+        """An unknown engine is a ConfigurationError, not a bare ValueError.
+
+        The lookup goes through the shared registry now, so this reports the
+        same exception type as every other bad backend name -- which the CLI
+        maps to exit 2 with a hint rather than exit 1 as an unexpected error.
+        """
+        with pytest.raises(ConfigurationError, match="Unknown isomer engine type"):
             IsomerEngineFactory.create(
                 "unknown_engine",
                 input_path="/input.smi",
@@ -469,8 +475,13 @@ class TestIsomerEngineFactory:
         assert list(spies) == ["rdkit_sdf"]
 
     def test_unknown_engine_raises_error(self):
-        """Test that unknown engine type raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown isomer engine type"):
+        """An unknown engine is a ConfigurationError, not a bare ValueError.
+
+        The lookup goes through the shared registry now, so this reports the
+        same exception type as every other bad backend name -- which the CLI
+        maps to exit 2 with a hint rather than exit 1 as an unexpected error.
+        """
+        with pytest.raises(ConfigurationError, match="Unknown isomer engine type"):
             IsomerEngineFactory.create(
                 engine_type="nonexistent",
                 input_path="/input.smi",
