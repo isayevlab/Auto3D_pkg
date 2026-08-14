@@ -1516,10 +1516,14 @@ def _load_hessian_model(model_name: str, device) -> ModelAdapter:
         # compile_model=False: torch.compile guards on dtype, and nothing in
         # this autograd-Hessian path benefits from it anyway.
         adapter = create_model(model_name, device, compile_model=False, use_cache=False)
-        # In place, and on the adapter's own module, exactly as before: the
-        # adapter is what gets returned now, but the fp64 tensor it will feed the
-        # model is the same one, so no reported frequency moves.
-        adapter.model.double()
+        # In place, through the contract rather than past it. This was
+        # `adapter.model.double()`, which reached the module only
+        # BaseModelAdapter happens to store -- so an otherwise conforming
+        # structural adapter raised AttributeError here, and mypy's report of it
+        # was one of the errors `|| true` discarded. The operation underneath is
+        # unchanged (see BaseModelAdapter.to_double), so no reported frequency
+        # moves.
+        adapter.to_double()
         return adapter
     # AIMNET or any aimnet registry alias: ModelFactory resolves the "AIMNET"
     # legacy alias to the registry default internally (see
