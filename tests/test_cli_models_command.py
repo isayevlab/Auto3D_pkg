@@ -63,3 +63,40 @@ def test_a_dependency_that_raises_on_import_is_reported_not_available(monkeypatc
 
     assert available is False
     assert "OSError" in status, status
+
+
+def test_engine_info_covers_exactly_the_registered_engines():
+    """`ENGINE_INFO` and the engine registry must name the same set.
+
+    These are two lists of engine names in different layers, and until now
+    nothing connected them. The failure they allow is silent in the worst
+    direction: register an engine and forget the display entry, and it works
+    perfectly while never appearing in ``auto3d models list`` or ``models
+    info``. A user has no way to discover it, and no error says why.
+
+    The design spec for the registry proposed moving this table into the
+    registry entries as ``info=``. That is the wrong direction on reflection:
+    ``ENGINE_INFO`` is presentation content -- descriptions, references, prose
+    notes -- and ``model_factory`` is the engine layer. Pushing display strings
+    down two layers to remove a duplication would trade a checkable problem for
+    a structural one, and ``tests/test_layer_boundaries.py`` exists to stop
+    exactly that kind of drift downward.
+
+    What the move was actually for is this property, and the property does not
+    require the move. Asserted in both directions: an engine without display
+    metadata fails, and metadata for an engine that no longer exists fails too.
+    """
+    from Auto3D.cli.commands.models import ENGINE_INFO
+    from Auto3D.model_factory import ModelFactory
+
+    registered = {name.upper() for name in ModelFactory.available_models()}
+    documented = set(ENGINE_INFO)
+
+    assert documented - registered == set(), (
+        f"ENGINE_INFO describes engines that are not registered: {sorted(documented - registered)}"
+    )
+    assert registered - documented == set(), (
+        "these engines are registered but have no ENGINE_INFO entry, so they "
+        "are invisible in `auto3d models list`/`models info`: "
+        f"{sorted(registered - documented)}"
+    )
