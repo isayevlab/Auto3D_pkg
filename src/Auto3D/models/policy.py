@@ -16,10 +16,23 @@ from rdkit import Chem
 
 from Auto3D.constants import BUILTIN_ANI_MODELS
 from Auto3D.exceptions import ConfigurationError, GPUError
+from Auto3D.models.species import ANI2XT_INDEX
 
 #: Elements ANI2x/ANI2xt were trained on. AIMNET (and any aimnet registry
 #: model) and a custom NNP path are not restricted to this set.
 ANI_ELEMENTS = frozenset({1, 6, 7, 8, 9, 16, 17})
+
+# The gate above and ANI2xt's network-index table must cover the same elements.
+# Asserted rather than derived, deliberately: they are the same seven numbers but
+# not the same fact -- this set is what ANI2x AND ANI2xt were trained on, while
+# ANI2XT_INDEX is one engine's 0-based index order. Defining either in terms of
+# the other would record a provenance that is not true and would stop being a
+# check. Same construction as model_factory's BUILTIN_ANI_MODELS assert.
+assert frozenset(ANI2XT_INDEX) == ANI_ELEMENTS, (
+    "ANI_ELEMENTS (what check_engine_supports_molecules admits) and "
+    "ANI2XT_INDEX (what to_ani2xt_species can remap) have drifted apart: "
+    f"{sorted(ANI_ELEMENTS ^ frozenset(ANI2XT_INDEX))}"
+)
 
 
 def check_gpu_requested(use_gpu: bool) -> None:

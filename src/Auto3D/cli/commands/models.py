@@ -11,6 +11,20 @@ from rich.table import Table
 from Auto3D.cli.console import console
 from Auto3D.cli.errors import handle_error
 from Auto3D.exceptions import ConfigurationError
+from Auto3D.models.policy import ANI_ELEMENTS
+from Auto3D.models.species import format_elements
+
+#: What ANI2x and ANI2xt accept, quoted from the gate that enforces it rather
+#: than retyped -- see ``format_elements``. Rendering at import pulls rdkit in
+#: with this module; that is a knowing choice and costs nothing, since rdkit is a
+#: required dependency and the CLI already imports torch.
+#:
+#: The four AIMNet2 entries below stay literals on purpose. Their source of truth
+#: is each model file's own ``implemented_species`` metadata, and deriving them
+#: here would mean loading four NNPs to print a help table.
+#: ``tests/test_element_sets.py`` pins them to that metadata in the slow tier
+#: instead.
+_ANI_ELEMENT_STRING = format_elements(ANI_ELEMENTS)
 
 
 def check_dependency_status(name: str) -> tuple[bool, str]:
@@ -165,7 +179,7 @@ ENGINE_INFO = {
     "ANI2X": {
         "name": "ANI-2x",
         "description": "Accurate neural network potential for organic molecules.",
-        "elements": "H, C, N, O, F, S, Cl",
+        "elements": _ANI_ELEMENT_STRING,
         "speed": "8-model ensemble (not benchmarked here)",
         "accuracy": "Excellent for covered elements",
         "reference": "https://github.com/aiqm/torchani",
@@ -178,7 +192,7 @@ ENGINE_INFO = {
     "ANI2XT": {
         "name": "ANI-2xt",
         "description": "Extended ANI-2x with improved torsion handling.",
-        "elements": "H, C, N, O, F, S, Cl",
+        "elements": _ANI_ELEMENT_STRING,
         "speed": "Single model (not benchmarked here)",
         "accuracy": "Good for conformer generation",
         "reference": "https://github.com/aiqm/torchani",
