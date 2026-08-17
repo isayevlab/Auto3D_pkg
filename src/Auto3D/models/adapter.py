@@ -264,6 +264,20 @@ class BaseModelAdapter(ABC, nn.Module):
         """
         return None
 
+    def to_double(self) -> None:
+        """Promote the wrapped module's weights to float64, in place.
+
+        ``self.model.double()`` rather than ``self.double()``, although this
+        class is itself an ``nn.Module`` and the two coincide for every adapter
+        that registers no other child. They are not guaranteed to: ``Module.double``
+        recurses into every registered submodule, so a subclass that holds a second
+        one would have it upcast too. This is the exact operation
+        ``Auto3D.ASE.thermo`` performed before the call moved onto the contract,
+        and keeping it exact is what makes "no reported frequency moves" a claim
+        rather than a hope.
+        """
+        self.model.double()
+
     @abstractmethod
     def forward(
         self,
@@ -372,6 +386,32 @@ class AIMNet2Adapter(BaseModelAdapter):
             hessian=True,
         )
         return result["hessian"]
+
+    def to_double(self) -> None:
+        """Refuse: AIMNet2 has no meaningful whole-graph fp64 form.
+
+        Two independent reasons, either sufficient. Whole-graph fp64 through
+        AIMNet2 is false precision -- the network is trained and evaluated in
+        fp32 -- and this adapter never needs the upcast anyway, because
+        :meth:`analytic_hessian` above means it is never differentiated by
+        autograd. ``Auto3D.ASE.thermo._load_hessian_model`` accordingly upcasts
+        the ANI and custom-model branches and not this one.
+
+        The mechanism would also be wrong, not merely unnecessary: ``self.model``
+        is ``self._calc.model``, the same object, so upcasting it here mutates the
+        module underneath an ``AIMNet2Calculator`` that prepares its own fp32
+        input tensors.
+
+        Inheriting :meth:`BaseModelAdapter.to_double` would make all of that a
+        silent, working-looking call. This raise is the same judgment
+        :meth:`analytic_hessian` documents for ``None``: a member that cannot
+        honestly do what it says must say so rather than appear to comply.
+        """
+        raise NotImplementedError(
+            "AIMNet2 has no fp64 form: it is trained and evaluated in float32, "
+            "and its Hessian is analytic, so it is never differentiated by "
+            "autograd and never needs the upcast. Use analytic_hessian instead."
+        )
 
     def energy(
         self,

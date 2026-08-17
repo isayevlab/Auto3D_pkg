@@ -337,6 +337,37 @@ class ModelAdapter(Protocol):
         """
         ...
 
+    def to_double(self) -> None:
+        """Promote this model's weights to float64, in place.
+
+        The counterpart to :meth:`analytic_hessian` returning ``None``. An
+        adapter with no native second derivative is differentiated by
+        ``torch.autograd.functional.hessian`` on the fp64 geometry
+        ``Auto3D.ASE.thermo.vib_hessian`` builds, and fp32 weights make that fp64
+        request meaningless -- :meth:`energy` is dtype-*preserving* precisely so
+        the caller can choose, but choosing fp64 is only real once the weights
+        follow. This member is how the caller says so.
+
+        It exists because the caller previously said it as
+        ``adapter.model.double()``, reaching past this contract to an attribute
+        only :class:`~Auto3D.models.adapter.BaseModelAdapter` happens to define.
+        Every structural adapter -- test doubles, and anything a downstream user
+        writes -- has no ``.model``, so the one path that upcasts raised
+        ``AttributeError`` on an otherwise conforming object.
+
+        In place, and returning nothing: the sole caller discards the result, and
+        ``nn.Module.double()``'s return-self convention would imply an
+        out-of-place option that does not exist.
+
+        Raises:
+            NotImplementedError: The model has no meaningful fp64 form. Raising
+                is the honest answer for a backend whose energy pipeline is fp32
+                by design -- see :meth:`Auto3D.models.adapter.AIMNet2Adapter.to_double`.
+                An implementation must not make this a silent no-op: the caller
+                would then differentiate fp32 weights while believing otherwise.
+        """
+        ...
+
 
 def missing_adapter_members(obj: Any) -> list[str]:
     """Members :class:`ModelAdapter` requires that ``obj`` does not provide.

@@ -357,22 +357,17 @@ def test_charges_reach_the_model_as_float32():
 
     seen_dtypes = []
 
-    class _RecordingAdapter:
-        coord_pad = 0.0
-        species_pad = -1
+    class _RecordingAdapter(FakeAdapter):
+        """Only the dtype recording is this test's own.
+
+        Was a hand-rolled duplicate of every ``FakeAdapter`` member; that is the
+        shape ``tests/helpers_adapter`` exists to absorb, and it went red the
+        first time the adapter contract gained a member.
+        """
 
         def forward(self, coords, species, charges, atom_mask=None):
             seen_dtypes.append(charges.dtype)
             return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
-
-        def to_species(self, numbers):
-            return numbers
-
-        def energy(self, coords, species, charges, atom_mask=None):
-            return torch.zeros(coords.shape[0])
-
-        def analytic_hessian(self, coords, species, charges):
-            return None
 
     model = EnForce_ANI(_RecordingAdapter(), batchsize_atoms=1024)
     coord = torch.randn(2, 3, 3)

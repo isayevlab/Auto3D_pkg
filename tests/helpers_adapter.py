@@ -84,6 +84,16 @@ class FakeAdapter:
         self.calls.append({"dtype": coords.dtype, "kind": "analytic_hessian"})
         return self._hessian
 
+    def to_double(self) -> None:
+        """Recorded, not performed: there are no weights here to upcast.
+
+        This double computes its energies from ``coords`` alone, so it is already
+        dtype-preserving and an upcast has nothing to act on. Recording the call
+        still matters -- it is how a test checks that the fp64 request reached the
+        adapter at all.
+        """
+        self.calls.append({"kind": "to_double"})
+
 
 class AdapterModuleMixin:
     """Makes an ``nn.Module`` test double satisfy ``ModelAdapter``.
@@ -113,6 +123,16 @@ class AdapterModuleMixin:
     def analytic_hessian(self, coords, species, charges):
         """No native second derivative -- ``BaseModelAdapter``'s own default."""
         return None
+
+    def to_double(self) -> None:
+        """Upcast whatever this double registered, matching the real adapters.
+
+        These doubles ARE ``nn.Module``s, so unlike :class:`FakeAdapter` there may
+        genuinely be parameters to promote. ``self.double()`` rather than
+        ``self.model.double()`` because a mixed-in double need not wrap a module
+        at all -- several declare their forward inline and hold no ``.model``.
+        """
+        self.double()
 
 
 def padded_batch(n_mols: int = 2, n_atoms: int = 3):
