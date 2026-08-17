@@ -562,39 +562,61 @@ def test_utils_submodule_imports_still_work():
     assert callable(output_guard.check_output_overwrite)
 
 
-def test_isomer_engine_does_not_import_the_isomers_package():
-    """``Auto3D.isomers`` wraps ``isomer_engine``; the arrow may not point back.
+#: Backend modules in ``Auto3D.isomers``: one per name the factory dispatches on,
+#: plus the tautomer engine, which has no factory classmethod but is constructed
+#: by the same module. ``base`` (protocols) and ``factory`` are the wrappers, not
+#: the wrapped.
+_ISOMER_BACKEND_MODULES = ("omega.py", "rdkit_sdf.py", "rdkit_smi.py", "tautomers.py")
 
-    ``isomers.factory`` imports ``Auto3D.isomer_engine`` at module scope, so a
-    single import in the other direction closes a cycle. Until 4.0 that cycle
-    existed: the two adapter modules and ``factory.create_tautomer_engine``
-    reached into ``isomer_engine``, and ``isomer_engine._run_parallel_embedding``
-    reached back into ``isomers.parallel_embed``. It stayed latent only because
-    every edge was a function-scope import -- which is exactly the shape that
-    surfaces as an ``ImportError`` inside a ``spawn``ed worker and nowhere else,
-    since a spawned child re-imports from scratch in an order the parent never
-    exercised.
 
-    Checked at **any** scope (``ast.walk``, not ``tree.body``) for that reason:
-    a function-scope import here would satisfy a module-scope-only check while
-    reintroducing precisely the latent cycle that was removed. ``parallel_embed``
-    is now ``Auto3D.embedding``, which imports nothing from either side.
+def test_isomer_backends_do_not_import_the_factory_that_wraps_them():
+    """``factory`` imports the backends; the arrow may not point back.
+
+    This guarded ``isomer_engine.py`` -- one flat module that ``isomers.factory``
+    imported -- until that file was split into the four backend modules below.
+    The property survives the split with a new shape: the wrapper is now
+    ``isomers/factory.py`` and the wrapped are its siblings, so a single import
+    in the other direction closes the same cycle it always did.
+
+    That cycle was real once: the two adapter modules and
+    ``factory.create_tautomer_engine`` reached into ``isomer_engine``, and
+    ``isomer_engine._run_parallel_embedding`` reached back into
+    ``isomers.parallel_embed``. It stayed latent only because every edge was a
+    function-scope import -- exactly the shape that surfaces as an ``ImportError``
+    inside a ``spawn``ed worker and nowhere else, since a spawned child re-imports
+    from scratch in an order the parent never exercised. (``parallel_embed`` is
+    now ``Auto3D.embedding``, which imports nothing from either side.)
+
+    Checked at **any** scope (``ast.walk``, not ``tree.body``) for that reason: a
+    function-scope import satisfies a module-scope-only check while reintroducing
+    precisely the latent cycle this exists to prevent.
+
+    This has to be its own test rather than a case of
+    ``test_layer_boundaries``'s cycle check, which compares *packages*
+    (``_package_of``). Every module here is ``Auto3D.isomers``, so a cycle among
+    siblings is invisible to it -- verified, not assumed.
     """
-    path = SRC_ROOT / "isomer_engine.py"
-    tree = ast.parse(path.read_text(), filename=str(path))
     offenders = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            module = _absolute_module(node, path) or ""
-            if module == "Auto3D.isomers" or module.startswith("Auto3D.isomers."):
-                offenders.append(f"line {node.lineno}: from {module} import ...")
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "Auto3D.isomers" or alias.name.startswith("Auto3D.isomers."):
-                    offenders.append(f"line {node.lineno}: import {alias.name}")
+    for filename in _ISOMER_BACKEND_MODULES:
+        path = SRC_ROOT / "isomers" / filename
+        assert path.exists(), (
+            f"{filename} is missing: this guard names the backend modules "
+            f"explicitly, so a renamed or deleted one must be renamed here too "
+            f"rather than silently dropping out of the check"
+        )
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = _absolute_module(node, path) or ""
+                if module == "Auto3D.isomers.factory":
+                    offenders.append(f"{filename} line {node.lineno}: from {module} import ...")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "Auto3D.isomers.factory":
+                        offenders.append(f"{filename} line {node.lineno}: import {alias.name}")
     assert not offenders, (
-        "isomer_engine.py imports from the Auto3D.isomers package it is wrapped "
-        "by, closing an import cycle:\n" + "\n".join(offenders)
+        "these isomer backend modules import the factory that wraps them, "
+        "closing an import cycle:\n" + "\n".join(offenders)
     )
 
 
@@ -899,7 +921,7 @@ def test_only_one_class_in_the_package_is_named_tautomer_engine():
 
     Two unrelated things carried this name: the role Protocol in
     ``Auto3D.isomers.base`` and a concrete two-backend implementation in
-    ``Auto3D.isomer_engine``. ``isomers/factory.py`` imported the concrete one
+    ``Auto3D.isomers.tautomers``. ``isomers/factory.py`` imported the concrete one
     ``as _RDKitOrOmegaTautomerEngine`` to keep them apart *within one file* --
     a local workaround for a package-wide collision, and one that also named the
     wrong OpenEye tool (tautomers come from ``oequacpac``, not Omega). The
@@ -932,10 +954,10 @@ def test_isomer_engine_no_longer_binds_either_tautomer_engine_spelling():
     zero importers anywhere in the repo, so keeping it would have preserved the
     collision under a second spelling that no test would have exercised.
     """
-    isomer_engine = importlib.import_module("Auto3D.isomer_engine")
+    isomer_engine = importlib.import_module("Auto3D.isomers.tautomers")
     for name in ("TautomerEngine", "tautomer_engine"):
         assert not hasattr(isomer_engine, name), (
-            f"Auto3D.isomer_engine still binds {name}; the implementation is "
+            f"Auto3D.isomers.tautomers still binds {name}; the implementation is "
             "RDKitOrOEChemTautomerEngine and the Protocol is "
             "Auto3D.isomers.base.TautomerEngine"
         )

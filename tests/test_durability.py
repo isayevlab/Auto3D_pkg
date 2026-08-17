@@ -1110,7 +1110,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
         """
         from unittest.mock import MagicMock
 
-        import Auto3D.isomer_engine as ie
+        import Auto3D.isomers.omega as ie
 
         project = job_dir / "project"
         project.mkdir()

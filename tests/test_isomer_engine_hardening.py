@@ -16,11 +16,9 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.constants import EV_TO_HARTREE
-from Auto3D.isomer_engine import (
-    RDKitIsomer,
-    RDKitOrOEChemTautomerEngine,
-    RDKitSdfIsomer,
-)
+from Auto3D.isomers.rdkit_sdf import RDKitSdfIsomer
+from Auto3D.isomers.rdkit_smi import RDKitIsomer
+from Auto3D.isomers.tautomers import RDKitOrOEChemTautomerEngine
 from Auto3D.utils.molprops import calculate_conformer_count
 from tests.helpers_adapter import FakeAdapter
 
@@ -182,7 +180,9 @@ class TestStereoisomerTruncation:
         entirely. Monkeypatch the cap down to something the same molecule
         actually reaches, so the warning path is genuinely exercised.
         """
-        import Auto3D.isomer_engine as isomer_engine_mod
+        # MAX_STEREOISOMERS is bound in rdkit_sdf.py too; this test drives
+        # RDKitIsomer.enumerate_func, so rdkit_smi.py is the binding that matters.
+        import Auto3D.isomers.rdkit_smi as isomer_engine_mod
 
         monkeypatch.setattr(isomer_engine_mod, "MAX_STEREOISOMERS", 1024)
 

@@ -30,7 +30,7 @@ from pathlib import Path
 from rdkit import Chem
 
 from Auto3D.config import Auto3DOptions
-from Auto3D.isomer_engine import RDKitIsomer
+from Auto3D.isomers.rdkit_smi import RDKitIsomer
 from Auto3D.pipeline.input_checks import check_smi_format
 
 #: Canonical SMILES of the two 2-butene geometries, for readability below.

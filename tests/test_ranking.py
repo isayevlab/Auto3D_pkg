@@ -739,7 +739,7 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
         return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol)))
 
     def test_enumerate_isomer_false_returns_both_molecules(self, tmp_path):
-        from Auto3D.isomer_engine import RDKitIsomer
+        from Auto3D.isomers.rdkit_smi import RDKitIsomer
         from Auto3D.ranking import ConformerRanker, species_id
         from Auto3D.utils.smi_io import smiles2smi
 
