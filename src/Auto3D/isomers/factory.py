@@ -17,7 +17,7 @@ Two constructors, deliberately asymmetric:
   anything. It is the *only* constructor for a tautomer engine -- there is no
   ``IsomerEngineFactory`` classmethod for tautomers -- and
   ``Auto3D.processors.TautomerProcessor`` calls it. It is also the boundary that
-  keeps ``processors.py`` from importing ``Auto3D.isomer_engine`` directly, which
+  keeps ``processors.py`` from importing the backend modules directly, which
   is what its own tests monkeypatch.
 """
 
@@ -25,13 +25,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from Auto3D.isomer_engine import (
-    RDKitIsomer,
-    RDKitOrOEChemTautomerEngine,
-    RDKitSdfIsomer,
-    oe_isomer,
-)
 from Auto3D.isomers.base import IsomerEngine, TautomerEngine
+from Auto3D.isomers.omega import oe_isomer
+from Auto3D.isomers.rdkit_sdf import RDKitSdfIsomer
+from Auto3D.isomers.rdkit_smi import RDKitIsomer
+from Auto3D.isomers.tautomers import RDKitOrOEChemTautomerEngine
 from Auto3D.registry import Registry
 
 #: Engine names :meth:`IsomerEngineFactory.create` accepts. ``rdkit`` is also

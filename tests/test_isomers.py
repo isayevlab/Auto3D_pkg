@@ -430,7 +430,7 @@ class TestCreateTautomerEngine:
         rdkit-backed engine as lowercase "rdkit" -- not merely fail to crash
         on an already-invalid name, which "UNKNOWN" could never distinguish.
         """
-        from Auto3D.isomer_engine import RDKitOrOEChemTautomerEngine
+        from Auto3D.isomers.tautomers import RDKitOrOEChemTautomerEngine
 
         engine = create_tautomer_engine("RDKIT", input_path="/input.smi", output_path="/output.smi")
         assert isinstance(engine, RDKitOrOEChemTautomerEngine)

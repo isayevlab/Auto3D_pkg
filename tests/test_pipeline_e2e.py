@@ -261,7 +261,7 @@ class TestEnergyAndRankingSanity:
 
 
 class TestClashReliefWarning:
-    """RDKitIsomer's serial embedding path (isomer_engine.py's
+    """RDKitIsomer's serial embedding path (isomers/rdkit_smi.py's
     ``_run_serial_embedding``) must warn, once, when EVERY embedded conformer
     of a species is rejected by clash relief -- the species then silently
     vanishes from the output with no other trace. Before this test,
@@ -271,7 +271,7 @@ class TestClashReliefWarning:
     which ``test_workflow.py`` already covers.
 
     Hermetic: no NNP, no network. ``relieve_clash`` itself is monkeypatched,
-    so this exercises only isomer_engine.py's warn-and-continue behavior
+    so this exercises only rdkit_smi.py's warn-and-continue behavior
     around it, not the clash-relief force field logic.
     """
 
@@ -280,8 +280,8 @@ class TestClashReliefWarning:
     ):
         import logging
 
-        import Auto3D.isomer_engine as isomer_engine_mod
-        from Auto3D.isomer_engine import RDKitIsomer
+        import Auto3D.isomers.rdkit_smi as isomer_engine_mod
+        from Auto3D.isomers.rdkit_smi import RDKitIsomer
 
         smi = tmp_path / "in.smi"
         # "bad_mol" (methane) will have every conformer rejected below;

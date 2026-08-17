@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Auto3D.isomer_engine` is gone; each backend has its own module.** The
+  760-line flat module is split along the axis the factory already dispatches
+  on, so every registry engine name now maps to exactly one file.
+
+  | before | after |
+  |---|---|
+  | `from Auto3D.isomer_engine import RDKitIsomer` | `from Auto3D.isomers.rdkit_smi import RDKitIsomer` |
+  | `from Auto3D.isomer_engine import RDKitSdfIsomer` | `from Auto3D.isomers.rdkit_sdf import RDKitSdfIsomer` |
+  | `from Auto3D.isomer_engine import oe_isomer, oe_flipper` | `from Auto3D.isomers.omega import oe_isomer, oe_flipper` |
+  | `from Auto3D.isomer_engine import RDKitOrOEChemTautomerEngine` | `from Auto3D.isomers.tautomers import RDKitOrOEChemTautomerEngine` |
+
+  **No shim module.** A re-export would give every one of these names two
+  supported spellings, which is the rule `Auto3D/isomers/__init__.py` exists to
+  state. `Auto3D.isomers.IsomerEngineFactory` — the documented path in
+  `docs/source/api.rst`, and the one production code uses — is unchanged, so a
+  caller who went through the factory is unaffected.
+
+  The **logger names change with the modules**, which matters to anyone
+  asserting on them or filtering them: `Auto3D.isomer_engine` becomes
+  `Auto3D.isomers.rdkit_smi`, `.rdkit_sdf`, `.omega` or `.tautomers`.
+
 - **An unknown isomer engine name raises `ConfigurationError`, not `ValueError`.**
   `IsomerEngineFactory.create("bogus", ...)` used to raise a bare `ValueError`
   with its own hand-written wording. The lookup now goes through the shared
