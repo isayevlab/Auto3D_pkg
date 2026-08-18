@@ -10,11 +10,10 @@ six modules cannot tell a correct move from an incorrect one by reading it.
 So the map is declared here, and both directions are asserted:
 
     L5  presentation   cli/**, auto3Dcli, the package root
-    L4  entry          auto3D, SPE, ASE/**
+    L4  entry          auto3D, SPE, ASE/**, tautomer
     L3  orchestration  workflow, workflow_workers, chunk_manager, job_layout,
                        processors, pipeline/**
-    L2  engines        models/**, model_factory, isomers/**, isomer_engine,
-                       tautomer, batch_opt/**
+    L2  engines        models/**, model_factory, isomers/**, batch_opt/**
     L1  domain         ranking, filtering, embedding, clash_relief, id_mapping
     L0  foundation     config, constants, exceptions, registry, results,
                        torch_config, utils/**
@@ -44,25 +43,39 @@ PKG = SRC / "Auto3D"
 #: layer number -> the module-path prefixes that live in it, relative to
 #: ``Auto3D.``. ``""`` is the package root itself. Longest prefix wins, so
 #: ``ASE.thermo`` would beat ``ASE`` if they ever disagreed.
+#:
+#: ``tautomer`` sits in L4 rather than L2, which is where it was filed until the
+#: plan's item 8 looked at it. ``Auto3D/__init__.py``'s ``_LAZY_API`` lists
+#: ``get_stable_tautomers`` immediately beside ``calc_spe``, ``opt_geometry`` and
+#: ``calc_thermo`` -- all three L4 -- and ``cli/commands/properties.py`` calls it
+#: exactly as it calls those. By the package's own definition of its public
+#: surface it is an entry point, so classifying it as an engine was a filing
+#: error, and the ``tautomer -> auto3D`` edge it produced was never a wiring
+#: problem to fix. See the deleted UPWARD_EXEMPTIONS entry below.
 LAYERS: dict[int, list[str]] = {
     5: ["", "cli", "auto3Dcli"],
-    4: ["auto3D", "SPE", "ASE"],
+    4: ["auto3D", "SPE", "ASE", "tautomer"],
     3: ["workflow", "workflow_workers", "chunk_manager", "job_layout", "processors", "pipeline"],
-    2: ["models", "model_factory", "isomers", "isomer_engine", "tautomer", "batch_opt"],
+    2: ["models", "model_factory", "isomers", "batch_opt"],
     1: ["ranking", "filtering", "embedding", "clash_relief", "id_mapping"],
     0: ["config", "constants", "exceptions", "registry", "results", "torch_config", "utils"],
 }
 
 #: Upward module-scope edges that are known, named and dated. An entry here is a
 #: debt with an owner, not a permission: each says what removes it.
-UPWARD_EXEMPTIONS: dict[tuple[str, str], str] = {
-    ("Auto3D.tautomer", "Auto3D.auto3D"): (
-        "2026-08-10: tautomer.py runs the whole pipeline to score tautomers, so "
-        "an engine-layer module imports the entry layer. Removed by the plan's "
-        "item 8, which makes the pipeline a composable object that tautomer can "
-        "hold instead of a function it has to call top-down."
-    ),
-}
+#:
+#: Empty, and the way the last entry left is worth recording. It read:
+#: "tautomer.py runs the whole pipeline to score tautomers, so an engine-layer
+#: module imports the entry layer. Removed by the plan's item 8, which makes the
+#: pipeline a composable object that tautomer can hold instead of a function it
+#: has to call top-down."
+#:
+#: That remedy would not have worked. A pipeline object belongs in L3, and
+#: L2 -> L3 is still upward, so inverting the dependency would have moved the
+#: violation rather than removed it. The edge was not a wiring problem at all:
+#: ``tautomer`` was misfiled (see LAYERS above), and reclassifying it to L4 makes
+#: ``tautomer -> auto3D`` a same-layer edge, which this map has always allowed.
+UPWARD_EXEMPTIONS: dict[tuple[str, str], str] = {}
 
 #: Mutually-importing package pairs, counting function-scope imports too.
 #:
@@ -84,15 +97,23 @@ def _module_name(path: pathlib.Path) -> str:
     return ".".join(parts)
 
 
-def _layer_of(module: str) -> int | None:
+def _matches(module: str, prefix: str) -> bool:
+    """Does ``prefix`` classify ``module``? ``""`` is the package root alone.
+
+    Factored out so :func:`_layer_of` and the staleness test below cannot
+    disagree about what "this prefix names something" means -- the two answer
+    opposite questions over the same relation.
+    """
     rest = module[len("Auto3D") :].lstrip(".")
+    if prefix == "":
+        return rest == ""
+    return rest == prefix or rest.startswith(prefix + ".")
+
+
+def _layer_of(module: str) -> int | None:
     best, best_len = None, -1
     for prefix, layer in _OWNER.items():
-        if prefix == "":
-            if rest == "" and best_len < 0:
-                best, best_len = layer, 0
-            continue
-        if (rest == prefix or rest.startswith(prefix + ".")) and len(prefix) > best_len:
+        if _matches(module, prefix) and len(prefix) > best_len:
             best, best_len = layer, len(prefix)
     return best
 
@@ -150,6 +171,28 @@ def test_every_module_is_assigned_to_a_layer():
     assert not unmapped, (
         "these modules are in no layer -- add them to LAYERS in this file:\n  "
         + "\n  ".join(unmapped)
+    )
+
+
+def test_every_layer_prefix_still_names_something():
+    """The map must not outlive the modules it classifies.
+
+    The totality test above is one-directional: it catches a module with no
+    layer, never a layer entry with no module. So a deleted or renamed module
+    left its prefix behind as dead configuration, silently -- ``isomer_engine``
+    sat here after PR #168 split it into ``isomers/``, classifying nothing.
+
+    Harmless on its own, and that is the problem: a prefix that matches nothing
+    looks exactly like a prefix that matches something, so the map stops being
+    readable as a description of the package. ``UPWARD_EXEMPTIONS`` and
+    ``CYCLE_EXEMPTIONS`` have both had a staleness assertion since this file was
+    written; ``LAYERS`` is the one list in it that did not.
+    """
+    modules = _modules()
+    stale = sorted(prefix for prefix in _OWNER if not any(_matches(m, prefix) for m in modules))
+    assert not stale, (
+        "these LAYERS prefixes classify no module -- delete them (a module was "
+        f"renamed or removed and the map was not): {stale}"
     )
 
 
