@@ -33,8 +33,8 @@ import pytest
 from ase import Atoms
 from ase.vibrations import VibrationsData
 
-from Auto3D.ASE.thermo import (
-    _detect_geometry,
+from Auto3D.ASE.thermo.properties import _detect_geometry
+from Auto3D.ASE.thermo.vibrations import (
     _external_mode_basis,
     n_vibrational_modes,
     projected_vibrations,

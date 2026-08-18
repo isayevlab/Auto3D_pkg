@@ -36,13 +36,15 @@ import pytest
 import torch
 from torch import nn
 
+from Auto3D.ASE.thermo import calculator as _calculator
+
 pytest.importorskip("ase")
 pytest.importorskip("rdkit")
 
 from rdkit import Chem  # noqa: E402
 from rdkit.Chem import AllChem  # noqa: E402
 
-import Auto3D.ASE.thermo as thermo_mod  # noqa: E402
+import Auto3D.ASE.thermo.driver as thermo_mod  # noqa: E402
 from Auto3D.models.contract import missing_adapter_members  # noqa: E402
 from tests.helpers_adapter import AdapterModuleMixin  # noqa: E402
 
@@ -119,7 +121,7 @@ class TestOneAdapterDrivesEveryHessianEntryPoint:
         adapter is already in hand.
         """
         for fn in (
-            thermo_mod.Calculator.__init__,
+            _calculator.Calculator.__init__,
             thermo_mod.mol2aimnet_input,
             thermo_mod.vib_hessian,
             thermo_mod.do_mol_thermo,
@@ -160,7 +162,7 @@ class TestOneAdapterDrivesEveryHessianEntryPoint:
         assert [int(v) for v in batch["numbers"].reshape(-1).tolist()] == expected
 
         # 2. the ASE Calculator
-        calc = thermo_mod.Calculator(adapter, 0, device=device)
+        calc = _calculator.Calculator(adapter, 0, device=device)
         atoms = thermo_mod.mol2atoms(mol)
         atoms.calc = calc
         atoms.get_potential_energy()

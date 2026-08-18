@@ -36,8 +36,9 @@ from ase import units
 from ase.thermochemistry import IdealGasThermo
 from ase.vibrations import VibrationsData
 
-import Auto3D.ASE.thermo as thermo_mod
-from Auto3D.ASE.thermo import analyze_vibrations, projected_vibrations
+import Auto3D.ASE.thermo.driver as thermo_mod
+from Auto3D.ASE.thermo import vibrations as _vibrations
+from Auto3D.ASE.thermo.vibrations import analyze_vibrations, projected_vibrations
 from Auto3D.constants import (
     EV_PER_WAVENUMBER,
     EV_TO_HARTREE,
@@ -115,7 +116,7 @@ def _harmonic_gibbs_kcal(wavenumber_cm: float, temperature: float = T_REFERENCE)
 
 def _selection_disabled_kwargs() -> dict:
     """IdealGasThermo kwargs that make it consume a list verbatim, any version."""
-    if thermo_mod._ASE_HAS_VIB_SELECTION:
+    if _vibrations._ASE_HAS_VIB_SELECTION:
         return {"vib_selection": "all"}
     return {"natoms": 0}
 
@@ -468,19 +469,19 @@ class TestAseSelectionIsDisabledAtTheCallSite:
         import inspect
 
         parameters = inspect.signature(IdealGasThermo.__init__).parameters
-        kwargs = thermo_mod._verbatim_mode_kwargs(N_VIB, N_VIB)
+        kwargs = _vibrations._verbatim_mode_kwargs(N_VIB, N_VIB)
         assert set(kwargs) <= set(parameters), (
             f"_verbatim_mode_kwargs returned {kwargs}, which this ASE "
             f"({sorted(parameters)}) does not accept"
         )
-        if thermo_mod._ASE_HAS_VIB_SELECTION:
+        if _vibrations._ASE_HAS_VIB_SELECTION:
             assert kwargs == {"vib_selection": "exact"}
-            assert thermo_mod._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {"vib_selection": "all"}, (
-                "a saddle point's 3N-7 list must not be checked against 3N-6"
-            )
+            assert _vibrations._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {
+                "vib_selection": "all"
+            }, "a saddle point's 3N-7 list must not be checked against 3N-6"
         else:
             assert kwargs == {"natoms": 0}
-            assert thermo_mod._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {"natoms": 0}
+            assert _vibrations._verbatim_mode_kwargs(N_VIB - 1, N_VIB) == {"natoms": 0}
 
     def test_a_longer_than_3n_minus_6_list_is_consumed_verbatim(self):
         """With the selection disabled, ASE keeps every mode it is given.
@@ -502,7 +503,7 @@ class TestAseSelectionIsDisabledAtTheCallSite:
             symmetrynumber=1,
             spin=0.0,
             ignore_imag_modes=True,
-            **thermo_mod._verbatim_mode_kwargs(len(too_many), N_VIB),
+            **_vibrations._verbatim_mode_kwargs(len(too_many), N_VIB),
         )
         assert len(thermo.vib_energies) == N_VIB + 1
 

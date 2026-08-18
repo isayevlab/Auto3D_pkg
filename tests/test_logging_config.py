@@ -145,7 +145,7 @@ def test_symmetry_number_default_warning_reaches_run_log():
     """
     from rdkit import Chem
 
-    import Auto3D.ASE.thermo as thermo
+    import Auto3D.ASE.thermo.properties as thermo
     from Auto3D.workflow_workers import _attach_run_log_handlers
 
     q: queue.Queue = queue.Queue()

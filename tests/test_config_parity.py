@@ -177,7 +177,7 @@ class TestAuxiliaryEntryPointGuards:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
         from Auto3D.ASE.thermo import calc_thermo
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]"))

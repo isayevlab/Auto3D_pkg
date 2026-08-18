@@ -50,7 +50,7 @@ def test_thermo_imports_with_torchani_blocked(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", blocked_import)
 
     try:
-        import Auto3D.ASE.thermo as thermo  # must NOT raise ModuleNotFoundError  # noqa: I001
+        import Auto3D.ASE.thermo.driver as thermo  # must NOT raise ModuleNotFoundError  # noqa: I001
 
         from rdkit import Chem
 

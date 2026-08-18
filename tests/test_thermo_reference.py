@@ -183,12 +183,9 @@ class TestHessianGeometry:
         """
         from ase.optimize import BFGS
 
-        from Auto3D.ASE import thermo as thermo_mod
-        from Auto3D.ASE.thermo import (
-            _load_hessian_model,
-            model_name2model_calculator,
-            mol2atoms,
-        )
+        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.ASE.thermo.calculator import model_name2model_calculator, mol2atoms
+        from Auto3D.ASE.thermo.driver import _load_hessian_model
         from Auto3D.model_factory import get_device
 
         # Raw ETKDG embedding, no MMFF relaxation: guarantees a large initial

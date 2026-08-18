@@ -79,7 +79,7 @@ class TestLoadHessianModelUpcastsThroughTheContract:
     """
 
     def _install(self, monkeypatch):
-        from Auto3D.ASE import thermo as thermo_mod
+        from Auto3D.ASE.thermo import driver as thermo_mod
 
         calls: list[str] = []
 

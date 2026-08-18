@@ -54,13 +54,13 @@ def test_c_leaks_an_instance_of_a_test_defined_class():
 
 
 def test_d_swaps_a_module_in_sys_modules():
-    del sys.modules["Auto3D.ASE.thermo"]
-    import Auto3D.ASE.thermo  # noqa: F401
+    del sys.modules["Auto3D.ASE.thermo.properties"]
+    import Auto3D.ASE.thermo.properties  # noqa: F401
 
 
 def test_e_sees_the_module_swap_repaired():
-    import Auto3D.ASE.thermo as thermo
-    from Auto3D.ASE.thermo import _symmetry_number
+    import Auto3D.ASE.thermo.properties as thermo
+    from Auto3D.ASE.thermo.properties import _symmetry_number
     assert _symmetry_number.__globals__ is vars(thermo), (
         "the module is still split in two: a helper's globals are not the "
         "globals of the module object in sys.modules"
