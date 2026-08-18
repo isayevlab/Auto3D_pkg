@@ -22,7 +22,7 @@ from Auto3D.cli.console import (
 from Auto3D.cli.errors import handle_error, handle_interrupt, job_directory_hint
 from Auto3D.cli.results import (
     FailedMolecule,
-    WorkflowResults,
+    RunSummary,
     output_json,
     print_failures,
     print_results_summary,
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 EXIT_PARTIAL_SUCCESS = 6
 
 
-def _exit_if_incomplete(results: WorkflowResults) -> None:
+def _exit_if_incomplete(results: RunSummary) -> None:
     """Raise SystemExit(EXIT_PARTIAL_SUCCESS) if the run lost any molecules.
 
     Callers must invoke this only after the results have already been printed
@@ -286,7 +286,7 @@ def execute_run(
             # success and never appears here.
             missing_ids: list[str] = list(getattr(output_path, "failures", []) or [])
             failed_count = len(missing_ids)
-            results = WorkflowResults(
+            results = RunSummary(
                 success_count=molecules,
                 failed_count=failed_count,
                 total_conformers=conformers,

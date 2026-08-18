@@ -20,8 +20,16 @@ class FailedMolecule:
 
 
 @dataclass
-class WorkflowResults:
-    """Results from a workflow run."""
+class RunSummary:
+    """What the CLI prints after a run: counts, timing, and what failed.
+
+    Named for what it is rather than where it came from. It was
+    ``WorkflowResults``, one trailing ``s`` away from
+    :class:`Auto3D.results.WorkflowResult` -- which is a different kind of thing
+    entirely (``main()``'s return value, a ``str`` subclass that *is* the output
+    path) living in a module also called ``results.py``. Nothing converts between
+    them; they were never related.
+    """
 
     success_count: int
     failed_count: int
@@ -54,7 +62,7 @@ def format_duration(seconds: float) -> str:
     return " ".join(parts)
 
 
-def print_results_summary(results: WorkflowResults) -> None:
+def print_results_summary(results: RunSummary) -> None:
     """Print a summary panel of workflow results.
 
     Args:
@@ -107,7 +115,7 @@ def print_failures(failures: list[FailedMolecule], verbose: bool = False) -> Non
         console.print("[dim]Run with -v to see details[/dim]")
 
 
-def output_json(results: WorkflowResults) -> None:
+def output_json(results: RunSummary) -> None:
     """Output results as JSON.
 
     Args:

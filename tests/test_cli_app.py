@@ -961,9 +961,9 @@ def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(runner, tmp_pat
 
 def test_exit_if_incomplete_raises_nonzero_when_failures_present():
     from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS, _exit_if_incomplete
-    from Auto3D.cli.results import FailedMolecule, WorkflowResults
+    from Auto3D.cli.results import FailedMolecule, RunSummary
 
-    results = WorkflowResults(
+    results = RunSummary(
         success_count=1,
         failed_count=1,
         total_conformers=1,
@@ -980,9 +980,9 @@ def test_exit_if_incomplete_raises_nonzero_when_failures_present():
 
 def test_exit_if_incomplete_does_not_raise_when_no_failures():
     from Auto3D.cli.commands.run import _exit_if_incomplete
-    from Auto3D.cli.results import WorkflowResults
+    from Auto3D.cli.results import RunSummary
 
-    results = WorkflowResults(
+    results = RunSummary(
         success_count=2,
         failed_count=0,
         total_conformers=2,

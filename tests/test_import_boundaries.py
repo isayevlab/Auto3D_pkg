@@ -961,3 +961,38 @@ def test_isomer_engine_no_longer_binds_either_tautomer_engine_spelling():
             "RDKitOrOEChemTautomerEngine and the Protocol is "
             "Auto3D.isomers.base.TautomerEngine"
         )
+
+
+def test_no_class_name_differs_from_another_only_by_a_trailing_s():
+    """``WorkflowResult`` and ``WorkflowResult``+``s`` were two different things.
+
+    (Spelled that way so this docstring does not trip its own check.)
+
+    ``Auto3D.results.WorkflowResult`` is ``main()``'s return value -- a ``str``
+    subclass that *is* the output SDF path. The CLI's display payload -- counts,
+    elapsed time, a failure list -- carried the same name with a trailing ``s``.
+    They lived in two modules both named ``results.py``, differed by one
+    character, and were not related types at all, so importing one into a file
+    that also held the other read as a typo either way round.
+
+    The CLI one is ``RunSummary`` now, which says what it is rather than where it
+    came from. Checked as a *rule* rather than as one forbidden name, because the
+    defect is the near-collision, not that particular pair -- the same shape as
+    ``test_only_one_class_in_the_package_is_named_tautomer_engine`` above.
+    """
+    names: dict[str, list[str]] = {}
+    for path in _source_files():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                names.setdefault(node.name, []).append(str(path.relative_to(SRC_ROOT.parent)))
+
+    collisions = [
+        f"{name!r} ({', '.join(names[name])}) vs {name[:-1]!r} ({', '.join(names[name[:-1]])})"
+        for name in sorted(names)
+        if name.endswith("s") and name[:-1] in names
+    ]
+    assert not collisions, (
+        "these class names differ from another class only by a trailing 's', "
+        "which reads as a typo at every import site:\n  " + "\n  ".join(collisions)
+    )

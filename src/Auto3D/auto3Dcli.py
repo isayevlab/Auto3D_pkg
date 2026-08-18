@@ -101,7 +101,7 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         from Auto3D.cli.config_schema import load_yaml_config, require_input_path
         from Auto3D.cli.results import (
             FailedMolecule,
-            WorkflowResults,
+            RunSummary,
             print_failures,
             print_results_summary,
         )
@@ -174,7 +174,7 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         # hand back the plain path string the pipeline returned historically --
         # exactly the graceful default `execute_run` keeps for the same reason.
         missing_ids: list[str] = list(getattr(result, "failures", None) or [])
-        results = WorkflowResults(
+        results = RunSummary(
             success_count=getattr(result, "n_molecules", 0),
             failed_count=len(missing_ids),
             total_conformers=getattr(result, "n_conformers", 0),

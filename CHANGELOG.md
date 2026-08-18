@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Auto3D.cli.results.WorkflowResults` is now `RunSummary`.** It was one
+  trailing `s` away from `Auto3D.results.WorkflowResult`, which is a different
+  kind of thing entirely — `main()`'s return value, a `str` subclass that *is*
+  the output SDF path — living in a module also called `results.py`. Nothing
+  converted between them; they were never related types, so importing either
+  into a file holding the other read as a typo in both directions.
+
+  | before | after |
+  |---|---|
+  | `from Auto3D.cli.results import WorkflowResults` | `from Auto3D.cli.results import RunSummary` |
+
+  `Auto3D.results.WorkflowResult` — the one the Python API returns — is
+  **unchanged**. Only the CLI's display payload was renamed, and it is named for
+  what it is (the summary printed after a run) rather than for where it came
+  from. A test now rejects *any* pair of class names differing only by a trailing
+  `s`, so this shape cannot come back under different names.
+
 - **`Auto3D.isomer_engine` is gone; each backend has its own module.** The
   760-line flat module is split along the axis the factory already dispatches
   on, so every registry engine name now maps to exactly one file.
