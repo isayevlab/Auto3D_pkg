@@ -13,9 +13,32 @@ removes the cycle rather than deferring it.
 
 from __future__ import annotations
 
+import multiprocessing
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+
+#: The context :func:`embed_conformers_parallel`'s pool starts workers from.
+#:
+#: Explicit, rather than the default context, for two reasons -- neither of them
+#: "this code needs spawn". Nothing in this module touches CUDA; it is RDKit
+#: work, and fork would serve it fine in isolation.
+#:
+#: 1. A default-context pool *locks the interpreter's global start method* to the
+#:    platform default the first time it is created. This pool runs during the
+#:    isomer stage, before the optimization workers -- which do run PyTorch, and
+#:    which get a broken CUDA context if forked. That ordering is why ``main()``
+#:    had to call ``set_start_method("spawn", force=True)`` rather than the
+#:    best-effort form. Taking an explicit context means this pool no longer
+#:    touches the global method at all, and nothing downstream has to fight it.
+#: 2. Under ``main()`` this pool has always in fact run under spawn, because that
+#:    global force preceded it. Leaving it on the default context would have
+#:    quietly switched it to fork in a process where torch may already hold
+#:    threads and a CUDA context -- a behavior change disguised as a cleanup.
+#:
+#: ``get_context("spawn")`` returns a context object; unlike ``get_context()``
+#: with no argument, it does not read or set the global start method.
+EMBEDDING_MP_CONTEXT = multiprocessing.get_context("spawn")
 from typing import Any
 
 from rdkit import Chem
@@ -161,7 +184,7 @@ def embed_conformers_parallel(
     if not smiles_names:
         return
 
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+    with ProcessPoolExecutor(max_workers=n_workers, mp_context=EMBEDDING_MP_CONTEXT) as executor:
         futures = {
             executor.submit(_embed_single, smi, name, n_conformers, threshold, np_threads): (
                 smi,

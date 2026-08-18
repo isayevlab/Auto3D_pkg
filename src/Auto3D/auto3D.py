@@ -5,7 +5,6 @@ Generating low-energy conformers from SMILES.
 
 from __future__ import annotations
 
-import multiprocessing as mp
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -87,23 +86,24 @@ def main(
     # Configure logging based on verbose setting
     configure_logging(verbose=args.verbose)
 
+    from Auto3D.results import WorkflowResult
     from Auto3D.workflow import WorkflowOrchestrator
 
-    # Force the 'spawn' start method for the optimization worker processes.
+    # No start-method call here, deliberately. This used to be
+    # `mp.set_start_method("spawn", force=True)`: a global mutation performed by
+    # a library on behalf of a caller who never asked for it, changing the
+    # default start method for every other pool in the host program for the rest
+    # of the process's life.
     #
-    # The workers run PyTorch. Forking a process that has already initialized a
-    # CUDA context yields a broken context in the child: the worker crashes and
-    # the run produces no output (surfacing as "no 3D structure converged").
-    # force=True is REQUIRED, not optional: a default-context ProcessPoolExecutor
-    # (the isomer-embedding pool, or an earlier pipeline run in the same process)
-    # can already have locked the global start method to the platform default
-    # ('fork' on Linux). The previous best-effort set_start_method("spawn") would
-    # then raise RuntimeError, get swallowed, and the pipeline silently ran on
-    # fork -- breaking whenever any CUDA work had touched the parent process
-    # (e.g. a prior use_gpu=True call in the same interpreter / test session).
-    mp.set_start_method("spawn", force=True)
-
-    from Auto3D.results import WorkflowResult
+    # The requirement it served is real and unchanged -- the workers run PyTorch,
+    # and forking a process that has already initialized a CUDA context yields a
+    # broken context in the child, so the run produces no output (surfacing as
+    # "no 3D structure converged"). It is now met by starting those processes
+    # from an explicit spawn context (WorkflowOrchestrator.mp_context) rather
+    # than by reconfiguring the interpreter, which also disposes of the reason
+    # `force=True` was mandatory: a default-context pool that had already locked
+    # the global method to 'fork' can no longer affect us, because we no longer
+    # read the global method.
 
     orchestrator = WorkflowOrchestrator(args, progress_callback=progress_callback)
     output_path = orchestrator.run()
