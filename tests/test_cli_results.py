@@ -21,10 +21,10 @@ def test_format_duration_zero():
 
 
 def test_workflow_results_dataclass():
-    """WorkflowResults should be a valid dataclass."""
-    from Auto3D.cli.results import WorkflowResults
+    """RunSummary should be a valid dataclass."""
+    from Auto3D.cli.results import RunSummary
 
-    results = WorkflowResults(
+    results = RunSummary(
         success_count=10,
         failed_count=2,
         total_conformers=50,
@@ -51,9 +51,9 @@ def test_print_results_summary(capsys):
     the failed-count row entirely when nothing failed, not merely avoid
     crashing on either input.
     """
-    from Auto3D.cli.results import WorkflowResults, print_results_summary
+    from Auto3D.cli.results import RunSummary, print_results_summary
 
-    with_failures = WorkflowResults(
+    with_failures = RunSummary(
         success_count=10,
         failed_count=2,
         total_conformers=50,
@@ -69,7 +69,7 @@ def test_print_results_summary(capsys):
     assert "output.sdf" in out
     assert "2m" in out  # format_duration(120.5)
 
-    no_failures = WorkflowResults(
+    no_failures = RunSummary(
         success_count=10,
         failed_count=0,
         total_conformers=50,
@@ -110,9 +110,9 @@ def test_output_json(capsys):
     """output_json must emit the exact result fields as parseable JSON."""
     import json
 
-    from Auto3D.cli.results import FailedMolecule, WorkflowResults, output_json
+    from Auto3D.cli.results import FailedMolecule, RunSummary, output_json
 
-    results = WorkflowResults(
+    results = RunSummary(
         success_count=10,
         failed_count=1,
         total_conformers=50,
