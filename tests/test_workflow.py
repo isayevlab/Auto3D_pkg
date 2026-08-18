@@ -206,7 +206,6 @@ class TestIsomerWrapperFailure:
 
     def test_isomer_wrapper_emits_sentinels_on_failure(self, monkeypatch):
         """If isomer generation raises, every optimizer must still get a 'Done' sentinel."""
-        import multiprocessing as mp
 
         from Auto3D.auto3D import isomer_wrapper
         from Auto3D.config import Auto3DOptions
@@ -575,12 +574,22 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
         def exitcode(self):
             return 0
 
-    with (
-        patch.object(mp, "Manager") as mock_manager,
-        patch.object(mp, "Process", _FakeProcess),
-    ):
-        mock_manager.return_value.Queue.return_value = MagicMock()
-        orch._run_pipeline([("chunk.smi", "job1")])
+    # The seam is the orchestrator's own context, not the multiprocessing
+    # module. That is the point of the change that moved it there: the
+    # start method is no longer read from -- or patchable via -- global state.
+    #
+    # Substituting it is also what keeps this test honest about what it
+    # measures. `orch.mp_context` is a real spawn context, and spawn *pickles*
+    # the process target, so `_FakeProcess` closing over `captured_configs`
+    # could not cross the boundary. Patching `mp.Process` used to work only
+    # because the interpreter default was fork here, which silently made this a
+    # test of fork behavior in a pipeline that must never fork.
+    fake_context = MagicMock()
+    fake_context.Process = _FakeProcess
+    fake_context.Manager.return_value.Queue.return_value = MagicMock()
+    orch.mp_context = fake_context
+
+    orch._run_pipeline([("chunk.smi", "job1")])
 
     # The shared config the caller passed in must be untouched.
     assert config.batchsize_atoms == 1024

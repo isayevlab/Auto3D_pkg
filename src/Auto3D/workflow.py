@@ -10,6 +10,7 @@ from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from logging.handlers import QueueHandler
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -87,6 +88,21 @@ class WorkflowOrchestrator:
         """
         self.config = config
         self.progress_callback = progress_callback
+        #: The context every process and manager below is started from.
+        #:
+        #: Explicit rather than global. The workers run PyTorch, and forking a
+        #: process that has already initialized a CUDA context yields a broken
+        #: context in the child -- the worker crashes and the run produces no
+        #: output ("no 3D structure converged"). ``main()`` used to guarantee
+        #: spawn by calling ``mp.set_start_method("spawn", force=True)``, which
+        #: reconfigured the *caller's* interpreter for the rest of its life, and
+        #: needed ``force=True`` because a default-context pool elsewhere may
+        #: already have locked the global method to the platform default.
+        #:
+        #: Reading the context from here instead makes both problems go away at
+        #: once: the guarantee is local, and what the global method happens to be
+        #: is no longer any of this class's business.
+        self.mp_context = mp.get_context("spawn")
         self.job_name: str = ""
         self.job_dir: Path = Path()
         self.input_path: Path = Path()
@@ -97,7 +113,7 @@ class WorkflowOrchestrator:
         self.failures: list[str] = []
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
-        self._logger_p: mp.Process | None = None
+        self._logger_p: BaseProcess | None = None
         # Memory-scaled atom batch size for optimization, set in _prepare_chunks.
         # Defaults to the unscaled config value.
         self.scaled_batchsize_atoms: int = config.batchsize_atoms
@@ -314,10 +330,10 @@ class WorkflowOrchestrator:
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""
         logging_path = self.job_dir / "Auto3D.log"
-        self.logging_queue = mp.Manager().Queue(999)
+        self.logging_queue = self.mp_context.Manager().Queue(999)
 
         # Start logging process
-        logger_p = mp.Process(
+        logger_p = self.mp_context.Process(
             target=logger_process,
             args=(self.logging_queue, str(logging_path)),
             daemon=True,
@@ -406,13 +422,15 @@ class WorkflowOrchestrator:
         Args:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
-        chunk_queue: Queue[tuple[str, str, str, int] | str] = mp.Manager().Queue()
+        chunk_queue: Queue[tuple[str, str, str, int] | str] = self.mp_context.Manager().Queue()
 
         # Process-safe channel for live progress events, created only when a
         # progress callback was supplied (interactive `auto3d run`). When None,
         # the optimizer workers emit nothing and the supervise loop below falls
         # back to plain blocking joins -- the default/library path is unchanged.
-        progress_queue = mp.Manager().Queue() if self.progress_callback is not None else None
+        progress_queue = (
+            self.mp_context.Manager().Queue() if self.progress_callback is not None else None
+        )
 
         # Per-run config carrying the memory-scaled batch size for optimization.
         # Built with dataclasses.replace so self.config (itself already a
@@ -421,7 +439,7 @@ class WorkflowOrchestrator:
         opt_config = self.config.replace(batchsize_atoms=self.scaled_batchsize_atoms)
 
         # Create isomer generation process
-        p1 = mp.Process(
+        p1 = self.mp_context.Process(
             target=isomer_wrapper,
             args=(chunk_info, self.config, chunk_queue, self.logging_queue),
         )
@@ -431,10 +449,10 @@ class WorkflowOrchestrator:
         # gpu_idx must NOT spawn N processes all contending for the same cores
         # (N model loads -> OOM risk); optimizer_worker_indices collapses that to
         # one, and the isomer worker derives its sentinel count the same way.
-        p2s: list[mp.Process] = []
+        p2s: list[BaseProcess] = []
         for idx in optimizer_worker_indices(self.config.use_gpu, self.config.gpu_idx):
             p2s.append(
-                mp.Process(
+                self.mp_context.Process(
                     target=optim_rank_wrapper,
                     args=(opt_config, chunk_queue, self.logging_queue, idx, progress_queue),
                 )
@@ -457,7 +475,7 @@ class WorkflowOrchestrator:
                 p2.join()
                 self._check_exit(p2, "Optimization")
 
-    def _check_exit(self, proc: mp.Process, label: str) -> None:
+    def _check_exit(self, proc: BaseProcess, label: str) -> None:
         """Log a warning if a worker process exited abnormally."""
         if proc.exitcode not in (0, None):
             logger.error(
@@ -481,7 +499,7 @@ class WorkflowOrchestrator:
             (self.logger.warning if warning else self.logger.info)(msg)
 
     def _supervise_with_progress(
-        self, p1: mp.Process, p2s: list[mp.Process], progress_queue: Queue[ProgressEvent]
+        self, p1: BaseProcess, p2s: list[BaseProcess], progress_queue: Queue[ProgressEvent]
     ) -> None:
         """Drain progress events to the callback while workers run, then join.
 
