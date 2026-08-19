@@ -98,7 +98,7 @@ def _water_with_stale_energy() -> tuple[Chem.Mol, ase.Atoms]:
 
 def test_do_mol_thermo_does_not_leave_a_stale_e_tot():
     """After the relaxation, ``E_tot`` must describe the geometry in the file."""
-    from Auto3D.ASE.thermo import do_mol_thermo
+    from Auto3D.ASE.thermo.driver import do_mol_thermo
 
     mol, atoms = _water_with_stale_energy()
 
@@ -133,7 +133,7 @@ def test_do_mol_thermo_clears_the_relative_energy_it_cannot_recompute():
     conformer group, and ``do_mol_thermo`` sees one molecule at a time, so it
     has no reference to recompute against.
     """
-    from Auto3D.ASE.thermo import do_mol_thermo
+    from Auto3D.ASE.thermo.driver import do_mol_thermo
 
     mol, atoms = _water_with_stale_energy()
     mol.SetProp("E_rel(kcal/mol)", "1.234")

@@ -459,7 +459,7 @@ class TestSameFileGuard:
         check_output_not_input call in calc_thermo is removed, the stub fires
         and this test goes red (and still no NNP is loaded).
         """
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
         from Auto3D.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
@@ -907,7 +907,7 @@ class TestOutputOverwriteGuard:
         assert precious.read_bytes() == original
 
     def test_calc_thermo_refuses_an_existing_output(self, job_dir, monkeypatch):
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
         from Auto3D.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"

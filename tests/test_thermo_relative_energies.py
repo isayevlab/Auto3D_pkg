@@ -194,7 +194,7 @@ class TestCalcThermoWiring:
         """
         import inspect
 
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
 
         source = inspect.getsource(thermo_mod.calc_thermo)
         assert "set_relative_energies(out_mols)" in source, (
@@ -315,7 +315,7 @@ class TestRelativeGibbsEnergies:
     def test_calc_thermo_publishes_it(self):
         import inspect
 
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
 
         source = inspect.getsource(thermo_mod.calc_thermo)
         assert "set_relative_gibbs_energies(out_mols)" in source
@@ -335,7 +335,7 @@ class TestGibbsIsOptIn:
     def test_calc_thermo_does_not_compute_it_by_default(self):
         import inspect
 
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
 
         param = inspect.signature(thermo_mod.calc_thermo).parameters["relative_gibbs"]
         assert param.default is False, (
@@ -347,7 +347,7 @@ class TestGibbsIsOptIn:
         """``E_rel(kcal/mol)`` is documented output and stays unconditional."""
         import inspect
 
-        import Auto3D.ASE.thermo as thermo_mod
+        import Auto3D.ASE.thermo.driver as thermo_mod
 
         source = inspect.getsource(thermo_mod.calc_thermo)
         assert "set_relative_energies(out_mols)" in source

@@ -63,7 +63,7 @@ class TestThermoPathConverts:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo import mol2aimnet_input
+        from Auto3D.ASE.thermo.calculator import mol2aimnet_input
         from Auto3D.batch_opt.padding import pad_from_mols
         from Auto3D.model_factory import create_model
 
@@ -91,7 +91,7 @@ class TestThermoPathConverts:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo import mol2aimnet_input
+        from Auto3D.ASE.thermo.calculator import mol2aimnet_input
         from Auto3D.model_factory import create_model
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))

@@ -398,7 +398,7 @@ a tolerated artifact's Gibbs energy **2.4-2.9 kcal/mol** away from the value
 the same input produced on ASE 3.27.
 
 3.0 removes translation and rotation by Eckart/Sayvetz projection
-(``Auto3D.ASE.thermo.projected_vibrations``) before anything else looks at the
+(``Auto3D.ASE.thermo.vibrations.projected_vibrations``) before anything else looks at the
 spectrum: mass-weight the Hessian, build the translation and
 infinitesimal-rotation vectors, orthonormalise them to ``V``, and diagonalise
 ``P H P`` with ``P = I - V V'``. The external subspace is a null space by

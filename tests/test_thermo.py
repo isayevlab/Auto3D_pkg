@@ -9,8 +9,11 @@ from rdkit import Chem
 
 import Auto3D
 import Auto3D.ASE.thermo
+import Auto3D.ASE.thermo.calculator
 from Auto3D.ASE.geometry import opt_geometry
-from Auto3D.ASE.thermo import calc_thermo, model_name2model_calculator, vib_hessian
+from Auto3D.ASE.thermo import calc_thermo
+from Auto3D.ASE.thermo.calculator import model_name2model_calculator
+from Auto3D.ASE.thermo.vibrations import vib_hessian
 from tests.helpers_pipeline_output import (
     assert_opt_geometry_output,
     write_perturbed_sdf,
@@ -185,7 +188,9 @@ def test_model_name2model_calculator_uses_factory():
             return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
 
     stub = _StubAdapter()
-    with patch.object(Auto3D.ASE.thermo, "create_model", return_value=stub) as mock_factory:
+    with patch.object(
+        Auto3D.ASE.thermo.calculator, "create_model", return_value=stub
+    ) as mock_factory:
         model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
 
     mock_factory.assert_called_once_with("AIMNET", torch.device("cpu"))
@@ -318,7 +323,7 @@ def test_vib_hessian_includes_external_dispersion():
     # AIMNet2Adapter, whose analytic_hessian runs the full pipeline. It used to be
     # the bare AIMNet2Calculator, reached through an adapter property that existed
     # only for this call, with vib_hessian then dispatching on its TYPE.
-    from Auto3D.ASE.thermo import _load_hessian_model
+    from Auto3D.ASE.thermo.driver import _load_hessian_model
     from Auto3D.models.adapter import AIMNet2Adapter
 
     adapter = _load_hessian_model("AIMNET", device)
@@ -543,7 +548,7 @@ if __name__ == "__main__":
     test_calc_thermo_userNNP1()
     test_calc_thermo_userNNP2()
 
-    # from Auto3D.ASE.thermo import mol2aimnet_input
+    # from Auto3D.ASE.thermo.calculator import mol2aimnet_input
 
     # device = torch.device('cpu')
     # path = os.path.join(folder, 'tests/files/cyclooctane.sdf')

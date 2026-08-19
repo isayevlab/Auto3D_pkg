@@ -452,7 +452,10 @@ BATCHOPT_REEXPORTS = frozenset({"EnForce_ANI", "n_steps", "print_stats"})
 # all -- and every consumer of the thirteen names now imports from the module
 # that defines it. Adding a name back means documenting it at the package path
 # in api.rst first; growing this set is how that shows up in review.
-SUBPACKAGES_WITH_ALL = frozenset({"isomers"})
+#: ``thermo`` joined ``isomers`` when it became a package: api.rst documents
+#: ``Auto3D.ASE.thermo.calc_thermo`` at that package path, which is the one
+#: condition the rule above permits a re-export under.
+SUBPACKAGES_WITH_ALL = frozenset({"isomers", "thermo"})
 
 
 def _source_files() -> list[pathlib.Path]:

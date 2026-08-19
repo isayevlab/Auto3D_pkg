@@ -25,8 +25,8 @@ from __future__ import annotations
 import pytest
 from rdkit import Chem
 
-import Auto3D.ASE.thermo as thermo_mod
-from Auto3D.ASE.thermo import THERMO_FAILED_PROP, TRANSITION_STATE_FAILURE
+import Auto3D.ASE.thermo.driver as thermo_mod
+from Auto3D.ASE.thermo.driver import THERMO_FAILED_PROP, TRANSITION_STATE_FAILURE
 from tests.helpers_vibrations import atoms_for as _atoms_for
 from tests.helpers_vibrations import fake_vib_for, probe_mol
 

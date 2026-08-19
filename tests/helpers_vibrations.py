@@ -252,7 +252,7 @@ def mmff_hessian(smiles: str, *, displacement: np.ndarray | None = None):
     # built the other way would mass-weight this Hessian differently from the way
     # Auto3D does, so every frequency in these fixtures would be a few tenths of
     # a percent away from the one production computes for the same geometry.
-    from Auto3D.ASE.thermo import mol2atoms
+    from Auto3D.ASE.thermo.calculator import mol2atoms
 
     atoms.set_masses(mol2atoms(mol, positions=flat.reshape(-1, 3)).get_masses())
     return atoms, hessian
