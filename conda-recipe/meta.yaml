@@ -22,7 +22,7 @@ build:
   number: 0
   script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   entry_points:
-    - auto3d = Auto3D.auto3Dcli:cli
+    - auto3d = Auto3D.presentation.auto3Dcli:cli
 
 requirements:
   host:

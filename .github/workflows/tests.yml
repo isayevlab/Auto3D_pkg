@@ -97,7 +97,7 @@ jobs:
           python - <<'PY'
           import sys
           import torch
-          from Auto3D.model_factory import create_model
+          from Auto3D.engines.model_factory import create_model
           try:
               create_model("AIMNET", torch.device("cpu"))
           except Exception as exc:

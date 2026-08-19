@@ -206,7 +206,7 @@ Example:
 import pytest
 
 from Auto3D import Auto3DOptions
-from Auto3D.exceptions import ConfigurationError
+from Auto3D.foundation.exceptions import ConfigurationError
 
 
 def test_auto3d_options_validation():
@@ -233,7 +233,7 @@ def test_auto3d_options_validation():
 optimization hot loop (FIRE optimizer, batched model wrapper, bucketing). It
 lives outside `tests/`, so it never runs in the suite or gates CI. Use it to
 get a wall-clock and throughput signal before and after changes to
-`Auto3D.batch_opt`:
+`Auto3D.engines.batch_opt`:
 
 ```bash
 python scripts/bench_optimizer.py --engine AIMNET --n 200 --steps 200
@@ -352,8 +352,8 @@ import torch
 from rdkit import Chem
 
 # Local imports
-from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import Auto3DError
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.exceptions import Auto3DError
 ```
 
 ### Naming Conventions
