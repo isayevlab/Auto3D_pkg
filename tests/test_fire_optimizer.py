@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from Auto3D.batch_opt.fire_optimizer import FIRE
+from Auto3D.engines.batch_opt.fire_optimizer import FIRE
 
 
 class TestFIREInitialization:
@@ -440,7 +440,7 @@ def test_fire_trajectory_golden():
     """FIRE must produce a deterministic trajectory; guards the branchless rewrite."""
     import torch
 
-    from Auto3D.batch_opt.fire_optimizer import FIRE
+    from Auto3D.engines.batch_opt.fire_optimizer import FIRE
 
     torch.manual_seed(0)
     # 3 molecules, 4 atoms each; mix of progressing/resetting dynamics

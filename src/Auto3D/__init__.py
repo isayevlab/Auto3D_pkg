@@ -32,10 +32,10 @@ __version__ = _detect_version()
 # installed distributions -- and none of them need torch or rdkit.
 #
 # This file used to end with three eager optional-dependency probes (openeye,
-# torchani, and `from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt`) wrapped in
+# torchani, and `from Auto3D.engines.batch_opt.ANI2xt_no_rep import ANI2xt`) wrapped in
 # `warnings.catch_warnings()`. Nothing consumed any of them, and the third one
 # defeated the `_LAZY_API` mechanism below outright: it reached ANI2xt_no_rep ->
-# the Auto3D.utils barrel -> utils.validation -> Auto3D.models.* + torch, which
+# the Auto3D.foundation.utils barrel -> utils.validation -> Auto3D.engines.models.* + torch, which
 # turned `import Auto3D` into 1175 modules and 1.35 s and eagerly loaded 20
 # Auto3D submodules. Every probe is already duplicated where it is load-bearing
 # and where its result is actually used:
@@ -70,18 +70,18 @@ __all__ = [
 # name -> (module, attribute) for lazy public-API imports. generate_conformers is
 # the canonical, self-describing alias for main(); main stays for back-compat.
 _LAZY_API: dict[str, tuple[str, str]] = {
-    "main": ("Auto3D.auto3D", "main"),
-    "generate_conformers": ("Auto3D.auto3D", "main"),
-    "smiles2mols": ("Auto3D.auto3D", "smiles2mols"),
-    "Auto3DOptions": ("Auto3D.config", "Auto3DOptions"),
-    "OptimizationConfig": ("Auto3D.config", "OptimizationConfig"),
-    "create_model": ("Auto3D.model_factory", "create_model"),
-    "ModelFactory": ("Auto3D.model_factory", "ModelFactory"),
-    "calc_spe": ("Auto3D.SPE", "calc_spe"),
-    "opt_geometry": ("Auto3D.ASE.geometry", "opt_geometry"),
-    "calc_thermo": ("Auto3D.ASE.thermo", "calc_thermo"),
-    "get_stable_tautomers": ("Auto3D.tautomer", "get_stable_tautomers"),
-    "select_tautomers": ("Auto3D.tautomer", "select_tautomers"),
+    "main": ("Auto3D.entry.auto3D", "main"),
+    "generate_conformers": ("Auto3D.entry.auto3D", "main"),
+    "smiles2mols": ("Auto3D.entry.auto3D", "smiles2mols"),
+    "Auto3DOptions": ("Auto3D.foundation.config", "Auto3DOptions"),
+    "OptimizationConfig": ("Auto3D.foundation.config", "OptimizationConfig"),
+    "create_model": ("Auto3D.engines.model_factory", "create_model"),
+    "ModelFactory": ("Auto3D.engines.model_factory", "ModelFactory"),
+    "calc_spe": ("Auto3D.entry.SPE", "calc_spe"),
+    "opt_geometry": ("Auto3D.entry.ASE.geometry", "opt_geometry"),
+    "calc_thermo": ("Auto3D.entry.ASE.thermo", "calc_thermo"),
+    "get_stable_tautomers": ("Auto3D.entry.tautomer", "get_stable_tautomers"),
+    "select_tautomers": ("Auto3D.entry.tautomer", "select_tautomers"),
 }
 
 
@@ -93,7 +93,7 @@ def __getattr__(name: str):
     resolved object into ``globals()``. Caching would turn every access after
     the first into a snapshot, i.e. exactly the import-time binding that makes
     ``from X import y`` capture a stub -- a test that touches ``Auto3D.main``
-    and then patches ``Auto3D.auto3D.main`` would patch nothing, report
+    and then patches ``Auto3D.entry.auto3D.main`` would patch nothing, report
     success, and fail somewhere else entirely (the mechanism written up at
     length in ``tests/test_lazy_torchani_import.py``). After the first access
     ``import_module`` is a ``sys.modules`` dict lookup, so a cache buys nothing
@@ -119,7 +119,7 @@ def __dir__() -> list[str]:
 
     The union (rather than ``sorted(__all__)``) matters because ``__dir__``
     replaces the default entirely: imported submodules become real attributes
-    of the package, so ``Auto3D.cli`` after ``import Auto3D.cli`` must stay
+    of the package, so ``Auto3D.presentation.cli`` after ``import Auto3D.presentation.cli`` must stay
     visible.
     """
     return sorted(set(globals()) | set(__all__))

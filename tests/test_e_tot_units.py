@@ -19,7 +19,7 @@ writer, the real ``_annotate_and_rewrite`` and the real ranker all execute.
 
 ``optimizing`` no longer builds its own adapter (audit M41), so the direct tests
 inject one and the ``opt_geometry`` tests stub ``create_model`` where
-``opt_geometry`` itself reads it -- ``Auto3D.ASE.geometry`` -- rather than at a
+``opt_geometry`` itself reads it -- ``Auto3D.entry.ASE.geometry`` -- rather than at a
 seam inside ``batch_opt``.
 """
 
@@ -30,8 +30,8 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.constants import EV_TO_KCAL_PER_MOL, HARTREE_TO_EV
-from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
+from Auto3D.foundation.constants import EV_TO_KCAL_PER_MOL, HARTREE_TO_EV
+from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
 
 #: Three conformers of one species, 0 / 1 / 3 kcal/mol apart. A 2 kcal/mol
 #: window must admit the first two and refuse the third.
@@ -57,12 +57,12 @@ def _stub_model_boundary(monkeypatch, energies_ev):
     """Replace the NNP with a table of energies; everything else stays real.
 
     Returns the conforming adapter double, for callers that construct
-    ``optimizing`` directly. ``Auto3D.ASE.geometry.create_model`` is stubbed to
+    ``optimizing`` directly. ``Auto3D.entry.ASE.geometry.create_model`` is stubbed to
     hand back the same object, because that is where ``opt_geometry`` now builds
     the adapter it injects.
     """
-    import Auto3D.ASE.geometry as geo
-    import Auto3D.batch_opt.batchopt as bo
+    import Auto3D.engines.batch_opt.batchopt as bo
+    import Auto3D.entry.ASE.geometry as geo
     from tests.helpers_adapter import FakeAdapter
 
     def fake_ensemble_opt(
@@ -92,7 +92,7 @@ class TestOptimizerWritesHartree:
     """``optimizing.run`` is the first writer; it owns the conversion."""
 
     def test_e_tot_is_the_model_energy_in_hartree(self, tmp_path, monkeypatch):
-        import Auto3D.batch_opt.batchopt as bo
+        import Auto3D.engines.batch_opt.batchopt as bo
 
         adapter = _stub_model_boundary(monkeypatch, ENERGIES_EV)
         inp = tmp_path / "in.sdf"
@@ -120,7 +120,7 @@ class TestOptGeometryDoesNotConvertTwice:
     """``opt_geometry`` annotates the unit; it must not re-divide."""
 
     def test_output_energy_is_the_model_energy_in_hartree(self, tmp_path, monkeypatch):
-        import Auto3D.ASE.geometry as geo
+        import Auto3D.entry.ASE.geometry as geo
 
         _stub_model_boundary(monkeypatch, ENERGIES_EV)
         inp = tmp_path / "mols.sdf"
@@ -142,8 +142,8 @@ class TestOptGeometryOutputRanksCorrectly:
     """The chain the brief demonstrates: opt_geometry -> ConformerRanker."""
 
     def test_a_2_kcal_window_admits_two_of_three(self, tmp_path, monkeypatch):
-        import Auto3D.ASE.geometry as geo
-        from Auto3D.ranking import ConformerRanker
+        import Auto3D.entry.ASE.geometry as geo
+        from Auto3D.domain.ranking import ConformerRanker
 
         _stub_model_boundary(monkeypatch, ENERGIES_EV)
         inp = tmp_path / "mols.sdf"
@@ -168,8 +168,8 @@ class TestOptGeometryOutputRanksCorrectly:
         assert rel[1] == pytest.approx(1.0, abs=1e-6)
 
     def test_ranked_energy_is_not_divided_twice(self, tmp_path, monkeypatch):
-        import Auto3D.ASE.geometry as geo
-        from Auto3D.ranking import ConformerRanker
+        import Auto3D.entry.ASE.geometry as geo
+        from Auto3D.domain.ranking import ConformerRanker
 
         _stub_model_boundary(monkeypatch, ENERGIES_EV)
         inp = tmp_path / "mols.sdf"
@@ -199,8 +199,8 @@ class TestTautomerSelectionReadsTheSameUnit:
     """``select_tautomers`` has always read Hartree; now every writer agrees."""
 
     def test_relative_tautomer_energy_is_kcal_per_mol(self, tmp_path, monkeypatch):
-        import Auto3D.batch_opt.batchopt as bo
-        from Auto3D.tautomer import select_tautomers
+        import Auto3D.engines.batch_opt.batchopt as bo
+        from Auto3D.entry.tautomer import select_tautomers
 
         adapter = _stub_model_boundary(monkeypatch, ENERGIES_EV[:2])
         inp = tmp_path / "in.sdf"

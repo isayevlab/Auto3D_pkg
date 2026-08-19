@@ -486,7 +486,7 @@ Python API
 .. code:: python
 
    from Auto3D import Auto3DOptions
-   from Auto3D.tautomer import get_stable_tautomers
+   from Auto3D.entry.tautomer import get_stable_tautomers
 
    config = Auto3DOptions(
        path="input.smi",
@@ -562,7 +562,7 @@ For custom workflows, create models directly:
 
    import torch
    from Auto3D import create_model
-   from Auto3D.model_factory import ModelFactory
+   from Auto3D.engines.model_factory import ModelFactory
 
    device = torch.device("cuda:0")
 
@@ -611,7 +611,7 @@ Python solutions:
    config = Auto3DOptions(path="input.smi", k=1, batchsize_atoms=512)
 
    # Clear model cache
-   from Auto3D.model_factory import ModelFactory
+   from Auto3D.engines.model_factory import ModelFactory
    ModelFactory.clear_cache()
 
 Slow Processing

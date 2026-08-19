@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from Auto3D.batch_opt.padding import pad_from_mols
+from Auto3D.engines.batch_opt.padding import pad_from_mols
 
 
 def _mol(smiles: str):
@@ -34,7 +34,7 @@ class TestPaddingInvariance:
     # already asserts with atol=1e-2 eV, and ANI2xt's float32 output caps
     # usable precision at ~float32 ULP (~4e-3 eV) at typical total-energy
     # magnitudes per the float32-precision Note in ``ANI2xt.forward``'s
-    # docstring (``src/Auto3D/models/ani2xt.py``). 1e-6 would
+    # docstring (``src/Auto3D/engines/models/ani2xt.py``). 1e-6 would
     # demand sub-ULP reproducibility and flake on a correct model. ANI2x
     # (torchani, periodic-table indexing) shares ANI2xt's float32 output and
     # the same -1 species_pad convention, so it gets the same 1e-3 budget
@@ -49,7 +49,7 @@ class TestPaddingInvariance:
         """Batching a small molecule alongside a large one must not shift its energy."""
         if engine in ("ANI2xt", "ANI2x"):
             pytest.importorskip("torchani")
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.model_factory import create_model
 
         model = create_model(engine, device)
         small, large = _mol("CCO"), _mol("c1ccccc1CCCCO")

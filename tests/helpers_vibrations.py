@@ -6,7 +6,7 @@ GPU: a Hessian with any spectrum you like is a few lines of linear algebra, and
 that is what every thermochemistry test in this repo is built on.
 
 The translation/rotation basis is deliberately constructed here from scratch
-rather than imported from ``Auto3D.ASE.thermo._external_mode_basis``. Only the
+rather than imported from ``Auto3D.entry.ASE.thermo._external_mode_basis``. Only the
 *span* of those six vectors matters for building a Hessian with a prescribed
 spectrum, so an independent construction (the rotations are written with the
 opposite cross-product order, giving the same span with the opposite sign)
@@ -22,7 +22,7 @@ from ase import Atoms
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.constants import EV_PER_WAVENUMBER
+from Auto3D.foundation.constants import EV_PER_WAVENUMBER
 
 
 #: The eigenvalue -> energy conversion ASE applies to a mass-weighted Hessian
@@ -252,7 +252,7 @@ def mmff_hessian(smiles: str, *, displacement: np.ndarray | None = None):
     # built the other way would mass-weight this Hessian differently from the way
     # Auto3D does, so every frequency in these fixtures would be a few tenths of
     # a percent away from the one production computes for the same geometry.
-    from Auto3D.ASE.thermo.calculator import mol2atoms
+    from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 
     atoms.set_masses(mol2atoms(mol, positions=flat.reshape(-1, 3)).get_masses())
     return atoms, hessian

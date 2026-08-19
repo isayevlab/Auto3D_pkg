@@ -1,15 +1,15 @@
 """The same configuration must be validated identically through every door.
 
-Task 1 (C10, M27) closed the gap: Auto3D.config.FIELD_BOUNDS is the single
+Task 1 (C10, M27) closed the gap: Auto3D.foundation.config.FIELD_BOUNDS is the single
 table of numeric bounds, enforced by Auto3DOptions.__post_init__ directly and
 by Auto3DOptions's `_check_bounds` model validator (both call
-`Auto3D.config.check_field_bounds`). `auto3d run -c` and the legacy
+`Auto3D.foundation.config.check_field_bounds`). `auto3d run -c` and the legacy
 `auto3d config.yaml` invocation (auto3Dcli._run_legacy_yaml) both build a
 Auto3DOptions and convert it with `.to_auto3d_options()`, so both also get
 extra="forbid", the engine registry check, and Literal validation -- the
 legacy path no longer constructs Auto3DOptions directly. Task 3 (C11) closed
 the last gap: calc_spe, opt_geometry and calc_thermo now call
-`Auto3D.models.policy.check_engine_supports_molecules` (the guard
+`Auto3D.engines.models.policy.check_engine_supports_molecules` (the guard
 extracted from check_smi_format/check_sdf_format's formerly-duplicated
 element set) and `resolve_engine_name`, the same two checks main() and
 smiles2mols already ran via check_input. Task 4 (M15) closed
@@ -19,7 +19,7 @@ them, calls check_valid_configuration the same way main() does, and takes a
 private copy of its config argument up front so it never mutates the
 caller's object. `TestAuxiliaryEntryPointGPUGuard` closes the sibling gap for
 the GPU policy: calc_spe, opt_geometry and calc_thermo now also call
-`Auto3D.models.policy.check_gpu_requested` directly, so `use_gpu=True`
+`Auto3D.engines.models.policy.check_gpu_requested` directly, so `use_gpu=True`
 without CUDA is fatal through the Python API too, not only through the CLI
 wrappers in cli/commands/properties.py.
 """
@@ -32,10 +32,10 @@ import pytest
 import torch
 from pydantic import ValidationError
 
-import Auto3D.auto3D
-import Auto3D.cli.errors
-from Auto3D.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
-from Auto3D.exceptions import Auto3DError, ConfigurationError
+import Auto3D.entry.auto3D
+import Auto3D.presentation.cli.errors
+from Auto3D.foundation.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
+from Auto3D.foundation.exceptions import Auto3DError, ConfigurationError
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -66,8 +66,8 @@ class TestAuxiliaryEntryPointGuards:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.SPE as spe_mod
-        from Auto3D.SPE import calc_spe
+        import Auto3D.entry.SPE as spe_mod
+        from Auto3D.entry.SPE import calc_spe
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -118,7 +118,7 @@ class TestAuxiliaryEntryPointGuards:
         """opt_geometry must run the same check_engine_supports_molecules
         guard as calc_spe -- only calc_spe's copy was pinned before this.
 
-        `optimizing` (batch_opt.batchopt, imported into Auto3D.ASE.geometry)
+        `optimizing` (batch_opt.batchopt, imported into Auto3D.entry.ASE.geometry)
         is stubbed with a fake that just copies the input through, the same
         defensive reason test_calc_spe_rejects_charged_input_for_ani stubs
         calc_spe's model machinery: if the guard is missing, execution must
@@ -129,8 +129,8 @@ class TestAuxiliaryEntryPointGuards:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.ASE.geometry as geometry_mod
-        from Auto3D.ASE.geometry import opt_geometry
+        import Auto3D.entry.ASE.geometry as geometry_mod
+        from Auto3D.entry.ASE.geometry import opt_geometry
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -177,8 +177,8 @@ class TestAuxiliaryEntryPointGuards:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
-        from Auto3D.ASE.thermo import calc_thermo
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import calc_thermo
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -213,7 +213,7 @@ class TestAuxiliaryEntryPointGuards:
 
 class TestAuxiliaryEntryPointGPUGuard:
     """calc_spe / opt_geometry / calc_thermo must also run
-    `Auto3D.models.policy.check_gpu_requested` directly, not only through
+    `Auto3D.engines.models.policy.check_gpu_requested` directly, not only through
     their CLI wrappers (cli/commands/properties.py).
 
     Each function reaches `model_factory.get_device`, which never raises --
@@ -237,8 +237,8 @@ class TestAuxiliaryEntryPointGPUGuard:
     def test_calc_spe_rejects_gpu_request_without_cuda(self, job_dir):
         from unittest.mock import patch
 
-        from Auto3D.exceptions import GPUError
-        from Auto3D.SPE import calc_spe
+        from Auto3D.entry.SPE import calc_spe
+        from Auto3D.foundation.exceptions import GPUError
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
@@ -248,8 +248,8 @@ class TestAuxiliaryEntryPointGPUGuard:
     def test_opt_geometry_rejects_gpu_request_without_cuda(self, job_dir):
         from unittest.mock import patch
 
-        from Auto3D.ASE.geometry import opt_geometry
-        from Auto3D.exceptions import GPUError
+        from Auto3D.entry.ASE.geometry import opt_geometry
+        from Auto3D.foundation.exceptions import GPUError
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
@@ -259,8 +259,8 @@ class TestAuxiliaryEntryPointGPUGuard:
     def test_calc_thermo_rejects_gpu_request_without_cuda(self, job_dir):
         from unittest.mock import patch
 
-        from Auto3D.ASE.thermo import calc_thermo
-        from Auto3D.exceptions import GPUError
+        from Auto3D.entry.ASE.thermo import calc_thermo
+        from Auto3D.foundation.exceptions import GPUError
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
@@ -280,7 +280,7 @@ class TestSmiles2MolsHonesty:
         tests/test_workflow.py::test_smiles2mols_uses_args_threshold, which
         stubs the same four seams for the same reason.
         """
-        import Auto3D.auto3D as auto3D_mod
+        import Auto3D.entry.auto3D as auto3D_mod
 
         class _StubIsomerEngine:
             def run(self):
@@ -316,7 +316,7 @@ class TestSmiles2MolsHonesty:
         _stub_pipeline) so this stays hermetic and exercises only whether
         enumerate_tautomer is honored, not the full pipeline.
         """
-        from Auto3D.auto3D import smiles2mols
+        from Auto3D.entry.auto3D import smiles2mols
 
         self._stub_pipeline(monkeypatch)
 
@@ -333,7 +333,7 @@ class TestSmiles2MolsHonesty:
         _stub_pipeline) so this stays hermetic; only the mutation of the
         caller's config is under test here.
         """
-        from Auto3D.auto3D import smiles2mols
+        from Auto3D.entry.auto3D import smiles2mols
 
         self._stub_pipeline(monkeypatch)
 
@@ -370,8 +370,8 @@ class TestDuplicateInchikeyInputs:
         """
         from rdkit import Chem
 
-        import Auto3D.auto3D as auto3D_mod
-        from Auto3D.auto3D import smiles2mols
+        import Auto3D.entry.auto3D as auto3D_mod
+        from Auto3D.entry.auto3D import smiles2mols
 
         class _FakeOptimizing:
             """Marks every real embedded conformer 'Converged' with a
@@ -431,7 +431,7 @@ class TestSelectorRequiredEverywhere:
     def test_cli_run_refuses_when_neither_selector_is_given(self, tmp_path):
         from typer.testing import CliRunner
 
-        from Auto3D.cli.app import app
+        from Auto3D.presentation.cli.app import app
 
         smi = tmp_path / "mols.smi"
         smi.write_text("CCO m1\n")
@@ -465,7 +465,7 @@ class TestSelectorRequiredEverywhere:
         """
         from typer.testing import CliRunner
 
-        from Auto3D.cli.app import app
+        from Auto3D.presentation.cli.app import app
 
         cfg = tmp_path / "cfg.yaml"
         cfg.write_text("path: mols.smi\noptimizing_engine: AIMNET\n")
@@ -478,8 +478,8 @@ class TestSelectorRequiredEverywhere:
 
     def test_the_python_api_still_refuses(self, tmp_path):
         """Negative control: the API's refusal is what the CLI now matches."""
-        from Auto3D.auto3D import main
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.entry.auto3D import main
+        from Auto3D.foundation.config import Auto3DOptions
 
         smi = tmp_path / "mols.smi"
         smi.write_text("CCO m1\n")

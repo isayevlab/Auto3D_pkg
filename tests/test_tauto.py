@@ -6,8 +6,8 @@ import torch
 from rdkit import Chem
 from send2trash import send2trash
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.tautomer import get_stable_tautomers
+from Auto3D.entry.tautomer import get_stable_tautomers
+from Auto3D.foundation.config import Auto3DOptions
 
 # Mark all tests in this module as slow (tautomer enumeration + optimization)
 pytestmark = pytest.mark.slow

@@ -8,7 +8,7 @@ bits across; ``reorder_sdf`` did not, and it also used a predictable
 ``<name>.reorder.tmp`` filename. So a 0600 SDF came back 0644 after a reorder:
 a permission *loosening*, on exactly the path an ordinary
 ``auto3d run mols.smi`` takes. That is the divergence
-:func:`Auto3D.utils.atomic_io.atomic_write_path` exists to remove.
+:func:`Auto3D.foundation.utils.atomic_io.atomic_write_path` exists to remove.
 
 The table below is the contract, asserted once for the helper and once per call
 site, so a site that stops using the helper fails here rather than silently
@@ -32,7 +32,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.utils.atomic_io import atomic_write_path
+from Auto3D.foundation.utils.atomic_io import atomic_write_path
 
 # Captured before any test patches Chem.SDWriter (see tests/test_durability.py).
 _real_sdwriter = Chem.SDWriter
@@ -157,7 +157,7 @@ class TestReorderSdfPreservesMode:
 
     @pytest.mark.parametrize("mode", [0o600, 0o640, 0o644])
     def test_target_mode_survives_a_reorder(self, tmp_path, mode):
-        from Auto3D.utils.sdf_io import reorder_sdf
+        from Auto3D.foundation.utils.sdf_io import reorder_sdf
 
         sdf = tmp_path / "out.sdf"
         smi = tmp_path / "in.smi"
@@ -173,7 +173,7 @@ class TestReorderSdfPreservesMode:
 
     def test_the_reordering_still_happens(self, tmp_path):
         """Positive control: the mode test above must not pass vacuously."""
-        from Auto3D.utils.sdf_io import reorder_sdf
+        from Auto3D.foundation.utils.sdf_io import reorder_sdf
 
         sdf = tmp_path / "out.sdf"
         smi = tmp_path / "in.smi"
@@ -196,7 +196,7 @@ class TestReorderSdfPreservesMode:
         sharing the directory, and two concurrent reorders of the same file
         would stage onto each other's temp path.
         """
-        from Auto3D.utils.sdf_io import reorder_sdf
+        from Auto3D.foundation.utils.sdf_io import reorder_sdf
 
         sdf = tmp_path / "out.sdf"
         smi = tmp_path / "in.smi"
@@ -224,7 +224,7 @@ class TestAmendConfigurationPreservesMode:
 
     @pytest.mark.parametrize("mode", [0o600, 0o644])
     def test_target_mode_survives(self, tmp_path, mode):
-        from Auto3D.utils.stereochemistry import amend_configuration_w
+        from Auto3D.foundation.utils.stereochemistry import amend_configuration_w
 
         smi = tmp_path / "enum.smi"
         smi.write_text("CC[C@H](N)O mol_a_0\n")
@@ -240,7 +240,7 @@ class TestAnnotateAndRewritePreservesMode:
 
     @pytest.mark.parametrize("mode", [0o600, 0o644])
     def test_target_mode_survives(self, tmp_path, mode):
-        from Auto3D.ASE.geometry import _annotate_and_rewrite
+        from Auto3D.entry.ASE.geometry import _annotate_and_rewrite
 
         out = tmp_path / "opt.sdf"
         with _real_sdwriter(str(out)) as w:

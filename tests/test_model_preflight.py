@@ -24,8 +24,8 @@ Verified against production (not assumed from the plan):
   called from ``workflow_workers.optim_rank_wrapper``.
 - ``AIMNet2Adapter.__init__`` imports the calculator lazily, INSIDE the
   method (``from aimnet.calculators import AIMNet2Calculator``,
-  models/adapter.py:226) -- not at ``Auto3D.models.adapter`` module scope.
-  Patching ``Auto3D.models.adapter.AIMNet2Calculator`` (a name that does not
+  models/adapter.py:226) -- not at ``Auto3D.engines.models.adapter`` module scope.
+  Patching ``Auto3D.engines.models.adapter.AIMNet2Calculator`` (a name that does not
   even exist there) never intercepts construction; the fresh
   ``from ... import ...`` re-resolves the attribute on ``aimnet.calculators``
   every call, so that module attribute is the genuine interception point.
@@ -40,7 +40,7 @@ raises; only if that passes through harmlessly does it fall through to the
 worker chain. This keeps the tripwire falsifiable regardless of which layer a
 future fix targets.
 
-That parent-side pre-flight (``Auto3D.models.preflight.preflight_model``) now
+That parent-side pre-flight (``Auto3D.engines.models.preflight.preflight_model``) now
 exists and is called from ``_validate_input``, so both tests are expected to
 be caught at the first (parent-side) layer today -- the worker-chain fallback
 below is exercised only if a future change removes or bypasses that call.
@@ -63,10 +63,10 @@ from pathlib import Path
 
 import pytest
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import Auto3DError, ModelLoadError
-from Auto3D.model_factory import ModelFactory
-from Auto3D.workflow import WorkflowOrchestrator
+from Auto3D.engines.model_factory import ModelFactory
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.exceptions import Auto3DError, ModelLoadError
+from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
 
 class TestRegistryNameValidation:
@@ -107,7 +107,7 @@ class TestColdCacheDiagnosis:
         """
         import aimnet.calculators.model_registry as model_registry
 
-        from Auto3D import workflow_workers as ww
+        from Auto3D.orchestration import workflow_workers as ww
 
         ModelFactory.clear_cache()
 
@@ -179,7 +179,7 @@ class TestColdCacheDiagnosis:
         """
         import aimnet.calculators.model_registry as model_registry
 
-        from Auto3D import workflow_workers as ww
+        from Auto3D.orchestration import workflow_workers as ww
 
         ModelFactory.clear_cache()
 
@@ -238,7 +238,7 @@ class TestEngineNameResolution:
     """resolve_engine_name is a pure offline lookup -- no model is loaded."""
 
     def test_named_engines_pass_through(self):
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         assert resolve_engine_name("ANI2x") == "ANI2x"
         assert resolve_engine_name("ANI2xt") == "ANI2xt"
@@ -251,18 +251,18 @@ class TestEngineNameResolution:
         resolve_engine_name had a constant-return bug (e.g. always returning
         its input unchanged, or always returning the same fixed string).
         """
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         assert resolve_engine_name("AIMNET") == "aimnet2-wb97m-d3_0"
 
     def test_a_registry_alias_resolves(self):
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         assert resolve_engine_name("aimnet2-2025") == "aimnet2-b973c-2025-d3_0"
 
     def test_a_typo_names_the_alternatives(self):
-        from Auto3D.exceptions import ConfigurationError
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError) as excinfo:
             resolve_engine_name("aimnet2-2025x")
@@ -271,7 +271,7 @@ class TestEngineNameResolution:
         assert "aimnet2-2025" in message, f"valid names not listed: {message}"
 
     def test_a_custom_path_passes_through(self, tmp_path):
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         model = tmp_path / "custom.pt"
         model.write_bytes(b"")
@@ -300,7 +300,7 @@ class TestEngineNameResolution:
         match accepted all of these. `auto3d run in.smi --engine ani2x` and
         any YAML with `optimizing_engine: ani2x` died on this.
         """
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         assert resolve_engine_name(name) == expected
 
@@ -308,7 +308,7 @@ class TestEngineNameResolution:
         """A mixed-case registry alias (not just the three named engines)
         must also resolve, since resolve_registry_model_name itself does a
         plain, unfolded dict lookup against lowercase-only registry keys."""
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         assert resolve_engine_name("AIMNET2-2025") == "aimnet2-b973c-2025-d3_0"
         assert resolve_engine_name("Aimnet2-Nse") == "aimnet2-nse_0"
@@ -329,7 +329,7 @@ class TestNamedEngineNotHijackedByCwdFile:
     """
 
     def test_file_named_aimnet_in_cwd_still_resolves_to_the_registry(self, tmp_path, monkeypatch):
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         (tmp_path / "AIMNET").write_bytes(b"not a model")
         monkeypatch.chdir(tmp_path)
@@ -337,7 +337,7 @@ class TestNamedEngineNotHijackedByCwdFile:
         assert resolve_engine_name("AIMNET") == "aimnet2-wb97m-d3_0"
 
     def test_file_named_ani2x_in_cwd_still_resolves_to_the_builtin(self, tmp_path, monkeypatch):
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         (tmp_path / "ANI2x").write_bytes(b"not a model")
         monkeypatch.chdir(tmp_path)
@@ -345,7 +345,7 @@ class TestNamedEngineNotHijackedByCwdFile:
         assert resolve_engine_name("ANI2x") == "ANI2x"
 
     def test_file_named_ani2xt_in_cwd_still_resolves_to_the_builtin(self, tmp_path, monkeypatch):
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         (tmp_path / "ANI2xt").write_bytes(b"not a model")
         monkeypatch.chdir(tmp_path)
@@ -355,7 +355,7 @@ class TestNamedEngineNotHijackedByCwdFile:
     def test_unrelated_cwd_file_is_still_usable_as_a_custom_path(self, tmp_path, monkeypatch):
         """The fix must not disable custom-NNP-by-path for names that are not
         reserved engine identifiers."""
-        from Auto3D.models.preflight import resolve_engine_name
+        from Auto3D.engines.models.preflight import resolve_engine_name
 
         custom = tmp_path / "my_custom_model.pt"
         custom.write_bytes(b"not a model")
@@ -376,7 +376,7 @@ class TestRequestsImportedLazily:
 
     (The original framing was narrower: `utils/validation.py` imported preflight
     at module scope and `utils/__init__.py` imported that, so a module-scope
-    `import requests` here made `import Auto3D.utils` hard-fail. Both of those
+    `import requests` here made `import Auto3D.foundation.utils` hard-fail. Both of those
     edges are gone -- the barrel is empty and the preflight import is
     function-scope -- but the requirement on this module is unchanged.)
     """
@@ -385,7 +385,7 @@ class TestRequestsImportedLazily:
         import ast
         import inspect
 
-        import Auto3D.models.preflight as preflight_mod
+        import Auto3D.engines.models.preflight as preflight_mod
 
         source = inspect.getsource(preflight_mod)
         tree = ast.parse(source)
@@ -407,7 +407,7 @@ class TestRequestsImportedLazily:
         a module-level attribute regardless of the exact import statement
         shape (covers `import requests as X`, wildcard imports, etc. that the
         AST check above does not enumerate)."""
-        import Auto3D.models.preflight as preflight_mod
+        import Auto3D.engines.models.preflight as preflight_mod
 
         assert not hasattr(preflight_mod, "requests"), (
             "preflight module has a module-level `requests` attribute -- "
@@ -420,7 +420,7 @@ class TestUnwritableCacheDirectory:
 
     ``preflight_model`` names the cache directory in each of its three error
     messages. The directory string is resolved once, before the ``try``
-    (``Auto3D.models.preflight._cache_dir_for_message``), specifically so
+    (``Auto3D.engines.models.preflight._cache_dir_for_message``), specifically so
     that naming it never re-invokes anything that can fail. The bug this
     guards against: naming the directory by calling the real
     ``aimnet.calculators.model_registry.get_cache_dir()`` from *inside* an
@@ -464,7 +464,7 @@ class TestUnwritableCacheDirectory:
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             pytest.skip("root bypasses directory permission bits")
 
-        from Auto3D.models.preflight import preflight_model
+        from Auto3D.engines.models.preflight import preflight_model
 
         cache_dir = unwritable_cache_parent / "aimnet"
         monkeypatch.setenv("AIMNET_CACHE_DIR", str(cache_dir))

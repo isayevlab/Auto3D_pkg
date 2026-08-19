@@ -31,7 +31,7 @@ of passing quietly.
 Units
 -----
 ``E_tot`` is in **Hartree**, written by every Auto3D writer, and
-:mod:`Auto3D.utils.energy` owns that fact. This module reads it through that
+:mod:`Auto3D.foundation.utils.energy` owns that fact. This module reads it through that
 module rather than re-deriving the unit, so a future unit change has one place
 to update, not two.
 """
@@ -46,7 +46,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
-from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_hartree
+from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_hartree
 
 __all__ = [
     "ATOMIC_ENERGY_HARTREE",
@@ -125,7 +125,7 @@ def formulas_from_smi_file(path: str | Path) -> dict[str, str]:
     """Map ``{molecule id: formula}`` for a whitespace-delimited .smi file.
 
     Deliberately a plain parse rather than a call to
-    ``Auto3D.utils.smi_io.iter_smi_records``: this is the *expectation* side
+    ``Auto3D.foundation.utils.smi_io.iter_smi_records``: this is the *expectation* side
     of the comparison, so reusing the production reader would let a bug in that
     reader cancel itself out.
 
@@ -233,7 +233,7 @@ def assert_energy_is_plausible_hartree(
 ) -> float:
     """Assert ``E_tot`` is a finite, negative total energy of the right size.
 
-    ``E_tot`` is Hartree (``Auto3D.utils.energy`` owns that), and every writer
+    ``E_tot`` is Hartree (``Auto3D.foundation.utils.energy`` owns that), and every writer
     also emits the unit-labeled ``E_tot(Hartree)`` sibling carrying the
     identical value; both are checked, because their agreement is the only
     on-disk evidence that the single-conversion-boundary rule held.
@@ -465,7 +465,7 @@ def assert_pipeline_output(
     selector was used.
 
     Args:
-        result: The ``WorkflowResult`` returned by ``Auto3D.auto3D.main``.
+        result: The ``WorkflowResult`` returned by ``Auto3D.entry.auto3D.main``.
         formula_by_id: ``{input molecule id: molecular formula}`` for every
             molecule in the run's input file. Doubles as the expected id set,
             so an empty map is refused rather than making everything vacuous.

@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import pytest
 
-from Auto3D.cli.commands.validate import validate_smiles_file
-from Auto3D.exceptions import InputValidationError
-from Auto3D.id_mapping import encode_ids
+from Auto3D.domain.id_mapping import encode_ids
+from Auto3D.foundation.exceptions import InputValidationError
+from Auto3D.presentation.cli.commands.validate import validate_smiles_file
 
 
 def _validator_accepts(path) -> bool:
@@ -98,7 +98,7 @@ class TestValidateCheckSmiFormatParity:
     def _check_smi_format_accepts(path) -> bool:
         from types import SimpleNamespace
 
-        from Auto3D.pipeline.input_checks import check_smi_format
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
 
         args = SimpleNamespace(path=str(path), enumerate_isomer=True)
         try:

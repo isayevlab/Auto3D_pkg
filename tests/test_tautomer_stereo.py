@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from rdkit import Chem
 
-from Auto3D.isomers.factory import create_tautomer_engine
+from Auto3D.engines.isomers.factory import create_tautomer_engine
 
 
 def _run_rd_taut(job_dir, smiles: str) -> list[str]:

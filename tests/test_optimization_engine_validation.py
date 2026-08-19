@@ -6,11 +6,11 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from Auto3D.batch_opt.optimization_engine import n_steps
+from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
 # Import _validate_state if it exists (will be added in implementation)
 try:
-    from Auto3D.batch_opt.optimization_engine import _validate_state
+    from Auto3D.engines.batch_opt.optimization_engine import _validate_state
 except ImportError:
     _validate_state = None
 

@@ -6,7 +6,7 @@ import re
 import pytest
 from typer.testing import CliRunner
 
-import Auto3D.auto3D
+import Auto3D.entry.auto3D
 
 
 @pytest.fixture
@@ -16,14 +16,14 @@ def runner():
 
 def test_app_exists():
     """Main app should exist."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     assert app is not None
 
 
 def test_help_works(runner):
     """--help should show available commands."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
@@ -41,7 +41,7 @@ def test_version_works(runner):
     the actual printed content.
     """
     import Auto3D
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
@@ -57,7 +57,7 @@ def test_run_help(runner):
     ``--config`` were deleted outright. Anchor on the full ``--config`` flag
     name, which is not a substring of any other option.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
@@ -67,7 +67,7 @@ def test_run_help(runner):
 
 def test_config_help(runner):
     """config --help should show subcommands."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "--help"])
     assert result.exit_code == 0
@@ -76,7 +76,7 @@ def test_config_help(runner):
 
 def test_models_help(runner):
     """models --help should show subcommands."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "--help"])
     assert result.exit_code == 0
@@ -85,7 +85,7 @@ def test_models_help(runner):
 
 def test_models_list_shows_engines(runner):
     """models list should show available engines."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "list"])
     assert result.exit_code == 0
@@ -94,7 +94,7 @@ def test_models_list_shows_engines(runner):
 
 def test_models_info_aimnet(runner):
     """models info should show engine details."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "AIMNET"])
     assert result.exit_code == 0
@@ -103,7 +103,7 @@ def test_models_info_aimnet(runner):
 
 def test_models_info_ani2x(runner):
     """models info should show ANI2x details."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "ANI2x"])
     assert result.exit_code == 0
@@ -117,7 +117,7 @@ def test_models_info_unknown_engine(runner):
     unrecognized engine name is the same user mistake `resolve_engine_name`
     already reports as exit 2 from `run` and `energy`.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "UNKNOWN"])
     assert result.exit_code == 2
@@ -125,7 +125,7 @@ def test_models_info_unknown_engine(runner):
 
 
 def test_models_list_shows_aimnet_registry(runner):
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "list"])
     assert result.exit_code == 0
@@ -141,7 +141,7 @@ def test_models_info_aimnet_element_set(runner):
     match somewhere in the panel's prose. Parse the actual "Supported
     Elements:" line into discrete tokens and check membership there.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "AIMNET"])
     assert result.exit_code == 0
@@ -156,7 +156,7 @@ def test_models_info_aimnet_element_set(runner):
 
 def test_validate_valid_smi(runner, tmp_path):
     """validate should pass for valid SMILES file."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi_file = tmp_path / "test.smi"
     smi_file.write_text("CCO ethanol\nCC(=O)O acetic_acid\n")
@@ -173,7 +173,7 @@ def test_validate_invalid_smi(runner, tmp_path):
     the pre-flight checker must return the code `auto3d run` returns for the
     same file, which is 2.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi_file = tmp_path / "test.smi"
     smi_file.write_text("INVALID_SMILES mol1\n")
@@ -201,7 +201,7 @@ def tmp_path_cwd(tmp_path, monkeypatch):
 # the wrong reason. So the tests below drive a real process and read its real
 # stdout and stderr.
 #
-# The pipeline itself is stubbed out (`Auto3D.auto3D` is replaced in
+# The pipeline itself is stubbed out (`Auto3D.entry.auto3D` is replaced in
 # `sys.modules` before the CLI imports it): a real run would download and load
 # a neural network potential, which these tests have no business doing. The
 # stub prints FOREIGN_STDOUT_MARKER, standing in for the writes a real run's
@@ -221,7 +221,7 @@ import types
 
 out_sdf, marker, cli_args = sys.argv[1], sys.argv[2], sys.argv[3:]
 
-from Auto3D.results import WorkflowResult
+from Auto3D.foundation.results import WorkflowResult
 
 
 def fake_main(options, **kwargs):
@@ -229,12 +229,12 @@ def fake_main(options, **kwargs):
     return WorkflowResult(out_sdf)
 
 
-stub = types.ModuleType("Auto3D.auto3D")
+stub = types.ModuleType("Auto3D.entry.auto3D")
 stub.main = fake_main
-sys.modules["Auto3D.auto3D"] = stub
+sys.modules["Auto3D.entry.auto3D"] = stub
 
 sys.argv = ["auto3d", *cli_args]
-from Auto3D.auto3Dcli import cli
+from Auto3D.presentation.auto3Dcli import cli
 
 cli()
 '''
@@ -299,7 +299,7 @@ def auto3d_process(tmp_path):
 
 def test_config_init_creates_file(runner, tmp_path_cwd):
     """config init should create YAML file."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "init", "-o", "test.yaml"])
 
@@ -309,7 +309,7 @@ def test_config_init_creates_file(runner, tmp_path_cwd):
 
 def test_config_init_with_preset(runner, tmp_path_cwd):
     """config init with preset should use preset values."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "init", "-o", "test.yaml", "-p", "quick"])
 
@@ -320,7 +320,7 @@ def test_config_init_with_preset(runner, tmp_path_cwd):
 
 def test_config_init_default_path(runner, tmp_path_cwd):
     """config init without -o should create auto3d.yaml."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "init"])
 
@@ -341,7 +341,7 @@ def test_config_init_invalid_preset(runner, tmp_path_cwd):
     choice-validation wording ("is not one of") is specific to the enum
     rejection and cannot come from the fallback's "Unknown preset" message.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "init", "-p", "invalid"])
 
@@ -353,7 +353,7 @@ def test_config_init_invalid_preset(runner, tmp_path_cwd):
 
 def test_config_show_displays_file(runner, tmp_path_cwd):
     """config show should display YAML file."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     # Create a config file first
     config_file = tmp_path_cwd / "test.yaml"
@@ -372,7 +372,7 @@ def test_config_show_not_found(runner, tmp_path_cwd):
     the same code `config validate` gives for a missing file (there via
     Typer's own `exists=True` check).
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "show", "nonexistent.yaml"])
 
@@ -382,7 +382,7 @@ def test_config_show_not_found(runner, tmp_path_cwd):
 
 def test_config_validate_valid(runner, tmp_path_cwd):
     """config validate should pass for valid config."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     # Create a valid config file
     config_file = tmp_path_cwd / "valid.yaml"
@@ -407,7 +407,7 @@ def test_config_validate_invalid(runner, tmp_path_cwd):
     longer a defect at all -- see
     test_config_validate_accepts_a_settings_only_config below.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     config_file = tmp_path_cwd / "invalid.yaml"
     config_file.write_text("path: mols.smi\nk: 0\noptimizing_engine: AIMNET\n")
@@ -432,7 +432,7 @@ def test_config_validate_accepts_a_settings_only_config(runner, tmp_path_cwd):
     """
     from unittest.mock import patch
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     cfg = tmp_path_cwd / "settings_only.yaml"
     cfg.write_text("k: 5\noptimizing_engine: AIMNET\nuse_gpu: false\n")
@@ -444,7 +444,7 @@ def test_config_validate_accepts_a_settings_only_config(runner, tmp_path_cwd):
     # And the run it predicts really does accept it.
     smi = tmp_path_cwd / "mols.smi"
     smi.write_text("CCO m1\n")
-    with patch.object(Auto3D.auto3D, "main", return_value="out.sdf") as m:
+    with patch.object(Auto3D.entry.auto3D, "main", return_value="out.sdf") as m:
         run_result = runner.invoke(app, ["run", str(smi), "-c", str(cfg), "--no-gpu"])
     assert run_result.exit_code == 0, run_result.output
     assert m.called, "run rejected the config that config validate approved"
@@ -452,7 +452,7 @@ def test_config_validate_accepts_a_settings_only_config(runner, tmp_path_cwd):
 
 def test_run_requires_input(runner):
     """run should require input file argument."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["run"])
     assert result.exit_code != 0
@@ -460,7 +460,7 @@ def test_run_requires_input(runner):
 
 def test_run_with_nonexistent_file(runner):
     """run should fail with nonexistent file."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["run", "nonexistent.smi"])
     assert result.exit_code != 0
@@ -510,7 +510,7 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
     """C6/B8: a run that loses a molecule must still emit parseable JSON, then
     exit non-zero.
 
-    Hermetic: `Auto3D.auto3D.main` is monkeypatched to return a
+    Hermetic: `Auto3D.entry.auto3D.main` is monkeypatched to return a
     `WorkflowResult` carrying a non-empty `failures` list (Task 3's
     reconciliation carrier), so this exercises the full `execute_run` ->
     `output_json` -> `_exit_if_incomplete` path without a pipeline run or a
@@ -518,12 +518,12 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
     """
     import json
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\nCCCO mol2\n")
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     out = tmp_path_cwd / "in_out.sdf"
     from rdkit import Chem
@@ -534,7 +534,7 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
         AllChem.EmbedMolecule(m, randomSeed=1)
         m.SetProp("_Name", "mol1")
         w.write(m)
-    from Auto3D.results import WorkflowResult
+    from Auto3D.foundation.results import WorkflowResult
 
     # mol2 has no corresponding output structure -- a lost molecule.
     monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out), failures=["mol2"]))
@@ -557,12 +557,12 @@ def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
 
 def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeypatch):
     """A complete run (no reconciled failures) must keep exiting 0."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     out = tmp_path_cwd / "in_out.sdf"
     from rdkit import Chem
@@ -573,7 +573,7 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
         AllChem.EmbedMolecule(m, randomSeed=1)
         m.SetProp("_Name", "mol1")
         w.write(m)
-    from Auto3D.results import WorkflowResult
+    from Auto3D.foundation.results import WorkflowResult
 
     monkeypatch.setattr(a3d, "main", lambda options: WorkflowResult(str(out)))
 
@@ -618,13 +618,13 @@ def test_quiet_releases_held_third_party_output_when_the_run_fails(
     so it necessarily lands *after* the error panel; forwarded output
     necessarily lands before it.
     """
-    from Auto3D.cli.app import app
-    from Auto3D.exceptions import ModelLoadError
+    from Auto3D.foundation.exceptions import ModelLoadError
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     def exploding_main(options, **kwargs):
         print("libfoo: could not reach the model server")
@@ -654,7 +654,7 @@ def test_json_error_document_is_emitted_when_the_command_fails(runner, tmp_path_
     """
     import json
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
@@ -678,7 +678,7 @@ def test_validate_json_reports_a_clean_file(runner, tmp_path_cwd):
     """`auto3d validate --json`: every sibling command had --json, this one did not."""
     import json
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\nCCC mol2\n")
@@ -703,7 +703,7 @@ def test_validate_json_reports_every_bad_entry_and_exits_nonzero(runner, tmp_pat
     """The JSON document lists all failures, not the ten the human table shows."""
     import json
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("".join(f"not_a_smiles_{i} mol{i}\n" for i in range(12)))
@@ -747,7 +747,7 @@ def test_json_document_is_not_colorized_on_a_terminal(tmp_path):
             sys.executable,
             "-c",
             "import sys; sys.argv = ['auto3d', *sys.argv[1:]];"
-            " from Auto3D.auto3Dcli import cli; cli()",
+            " from Auto3D.presentation.auto3Dcli import cli; cli()",
             "validate",
             str(smi),
             "--json",
@@ -789,7 +789,7 @@ def test_help_goes_to_stdout_and_carries_no_import_banner(auto3d_process):
     capture it -- an earlier attempt installed the reservation in the group
     callback and sent every subcommand's `--help` to stderr. And because the
     reservation only covers a command's *body*, everything imported before
-    that (`Auto3D.cli.app` and its module-level imports) has to stay silent on
+    that (`Auto3D.presentation.cli.app` and its module-level imports) has to stay silent on
     stdout on its own; a banner printed at import time would land here, ahead
     of the usage text.
     """
@@ -816,14 +816,14 @@ def test_run_cli_k_override_substitutes_file_window(runner, tmp_path_cwd, monkey
     mutual-exclusion rule because the CLI override was merged alongside the
     file's selector instead of substituting for it.
 
-    `Auto3D.auto3D.main` is stubbed (captures the `Auto3DOptions` it would
+    `Auto3D.entry.auto3D.main` is stubbed (captures the `Auto3DOptions` it would
     have received) so this exercises the full `execute_run` ->
     `load_yaml_config`/`merge_configs` -> `to_auto3d_options()` path without
     a pipeline run or a loaded potential. `optimizing_engine: ANI2xt` avoids
     importing the optional `aimnet` package (same reasoning as
     `test_cli.py`'s `_LEGACY_YAML`).
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
@@ -832,8 +832,8 @@ def test_run_cli_k_override_substitutes_file_window(runner, tmp_path_cwd, monkey
         "path: placeholder.smi\nwindow: 5.0\noptimizing_engine: ANI2xt\nuse_gpu: false\n"
     )
 
-    import Auto3D.auto3D as a3d
-    from Auto3D.results import WorkflowResult
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.results import WorkflowResult
 
     captured: dict = {}
 
@@ -858,12 +858,12 @@ def test_run_cli_explicit_k_and_window_conflict_is_configuration_error(
     as a ConfigurationError with a hint -- not exit 1 as a raw pydantic
     ValidationError under "Unexpected Error".
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     monkeypatch.setattr(
         a3d,
@@ -893,14 +893,14 @@ def test_run_cli_yaml_config_bounds_violation_is_configuration_error(
     `load_yaml_config` raised the pydantic error unwrapped, which
     `execute_run`'s `except Auto3DError` clause does not catch.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
     cfg = tmp_path_cwd / "cfg.yaml"
     cfg.write_text("path: placeholder.smi\nk: 0\noptimizing_engine: ANI2xt\nuse_gpu: false\n")
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     monkeypatch.setattr(
         a3d,
@@ -930,7 +930,7 @@ def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(runner, tmp_pat
     at exit 1. Same user mistake (a bad value in a config file), same
     treatment required.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "in.smi"
     smi.write_text("CCO mol1\n")
@@ -939,7 +939,7 @@ def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(runner, tmp_pat
         "path: placeholder.smi\nk: 1\ngpu_idx:\n  a: 1\noptimizing_engine: ANI2xt\nuse_gpu: false\n"
     )
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     monkeypatch.setattr(
         a3d,
@@ -955,13 +955,13 @@ def test_run_cli_yaml_uncoercible_gpu_idx_is_configuration_error(runner, tmp_pat
     assert "Unexpected Error" not in result.output
 
 
-# Unit tests for the exit-code decision itself (Auto3D.cli.commands.run),
+# Unit tests for the exit-code decision itself (Auto3D.presentation.cli.commands.run),
 # pinned without going through the CLI or a pipeline run at all.
 
 
 def test_exit_if_incomplete_raises_nonzero_when_failures_present():
-    from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS, _exit_if_incomplete
-    from Auto3D.cli.results import FailedMolecule, RunSummary
+    from Auto3D.presentation.cli.commands.run import EXIT_PARTIAL_SUCCESS, _exit_if_incomplete
+    from Auto3D.presentation.cli.results import FailedMolecule, RunSummary
 
     results = RunSummary(
         success_count=1,
@@ -979,8 +979,8 @@ def test_exit_if_incomplete_raises_nonzero_when_failures_present():
 
 
 def test_exit_if_incomplete_does_not_raise_when_no_failures():
-    from Auto3D.cli.commands.run import _exit_if_incomplete
-    from Auto3D.cli.results import RunSummary
+    from Auto3D.presentation.cli.commands.run import _exit_if_incomplete
+    from Auto3D.presentation.cli.results import RunSummary
 
     results = RunSummary(
         success_count=2,
@@ -999,8 +999,8 @@ def test_exit_if_incomplete_does_not_raise_when_no_failures():
 
 def test_error_hint_configuration_error():
     """get_error_hint should return hint for ConfigurationError."""
-    from Auto3D.cli.errors import get_error_hint
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.presentation.cli.errors import get_error_hint
 
     hint = get_error_hint(ConfigurationError("test"))
     assert hint is not None
@@ -1009,8 +1009,8 @@ def test_error_hint_configuration_error():
 
 def test_error_hint_input_validation_error():
     """get_error_hint should return hint for InputValidationError."""
-    from Auto3D.cli.errors import get_error_hint
-    from Auto3D.exceptions import InputValidationError
+    from Auto3D.foundation.exceptions import InputValidationError
+    from Auto3D.presentation.cli.errors import get_error_hint
 
     hint = get_error_hint(InputValidationError("test"))
     assert hint is not None
@@ -1019,8 +1019,8 @@ def test_error_hint_input_validation_error():
 
 def test_error_hint_gpu_error():
     """get_error_hint should return hint for GPUError."""
-    from Auto3D.cli.errors import get_error_hint
-    from Auto3D.exceptions import GPUError
+    from Auto3D.foundation.exceptions import GPUError
+    from Auto3D.presentation.cli.errors import get_error_hint
 
     hint = get_error_hint(GPUError("test"))
     assert hint is not None
@@ -1029,7 +1029,7 @@ def test_error_hint_gpu_error():
 
 def test_handle_error_exits():
     """handle_error should raise SystemExit."""
-    from Auto3D.cli.errors import handle_error
+    from Auto3D.presentation.cli.errors import handle_error
 
     with pytest.raises(SystemExit) as exc_info:
         handle_error(Exception("test error"))
@@ -1044,7 +1044,7 @@ def test_models_info_aimnet2_pd(runner):
     so a bare substring check passes even if the Supported Elements line
     itself dropped it. Parse that line specifically.
     """
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "aimnet2-pd"])
     assert result.exit_code == 0
@@ -1057,7 +1057,7 @@ def test_models_info_aimnet2_pd(runner):
 
 def test_models_info_aimnet2_alias(runner):
     """models info aimnet2 (the canonical default) must resolve to the AIMNET entry."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "aimnet2"])
     assert result.exit_code == 0
@@ -1068,7 +1068,7 @@ def test_models_info_unkeyed_aimnet2_variant_resolves(runner):
     """Any aimnet2-* registry name -- including a future variant without its own
     ENGINE_INFO block -- must resolve to the base AIMNet2 entry, not 'Unknown
     engine' (check_valid_configuration already accepts any aimnet2* name)."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["models", "info", "aimnet2-future"])
     assert result.exit_code == 0, result.stdout
@@ -1077,7 +1077,7 @@ def test_models_info_unkeyed_aimnet2_variant_resolves(runner):
 
 def test_config_validate_missing_file(runner, tmp_path_cwd):
     """config validate on a missing file is now a Typer path-existence error (exit 2)."""
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     result = runner.invoke(app, ["config", "validate", "nonexistent.yaml"])
     assert result.exit_code == 2
@@ -1113,12 +1113,12 @@ def test_run_forwards_each_new_flag_to_auto3d_options(
     """
     from unittest.mock import patch
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path_cwd / "mols.smi"
     smi.write_text("CCO m1\n")
 
-    with patch.object(Auto3D.auto3D, "main", return_value="out.sdf") as m:
+    with patch.object(Auto3D.entry.auto3D, "main", return_value="out.sdf") as m:
         result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", flag, value])
 
     assert result.exit_code == 0, result.output

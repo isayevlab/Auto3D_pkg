@@ -1,4 +1,4 @@
-"""Tests for Auto3D.chunk_manager module."""
+"""Tests for Auto3D.orchestration.chunk_manager module."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-import Auto3D.chunk_manager
-from Auto3D.chunk_manager import ChunkManager
-from Auto3D.config import Auto3DOptions
+import Auto3D.orchestration.chunk_manager
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.orchestration.chunk_manager import ChunkManager
 
 
 class TestChunkManagerInit:
@@ -60,7 +60,7 @@ class TestCalculateMemoryAndChunks:
     def test_single_gpu_returns_one_job(self, tmp_path):
         """Should return num_jobs=1 for single GPU index.
 
-        Mocks Auto3D.chunk_manager._gpu_free_memory_gb (the nvidia-smi-backed
+        Mocks Auto3D.orchestration.chunk_manager._gpu_free_memory_gb (the nvidia-smi-backed
         query), not torch.cuda.get_device_properties -- that call was removed
         by the M36 fix specifically so this orchestrator never initializes a
         CUDA context (audit M36).
@@ -74,7 +74,9 @@ class TestCalculateMemoryAndChunks:
             workflow_logger=None,
         )
 
-        with patch.object(Auto3D.chunk_manager, "_gpu_free_memory_gb", return_value=8):
+        with patch.object(
+            Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", return_value=8
+        ):
             memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert num_jobs == 1
@@ -83,7 +85,7 @@ class TestCalculateMemoryAndChunks:
     def test_multiple_gpus_returns_gpu_count(self, tmp_path):
         """Should return num_jobs equal to GPU count for multiple GPUs.
 
-        Mocks Auto3D.chunk_manager._gpu_free_memory_gb rather than
+        Mocks Auto3D.orchestration.chunk_manager._gpu_free_memory_gb rather than
         torch.cuda.get_device_properties for the same reason as
         test_single_gpu_returns_one_job above (audit M36).
         """
@@ -96,7 +98,9 @@ class TestCalculateMemoryAndChunks:
             workflow_logger=None,
         )
 
-        with patch.object(Auto3D.chunk_manager, "_gpu_free_memory_gb", return_value=8):
+        with patch.object(
+            Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", return_value=8
+        ):
             memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
         assert num_jobs == 3
@@ -156,7 +160,7 @@ class TestGpuFreeMemoryGb:
         inherited the developer's or CI runner's value would assert a different
         thing depending on where it ran.
         """
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -185,7 +189,7 @@ class TestGpuFreeMemoryGb:
         only place the memory scaling matters, so the wrong-card case is the
         common case, not the exotic one.
         """
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5")
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -202,7 +206,7 @@ class TestGpuFreeMemoryGb:
 
     def test_uuid_entries_are_passed_through(self, monkeypatch):
         """``CUDA_VISIBLE_DEVICES`` may hold UUIDs, which ``-i`` also accepts."""
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-aaa,GPU-bbb")
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -226,7 +230,7 @@ class TestGpuFreeMemoryGb:
         to the conservative default, because it looks like a successful
         measurement.
         """
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,5")
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
@@ -238,7 +242,7 @@ class TestGpuFreeMemoryGb:
 
     def test_returns_none_when_nvidia_smi_missing(self, monkeypatch):
         """No nvidia-smi on PATH -> None, and subprocess.run is never called."""
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setattr(shutil, "which", lambda name: None)
 
@@ -251,7 +255,7 @@ class TestGpuFreeMemoryGb:
 
     def test_returns_none_on_unparsable_output(self, monkeypatch):
         """Garbage/empty stdout is swallowed, not raised."""
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: MagicMock(stdout="not-a-number\n"))
@@ -260,7 +264,7 @@ class TestGpuFreeMemoryGb:
 
     def test_returns_none_when_subprocess_raises(self, monkeypatch):
         """A nonzero exit / timeout is swallowed, not propagated."""
-        from Auto3D.chunk_manager import _gpu_free_memory_gb
+        from Auto3D.orchestration.chunk_manager import _gpu_free_memory_gb
 
         monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
 
@@ -364,7 +368,9 @@ class TestScaledBatchsizeAtomsClamp:
             workflow_logger=None,
         )
 
-        with patch.object(Auto3D.chunk_manager, "_gpu_free_memory_gb", return_value=80):
+        with patch.object(
+            Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", return_value=80
+        ):
             manager.prepare_chunks()
 
         # Unclamped this would be 1024 * 80 = 81920.
@@ -683,7 +689,7 @@ class TestSmiParserCrossAgreement:
     def test_prepare_chunks_agrees_with_iter_smi_records_on_well_formed_input(self, tmp_path):
         """Both parsers must extract the same (smiles, id) pairs, in the same
         order, from a well-formed encoded .smi file."""
-        from Auto3D.utils.smi_io import iter_smi_records
+        from Auto3D.foundation.utils.smi_io import iter_smi_records
 
         rows = [
             ("CCO", "0"),
@@ -728,7 +734,7 @@ class TestSmiParserCrossAgreement:
         """A trailing whitespace-separated column beyond SMILES+ID must be
         dropped identically by both readers (chunk_manager's usecols=[0, 1]
         vs. iter_smi_records taking only parts[0]/parts[1])."""
-        from Auto3D.utils.smi_io import iter_smi_records
+        from Auto3D.foundation.utils.smi_io import iter_smi_records
 
         input_file = tmp_path / "test_encoded.smi"
         input_file.write_text("CCO 0 inline_comment_column\nCCCO 1\n")
@@ -768,7 +774,7 @@ class TestSmiParserCrossAgreement:
         pd.read_csv to skip '#' lines, that is progress: update the
         assertion, don't just delete the test.
         """
-        from Auto3D.utils.smi_io import iter_smi_records
+        from Auto3D.foundation.utils.smi_io import iter_smi_records
 
         input_file = tmp_path / "test_encoded.smi"
         input_file.write_text("CCO 0\n# 1 2\nCCCO 3\n")

@@ -1,10 +1,10 @@
 # tests/test_adapter_fp64_contract.py
 """``to_double``: the fp64 upcast expressed on the contract, not through it.
 
-``Auto3D.ASE.thermo._load_hessian_model`` used to write ``adapter.model.double()``
--- reaching past :class:`~Auto3D.models.contract.ModelAdapter` to the module the
+``Auto3D.entry.ASE.thermo._load_hessian_model`` used to write ``adapter.model.double()``
+-- reaching past :class:`~Auto3D.engines.models.contract.ModelAdapter` to the module the
 adapter happens to wrap. It worked only because every in-tree adapter derives from
-:class:`~Auto3D.models.adapter.BaseModelAdapter`, which stores one; a conforming
+:class:`~Auto3D.engines.models.adapter.BaseModelAdapter`, which stores one; a conforming
 structural adapter (which production has always accepted -- see
 ``tests/helpers_adapter``) has no ``.model`` at all and died with ``AttributeError``
 inside the thermochemistry path. mypy said so on every run and ``|| true``
@@ -16,8 +16,8 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from Auto3D.models.adapter import BaseModelAdapter
-from Auto3D.models.contract import missing_adapter_members
+from Auto3D.engines.models.adapter import BaseModelAdapter
+from Auto3D.engines.models.contract import missing_adapter_members
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -79,7 +79,7 @@ class TestLoadHessianModelUpcastsThroughTheContract:
     """
 
     def _install(self, monkeypatch):
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         calls: list[str] = []
 

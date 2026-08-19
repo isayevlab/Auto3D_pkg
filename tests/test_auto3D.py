@@ -1,6 +1,6 @@
 """Full-pipeline tests against the real neural network potentials.
 
-Every test here runs ``Auto3D.auto3D.main`` end to end -- isomer enumeration,
+Every test here runs ``Auto3D.entry.auto3D.main`` end to end -- isomer enumeration,
 batch geometry optimization on a real NNP, ranking, and output assembly. They
 are the most expensive tests in the project and the only ones that exercise
 the potentials rather than a stub.
@@ -26,8 +26,8 @@ import tempfile
 import pytest
 import torch
 
-from Auto3D.auto3D import main, smiles2mols
-from Auto3D.config import Auto3DOptions
+from Auto3D.entry.auto3D import main, smiles2mols
+from Auto3D.foundation.config import Auto3DOptions
 from tests.helpers_pipeline_output import (
     assert_pipeline_output,
     formulas_from_sdf_file,

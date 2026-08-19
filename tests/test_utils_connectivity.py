@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Tests for Auto3D.utils.connectivity module."""
+"""Tests for Auto3D.foundation.utils.connectivity module."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.utils.connectivity import check_connectivity
+from Auto3D.foundation.utils.connectivity import check_connectivity
 
 
 class TestCheckConnectivity:
@@ -93,7 +93,7 @@ class TestAmendMol:
 
     def test_amend_mol_preserves_valid_molecule(self):
         """Test that a valid molecule is preserved."""
-        from Auto3D.utils.connectivity import amend_mol
+        from Auto3D.foundation.utils.connectivity import amend_mol
 
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)
@@ -105,7 +105,7 @@ class TestAmendMol:
 
     def test_amend_mol_returns_none_for_invalid(self):
         """Test that amend_mol returns None for severely invalid molecules."""
-        from Auto3D.utils.connectivity import amend_mol
+        from Auto3D.foundation.utils.connectivity import amend_mol
 
         # Create molecule and severely distort it
         mol = Chem.MolFromSmiles("C")
@@ -133,7 +133,7 @@ class TestAmendMol:
         usable. If ``amend_mol``'s sanitize branch were a no-op, this
         molecule would still raise after the call.
         """
-        from Auto3D.utils.connectivity import amend_mol
+        from Auto3D.foundation.utils.connectivity import amend_mol
 
         mol = Chem.MolFromSmiles("c1ccccc1", sanitize=False)  # benzene, unsanitized
         with pytest.raises(RuntimeError):
@@ -157,7 +157,7 @@ class TestGetMolConnectivity:
         equally accept a broken ``get_mol_connectivity`` that stopped sorting
         its tuples.
         """
-        from Auto3D.utils.connectivity import get_mol_connectivity
+        from Auto3D.foundation.utils.connectivity import get_mol_connectivity
 
         mol = Chem.MolFromSmiles("CC")
         connectivity = get_mol_connectivity(mol)
@@ -166,7 +166,7 @@ class TestGetMolConnectivity:
 
     def test_ethanol_connectivity(self):
         """Test connectivity for ethanol."""
-        from Auto3D.utils.connectivity import get_mol_connectivity
+        from Auto3D.foundation.utils.connectivity import get_mol_connectivity
 
         mol = Chem.MolFromSmiles("CCO")
         connectivity = get_mol_connectivity(mol)
@@ -178,7 +178,7 @@ class TestGetMolConnectivity:
 
     def test_benzene_connectivity(self):
         """Test connectivity for benzene ring."""
-        from Auto3D.utils.connectivity import get_mol_connectivity
+        from Auto3D.foundation.utils.connectivity import get_mol_connectivity
 
         mol = Chem.MolFromSmiles("c1ccccc1")
         connectivity = get_mol_connectivity(mol)
@@ -188,7 +188,7 @@ class TestGetMolConnectivity:
 
     def test_methane_connectivity(self):
         """Test connectivity for methane (no heavy atom bonds)."""
-        from Auto3D.utils.connectivity import get_mol_connectivity
+        from Auto3D.foundation.utils.connectivity import get_mol_connectivity
 
         mol = Chem.MolFromSmiles("C")
         connectivity = get_mol_connectivity(mol)
@@ -208,7 +208,7 @@ class TestGetMolConnectivity:
         exists to catch. Assert the 3-tuple shape unconditionally, then the
         bond order value.
         """
-        from Auto3D.utils.connectivity import get_mol_connectivity
+        from Auto3D.foundation.utils.connectivity import get_mol_connectivity
 
         mol = Chem.MolFromSmiles("C=C")  # Ethene
         connectivity = get_mol_connectivity(mol, include_bond_order=True)

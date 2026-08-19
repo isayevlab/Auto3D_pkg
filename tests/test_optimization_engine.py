@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from Auto3D.batch_opt.optimization_engine import n_steps, print_stats
+from Auto3D.engines.batch_opt.optimization_engine import n_steps, print_stats
 
 
 class TestPrintStats:
@@ -429,7 +429,7 @@ def test_fmax_ignores_padded_atoms():
     """
     import torch
 
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     class MockNN:
         def forward_batched(self, coord, numbers, charges, atom_mask=None):
@@ -460,7 +460,7 @@ def test_fmax_ignores_padded_atoms():
 def test_stored_energy_matches_stored_coord():
     import torch
 
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     class MockNN:
         def forward_batched(self, coord, numbers, charges, atom_mask=None):
@@ -496,7 +496,7 @@ def test_stored_fmax_matches_stored_coord():
     """
     import torch
 
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     class MockNN:
         def forward_batched(self, coord, numbers, charges, atom_mask=None):
@@ -622,17 +622,17 @@ class TestOptimizationEngineImportPaths:
     """This module is the home of ``n_steps`` and ``print_stats``.
 
     Two tests here used to assert both names were also reachable through
-    ``Auto3D.batch_opt.batchopt``, which is what kept that compat barrel alive.
+    ``Auto3D.engines.batch_opt.batchopt``, which is what kept that compat barrel alive.
     ``print_stats`` is no longer imported there at all (nothing in ``batchopt``
     called it); ``n_steps`` still is, because ``batchopt`` uses it, but reaching
     it that way is forbidden by ``tests/test_import_boundaries.py``.
     """
 
     def test_n_steps_and_print_stats_live_here(self):
-        from Auto3D.batch_opt.optimization_engine import (
+        from Auto3D.engines.batch_opt.optimization_engine import (
             n_steps as n_steps_home,
         )
-        from Auto3D.batch_opt.optimization_engine import (
+        from Auto3D.engines.batch_opt.optimization_engine import (
             print_stats as print_stats_home,
         )
 

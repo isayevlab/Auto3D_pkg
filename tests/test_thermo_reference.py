@@ -54,7 +54,7 @@ class TestBatchRobustness:
            assertion below would then be impossible to satisfy for a reason that
            has nothing to do with the code under test.
         """
-        from Auto3D.ASE.thermo import calc_thermo
+        from Auto3D.entry.ASE.thermo import calc_thermo
 
         good1 = job_dir / "good1.sdf"
         good2 = job_dir / "good2.sdf"
@@ -119,7 +119,7 @@ class TestStationaryPointGating:
         implements: no G_hartree anywhere, and the record explicitly marked
         `Thermo_failed == "not_converged"`.
         """
-        from Auto3D.ASE.thermo import calc_thermo
+        from Auto3D.entry.ASE.thermo import calc_thermo
 
         # Deliberately unoptimized (no MMFF pass): a raw ETKDG embedding has
         # bond lengths/angles far enough from equilibrium that any reasonable
@@ -183,10 +183,10 @@ class TestHessianGeometry:
         """
         from ase.optimize import BFGS
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
-        from Auto3D.ASE.thermo.calculator import model_name2model_calculator, mol2atoms
-        from Auto3D.ASE.thermo.driver import _load_hessian_model
-        from Auto3D.model_factory import get_device
+        from Auto3D.engines.model_factory import get_device
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo.calculator import model_name2model_calculator, mol2atoms
+        from Auto3D.entry.ASE.thermo.driver import _load_hessian_model
 
         # Raw ETKDG embedding, no MMFF relaxation: guarantees a large initial
         # force, so BFGS is guaranteed to actually move the atoms before

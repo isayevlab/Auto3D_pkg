@@ -8,7 +8,7 @@ import pytest
 
 def test_console_exists():
     """Console singleton should exist."""
-    from Auto3D.cli.console import console
+    from Auto3D.presentation.cli.console import console
 
     assert console is not None
 
@@ -23,7 +23,7 @@ def test_console_auto_detects_tty(monkeypatch):
     all: the monkeypatched ``isatty`` would make that disjunct true on its
     own. Assert on ``_force_terminal`` directly instead.
     """
-    from Auto3D.cli.console import create_console
+    from Auto3D.presentation.cli.console import create_console
 
     # Simulate non-TTY
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
@@ -38,7 +38,7 @@ def test_console_does_not_force_plain_on_a_real_tty(monkeypatch):
     ``force_terminal = False`` (or inverts the ``isatty()`` check) regardless
     of the stream's actual capability.
     """
-    from Auto3D.cli.console import create_console
+    from Auto3D.presentation.cli.console import create_console
 
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     c = create_console()
@@ -47,7 +47,7 @@ def test_console_does_not_force_plain_on_a_real_tty(monkeypatch):
 
 def test_print_success(capsys):
     """print_success should output green checkmark."""
-    from Auto3D.cli.console import console, print_success
+    from Auto3D.presentation.cli.console import console, print_success
 
     # Force no markup for testing
     console._force_terminal = False
@@ -59,7 +59,7 @@ def test_print_success(capsys):
 
 def test_print_error(capsys):
     """print_error should write the message and hint to stderr, not stdout."""
-    from Auto3D.cli.console import error_console, print_error
+    from Auto3D.presentation.cli.console import error_console, print_error
 
     error_console._force_terminal = False
     print_error("Test error", hint="Try this")
@@ -71,7 +71,7 @@ def test_print_error(capsys):
 
 def test_print_warning(capsys):
     """print_warning should write the message to stderr, not stdout."""
-    from Auto3D.cli.console import error_console, print_warning
+    from Auto3D.presentation.cli.console import error_console, print_warning
 
     error_console._force_terminal = False
     print_warning("Test warning")

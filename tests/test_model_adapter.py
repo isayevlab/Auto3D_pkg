@@ -59,13 +59,13 @@ def test_model_adapter_interface(aimnet_model):
 class TestModelAdapterProtocol:
     """Tests for the ModelAdapter protocol.
 
-    It lives in ``Auto3D.models.contract`` alongside ``CustomNNP`` -- the
+    It lives in ``Auto3D.engines.models.contract`` alongside ``CustomNNP`` -- the
     interface it is constantly confused with -- so the two declarations cannot be
-    read separately. ``Auto3D.models.adapter`` holds implementations only.
+    read separately. ``Auto3D.engines.models.adapter`` holds implementations only.
     """
 
     def test_protocol_declares_the_whole_contract(self):
-        from Auto3D.models.contract import ModelAdapter
+        from Auto3D.engines.models.contract import ModelAdapter
 
         for member in ("forward", "energy", "to_species"):
             assert hasattr(ModelAdapter, member)
@@ -73,19 +73,19 @@ class TestModelAdapterProtocol:
 
     def test_protocol_does_not_live_in_the_implementation_module(self):
         """A clean sweep: the old import path is gone, not aliased."""
-        import Auto3D.models.adapter as adapter_mod
+        import Auto3D.engines.models.adapter as adapter_mod
 
         assert not hasattr(adapter_mod, "ModelAdapter")
 
     def test_the_package_does_not_re_export_it(self):
-        """``Auto3D.models.contract`` is the only path, in both directions.
+        """``Auto3D.engines.models.contract`` is the only path, in both directions.
 
-        This test previously asserted the opposite -- that ``Auto3D.models``
+        This test previously asserted the opposite -- that ``Auto3D.engines.models``
         re-exported the name. That re-export put the *internal* adapter
         interface at a shallower path than the *public* custom-NNP contract
-        (``Auto3D.models.contract.CustomNNP``, api.rst's only entry from this
+        (``Auto3D.engines.models.contract.CustomNNP``, api.rst's only entry from this
         package), which is the precise confusion ``contract.py`` was created to
-        end. ``Auto3D.models`` re-exports nothing now; see
+        end. ``Auto3D.engines.models`` re-exports nothing now; see
         ``tests/test_import_boundaries.py::test_models_package_exposes_no_names``
         for the other six names that went with it.
         """
@@ -93,10 +93,10 @@ class TestModelAdapterProtocol:
 
         import pytest
 
-        models = importlib.import_module("Auto3D.models")
+        models = importlib.import_module("Auto3D.engines.models")
         assert not hasattr(models, "__all__")
         with pytest.raises(ImportError):
-            exec("from Auto3D.models import ModelAdapter", {})  # noqa: S102
+            exec("from Auto3D.engines.models import ModelAdapter", {})  # noqa: S102
 
     def test_device_is_not_part_of_the_contract(self):
         """Dropped deliberately.
@@ -107,7 +107,7 @@ class TestModelAdapterProtocol:
         including test doubles that never touch a device -- non-conforming for no
         benefit.
         """
-        from Auto3D.models.contract import ModelAdapter
+        from Auto3D.engines.models.contract import ModelAdapter
 
         assert "device" not in ModelAdapter.__annotations__
 
@@ -116,7 +116,7 @@ class TestModelAdapterProtocol:
         a Protocol with data members raises for it."""
         import pytest
 
-        from Auto3D.models.contract import ModelAdapter
+        from Auto3D.engines.models.contract import ModelAdapter
 
         with pytest.raises(TypeError):
             issubclass(dict, ModelAdapter)
@@ -127,7 +127,7 @@ class TestBaseModelAdapter:
 
     def test_base_adapter_stores_model_and_device(self):
         """BaseModelAdapter should store model, device, and padding values."""
-        from Auto3D.models.adapter import BaseModelAdapter
+        from Auto3D.engines.models.adapter import BaseModelAdapter
 
         # Create a mock model
         mock_model = MagicMock(spec=torch.nn.Module)
@@ -191,7 +191,7 @@ class TestANI2xtAdapter:
         # Import torchani to check if it's available (needed for ANI2xt)
         pytest.importorskip("torchani")
 
-        from Auto3D.models.adapter import ANI2xtAdapter
+        from Auto3D.engines.models.adapter import ANI2xtAdapter
 
         device = torch.device("cpu")
         adapter = ANI2xtAdapter(device)
@@ -215,7 +215,7 @@ class TestANI2xtAdapter:
         model, applied here so the REAL ``ANI2xtAdapter.forward`` runs.
         Hermetic: no NNP loaded, no torchani import.
         """
-        from Auto3D.models.adapter import ANI2xtAdapter, BaseModelAdapter
+        from Auto3D.engines.models.adapter import ANI2xtAdapter, BaseModelAdapter
 
         class _ToyANI2xtModel(torch.nn.Module):
             def forward(self, species, coords):
@@ -245,7 +245,7 @@ class TestANI2xAdapter:
         # Import torchani to check if it's available
         pytest.importorskip("torchani")
 
-        from Auto3D.models.adapter import ANI2xAdapter
+        from Auto3D.engines.models.adapter import ANI2xAdapter
 
         device = torch.device("cpu")
         adapter = ANI2xAdapter(device)
@@ -274,8 +274,8 @@ class TestANI2xAdapter:
         """
         from collections import namedtuple
 
-        from Auto3D.constants import HARTREE_TO_EV
-        from Auto3D.models.adapter import ANI2xAdapter, BaseModelAdapter
+        from Auto3D.engines.models.adapter import ANI2xAdapter, BaseModelAdapter
+        from Auto3D.foundation.constants import HARTREE_TO_EV
 
         _SpeciesEnergies = namedtuple("SpeciesEnergies", ["species", "energies"])
 
@@ -304,7 +304,7 @@ class TestCustomModelAdapter:
     @patch.object(torch.jit, "load")
     def test_custom_adapter_loads_from_path(self, mock_load):
         """CustomModelAdapter should load model from provided path."""
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
 
         mock_model = MagicMock()
         mock_model.parameters.return_value = iter([])
@@ -333,8 +333,8 @@ class TestCustomModelAdapter:
         padding depended on which layer supplied the value. Refusing is the
         only answer that cannot be silently wrong.
         """
-        from Auto3D.exceptions import ModelLoadError
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
+        from Auto3D.foundation.exceptions import ModelLoadError
 
         # A model without coord_pad/species_pad.
         class MockModel:
@@ -352,7 +352,7 @@ class TestCustomModelAdapter:
 
 
 def test_try_compile_uses_dynamic_default_mode(monkeypatch):
-    import Auto3D.models.adapter as adapter
+    import Auto3D.engines.models.adapter as adapter
 
     captured = {}
 
@@ -438,7 +438,7 @@ def test_custom_model_adapter_runs(tmp_path):
     must run through CustomModelAdapter and yield finite energy/forces."""
     import torch
 
-    from Auto3D.models.adapter import CustomModelAdapter
+    from Auto3D.engines.models.adapter import CustomModelAdapter
 
     class _Toy(torch.nn.Module):
         def __init__(self):
@@ -479,15 +479,15 @@ class TestValidateOutputs:
     """
 
     def test_finite_outputs_pass(self):
-        from Auto3D.models.adapter import _validate_outputs
+        from Auto3D.engines.models.adapter import _validate_outputs
 
         energy = torch.tensor([-1.0, -2.0])
         forces = torch.zeros(2, 3, 3)
         assert _validate_outputs(energy, forces) is None
 
     def test_nan_energy_raises(self):
-        from Auto3D.exceptions import NumericalError
-        from Auto3D.models.adapter import _validate_outputs
+        from Auto3D.engines.models.adapter import _validate_outputs
+        from Auto3D.foundation.exceptions import NumericalError
 
         energy = torch.tensor([float("nan"), -2.0])
         forces = torch.zeros(2, 3, 3)
@@ -495,8 +495,8 @@ class TestValidateOutputs:
             _validate_outputs(energy, forces)
 
     def test_inf_energy_raises(self):
-        from Auto3D.exceptions import NumericalError
-        from Auto3D.models.adapter import _validate_outputs
+        from Auto3D.engines.models.adapter import _validate_outputs
+        from Auto3D.foundation.exceptions import NumericalError
 
         energy = torch.tensor([float("inf"), -2.0])
         forces = torch.zeros(2, 3, 3)
@@ -504,8 +504,8 @@ class TestValidateOutputs:
             _validate_outputs(energy, forces)
 
     def test_nan_forces_raises(self):
-        from Auto3D.exceptions import NumericalError
-        from Auto3D.models.adapter import _validate_outputs
+        from Auto3D.engines.models.adapter import _validate_outputs
+        from Auto3D.foundation.exceptions import NumericalError
 
         energy = torch.tensor([-1.0, -2.0])
         forces = torch.zeros(2, 3, 3)
@@ -514,8 +514,8 @@ class TestValidateOutputs:
             _validate_outputs(energy, forces)
 
     def test_inf_forces_raises(self):
-        from Auto3D.exceptions import NumericalError
-        from Auto3D.models.adapter import _validate_outputs
+        from Auto3D.engines.models.adapter import _validate_outputs
+        from Auto3D.foundation.exceptions import NumericalError
 
         energy = torch.tensor([-1.0, -2.0])
         forces = torch.zeros(2, 3, 3)
@@ -540,7 +540,7 @@ class TestAni2xtNetworksAreTableDriven:
     structure and the new generated one and compares every tensor.
     """
 
-    CHECKPOINT = "src/Auto3D/models/ani2xt_no_repulsion.pt"
+    CHECKPOINT = "src/Auto3D/engines/models/ani2xt_no_repulsion.pt"
 
     @staticmethod
     def _hand_written(aev_dim):
@@ -583,12 +583,12 @@ class TestAni2xtNetworksAreTableDriven:
 
         Loading a ``state_dict`` is not running the model -- no inference, no
         torchani, no download; the checkpoint is bundled in
-        ``src/Auto3D/models/``.
+        ``src/Auto3D/engines/models/``.
         """
         import torch
         from torch import nn
 
-        from Auto3D.models.ani2xt import WIDTHS, _atomic_mlp
+        from Auto3D.engines.models.ani2xt import WIDTHS, _atomic_mlp
 
         checkpoint = torch.load(self.CHECKPOINT, map_location="cpu", weights_only=True)
         # Read the AEV width off the checkpoint rather than hardcoding it, so a
@@ -617,8 +617,8 @@ class TestAni2xtNetworksAreTableDriven:
         the same widths the mix-up was harmless -- and undetectable. The table
         makes the order the only order there is.
         """
-        from Auto3D.models.ani2xt import WIDTHS
-        from Auto3D.models.species import ANI2XT_INDEX
+        from Auto3D.engines.models.ani2xt import WIDTHS
+        from Auto3D.engines.models.species import ANI2XT_INDEX
 
         assert len(WIDTHS) == len(ANI2XT_INDEX) == 7
         # H, C, N, O, F, S, Cl
@@ -635,7 +635,7 @@ class TestAni2xtNetworksAreTableDriven:
     def test_the_factory_builds_the_documented_shape(self):
         from torch import nn
 
-        from Auto3D.models.ani2xt import _atomic_mlp
+        from Auto3D.engines.models.ani2xt import _atomic_mlp
 
         net = _atomic_mlp(11, (5, 4, 3))
         kinds = [type(layer) for layer in net]
@@ -670,7 +670,7 @@ class TestEnergyIsDtypePreserving:
 
     @staticmethod
     def _bypassed(cls, model):
-        from Auto3D.models.adapter import BaseModelAdapter
+        from Auto3D.engines.models.adapter import BaseModelAdapter
 
         adapter = cls.__new__(cls)
         BaseModelAdapter.__init__(
@@ -681,8 +681,8 @@ class TestEnergyIsDtypePreserving:
     def test_ani2x_energy_keeps_float64(self):
         from collections import namedtuple
 
-        from Auto3D.constants import HARTREE_TO_EV
-        from Auto3D.models.adapter import ANI2xAdapter
+        from Auto3D.engines.models.adapter import ANI2xAdapter
+        from Auto3D.foundation.constants import HARTREE_TO_EV
 
         _SpeciesEnergies = namedtuple("SpeciesEnergies", ["species", "energies"])
         seen: list = []
@@ -711,7 +711,7 @@ class TestEnergyIsDtypePreserving:
         assert seen == [torch.float32]
 
     def test_custom_energy_keeps_float64_for_coords_and_charges(self):
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
 
         seen: list = []
 
@@ -740,7 +740,7 @@ class TestEnergyIsDtypePreserving:
         """``ANI2xtAdapter.forward`` calls ``coords.requires_grad_(True)``, which
         raises on the non-leaf tensor an autograd Hessian hands in. Its own
         ``energy`` must not touch ``requires_grad`` at all."""
-        from Auto3D.models.adapter import ANI2xtAdapter
+        from Auto3D.engines.models.adapter import ANI2xtAdapter
 
         class _Toy(torch.nn.Module):
             def forward(self, species, coords):

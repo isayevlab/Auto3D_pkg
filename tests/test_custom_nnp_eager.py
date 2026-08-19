@@ -41,7 +41,7 @@ class _LinNNP(torch.nn.Module):
 
 
 def test_custom_eager_module_loads_and_runs(tmp_path):
-    from Auto3D.models.adapter import CustomModelAdapter
+    from Auto3D.engines.models.adapter import CustomModelAdapter
 
     path = tmp_path / "tiny_eager.pt"
     torch.save(_TinyNNP(), path)  # eager module, NOT torch.jit.script
@@ -68,7 +68,7 @@ def test_custom_eager_module_loads_and_runs(tmp_path):
 
 def test_load_custom_nnp_eager_and_double(tmp_path):
     """The shared loader returns an eager nn.Module; double=True casts to fp64."""
-    from Auto3D.models.loading import load_custom_nnp
+    from Auto3D.engines.models.loading import load_custom_nnp
 
     path = tmp_path / "tiny.pt"
     torch.save(_TinyNNP(), path)
@@ -87,8 +87,8 @@ def test_load_custom_nnp_rejects_state_dict(tmp_path):
     not a raw AttributeError."""
     import pytest
 
-    from Auto3D.exceptions import ModelLoadError
-    from Auto3D.models.loading import load_custom_nnp
+    from Auto3D.engines.models.loading import load_custom_nnp
+    from Auto3D.foundation.exceptions import ModelLoadError
 
     path = tmp_path / "sd.pt"
     torch.save(_TinyNNP().state_dict(), path)  # OrderedDict, has no .to()
@@ -100,8 +100,8 @@ def test_load_custom_nnp_rejects_garbage(tmp_path):
     """A non-loadable file must raise ModelLoadError (not a raw exception)."""
     import pytest
 
-    from Auto3D.exceptions import ModelLoadError
-    from Auto3D.models.loading import load_custom_nnp
+    from Auto3D.engines.models.loading import load_custom_nnp
+    from Auto3D.foundation.exceptions import ModelLoadError
 
     path = tmp_path / "garbage.pt"
     path.write_text("not a model")

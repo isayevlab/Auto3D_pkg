@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import torch
 
-from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 
 
 class TestEnForceANIForward:
@@ -164,7 +164,7 @@ class TestEnForceANIImportPath:
     """``model_wrapper`` is the one home of ``EnForce_ANI``.
 
     A companion test used to assert the same class was reachable as
-    ``from Auto3D.batch_opt.batchopt import EnForce_ANI``, which pinned the
+    ``from Auto3D.engines.batch_opt.batchopt import EnForce_ANI``, which pinned the
     compat barrel in place. ``batchopt`` still imports the class -- it uses it --
     but no first-party module may reach it through there, which
     ``tests/test_import_boundaries.py`` now enforces statically.
@@ -172,7 +172,7 @@ class TestEnForceANIImportPath:
 
     def test_enforce_ani_import_from_model_wrapper(self):
         """EnForce_ANI should be importable from model_wrapper."""
-        from Auto3D.batch_opt.model_wrapper import EnForce_ANI as EnForce_ANI_wrapper
+        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI as EnForce_ANI_wrapper
 
         assert EnForce_ANI_wrapper is EnForce_ANI
 
@@ -208,7 +208,7 @@ def test_forward_batched_retries_on_oom():
     larger than 1 molecule and succeeds at batch size 1."""
     import torch
 
-    from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
     from tests.helpers_adapter import FakeAdapter
 
     class _OOMAdapter(FakeAdapter):
@@ -335,7 +335,7 @@ def test_a_model_name_in_the_batchsize_slot_is_rejected():
     """
     import pytest
 
-    from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 
     with pytest.raises(TypeError, match="batchsize_atoms"):
         EnForce_ANI(MagicMock(), "AIMNET")
@@ -394,7 +394,7 @@ class TestEnForceANIRejectsNonAdapters:
         message in the same edit."""
         import pytest
 
-        from Auto3D.models.contract import ModelAdapter
+        from Auto3D.engines.models.contract import ModelAdapter
 
         class NothingAtAll:
             pass

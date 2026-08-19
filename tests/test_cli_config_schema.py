@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from Auto3D.cli.config_schema import build_cli_config, require_input_path
-from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import ConfigurationError
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.presentation.cli.config_schema import build_cli_config, require_input_path
 
 
 def test_config_defaults():
@@ -51,7 +51,7 @@ def test_config_gpu_idx_single():
 
 def test_load_yaml_config(tmp_path):
     """Should load config from YAML file."""
-    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
 
     yaml_file = tmp_path / "config.yaml"
     yaml_file.write_text("""
@@ -87,8 +87,8 @@ def test_load_yaml_config_validation_failure_is_configuration_error(tmp_path):
     """
     from pydantic import ValidationError
 
-    from Auto3D.cli.config_schema import load_yaml_config
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
 
     yaml_file = tmp_path / "bad_config.yaml"
     yaml_file.write_text("path: input.smi\nk: 0\n")
@@ -158,7 +158,7 @@ def test_config_rejects_registry_name_typo():
 
     The check now runs in ``build_cli_config`` rather than as a model validator,
     so it raises ``ConfigurationError`` directly. It is not on the model on
-    purpose: ``resolve_engine_name`` lives in ``Auto3D.models``, and a validator
+    purpose: ``resolve_engine_name`` lives in ``Auto3D.engines.models``, and a validator
     would both point the foundation layer at the engine layer and run a registry
     lookup on every construction -- including the pickled reconstruction inside
     each spawned worker."""
@@ -168,7 +168,7 @@ def test_config_rejects_registry_name_typo():
 
 def test_merge_cli_overrides():
     """CLI overrides should take precedence."""
-    from Auto3D.cli.config_schema import Auto3DOptions, merge_configs
+    from Auto3D.presentation.cli.config_schema import Auto3DOptions, merge_configs
 
     base = build_cli_config(path=Path("test.smi"), k=5, use_gpu=True)
     overrides = {"k": 10, "use_gpu": False}
@@ -187,7 +187,7 @@ def test_merge_configs_cli_k_overrides_file_window():
     the override was added to the base dict instead of substituting for the
     file's other selector -- reproduced directly here via `merge_configs`.
     """
-    from Auto3D.cli.config_schema import Auto3DOptions, merge_configs
+    from Auto3D.presentation.cli.config_schema import Auto3DOptions, merge_configs
 
     base = build_cli_config(path=Path("test.smi"), window=5.0)
     merged = merge_configs(base, {"k": 1})
@@ -199,7 +199,7 @@ def test_merge_configs_cli_k_overrides_file_window():
 def test_merge_configs_cli_window_overrides_file_k():
     """Same substitution, the other direction: `--window` must clear the
     file's `k`."""
-    from Auto3D.cli.config_schema import Auto3DOptions, merge_configs
+    from Auto3D.presentation.cli.config_schema import Auto3DOptions, merge_configs
 
     base = build_cli_config(path=Path("test.smi"), k=10)
     merged = merge_configs(base, {"window": 2.5})
@@ -213,8 +213,8 @@ def test_merge_configs_explicit_cli_conflict_still_raises():
     `--window` both passed) must still be rejected -- the substitution
     added by this fix only clears the *other* source's selector, not a
     selector the same override dict explicitly sets."""
-    from Auto3D.cli.config_schema import Auto3DOptions, merge_configs
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.presentation.cli.config_schema import Auto3DOptions, merge_configs
 
     base = build_cli_config(path=Path("test.smi"))
     with pytest.raises(ConfigurationError):
@@ -228,8 +228,8 @@ def test_merge_configs_validation_failure_is_configuration_error():
     clause does not catch, so it fell through to the generic "Unexpected
     Error" exit-1 path instead).
     """
-    from Auto3D.cli.config_schema import Auto3DOptions, merge_configs
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.presentation.cli.config_schema import Auto3DOptions, merge_configs
 
     base = build_cli_config(path=Path("test.smi"), k=1)
     with pytest.raises(ConfigurationError):
@@ -250,7 +250,7 @@ def test_config_exposes_batchsize_and_tf32():
 
 def test_shipped_parameters_yaml_loads():
     """The repo-root parameters.yaml must validate against the modern CLI schema."""
-    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
 
     repo_root = Path(__file__).resolve().parent.parent
     cfg = load_yaml_config(repo_root / "parameters.yaml")
@@ -280,7 +280,7 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
     syntax error) were untested from either side. Calling the real function is
     strictly better -- it tests the path instead of a replica of it.
     """
-    from Auto3D.cli.config_schema import load_yaml_config
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
 
     repo_root = Path(__file__).resolve().parent.parent
     yaml_path = repo_root / "docs" / "legacy-v2" / "parameters.yaml"
@@ -295,7 +295,7 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
 
 def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
     """``docs/legacy-v2/tauto.yaml`` carries keys from a removed feature and
-    must be rejected as an ``Auto3D.exceptions.ConfigurationError``, naming
+    must be rejected as an ``Auto3D.foundation.exceptions.ConfigurationError``, naming
     them -- exactly what CHANGELOG.md and docs/source/migration-3.0.rst now
     tell 4.0 users to catch.
 
@@ -308,8 +308,8 @@ def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
     """
     from pydantic import ValidationError
 
-    from Auto3D.cli.config_schema import load_yaml_config
-    from Auto3D.exceptions import Auto3DError, ConfigurationError
+    from Auto3D.foundation.exceptions import Auto3DError, ConfigurationError
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
 
     repo_root = Path(__file__).resolve().parent.parent
     yaml_path = repo_root / "docs" / "legacy-v2" / "tauto.yaml"
@@ -344,8 +344,8 @@ def test_build_cli_config_translates_non_pydantic_validator_errors():
     plain bad value in a config file -- the exact outcome
     ``build_cli_config`` exists to eliminate.
     """
-    from Auto3D.cli.config_schema import build_cli_config
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.presentation.cli.config_schema import build_cli_config
 
     with pytest.raises(ConfigurationError):
         build_cli_config(path=Path("in.smi"), k=1, gpu_idx={"a": 1})
@@ -432,7 +432,7 @@ def test_no_field_bounds_field_declares_a_second_pydantic_constraint():
     holds however the constraint is spelled (``Field(ge=...)``,
     ``Annotated[int, Ge(...)]``, ``conint``, ...).
     """
-    from Auto3D.config import FIELD_BOUNDS
+    from Auto3D.foundation.config import FIELD_BOUNDS
 
     forbidden = ("ge", "gt", "le", "lt", "multiple_of", "allow_inf_nan")
     offenders = {}
@@ -447,7 +447,7 @@ def test_no_field_bounds_field_declares_a_second_pydantic_constraint():
             offenders[name] = constraints
     assert not offenders, (
         f"these Auto3DOptions fields declare a numeric constraint that already "
-        f"lives in Auto3D.config.FIELD_BOUNDS: {offenders}. Bounds go in that "
+        f"lives in Auto3D.foundation.config.FIELD_BOUNDS: {offenders}. Bounds go in that "
         f"table only; _check_bounds applies them to every entry point."
     )
 
@@ -475,7 +475,7 @@ def test_shipped_parameters_yaml_is_complete():
     """
     import yaml as yaml_mod
 
-    from Auto3D.cli.config_schema import OPTIONS_ONLY_FIELDS
+    from Auto3D.presentation.cli.config_schema import OPTIONS_ONLY_FIELDS
 
     omitted = {
         # k is set instead; check_selectors_mutually_exclusive rejects both at
@@ -510,8 +510,12 @@ def test_config_init_tables_only_name_real_options():
     ``extra="forbid"`` the moment a user runs the file they were just given) or
     emit a template key with no explanation.
     """
-    from Auto3D.cli.commands.config import DEFAULT_CONFIG, PRESETS, generate_commented_yaml
-    from Auto3D.cli.config_schema import OPTIONS_ONLY_FIELDS
+    from Auto3D.presentation.cli.commands.config import (
+        DEFAULT_CONFIG,
+        PRESETS,
+        generate_commented_yaml,
+    )
+    from Auto3D.presentation.cli.config_schema import OPTIONS_ONLY_FIELDS
 
     real = set(_auto3d_option_fields()) - set(OPTIONS_ONLY_FIELDS)
 
@@ -534,6 +538,6 @@ def test_config_init_tables_only_name_real_options():
     )
 
     # And the template must itself be a runnable configuration.
-    from Auto3D.cli.config_schema import build_cli_config
+    from Auto3D.presentation.cli.config_schema import build_cli_config
 
     build_cli_config(**DEFAULT_CONFIG)

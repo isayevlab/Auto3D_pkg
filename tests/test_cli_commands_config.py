@@ -1,4 +1,4 @@
-"""Tests for Auto3D.cli.commands.config's module-level preset data.
+"""Tests for Auto3D.presentation.cli.commands.config's module-level preset data.
 
 Presets are static data nobody re-reads once shipped -- exactly how the
 `thorough` preset shipped with both `k=10` and `window=5.0` set (M28), a
@@ -10,7 +10,7 @@ self-consistent.
 
 from __future__ import annotations
 
-from Auto3D.cli.commands.config import PRESETS
+from Auto3D.presentation.cli.commands.config import PRESETS
 
 
 def test_no_preset_sets_both_k_and_window():

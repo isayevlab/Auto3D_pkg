@@ -1,0 +1,182 @@
+#!/usr/bin/env python
+"""Calculating single point energy using ANI2xt, ANI2x, AIMNET or a userNNP model file"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from rdkit import Chem
+
+from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.padding import pad_from_mols
+from Auto3D.engines.model_factory import create_model, get_device
+from Auto3D.engines.models.policy import (
+    check_engine_supports_molecules,
+    check_gpu_requested,
+)
+from Auto3D.engines.models.preflight import resolve_engine_name
+from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+from Auto3D.foundation.utils.energy import set_e_hartree_from_ev
+from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
+
+logger = get_logger(__name__)
+
+__all__ = ["calc_spe"]
+
+
+def calc_spe(
+    path: str,
+    model_name: str,
+    gpu_idx: int = 0,
+    use_gpu: bool = True,
+    allow_tf32: bool = False,
+    out_path: str | None = None,
+    overwrite: bool = True,
+) -> str:
+    """Calculates single point energy.
+
+    Args:
+        path: Input sdf file.
+        model_name: ``AIMNET``, ``ANI2x``, ``ANI2xt``, an aimnet registry name
+            (``aimnet2``, ``aimnet2-2025``, ...), or a path to a userNNP model
+            file. The literal string ``userNNP`` is not an engine name.
+        gpu_idx: GPU cuda index. Defaults to 0.
+        use_gpu: Use the GPU when available. Defaults to True.
+        allow_tf32: Enable TF32 matmul precision on Ampere+ GPUs. Defaults to False.
+        out_path: Output SDF path. Defaults to ``<input_stem>_<model>_E.sdf`` next
+            to the input file.
+        overwrite: Allow writing over an existing output file. Defaults to
+            True, which is the historical behavior every Python-API caller
+            was written against. ``auto3d energy`` passes False unless
+            ``--force`` is given, so the CLI refuses to clobber.
+
+    Returns:
+        Path to output SDF file with energies.
+    """
+    # Fail fast on an unrecognized engine name -- the same guard the CLI's
+    # `energy` command already runs before calling this function
+    # (cli/commands/properties.py), now also enforced for direct Python-API
+    # callers. Pure offline registry lookup: no network, no model load.
+    resolve_engine_name(model_name)
+
+    # calc_spe never goes through check_input/check_valid_configuration, so
+    # without this it would reach model_factory.get_device below and silently
+    # fall back to CPU instead of failing the same way `auto3d energy`
+    # already does at its CLI wrapper (cli/commands/properties.py) -- and the
+    # same way `auto3d run`/smiles2mols do via check_input /
+    # check_valid_configuration. check_gpu_requested is the single source of
+    # truth for this policy; called here, before get_device/create_model
+    # below, so no compute (and no model construction) happens first.
+    check_gpu_requested(use_gpu)
+
+    # Refuse `-o` pointing at the input: calc_spe would otherwise open the
+    # user's input file for writing and destroy it (C14). Shared guard, so
+    # calc_spe/opt_geometry/calc_thermo cannot drift apart on this policy.
+    # Needs only the two paths, so it runs before get_device/create_model.
+    check_output_not_input(path, out_path)
+
+    # Apply the shared torch configuration so allow_tf32 is honored here too
+    # (this path previously ignored it).
+    configure_torch(TorchConfig(allow_tf32=allow_tf32))
+
+    # Create output path in the same directory as the input (unless overridden)
+    if out_path is not None:
+        outpath = Path(out_path)
+    else:
+        dir_path = Path(path).parent
+        stem = Path(path).stem
+        if Path(model_name).exists():
+            basename = f"{stem}_userNNP_E.sdf"
+        else:
+            basename = f"{stem}_{model_name}_E.sdf"
+        outpath = dir_path / basename
+
+    # Refuse to truncate a file that already exists. `Chem.SDWriter(outpath)`
+    # below truncates on open, so without this `-o precious.sdf` destroyed
+    # precious.sdf before the first record was written -- and a run whose
+    # every record failed to parse then left it at 0 bytes and exited 0.
+    # Checked on the RESOLVED path, so the derived default name is covered
+    # too, and before get_device/create_model so nothing is loaded first.
+    check_output_overwrite(outpath, overwrite)
+
+    # Filter once up front: drop None records (unparseable) and conformerless
+    # molecules so pad_from_mols never dereferences a bad record, and so the
+    # writer loop below stays index-aligned with the energies tensor. Parsing
+    # `mols` needs only `path`, not a device or model, so it -- and the C11
+    # guard right below, which needs only `mols`/`model_name` -- both happen
+    # before get_device/create_model, matching check_gpu_requested's
+    # already-first placement: every guard that can fail fast, does, before
+    # any device/model construction.
+    mols = []
+    for i, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
+        if mol is None:
+            logger.warning(f"Skipping molecule at index {i}: failed to parse")
+            continue
+        if mol.GetNumConformers() == 0:
+            name = mol.GetProp("_Name") if mol.HasProp("_Name") else "<unnamed>"
+            logger.warning(f"Skipping record without a conformer: {name!r}.")
+            continue
+        mols.append(mol)
+
+    # If every record was dropped (all None / conformerless), pad_from_mols([])
+    # would raise a cryptic "max() arg is an empty sequence". Write an empty
+    # output SDF and return its path so callers get a clear signal instead.
+    if not mols:
+        logger.warning(f"No valid molecules with conformers in {path}; nothing to compute.")
+        with Chem.SDWriter(str(outpath)):
+            pass
+        return str(outpath)
+
+    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
+    # charged or out-of-set species handed to either would otherwise be
+    # silently evaluated as a different, neutral species by the forward pass
+    # below -- tens of kcal/mol wrong, with wrong forces. Checked before
+    # get_device/create_model (below) so a bad molecule fails fast, without
+    # constructing a (possibly GPU-resident) model first.
+    check_engine_supports_molecules(mols, model_name)
+
+    # Use get_device from model_factory (honors use_gpu)
+    device = get_device(gpu_idx, use_gpu=use_gpu)
+
+    # Use ModelFactory to create model adapter
+    model_adapter = create_model(model_name, device)
+
+    # Create EnForce_ANI wrapper for batched forward support (new API without name)
+    model = EnForce_ANI(model_adapter)
+
+    # Use new vectorized padding that returns tensors directly. The explicit
+    # atom mask is forwarded to the model: an adapter that flattens a padded
+    # batch (AIMNet2) must be told which slots are real rather than inferring
+    # it from `species == species_pad`, which deletes a legitimate atomic
+    # number 0 (an R-group `*` atom) along with the padding (audit C13).
+    # One argument, one source: the adapter supplies the species convention AND
+    # both pad values. This call used to hand over `model_name` alongside the
+    # adapter's two pads, so the remap and the sentinel came from different
+    # places and could contradict each other (audit C3/C4).
+    coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(mols, model_adapter, device)
+
+    # Energies only. This used to call `forward_batched` and discard the forces
+    # it returned, so every single-point energy ran a full backward pass for a
+    # tensor nobody read (audit M39). `energy_batched` splits into exactly the
+    # same sub-batches -- memory behavior is unchanged -- and goes through
+    # `ModelAdapter.energy`, which is energy-only.
+    #
+    # NOT bucketed by molecule size, deliberately. `pad_from_mols` pads to the
+    # global max atom count, so one large record widens the padded tensor for
+    # every other one, and `optimizing._make_buckets` already solves exactly that
+    # for the optimizer. Reusing it here was considered and declined: the only
+    # engines that pay for padded slots at all are the ANI ones (AIMNet2 flattens
+    # to real atoms before the model sees them), `forward_batched` already caps
+    # memory by ATOM count so a wide batch costs throughput rather than an OOM,
+    # and this repository has no way to measure the difference -- CI is CPU-only
+    # and no NNP may be loaded here. An unmeasured optimization that also has to
+    # re-thread the writer loop's index alignment is not worth the change.
+    es = model.energy_batched(coord_padded, numbers_padded, charges, atom_mask=atom_mask)
+    es = es.to("cpu").detach().numpy()
+
+    with Chem.SDWriter(str(outpath)) as f:
+        for i, mol in enumerate(mols):
+            set_e_hartree_from_ev(mol, float(es[i]))
+            f.write(mol)
+    return str(outpath)

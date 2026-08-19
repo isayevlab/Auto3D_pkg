@@ -16,8 +16,8 @@ import io
 import torch
 from rich.console import Console
 
-from Auto3D.batch_opt.optimization_engine import n_steps, optimization_counts
-from Auto3D.cli.progress import OptimizationDisplay
+from Auto3D.engines.batch_opt.optimization_engine import n_steps, optimization_counts
+from Auto3D.presentation.cli.progress import OptimizationDisplay
 
 
 def _render(panel) -> str:
@@ -286,14 +286,14 @@ def test_the_live_panel_goes_to_stderr_and_never_to_stdout(tmp_path, monkeypatch
     It also kept stdout non-empty for the duration of a run, on the same stream
     ``--json`` promises carries only the document.
 
-    Hermetic: ``Auto3D.auto3D.main`` is replaced by a stub that fires one
+    Hermetic: ``Auto3D.entry.auto3D.main`` is replaced by a stub that fires one
     progress event and returns a clean result, so no potential is loaded.
     """
     from typer.testing import CliRunner
 
-    import Auto3D.auto3D as a3d
-    from Auto3D.cli.app import app
-    from Auto3D.results import WorkflowResult
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.results import WorkflowResult
+    from Auto3D.presentation.cli.app import app
 
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\n")

@@ -6,7 +6,7 @@ import pytest
 
 def test_format_duration():
     """format_duration should format seconds nicely."""
-    from Auto3D.cli.results import format_duration
+    from Auto3D.presentation.cli.results import format_duration
 
     assert format_duration(65) == "1m 5s"
     assert format_duration(3661) == "1h 1m 1s"
@@ -15,14 +15,14 @@ def test_format_duration():
 
 def test_format_duration_zero():
     """format_duration should handle zero."""
-    from Auto3D.cli.results import format_duration
+    from Auto3D.presentation.cli.results import format_duration
 
     assert format_duration(0) == "0s"
 
 
 def test_workflow_results_dataclass():
     """RunSummary should be a valid dataclass."""
-    from Auto3D.cli.results import RunSummary
+    from Auto3D.presentation.cli.results import RunSummary
 
     results = RunSummary(
         success_count=10,
@@ -39,7 +39,7 @@ def test_workflow_results_dataclass():
 
 def test_failed_molecule_dataclass():
     """FailedMolecule should be a valid dataclass."""
-    from Auto3D.cli.results import FailedMolecule
+    from Auto3D.presentation.cli.results import FailedMolecule
 
     failure = FailedMolecule(name="mol1", error="Invalid SMILES")
     assert failure.name == "mol1"
@@ -51,7 +51,7 @@ def test_print_results_summary(capsys):
     the failed-count row entirely when nothing failed, not merely avoid
     crashing on either input.
     """
-    from Auto3D.cli.results import RunSummary, print_results_summary
+    from Auto3D.presentation.cli.results import RunSummary, print_results_summary
 
     with_failures = RunSummary(
         success_count=10,
@@ -85,7 +85,7 @@ def test_print_failures_empty(capsys):
     """print_failures must be a true no-op for an empty list -- no output at
     all, not merely a call that happens not to raise.
     """
-    from Auto3D.cli.results import print_failures
+    from Auto3D.presentation.cli.results import print_failures
 
     print_failures([])
     assert capsys.readouterr().out == ""
@@ -93,7 +93,7 @@ def test_print_failures_empty(capsys):
 
 def test_print_failures_verbose(capsys):
     """print_failures(verbose=True) must render the actual failure table."""
-    from Auto3D.cli.results import FailedMolecule, print_failures
+    from Auto3D.presentation.cli.results import FailedMolecule, print_failures
 
     failures = [FailedMolecule(name=f"mol{i}", error="Error") for i in range(5)]
     print_failures(failures, verbose=True)
@@ -110,7 +110,7 @@ def test_output_json(capsys):
     """output_json must emit the exact result fields as parseable JSON."""
     import json
 
-    from Auto3D.cli.results import FailedMolecule, RunSummary, output_json
+    from Auto3D.presentation.cli.results import FailedMolecule, RunSummary, output_json
 
     results = RunSummary(
         success_count=10,

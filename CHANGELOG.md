@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **Every module now lives in a layer directory. All public import paths
+  change.** The package is organized into the six layers its dependency rules
+  were already enforcing, so a module's directory *is* its layer:
+
+  | layer | directory | holds |
+  |---|---|---|
+  | presentation | `Auto3D/presentation/` | `cli/`, `auto3Dcli` |
+  | entry | `Auto3D/entry/` | `auto3D`, `SPE`, `ASE/`, `tautomer` |
+  | orchestration | `Auto3D/orchestration/` | `workflow`, `workflow_workers`, `chunk_manager`, `job_layout`, `processors`, `pipeline/` |
+  | engines | `Auto3D/engines/` | `models/`, `model_factory`, `isomers/`, `batch_opt/` |
+  | domain | `Auto3D/domain/` | `ranking`, `filtering`, `embedding`, `clash_relief`, `id_mapping` |
+  | foundation | `Auto3D/foundation/` | `config`, `constants`, `exceptions`, `registry`, `results`, `torch_config`, `utils/` |
+
+  **The top-level API is unaffected.** `from Auto3D import main, smiles2mols,
+  Auto3DOptions, calc_spe, calc_thermo, opt_geometry, create_model, ...` all
+  still work — the package root re-exports them lazily and its contents did not
+  change. If you import from `Auto3D` directly, nothing breaks.
+
+  What changes is every *module* path:
+
+  | before | after |
+  |---|---|
+  | `from Auto3D.exceptions import ConfigurationError` | `from Auto3D.foundation.exceptions import ConfigurationError` |
+  | `from Auto3D.config import Auto3DOptions` | `from Auto3D.foundation.config import Auto3DOptions` |
+  | `from Auto3D.results import WorkflowResult` | `from Auto3D.foundation.results import WorkflowResult` |
+  | `from Auto3D.auto3D import main, smiles2mols` | `from Auto3D.entry.auto3D import main, smiles2mols` |
+  | `from Auto3D.SPE import calc_spe` | `from Auto3D.entry.SPE import calc_spe` |
+  | `from Auto3D.ASE.thermo import calc_thermo` | `from Auto3D.entry.ASE.thermo import calc_thermo` |
+  | `from Auto3D.ASE.geometry import opt_geometry` | `from Auto3D.entry.ASE.geometry import opt_geometry` |
+  | `from Auto3D.tautomer import get_stable_tautomers` | `from Auto3D.entry.tautomer import get_stable_tautomers` |
+  | `from Auto3D.model_factory import create_model` | `from Auto3D.engines.model_factory import create_model` |
+  | `from Auto3D.models.contract import CustomNNP` | `from Auto3D.engines.models.contract import CustomNNP` |
+  | `from Auto3D.isomers import IsomerEngineFactory` | `from Auto3D.engines.isomers import IsomerEngineFactory` |
+
+  **The exception classes are the ones most likely to be in your code.** All
+  eight (`Auto3DError`, `ConfigurationError`, `InputValidationError`,
+  `ModelError`, `ModelLoadError`, `NumericalError`, `OptimizationError`,
+  `FileFormatError`, `GPUError`) moved to `Auto3D.foundation.exceptions`. A
+  downstream `except` clause importing them by module path needs updating; one
+  importing them from `Auto3D` does not.
+
+  **No compatibility shims.** A shim would give every moved name two supported
+  spellings, which is the rule the package barrels already state.
+
+  What this buys: the layer map in `tests/test_layer_boundaries.py` was a
+  per-module prefix list that had to be edited on every move and could go stale
+  in both directions — a module in no layer, and a layer prefix naming no module.
+  It is now derived from the directory names, and the only thing still declared
+  is the *order* of the layers, which is the one fact a directory name cannot
+  carry.
+
 - **`Auto3D.cli.results.WorkflowResults` is now `RunSummary`.** It was one
   trailing `s` away from `Auto3D.results.WorkflowResult`, which is a different
   kind of thing entirely — `main()`'s return value, a `str` subclass that *is*

@@ -14,20 +14,20 @@ from __future__ import annotations
 
 import pytest
 
-from Auto3D.exceptions import ConfigurationError
-from Auto3D.isomers import IsomerEngineFactory
-from Auto3D.isomers.base import IsomerEngine, TautomerEngine
-from Auto3D.isomers.factory import create_tautomer_engine
+from Auto3D.engines.isomers import IsomerEngineFactory
+from Auto3D.engines.isomers.base import IsomerEngine, TautomerEngine
+from Auto3D.engines.isomers.factory import create_tautomer_engine
+from Auto3D.foundation.exceptions import ConfigurationError
 
 
 @pytest.fixture
 def spies(monkeypatch):
     """Record the kwargs ``create(...).run()`` hands each concrete engine.
 
-    Patched on ``Auto3D.isomers.factory``, the module that names them, so the
+    Patched on ``Auto3D.engines.isomers.factory``, the module that names them, so the
     mapping under test is the one that runs.
     """
-    import Auto3D.isomers.factory as factory
+    import Auto3D.engines.isomers.factory as factory
 
     recorded: dict[str, dict] = {}
 
@@ -377,7 +377,7 @@ class TestCreateParallelEmbedding:
         would be caught even though every attribute above still reports
         correctly.
         """
-        import Auto3D.embedding as embedding_mod
+        import Auto3D.domain.embedding as embedding_mod
 
         job_dir = tmp_path / "job"
         job_dir.mkdir()
@@ -430,7 +430,7 @@ class TestCreateTautomerEngine:
         rdkit-backed engine as lowercase "rdkit" -- not merely fail to crash
         on an already-invalid name, which "UNKNOWN" could never distinguish.
         """
-        from Auto3D.isomers.tautomers import RDKitOrOEChemTautomerEngine
+        from Auto3D.engines.isomers.tautomers import RDKitOrOEChemTautomerEngine
 
         engine = create_tautomer_engine("RDKIT", input_path="/input.smi", output_path="/output.smi")
         assert isinstance(engine, RDKitOrOEChemTautomerEngine)
@@ -447,10 +447,10 @@ class TestIsomerEngineFactory:
         ``IsomerEngineFactory.create``, the one path api.rst documents, with no
         ``src/`` caller and a signature that had already fallen behind by
         dropping ``input_format``. ``create_tautomer_engine`` beside it is
-        deliberately kept -- it duplicates nothing and ``Auto3D.processors``
+        deliberately kept -- it duplicates nothing and ``Auto3D.orchestration.processors``
         calls it -- so the asymmetry is asserted, not just the deletion.
         """
-        import Auto3D.isomers.factory as factory
+        import Auto3D.engines.isomers.factory as factory
 
         assert not hasattr(factory, "create_isomer_engine")
         assert callable(factory.create_tautomer_engine)

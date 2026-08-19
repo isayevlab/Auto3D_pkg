@@ -1,6 +1,17 @@
 Migrating to Auto3D 3.0
 =======================
 
+.. note::
+
+   The module paths in this guide are **3.0-era paths**. Auto3D 4.0 regrouped
+   every module into a layer directory, so ``Auto3D.config`` is now
+   ``Auto3D.foundation.config``, ``Auto3D.SPE`` is ``Auto3D.entry.SPE``, and so
+   on. This document is left at the paths that were correct when the change it
+   describes was made -- rewriting them would make it describe a layout that did
+   not exist at the time. See ``CHANGELOG.md`` for the full 4.0 path table.
+
+
+
 This release corrects defects that produced silently wrong results. Read the
 "Results that change" section even if you use no removed API.
 

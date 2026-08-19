@@ -1,4 +1,4 @@
-"""Tests for Auto3D.utils.logging_config."""
+"""Tests for Auto3D.foundation.utils.logging_config."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import logging
 import queue
 import sys
 
-from Auto3D.utils.logging_config import configure_logging, get_logger
+from Auto3D.foundation.utils.logging_config import configure_logging, get_logger
 
 
 def test_configure_logging_uses_stderr_not_stdout():
@@ -31,18 +31,18 @@ def test_configure_logging_uses_stderr_not_stdout():
 
 def test_get_logger_warning_reaches_worker_style_handler():
     """A warning issued through get_logger(__name__) must reach a handler
-    attached the way Auto3D.workflow_workers attaches its own -- that is the
+    attached the way Auto3D.orchestration.workflow_workers attaches its own -- that is the
     actual mechanism the run log (Auto3D.log) is built from.
 
     get_logger(__name__) produces loggers named "Auto3D.*" (matching each
-    module's real __name__). Before the fix, Auto3D.workflow_workers attached
+    module's real __name__). Before the fix, Auto3D.orchestration.workflow_workers attached
     its QueueHandler only to a logger named "auto3d" -- a different,
     case-distinct tree with no ancestor relationship to "Auto3D.*" -- so a
     warning issued through get_logger never reached it. This exercises the
     real worker helper (not a hand copy of its logic) so it can't drift from
     production behavior.
     """
-    from Auto3D.workflow_workers import _attach_run_log_handlers
+    from Auto3D.orchestration.workflow_workers import _attach_run_log_handlers
 
     q: queue.Queue = queue.Queue()
     added = _attach_run_log_handlers(q)
@@ -72,7 +72,7 @@ def test_attach_run_log_handlers_is_idempotent_per_queue():
     single logged message was enqueued once per call. Reproduced directly
     against the real function (not a hand copy of its logic).
     """
-    from Auto3D.workflow_workers import _attach_run_log_handlers
+    from Auto3D.orchestration.workflow_workers import _attach_run_log_handlers
 
     q: queue.Queue = queue.Queue()
     first = _attach_run_log_handlers(q)
@@ -100,13 +100,13 @@ def test_run_log_handlers_do_not_duplicate_records():
     """A single warning must be delivered exactly once through the run-log
     queue, and exactly once via root propagation.
 
-    Auto3D.workflow_workers._attach_run_log_handlers attaches a QueueHandler
+    Auto3D.orchestration.workflow_workers._attach_run_log_handlers attaches a QueueHandler
     to both the "auto3d" and "Auto3D" trees. If those trees were not the
     disjoint siblings they're assumed to be (e.g. one accidentally an
     ancestor of the other, or the same tree handled twice), a single
     get_logger warning would show up more than once here.
     """
-    from Auto3D.workflow_workers import _attach_run_log_handlers
+    from Auto3D.orchestration.workflow_workers import _attach_run_log_handlers
 
     q: queue.Queue = queue.Queue()
     added = _attach_run_log_handlers(q)
@@ -136,17 +136,17 @@ def test_run_log_handlers_do_not_duplicate_records():
 
 def test_symmetry_number_default_warning_reaches_run_log():
     """End-to-end proof for one of the Phase 3 diagnostics this defect
-    swallowed: the sigma=1 default warning in Auto3D.ASE.thermo.
+    swallowed: the sigma=1 default warning in Auto3D.entry.ASE.thermo.
 
-    Attaches a handler the way Auto3D.workflow_workers attaches its own and
+    Attaches a handler the way Auto3D.orchestration.workflow_workers attaches its own and
     confirms the warning actually arrives once _symmetry_number is exercised
     directly -- no NNP and no ASE optimizer needed, just an RDKit mol with no
     'symmetry_number' property.
     """
     from rdkit import Chem
 
-    import Auto3D.ASE.thermo.properties as thermo
-    from Auto3D.workflow_workers import _attach_run_log_handlers
+    import Auto3D.entry.ASE.thermo.properties as thermo
+    from Auto3D.orchestration.workflow_workers import _attach_run_log_handlers
 
     q: queue.Queue = queue.Queue()
     added = _attach_run_log_handlers(q)

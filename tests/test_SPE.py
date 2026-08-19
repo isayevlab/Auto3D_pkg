@@ -5,7 +5,7 @@ import pytest
 import torch
 from rdkit import Chem
 
-from Auto3D.SPE import calc_spe
+from Auto3D.entry.SPE import calc_spe
 from tests.helpers_adapter import FakeAdapter
 
 # from tests import skip_ani2xt_test
@@ -21,7 +21,7 @@ skip_ani2xt_test = False
 # Every calc_spe call below passes use_gpu=False on purpose. calc_spe's
 # `use_gpu` default is True, and Auto3D 3.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
-# (Auto3D.models.policy.check_gpu_requested, called first thing inside
+# (Auto3D.engines.models.policy.check_gpu_requested, called first thing inside
 # calc_spe). The slow CI job runs on ubuntu-latest -- CPU-only, like every
 # runner in this repo -- so leaving the default in place would make each of
 # these raise GPUError instead of computing anything. Same reason
@@ -243,7 +243,7 @@ def test_calc_spe_userNNP2():
 
 
 def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
-    """calc_spe must build its model through Auto3D.model_factory.create_model,
+    """calc_spe must build its model through Auto3D.engines.model_factory.create_model,
     and must use the adapter that factory returns.
 
     The previous version of this test asserted nothing. It called
@@ -272,7 +272,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
     """
     from rdkit.Chem import AllChem
 
-    import Auto3D.SPE as spe_mod
+    import Auto3D.entry.SPE as spe_mod
 
     mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     AllChem.EmbedMolecule(mol, randomSeed=42)

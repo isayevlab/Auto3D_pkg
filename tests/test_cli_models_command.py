@@ -11,7 +11,7 @@ for.
 
 from __future__ import annotations
 
-from Auto3D.cli.commands.models import check_dependency_status
+from Auto3D.presentation.cli.commands.models import check_dependency_status
 
 
 def test_an_installed_dependency_is_reported_available():
@@ -52,7 +52,7 @@ def test_a_dependency_that_raises_on_import_is_reported_not_available(monkeypatc
     command a user runs to find out what is broken, so a probe that propagates
     takes down the diagnosis along with the dependency.
     """
-    import Auto3D.cli.commands.models as models_mod
+    import Auto3D.presentation.cli.commands.models as models_mod
 
     def _explode(name):
         raise OSError("libcudart.so.12: cannot open shared object file")
@@ -86,8 +86,8 @@ def test_engine_info_covers_exactly_the_registered_engines():
     require the move. Asserted in both directions: an engine without display
     metadata fails, and metadata for an engine that no longer exists fails too.
     """
-    from Auto3D.cli.commands.models import ENGINE_INFO
-    from Auto3D.model_factory import ModelFactory
+    from Auto3D.engines.model_factory import ModelFactory
+    from Auto3D.presentation.cli.commands.models import ENGINE_INFO
 
     registered = {name.upper() for name in ModelFactory.available_models()}
     documented = set(ENGINE_INFO)

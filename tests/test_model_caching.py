@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-import Auto3D.model_factory as model_factory
-from Auto3D.model_factory import ModelFactory, create_model
+import Auto3D.engines.model_factory as model_factory
+from Auto3D.engines.model_factory import ModelFactory, create_model
 
 
 class _FakeAIMNet2Adapter:

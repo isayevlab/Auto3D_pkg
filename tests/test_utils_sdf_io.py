@@ -1,11 +1,11 @@
-"""Tests for Auto3D.utils.sdf_io module."""
+"""Tests for Auto3D.foundation.utils.sdf_io module."""
 
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
 from rdkit import Chem
 
-from Auto3D.utils.sdf_io import (
+from Auto3D.foundation.utils.sdf_io import (
     SDF2chunks,
     count_sdf,
     guess_file_type,
@@ -214,7 +214,7 @@ class TestNoneMolHardening:
     def test_count_sdf_skips_none_records(self, tmp_path, monkeypatch):
         """count_sdf must not count (or crash on) a None record."""
 
-        import Auto3D.utils.sdf_io as sdf_io
+        import Auto3D.foundation.utils.sdf_io as sdf_io
 
         valid = _make_mol("mol_a")
         monkeypatch.setattr(sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid, None])
@@ -227,7 +227,7 @@ class TestNoneMolHardening:
     def test_reorder_sdf_skips_none_records(self, tmp_path, monkeypatch):
         """reorder_sdf must skip None records in the target SDF."""
 
-        import Auto3D.utils.sdf_io as sdf_io
+        import Auto3D.foundation.utils.sdf_io as sdf_io
 
         smi = tmp_path / "source.smi"
         smi.write_text("C mol_a\nC mol_b\n")

@@ -1,4 +1,4 @@
-"""Tests for Auto3D.utils.stereochemistry module.
+"""Tests for Auto3D.foundation.utils.stereochemistry module.
 
 This module tests stereochemistry-related utility functions including
 enantiomer detection, stereo info extraction, and configuration amendment.
@@ -10,8 +10,8 @@ import tempfile
 import pytest
 from rdkit import Chem
 
-from Auto3D.exceptions import InputValidationError
-from Auto3D.utils.stereochemistry import (
+from Auto3D.foundation.exceptions import InputValidationError
+from Auto3D.foundation.utils.stereochemistry import (
     amend_configuration,
     amend_configuration_w,
     are_enantiomers,

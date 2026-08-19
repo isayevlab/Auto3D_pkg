@@ -1,6 +1,6 @@
 def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     """Output filename must reflect the model, not always 'userNNP'."""
-    import Auto3D.ASE.geometry as geo
+    import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
     sdf.write_text("")  # contents irrelevant; we stub optimizing + supplier
@@ -33,7 +33,7 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    import Auto3D.ASE.geometry as geo
+    import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
     sdf.write_text("")  # contents irrelevant; optimizing + supplier are stubbed

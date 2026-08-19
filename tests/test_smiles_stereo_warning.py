@@ -29,9 +29,9 @@ from pathlib import Path
 
 from rdkit import Chem
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.isomers.rdkit_smi import RDKitIsomer
-from Auto3D.pipeline.input_checks import check_smi_format
+from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.orchestration.pipeline.input_checks import check_smi_format
 
 #: Canonical SMILES of the two 2-butene geometries, for readability below.
 TRANS_2_BUTENE = "C/C=C/C"
@@ -48,7 +48,7 @@ def _configuration_from_3d(mol: Chem.Mol) -> str:
     which comes back as ``Chem.BondStereo.STEREOANY``, and
     ``AssignStereochemistryFrom3D`` deliberately leaves an existing STEREOANY
     flag untouched rather than deriving E/Z from the coordinates (see
-    ``Auto3D.utils.stereo_check``). Clearing the flag first is what makes the
+    ``Auto3D.foundation.utils.stereo_check``). Clearing the flag first is what makes the
     geometry ETKDG actually built visible, and therefore what makes an
     assertion on the emitted structures possible at all.
     """

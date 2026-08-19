@@ -235,7 +235,7 @@ def test_getattr_does_not_cache_resolved_attributes():
 
     Caching into ``globals()`` looks like a free optimization and is not: it
     turns ``__getattr__`` into an import-time binding, so a test that touches
-    ``Auto3D.main`` and *then* patches ``Auto3D.auto3D.main`` would patch
+    ``Auto3D.main`` and *then* patches ``Auto3D.entry.auto3D.main`` would patch
     nothing and pass for the wrong reason -- the failure mode
     ``tests/test_lazy_torchani_import.py`` documents, which surfaced 182 tests
     downstream of its cause. After the first access ``import_module`` is a
@@ -251,12 +251,12 @@ def test_getattr_does_not_cache_resolved_attributes():
     assert "Auto3DOptions" not in vars(Auto3D), "__getattr__ cached into the module namespace"
 
     sentinel = object()
-    module = importlib.import_module("Auto3D.config")
+    module = importlib.import_module("Auto3D.foundation.config")
     original = module.Auto3DOptions
     try:
         module.Auto3DOptions = sentinel
         assert Auto3D.Auto3DOptions is sentinel, (
-            "second access returned a cached value instead of re-reading Auto3D.config"
+            "second access returned a cached value instead of re-reading Auto3D.foundation.config"
         )
     finally:
         module.Auto3DOptions = original
@@ -284,12 +284,12 @@ def test_unknown_attribute_raises_attribute_error():
 #
 # The rule is deliberately **not** "api.rst and ``__all__`` hold the same
 # names". api.rst documents 24 entries, ten of which are the exception classes
-# (``Auto3D.exceptions.*``); none of those is in ``__all__`` and none should be.
+# (``Auto3D.foundation.exceptions.*``); none of those is in ``__all__`` and none should be.
 # api.rst documents *dotted paths*, and the rest of the docs consistently
-# reference these names that way -- ``Auto3D.model_factory.get_device``,
-# ``Auto3D.models.contract.CustomNNP`` (migration-3.0.rst calls that "the
-# surviving one", against the removed ``from Auto3D.models import CustomNNP``),
-# ``Auto3D.isomers.IsomerEngineFactory``. Promoting those into ``__all__`` would
+# reference these names that way -- ``Auto3D.engines.model_factory.get_device``,
+# ``Auto3D.engines.models.contract.CustomNNP`` (migration-3.0.rst calls that "the
+# surviving one", against the removed ``from Auto3D.engines.models import CustomNNP``),
+# ``Auto3D.engines.isomers.IsomerEngineFactory``. Promoting those into ``__all__`` would
 # mint a *second* supported path for each and contradict the migration guide, so
 # the implication runs one way only: exported implies documented.
 #
@@ -329,9 +329,9 @@ def _api_rst_entries() -> list[str]:
 def _resolve_dotted_path(path: str):
     """Import the longest importable prefix of ``path``, then getattr the rest.
 
-    Written this way so a package-path entry (``Auto3D.isomers.IsomerEngineFactory``,
+    Written this way so a package-path entry (``Auto3D.engines.isomers.IsomerEngineFactory``,
     ``Auto3D.generate_conformers``) resolves by the same rule as a module-path
-    entry (``Auto3D.auto3D.main``), instead of the test hard-coding which is which.
+    entry (``Auto3D.entry.auto3D.main``), instead of the test hard-coding which is which.
     """
     parts = path.split(".")
     for split in range(len(parts) - 1, 0, -1):
@@ -387,7 +387,7 @@ def test_every_exported_name_is_documented_in_api_rst():
 # --------------------------------------------------------------------------- #
 #
 # Static, and specifically AST rather than a regex over the text. A regex
-# matches the historical ``from Auto3D.utils import ...`` snippets that live on
+# matches the historical ``from Auto3D.foundation.utils import ...`` snippets that live on
 # purpose in ``docs/plans/**`` and in ``docs/source/migration-3.0.rst`` (where
 # the barrel import is the deliberate *before* half of a before/after pair), so
 # a regex-based check could be "satisfied" by falsifying the migration guide.
@@ -399,8 +399,8 @@ SRC_ROOT = pathlib.Path(__file__).resolve().parents[1] / "src" / "Auto3D"
 def _submodules(package: str) -> frozenset[str]:
     """Names that are *modules* inside ``package``, not re-exports.
 
-    Both halves matter: ``from Auto3D.models import adapter`` names a module and
-    ``from Auto3D.cli import commands`` names a subpackage, and neither is a
+    Both halves matter: ``from Auto3D.engines.models import adapter`` names a module and
+    ``from Auto3D.presentation.cli import commands`` names a subpackage, and neither is a
     barrel import. Computed rather than listed so a new submodule cannot be
     mistaken for a re-export the day it is added.
     """
@@ -411,28 +411,28 @@ def _submodules(package: str) -> frozenset[str]:
     )
 
 
-# ``from Auto3D.utils import energy`` -- naming a submodule -- stays legal;
-# it is a module reference, not a re-export. ``from Auto3D.utils import
+# ``from Auto3D.foundation.utils import energy`` -- naming a submodule -- stays legal;
+# it is a module reference, not a re-export. ``from Auto3D.foundation.utils import
 # hartree2ev`` does not.
-UTILS_SUBMODULES = _submodules("utils")
+UTILS_SUBMODULES = _submodules("foundation.utils")
 
 # Every package that must not re-export a name, and the submodule names that are
 # therefore the *only* legal thing to pull out of it. ``cli`` and ``models``
 # joined ``utils`` here when their barrels were emptied; ``isomers`` is absent
-# because api.rst documents ``Auto3D.isomers.IsomerEngineFactory`` at the package
+# because api.rst documents ``Auto3D.engines.isomers.IsomerEngineFactory`` at the package
 # path, which makes that one re-export the public surface rather than a barrel.
 #
 # ``cli`` is the sharp case. Its barrel bound ``app`` (the Typer object) *over*
-# ``Auto3D.cli.app`` (the module of the same name) and ``console`` over
-# ``Auto3D.cli.console``, so ``from Auto3D.cli import app`` returned different
+# ``Auto3D.presentation.cli.app`` (the module of the same name) and ``console`` over
+# ``Auto3D.presentation.cli.console``, so ``from Auto3D.presentation.cli import app`` returned different
 # kinds of object depending on whether ``__init__`` had run its imports yet.
 # Emptying the barrel makes both names resolve to the module, unambiguously --
 # which is why the two are pinned as modules below rather than merely asserted
 # absent.
 CLOSED_BARRELS = {
-    "Auto3D.utils": UTILS_SUBMODULES,
-    "Auto3D.cli": _submodules("cli"),
-    "Auto3D.models": _submodules("models"),
+    "Auto3D.foundation.utils": UTILS_SUBMODULES,
+    "Auto3D.presentation.cli": _submodules("presentation.cli"),
+    "Auto3D.engines.models": _submodules("engines.models"),
 }
 
 # Names ``batch_opt/batchopt.py`` re-exported for backward compatibility. Two
@@ -443,17 +443,17 @@ BATCHOPT_REEXPORTS = frozenset({"EnForce_ANI", "n_steps", "print_stats"})
 
 # The only subpackage whose api.rst-documented dotted path *is* the package
 # path, and therefore the only one allowed to re-export:
-# ``Auto3D.isomers.IsomerEngineFactory``.
+# ``Auto3D.engines.isomers.IsomerEngineFactory``.
 #
 # This set previously also held ``cli`` (6 names) and ``models`` (7 names),
 # recorded as debt rather than blessed. Both barrels are now empty, so both are
 # gone from here. Neither was documented at its package path -- api.rst
-# documents ``Auto3D.models.contract.CustomNNP`` and no ``Auto3D.cli`` name at
+# documents ``Auto3D.engines.models.contract.CustomNNP`` and no ``Auto3D.presentation.cli`` name at
 # all -- and every consumer of the thirteen names now imports from the module
 # that defines it. Adding a name back means documenting it at the package path
 # in api.rst first; growing this set is how that shows up in review.
 #: ``thermo`` joined ``isomers`` when it became a package: api.rst documents
-#: ``Auto3D.ASE.thermo.calc_thermo`` at that package path, which is the one
+#: ``Auto3D.entry.ASE.thermo.calc_thermo`` at that package path, which is the one
 #: condition the rule above permits a re-export under.
 SUBPACKAGES_WITH_ALL = frozenset({"isomers", "thermo"})
 
@@ -473,7 +473,7 @@ def _absolute_module(node: ast.ImportFrom, path: pathlib.Path) -> str | None:
 
 
 def test_no_src_module_imports_through_the_utils_barrel():
-    """No first-party module pulls a *name* out of ``Auto3D.utils``.
+    """No first-party module pulls a *name* out of ``Auto3D.foundation.utils``.
 
     The barrel was never a coherent surface -- three of its eight submodules
     (``energy``, ``convergence``, ``stereo_check``) had no presence in it at all
@@ -489,13 +489,13 @@ def test_no_src_module_imports_through_the_utils_barrel():
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):
                 continue
-            if _absolute_module(node, path) != "Auto3D.utils":
+            if _absolute_module(node, path) != "Auto3D.foundation.utils":
                 continue
             names = [a.name for a in node.names if a.name not in UTILS_SUBMODULES]
             if names:
                 offenders.append(f"{path.relative_to(SRC_ROOT.parent)}:{node.lineno}: {names}")
     assert not offenders, (
-        "imports through the Auto3D.utils barrel (import from the defining "
+        "imports through the Auto3D.foundation.utils barrel (import from the defining "
         "module instead):\n" + "\n".join(offenders)
     )
 
@@ -510,7 +510,7 @@ def test_utils_init_imports_nothing():
     directory down. This test makes that fail here instead of being noticed
     later, or not at all.
     """
-    path = SRC_ROOT / "utils" / "__init__.py"
+    path = SRC_ROOT / "foundation" / "utils" / "__init__.py"
     tree = ast.parse(path.read_text(), filename=str(path))
     imports = [
         f"line {node.lineno}"
@@ -540,32 +540,32 @@ def test_utils_package_exposes_no_names():
     deleting only the consumers leaves a live barrel for the next contributor
     to use.
     """
-    utils = importlib.import_module("Auto3D.utils")
+    utils = importlib.import_module("Auto3D.foundation.utils")
     assert not hasattr(utils, "__all__"), (
-        f"Auto3D.utils still declares __all__: {getattr(utils, '__all__', None)}"
+        f"Auto3D.foundation.utils still declares __all__: {getattr(utils, '__all__', None)}"
     )
     # The ``from ... import name`` form, because that is what consumers wrote
     # and it is the form that raises ImportError (a bare getattr would raise
     # AttributeError, a weaker and differently-worded failure).
     for name in ("check_input", "check_connectivity", "hartree2ev", "reorder_sdf"):
         with pytest.raises(ImportError):
-            exec(f"from Auto3D.utils import {name}", {})  # noqa: S102
+            exec(f"from Auto3D.foundation.utils import {name}", {})  # noqa: S102
 
 
 def test_utils_submodule_imports_still_work():
-    """Emptying the barrel must not break ``from Auto3D.utils import energy``.
+    """Emptying the barrel must not break ``from Auto3D.foundation.utils import energy``.
 
     A submodule reference is not a re-export, several tests use this form, and
     ``__init__.py`` importing nothing is exactly the condition under which it is
     easy to assume otherwise.
     """
-    from Auto3D.utils import energy, output_guard
+    from Auto3D.foundation.utils import energy, output_guard
 
     assert energy.hartree2ev > 0  # a float constant, not a function
     assert callable(output_guard.check_output_overwrite)
 
 
-#: Backend modules in ``Auto3D.isomers``: one per name the factory dispatches on,
+#: Backend modules in ``Auto3D.engines.isomers``: one per name the factory dispatches on,
 #: plus the tautomer engine, which has no factory classmethod but is constructed
 #: by the same module. ``base`` (protocols) and ``factory`` are the wrappers, not
 #: the wrapped.
@@ -588,7 +588,7 @@ def test_isomer_backends_do_not_import_the_factory_that_wraps_them():
     function-scope import -- exactly the shape that surfaces as an ``ImportError``
     inside a ``spawn``ed worker and nowhere else, since a spawned child re-imports
     from scratch in an order the parent never exercised. (``parallel_embed`` is
-    now ``Auto3D.embedding``, which imports nothing from either side.)
+    now ``Auto3D.domain.embedding``, which imports nothing from either side.)
 
     Checked at **any** scope (``ast.walk``, not ``tree.body``) for that reason: a
     function-scope import satisfies a module-scope-only check while reintroducing
@@ -596,12 +596,12 @@ def test_isomer_backends_do_not_import_the_factory_that_wraps_them():
 
     This has to be its own test rather than a case of
     ``test_layer_boundaries``'s cycle check, which compares *packages*
-    (``_package_of``). Every module here is ``Auto3D.isomers``, so a cycle among
+    (``_package_of``). Every module here is ``Auto3D.engines.isomers``, so a cycle among
     siblings is invisible to it -- verified, not assumed.
     """
     offenders = []
     for filename in _ISOMER_BACKEND_MODULES:
-        path = SRC_ROOT / "isomers" / filename
+        path = SRC_ROOT / "engines" / "isomers" / filename
         assert path.exists(), (
             f"{filename} is missing: this guard names the backend modules "
             f"explicitly, so a renamed or deleted one must be renamed here too "
@@ -611,11 +611,11 @@ def test_isomer_backends_do_not_import_the_factory_that_wraps_them():
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 module = _absolute_module(node, path) or ""
-                if module == "Auto3D.isomers.factory":
+                if module == "Auto3D.engines.isomers.factory":
                     offenders.append(f"{filename} line {node.lineno}: from {module} import ...")
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name == "Auto3D.isomers.factory":
+                    if alias.name == "Auto3D.engines.isomers.factory":
                         offenders.append(f"{filename} line {node.lineno}: import {alias.name}")
     assert not offenders, (
         "these isomer backend modules import the factory that wraps them, "
@@ -653,13 +653,13 @@ def test_no_src_module_imports_batchopt_reexports():
     """
     offenders = []
     for path in _source_files():
-        if path == SRC_ROOT / "batch_opt" / "batchopt.py":
+        if path == SRC_ROOT / "engines" / "batch_opt" / "batchopt.py":
             continue
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):
                 continue
-            if _absolute_module(node, path) != "Auto3D.batch_opt.batchopt":
+            if _absolute_module(node, path) != "Auto3D.engines.batch_opt.batchopt":
                 continue
             names = [a.name for a in node.names if a.name in BATCHOPT_REEXPORTS]
             if names:
@@ -669,9 +669,9 @@ def test_no_src_module_imports_batchopt_reexports():
 
 def test_batchopt_does_not_re_export_print_stats():
     """The one name ``batchopt`` re-exported without using it is gone."""
-    batchopt = importlib.import_module("Auto3D.batch_opt.batchopt")
+    batchopt = importlib.import_module("Auto3D.engines.batch_opt.batchopt")
     assert not hasattr(batchopt, "print_stats"), (
-        "batchopt still re-exports print_stats; its home is Auto3D.batch_opt.optimization_engine"
+        "batchopt still re-exports print_stats; its home is Auto3D.engines.batch_opt.optimization_engine"
     )
 
 
@@ -684,13 +684,13 @@ def test_batchopt_does_not_re_export_print_stats():
 # unconditionally.
 _LEAF_PROBE_SOURCE = """
 import importlib, json, pkgutil, sys
-import Auto3D.utils
+import Auto3D.foundation.utils
 
-for info in pkgutil.iter_modules(Auto3D.utils.__path__):
-    importlib.import_module(f"Auto3D.utils.{info.name}")
+for info in pkgutil.iter_modules(Auto3D.foundation.utils.__path__):
+    importlib.import_module(f"Auto3D.foundation.utils.{info.name}")
 
 print(json.dumps(sorted(
-    m for m in sys.modules if m == "Auto3D.models" or m.startswith("Auto3D.models.")
+    m for m in sys.modules if m == "Auto3D.engines.models" or m.startswith("Auto3D.engines.models.")
 )))
 """
 
@@ -700,7 +700,7 @@ def test_importing_any_utils_module_does_not_load_models():
 
     ``utils`` is a leaf by intent -- generic helpers every layer may use -- and
     ``validation.py`` was the single module breaking that, reaching up into
-    ``Auto3D.models`` through two function-scope imports written that way
+    ``Auto3D.engines.models`` through two function-scope imports written that way
     specifically to avoid an import cycle. A domain package reached from the
     bottom of the stack is what let one probe in ``Auto3D/__init__.py`` drag in
     the entire model layer.
@@ -723,22 +723,22 @@ def test_importing_any_utils_module_does_not_load_models():
     )
     assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
     loaded = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert not loaded, f"importing Auto3D.utils.* pulled in the models package: {loaded}"
+    assert not loaded, f"importing Auto3D.foundation.utils.* pulled in the models package: {loaded}"
 
 
 # Subprocess probe: what the split-out file-I/O modules cost to import.
 _FILE_IO_PROBE_SOURCE = """
 import json, sys
-import Auto3D.id_mapping            # noqa: F401
-import Auto3D.job_layout            # noqa: F401
-import Auto3D.utils.output_guard    # noqa: F401
-import Auto3D.utils.reconciliation  # noqa: F401
-import Auto3D.utils.sdf_io          # noqa: F401
-import Auto3D.utils.smi_io          # noqa: F401
+import Auto3D.domain.id_mapping            # noqa: F401
+import Auto3D.orchestration.job_layout            # noqa: F401
+import Auto3D.foundation.utils.output_guard    # noqa: F401
+import Auto3D.foundation.utils.reconciliation  # noqa: F401
+import Auto3D.foundation.utils.sdf_io          # noqa: F401
+import Auto3D.foundation.utils.smi_io          # noqa: F401
 print(json.dumps({
     "torch": any(m == "torch" or m.startswith("torch.") for m in sys.modules),
     "models": sorted(
-        m for m in sys.modules if m == "Auto3D.models" or m.startswith("Auto3D.models.")
+        m for m in sys.modules if m == "Auto3D.engines.models" or m.startswith("Auto3D.engines.models.")
     ),
 }))
 """
@@ -753,7 +753,7 @@ def test_file_io_modules_do_not_load_torch_or_the_model_tree():
     first: the overwrite gate belongs on every one of these writers, and
     reaching it through ``validation`` would have pulled in that module's
     module-scope ``torch`` -- and, through the engine-name resolution it does
-    at function scope, the whole ``Auto3D.models`` tree -- for a caller that
+    at function scope, the whole ``Auto3D.engines.models`` tree -- for a caller that
     only wanted to refuse clobbering a file.
 
     Subprocess, for the same reason as the probes above: ``conftest`` imports
@@ -776,7 +776,7 @@ def test_file_io_modules_do_not_load_torch_or_the_model_tree():
 # `test_validation_imports_torch_at_module_scope` stood here. It forbade
 # `utils/validation.py` from deferring its `import torch`, and the only reason
 # given was that twenty-two test sites patched
-# `Auto3D.utils.validation.torch.cuda.is_available`, which needs `torch` to be an
+# `Auto3D.foundation.utils.validation.torch.cuda.is_available`, which needs `torch` to be an
 # attribute of that module. That is a test-mechanical constraint on production
 # import structure, and it pointed the wrong way: the string resolved through
 # `validation` to the *global* torch module, so every one of those patches was
@@ -816,7 +816,7 @@ def test_no_src_module_imports_through_a_closed_barrel():
 
     One AST scan over all three, because they fail the same way and a
     per-package copy of this loop is how the third one gets forgotten. A
-    submodule reference (``from Auto3D.models import adapter``) is a module
+    submodule reference (``from Auto3D.engines.models import adapter``) is a module
     reference and stays legal; a name reference does not.
     """
     offenders = []
@@ -842,7 +842,7 @@ def test_no_src_module_imports_through_a_closed_barrel():
 
 
 def test_cli_package_exposes_no_names():
-    """``Auto3D.cli`` re-exports nothing.
+    """``Auto3D.presentation.cli`` re-exports nothing.
 
     The four print helpers are checked with the ``from ... import name`` form
     because that is what consumers wrote and it is the form that raises
@@ -850,20 +850,20 @@ def test_cli_package_exposes_no_names():
     each is also a submodule name, so the import always succeeds -- what changed
     is *what it binds*, which the next test pins.
     """
-    cli = importlib.import_module("Auto3D.cli")
+    cli = importlib.import_module("Auto3D.presentation.cli")
     assert not hasattr(cli, "__all__"), (
-        f"Auto3D.cli still declares __all__: {getattr(cli, '__all__', None)}"
+        f"Auto3D.presentation.cli still declares __all__: {getattr(cli, '__all__', None)}"
     )
     for name in CLI_REEXPORTS:
         with pytest.raises(ImportError):
-            exec(f"from Auto3D.cli import {name}", {})  # noqa: S102
+            exec(f"from Auto3D.presentation.cli import {name}", {})  # noqa: S102
 
 
 def test_cli_app_and_console_names_resolve_to_their_modules():
     """The collision the barrel created, pinned in the resolved direction.
 
     ``cli/__init__.py`` bound the Typer instance ``app`` and the Rich
-    ``console`` object over the ``Auto3D.cli.app`` and ``Auto3D.cli.console``
+    ``console`` object over the ``Auto3D.presentation.cli.app`` and ``Auto3D.presentation.cli.console``
     *modules*, so one dotted path named two different kinds of object and which
     one a caller got depended on import order. With the barrel gone the module
     wins, always. A future re-export of either name would shadow a module again
@@ -872,43 +872,43 @@ def test_cli_app_and_console_names_resolve_to_their_modules():
     import inspect
 
     namespace: dict[str, object] = {}
-    exec("from Auto3D.cli import app, console", namespace)  # noqa: S102
+    exec("from Auto3D.presentation.cli import app, console", namespace)  # noqa: S102
     assert inspect.ismodule(namespace["app"]), (
-        "Auto3D.cli.app is shadowed by a re-exported object; the Typer app is Auto3D.cli.app.app"
+        "Auto3D.presentation.cli.app is shadowed by a re-exported object; the Typer app is Auto3D.presentation.cli.app.app"
     )
     assert inspect.ismodule(namespace["console"]), (
-        "Auto3D.cli.console is shadowed by a re-exported object; the Rich "
-        "console is Auto3D.cli.console.console"
+        "Auto3D.presentation.cli.console is shadowed by a re-exported object; the Rich "
+        "console is Auto3D.presentation.cli.console.console"
     )
 
 
 def test_models_package_exposes_no_names():
-    """``Auto3D.models`` re-exports nothing, including ``ModelAdapter``.
+    """``Auto3D.engines.models`` re-exports nothing, including ``ModelAdapter``.
 
     ``ModelAdapter`` is the load-bearing one. It is the *internal* adapter
-    interface -- ``Auto3D.models.contract``'s own docstring says users never
+    interface -- ``Auto3D.engines.models.contract``'s own docstring says users never
     implement it -- and api.rst documents only ``CustomNNP``, the user-facing
     contract, out of that module. Re-exporting the internal interface one level
     up from the public one put the two confusable names at sibling depth, which
     is the exact confusion ``contract.py`` exists to prevent.
     """
-    models = importlib.import_module("Auto3D.models")
+    models = importlib.import_module("Auto3D.engines.models")
     assert not hasattr(models, "__all__"), (
-        f"Auto3D.models still declares __all__: {getattr(models, '__all__', None)}"
+        f"Auto3D.engines.models still declares __all__: {getattr(models, '__all__', None)}"
     )
     for name in MODELS_REEXPORTS:
         with pytest.raises(ImportError):
-            exec(f"from Auto3D.models import {name}", {})  # noqa: S102
+            exec(f"from Auto3D.engines.models import {name}", {})  # noqa: S102
 
 
 def test_models_submodule_imports_still_work():
-    """Emptying the barrel must not break ``from Auto3D.models import adapter``.
+    """Emptying the barrel must not break ``from Auto3D.engines.models import adapter``.
 
     ``tests/test_species_module.py`` uses exactly this form, and an
     ``__init__.py`` that imports nothing is the condition under which it is easy
     to assume otherwise.
     """
-    from Auto3D.models import adapter, contract
+    from Auto3D.engines.models import adapter, contract
 
     assert adapter.BaseModelAdapter is not None
     assert contract.CustomNNP is not None
@@ -923,8 +923,8 @@ def test_only_one_class_in_the_package_is_named_tautomer_engine():
     """``TautomerEngine`` names the Protocol in ``isomers/base.py``, nothing else.
 
     Two unrelated things carried this name: the role Protocol in
-    ``Auto3D.isomers.base`` and a concrete two-backend implementation in
-    ``Auto3D.isomers.tautomers``. ``isomers/factory.py`` imported the concrete one
+    ``Auto3D.engines.isomers.base`` and a concrete two-backend implementation in
+    ``Auto3D.engines.isomers.tautomers``. ``isomers/factory.py`` imported the concrete one
     ``as _RDKitOrOmegaTautomerEngine`` to keep them apart *within one file* --
     a local workaround for a package-wide collision, and one that also named the
     wrong OpenEye tool (tautomers come from ``oequacpac``, not Omega). The
@@ -947,7 +947,9 @@ def test_only_one_class_in_the_package_is_named_tautomer_engine():
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and node.name == "TautomerEngine":
                 definitions.append(str(path.relative_to(SRC_ROOT.parent)))
-    assert definitions == ["Auto3D/isomers/base.py"], f"TautomerEngine is defined in: {definitions}"
+    assert definitions == ["Auto3D/engines/isomers/base.py"], (
+        f"TautomerEngine is defined in: {definitions}"
+    )
 
 
 def test_isomer_engine_no_longer_binds_either_tautomer_engine_spelling():
@@ -957,12 +959,12 @@ def test_isomer_engine_no_longer_binds_either_tautomer_engine_spelling():
     zero importers anywhere in the repo, so keeping it would have preserved the
     collision under a second spelling that no test would have exercised.
     """
-    isomer_engine = importlib.import_module("Auto3D.isomers.tautomers")
+    isomer_engine = importlib.import_module("Auto3D.engines.isomers.tautomers")
     for name in ("TautomerEngine", "tautomer_engine"):
         assert not hasattr(isomer_engine, name), (
-            f"Auto3D.isomers.tautomers still binds {name}; the implementation is "
+            f"Auto3D.engines.isomers.tautomers still binds {name}; the implementation is "
             "RDKitOrOEChemTautomerEngine and the Protocol is "
-            "Auto3D.isomers.base.TautomerEngine"
+            "Auto3D.engines.isomers.base.TautomerEngine"
         )
 
 
@@ -971,7 +973,7 @@ def test_no_class_name_differs_from_another_only_by_a_trailing_s():
 
     (Spelled that way so this docstring does not trip its own check.)
 
-    ``Auto3D.results.WorkflowResult`` is ``main()``'s return value -- a ``str``
+    ``Auto3D.foundation.results.WorkflowResult`` is ``main()``'s return value -- a ``str``
     subclass that *is* the output SDF path. The CLI's display payload -- counts,
     elapsed time, a failure list -- carried the same name with a trailing ``s``.
     They lived in two modules both named ``results.py``, differed by one

@@ -20,7 +20,7 @@ matched no branch in ``aimnet_hessian_helper`` and raised, while the same name
 resolved fine everywhere else.
 
 The tests below pin the replacement. Every entry point takes a
-:class:`~Auto3D.models.contract.ModelAdapter` and asks *it*; the analytic-vs-
+:class:`~Auto3D.engines.models.contract.ModelAdapter` and asks *it*; the analytic-vs-
 autograd choice is a capability query (``analytic_hessian`` returning ``None``
 means "differentiate ``energy()``"), not a type test; and no engine-name string
 survives on the path. Nothing here loads a neural network potential -- the one
@@ -36,7 +36,7 @@ import pytest
 import torch
 from torch import nn
 
-from Auto3D.ASE.thermo import calculator as _calculator
+from Auto3D.entry.ASE.thermo import calculator as _calculator
 
 pytest.importorskip("ase")
 pytest.importorskip("rdkit")
@@ -44,8 +44,8 @@ pytest.importorskip("rdkit")
 from rdkit import Chem  # noqa: E402
 from rdkit.Chem import AllChem  # noqa: E402
 
-import Auto3D.ASE.thermo.driver as thermo_mod  # noqa: E402
-from Auto3D.models.contract import missing_adapter_members  # noqa: E402
+import Auto3D.entry.ASE.thermo.driver as thermo_mod  # noqa: E402
+from Auto3D.engines.models.contract import missing_adapter_members  # noqa: E402
 from tests.helpers_adapter import AdapterModuleMixin  # noqa: E402
 
 #: An atomic-number -> species remap no engine name could ever produce, so an
@@ -136,13 +136,13 @@ class TestOneAdapterDrivesEveryHessianEntryPoint:
 
     def test_the_name_keyed_species_converter_is_gone(self):
         """``to_model_species`` existed only for callers holding a name, not a model."""
-        from Auto3D.models import species as species_mod
+        from Auto3D.engines.models import species as species_mod
 
         assert not hasattr(species_mod, "to_model_species")
         assert "to_model_species" not in species_mod.__all__
 
     def test_thermo_no_longer_carries_its_own_hartree_factor(self):
-        """One conversion, in ``Auto3D.constants``, reached via the adapters."""
+        """One conversion, in ``Auto3D.foundation.constants``, reached via the adapters."""
         assert not hasattr(thermo_mod, "hartree2ev")
 
     def test_one_adapter_supplies_species_energy_and_hessian(self):
@@ -220,7 +220,7 @@ class TestAnalyticVersusAutograd:
 
     def test_the_default_capability_is_none_not_an_exception(self):
         """Every in-tree adapter inherits "no native Hessian" from the base."""
-        from Auto3D.models.adapter import BaseModelAdapter
+        from Auto3D.engines.models.adapter import BaseModelAdapter
 
         assert (
             BaseModelAdapter.analytic_hessian(
@@ -236,7 +236,7 @@ class TestAnalyticVersusAutograd:
         third-party calculator type to leak into Auto3D's control flow, and
         ``vib_hessian`` no longer imports one.
         """
-        from Auto3D.models.adapter import AIMNet2Adapter
+        from Auto3D.engines.models.adapter import AIMNet2Adapter
 
         assert not hasattr(AIMNet2Adapter, "calculator")
         # Bytecode, not source text: the docstring names the removed type on

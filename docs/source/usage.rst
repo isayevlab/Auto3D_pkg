@@ -383,13 +383,13 @@ Auto3D provides additional wrapper functions for common tasks:
 .. code:: python
 
    # Single-point energy calculation
-   from Auto3D.SPE import calc_spe
+   from Auto3D.entry.SPE import calc_spe
 
    # Geometry optimization
-   from Auto3D.ASE.geometry import opt_geometry
+   from Auto3D.entry.ASE.geometry import opt_geometry
 
    # Thermodynamic calculations
-   from Auto3D.ASE.thermo import calc_thermo
+   from Auto3D.entry.ASE.thermo import calc_thermo
 
 See the `examples <https://github.com/isayevlab/Auto3D_pkg/tree/main/example>`_
 folder for detailed usage.
@@ -516,7 +516,7 @@ Once you have a thermo output, you can select on *G* instead:
 
 .. code:: python
 
-   from Auto3D.ranking import ConformerRanker, RANK_BY_GIBBS
+   from Auto3D.domain.ranking import ConformerRanker, RANK_BY_GIBBS
 
    ConformerRanker(
        input_path="molecules_AIMNET_G.sdf",

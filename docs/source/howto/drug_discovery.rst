@@ -160,7 +160,7 @@ For advanced tautomer settings:
 .. code:: python
 
    from Auto3D import Auto3DOptions
-   from Auto3D.tautomer import get_stable_tautomers
+   from Auto3D.entry.tautomer import get_stable_tautomers
 
    config = Auto3DOptions(
        path="lead_series.smi",
@@ -208,7 +208,7 @@ helps identify the most stable tautomeric forms.
 .. code:: python
 
    from Auto3D import Auto3DOptions
-   from Auto3D.tautomer import get_stable_tautomers
+   from Auto3D.entry.tautomer import get_stable_tautomers
    from rdkit import Chem
 
    # Enumerate tautomers with energy ranking

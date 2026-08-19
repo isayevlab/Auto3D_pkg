@@ -13,9 +13,9 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.filtering import filter_unique_optimized
-from Auto3D.ranking import ConformerRanker
-from Auto3D.utils.stereo_check import (
+from Auto3D.domain.filtering import filter_unique_optimized
+from Auto3D.domain.ranking import ConformerRanker
+from Auto3D.foundation.utils.stereo_check import (
     STEREO_CHANGED_PROP,
     apply_optimized_coords,
     stereo_descriptors_from_3d,
@@ -183,7 +183,7 @@ class TestFiltersExcludeStereoChangedRecords:
         converged" -- pointing the reader at the optimizer settings for a
         problem in the input's stereo definitions.
         """
-        from Auto3D.filtering import filter_conformers
+        from Auto3D.domain.filtering import filter_conformers
 
         result = filter_conformers(
             [_optimized(-2.0, changed=True), _optimized(-1.0, changed=False)],

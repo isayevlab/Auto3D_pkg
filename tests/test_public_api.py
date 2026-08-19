@@ -58,10 +58,10 @@ def test_tautomer_functions_public():
 
 def test_module_all_declared():
     for mod_name, expected in (
-        ("Auto3D.SPE", {"calc_spe"}),
-        ("Auto3D.ASE.geometry", {"opt_geometry"}),
-        ("Auto3D.ASE.thermo", {"calc_thermo"}),
-        ("Auto3D.tautomer", {"select_tautomers", "get_stable_tautomers"}),
+        ("Auto3D.entry.SPE", {"calc_spe"}),
+        ("Auto3D.entry.ASE.geometry", {"opt_geometry"}),
+        ("Auto3D.entry.ASE.thermo", {"calc_thermo"}),
+        ("Auto3D.entry.tautomer", {"select_tautomers", "get_stable_tautomers"}),
     ):
         mod = importlib.import_module(mod_name)
         assert set(mod.__all__) == expected, mod_name

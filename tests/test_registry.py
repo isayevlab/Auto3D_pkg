@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from Auto3D.exceptions import ConfigurationError
-from Auto3D.registry import Registry
+from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.foundation.registry import Registry
 
 
 def test_register_and_resolve():
