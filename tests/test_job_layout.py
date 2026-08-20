@@ -1,11 +1,11 @@
-"""Tests for Auto3D.job_layout module."""
+"""Tests for Auto3D.orchestration.job_layout module."""
 
 import shutil
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
 
-from Auto3D.job_layout import create_chunk_meta_names, housekeeping
+from Auto3D.orchestration.job_layout import create_chunk_meta_names, housekeeping
 
 # Get the test files directory
 TEST_DIR = Path(__file__).parent
@@ -110,7 +110,7 @@ def test_housekeeping_sweep_is_per_file_robust(tmp_path, monkeypatch):
     """
     import os
 
-    from Auto3D.job_layout import housekeeping
+    from Auto3D.orchestration.job_layout import housekeeping
 
     job = tmp_path / "job"
     job.mkdir()

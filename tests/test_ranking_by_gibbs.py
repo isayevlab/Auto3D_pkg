@@ -19,10 +19,10 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.constants import HARTREE_TO_EV
-from Auto3D.exceptions import InputValidationError
-from Auto3D.ranking import RANK_BY_ELECTRONIC, RANK_BY_GIBBS, ConformerRanker
-from Auto3D.utils.energy import set_e_tot_from_ev
+from Auto3D.domain.ranking import RANK_BY_ELECTRONIC, RANK_BY_GIBBS, ConformerRanker
+from Auto3D.foundation.constants import HARTREE_TO_EV
+from Auto3D.foundation.exceptions import InputValidationError
+from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 
 
 def _mol(name, e_ev, g_hartree=None, seed=42):

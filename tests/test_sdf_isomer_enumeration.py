@@ -11,7 +11,7 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.isomers import IsomerEngineFactory
+from Auto3D.engines.isomers import IsomerEngineFactory
 
 
 def _write_sdf(path, smiles: str, name: str, three_d: bool) -> None:
@@ -159,7 +159,7 @@ class TestEnumerationDisabled:
         """With enumeration off the user is told the output is a mixture."""
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.isomers.rdkit_sdf"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.engines.isomers.rdkit_sdf"):
             per_species = _run_engine(
                 job_dir,
                 "CC(N)C(=O)O",
@@ -184,7 +184,7 @@ class TestEnumerationDisabled:
         """
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.isomers.rdkit_sdf"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.engines.isomers.rdkit_sdf"):
             per_species = _run_engine(
                 job_dir,
                 "OC(=O)C=CC(=O)O",

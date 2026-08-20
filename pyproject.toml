@@ -61,7 +61,7 @@ ani = [
 ]
 ase = [
     # 3.23.0, not 3.22.1: IdealGasThermo gained `ignore_imag_modes` in 3.23.0,
-    # and Auto3D.ASE.thermo passes it -- on 3.22.1 that call raises TypeError.
+    # and Auto3D.entry.ASE.thermo passes it -- on 3.22.1 that call raises TypeError.
     # 3.22.1 also slices the last 3N-6 of the input list without sorting it
     # first, a third distinct mode-selection semantics. Verified against the
     # 3.22.1 and 3.23.0 wheels.
@@ -93,7 +93,7 @@ all = [
 ]
 
 [project.scripts]
-auto3d = "Auto3D.auto3Dcli:cli"
+auto3d = "Auto3D.presentation.auto3Dcli:cli"
 
 [project.urls]
 Homepage = "https://github.com/isayevlab/Auto3D_pkg"
@@ -109,7 +109,7 @@ where = ["src"]
 # `py.typed` backs the `Typing :: Typed` classifier: without the marker file
 # PEP 561 tells a downstream checker to treat every name here as `Any`, so the
 # annotations exist but nobody outside can see them.
-Auto3D = ["models/*.pt", "py.typed"]
+Auto3D = ["engines/models/*.pt", "py.typed"]
 
 [tool.ruff]
 line-length = 100

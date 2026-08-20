@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Tests for Auto3D.utils.geometry module."""
+"""Tests for Auto3D.foundation.utils.geometry module."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest  # noqa: F401  (several tests below are parametrized helpers' home
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.utils.geometry import get_rmsd, min_pairwise_distance
+from Auto3D.foundation.utils.geometry import get_rmsd, min_pairwise_distance
 
 
 class TestMinPairwiseDistance:
@@ -129,7 +129,7 @@ class TestGetRmsd:
 
     def test_runtime_error_returns_inf(self, monkeypatch):
         """A RuntimeError from the RMSD computation returns float('inf')."""
-        from Auto3D.utils import geometry as chem
+        from Auto3D.foundation.utils import geometry as chem
 
         mol = Chem.MolFromSmiles("CCO")
         mol = Chem.AddHs(mol)

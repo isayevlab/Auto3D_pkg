@@ -14,7 +14,7 @@ def test_thermo_module_no_hardcoded_tf32():
     # Import should not change these settings
     import importlib
 
-    import Auto3D.ASE.thermo.driver as thermo_module
+    import Auto3D.entry.ASE.thermo.driver as thermo_module
 
     importlib.reload(thermo_module)
 
@@ -31,7 +31,7 @@ def test_geometry_module_no_hardcoded_tf32():
 
     import importlib
 
-    import Auto3D.ASE.geometry as geometry_module
+    import Auto3D.entry.ASE.geometry as geometry_module
 
     importlib.reload(geometry_module)
 

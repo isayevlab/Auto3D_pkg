@@ -1,4 +1,4 @@
-"""Tests for Auto3D.utils.validation module."""
+"""Tests for Auto3D.foundation.utils.validation module."""
 
 import os
 import warnings
@@ -6,14 +6,14 @@ import warnings
 import pytest
 from rdkit import Chem
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.pipeline.input_checks import (
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.utils.connectivity import check_connectivity
+from Auto3D.orchestration.pipeline.input_checks import (
     check_input,
     check_sdf_format,
     check_smi_format,
     check_valid_configuration,
 )
-from Auto3D.utils.connectivity import check_connectivity
 
 # Set up test file paths
 folder = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -97,7 +97,7 @@ class TestCheckSmiFormat:
 
     def test_check_smi_format_rejects_missing_id(self, tmp_path):
         """A non-blank line with only a SMILES (no ID) raises InputValidationError."""
-        from Auto3D.exceptions import InputValidationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         smi = tmp_path / "noid.smi"
         smi.write_text("CCO\n")
@@ -160,7 +160,7 @@ def _options(**overrides):
     ``use_gpu=False`` by default: this box's CUDA availability must not decide
     whether an assertion about paths or engines holds.
     """
-    from Auto3D.config import Auto3DOptions
+    from Auto3D.foundation.config import Auto3DOptions
 
     params = {"path": path_example_smi, "k": 1, "use_gpu": False}
     params.update(overrides)
@@ -217,13 +217,13 @@ class TestCheckValidConfiguration:
     def test_invalid_isomer_engine_refused_at_construction(self):
         """An unrecognized isomer_engine is refused before this function runs.
 
-        The whitelist moved to ``Auto3D.config.ENGINE_CHOICES`` and is enforced
+        The whitelist moved to ``Auto3D.foundation.config.ENGINE_CHOICES`` and is enforced
         by ``Auto3DOptions.__post_init__``, so ``check_valid_configuration`` can
         no longer be reached with a bad value -- which is why it no longer
         carries its own copy of the set. The rejection did not disappear; it
         moved earlier, and to every entry point at once.
         """
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match="isomer_engine"):
             _options(isomer_engine="invalid")
@@ -236,7 +236,7 @@ class TestCheckValidConfiguration:
         that used to live in this module are gone. Same ``ConfigurationError``,
         raised before the banner instead of after it.
         """
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match="opt_steps"):
             _options(opt_steps=5)
@@ -249,7 +249,7 @@ class TestCheckValidConfiguration:
         ``Literal["rdkit", "oechem"]`` always rejected it, so the gated check
         was an entry-point divergence.
         """
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match="tauto_engine"):
             _options(enumerate_tautomer=True, tauto_engine="invalid")

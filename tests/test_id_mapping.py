@@ -1,12 +1,12 @@
-"""Tests for Auto3D.id_mapping module (encode_ids / decode_ids)."""
+"""Tests for Auto3D.domain.id_mapping module (encode_ids / decode_ids)."""
 
 from pathlib import Path
 
 import pytest
 from rdkit import Chem  # noqa: F401  (several tests import it locally too)
 
-from Auto3D.id_mapping import decode_ids, encode_ids
-from Auto3D.utils.sdf_io import count_sdf
+from Auto3D.domain.id_mapping import decode_ids, encode_ids
+from Auto3D.foundation.utils.sdf_io import count_sdf
 
 # Get the test files directory
 TEST_DIR = Path(__file__).parent
@@ -85,7 +85,7 @@ class TestEncodeDecodeIds:
 
     def test_encode_ids_rejects_duplicate_ids(self, tmp_path):
         """Duplicate molecule IDs in a .smi file are rejected up front."""
-        from Auto3D.exceptions import InputValidationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         p = tmp_path / "dup.smi"
         p.write_text("CCO mol1\nCCC mol1\n")
@@ -94,7 +94,7 @@ class TestEncodeDecodeIds:
 
     def test_encode_ids_rejects_missing_id(self, tmp_path):
         """A .smi row without a whitespace-separated ID is rejected."""
-        from Auto3D.exceptions import InputValidationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         p = tmp_path / "noid.smi"
         p.write_text("CCO\n")  # no whitespace-separated ID
@@ -112,7 +112,7 @@ class TestEncodeDecodeIds:
         """A molecule with a blank _Name in a .sdf file is rejected."""
         from rdkit.Chem import AllChem
 
-        from Auto3D.exceptions import InputValidationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         sdf = tmp_path / "blank.sdf"
         with Chem.SDWriter(str(sdf)) as w:
@@ -136,14 +136,14 @@ class TestEncodeDecodeIds:
         reintroduce the defect.
 
         The refusal now comes from the shared
-        `Auto3D.utils.output_guard.check_output_overwrite` (hence the
+        `Auto3D.foundation.utils.output_guard.check_output_overwrite` (hence the
         "already exists" wording) rather than a bespoke message here, so
         `encode_ids`, `decode_ids` and `tautomer.select_tautomers` state the
         same policy the same way -- and `overwrite=True` can lift it, which the
         unconditional refusal this replaced offered no way to do.
         `tests/test_output_overwrite_gates.py` covers both directions.
         """
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         p = tmp_path / "mols.smi"
         p.write_text("CCO a\n")
@@ -182,7 +182,7 @@ class TestNoneMolHardening:
     def test_decode_ids_skips_none_records(self, tmp_path, monkeypatch):
         """decode_ids must skip None records without raising."""
 
-        import Auto3D.id_mapping as id_mapping
+        import Auto3D.domain.id_mapping as id_mapping
 
         valid = Chem.MolFromSmiles("C")
         valid.SetProp("_Name", "0")

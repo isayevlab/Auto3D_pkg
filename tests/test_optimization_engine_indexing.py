@@ -34,8 +34,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from Auto3D.batch_opt.fire_optimizer import FIRE
-from Auto3D.batch_opt.optimization_engine import n_steps
+from Auto3D.engines.batch_opt.fire_optimizer import FIRE
+from Auto3D.engines.batch_opt.optimization_engine import n_steps
 from tests.helpers_sync_count import BOOL_MASK_LABELS, NONZERO, SyncCounter
 
 # --------------------------------------------------------------------------- #
@@ -613,7 +613,7 @@ class TestDecomposedHelpers:
 
     def test_step_active_subset_returns_rows_aligned_with_the_index(self):
         """Every field of the result has the active subset's leading dimension."""
-        from Auto3D.batch_opt.optimization_engine import _step_active_subset
+        from Auto3D.engines.batch_opt.optimization_engine import _step_active_subset
 
         state = self._state()
         optimizer = FIRE(state["coord"].index_select(0, torch.tensor([1, 3])))
@@ -635,7 +635,7 @@ class TestDecomposedHelpers:
         A scatter that touched an untouched row would silently overwrite a
         converged structure's final geometry with a stale one.
         """
-        from Auto3D.batch_opt.optimization_engine import _scatter_back, _StepResult
+        from Auto3D.engines.batch_opt.optimization_engine import _scatter_back, _StepResult
 
         state = self._state()
         state["coord"] = torch.zeros(4, 5, 3)
@@ -673,7 +673,7 @@ class TestDecomposedHelpers:
         at the call site. This is the unit-level statement of what
         ``test_float64_model_outputs_do_not_raise`` checks end to end.
         """
-        from Auto3D.batch_opt.optimization_engine import _scatter_back, _StepResult
+        from Auto3D.engines.batch_opt.optimization_engine import _scatter_back, _StepResult
 
         state = self._state()
         smallest = torch.full((4, 1), 999.0)
@@ -698,7 +698,7 @@ class TestDecomposedHelpers:
 
     def test_emit_progress_is_a_no_op_without_a_callback(self):
         """No callback means no ``optimization_counts``, hence no sync at all."""
-        from Auto3D.batch_opt.optimization_engine import _emit_progress
+        from Auto3D.engines.batch_opt.optimization_engine import _emit_progress
 
         state = self._state()
         counter = SyncCounter()
@@ -708,7 +708,7 @@ class TestDecomposedHelpers:
 
     def test_emit_progress_swallows_a_failing_callback(self):
         """A broken progress display must never abort an optimization."""
-        from Auto3D.batch_opt.optimization_engine import _emit_progress
+        from Auto3D.engines.batch_opt.optimization_engine import _emit_progress
 
         def explode(event):
             raise RuntimeError("display is on fire")
@@ -717,7 +717,7 @@ class TestDecomposedHelpers:
 
     def test_emit_progress_reports_the_counts(self):
         """The event carries the five documented keys."""
-        from Auto3D.batch_opt.optimization_engine import _emit_progress
+        from Auto3D.engines.batch_opt.optimization_engine import _emit_progress
 
         state = self._state()
         state["converged_mask"] = torch.tensor([True, True, False, False])
@@ -727,7 +727,7 @@ class TestDecomposedHelpers:
 
     def test_recompute_final_energy_and_fmax_uses_the_stored_coordinates(self):
         """Reported energy/fmax describe the reported geometry, not the pre-step one."""
-        from Auto3D.batch_opt.optimization_engine import (
+        from Auto3D.engines.batch_opt.optimization_engine import (
             _recompute_final_energy_and_fmax,
         )
 
@@ -747,7 +747,7 @@ class TestDecomposedHelpers:
 
     def test_recompute_ignores_padded_atom_forces(self):
         """Ghost slots cannot inflate the reported fmax."""
-        from Auto3D.batch_opt.optimization_engine import (
+        from Auto3D.engines.batch_opt.optimization_engine import (
             _recompute_final_energy_and_fmax,
         )
 

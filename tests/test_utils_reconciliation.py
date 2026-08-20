@@ -1,11 +1,11 @@
-"""Tests for Auto3D.utils.reconciliation module."""
+"""Tests for Auto3D.foundation.utils.reconciliation module."""
 
 from pathlib import Path
 
 import pytest  # noqa: F401  (used by the __main__ guard below)
 from rdkit import Chem
 
-from Auto3D.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
+from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
 
 # Get the test files directory
 TEST_DIR = Path(__file__).parent
@@ -28,7 +28,7 @@ class TestNoneAndMalformedInputHardening:
         """find_smiles_not_in_sdf must skip None SDF records."""
         from rdkit import Chem
 
-        import Auto3D.utils.reconciliation as reconciliation
+        import Auto3D.foundation.utils.reconciliation as reconciliation
 
         valid = Chem.MolFromSmiles("C")
         valid.SetProp("_Name", "mol_a")
@@ -48,7 +48,7 @@ class TestNoneAndMalformedInputHardening:
         """find_smiles_not_in_sdf tolerates blank and 3-token .smi lines."""
         from rdkit import Chem
 
-        import Auto3D.utils.reconciliation as reconciliation
+        import Auto3D.foundation.utils.reconciliation as reconciliation
 
         valid = Chem.MolFromSmiles("C")
         valid.SetProp("_Name", "mol_a")
@@ -149,7 +149,7 @@ class TestFindIdsNotInSdf:
           against, and there is nothing better to do than skip it. Reporting it
           would invent a *missing input* out of an unreadable output.
         """
-        import Auto3D.utils.reconciliation as reconciliation
+        import Auto3D.foundation.utils.reconciliation as reconciliation
 
         calls = {"n": 0}
 

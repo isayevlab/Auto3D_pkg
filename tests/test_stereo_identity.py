@@ -16,7 +16,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
     StereoEnumerationOptions,
 )
 
-from Auto3D.utils.stereochemistry import enantiomer, enantiomer_helper
+from Auto3D.foundation.utils.stereochemistry import enantiomer, enantiomer_helper
 
 
 def _enumerate(smiles: str) -> list[str]:
@@ -63,7 +63,7 @@ class TestTautomerStereoPreservation:
         This drives Auto3D's real ``rdkit`` tautomer engine -- the same
         ``RDKitOrOEChemTautomerEngine.rd_taut()`` the pipeline dispatches to,
         reached via
-        ``Auto3D.isomers.factory.create_tautomer_engine`` -- rather than a
+        ``Auto3D.engines.isomers.factory.create_tautomer_engine`` -- rather than a
         bare RDKit ``TautomerEnumerator``, so the defect is attributed to
         Auto3D's tautomer path and not to RDKit in isolation.
 
@@ -78,7 +78,7 @@ class TestTautomerStereoPreservation:
         the eventual fix must not over-correct to "preserve stereo across all
         tautomers unconditionally."
         """
-        from Auto3D.isomers.factory import create_tautomer_engine
+        from Auto3D.engines.isomers.factory import create_tautomer_engine
 
         in_smi = job_dir / "taut_stereo.smi"
         in_smi.write_text("C[C@H](C(=O)C)N taut_test\n")
@@ -103,7 +103,7 @@ class TestSdfInputStereo:
         record for alanine to disk and feeds it through the production
         ``rdkit_sdf`` engine -- the same ``RDKitSdfIsomer.run()`` the pipeline
         dispatches to for SDF input --
-        via ``Auto3D.isomers.IsomerEngineFactory.create``. It then inspects
+        via ``Auto3D.engines.isomers.IsomerEngineFactory.create``. It then inspects
         the SDF file Auto3D actually writes, grouped by species name (the
         conformer-index suffix stripped). Either the two configurations must
         come out as distinct, internally consistent species, or ambiguous
@@ -113,7 +113,7 @@ class TestSdfInputStereo:
         """
         from rdkit.Chem import AllChem
 
-        from Auto3D.isomers import IsomerEngineFactory
+        from Auto3D.engines.isomers import IsomerEngineFactory
 
         # Alanine drawn flat (2D), with no stereo specified anywhere: no
         # wedge/hash bonds, no parity flags in the mol block.
@@ -185,7 +185,7 @@ class TestSdfInputStereo:
         """
         from rdkit.Chem import AllChem
 
-        from Auto3D.isomers import IsomerEngineFactory
+        from Auto3D.engines.isomers import IsomerEngineFactory
 
         # C2 (attached to OH) is specified via @; C3 (attached to NH2) is left
         # unspecified. EnumerateStereoisomers(onlyUnassigned=True) then varies

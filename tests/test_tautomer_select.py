@@ -11,7 +11,7 @@ def test_select_tautomers_groups_by_id(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.tautomer import select_tautomers
+    from Auto3D.entry.tautomer import select_tautomers
 
     sdf = tmp_path / "in.sdf"
     with Chem.SDWriter(str(sdf)) as w:
@@ -49,8 +49,8 @@ def test_select_tautomers_rejects_nonpositive_k(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.exceptions import ConfigurationError
-    from Auto3D.tautomer import select_tautomers
+    from Auto3D.entry.tautomer import select_tautomers
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     sdf = tmp_path / "in.sdf"
     with Chem.SDWriter(str(sdf)) as w:
@@ -72,8 +72,8 @@ def test_select_tautomers_rejects_k_and_window_together(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.exceptions import ConfigurationError
-    from Auto3D.tautomer import select_tautomers
+    from Auto3D.entry.tautomer import select_tautomers
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     sdf = tmp_path / "in.sdf"
     with Chem.SDWriter(str(sdf)) as w:
@@ -93,8 +93,8 @@ def test_select_tautomers_rejects_neither_k_nor_window(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.exceptions import ConfigurationError
-    from Auto3D.tautomer import select_tautomers
+    from Auto3D.entry.tautomer import select_tautomers
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     sdf = tmp_path / "in.sdf"
     with Chem.SDWriter(str(sdf)) as w:

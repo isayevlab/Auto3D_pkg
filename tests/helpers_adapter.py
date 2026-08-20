@@ -1,8 +1,8 @@
 # tests/helpers_adapter.py
-"""One conforming :class:`~Auto3D.models.contract.ModelAdapter` double.
+"""One conforming :class:`~Auto3D.engines.models.contract.ModelAdapter` double.
 
 ``EnForce_ANI.__init__`` gates its first argument against the adapter contract
-(``Auto3D.models.contract.ModelAdapter``), and ``pad_from_mols`` reads the
+(``Auto3D.engines.models.contract.ModelAdapter``), and ``pad_from_mols`` reads the
 species convention *and* both padding sentinels off the same object. Before
 this module every test that needed "something adapter-shaped" grew its own
 duck-typed class declaring only the members that particular test happened to
@@ -136,7 +136,7 @@ class AdapterModuleMixin:
 
 
 def padded_batch(n_mols: int = 2, n_atoms: int = 3):
-    """Tensors shaped like :func:`Auto3D.batch_opt.padding.pad_from_mols`."""
+    """Tensors shaped like :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`."""
     coords = torch.zeros(n_mols, n_atoms, 3)
     species = torch.ones(n_mols, n_atoms, dtype=torch.long)
     charges = torch.zeros(n_mols)

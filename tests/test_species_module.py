@@ -5,7 +5,7 @@ expects 0-based indices (H=0..Cl=6), not atomic numbers. Before this module
 existed the conversion was duplicated in three places and omitted in two more
 (audit C3, C4).
 
-The table now lives in ``Auto3D.models.species``, not ``Auto3D.batch_opt.species``:
+The table now lives in ``Auto3D.engines.models.species``, not ``Auto3D.engines.batch_opt.species``:
 the species convention is a property of the MODEL, and hosting it under
 ``batch_opt`` made the optimizer package a shared-utility provider for ``ASE/``,
 ``cli/`` and ``models/``'s own padder. The ONLY way to reach it is
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from Auto3D.models.species import ANI2XT_INDEX
+from Auto3D.engines.models.species import ANI2XT_INDEX
 
 
 class TestAni2xtMapping:
@@ -31,19 +31,19 @@ class TestAni2xtMapping:
 
     def test_methane_maps_to_indices(self):
         """Carbon and four hydrogens become [1, 0, 0, 0, 0]."""
-        from Auto3D.models.species import to_ani2xt_species
+        from Auto3D.engines.models.species import to_ani2xt_species
 
         assert to_ani2xt_species([6, 1, 1, 1, 1]) == [1, 0, 0, 0, 0]
 
     def test_all_seven_supported_elements(self):
         """H, C, N, O, F, S, Cl map to 0..6 in that order."""
-        from Auto3D.models.species import to_ani2xt_species
+        from Auto3D.engines.models.species import to_ani2xt_species
 
         assert to_ani2xt_species([1, 6, 7, 8, 9, 16, 17]) == [0, 1, 2, 3, 4, 5, 6]
 
     def test_unsupported_element_names_itself_and_the_model(self):
         """Sodium is outside ANI2xt's set; the error must be actionable."""
-        from Auto3D.models.species import to_ani2xt_species
+        from Auto3D.engines.models.species import to_ani2xt_species
 
         with pytest.raises(ValueError) as exc:
             to_ani2xt_species([11])
@@ -66,12 +66,12 @@ class TestTheNameKeyedConverterIsGone:
     """
 
     def test_the_function_does_not_exist(self):
-        from Auto3D.models import species as species_mod
+        from Auto3D.engines.models import species as species_mod
 
         assert not hasattr(species_mod, "to_model_species")
 
     def test_it_is_not_in_the_public_surface(self):
-        from Auto3D.models import species as species_mod
+        from Auto3D.engines.models import species as species_mod
 
         assert "to_model_species" not in species_mod.__all__
 
@@ -117,14 +117,14 @@ class TestEveryOtherEngineConsumesAtomicNumbers:
     """Passthrough is now a property of the adapter, not of a name match."""
 
     def test_the_base_adapter_is_the_identity(self):
-        from Auto3D.models.adapter import BaseModelAdapter
+        from Auto3D.engines.models.adapter import BaseModelAdapter
 
         numbers = [1, 6, 7, 8, 11, 26]
         assert BaseModelAdapter.to_species(object(), numbers) == numbers
 
     def test_passthrough_does_not_reject_exotic_elements(self):
         """Iron is meaningless to ANI2xt but fine for AIMNet2 or a custom model."""
-        from Auto3D.models.adapter import BaseModelAdapter
+        from Auto3D.engines.models.adapter import BaseModelAdapter
 
         assert BaseModelAdapter.to_species(object(), [26]) == [26]
 
@@ -152,12 +152,12 @@ class TestOnlyAni2xtRemaps:
     """
 
     def test_base_adapter_to_species_is_the_identity(self):
-        from Auto3D.models.adapter import BaseModelAdapter
+        from Auto3D.engines.models.adapter import BaseModelAdapter
 
         assert BaseModelAdapter.to_species(object(), [1, 6, 17]) == [1, 6, 17]
 
     def test_ani2xt_is_the_only_adapter_that_overrides_it(self):
-        from Auto3D.models.adapter import (
+        from Auto3D.engines.models.adapter import (
             AIMNet2Adapter,
             ANI2xAdapter,
             ANI2xtAdapter,
@@ -187,8 +187,8 @@ class TestOnlyAni2xtRemaps:
         construction loads ``models/ani2xt_no_repulsion.pt`` and needs torchani
         for the AEV computer, neither of which belongs in the fast tier.
         """
-        from Auto3D.models import adapter as adapter_mod
-        from Auto3D.models.adapter import ANI2xtAdapter
+        from Auto3D.engines.models import adapter as adapter_mod
+        from Auto3D.engines.models.adapter import ANI2xtAdapter
 
         seen: list = []
 
@@ -204,13 +204,13 @@ class TestOnlyAni2xtRemaps:
         assert result == ["sentinel"]
 
     def test_the_mapping_itself_is_what_ani2xt_expects(self):
-        from Auto3D.models.species import to_ani2xt_species
+        from Auto3D.engines.models.species import to_ani2xt_species
 
         assert to_ani2xt_species([6, 1, 1, 1, 1]) == [1, 0, 0, 0, 0]
         assert to_ani2xt_species([1, 6, 7, 8, 9, 16, 17]) == [0, 1, 2, 3, 4, 5, 6]
 
     def test_out_of_set_element_names_the_element_and_the_model(self):
-        from Auto3D.models.species import to_ani2xt_species
+        from Auto3D.engines.models.species import to_ani2xt_species
 
         with pytest.raises(ValueError) as exc:
             to_ani2xt_species([11])
@@ -224,4 +224,4 @@ def test_the_batch_opt_module_is_gone():
     import importlib
 
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("Auto3D.batch_opt.species")
+        importlib.import_module("Auto3D.engines.batch_opt.species")

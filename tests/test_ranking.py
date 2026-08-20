@@ -10,7 +10,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.utils.energy import e_tot_ev, set_e_tot_from_ev
+from Auto3D.foundation.utils.energy import e_tot_ev, set_e_tot_from_ev
 
 
 def _create_mol_with_energy(
@@ -52,7 +52,7 @@ class TestConformerRankerWithOptimizedFiltering:
 
     def test_ranker_deduplicates_identical_conformers(self, tmp_path):
         """ConformerRanker dedups through the single conformer filter."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # Create test molecules - all with same SMILES root name.
         # Identical geometry AND near-identical energy (within the duplicate
@@ -86,7 +86,7 @@ class TestConformerRankerWithOptimizedFiltering:
         by ``**kwargs`` -- a caller passing ``False`` deserves to learn the
         legacy path is gone instead of silently getting the other one.
         """
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         input_path = str(tmp_path / "input.sdf")
         _write_mols_to_sdf([_create_mol_with_energy("C", -10.0, "mol_1")], input_path)
@@ -107,7 +107,7 @@ class TestConformerRankerWithOptimizedFiltering:
         axis at all, and it used to be asserted by comparing against the legacy
         all-pairs filter (deleted in 3.0.0). Asserted directly now.
         """
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # Identical molecules (same structure AND near-identical energy, within
         # the duplicate energy tolerance) - these should be deduplicated.
@@ -140,7 +140,7 @@ class TestConformerRankerWithOptimizedFiltering:
 
     def test_energy_cluster_window_parameter(self, tmp_path):
         """Ranker should accept energy_cluster_window parameter for optimized filtering."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_1")
         mol2 = _create_mol_with_energy("C", -10.05, "mol_2")  # Similar energy
@@ -174,7 +174,7 @@ class TestConformerRankerTopK:
         """top_k should work correctly with optimized filtering."""
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
         mol2 = _create_mol_with_energy("C", -9.0, "mol")
@@ -210,7 +210,7 @@ class TestConformerRankerTopK:
         """
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # Create multiple identical molecules with different energies
         mol1 = _create_mol_with_energy("C", -10.0, "mol")  # Lowest energy
@@ -244,7 +244,7 @@ class TestConformerRankerTopK:
 
     def test_top_k_equals_1_full_integration(self, tmp_path):
         """Integration test: k=1 should return single lowest-energy conformer."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # Create multiple molecules with different energies
         mol1 = _create_mol_with_energy("C", -8.0, "mol_1")
@@ -276,7 +276,7 @@ class TestConformerRankerTopK:
         """
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # mol_broken: lowest energy but has a broken C-C bond.
         mol_broken = _create_mol_with_energy("CC", -10.0, "mol")
@@ -289,7 +289,7 @@ class TestConformerRankerTopK:
         mol_valid = _create_mol_with_energy("CC", -9.0, "mol")
 
         # Sanity: the broken one fails check_connectivity, the valid one passes.
-        from Auto3D.utils.connectivity import check_connectivity
+        from Auto3D.foundation.utils.connectivity import check_connectivity
 
         assert check_connectivity(mol_broken) is False
         assert check_connectivity(mol_valid) is True
@@ -319,14 +319,14 @@ class TestConformerRankerTopK:
         """When k=1 and no conformer passes connectivity, return an empty list."""
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol_broken = _create_mol_with_energy("CC", -10.0, "mol")
         conf = mol_broken.GetConformer()
         pos = conf.GetAtomPosition(0)
         conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
 
-        from Auto3D.utils.connectivity import check_connectivity
+        from Auto3D.foundation.utils.connectivity import check_connectivity
 
         assert check_connectivity(mol_broken) is False
 
@@ -356,7 +356,7 @@ class TestConformerRankerTopWindow:
         """top_window should work correctly with optimized filtering."""
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
         mol2 = _create_mol_with_energy("CC", -9.5, "mol")  # Different structure
@@ -393,7 +393,7 @@ class TestConformerRankerSelectorExclusivity:
     ``ConformerRanker.run`` consults exactly one selector
     (``if self.k: ... elif self.window: ...``), so a caller who sets both
     silently gets top-k and an inert window. Both config classes catch that at
-    construction time via ``Auto3D.config.check_field_bounds``; ``run`` is the
+    construction time via ``Auto3D.foundation.config.check_field_bounds``; ``run`` is the
     guard for callers who build a ``ConformerRanker`` directly. It used to
     carry its own hand-written copy of the check, which had already drifted
     from the shared one ("got k=1 and window=5.0" vs "got k=1, window=5.0"),
@@ -403,7 +403,7 @@ class TestConformerRankerSelectorExclusivity:
 
     @staticmethod
     def _ranker(tmp_path, **kwargs):
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # A real, readable input SDF -- not a missing path and not a 0-byte
         # file, both of which make RDKit raise OSError. With the guard removed,
@@ -424,7 +424,7 @@ class TestConformerRankerSelectorExclusivity:
         )
 
     def test_k_and_window_together_raise(self, tmp_path):
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         ranker = self._ranker(tmp_path, k=1, window=5.0)
         with pytest.raises(ConfigurationError, match="Only one of k or window"):
@@ -435,10 +435,10 @@ class TestConformerRankerSelectorExclusivity:
 
         Reverting `run` to its own inlined check reintroduces the "and"/","
         drift and fails this comparison; a message reworded in
-        `Auto3D.config` alone can no longer leave `ranking.py` behind.
+        `Auto3D.foundation.config` alone can no longer leave `ranking.py` behind.
         """
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         smi = tmp_path / "in.smi"
         smi.write_text("CCO mol1\n")
@@ -463,7 +463,7 @@ class TestConformerRankerValidation:
         """top_k should raise ValueError when molecules have different names."""
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
         mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
@@ -493,7 +493,7 @@ class TestConformerRankerValidation:
         """top_window should raise ValueError when window is negative."""
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
 
@@ -522,7 +522,7 @@ class TestConformerRankerValidation:
         """top_window should raise ValueError when molecules have different names."""
         import pandas as pd
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
         mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
@@ -558,7 +558,7 @@ class TestConformerRankerEnergyUnitLabel:
         E_tot is written in Hartree but unlabeled; E_tot(Hartree) is the
         unit-labeled sibling so consumers can't misread units.
         """
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # Distinct structures so both survive RMSD filtering.
         mol1 = _create_mol_with_energy("CCO", -10.0, "mol_1")
@@ -600,7 +600,7 @@ class TestConformerRankerMissingConvergedProp:
 
     def test_a_file_with_no_converged_property_is_not_deleted(self, tmp_path):
         """Three records in, a non-empty file and the same species out."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mols = [
             _create_mol_with_energy("CCO", -10.0, "ethanol_0_0", converged=None),
@@ -632,7 +632,7 @@ class TestConformerRankerMissingConvergedProp:
 
     def test_an_explicit_false_is_still_dropped(self, tmp_path):
         """Absence is not failure -- but an explicit failure still is."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         good = _create_mol_with_energy("CCO", -10.0, "good_0_0", converged=None)
         bad = _create_mol_with_energy("CCCO", -9.0, "bad_0_0", converged=False)
@@ -657,8 +657,8 @@ class TestConformerRankerMissingConvergedProp:
         This used to be masked: the record was silently deleted for lacking
         'Converged' before anything asked it for an energy.
         """
-        from Auto3D.exceptions import InputValidationError
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.exceptions import InputValidationError
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -687,7 +687,7 @@ class TestConformerRankerMissingConvergedProp:
         """
         import logging
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mols = [
             _create_mol_with_energy("CCO", -10.0, "a_0_0", converged=False),
@@ -697,7 +697,7 @@ class TestConformerRankerMissingConvergedProp:
         output_path = str(tmp_path / "output.sdf")
         _write_mols_to_sdf(mols, input_path)
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.domain.ranking"):
             results = ConformerRanker(
                 input_path=input_path,
                 out_path=output_path,
@@ -739,9 +739,9 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
         return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol)))
 
     def test_enumerate_isomer_false_returns_both_molecules(self, tmp_path):
-        from Auto3D.isomers.rdkit_smi import RDKitIsomer
-        from Auto3D.ranking import ConformerRanker, species_id
-        from Auto3D.utils.smi_io import smiles2smi
+        from Auto3D.domain.ranking import ConformerRanker, species_id
+        from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
+        from Auto3D.foundation.utils.smi_io import smiles2smi
 
         smi_path = str(tmp_path / "in.smi")
         smiles2smi([self.PYRIDONE, self.HYDROXYPYRIDINE], smi_path)
@@ -835,7 +835,7 @@ class TestNothingSelectedSaysWhy:
 
     @staticmethod
     def _ranker(tmp_path, **kwargs):
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         return ConformerRanker(
             input_path=str(tmp_path / "in.sdf"),
@@ -846,7 +846,7 @@ class TestNothingSelectedSaysWhy:
 
     @staticmethod
     def _stereo_changed(energy: float, name: str) -> Chem.Mol:
-        from Auto3D.utils.stereo_check import STEREO_CHANGED_PROP
+        from Auto3D.foundation.utils.stereo_check import STEREO_CHANGED_PROP
 
         mol = _create_mol_with_energy("C/C=C/CCO", energy, name)
         mol.SetProp(STEREO_CHANGED_PROP, "true")
@@ -862,7 +862,7 @@ class TestNothingSelectedSaysWhy:
         mols = [self._stereo_changed(-10.0, "probe_0_0"), self._stereo_changed(-9.0, "probe_0_1")]
         ranker = self._ranker(tmp_path, k=5)
 
-        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.INFO, logger="Auto3D.domain.ranking"):
             assert ranker.top_k(self._group(mols), k=5) == []
 
         messages = self._messages(caplog)
@@ -882,7 +882,7 @@ class TestNothingSelectedSaysWhy:
         mols = [self._stereo_changed(-10.0, "probe_0_0")]
         ranker = self._ranker(tmp_path, k=1)
 
-        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.INFO, logger="Auto3D.domain.ranking"):
             assert ranker.top_k(self._group(mols), k=1) == []
 
         messages = self._messages(caplog)
@@ -892,7 +892,7 @@ class TestNothingSelectedSaysWhy:
     def test_a_connectivity_dropped_species_names_connectivity(self, tmp_path, caplog):
         import logging
 
-        from Auto3D.utils.connectivity import check_connectivity
+        from Auto3D.foundation.utils.connectivity import check_connectivity
 
         def broken(energy: float, name: str) -> Chem.Mol:
             mol = _create_mol_with_energy("CC", energy, name)
@@ -905,7 +905,7 @@ class TestNothingSelectedSaysWhy:
         mols = [broken(-10.0, "probe_0_0"), broken(-9.0, "probe_0_1")]
         ranker = self._ranker(tmp_path, k=5)
 
-        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.INFO, logger="Auto3D.domain.ranking"):
             assert ranker.top_k(self._group(mols), k=5) == []
 
         messages = self._messages(caplog)
@@ -928,7 +928,7 @@ class TestNothingSelectedSaysWhy:
         ]
         ranker = self._ranker(tmp_path, k=5)
 
-        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.INFO, logger="Auto3D.domain.ranking"):
             assert ranker.top_k(self._group(mols), k=5) == []
 
         assert any(m == "No structure converged for probe." for m in self._messages(caplog)), (
@@ -946,7 +946,7 @@ class TestNothingSelectedSaysWhy:
         ]
         ranker = self._ranker(tmp_path, k=5)
 
-        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.INFO, logger="Auto3D.domain.ranking"):
             assert ranker.top_k(self._group(mols), k=5) == []
 
         messages = self._messages(caplog)
@@ -965,7 +965,7 @@ class TestNothingSelectedSaysWhy:
         mols = [_create_mol_with_energy("CCO", -10.0, "probe_0_0")]
         ranker = self._ranker(tmp_path, k=5)
 
-        with caplog.at_level(logging.INFO, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.INFO, logger="Auto3D.domain.ranking"):
             assert len(ranker.top_k(self._group(mols), k=5)) == 1
 
         messages = self._messages(caplog)
@@ -1013,7 +1013,7 @@ class TestNothingSelectedSaysWhy:
         """
         import logging
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mols = [self._stereo_changed(-10.0, "probe_0_0"), self._stereo_changed(-9.0, "probe_0_1")]
         input_path = str(tmp_path / "in.sdf")
@@ -1025,7 +1025,7 @@ class TestNothingSelectedSaysWhy:
             threshold=0.3,
             k=5,
         )
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.domain.ranking"):
             assert ranker.run() == []
 
         warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
@@ -1040,7 +1040,7 @@ class TestNothingSelectedSaysWhy:
         because RDKit could not parse them) are counted in the same tally."""
         import logging
 
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mols = [
             _create_mol_with_energy("CCO", -10.0, "probe_0_0", converged=False),
@@ -1055,7 +1055,7 @@ class TestNothingSelectedSaysWhy:
             threshold=0.3,
             k=5,
         )
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ranking"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.domain.ranking"):
             assert ranker.run() == []
 
         warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
@@ -1063,7 +1063,7 @@ class TestNothingSelectedSaysWhy:
 
     def test_the_tally_is_reset_between_runs(self, tmp_path):
         """A ranker reused for a second file must not report the first's drops."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         # Stereo-changed records pass run()'s own convergence check and are
         # dropped by the FILTER, so they land in the tally -- unlike an
@@ -1095,7 +1095,7 @@ class TestSelectorDispatchRegistry:
     """``run`` dispatches through a registry checked against ``config.py``.
 
     It used to be a hand-written ``if self.k: ... elif self.window: ...``. A
-    third selector added to ``Auto3D.config.SELECTOR_FIELDS`` would then be
+    third selector added to ``Auto3D.foundation.config.SELECTOR_FIELDS`` would then be
     accepted by ``Auto3DOptions``, accepted by ``CLIConfig``, accepted by
     ``check_selectors_mutually_exclusive`` -- and silently ignored here, falling
     through to "Parameter k or window needs to be specified" even though the
@@ -1103,13 +1103,13 @@ class TestSelectorDispatchRegistry:
     """
 
     def test_the_registry_matches_the_authoritative_field_list(self):
-        from Auto3D.config import SELECTOR_FIELDS
-        from Auto3D.ranking import _SELECTORS
+        from Auto3D.domain.ranking import _SELECTORS
+        from Auto3D.foundation.config import SELECTOR_FIELDS
 
         assert set(_SELECTORS) == set(SELECTOR_FIELDS)
 
     def test_every_mapped_method_exists(self):
-        from Auto3D.ranking import _SELECTORS, ConformerRanker
+        from Auto3D.domain.ranking import _SELECTORS, ConformerRanker
 
         for field, method in _SELECTORS.items():
             assert callable(getattr(ConformerRanker, method, None)), field
@@ -1118,10 +1118,10 @@ class TestSelectorDispatchRegistry:
         """The point of the check: adding a field to config without wiring a
         method here must be impossible to miss.
 
-        This is the exact call ``Auto3D.ranking`` makes at import, with the
+        This is the exact call ``Auto3D.domain.ranking`` makes at import, with the
         field list a developer would have just extended.
         """
-        from Auto3D.ranking import (
+        from Auto3D.domain.ranking import (
             _SELECTORS,
             ConformerRanker,
             _verify_selector_registry,
@@ -1134,7 +1134,7 @@ class TestSelectorDispatchRegistry:
         """A typo in a method name passes the set comparison, then raises
         AttributeError from inside ``run`` -- after the whole input has been
         read and grouped."""
-        from Auto3D.ranking import ConformerRanker, _verify_selector_registry
+        from Auto3D.domain.ranking import ConformerRanker, _verify_selector_registry
 
         with pytest.raises(ImportError, match="not a method of ConformerRanker"):
             _verify_selector_registry(
@@ -1145,14 +1145,14 @@ class TestSelectorDispatchRegistry:
 
     def test_the_real_registry_passes_its_own_check(self):
         """The inverse: a check that refused everything would satisfy both
-        tests above and make ``import Auto3D.ranking`` impossible -- so assert
+        tests above and make ``import Auto3D.domain.ranking`` impossible -- so assert
         the shipped configuration is accepted."""
-        from Auto3D.config import SELECTOR_FIELDS
-        from Auto3D.ranking import (
+        from Auto3D.domain.ranking import (
             _SELECTORS,
             ConformerRanker,
             _verify_selector_registry,
         )
+        from Auto3D.foundation.config import SELECTOR_FIELDS
 
         _verify_selector_registry(_SELECTORS, SELECTOR_FIELDS, ConformerRanker)
 
@@ -1166,8 +1166,8 @@ class TestSelectorDispatchRegistry:
         specified" for a parameter they had specified. Reverting ``run`` to that
         chain must fail this test.
         """
-        import Auto3D.ranking as ranking
-        from Auto3D.ranking import ConformerRanker
+        import Auto3D.domain.ranking as ranking
+        from Auto3D.domain.ranking import ConformerRanker
 
         calls = []
 
@@ -1208,7 +1208,7 @@ class TestSelectorDispatchRegistry:
 
     def test_k_routes_to_top_k_and_window_to_top_window(self, tmp_path):
         """The registry must actually be what dispatch consults."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         mols = [_create_mol_with_energy("CCO", -10.0, "probe_0_0")]
         input_path = str(tmp_path / "in.sdf")
@@ -1242,8 +1242,8 @@ def test_missing_selector_message_is_not_run_together(tmp_path):
     shipped text read "Append \"--k=1\" if youonly want one structure per
     SMILES".
     """
-    from Auto3D.exceptions import ConfigurationError
-    from Auto3D.ranking import ConformerRanker
+    from Auto3D.domain.ranking import ConformerRanker
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     input_path = str(tmp_path / "input.sdf")
     _write_mols_to_sdf([_create_mol_with_energy("C", -10.0, "mol_1")], input_path)

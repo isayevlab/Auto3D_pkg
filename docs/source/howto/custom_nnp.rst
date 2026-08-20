@@ -83,7 +83,7 @@ Overview
 --------
 
 Auto3D supports custom PyTorch-based NNP models through the
-:class:`Auto3D.models.contract.CustomNNP` protocol. Your model must implement
+:class:`Auto3D.engines.models.contract.CustomNNP` protocol. Your model must implement
 this interface to be compatible with Auto3D's optimization engine.
 
 The contract is **checked when the model file is loaded**. A model that does not
@@ -111,7 +111,7 @@ Your custom model must:
    Auto3D obtains forces by differentiating that energy with respect to
    ``coords``, so your model must not return forces.
 
-   Do not confuse this with ``Auto3D.models.contract.ModelAdapter``, Auto3D's
+   Do not confuse this with ``Auto3D.engines.models.contract.ModelAdapter``, Auto3D's
    *internal* interface, which is ``forward(coords, species, charges) ->
    (energies, forces)`` -- the reverse argument order. Only Auto3D's own
    adapters implement that one. A model written against it is rejected at load.
@@ -328,7 +328,7 @@ For custom workflows, create models directly:
 .. code:: python
 
    import torch
-   from Auto3D.model_factory import create_model
+   from Auto3D.engines.model_factory import create_model
 
    # Load custom model through factory
    model = create_model(
@@ -364,7 +364,7 @@ To call your own model directly instead -- energies only, species first, and
 
 .. code:: python
 
-   from Auto3D.models.loading import load_custom_nnp
+   from Auto3D.engines.models.loading import load_custom_nnp
 
    raw = load_custom_nnp("/path/to/my_custom_nnp.pt", device=torch.device("cuda:0"))
    with torch.no_grad():
@@ -396,14 +396,14 @@ Validation Script
 
 Auto3D's own loader is the authority on the contract, so call it rather than
 re-implementing the checks. It raises
-:class:`~Auto3D.exceptions.ModelLoadError` naming exactly what is wrong:
+:class:`~Auto3D.foundation.exceptions.ModelLoadError` naming exactly what is wrong:
 
 .. code:: python
 
    import torch
 
-   from Auto3D.exceptions import ModelLoadError
-   from Auto3D.models.loading import load_custom_nnp
+   from Auto3D.foundation.exceptions import ModelLoadError
+   from Auto3D.engines.models.loading import load_custom_nnp
 
    try:
        model = load_custom_nnp("/path/to/my_model.pt", torch.device("cpu"))

@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from Auto3D.batch_opt.batchopt import optimizing
-from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.batchopt import optimizing
+from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -73,8 +73,8 @@ class TestConvergenceStatus:
 
     def test_ensemble_opt_returns_convergence_info(self):
         """ensemble_opt should return converged_mask and oscillating_count."""
-        from Auto3D.batch_opt.batchopt import ensemble_opt
-        from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+        from Auto3D.engines.batch_opt.batchopt import ensemble_opt
+        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 
         # Create mock model
         mock_adapter = MagicMock()
@@ -123,7 +123,7 @@ class TestConvergenceFlagDerivation:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import optimizing
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -135,7 +135,7 @@ class TestConvergenceFlagDerivation:
 
         # patience=1 guarantees the oscillation path is taken on any structure
         # that does not reduce fmax on its very first step.
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.model_factory import create_model
 
         opt = optimizing(
             in_f=str(sdf),
@@ -181,7 +181,7 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.batch_opt.batchopt import optimizing
+    from Auto3D.engines.batch_opt.batchopt import optimizing
 
     # Build an optimizing instance without running (just to call _make_buckets)
     inp = tmp_path / "in.sdf"
@@ -217,7 +217,7 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    import Auto3D.batch_opt.batchopt as bo
+    import Auto3D.engines.batch_opt.batchopt as bo
 
     inp = tmp_path / "in.sdf"
     smis = ["CCCCCCCC", "C", "CCC"]  # 8,1,3 heavy atoms - deliberately unsorted
@@ -263,11 +263,11 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
 class TestBatchOptDependsDownwards:
     """``batch_opt`` must depend on ``models/``, never on ``model_factory``.
 
-    ``batchopt.py`` imported ``Auto3D.model_factory.create_model`` at module
+    ``batchopt.py`` imported ``Auto3D.engines.model_factory.create_model`` at module
     scope and called it in ``optimizing.__init__``: the numerical layer
     constructing its own dependency, and reaching UP into the layer that is
     supposed to sit above it. The visible symptom was in the tests -- every one
-    of them had to monkeypatch ``Auto3D.batch_opt.batchopt.create_model``, a seam
+    of them had to monkeypatch ``Auto3D.engines.batch_opt.batchopt.create_model``, a seam
     that existed only because the arrow pointed the wrong way.
     """
 
@@ -278,8 +278,8 @@ class TestBatchOptDependsDownwards:
         import sys
 
         program = (
-            "import sys; import Auto3D.batch_opt.batchopt as b; "
-            "assert 'Auto3D.model_factory' not in sys.modules, "
+            "import sys; import Auto3D.engines.batch_opt.batchopt as b; "
+            "assert 'Auto3D.engines.model_factory' not in sys.modules, "
             "sorted(m for m in sys.modules if m.startswith('Auto3D')); "
             "print('ok')"
         )
@@ -288,7 +288,7 @@ class TestBatchOptDependsDownwards:
         assert "ok" in result.stdout
 
     def test_batchopt_exposes_no_create_model_seam(self):
-        import Auto3D.batch_opt.batchopt as bo
+        import Auto3D.engines.batch_opt.batchopt as bo
 
         assert not hasattr(bo, "create_model")
 
@@ -353,7 +353,7 @@ def test_charges_reach_the_model_as_float32():
     false on the ``main()`` path and any non-integral charge was truncated
     toward zero rather than carried.
     """
-    from Auto3D.batch_opt.batchopt import ensemble_opt
+    from Auto3D.engines.batch_opt.batchopt import ensemble_opt
 
     seen_dtypes = []
 

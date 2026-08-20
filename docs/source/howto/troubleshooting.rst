@@ -406,7 +406,7 @@ No Tautomers Generated
 
    .. code:: python
 
-      from Auto3D.tautomer import get_stable_tautomers
+      from Auto3D.entry.tautomer import get_stable_tautomers
 
       output = get_stable_tautomers(config, tauto_k=5)
 
@@ -452,7 +452,7 @@ Command Not Found
 
    .. code:: console
 
-      python -m Auto3D.auto3Dcli run input.smi --k=1
+      python -m Auto3D.presentation.auto3Dcli run input.smi --k=1
 
 3. Reinstall:
 

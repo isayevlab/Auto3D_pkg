@@ -55,7 +55,7 @@ def _spy_on(monkeypatch, module, sink: list) -> None:
     """Record every exception ``module.handle_error`` is handed, then let the
     real handler run so the exit code it chooses is the one under test.
 
-    Patched per-module rather than on ``Auto3D.cli.errors`` alone because the
+    Patched per-module rather than on ``Auto3D.presentation.cli.errors`` alone because the
     two entry points bind the name differently: ``cli/commands/run.py`` imports
     ``handle_error`` at module level (so the binding must be replaced on *that*
     module), while ``_run_legacy_yaml`` imports it inside the function body on
@@ -72,8 +72,8 @@ def _spy_on(monkeypatch, module, sink: list) -> None:
 
 def _verdict_legacy(yaml_path: Path, monkeypatch) -> tuple[str, int]:
     """(exception class name, exit code) from ``auto3d <config.yaml>``."""
-    from Auto3D.auto3Dcli import _run_legacy_yaml
-    from Auto3D.cli import errors as errors_mod
+    from Auto3D.presentation.auto3Dcli import _run_legacy_yaml
+    from Auto3D.presentation.cli import errors as errors_mod
 
     seen: list[BaseException] = []
     _spy_on(monkeypatch, errors_mod, seen)
@@ -87,7 +87,7 @@ def _verdict_legacy(yaml_path: Path, monkeypatch) -> tuple[str, int]:
 
 def _verdict_modern(input_file: Path, yaml_path: Path, monkeypatch) -> tuple[str, int]:
     """(exception class name, exit code) from ``auto3d run INPUT -c cfg``."""
-    from Auto3D.cli.commands import run as run_mod
+    from Auto3D.presentation.cli.commands import run as run_mod
 
     seen: list[BaseException] = []
     _spy_on(monkeypatch, run_mod, seen)

@@ -15,11 +15,11 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.constants import EV_TO_HARTREE
-from Auto3D.isomers.rdkit_sdf import RDKitSdfIsomer
-from Auto3D.isomers.rdkit_smi import RDKitIsomer
-from Auto3D.isomers.tautomers import RDKitOrOEChemTautomerEngine
-from Auto3D.utils.molprops import calculate_conformer_count
+from Auto3D.engines.isomers.rdkit_sdf import RDKitSdfIsomer
+from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
+from Auto3D.engines.isomers.tautomers import RDKitOrOEChemTautomerEngine
+from Auto3D.foundation.constants import EV_TO_HARTREE
+from Auto3D.foundation.utils.molprops import calculate_conformer_count
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -182,7 +182,7 @@ class TestStereoisomerTruncation:
         """
         # MAX_STEREOISOMERS is bound in rdkit_sdf.py too; this test drives
         # RDKitIsomer.enumerate_func, so rdkit_smi.py is the binding that matters.
-        import Auto3D.isomers.rdkit_smi as isomer_engine_mod
+        import Auto3D.engines.isomers.rdkit_smi as isomer_engine_mod
 
         monkeypatch.setattr(isomer_engine_mod, "MAX_STEREOISOMERS", 1024)
 
@@ -334,7 +334,7 @@ class TestSpeFiltersAndAligns:
         energy per filtered row. The output SDF must contain exactly A and B
         with the right energies.
         """
-        import Auto3D.SPE as spe_mod
+        import Auto3D.entry.SPE as spe_mod
 
         def make(name):
             m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
@@ -406,7 +406,7 @@ class TestSpeFiltersAndAligns:
 
         calc_spe should warn and return its output path (an empty SDF) instead.
         """
-        import Auto3D.SPE as spe_mod
+        import Auto3D.entry.SPE as spe_mod
 
         class FakeSupplier:
             def __init__(self, *a, **k):
@@ -452,7 +452,7 @@ class TestConformerNameShapeIsModeIndependent:
 
     def test_names_carry_isomer_and_conformer_without_enumeration(self, tmp_path):
         """<species>_<isomer>_<conformer>, with the isomer index always 0."""
-        from Auto3D.ranking import species_id
+        from Auto3D.domain.ranking import species_id
 
         smi = tmp_path / "in.smi"
         smi.write_text("CCO KEY\n")
@@ -475,7 +475,7 @@ class TestConformerNameShapeIsModeIndependent:
 
     def test_a_disambiguated_id_stays_distinct_without_enumeration(self, tmp_path):
         """``KEY`` and ``KEY_2`` are two molecules and must stay two species."""
-        from Auto3D.ranking import species_id
+        from Auto3D.domain.ranking import species_id
 
         smi = tmp_path / "in.smi"
         # 2-pyridone and 2-hydroxypyridine share a standard InChIKey; this is

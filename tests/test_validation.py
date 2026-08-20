@@ -8,9 +8,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import ConfigurationError, DependencyError, GPUError, ModelLoadError
-from Auto3D.pipeline.input_checks import check_input
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.exceptions import (
+    ConfigurationError,
+    DependencyError,
+    GPUError,
+    ModelLoadError,
+)
+from Auto3D.orchestration.pipeline.input_checks import check_input
 
 
 class TestCheckInputExceptions:
@@ -116,7 +121,7 @@ class TestCheckInputExceptions:
         that floor lives.
 
         ``check_input`` used to hand-write ``< 10`` and so did
-        ``check_valid_configuration``, while ``Auto3D.config.FIELD_BOUNDS``
+        ``check_valid_configuration``, while ``Auto3D.foundation.config.FIELD_BOUNDS``
         declared ``("ge", 1)``: one option, two different minimums, and
         ``opt_steps=5`` accepted by ``Auto3DOptions``/``CLIConfig`` only to fail
         later. ``FIELD_BOUNDS["opt_steps"]`` is now ``("ge", 10)`` and both
@@ -174,7 +179,7 @@ class TestCheckInputExceptions:
         """
         from types import SimpleNamespace
 
-        from Auto3D.pipeline.input_checks import check_input
+        from Auto3D.orchestration.pipeline.input_checks import check_input
 
         smi = tmp_path / "in.smi"
         smi.write_text("CCO mol1\n")
@@ -198,7 +203,7 @@ class TestCheckValidConfigurationGpuIndex:
     workflow can fail fast instead of crashing inside a spawned worker."""
 
     def test_out_of_range_index_flagged(self, tmp_path):
-        from Auto3D.pipeline.input_checks import check_valid_configuration
+        from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
@@ -212,7 +217,7 @@ class TestCheckValidConfigurationGpuIndex:
         assert any("GPU index 5 is invalid" in e for e in errors)
 
     def test_valid_index_not_flagged(self, tmp_path):
-        from Auto3D.pipeline.input_checks import check_valid_configuration
+        from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
@@ -230,12 +235,12 @@ class TestGpuPolicyIsUniform:
     """M23: a CPU-only box must get the same fatal GPUError, with the same
     '--no-gpu' hint, no matter which entry point is used. This box has 8 CUDA
     devices (see task-7 brief), so the no-CUDA case is simulated throughout by
-    patching torch.cuda.is_available in Auto3D.models.policy, where
+    patching torch.cuda.is_available in Auto3D.engines.models.policy, where
     check_gpu_requested (the single source of truth for this check) reads it.
     """
 
     def test_check_gpu_requested_raises_gpu_error_without_cuda(self):
-        from Auto3D.models.policy import check_gpu_requested
+        from Auto3D.engines.models.policy import check_gpu_requested
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
@@ -244,13 +249,13 @@ class TestGpuPolicyIsUniform:
 
     def test_check_gpu_requested_noop_when_use_gpu_false(self):
         """use_gpu=False must never raise, CUDA available or not."""
-        from Auto3D.models.policy import check_gpu_requested
+        from Auto3D.engines.models.policy import check_gpu_requested
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             check_gpu_requested(False)  # must not raise
 
     def test_check_gpu_requested_noop_when_cuda_available(self):
-        from Auto3D.models.policy import check_gpu_requested
+        from Auto3D.engines.models.policy import check_gpu_requested
 
         with patch.object(torch.cuda, "is_available", return_value=True):
             check_gpu_requested(True)  # must not raise
@@ -262,7 +267,7 @@ class TestGpuPolicyIsUniform:
         a ConfigurationError -- showing the CLI's unrelated 'auto3d config
         init' hint instead of GPUError's '--no-gpu' hint (M23). It must now
         raise GPUError directly, matching check_input."""
-        from Auto3D.pipeline.input_checks import check_valid_configuration
+        from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
@@ -274,7 +279,10 @@ class TestGpuPolicyIsUniform:
         """The two entry points main() and smiles2mols reach check_input and
         check_valid_configuration respectively -- both must raise the exact
         same exception type for the same no-CUDA condition."""
-        from Auto3D.pipeline.input_checks import check_input, check_valid_configuration
+        from Auto3D.orchestration.pipeline.input_checks import (
+            check_input,
+            check_valid_configuration,
+        )
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")

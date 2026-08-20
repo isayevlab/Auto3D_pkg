@@ -1,4 +1,4 @@
-"""Tests for validation error handling in Auto3D.utils.validation module.
+"""Tests for validation error handling in Auto3D.foundation.utils.validation module.
 
 These tests verify that validation functions raise real exceptions (not
 AssertionError) for invalid input data, ensuring reliable validation even with
@@ -17,8 +17,8 @@ from unittest.mock import MagicMock
 import pytest
 from rdkit import Chem
 
-from Auto3D.exceptions import InputValidationError
-from Auto3D.pipeline.input_checks import check_sdf_format, check_smi_format
+from Auto3D.foundation.exceptions import InputValidationError
+from Auto3D.orchestration.pipeline.input_checks import check_sdf_format, check_smi_format
 
 
 class TestCheckSmiFormatErrors:

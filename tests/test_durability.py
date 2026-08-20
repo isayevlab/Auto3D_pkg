@@ -10,13 +10,13 @@ tmp+os.replace pattern in reorder_sdf already works. TestOptGeometryDurability
 and TestAmendConfigurationDurability must now also PASS -- Phase 6 gave both
 call sites the same tmp+os.replace staging. TestSameFileGuard was the tripwire
 for the other half of C14 (no out_path == path guard) and must now also PASS:
-`Auto3D.utils.output_guard.check_output_not_input` refuses that case in all
+`Auto3D.foundation.utils.output_guard.check_output_not_input` refuses that case in all
 three entry points, so the xfail(strict=True) marker it carried was removed
 with the fix. Every class in this file is now a plain regression test -- this
 file carries no xfail.
 
 All three call sites now stage through the one shared
-`Auto3D.utils.atomic_io.atomic_write_path`, which is where the staging
+`Auto3D.foundation.utils.atomic_io.atomic_write_path`, which is where the staging
 *mechanism* -- sibling temp file, preserved permission bits, cleanup on any
 exception -- is now asserted (`tests/test_atomic_io.py`). What stays here is the
 end-to-end half: that an injected failure inside each real rewrite leaves the
@@ -35,7 +35,7 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.utils.sdf_io import reorder_sdf
+from Auto3D.foundation.utils.sdf_io import reorder_sdf
 from tests.helpers_adapter import FakeAdapter
 
 # Captured once, at import time, before any test monkeypatches Chem.SDWriter.
@@ -151,7 +151,7 @@ class TestOptGeometryDurability:
         it into position, so this test now passes (the xfail(strict=True)
         tripwire it carried was removed with that fix). It drives the real
         `opt_geometry` with the batch optimizer
-        (Auto3D.batch_opt.batchopt.optimizing) monkeypatched so no NNP loads,
+        (Auto3D.engines.batch_opt.batchopt.optimizing) monkeypatched so no NNP loads,
         keeping the test hermetic and in the fast tier while the real rewrite
         pass runs unmodified.
 
@@ -161,7 +161,7 @@ class TestOptGeometryDurability:
         production -- and only injects the write() failure after one record,
         reproducing an interrupted rewrite against an already-truncated file.
         """
-        import Auto3D.ASE.geometry as geometry
+        import Auto3D.entry.ASE.geometry as geometry
 
         sdf = job_dir / "in.sdf"
         _write_sdf(sdf, ["m1", "m2"])
@@ -264,7 +264,7 @@ class TestAmendConfigurationDurability:
         """
         import builtins
 
-        from Auto3D.utils.stereochemistry import amend_configuration_w
+        from Auto3D.foundation.utils.stereochemistry import amend_configuration_w
 
         smi = job_dir / "in.smi"
         # Two records under one id => two output lines, so the injected failure
@@ -349,8 +349,8 @@ class TestSameFileGuard:
         removed, those stubs would let the run complete and overwrite `sdf`
         without raising, failing this test.
         """
-        import Auto3D.SPE as spe_mod
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.SPE as spe_mod
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -411,8 +411,8 @@ class TestSameFileGuard:
         destroyed -- which is what makes this test go red if the
         check_output_not_input call in opt_geometry is removed.
         """
-        import Auto3D.ASE.geometry as geometry
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.ASE.geometry as geometry
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1", "m2"])
@@ -459,8 +459,8 @@ class TestSameFileGuard:
         check_output_not_input call in calc_thermo is removed, the stub fires
         and this test goes red (and still no NNP is loaded).
         """
-        import Auto3D.ASE.thermo.driver as thermo_mod
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -497,8 +497,8 @@ class TestSameFileGuard:
         The guard must also stay quiet for a genuinely different output path --
         a guard that always raised would satisfy every test above.
         """
-        from Auto3D.exceptions import ConfigurationError
-        from Auto3D.utils.output_guard import check_output_not_input
+        from Auto3D.foundation.exceptions import ConfigurationError
+        from Auto3D.foundation.utils.output_guard import check_output_not_input
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -542,8 +542,8 @@ class TestSameFileGuard:
         are likewise one inode whose real paths differ. That cannot be tested
         directly on this ext4 box, but it takes the identical samefile path.
         """
-        from Auto3D.exceptions import ConfigurationError
-        from Auto3D.utils.output_guard import check_output_not_input
+        from Auto3D.foundation.exceptions import ConfigurationError
+        from Auto3D.foundation.utils.output_guard import check_output_not_input
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["a"])
@@ -560,7 +560,7 @@ class TestSameFileGuard:
     def test_a_genuinely_different_output_is_still_allowed(self, job_dir):
         """Negative control: without this, a guard that always raised would
         satisfy every other test in this class."""
-        from Auto3D.utils.output_guard import check_output_not_input
+        from Auto3D.foundation.utils.output_guard import check_output_not_input
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["a"])
@@ -584,8 +584,8 @@ class TestConformerRankerSameFileGuard:
     """
 
     def test_output_equal_to_input_is_rejected_at_construction(self, job_dir):
-        from Auto3D.exceptions import ConfigurationError
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "opt.sdf"
         _write_sdf(sdf, ["a", "b"])
@@ -598,7 +598,7 @@ class TestConformerRankerSameFileGuard:
 
     def test_a_different_output_still_constructs(self, job_dir):
         """Negative control: the guard must not reject ordinary use."""
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
 
         sdf = job_dir / "opt.sdf"
         _write_sdf(sdf, ["a"])
@@ -656,8 +656,8 @@ class TestEncodedInputStaging:
         *succeed* past encoding -- a fix that refused the run whenever the
         encoded name was taken would leave the file intact and still be wrong.
         """
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi = job_dir / "mols.smi"
         smi.write_text("CCO ethanol\n")
@@ -704,8 +704,8 @@ class TestEncodedInputStaging:
         already owned -- while leaving the first test green, since it never
         collides on the job name.
         """
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi = job_dir / "mols.smi"
         smi.write_text("CCO ethanol\n")
@@ -766,8 +766,8 @@ class TestOutputOverwriteGuard:
     """
 
     def test_calc_spe_refuses_an_existing_output(self, job_dir, monkeypatch):
-        import Auto3D.SPE as spe_mod
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.SPE as spe_mod
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -806,7 +806,7 @@ class TestOutputOverwriteGuard:
         Without this, a guard that refused unconditionally would satisfy every
         other test in this class.
         """
-        import Auto3D.SPE as spe_mod
+        import Auto3D.entry.SPE as spe_mod
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -857,8 +857,8 @@ class TestOutputOverwriteGuard:
         first run's results -- with no `-o` anywhere in sight. Checking only
         the explicit `-o` would leave that case silently destructive.
         """
-        import Auto3D.SPE as spe_mod
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.SPE as spe_mod
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -877,8 +877,8 @@ class TestOutputOverwriteGuard:
         assert earlier.read_bytes() == b"FIRST RUN RESULTS\n"
 
     def test_opt_geometry_refuses_an_existing_output(self, job_dir, monkeypatch):
-        import Auto3D.ASE.geometry as geometry
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.ASE.geometry as geometry
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -907,8 +907,8 @@ class TestOutputOverwriteGuard:
         assert precious.read_bytes() == original
 
     def test_calc_thermo_refuses_an_existing_output(self, job_dir, monkeypatch):
-        import Auto3D.ASE.thermo.driver as thermo_mod
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -939,8 +939,8 @@ class TestOutputOverwriteGuard:
     def test_conformer_ranker_refuses_an_existing_output(self, job_dir):
         """Fourth writer, same exposure -- and the same construction-time
         check as its same-file guard, so it fails before any work."""
-        from Auto3D.exceptions import ConfigurationError
-        from Auto3D.ranking import ConformerRanker
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "opt.sdf"
         _write_sdf(sdf, ["a", "b"])
@@ -965,7 +965,7 @@ class TestOutputOverwriteGuard:
 
     def test_the_guard_permits_everything_it_should(self, job_dir):
         """Negative controls for the shared function itself."""
-        from Auto3D.utils.output_guard import check_output_overwrite
+        from Auto3D.foundation.utils.output_guard import check_output_overwrite
 
         existing = job_dir / "there.sdf"
         existing.write_text("x")
@@ -980,8 +980,8 @@ class TestOutputOverwriteGuard:
         """Call sites pass both: calc_thermo resolves a `Path`, opt_geometry
         an `os.path.join` string. A guard that only handled one would silently
         no-op for the other."""
-        from Auto3D.exceptions import ConfigurationError
-        from Auto3D.utils.output_guard import check_output_overwrite
+        from Auto3D.foundation.exceptions import ConfigurationError
+        from Auto3D.foundation.utils.output_guard import check_output_overwrite
 
         existing = job_dir / "there.sdf"
         existing.write_text("x")
@@ -997,8 +997,8 @@ class TestOutputOverwriteGuard:
         the filtered result over the input it was computed from is not, so
         `check_output_not_input` must keep refusing regardless.
         """
-        import Auto3D.SPE as spe_mod
-        from Auto3D.exceptions import ConfigurationError
+        import Auto3D.entry.SPE as spe_mod
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         sdf = job_dir / "mols.sdf"
         _write_sdf(sdf, ["m1"])
@@ -1051,7 +1051,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
         satisfied by a sweep that moved the file and happened to be
         interrupted before the deletion.
         """
-        from Auto3D.job_layout import housekeeping
+        from Auto3D.orchestration.job_layout import housekeeping
 
         # The user's shell directory: `cd ~/project && auto3d run mols.smi`.
         project = job_dir / "project"
@@ -1110,7 +1110,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
         """
         from unittest.mock import MagicMock
 
-        import Auto3D.isomers.omega as ie
+        import Auto3D.engines.isomers.omega as ie
 
         project = job_dir / "project"
         project.mkdir()
@@ -1171,9 +1171,9 @@ class TestRejectedRunLeavesNoTrace:
     """
 
     def test_duplicate_smi_ids_leave_no_job_directory(self, job_dir, monkeypatch):
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.exceptions import InputValidationError
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import InputValidationError
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi = job_dir / "dupes.smi"
         smi.write_text("CCO a\nCCC a\n")
@@ -1204,9 +1204,9 @@ class TestRejectedRunLeavesNoTrace:
         """The `.sdf` branch opens `Chem.SDWriter` before it sees the
         duplicate, so the rejected run has already written a partial encoded
         file inside the job directory. It must not survive either."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.exceptions import InputValidationError
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import InputValidationError
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         sdf = job_dir / "dupes.sdf"
         _write_sdf(sdf, ["a", "a"])

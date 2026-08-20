@@ -24,8 +24,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
-from Auto3D.results import WorkflowResult
-from Auto3D.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
+from Auto3D.foundation.results import WorkflowResult
+from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 from tests.helpers_pipeline_output import (
     ATOMIC_ENERGY_HARTREE,
     assert_energy_is_plausible_hartree,

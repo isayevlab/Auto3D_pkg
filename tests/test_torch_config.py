@@ -17,7 +17,7 @@ class TestTorchConfig:
         which ``configure_torch`` reads as "leave the calling process's
         setting alone".
         """
-        from Auto3D.torch_config import TorchConfig
+        from Auto3D.foundation.torch_config import TorchConfig
 
         config = TorchConfig()
         assert config.allow_tf32 is False
@@ -26,7 +26,7 @@ class TestTorchConfig:
 
     def test_torch_config_custom_values(self):
         """TorchConfig should accept custom values."""
-        from Auto3D.torch_config import TorchConfig
+        from Auto3D.foundation.torch_config import TorchConfig
 
         config = TorchConfig(allow_tf32=True, cudnn_benchmark=True)
         assert config.allow_tf32 is True
@@ -38,7 +38,7 @@ class TestConfigureTorch:
 
     def test_configure_torch_tf32_enabled(self):
         """Should enable TF32 when configured."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         config = TorchConfig(allow_tf32=True)
         configure_torch(config)
@@ -47,7 +47,7 @@ class TestConfigureTorch:
 
     def test_configure_torch_tf32_disabled(self):
         """Should disable TF32 when configured."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         config = TorchConfig(allow_tf32=False)
         configure_torch(config)
@@ -56,7 +56,7 @@ class TestConfigureTorch:
 
     def test_configure_torch_cudnn_benchmark_enabled(self):
         """Should enable cuDNN benchmark when configured."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         config = TorchConfig(cudnn_benchmark=True)
         configure_torch(config)
@@ -64,7 +64,7 @@ class TestConfigureTorch:
 
     def test_configure_torch_cudnn_benchmark_disabled(self):
         """Should disable cuDNN benchmark when configured."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         config = TorchConfig(cudnn_benchmark=False)
         configure_torch(config)
@@ -72,7 +72,7 @@ class TestConfigureTorch:
 
     def test_configure_torch_with_none_uses_defaults(self):
         """Should use default config when None is passed."""
-        from Auto3D.torch_config import configure_torch
+        from Auto3D.foundation.torch_config import configure_torch
 
         configure_torch(None)
         # Defaults should be TF32 disabled
@@ -81,7 +81,7 @@ class TestConfigureTorch:
 
     def test_configure_torch_idempotent(self):
         """Multiple calls should produce consistent results."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         config = TorchConfig(allow_tf32=True)
         configure_torch(config)
@@ -97,7 +97,7 @@ class TestConfigureTorch:
         the precision mode ('ieee' for False, 'tf32' for True). cudnn.fp32_precision
         is the decisive check: unlike cuda.matmul, torch does NOT auto-sync it from
         the legacy allow_tf32 flag, so this fails unless configure_torch sets it."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         matmul = torch.backends.cuda.matmul
         cudnn = torch.backends.cudnn
@@ -122,7 +122,7 @@ class TestConfigureTorch:
         warn_only=True is also asserted so AIMNet2/ANI scatter ops warn instead
         of raising under deterministic mode.
         """
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         try:
             configure_torch(TorchConfig(deterministic=True))
@@ -185,7 +185,7 @@ class TestConfigureTorchLeavesUnrequestedGlobalsAlone:
         produced a nondeterministic result instead of raising -- with nothing
         logged and no way to ask for the setting back.
         """
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         saved = self._snapshot()
         try:
@@ -210,7 +210,7 @@ class TestConfigureTorchLeavesUnrequestedGlobalsAlone:
 
     def test_an_explicit_request_is_still_applied_in_both_directions(self):
         """None means "leave alone", not "never write": explicit still wins."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         saved = self._snapshot()
         try:
@@ -231,7 +231,7 @@ class TestConfigureTorchLeavesUnrequestedGlobalsAlone:
 
     def test_deterministic_warn_only_false_is_honored(self):
         """A caller asking to be raised at must not be downgraded to a warning."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         saved = self._snapshot()
         try:
@@ -250,7 +250,7 @@ class TestAuto3DOptionsAllowTf32:
 
     def test_auto3d_options_has_allow_tf32(self):
         """Auto3DOptions should have allow_tf32 field."""
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
 
         config = Auto3DOptions()
         assert hasattr(config, "allow_tf32")
@@ -258,14 +258,14 @@ class TestAuto3DOptionsAllowTf32:
 
     def test_auto3d_options_allow_tf32_can_be_set_true(self):
         """allow_tf32 should be settable to True."""
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
 
         config = Auto3DOptions(allow_tf32=True)
         assert config.allow_tf32 is True
 
     def test_auto3d_options_allow_tf32_can_be_set_false(self):
         """allow_tf32 should be settable to False."""
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
 
         config = Auto3DOptions(allow_tf32=False)
         assert config.allow_tf32 is False
@@ -276,7 +276,7 @@ class TestBatchoptNoHardcodedTF32:
 
     def test_batchopt_respects_configure_torch(self):
         """batchopt should not override TF32 settings at import."""
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         # Set TF32 to True
         configure_torch(TorchConfig(allow_tf32=True))
@@ -285,9 +285,9 @@ class TestBatchoptNoHardcodedTF32:
         # Import batchopt - it should NOT change the TF32 setting
         import importlib
 
-        import Auto3D.batch_opt.batchopt
+        import Auto3D.engines.batch_opt.batchopt
 
-        importlib.reload(Auto3D.batch_opt.batchopt)
+        importlib.reload(Auto3D.engines.batch_opt.batchopt)
 
         # TF32 should still be True (not overridden by batchopt)
         assert torch.backends.cuda.matmul.allow_tf32 == initial_tf32
@@ -295,8 +295,8 @@ class TestBatchoptNoHardcodedTF32:
     def test_tf32_can_be_toggled_after_batchopt_import(self):
         """TF32 settings should be changeable after batchopt is imported."""
         # Import batchopt first
-        import Auto3D.batch_opt.batchopt  # noqa: F401
-        from Auto3D.torch_config import TorchConfig, configure_torch
+        import Auto3D.engines.batch_opt.batchopt  # noqa: F401
+        from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 
         # Then configure TF32 - this should work
         configure_torch(TorchConfig(allow_tf32=True))

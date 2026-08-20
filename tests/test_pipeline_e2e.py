@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 from rdkit import Chem
 
-from Auto3D.config import Auto3DOptions
+from Auto3D.foundation.config import Auto3DOptions
 from tests.helpers_pipeline_output import base_molecule_id
 
 
@@ -52,7 +52,7 @@ class TestInputOutputAccounting:
         main()'s return value. That is the reconciliation gap C7 describes,
         exercised without relying on any molecule's numerical luck.
         """
-        from Auto3D.auto3D import main
+        from Auto3D.entry.auto3D import main
 
         smi = job_dir / "mixed10.smi"
         # Na is outside AIMNet2's 14-element set and guaranteed to fail; the
@@ -110,7 +110,7 @@ class TestInputOutputAccounting:
         half of C6, that the CLI exits 0 after losing molecules, is unaffected
         and still tripwired in ``TestExitStatus`` below.
         """
-        from Auto3D.auto3D import main
+        from Auto3D.entry.auto3D import main
 
         smi = job_dir / "mixed.smi"
         # Na is outside AIMNet2's 14-element set; the other three are fine.
@@ -172,7 +172,7 @@ class TestExitStatus:
         """auto3d run must signal partial failure through its exit code."""
         from typer.testing import CliRunner
 
-        from Auto3D.cli.app import app
+        from Auto3D.presentation.cli.app import app
 
         smi = job_dir / "mixed.smi"
         smi.write_text("CCO ethanol\n[Na+].CC(=O)[O-] sodium_acetate\n")
@@ -205,7 +205,7 @@ class TestEnergyAndRankingSanity:
     @pytest.mark.slow
     def test_energies_are_negative_and_ordered(self, isolated_input):
         """E_tot must be negative and ascending within a conformer group."""
-        from Auto3D.auto3D import main
+        from Auto3D.entry.auto3D import main
 
         args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=4)
         out = main(args)
@@ -237,7 +237,7 @@ class TestEnergyAndRankingSanity:
         conformers should not coincide to the same energy; a duplicate
         conformer would.
         """
-        from Auto3D.auto3D import main
+        from Auto3D.entry.auto3D import main
 
         args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=3, use_gpu=False, max_confs=6)
         out = main(args)
@@ -280,8 +280,8 @@ class TestClashReliefWarning:
     ):
         import logging
 
-        import Auto3D.isomers.rdkit_smi as isomer_engine_mod
-        from Auto3D.isomers.rdkit_smi import RDKitIsomer
+        import Auto3D.engines.isomers.rdkit_smi as isomer_engine_mod
+        from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
 
         smi = tmp_path / "in.smi"
         # "bad_mol" (methane) will have every conformer rejected below;

@@ -38,12 +38,12 @@ class TestBatchPathIsCorrect:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.padding import pad_from_mols
+        from Auto3D.engines.batch_opt.padding import pad_from_mols
 
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.model_factory import create_model
 
         _, species, _, _ = pad_from_mols([mol], create_model("ANI2xt", device), device)
         values = sorted(int(v) for v in species[0])
@@ -63,9 +63,9 @@ class TestThermoPathConverts:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2aimnet_input
-        from Auto3D.batch_opt.padding import pad_from_mols
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.batch_opt.padding import pad_from_mols
+        from Auto3D.engines.model_factory import create_model
+        from Auto3D.entry.ASE.thermo.calculator import mol2aimnet_input
 
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -91,8 +91,8 @@ class TestThermoPathConverts:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2aimnet_input
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.model_factory import create_model
+        from Auto3D.entry.ASE.thermo.calculator import mol2aimnet_input
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -113,8 +113,8 @@ class TestHealthCheckIsHonest:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.padding import pad_from_mols
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.batch_opt.padding import pad_from_mols
+        from Auto3D.engines.model_factory import create_model
 
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -130,7 +130,7 @@ class TestHealthCheckIsHonest:
         # by CPU/GPU numerical drift.
         from typer.testing import CliRunner
 
-        from Auto3D.cli.app import app
+        from Auto3D.presentation.cli.app import app
 
         result = CliRunner().invoke(app, ["models", "test", "ANI2xt", "--no-gpu"])
         assert result.exit_code == 0, result.output

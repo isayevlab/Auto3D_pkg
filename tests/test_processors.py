@@ -1,4 +1,4 @@
-"""Tests for Auto3D.processors module."""
+"""Tests for Auto3D.orchestration.processors module."""
 
 import os
 import tempfile
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.processors import TautomerProcessor
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.orchestration.processors import TautomerProcessor
 
 
 class TestTautomerProcessor:
@@ -91,8 +91,8 @@ class TestTautomerProcessorConfigOptions:
 
 
 def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
-    import Auto3D.processors as proc
-    from Auto3D.config import Auto3DOptions
+    import Auto3D.orchestration.processors as proc
+    from Auto3D.foundation.config import Auto3DOptions
 
     calls = {}
 
@@ -129,8 +129,8 @@ def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
 
 
 def test_tautomer_processor_skips_when_disabled():
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.processors import TautomerProcessor
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.processors import TautomerProcessor
 
     cfg = Auto3DOptions(path="x.smi", k=1, enumerate_tautomer=False)
     assert TautomerProcessor(cfg).process("in.smi", "out.smi") == "in.smi"

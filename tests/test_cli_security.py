@@ -8,7 +8,7 @@ behavior (``handles empty files gracefully``) that the real function did not
 have: it raised ``AttributeError: 'NoneType' object has no attribute
 'items'``, which the CLI reported as "Unexpected Error" at exit 1.
 
-Every test here now drives ``Auto3D.cli.config_schema.load_yaml_config``.
+Every test here now drives ``Auto3D.presentation.cli.config_schema.load_yaml_config``.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from Auto3D.cli.config_schema import load_yaml_config
-from Auto3D.exceptions import ConfigurationError
+from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.presentation.cli.config_schema import load_yaml_config
 
 
 def _write(tmp_path: Path, text: str) -> Path:
@@ -152,7 +152,7 @@ class TestTheCliReportsThemAsConfigurationProblems:
     def test_bad_config_exits_2_with_a_message(self, tmp_path, content, expected):
         from typer.testing import CliRunner
 
-        from Auto3D.cli.app import app
+        from Auto3D.presentation.cli.app import app
 
         smi = tmp_path / "mols.smi"
         smi.write_text("CCO m1\n")

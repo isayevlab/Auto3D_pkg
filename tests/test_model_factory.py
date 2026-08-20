@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from Auto3D.model_factory import (
+from Auto3D.engines.model_factory import (
     ModelFactory,
     create_model,
     get_device,
     is_custom_model,
 )
-from Auto3D.models.contract import ModelAdapter
+from Auto3D.engines.models.contract import ModelAdapter
 
 
 def test_the_factory_promises_the_contract_not_the_base_class():
@@ -29,7 +29,7 @@ def test_the_factory_promises_the_contract_not_the_base_class():
     """
     import inspect
 
-    from Auto3D import model_factory
+    from Auto3D.engines import model_factory
 
     assert inspect.get_annotations(model_factory.create_model)["return"] == "ModelAdapter"
     assert inspect.get_annotations(ModelFactory.create.__func__)["return"] == "ModelAdapter"
@@ -71,7 +71,7 @@ class TestModelFactory:
         route to AIMNet2Adapter, which raises only when the aimnet registry
         cannot resolve the name. Patch the adapter to raise so we exercise the
         propagation path without touching the network."""
-        from Auto3D import model_factory
+        from Auto3D.engines import model_factory
 
         class _Boom:
             def __init__(self, *a, **k):
@@ -89,7 +89,7 @@ class TestModelFactory:
         """Built-in routing is case-insensitive: any casing of 'aimnet' routes
         to AIMNet2Adapter('aimnet2'); any casing of 'ani2x' routes to the ANI
         adapter. Registry/path names themselves are case-preserving."""
-        from Auto3D import model_factory
+        from Auto3D.engines import model_factory
 
         captured = {}
 
@@ -119,7 +119,7 @@ class TestModelFactory:
         ``create_model("AIMNET", ...)`` -> ``ModelFactory.create``) so the real
         NNP is loaded once per session instead of an extra ~4s load here.
         """
-        from Auto3D.models.adapter import AIMNet2Adapter
+        from Auto3D.engines.models.adapter import AIMNet2Adapter
 
         assert isinstance(aimnet_model, AIMNet2Adapter)
         assert aimnet_model.model_name == "aimnet2"
@@ -128,7 +128,7 @@ class TestModelFactory:
     @patch.object(torch.jit, "load")
     def test_create_custom_model_from_path(self, mock_load, mock_exists):
         """Test that custom model paths are loaded correctly."""
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
 
         mock_exists.return_value = True
         mock_model = MagicMock()
@@ -234,7 +234,7 @@ class TestFactoryReturnsAdapter:
     @pytest.mark.slow
     def test_factory_returns_aimnet_adapter(self, aimnet_model):
         """Factory should return an AIMNet2Adapter for AIMNET."""
-        from Auto3D.models.adapter import AIMNet2Adapter
+        from Auto3D.engines.models.adapter import AIMNet2Adapter
 
         # Reuse the session-scoped aimnet_model fixture (one shared load).
         model = aimnet_model
@@ -245,7 +245,7 @@ class TestFactoryReturnsAdapter:
     def test_factory_returns_ani2xt_adapter(self):
         """Factory should return ANI2xtAdapter for ANI2xt."""
         pytest.importorskip("torchani")
-        from Auto3D.models.adapter import ANI2xtAdapter
+        from Auto3D.engines.models.adapter import ANI2xtAdapter
 
         device = torch.device("cpu")
         model = create_model("ANI2xt", device)
@@ -256,7 +256,7 @@ class TestFactoryReturnsAdapter:
     def test_factory_returns_ani2x_adapter(self):
         """Factory should return ANI2xAdapter for ANI2x."""
         pytest.importorskip("torchani")
-        from Auto3D.models.adapter import ANI2xAdapter
+        from Auto3D.engines.models.adapter import ANI2xAdapter
 
         device = torch.device("cpu")
         model = create_model("ANI2x", device)
@@ -268,7 +268,7 @@ class TestFactoryReturnsAdapter:
     @patch.object(torch.jit, "load")
     def test_factory_returns_custom_adapter(self, mock_load, mock_exists):
         """Factory should return CustomModelAdapter for custom model paths."""
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
 
         mock_exists.return_value = True
         mock_model = MagicMock()
@@ -291,7 +291,7 @@ class TestFactoryReturnsAdapter:
 def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
     import torch
 
-    from Auto3D import model_factory
+    from Auto3D.engines import model_factory
 
     captured = {}
 
@@ -308,7 +308,7 @@ def test_aimnet_alias_routes_to_aimnet2(monkeypatch):
 def test_registry_name_routes_to_aimnet2(monkeypatch):
     import torch
 
-    from Auto3D import model_factory
+    from Auto3D.engines import model_factory
 
     captured = {}
 
@@ -325,7 +325,7 @@ def test_registry_name_routes_to_aimnet2(monkeypatch):
 def test_existing_path_routes_to_custom(tmp_path, monkeypatch):
     import torch
 
-    from Auto3D import model_factory
+    from Auto3D.engines import model_factory
 
     f = tmp_path / "my.pt"
     f.write_text("x")
@@ -346,8 +346,8 @@ def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
     directory) must still resolve to the built-in adapter, not be silently
     loaded as a custom NNP.
 
-    Auto3D.ASE.thermo._load_hessian_model routes ANI2xt/ANI2x through this
-    same ModelFactory.create dispatch, and Auto3D.ASE.thermo.
+    Auto3D.entry.ASE.thermo._load_hessian_model routes ANI2xt/ANI2x through this
+    same ModelFactory.create dispatch, and Auto3D.entry.ASE.thermo.
     aimnet_hessian_helper (which receives the same model_name string
     downstream) resolves by name first. If Path.exists() won here instead,
     the colliding file would be loaded as a CustomModelAdapter and then be
@@ -356,7 +356,7 @@ def test_builtin_name_beats_colliding_file(tmp_path, monkeypatch):
     """
     import torch
 
-    from Auto3D import model_factory
+    from Auto3D.engines import model_factory
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "ANI2xt").write_text("colliding file; must not be loaded as a custom NNP")
@@ -410,7 +410,7 @@ class TestRemovedParameters:
 
         import torch
 
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.model_factory import create_model
 
         sig = inspect.signature(create_model)
         with pytest.raises(TypeError):
@@ -422,7 +422,7 @@ class TestRemovedParameters:
 
         import torch
 
-        from Auto3D.model_factory import create_model
+        from Auto3D.engines.model_factory import create_model
 
         sig = inspect.signature(create_model)
         with pytest.raises(TypeError):

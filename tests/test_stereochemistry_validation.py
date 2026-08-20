@@ -7,7 +7,7 @@ ValueError exceptions that provide informative error messages.
 
 import pytest
 
-from Auto3D.utils.stereochemistry import (
+from Auto3D.foundation.utils.stereochemistry import (
     create_enantiomer,
     enantiomer,
     no_enantiomer,

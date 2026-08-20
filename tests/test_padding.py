@@ -6,7 +6,7 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.batch_opt.padding import pad_from_mols
+from Auto3D.engines.batch_opt.padding import pad_from_mols
 from tests.helpers_adapter import FakeAdapter
 
 # The padder now takes the ADAPTER, which supplies the species convention and
@@ -24,7 +24,7 @@ def _aimnet_like(species_pad: int = 0) -> FakeAdapter:
 
 def _ani2xt_like(species_pad: int = -1) -> FakeAdapter:
     """Real ANI2xt remap, including its named ValueError for an out-of-set Z."""
-    from Auto3D.models.species import to_ani2xt_species
+    from Auto3D.engines.models.species import to_ani2xt_species
 
     adapter = FakeAdapter(coord_pad=0.0, species_pad=species_pad)
     adapter.to_species = to_ani2xt_species
@@ -176,7 +176,7 @@ class TestAtomMaskIsExplicit:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.padding import pad_from_mols
+        from Auto3D.engines.batch_opt.padding import pad_from_mols
 
         def _mol(smiles):
             m = Chem.AddHs(Chem.MolFromSmiles(smiles))
@@ -197,7 +197,7 @@ class TestAtomMaskIsExplicit:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.padding import pad_from_mols
+        from Auto3D.engines.batch_opt.padding import pad_from_mols
 
         def _mol(smiles):
             m = Chem.AddHs(Chem.MolFromSmiles(smiles))

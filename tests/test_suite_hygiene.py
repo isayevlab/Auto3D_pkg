@@ -35,14 +35,14 @@ def test_no_test_patches_auto3d_through_a_dotted_string():
     """Patch targets must be objects, so a module move is a visible edit.
 
     Eighty-eight sites used to name their target as a string --
-    `patch("Auto3D.SPE.calc_spe")`. Three things go wrong with that. A refactoring
+    `patch("Auto3D.entry.SPE.calc_spe")`. Three things go wrong with that. A refactoring
     tool cannot see inside a string literal, so moving a module leaves them
     behind. The failure lands at every call site at once rather than at one
-    import. And the prefix can be a lie: `"Auto3D.utils.validation.torch.cuda.
+    import. And the prefix can be a lie: `"Auto3D.foundation.utils.validation.torch.cuda.
     is_available"` resolves through `validation` to the global torch module, so
     it patched torch process-wide while reading as though it were scoped.
 
-    `patch.object(Auto3D.SPE, "calc_spe")` names the same object and puts the
+    `patch.object(Auto3D.entry.SPE, "calc_spe")` names the same object and puts the
     module where both a human and a tool can see it.
     """
     offenders = []

@@ -1,11 +1,11 @@
-"""Tests for Auto3D.utils.smi_io module."""
+"""Tests for Auto3D.foundation.utils.smi_io module."""
 
 from pathlib import Path
 
 import pytest
 from rdkit import Chem  # noqa: F401  (kept for parity with the sibling io tests)
 
-from Auto3D.utils.smi_io import (
+from Auto3D.foundation.utils.smi_io import (
     combine_smi,
     hash_enumerated_smi_IDs,
     hash_taut_smi,
@@ -272,7 +272,7 @@ class TestSmiles2SmiInvalidInput:
 
     def test_invalid_smiles_raises_input_validation_error(self, tmp_path):
         """An unparseable SMILES raises InputValidationError naming the SMILES."""
-        from Auto3D.exceptions import InputValidationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         out = tmp_path / "out.smi"
         with pytest.raises(InputValidationError, match=r"C\(C"):
@@ -344,7 +344,7 @@ class TestIterSmiRecords:
 
     def test_on_malformed_raise_raises_on_one_token_line(self, tmp_path):
         """on_malformed='raise' raises InputValidationError naming the line."""
-        from Auto3D.exceptions import InputValidationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol1\nC1CCCCC1\n")

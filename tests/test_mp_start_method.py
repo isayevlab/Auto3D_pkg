@@ -28,7 +28,7 @@ import types
 
 import pytest
 
-from Auto3D.config import Auto3DOptions
+from Auto3D.foundation.config import Auto3DOptions
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def test_workers_get_spawn_even_when_fork_is_locked_in(fork_locked_in):
     one, so a fork default that was locked in before Auto3D was ever called
     cannot reach the processes that run CUDA.
     """
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     orchestrator = WorkflowOrchestrator(Auto3DOptions(path="unused.smi", k=1))
 
@@ -66,7 +66,7 @@ def test_workers_get_spawn_even_when_fork_is_locked_in(fork_locked_in):
 def test_parallel_embedding_pool_carries_its_own_context_too(fork_locked_in):
     """The embedding pool is the *other* spawn site, and it is easy to miss.
 
-    ``Auto3D.embedding`` contains no CUDA at all -- it is RDKit work -- so it
+    ``Auto3D.domain.embedding`` contains no CUDA at all -- it is RDKit work -- so it
     does not need spawn for its own sake. It needs an explicit context for two
     reasons. It must not lock the interpreter default before the CUDA-bearing
     workers start (the ordering hazard that made ``force=True`` necessary), and
@@ -75,7 +75,7 @@ def test_parallel_embedding_pool_carries_its_own_context_too(fork_locked_in):
     switched it to fork in a process where torch may already hold threads and a
     CUDA context.
     """
-    from Auto3D.embedding import EMBEDDING_MP_CONTEXT
+    from Auto3D.domain.embedding import EMBEDDING_MP_CONTEXT
 
     assert EMBEDDING_MP_CONTEXT.get_start_method() == "spawn"
     assert mp.get_start_method() == "fork", "importing must not touch the global"
@@ -89,10 +89,10 @@ def test_main_does_not_mutate_the_callers_start_method(fork_locked_in, monkeypat
     win against an already-locked default -- so if any such call survives, this
     assertion sees ``spawn`` here and fails.
     """
-    import Auto3D.auto3D as auto3D
-    import Auto3D.workflow as workflow
+    import Auto3D.entry.auto3D as auto3D
+    import Auto3D.orchestration.workflow as workflow
 
-    # main() does a local ``from Auto3D.workflow import WorkflowOrchestrator``,
+    # main() does a local ``from Auto3D.orchestration.workflow import WorkflowOrchestrator``,
     # so the stub has to be installed there. Only the start-method handling is
     # under test; the real pipeline is slow and GPU-dependent.
     monkeypatch.setattr(

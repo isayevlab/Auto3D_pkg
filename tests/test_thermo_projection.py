@@ -33,13 +33,13 @@ import pytest
 from ase import Atoms
 from ase.vibrations import VibrationsData
 
-from Auto3D.ASE.thermo.properties import _detect_geometry
-from Auto3D.ASE.thermo.vibrations import (
+from Auto3D.entry.ASE.thermo.properties import _detect_geometry
+from Auto3D.entry.ASE.thermo.vibrations import (
     _external_mode_basis,
     n_vibrational_modes,
     projected_vibrations,
 )
-from Auto3D.constants import PROJECTION_RESIDUAL_FRACTION
+from Auto3D.foundation.constants import PROJECTION_RESIDUAL_FRACTION
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,
@@ -315,7 +315,7 @@ class TestTheProjectionReportsWhatItAssumed:
         """
         _, atoms = _ethanol()
         hessian = hessian_with_spectrum(atoms, [0.0, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             energies = projected_vibrations(atoms, hessian, "nonlinear", name="floppy")
         assert len(energies) == 21, "the mode was dropped instead of reported"
         assert any("not cleanly separated" in record.getMessage() for record in caplog.records), (
@@ -326,7 +326,7 @@ class TestTheProjectionReportsWhatItAssumed:
         """Non-vacuity: the warning must discriminate."""
         _, atoms = _ethanol()
         hessian = hessian_with_spectrum(atoms, [35, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             projected_vibrations(atoms, hessian, "nonlinear", name="healthy")
         assert not any("not cleanly separated" in record.getMessage() for record in caplog.records)
         # The threshold really is a ratio against the smallest kept mode, not

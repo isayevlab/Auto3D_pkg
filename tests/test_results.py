@@ -9,7 +9,7 @@ from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.results import WorkflowResult, count_output
+from Auto3D.foundation.results import WorkflowResult, count_output
 
 
 def _write_sdf(path, names):

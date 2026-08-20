@@ -19,9 +19,9 @@ import inspect
 import pytest
 import torch
 
-from Auto3D.exceptions import ModelLoadError
-from Auto3D.models.contract import validate_custom_nnp
-from Auto3D.models.loading import load_custom_nnp
+from Auto3D.engines.models.contract import validate_custom_nnp
+from Auto3D.engines.models.loading import load_custom_nnp
+from Auto3D.foundation.exceptions import ModelLoadError
 
 CPU = torch.device("cpu")
 
@@ -191,7 +191,7 @@ def test_transposed_forward_is_rejected_at_load(tmp_path):
 
 def test_transposed_forward_is_rejected_through_the_adapter(tmp_path):
     """The adapter is the production entry point; the refusal must reach it."""
-    from Auto3D.models.adapter import CustomModelAdapter
+    from Auto3D.engines.models.adapter import CustomModelAdapter
 
     path = _save(TransposedNNP(), tmp_path, "transposed_adapter.pt")
     with pytest.raises(ModelLoadError, match="species, coords, charges"):
@@ -203,7 +203,7 @@ def test_transposed_forward_is_rejected_by_input_validation(tmp_path):
     too, before any conformer work starts."""
     from types import SimpleNamespace
 
-    from Auto3D.pipeline.input_checks import check_input
+    from Auto3D.orchestration.pipeline.input_checks import check_input
 
     path = _save(TransposedNNP(), tmp_path, "transposed_preflight.pt")
     smi = tmp_path / "in.smi"
@@ -337,7 +337,7 @@ def test_wrong_arity_too_many_required_args_is_rejected_at_load(tmp_path):
 def test_contract_conforming_model_loads_and_runs(tmp_path):
     """The happy path must still work, end to end through the adapter, with the
     force sign and value that autograd implies."""
-    from Auto3D.models.adapter import CustomModelAdapter
+    from Auto3D.engines.models.adapter import CustomModelAdapter
 
     path = _save(GoodNNP(), tmp_path, "good.pt")
     adapter = CustomModelAdapter(path, CPU)
@@ -411,12 +411,12 @@ def test_torchscript_archive_without_instance_attributes_is_rejected(tmp_path):
 
 def test_config_nnpmodel_protocol_is_gone():
     """Auto3D.NNPModel duplicated the contract in a module that never enforced
-    it. One definition now, in Auto3D.models.contract."""
+    it. One definition now, in Auto3D.engines.models.contract."""
     import Auto3D
-    import Auto3D.config
+    import Auto3D.foundation.config
 
     assert "NNPModel" not in Auto3D.__all__
-    assert not hasattr(Auto3D.config, "NNPModel")
+    assert not hasattr(Auto3D.foundation.config, "NNPModel")
     with pytest.raises(AttributeError):
         getattr(Auto3D, "NNPModel")  # noqa: B009 - the lookup IS the assertion
 
@@ -431,8 +431,8 @@ def test_custom_nnp_protocol_matches_what_the_adapter_calls(tmp_path):
     """
     import inspect
 
-    from Auto3D.models.adapter import CustomModelAdapter
-    from Auto3D.models.contract import CustomNNP
+    from Auto3D.engines.models.adapter import CustomModelAdapter
+    from Auto3D.engines.models.contract import CustomNNP
 
     protocol_params = [p for p in inspect.signature(CustomNNP.forward).parameters if p != "self"]
     assert protocol_params == ["species", "coords", "charges"]
@@ -455,8 +455,8 @@ def test_adapter_keeps_no_padding_fallback_of_its_own(monkeypatch, tmp_path):
     adapter to fail loudly instead, by handing it a model the loader did not
     vet.
     """
-    import Auto3D.models.adapter as adapter_mod
-    from Auto3D.models.adapter import CustomModelAdapter
+    import Auto3D.engines.models.adapter as adapter_mod
+    from Auto3D.engines.models.adapter import CustomModelAdapter
 
     class Unvetted(torch.nn.Module):
         def forward(self, species, coords, charges):
@@ -483,8 +483,8 @@ def test_the_adapters_pad_is_what_the_padder_writes():
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.batch_opt.padding import pad_from_mols
-    from Auto3D.models.adapter import BaseModelAdapter
+    from Auto3D.engines.batch_opt.padding import pad_from_mols
+    from Auto3D.engines.models.adapter import BaseModelAdapter
     from tests.helpers_adapter import FakeAdapter
 
     assert "species_pad" not in inspect.signature(pad_from_mols).parameters
@@ -543,8 +543,8 @@ def test_a_module_inheriting_torchs_forward_stub_is_rejected(tmp_path):
     """
     import torch
 
-    from Auto3D.exceptions import ModelLoadError
-    from Auto3D.models.loading import load_custom_nnp
+    from Auto3D.engines.models.loading import load_custom_nnp
+    from Auto3D.foundation.exceptions import ModelLoadError
 
     # Preconditions: this is exactly the shape the two earlier checks miss.
     m = NoForwardOfItsOwn()
@@ -585,7 +585,7 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.padding import pad_from_mols
+        from Auto3D.engines.batch_opt.padding import pad_from_mols
 
         mols = []
         # Different sizes, so the batch really is padded; the first molecule
@@ -653,7 +653,7 @@ def test_required_attributes_tracks_the_protocol():
     so adding a data member to ``CustomNNP`` without the validator learning
     about it in the same edit goes red.
     """
-    from Auto3D.models.contract import REQUIRED_ATTRIBUTES, CustomNNP
+    from Auto3D.engines.models.contract import REQUIRED_ATTRIBUTES, CustomNNP
 
     declared = tuple(CustomNNP.__annotations__)
     assert REQUIRED_ATTRIBUTES == declared, (
@@ -686,7 +686,7 @@ def test_customnnp_data_members_are_exactly_the_two_padding_values():
     that does not carry it. That is a breaking change and must be released as
     one; this test is what makes it impossible to do by accident.
     """
-    from Auto3D.models.contract import CustomNNP
+    from Auto3D.engines.models.contract import CustomNNP
 
     assert tuple(CustomNNP.__annotations__) == ("coord_pad", "species_pad")
 
@@ -703,7 +703,7 @@ def test_customnnp_is_not_runtime_checkable():
     ``validate_custom_nnp`` produces. So the honest answer to "can I check this
     at runtime?" is a ``TypeError`` pointing at the validator.
     """
-    from Auto3D.models.contract import CustomNNP
+    from Auto3D.engines.models.contract import CustomNNP
 
     with pytest.raises(TypeError):
         isinstance(object(), CustomNNP)  # noqa: B015 - the call IS the assertion
@@ -719,7 +719,7 @@ def test_keyword_only_forward_message_is_not_its_own_demand():
     nothing wrong. Rendering the signature the way the interpreter does keeps
     the marker that actually explains the refusal.
     """
-    from Auto3D.models.contract import EXPECTED_SIGNATURE
+    from Auto3D.engines.models.contract import EXPECTED_SIGNATURE
 
     class KeywordOnly:
         coord_pad = 0.0

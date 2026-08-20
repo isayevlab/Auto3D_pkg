@@ -8,12 +8,12 @@ import torch
 from rdkit import Chem
 
 import Auto3D
-import Auto3D.ASE.thermo
-import Auto3D.ASE.thermo.calculator
-from Auto3D.ASE.geometry import opt_geometry
-from Auto3D.ASE.thermo import calc_thermo
-from Auto3D.ASE.thermo.calculator import model_name2model_calculator
-from Auto3D.ASE.thermo.vibrations import vib_hessian
+import Auto3D.entry.ASE.thermo
+import Auto3D.entry.ASE.thermo.calculator
+from Auto3D.entry.ASE.geometry import opt_geometry
+from Auto3D.entry.ASE.thermo import calc_thermo
+from Auto3D.entry.ASE.thermo.calculator import model_name2model_calculator
+from Auto3D.entry.ASE.thermo.vibrations import vib_hessian
 from tests.helpers_pipeline_output import (
     assert_opt_geometry_output,
     write_perturbed_sdf,
@@ -29,7 +29,7 @@ from tests.helpers_pipeline_output import (
 # Every opt_geometry/calc_thermo call below passes use_gpu=False on purpose.
 # Both default to use_gpu=True, and Auto3D 3.0 made "GPU requested but no CUDA
 # device visible" FATAL rather than a silent CPU fallback
-# (Auto3D.models.policy.check_gpu_requested, called first thing inside each
+# (Auto3D.engines.models.policy.check_gpu_requested, called first thing inside each
 # function). The slow CI job runs on ubuntu-latest -- CPU-only, like every
 # runner in this repo -- so leaving the default in place would make each of
 # these raise GPUError instead of computing anything. `gpu_idx` is deliberately
@@ -189,7 +189,7 @@ def test_model_name2model_calculator_uses_factory():
 
     stub = _StubAdapter()
     with patch.object(
-        Auto3D.ASE.thermo.calculator, "create_model", return_value=stub
+        Auto3D.entry.ASE.thermo.calculator, "create_model", return_value=stub
     ) as mock_factory:
         model_adapter, calc = model_name2model_calculator("AIMNET", torch.device("cpu"))
 
@@ -323,8 +323,8 @@ def test_vib_hessian_includes_external_dispersion():
     # AIMNet2Adapter, whose analytic_hessian runs the full pipeline. It used to be
     # the bare AIMNet2Calculator, reached through an adapter property that existed
     # only for this call, with vib_hessian then dispatching on its TYPE.
-    from Auto3D.ASE.thermo.driver import _load_hessian_model
-    from Auto3D.models.adapter import AIMNet2Adapter
+    from Auto3D.engines.models.adapter import AIMNet2Adapter
+    from Auto3D.entry.ASE.thermo.driver import _load_hessian_model
 
     adapter = _load_hessian_model("AIMNET", device)
     assert isinstance(adapter, AIMNet2Adapter)
@@ -548,7 +548,7 @@ if __name__ == "__main__":
     test_calc_thermo_userNNP1()
     test_calc_thermo_userNNP2()
 
-    # from Auto3D.ASE.thermo.calculator import mol2aimnet_input
+    # from Auto3D.entry.ASE.thermo.calculator import mol2aimnet_input
 
     # device = torch.device('cpu')
     # path = os.path.join(folder, 'tests/files/cyclooctane.sdf')

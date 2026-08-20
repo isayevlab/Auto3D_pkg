@@ -90,7 +90,7 @@ def test_torchani_floor_is_2_8():
 def test_ase_floor_is_3_23_the_first_release_calc_thermo_can_use():
     """``ase>=3.22.1`` was never installable for the thermochemistry path.
 
-    ``Auto3D.ASE.thermo.do_mol_thermo`` passes ``ignore_imag_modes`` to
+    ``Auto3D.entry.ASE.thermo.do_mol_thermo`` passes ``ignore_imag_modes`` to
     ``IdealGasThermo``, and that parameter first exists in ASE 3.23.0 -- on
     3.22.1 the call raises ``TypeError`` before computing anything. 3.22.1
     also slices the last ``3N-6`` of the input list without sorting it first,

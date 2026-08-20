@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from Auto3D.config import Auto3DOptions
-from Auto3D.exceptions import ConfigurationError
+from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.exceptions import ConfigurationError
 
 
 def test_input_format_is_real_field_surviving_replace():
@@ -158,7 +158,7 @@ class TestChunkMeta:
         ``__required_keys__`` instead: a change to config.py's ChunkMeta now
         has to be reflected here too, or this test fails.
         """
-        from Auto3D.config import ChunkMeta
+        from Auto3D.foundation.config import ChunkMeta
 
         expected_keys = {
             "output",
@@ -192,8 +192,8 @@ def test_optimization_config_exposes_no_energy_criterion_knobs():
     are removed rather than left inert, and this asserts they stay removed --
     a config field that reaches nothing is worse than no field.
     """
-    import Auto3D.constants as constants
-    from Auto3D.config import OptimizationConfig
+    import Auto3D.foundation.constants as constants
+    from Auto3D.foundation.config import OptimizationConfig
 
     for name in ("energy_tol", "energy_patience"):
         assert not hasattr(OptimizationConfig(), name)
@@ -212,8 +212,8 @@ def test_capacity_default_comes_from_the_shared_constant():
     than a literal re-typed on the field -- which is what made the two-class
     version drift-prone in the first place.
     """
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.constants import DEFAULT_CAPACITY
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.constants import DEFAULT_CAPACITY
 
     assert Auto3DOptions(path="x.smi").capacity == DEFAULT_CAPACITY
 
@@ -231,10 +231,10 @@ def test_opt_steps_has_exactly_one_declared_minimum():
     declared once, in ``FIELD_BOUNDS``, and no validator downstream carries a
     second copy of it.
     """
-    from Auto3D.config import FIELD_BOUNDS, Auto3DOptions, check_field_bounds
-    from Auto3D.exceptions import ConfigurationError
-    from Auto3D.models import policy as policy_mod
-    from Auto3D.pipeline import input_checks as input_checks_mod
+    from Auto3D.engines.models import policy as policy_mod
+    from Auto3D.foundation.config import FIELD_BOUNDS, Auto3DOptions, check_field_bounds
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.orchestration.pipeline import input_checks as input_checks_mod
 
     kind, bound_min = FIELD_BOUNDS["opt_steps"]
     assert (kind, bound_min) == ("ge", 10)
@@ -274,21 +274,21 @@ def test_opt_steps_has_exactly_one_declared_minimum():
         ]
     assert not offenders, (
         f"an opt_steps bound is hand-written again: {offenders}. "
-        "The bound belongs in Auto3D.config.FIELD_BOUNDS only."
+        "The bound belongs in Auto3D.foundation.config.FIELD_BOUNDS only."
     )
 
 
 def test_negative_k_rejected():
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=-1)
 
 
 def test_negative_window_rejected():
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", window=-0.5)
@@ -302,15 +302,15 @@ def test_zero_k_rejected():
     "not specified" now; see test_default_and_valid_k_window_accepted for
     those sentinels.
     """
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=0)
 
 
 def test_default_and_valid_k_window_accepted():
-    from Auto3D.config import Auto3DOptions
+    from Auto3D.foundation.config import Auto3DOptions
 
     # defaults (None) and valid positives must NOT raise
     Auto3DOptions(path="x.smi")
@@ -332,8 +332,8 @@ def test_false_is_refused_as_a_sentinel_on_every_field_that_has_one():
     The shipped ``docs/legacy-v2/parameters.yaml`` set ``window: False`` and was
     updated with this change, so the in-repo example still loads.
     """
-    from Auto3D.config import SENTINEL_FIELDS, Auto3DOptions
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.config import SENTINEL_FIELDS, Auto3DOptions
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     for field in sorted(SENTINEL_FIELDS):
         with pytest.raises(ConfigurationError, match="None, not False"):
@@ -356,8 +356,8 @@ def test_non_numeric_threshold_raises_configuration_error():
     "Unexpected Error" (exit 1) instead of a configuration problem with a
     hint (exit 2).
     """
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.exceptions import ConfigurationError
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import ConfigurationError
 
     with pytest.raises(ConfigurationError):
         Auto3DOptions(path="x.smi", k=1, threshold="not-a-number")
@@ -377,23 +377,23 @@ class TestOptimizerWorkerIndices:
     """
 
     def test_single_int_index(self):
-        from Auto3D.config import optimizer_worker_indices
+        from Auto3D.foundation.config import optimizer_worker_indices
 
         assert optimizer_worker_indices(True, 0) == [0]
         assert optimizer_worker_indices(False, 2) == [2]
 
     def test_gpu_list_fans_out(self):
-        from Auto3D.config import optimizer_worker_indices
+        from Auto3D.foundation.config import optimizer_worker_indices
 
         assert optimizer_worker_indices(True, [0, 1, 2]) == [0, 1, 2]
 
     def test_cpu_list_collapses_to_one(self):
-        from Auto3D.config import optimizer_worker_indices
+        from Auto3D.foundation.config import optimizer_worker_indices
 
         assert optimizer_worker_indices(False, [0, 1]) == [0]
 
     def test_cpu_empty_list_is_safe(self):
-        from Auto3D.config import optimizer_worker_indices
+        from Auto3D.foundation.config import optimizer_worker_indices
 
         assert optimizer_worker_indices(False, []) == [0]
 
@@ -410,8 +410,8 @@ class TestSentinelsAreNotSilentlyReinterpreted:
     """
 
     def test_k_true_is_rejected_rather_than_read_as_one(self):
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match="got True"):
             Auto3DOptions(path="in.smi", k=True)
@@ -424,8 +424,8 @@ class TestSentinelsAreNotSilentlyReinterpreted:
         user is told ``k must be >= 1, got 0`` -- a complaint about a value they
         never wrote. The message has to name the replacement instead.
         """
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match="None, not False"):
             Auto3DOptions(path="in.smi", k=False, window=2.0)
@@ -433,7 +433,7 @@ class TestSentinelsAreNotSilentlyReinterpreted:
         assert Auto3DOptions(path="in.smi", k=None, window=2.0).window == 2.0
 
     def test_a_real_k_is_unaffected(self):
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
 
         assert Auto3DOptions(path="in.smi", k=1).k == 1
 
@@ -452,8 +452,8 @@ class TestParallelEmbeddingIsReachable:
     """
 
     def test_the_option_reaches_the_isomer_engine_factory(self, monkeypatch, tmp_path):
-        from Auto3D import auto3D as auto3D_mod
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.entry import auto3D as auto3D_mod
+        from Auto3D.foundation.config import Auto3DOptions
 
         seen = {}
 
@@ -499,7 +499,7 @@ class TestParallelEmbeddingIsReachable:
 
     def test_the_default_is_still_serial(self):
         """Off by default: enabling it changes a run's resource profile."""
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
 
         options = Auto3DOptions(path="in.smi", k=1)
         assert options.use_parallel_embedding is False
@@ -507,8 +507,8 @@ class TestParallelEmbeddingIsReachable:
     @pytest.mark.parametrize("field", ["parallel_workers", "parallel_embedding_threshold"])
     def test_a_count_below_one_is_rejected(self, field):
         """Bounds come from FIELD_BOUNDS, so both entry points share them."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.exceptions import ConfigurationError
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         with pytest.raises(ConfigurationError, match=field):
             Auto3DOptions(path="in.smi", k=1, **{field: 0})

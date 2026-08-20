@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from Auto3D.models.policy import ANI_ELEMENTS
-from Auto3D.models.species import ANI2XT_INDEX, format_elements
+from Auto3D.engines.models.policy import ANI_ELEMENTS
+from Auto3D.engines.models.species import ANI2XT_INDEX, format_elements
 
 #: The string every one of these sites has always shown. Written out rather than
 #: computed, so that a change to the renderer has something to be wrong against.
@@ -58,7 +58,7 @@ def test_ani2xt_index_covers_exactly_the_ani_element_set():
 
 def test_unsupported_element_message_names_the_supported_set(caplog):
     """The remap's rejection message renders from the set it enforces."""
-    from Auto3D.models.species import to_ani2xt_species
+    from Auto3D.engines.models.species import to_ani2xt_species
 
     with pytest.raises(ValueError) as exc:
         to_ani2xt_species([1, 6, 5])  # boron: in AIMNet2's set, not ANI's
@@ -76,7 +76,7 @@ def test_engine_info_ani_entries_render_from_the_element_set():
     the old one -- and ``auto3d models info`` is where a user checks precisely
     this before choosing an engine.
     """
-    from Auto3D.cli.commands.models import ENGINE_INFO
+    from Auto3D.presentation.cli.commands.models import ENGINE_INFO
 
     for name in ("ANI2X", "ANI2XT"):
         assert ENGINE_INFO[name]["elements"] == format_elements(ANI_ELEMENTS), (
@@ -117,7 +117,7 @@ def test_aimnet_engine_info_elements_match_the_model_metadata(info_key, registry
     """
     import torch
 
-    from Auto3D.cli.commands.models import ENGINE_INFO
+    from Auto3D.presentation.cli.commands.models import ENGINE_INFO
 
     aimnet_calculators = pytest.importorskip("aimnet.calculators")
 

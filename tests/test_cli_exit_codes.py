@@ -38,8 +38,8 @@ import pytest
 import torch
 from typer.testing import CliRunner
 
-import Auto3D.model_factory
-from Auto3D.cli.app import app
+import Auto3D.engines.model_factory
+from Auto3D.presentation.cli.app import app
 
 runner = CliRunner()
 
@@ -126,7 +126,7 @@ def test_exit_2_config_validate_agrees_with_the_run_it_predicts(tmp_path):
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\n")
 
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     checked = runner.invoke(app, ["config", "validate", str(cfg)])
     with patch.object(a3d, "main", side_effect=AssertionError("must not run")):
@@ -252,7 +252,7 @@ def _hide_torchani(monkeypatch):
     scoped: monkeypatch restores the populated cache afterwards, so tests that
     follow are not made slower by a cold factory.
     """
-    from Auto3D.model_factory import ModelFactory
+    from Auto3D.engines.model_factory import ModelFactory
 
     monkeypatch.setitem(sys.modules, "torchani", None)
     monkeypatch.setattr(ModelFactory, "_cache", {})
@@ -338,7 +338,7 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
     advice. Same judgment ``preflight_model`` documents: a failure the code
     cannot positively identify keeps its traceback.
     """
-    import Auto3D.model_factory as mf
+    import Auto3D.engines.model_factory as mf
 
     def _broken_adapter(device, compile_model=False):
         raise ModuleNotFoundError(
@@ -381,7 +381,7 @@ def test_exit_4_out_of_range_gpu_index(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
-    with patch.object(Auto3D.model_factory, "create_model") as m:
+    with patch.object(Auto3D.engines.model_factory, "create_model") as m:
         result = runner.invoke(app, ["models", "test", "AIMNET", "--gpu-idx", "99"])
 
     assert result.exit_code == 4, result.output
@@ -401,7 +401,7 @@ def test_exit_4_no_cuda_at_all(monkeypatch):
     by message even though they share an integer."""
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
-    with patch.object(Auto3D.model_factory, "create_model") as m:
+    with patch.object(Auto3D.engines.model_factory, "create_model") as m:
         result = runner.invoke(app, ["models", "test", "AIMNET"])
 
     assert result.exit_code == 4, result.output
@@ -420,8 +420,8 @@ class TestGetDeviceBoundsCheck:
     """
 
     def test_out_of_range_raises_gpu_error(self, monkeypatch):
-        from Auto3D.exceptions import GPUError
-        from Auto3D.model_factory import get_device
+        from Auto3D.engines.model_factory import get_device
+        from Auto3D.foundation.exceptions import GPUError
 
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.cuda, "device_count", lambda: 4)
@@ -432,8 +432,8 @@ class TestGetDeviceBoundsCheck:
     def test_negative_index_raises_gpu_error(self, monkeypatch):
         """``torch.device("cuda:-1")`` is not even constructible, so a negative
         index used to fail with a ``RuntimeError`` from torch (exit 1)."""
-        from Auto3D.exceptions import GPUError
-        from Auto3D.model_factory import get_device
+        from Auto3D.engines.model_factory import get_device
+        from Auto3D.foundation.exceptions import GPUError
 
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.cuda, "device_count", lambda: 4)
@@ -444,7 +444,7 @@ class TestGetDeviceBoundsCheck:
     def test_last_valid_index_is_accepted(self, monkeypatch):
         """The bound is exclusive at the top: index 3 of 4 devices is valid.
         An off-by-one here would reject a legitimate device."""
-        from Auto3D.model_factory import get_device
+        from Auto3D.engines.model_factory import get_device
 
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.cuda, "device_count", lambda: 4)
@@ -456,7 +456,7 @@ class TestGetDeviceBoundsCheck:
         ``gpu_idx`` keeps its default of 0 on the CLI even when the user asked
         for CPU, and a box with no devices would otherwise fail every
         ``--no-gpu`` run."""
-        from Auto3D.model_factory import get_device
+        from Auto3D.engines.model_factory import get_device
 
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.cuda, "device_count", lambda: 0)
@@ -467,7 +467,7 @@ class TestGetDeviceBoundsCheck:
         """On a CPU-only host the index is irrelevant: ``check_gpu_requested``
         owns the "you asked for GPU and there is none" refusal, and this
         function must not produce a second, differently-worded one."""
-        from Auto3D.model_factory import get_device
+        from Auto3D.engines.model_factory import get_device
 
         monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 
@@ -505,8 +505,10 @@ def test_exit_5_non_finite_model_output(monkeypatch):
         def forward(self, coords, species, charges):
             return torch.tensor([float("nan")]), torch.zeros(1, 5, 3)
 
-    monkeypatch.setattr(Auto3D.model_factory, "get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr(Auto3D.model_factory, "create_model", lambda *a, **k: _NanAdapter())
+    monkeypatch.setattr(
+        Auto3D.engines.model_factory, "get_device", lambda *a, **k: torch.device("cpu")
+    )
+    monkeypatch.setattr(Auto3D.engines.model_factory, "create_model", lambda *a, **k: _NanAdapter())
 
     result = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
 
@@ -525,8 +527,8 @@ def test_exit_6_run_with_missing_molecules(tmp_path, monkeypatch):
     loaded; the reconciliation ``main`` would have done is expressed directly
     as ``WorkflowResult.failures``.
     """
-    import Auto3D.auto3D as a3d
-    from Auto3D.results import WorkflowResult
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.results import WorkflowResult
 
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\nCCC m2\n")
@@ -556,8 +558,8 @@ def test_exit_6_json_document_still_reaches_stdout(tmp_path, monkeypatch):
     """Same run with ``--json``: the document must be parseable, and must be
     the results document (not ``handle_error``'s failure document), because a
     partial run is not an exception."""
-    import Auto3D.auto3D as a3d
-    from Auto3D.results import WorkflowResult
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.results import WorkflowResult
 
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\nCCC m2\n")
@@ -579,8 +581,8 @@ def test_exit_6_json_document_still_reaches_stdout(tmp_path, monkeypatch):
 def test_exit_6_is_not_used_for_a_clean_run(tmp_path, monkeypatch):
     """Control: the same wiring with nothing missing must exit 0, so exit 6
     is genuinely about lost molecules and not about, say, an empty output."""
-    import Auto3D.auto3D as a3d
-    from Auto3D.results import WorkflowResult
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.results import WorkflowResult
 
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\n")
@@ -627,8 +629,8 @@ def test_exit_130_ctrl_c_reports_how_far_the_run_got(tmp_path, monkeypatch):
     echoed back only by a handler that read the configuration, and the counts
     only by one that read the live display.
     """
-    import Auto3D.auto3D as a3d
-    from Auto3D.cli.errors import EXIT_INTERRUPTED
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.presentation.cli.errors import EXIT_INTERRUPTED
 
     smi = tmp_path / "mols.smi"
     smi.write_text("CCO m1\nCCC m2\n")
@@ -674,8 +676,8 @@ def test_documented_table_lists_exactly_the_codes_the_cli_can_emit():
     import re
     from pathlib import Path
 
-    from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS
-    from Auto3D.cli.errors import EXIT_CODES, EXIT_INTERRUPTED
+    from Auto3D.presentation.cli.commands.run import EXIT_PARTIAL_SUCCESS
+    from Auto3D.presentation.cli.errors import EXIT_CODES, EXIT_INTERRUPTED
 
     expected = {0, 1, *EXIT_CODES.values(), EXIT_PARTIAL_SUCCESS, EXIT_INTERRUPTED}
 

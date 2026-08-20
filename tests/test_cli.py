@@ -14,9 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import Auto3D.auto3D
-from Auto3D.auto3Dcli import _is_yaml_file, cli
-from Auto3D.exceptions import (
+import Auto3D.entry.auto3D
+from Auto3D.foundation.exceptions import (
     Auto3DError,
     ConfigurationError,
     DependencyError,
@@ -24,6 +23,7 @@ from Auto3D.exceptions import (
     GPUError,
     OptimizationError,
 )
+from Auto3D.presentation.auto3Dcli import _is_yaml_file, cli
 
 # =============================================================================
 # Tests for _is_yaml_file helper function
@@ -85,7 +85,7 @@ def test_new_cli_help():
 
     from typer.testing import CliRunner
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["--help"])
@@ -112,7 +112,7 @@ def test_new_cli_version():
 
     from typer.testing import CliRunner
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["--version"])
@@ -125,7 +125,7 @@ def test_run_subcommand_help():
     """run --help should show all options."""
     from typer.testing import CliRunner
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["run", "--help"])
@@ -150,7 +150,7 @@ def test_config_subcommand_help():
     """config --help should show subcommands."""
     from typer.testing import CliRunner
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["config", "--help"])
@@ -172,7 +172,7 @@ def test_models_subcommand_help():
     """
     from typer.testing import CliRunner
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["models", "--help"])
@@ -192,7 +192,7 @@ def test_validate_subcommand_help():
 
     from typer.testing import CliRunner
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["validate", "--help"])
@@ -206,7 +206,7 @@ def test_validate_subcommand_help():
 # =============================================================================
 # Tests for CLI module imports
 #
-# Each name is imported from the module that defines it. `Auto3D.cli` used to
+# Each name is imported from the module that defines it. `Auto3D.presentation.cli` used to
 # re-export all five; it re-exports nothing now, and `app`/`console` there are
 # the *modules*, not the Typer application and the Rich console. See
 # tests/test_import_boundaries.py::test_cli_app_and_console_names_resolve_to_their_modules.
@@ -215,8 +215,8 @@ def test_validate_subcommand_help():
 
 def test_cli_module_imports():
     """The CLI's key components exist at their defining module paths."""
-    from Auto3D.cli.app import app
-    from Auto3D.cli.console import console, print_error, print_success, print_warning
+    from Auto3D.presentation.cli.app import app
+    from Auto3D.presentation.cli.console import console, print_error, print_success, print_warning
 
     assert app is not None
     assert console is not None
@@ -229,7 +229,7 @@ def test_cli_module_app_is_typer():
     """CLI app should be a Typer instance."""
     import typer
 
-    from Auto3D.cli.app import app
+    from Auto3D.presentation.cli.app import app
 
     assert isinstance(app, typer.Typer)
 
@@ -238,7 +238,7 @@ def test_cli_module_console_is_rich():
     """CLI console should be a Rich Console instance."""
     from rich.console import Console
 
-    from Auto3D.cli.console import console
+    from Auto3D.presentation.cli.console import console
 
     assert isinstance(console, Console)
 
@@ -252,14 +252,14 @@ class TestCLIExceptionHandling:
     """Test that CLI wraps exceptions properly."""
 
     # Legacy YAML path now (a) checks the file exists and (b) maps exception
-    # types to differentiated exit codes (see Auto3D.cli.errors.EXIT_CODES):
+    # types to differentiated exit codes (see Auto3D.presentation.cli.errors.EXIT_CODES):
     # ConfigurationError -> 2, GPUError -> 4, generic Auto3DError/Optimization -> 1.
     #
     # optimizing_engine is 'ANI2xt' (a built-in name), not 'AIMNET', because
     # this legacy path now runs through CLIConfig (Task 1, C10/M27 parity),
     # whose engine validator resolves an aimnet-family name against the real
     # `aimnet` package registry. 'ANI2xt' short-circuits that resolution
-    # (Auto3D.models.preflight.resolve_engine_name's first branch) with no
+    # (Auto3D.engines.models.preflight.resolve_engine_name's first branch) with no
     # import of `aimnet` at all, keeping this exception-mapping test from
     # depending on that heavy optional dependency importing cleanly.
     _LEGACY_YAML = {
@@ -289,7 +289,7 @@ class TestCLIExceptionHandling:
 
     def _run_legacy_with_error(self, error):
         """Drive the legacy YAML path with main() raising `error`; return exit code."""
-        with patch.object(Auto3D.auto3D, "main") as mock_main:
+        with patch.object(Auto3D.entry.auto3D, "main") as mock_main:
             mock_main.side_effect = error
             with patch.object(sys, "argv", ["auto3d", "config.yaml"]):
                 with patch("yaml.safe_load", return_value=dict(self._LEGACY_YAML)):
@@ -371,7 +371,7 @@ class TestLegacyYamlReconciliation:
     @staticmethod
     def _drive(tmp_path, monkeypatch, fake_main, **yaml_overrides):
         """Run the real `cli()` in legacy mode with `main` replaced."""
-        import Auto3D.auto3D as a3d
+        import Auto3D.entry.auto3D as a3d
 
         yaml_path = TestLegacyYamlReconciliation._write_yaml(tmp_path, **yaml_overrides)
         monkeypatch.setattr(a3d, "main", fake_main)
@@ -390,8 +390,8 @@ class TestLegacyYamlReconciliation:
         cannot appear incidentally -- notably not in ``tmp_path``, which pytest
         names after this test function.
         """
-        from Auto3D.cli.commands.run import EXIT_PARTIAL_SUCCESS
-        from Auto3D.results import WorkflowResult
+        from Auto3D.foundation.results import WorkflowResult
+        from Auto3D.presentation.cli.commands.run import EXIT_PARTIAL_SUCCESS
 
         # A path that is never created: count_output reports (0, 0) for it, so
         # this test is about the failure list and not about parsing an SDF.
@@ -417,7 +417,7 @@ class TestLegacyYamlReconciliation:
         Without this, the test above would also pass if the new code exited 6
         unconditionally.
         """
-        from Auto3D.results import WorkflowResult
+        from Auto3D.foundation.results import WorkflowResult
 
         self._drive(
             tmp_path,
@@ -437,7 +437,7 @@ class TestLegacyYamlReconciliation:
         Keyed on the job directory, not on the exit code: ``job_name: kestrel``
         is echoed back only by a handler that actually read the configuration.
         """
-        from Auto3D.cli.errors import EXIT_INTERRUPTED
+        from Auto3D.presentation.cli.errors import EXIT_INTERRUPTED
 
         def interrupted_main(options, **kwargs):
             raise KeyboardInterrupt
@@ -456,8 +456,8 @@ class TestSmiles2MolsExceptionHandling:
 
     def test_smiles2mols_raises_configuration_error_without_k_or_window(self):
         """smiles2mols should raise ConfigurationError when neither k nor window specified."""
-        from Auto3D.auto3D import smiles2mols
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.entry.auto3D import smiles2mols
+        from Auto3D.foundation.config import Auto3DOptions
 
         # Create options without k or window (both set to False/default)
         args = Auto3DOptions(

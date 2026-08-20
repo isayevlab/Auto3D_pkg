@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-import Auto3D.workflow
-from Auto3D.exceptions import ConfigurationError, FileFormatError, OptimizationError
+import Auto3D.orchestration.workflow
+from Auto3D.foundation.exceptions import ConfigurationError, FileFormatError, OptimizationError
 
 
 class TestWorkflowExceptions:
@@ -20,8 +20,8 @@ class TestWorkflowExceptions:
 
     def test_validate_input_missing_path_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when path is None."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         config = Auto3DOptions(
             path=None,  # Missing path
@@ -35,8 +35,8 @@ class TestWorkflowExceptions:
 
     def test_validate_input_unsupported_format_raises_file_format_error(self, tmp_path):
         """Should raise FileFormatError for unsupported input format."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         # Create a test file with unsupported extension
         unsupported_file = tmp_path / "test.xyz"
@@ -58,8 +58,8 @@ class TestWorkflowExceptions:
 
     def test_validate_input_missing_k_and_window_raises_configuration_error(self, tmp_path):
         """Should raise ConfigurationError when neither k nor window specified."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         # Create a valid .smi file
         smi_file = tmp_path / "test.smi"
@@ -79,8 +79,8 @@ class TestWorkflowExceptions:
     def test_validate_input_invalid_config_raises_configuration_error(self, tmp_path):
         """An invalid config (e.g. out-of-range gpu_idx) must fail fast in
         _validate_input via check_valid_configuration, not deep in a worker."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi_file = tmp_path / "test.smi"
         smi_file.write_text("CCO ethanol")
@@ -88,7 +88,7 @@ class TestWorkflowExceptions:
         orchestrator = WorkflowOrchestrator(config)
 
         with patch.object(
-            Auto3D.workflow,
+            Auto3D.orchestration.workflow,
             "check_valid_configuration",
             return_value=["GPU index 5 is invalid. Available GPUs: 1"],
         ):
@@ -97,8 +97,8 @@ class TestWorkflowExceptions:
 
     def test_finalize_output_no_structures_raises_optimization_error(self, tmp_path):
         """Should raise OptimizationError when no 3D structures converged."""
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         config = Auto3DOptions(
             path=str(tmp_path / "test.smi"),
@@ -129,8 +129,8 @@ class TestChunkCreation:
         """
         from pathlib import Path
 
-        from Auto3D.chunk_manager import ChunkManager
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.chunk_manager import ChunkManager
 
         # Create a minimal config - we won't run the full pipeline
         config = Auto3DOptions(
@@ -170,8 +170,8 @@ class TestChunkCreation:
         """All chunks with data should be created."""
         from pathlib import Path
 
-        from Auto3D.chunk_manager import ChunkManager
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.chunk_manager import ChunkManager
 
         config = Auto3DOptions(
             path=str(tmp_path / "test.smi"),
@@ -207,8 +207,8 @@ class TestIsomerWrapperFailure:
     def test_isomer_wrapper_emits_sentinels_on_failure(self, monkeypatch):
         """If isomer generation raises, every optimizer must still get a 'Done' sentinel."""
 
-        from Auto3D.auto3D import isomer_wrapper
-        from Auto3D.config import Auto3DOptions
+        from Auto3D.entry.auto3D import isomer_wrapper
+        from Auto3D.foundation.config import Auto3DOptions
 
         args = Auto3DOptions(path="x.smi", k=1, gpu_idx=[0, 1])
         args.input_format = "smi"
@@ -235,7 +235,7 @@ class TestOptimizerEmptyInput:
 
         import torch
 
-        from Auto3D.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import optimizing
         from tests.helpers_adapter import FakeAdapter
 
         device = torch.device("cpu")
@@ -269,7 +269,7 @@ class TestOptimizerEmptyInput:
 
         import torch
 
-        from Auto3D.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import optimizing
         from tests.helpers_adapter import FakeAdapter
 
         device = torch.device("cpu")
@@ -306,7 +306,11 @@ class TestOptimizerEmptyInput:
 
 
 def test_workers_importable_from_workflow_workers():
-    from Auto3D.workflow_workers import isomer_wrapper, logger_process, optim_rank_wrapper
+    from Auto3D.orchestration.workflow_workers import (
+        isomer_wrapper,
+        logger_process,
+        optim_rank_wrapper,
+    )
 
     assert all(callable(f) for f in (isomer_wrapper, optim_rank_wrapper, logger_process))
 
@@ -338,7 +342,7 @@ class TestAFailedChunksCauseReachesTheUser:
         import logging as logging_mod
         import queue as queue_mod
 
-        from Auto3D.workflow_workers import logger_process
+        from Auto3D.orchestration.workflow_workers import logger_process
 
         logger = logging_mod.getLogger("auto3d")
         before = list(logger.handlers)
@@ -420,8 +424,8 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     """
     import queue as queue_mod
 
-    from Auto3D import workflow_workers as ww
-    from Auto3D.config import Auto3DOptions
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration import workflow_workers as ww
 
     attempted = []
 
@@ -476,14 +480,14 @@ def test_unsupported_extension_rejected_before_encoding(tmp_path):
     nothing. Against ``run()`` it can: move the format check after
     ``_encode_input`` and the mock is called.
     """
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     bad = tmp_path / "mol.xyz"
     bad.write_text("stuff\n")
     orch = WorkflowOrchestrator(Auto3DOptions(path=str(bad), k=1, use_gpu=False))
 
-    with patch.object(Auto3D.workflow, "encode_ids") as enc:
+    with patch.object(Auto3D.orchestration.workflow, "encode_ids") as enc:
         with pytest.raises(FileFormatError, match="not supported"):
             orch.run()
         enc.assert_not_called()  # format is validated before any encoding
@@ -502,8 +506,8 @@ def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
     inside run()'s try/finally, so a failure in a later setup step (job-dir
     creation, logging start) no longer leaks the encoded file beside the input.
     """
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     smi = tmp_path / "mol.smi"
     smi.write_text("CCO ethanol\n")
@@ -527,9 +531,9 @@ def test_encoded_input_cleaned_up_when_setup_fails(tmp_path, monkeypatch):
 def test_finalize_raises_when_all_outputs_empty(tmp_path):
     import pytest
 
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.exceptions import OptimizationError
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import OptimizationError
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     orch = WorkflowOrchestrator(Auto3DOptions(path="x.smi", k=1))
     orch.job_dir = tmp_path
@@ -547,8 +551,8 @@ def test_finalize_raises_when_all_outputs_empty(tmp_path):
 def test_run_pipeline_does_not_mutate_shared_batchsize():
     """_run_pipeline must apply the memory-scaled batchsize via a per-run config
     copy and leave the caller's shared config untouched (review #35/#36)."""
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     config = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)
     orch = WorkflowOrchestrator(config)
@@ -620,8 +624,8 @@ def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
     is pinned to 'ANI2xt' (bundled, no registry/network lookup) so even Phase
     1's real preflight_model check stays offline.
     """
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     smi = tmp_path / "mol.smi"
     smi.write_text("CCO ethanol\n")
@@ -660,8 +664,8 @@ def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
 def test_smiles2mols_uses_args_threshold(monkeypatch):
     """smiles2mols must pass args.threshold (not a hardcoded value) to the
     isomer engine, matching main()'s candidate-pool behavior (review #35/#36)."""
-    import Auto3D.auto3D as auto3D_mod
-    from Auto3D.config import Auto3DOptions
+    import Auto3D.entry.auto3D as auto3D_mod
+    from Auto3D.foundation.config import Auto3DOptions
 
     captured = {}
 
@@ -713,8 +717,8 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
 def test_orchestrator_input_format_single_source_of_truth(tmp_path):
     """input_format lives on the config (single source); the orchestrator no
     longer keeps a redundant instance attribute that could desync."""
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     smi = tmp_path / "m.smi"
     smi.write_text("CCO ethanol\n")
@@ -749,8 +753,8 @@ class TestFinalizeOutputReconciliation:
 
         from rdkit import Chem
 
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         orig_smi = tmp_path / "orig.smi"
         # Original (decoded) ids -- this, not the encoded temp file, is what
@@ -788,8 +792,8 @@ class TestFinalizeOutputReconciliation:
         """No false positives when every input molecule made it to the output."""
         from rdkit import Chem
 
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         orig_smi = tmp_path / "orig.smi"
         orig_smi.write_text("C mol_a\nC mol_b\n")
@@ -817,8 +821,8 @@ class TestFinalizeOutputReconciliation:
         """SDF input must be reconciled too, not silently skipped (C7 scope)."""
         from rdkit import Chem
 
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         orig_sdf = tmp_path / "orig.sdf"
         with Chem.SDWriter(str(orig_sdf)) as w:
@@ -863,9 +867,9 @@ class TestFinalizeOutputReconciliation:
         `_reconcile_output` stops dispatching through it, whether or not the
         unused import is still there.
         """
-        import Auto3D.workflow as workflow
-        from Auto3D.config import Auto3DOptions
-        from Auto3D.workflow import WorkflowOrchestrator
+        import Auto3D.orchestration.workflow as workflow
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi_calls = []
         id_calls = []
@@ -904,10 +908,10 @@ def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch,
     finalize phases) is stubbed, but the WorkflowResult construction and the
     getattr(out, "failures", ...) contract the C7 tripwire relies on are real.
     """
-    from Auto3D.auto3D import main
-    from Auto3D.config import Auto3DOptions
-    from Auto3D.results import WorkflowResult
-    from Auto3D.workflow import WorkflowOrchestrator
+    from Auto3D.entry.auto3D import main
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.results import WorkflowResult
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     fake_output = str(tmp_path / "out.sdf")
 
@@ -940,8 +944,8 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
     from rdkit import Chem
     from rdkit.Chem import inchi
 
-    import Auto3D.auto3D as auto3D_mod
-    from Auto3D.config import Auto3DOptions
+    import Auto3D.entry.auto3D as auto3D_mod
+    from Auto3D.foundation.config import Auto3DOptions
 
     ethanol_id = inchi.MolToInchiKey(Chem.MolFromSmiles("CCO"))
     written: dict[str, str] = {}
@@ -1027,7 +1031,7 @@ class TestQuietPathsNameWhatTheyDropped:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import optimizing
         from tests.helpers_adapter import FakeAdapter
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
@@ -1074,7 +1078,7 @@ class TestQuietPathsNameWhatTheyDropped:
         signal: a message logged inside a ProcessPoolExecutor worker depends on
         that child's logging configuration, and this one does not.
         """
-        from Auto3D.embedding import embed_conformers_parallel
+        from Auto3D.domain.embedding import embed_conformers_parallel
 
         with caplog.at_level(logging.WARNING):
             results = list(
@@ -1093,7 +1097,7 @@ class TestQuietPathsNameWhatTheyDropped:
 
     def test_a_species_that_embeds_normally_is_not_warned_about(self, caplog):
         """The new branch must not fire for a molecule that worked."""
-        from Auto3D.embedding import embed_conformers_parallel
+        from Auto3D.domain.embedding import embed_conformers_parallel
 
         with caplog.at_level(logging.WARNING):
             results = list(

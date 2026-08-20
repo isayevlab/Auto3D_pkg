@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Tests for the unit-conversion factors and legacy aliases in Auto3D.utils.energy."""
+"""Tests for the unit-conversion factors and legacy aliases in Auto3D.foundation.utils.energy."""
 
 from __future__ import annotations
 
-from Auto3D.utils.energy import (
+from Auto3D.foundation.utils.energy import (
     EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
@@ -47,7 +47,7 @@ class TestModuleImports:
     """Test that all expected names are importable from their defining modules.
 
     There used to be a second test here importing the same names out of the
-    ``Auto3D.utils`` package barrel, asserting that both paths worked. The
+    ``Auto3D.foundation.utils`` package barrel, asserting that both paths worked. The
     barrel is gone (``tests/test_import_boundaries.py`` now forbids it), so the
     two-paths-for-one-name shape it pinned is the thing being prevented rather
     than checked.
@@ -55,10 +55,10 @@ class TestModuleImports:
 
     def test_import_from_defining_modules(self):
         """Each name resolves at the module that now defines it."""
-        from Auto3D.utils.connectivity import check_connectivity
-        from Auto3D.utils.energy import HARTREE_TO_EV, hartree2ev
-        from Auto3D.utils.geometry import get_rmsd, min_pairwise_distance
-        from Auto3D.utils.molprops import get_mol_charge
+        from Auto3D.foundation.utils.connectivity import check_connectivity
+        from Auto3D.foundation.utils.energy import HARTREE_TO_EV, hartree2ev
+        from Auto3D.foundation.utils.geometry import get_rmsd, min_pairwise_distance
+        from Auto3D.foundation.utils.molprops import get_mol_charge
 
         assert HARTREE_TO_EV == hartree2ev
         assert callable(get_mol_charge)

@@ -23,7 +23,7 @@ import pytest
 import torch
 from torch import nn
 
-from Auto3D.batch_opt.padding import pad_from_mols
+from Auto3D.engines.batch_opt.padding import pad_from_mols
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -34,7 +34,7 @@ def _aimnet_padding():
     return FakeAdapter(coord_pad=0.0, species_pad=0)
 
 
-from Auto3D.models.adapter import AIMNet2Adapter
+from Auto3D.engines.models.adapter import AIMNet2Adapter
 
 rdkit = pytest.importorskip("rdkit")
 from rdkit import Chem  # noqa: E402
@@ -177,7 +177,7 @@ class TestMaskReachesTheAdapterThroughTheStack:
     """EnForce_ANI must slice and forward the mask, not swallow it."""
 
     def test_forward_batched_forwards_the_mask_per_sub_batch(self):
-        from Auto3D.batch_opt.model_wrapper import EnForce_ANI
+        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 
         seen: list[int] = []
 

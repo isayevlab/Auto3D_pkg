@@ -7,21 +7,23 @@ enough while modules are moving between packages, which is what the next several
 items of the modernization plan do. A reviewer looking at a diff that relocates
 six modules cannot tell a correct move from an incorrect one by reading it.
 
-So the map is declared here, and both directions are asserted:
+The layer of a module is now its **directory**, so this file no longer declares
+which modules live where -- it reads the tree:
 
-    L5  presentation   cli/**, auto3Dcli, the package root
-    L4  entry          auto3D, SPE, ASE/**, tautomer
-    L3  orchestration  workflow, workflow_workers, chunk_manager, job_layout,
-                       processors, pipeline/**
-    L2  engines        models/**, model_factory, isomers/**, batch_opt/**
-    L1  domain         ranking, filtering, embedding, clash_relief, id_mapping
-    L0  foundation     config, constants, exceptions, registry, results,
-                       torch_config, utils/**
+    L5  presentation/   cli/**, auto3Dcli, and the package root
+    L4  entry/          auto3D, SPE, ASE/**, tautomer
+    L3  orchestration/  workflow, workflow_workers, chunk_manager, job_layout,
+                        processors, pipeline/**
+    L2  engines/        models/**, model_factory, isomers/**, batch_opt/**
+    L1  domain/         ranking, filtering, embedding, clash_relief, id_mapping
+    L0  foundation/     config, constants, exceptions, registry, results,
+                        torch_config, utils/**
 
-This map describes the package as it is today, at its current module names -- not
-the target layout in the plan, which renames and regroups. It is the thing that
-has to keep holding *while* that regrouping happens, so it is written against
-what a reader can check right now.
+The only thing declared below is the ORDER of the layers, which is the one fact
+a directory name cannot carry. A per-module prefix list used to sit here and had
+to be edited every time a file moved -- and could go stale in both directions:
+a module in no layer (caught) and a layer prefix naming no module (not caught
+until a staleness test was added for it). Neither failure is expressible now.
 
 Two scopes, because they answer different questions. `test_no_module_imports_a_
 higher_layer` reads module-scope imports only: those are what an import of the
@@ -40,26 +42,21 @@ import pathlib
 SRC = pathlib.Path(__file__).resolve().parent.parent / "src"
 PKG = SRC / "Auto3D"
 
-#: layer number -> the module-path prefixes that live in it, relative to
-#: ``Auto3D.``. ``""`` is the package root itself. Longest prefix wins, so
-#: ``ASE.thermo`` would beat ``ASE`` if they ever disagreed.
+#: Layer number -> the directory that *is* that layer. The order is the whole
+#: declaration: which modules belong to a layer is read from where they sit.
 #:
-#: ``tautomer`` sits in L4 rather than L2, which is where it was filed until the
-#: plan's item 8 looked at it. ``Auto3D/__init__.py``'s ``_LAZY_API`` lists
-#: ``get_stable_tautomers`` immediately beside ``calc_spe``, ``opt_geometry`` and
-#: ``calc_thermo`` -- all three L4 -- and ``cli/commands/properties.py`` calls it
-#: exactly as it calls those. By the package's own definition of its public
-#: surface it is an entry point, so classifying it as an engine was a filing
-#: error, and the ``tautomer -> auto3D`` edge it produced was never a wiring
-#: problem to fix. See the deleted UPWARD_EXEMPTIONS entry below.
-LAYERS: dict[int, list[str]] = {
-    5: ["", "cli", "auto3Dcli"],
-    4: ["auto3D", "SPE", "ASE", "tautomer"],
-    3: ["workflow", "workflow_workers", "chunk_manager", "job_layout", "processors", "pipeline"],
-    2: ["models", "model_factory", "isomers", "batch_opt"],
-    1: ["ranking", "filtering", "embedding", "clash_relief", "id_mapping"],
-    0: ["config", "constants", "exceptions", "registry", "results", "torch_config", "utils"],
+#: The package root (``Auto3D/__init__.py``) is presentation: it is the barrel a
+#: user imports, and it may reach anything below it.
+LAYER_DIRS: dict[int, str] = {
+    5: "presentation",
+    4: "entry",
+    3: "orchestration",
+    2: "engines",
+    1: "domain",
+    0: "foundation",
 }
+
+_OWNER = {directory: layer for layer, directory in LAYER_DIRS.items()}
 
 #: Upward module-scope edges that are known, named and dated. An entry here is a
 #: debt with an owner, not a permission: each says what removes it.
@@ -87,8 +84,6 @@ UPWARD_EXEMPTIONS: dict[tuple[str, str], str] = {}
 #: the exemption as stale on the next run.
 CYCLE_EXEMPTIONS: dict[tuple[str, str], str] = {}
 
-_OWNER = {prefix: layer for layer, prefixes in LAYERS.items() for prefix in prefixes}
-
 
 def _module_name(path: pathlib.Path) -> str:
     parts = list(path.relative_to(SRC).with_suffix("").parts)
@@ -97,25 +92,18 @@ def _module_name(path: pathlib.Path) -> str:
     return ".".join(parts)
 
 
-def _matches(module: str, prefix: str) -> bool:
-    """Does ``prefix`` classify ``module``? ``""`` is the package root alone.
+def _layer_of(module: str) -> int | None:
+    """The layer a module lives in, read off its first path component.
 
-    Factored out so :func:`_layer_of` and the staleness test below cannot
-    disagree about what "this prefix names something" means -- the two answer
-    opposite questions over the same relation.
+    ``Auto3D`` itself (the package root) is presentation. Anything whose first
+    component is not a layer directory returns ``None``, which
+    :func:`test_every_module_lives_in_a_layer_directory` turns into a failure --
+    that is the only way a module can now escape classification.
     """
     rest = module[len("Auto3D") :].lstrip(".")
-    if prefix == "":
-        return rest == ""
-    return rest == prefix or rest.startswith(prefix + ".")
-
-
-def _layer_of(module: str) -> int | None:
-    best, best_len = None, -1
-    for prefix, layer in _OWNER.items():
-        if _matches(module, prefix) and len(prefix) > best_len:
-            best, best_len = layer, len(prefix)
-    return best
+    if not rest:
+        return _OWNER["presentation"]
+    return _OWNER.get(rest.split(".")[0])
 
 
 def _modules() -> dict[str, pathlib.Path]:
@@ -143,7 +131,7 @@ def _internal_edges(*, module_scope_only: bool) -> dict[str, set[str]]:
             for target in targets:
                 if target != "Auto3D" and not target.startswith("Auto3D."):
                     continue
-                # `from Auto3D.utils.energy import x` may name a module or an
+                # `from Auto3D.foundation.utils.energy import x` may name a module or an
                 # attribute of one; walk up to the nearest real module.
                 while target and target not in modules:
                     target = target.rsplit(".", 1)[0] if "." in target else ""
@@ -169,31 +157,25 @@ def test_every_module_is_assigned_to_a_layer():
     """
     unmapped = sorted(m for m in _modules() if _layer_of(m) is None)
     assert not unmapped, (
-        "these modules are in no layer -- add them to LAYERS in this file:\n  "
-        + "\n  ".join(unmapped)
+        "these modules are not inside a layer directory -- move them under one "
+        "of {sorted(LAYER_DIRS.values())}:\n  " + "\n  ".join(unmapped)
     )
 
 
-def test_every_layer_prefix_still_names_something():
-    """The map must not outlive the modules it classifies.
+def test_every_layer_directory_exists():
+    """The map must not outlive the tree it describes.
 
-    The totality test above is one-directional: it catches a module with no
-    layer, never a layer entry with no module. So a deleted or renamed module
-    left its prefix behind as dead configuration, silently -- ``isomer_engine``
-    sat here after PR #168 split it into ``isomers/``, classifying nothing.
+    The totality test above is one-directional: it catches a module outside every
+    layer, never a layer naming nothing. When layers were prefix *lists* that
+    asymmetry let dead entries accumulate silently -- ``isomer_engine`` sat in the
+    map after PR #168 deleted it, classifying nothing.
 
-    Harmless on its own, and that is the problem: a prefix that matches nothing
-    looks exactly like a prefix that matches something, so the map stops being
-    readable as a description of the package. ``UPWARD_EXEMPTIONS`` and
-    ``CYCLE_EXEMPTIONS`` have both had a staleness assertion since this file was
-    written; ``LAYERS`` is the one list in it that did not.
+    Naming directories instead shrinks the failure to one case, which is this
+    one: a layer renamed on disk and not here. There is no longer any way for a
+    layer to be partly stale.
     """
-    modules = _modules()
-    stale = sorted(prefix for prefix in _OWNER if not any(_matches(m, prefix) for m in modules))
-    assert not stale, (
-        "these LAYERS prefixes classify no module -- delete them (a module was "
-        f"renamed or removed and the map was not): {stale}"
-    )
+    missing = sorted(d for d in LAYER_DIRS.values() if not (PKG / d).is_dir())
+    assert not missing, f"these LAYER_DIRS name no directory under {PKG}: {missing}"
 
 
 def test_no_module_imports_a_higher_layer():

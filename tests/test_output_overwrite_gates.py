@@ -4,13 +4,13 @@
 ``Chem.SDWriter(path)`` and ``open(path, "w")`` truncate on open, and four
 public functions used to do that with no consent gate at all:
 
-* ``Auto3D.tautomer.select_tautomers`` -- ``select_tautomers("/data/results.sdf",
+* ``Auto3D.entry.tautomer.select_tautomers`` -- ``select_tautomers("/data/results.sdf",
   k=1)`` replaced ``/data/results_top_tautomers.sdf``, a name it invented, with
   this call's selection.
-* ``Auto3D.id_mapping.decode_ids`` -- same shape, for ``<base>_out.sdf``.
-* ``Auto3D.utils.smi_io.smiles2smi`` -- the caller named the file here, so the
+* ``Auto3D.domain.id_mapping.decode_ids`` -- same shape, for ``<base>_out.sdf``.
+* ``Auto3D.foundation.utils.smi_io.smiles2smi`` -- the caller named the file here, so the
   gate defaults *open*; what matters is that it can be closed.
-* ``Auto3D.id_mapping.encode_ids`` -- refused unconditionally, with no way for a
+* ``Auto3D.domain.id_mapping.encode_ids`` -- refused unconditionally, with no way for a
   caller to say yes.
 
 The policy: permissive where the caller named the file, restrictive where Auto3D
@@ -25,11 +25,11 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.exceptions import ConfigurationError
-from Auto3D.id_mapping import decode_ids, encode_ids
-from Auto3D.tautomer import select_tautomers
-from Auto3D.utils.energy import set_e_tot_from_ev
-from Auto3D.utils.smi_io import smiles2smi
+from Auto3D.domain.id_mapping import decode_ids, encode_ids
+from Auto3D.entry.tautomer import select_tautomers
+from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.foundation.utils.energy import set_e_tot_from_ev
+from Auto3D.foundation.utils.smi_io import smiles2smi
 
 PRECIOUS = b"IRREPLACEABLE USER DATA\n"
 
@@ -238,7 +238,7 @@ class TestTheGateRefusesBeforeDoingTheWork:
     """
 
     def test_select_tautomers_checks_before_reading_the_input(self, tmp_path, monkeypatch):
-        import Auto3D.tautomer as tautomer
+        import Auto3D.entry.tautomer as tautomer
 
         sdf = _tautomer_sdf(tmp_path / "results.sdf")
         (tmp_path / "results_top_tautomers.sdf").write_bytes(PRECIOUS)
@@ -259,7 +259,7 @@ class TestTheGateRefusesBeforeDoingTheWork:
         record wrote an empty output and returned a path, reporting success for
         a call that specified no selection at all.
         """
-        import Auto3D.tautomer as tautomer
+        import Auto3D.entry.tautomer as tautomer
 
         sdf = _tautomer_sdf(tmp_path / "results.sdf")
 

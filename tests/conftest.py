@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import torch
 
-import Auto3D.cli.errors
+import Auto3D.presentation.cli.errors
 
 # Test file paths
 TEST_DIR = Path(__file__).parent
@@ -30,7 +30,7 @@ def device():
 @pytest.fixture(scope="session")
 def aimnet_model(device):
     """Load AIMNET model once for all tests."""
-    from Auto3D.model_factory import create_model
+    from Auto3D.engines.model_factory import create_model
 
     return create_model("AIMNET", device)
 
@@ -39,7 +39,7 @@ def aimnet_model(device):
 def ani2x_model(device):
     """Load ANI2x model once for all tests."""
     pytest.importorskip("torchani")
-    from Auto3D.model_factory import create_model
+    from Auto3D.engines.model_factory import create_model
 
     return create_model("ANI2x", device)
 
@@ -47,7 +47,7 @@ def ani2x_model(device):
 @pytest.fixture(scope="session")
 def ani2xt_model(device):
     """Load ANI2xt model once for all tests."""
-    from Auto3D.model_factory import create_model
+    from Auto3D.engines.model_factory import create_model
 
     return create_model("ANI2xt", device)
 
@@ -76,17 +76,17 @@ def _import_every_auto3d_module_before_any_test():
     """Import all of Auto3D up front so no module is first imported while a
     test has a source module patched.
 
-    ``from Auto3D.cli.errors import handle_error`` copies the function object
+    ``from Auto3D.presentation.cli.errors import handle_error`` copies the function object
     into the importing module's namespace at *import* time. Auto3D's CLI
     imports many of its own modules lazily (inside functions, to keep
     ``auto3d --help`` fast). Put those two facts together with a test that does
-    ``monkeypatch.setattr(Auto3D.cli.errors, "handle_error", stub)`` and the
+    ``monkeypatch.setattr(Auto3D.presentation.cli.errors, "handle_error", stub)`` and the
     result depends on which test ran first:
 
-    * if some earlier test already imported ``Auto3D.cli.commands.run``, that
+    * if some earlier test already imported ``Auto3D.presentation.cli.commands.run``, that
       module holds the real ``handle_error`` and the patch is undone cleanly;
     * if this test is the first to reach the lazy import, ``run`` binds the
-      *stub* permanently. ``monkeypatch`` restores ``Auto3D.cli.errors``, which
+      *stub* permanently. ``monkeypatch`` restores ``Auto3D.presentation.cli.errors``, which
       it patched, and cannot know that ``run`` copied the value meanwhile.
 
     A leaked ``handle_error`` stub swallows the exception it is handed, so
@@ -305,7 +305,7 @@ def _release_gpu_memory_after_slow_tests(request):
         return
     import gc
 
-    from Auto3D.model_factory import ModelFactory
+    from Auto3D.engines.model_factory import ModelFactory
 
     ModelFactory.clear_cache()
     gc.collect()

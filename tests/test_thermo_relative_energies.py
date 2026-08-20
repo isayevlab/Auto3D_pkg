@@ -22,7 +22,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.utils.energy import (
+from Auto3D.foundation.utils.energy import (
     E_REL_KCAL_PROP,
     ev2kcalpermol,
     set_e_tot_from_ev,
@@ -165,7 +165,7 @@ class TestCalcThermoWiring:
         never gets a recomputed one. Left alone, the documented property would
         survive only on the records the docs tell a reader to discard.
         """
-        from Auto3D.utils.energy import clear_relative_energies
+        from Auto3D.foundation.utils.energy import clear_relative_energies
 
         failed = [_conformer("mol_a", -10.0), _conformer("mol_b", -3.0)]
         for m in failed:
@@ -176,7 +176,7 @@ class TestCalcThermoWiring:
         assert not any(m.HasProp(E_REL_KCAL_PROP) for m in failed)
 
     def test_clearing_a_record_that_has_none_is_a_no_op(self):
-        from Auto3D.utils.energy import clear_relative_energies
+        from Auto3D.foundation.utils.energy import clear_relative_energies
 
         mols = [_conformer("m", -1.0)]
         clear_relative_energies(mols)
@@ -194,7 +194,7 @@ class TestCalcThermoWiring:
         """
         import inspect
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
         source = inspect.getsource(thermo_mod.calc_thermo)
         assert "set_relative_energies(out_mols)" in source, (
@@ -224,7 +224,7 @@ class TestRelativeGibbsEnergies:
         return mol
 
     def test_referenced_to_the_lowest_gibbs_energy_in_the_group(self):
-        from Auto3D.utils import energy as energy_mod
+        from Auto3D.foundation.utils import energy as energy_mod
 
         mols = [
             self._thermo_record("m", -100.0),
@@ -245,7 +245,7 @@ class TestRelativeGibbsEnergies:
         ordinary chemistry, not an inconsistency to be reconciled -- so the two
         properties pick their references separately.
         """
-        from Auto3D.utils import energy as energy_mod
+        from Auto3D.foundation.utils import energy as energy_mod
 
         # Record A is lower in electronic energy; record B is lower in G.
         low_e = self._thermo_record("m", g_hartree=-99.0, e_ev=-20.0)
@@ -265,7 +265,7 @@ class TestRelativeGibbsEnergies:
         conformational preference. ``mol_info_func`` returns a per-record
         temperature, so one output file can legitimately hold both.
         """
-        from Auto3D.utils import energy as energy_mod
+        from Auto3D.foundation.utils import energy as energy_mod
 
         mols = [
             self._thermo_record("m", -100.0, t_k=298.15),
@@ -277,7 +277,7 @@ class TestRelativeGibbsEnergies:
         assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
 
     def test_a_stale_value_is_cleared_when_the_group_is_refused(self):
-        from Auto3D.utils import energy as energy_mod
+        from Auto3D.foundation.utils import energy as energy_mod
 
         mols = [
             self._thermo_record("m", -100.0, t_k=298.15),
@@ -291,7 +291,7 @@ class TestRelativeGibbsEnergies:
         assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
 
     def test_a_record_without_a_gibbs_energy_is_skipped(self):
-        from Auto3D.utils import energy as energy_mod
+        from Auto3D.foundation.utils import energy as energy_mod
 
         mols = [self._thermo_record("m", -100.0), _conformer("m", -10.0)]
 
@@ -301,7 +301,7 @@ class TestRelativeGibbsEnergies:
         assert not mols[1].HasProp(energy_mod.G_REL_KCAL_PROP)
 
     def test_different_compounds_sharing_a_title_are_refused(self):
-        from Auto3D.utils import energy as energy_mod
+        from Auto3D.foundation.utils import energy as energy_mod
 
         mols = [
             self._thermo_record("shared", -100.0, smiles="CCO"),
@@ -315,7 +315,7 @@ class TestRelativeGibbsEnergies:
     def test_calc_thermo_publishes_it(self):
         import inspect
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
         source = inspect.getsource(thermo_mod.calc_thermo)
         assert "set_relative_gibbs_energies(out_mols)" in source
@@ -335,7 +335,7 @@ class TestGibbsIsOptIn:
     def test_calc_thermo_does_not_compute_it_by_default(self):
         import inspect
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
         param = inspect.signature(thermo_mod.calc_thermo).parameters["relative_gibbs"]
         assert param.default is False, (
@@ -347,7 +347,7 @@ class TestGibbsIsOptIn:
         """``E_rel(kcal/mol)`` is documented output and stays unconditional."""
         import inspect
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
         source = inspect.getsource(thermo_mod.calc_thermo)
         assert "set_relative_energies(out_mols)" in source

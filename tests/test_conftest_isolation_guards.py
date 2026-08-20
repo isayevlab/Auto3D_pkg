@@ -39,28 +39,28 @@ class _LeakedStubClass:
 
 
 def test_a_leaks_a_function():
-    import Auto3D.cli.errors as errors_mod
+    import Auto3D.presentation.cli.errors as errors_mod
     errors_mod.handle_error = _leaked_function
 
 
 def test_b_sees_the_function_leak_repaired():
-    import Auto3D.cli.errors as errors_mod
+    import Auto3D.presentation.cli.errors as errors_mod
     assert errors_mod.handle_error is not _leaked_function
 
 
 def test_c_leaks_an_instance_of_a_test_defined_class():
-    import Auto3D.model_factory as factory
+    import Auto3D.engines.model_factory as factory
     factory.create_model = _LeakedStubClass()
 
 
 def test_d_swaps_a_module_in_sys_modules():
-    del sys.modules["Auto3D.ASE.thermo.properties"]
-    import Auto3D.ASE.thermo.properties  # noqa: F401
+    del sys.modules["Auto3D.entry.ASE.thermo.properties"]
+    import Auto3D.entry.ASE.thermo.properties  # noqa: F401
 
 
 def test_e_sees_the_module_swap_repaired():
-    import Auto3D.ASE.thermo.properties as thermo
-    from Auto3D.ASE.thermo.properties import _symmetry_number
+    import Auto3D.entry.ASE.thermo.properties as thermo
+    from Auto3D.entry.ASE.thermo.properties import _symmetry_number
     assert _symmetry_number.__globals__ is vars(thermo), (
         "the module is still split in two: a helper's globals are not the "
         "globals of the module object in sys.modules"
@@ -68,7 +68,7 @@ def test_e_sees_the_module_swap_repaired():
 
 
 def test_f_leaves_auto3d_alone():
-    import Auto3D.cli.errors  # noqa: F401
+    import Auto3D.presentation.cli.errors  # noqa: F401
     assert True
 """
 

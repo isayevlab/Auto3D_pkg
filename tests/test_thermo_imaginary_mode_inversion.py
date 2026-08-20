@@ -36,16 +36,16 @@ from ase import units
 from ase.thermochemistry import IdealGasThermo
 from ase.vibrations import VibrationsData
 
-import Auto3D.ASE.thermo.driver as thermo_mod
-from Auto3D.ASE.thermo import vibrations as _vibrations
-from Auto3D.ASE.thermo.vibrations import analyze_vibrations, projected_vibrations
-from Auto3D.constants import (
+import Auto3D.entry.ASE.thermo.driver as thermo_mod
+from Auto3D.entry.ASE.thermo import vibrations as _vibrations
+from Auto3D.entry.ASE.thermo.vibrations import analyze_vibrations, projected_vibrations
+from Auto3D.foundation.constants import (
     EV_PER_WAVENUMBER,
     EV_TO_HARTREE,
     IMAGINARY_MODE_CUTOFF_CM,
     LOW_FREQUENCY_CUTOFF_CM,
 )
-from Auto3D.utils.energy import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
+from Auto3D.foundation.utils.energy import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,
@@ -419,7 +419,7 @@ class TestTheRecordSaysWhatWasDone:
     def test_the_log_says_the_mode_was_kept_not_dropped(self, monkeypatch, caplog):
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             _run(-20, monkeypatch=monkeypatch)
         messages = [record.getMessage() for record in caplog.records]
         assert any("kept at |nu|" in message for message in messages), (
@@ -432,7 +432,7 @@ class TestTheRecordSaysWhatWasDone:
     def test_the_log_says_a_reaction_coordinate_was_removed(self, monkeypatch, caplog):
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             _run(-400, monkeypatch=monkeypatch)
         messages = [record.getMessage() for record in caplog.records]
         assert any("removed from the thermochemistry" in m for m in messages), messages

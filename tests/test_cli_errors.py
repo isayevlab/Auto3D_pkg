@@ -24,11 +24,11 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-import Auto3D.model_factory
-import Auto3D.SPE
-from Auto3D.cli.app import app
-from Auto3D.cli.errors import handle_error
-from Auto3D.exceptions import ConfigurationError
+import Auto3D.engines.model_factory
+import Auto3D.entry.SPE
+from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.presentation.cli.app import app
+from Auto3D.presentation.cli.errors import handle_error
 
 runner = CliRunner()
 
@@ -77,7 +77,7 @@ def test_auto3derror_verbose1_shows_traceback(capsys):
 
 
 def test_dependency_error_hint_pins_openeye_install(capsys):
-    from Auto3D.exceptions import DependencyError
+    from Auto3D.foundation.exceptions import DependencyError
 
     with pytest.raises(SystemExit) as exc_info:
         handle_error(
@@ -92,7 +92,7 @@ def test_dependency_error_hint_pins_openeye_install(capsys):
 
 
 def test_dependency_error_hint_pins_torchani_install(capsys):
-    from Auto3D.exceptions import DependencyError
+    from Auto3D.foundation.exceptions import DependencyError
 
     with pytest.raises(SystemExit):
         handle_error(
@@ -105,7 +105,7 @@ def test_dependency_error_hint_pins_torchani_install(capsys):
 
 
 def test_dependency_error_hint_pins_ase_install(capsys):
-    from Auto3D.exceptions import DependencyError
+    from Auto3D.foundation.exceptions import DependencyError
 
     with pytest.raises(SystemExit):
         handle_error(
@@ -121,7 +121,7 @@ def test_dependency_error_without_dependency_name_falls_back_to_unknown(capsys):
     """A DependencyError raised without naming a dependency (e.g. by future or
     third-party code) must still produce a hint, not crash the hint lookup --
     this is the one case where "unknown" is the correct, honest answer."""
-    from Auto3D.exceptions import DependencyError
+    from Auto3D.foundation.exceptions import DependencyError
 
     with pytest.raises(SystemExit):
         handle_error(DependencyError("something is missing"), verbose=0)
@@ -187,7 +187,7 @@ def _raise_keyerror_id(*args, **kwargs):
 def test_run_verbose_flag_reaches_handle_error(tmp_path, monkeypatch):
     """`auto3d run` funnels an unexpected internal error through handle_error
     only if `-v` actually reaches it via execute_run's own `verbose` param."""
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     smi = tmp_path / "in.smi"
     smi.write_text("CCO mol1\n")
@@ -212,7 +212,7 @@ def test_run_verbose_flag_reaches_handle_error(tmp_path, monkeypatch):
 def test_run_json_stdout_stays_clean_on_unexpected_error_with_verbose(tmp_path, monkeypatch):
     """Same pin as above, specifically with --json: the traceback (stderr)
     must never contaminate the --json stdout stream."""
-    import Auto3D.auto3D as a3d
+    import Auto3D.entry.auto3D as a3d
 
     smi = tmp_path / "in.smi"
     smi.write_text("CCO mol1\n")
@@ -230,12 +230,12 @@ def test_energy_verbose_flag_reaches_handle_error(tmp_path):
     sdf = tmp_path / "mols.sdf"
     sdf.write_text("")
 
-    with patch.object(Auto3D.SPE, "calc_spe", side_effect=KeyError("ID")):
+    with patch.object(Auto3D.entry.SPE, "calc_spe", side_effect=KeyError("ID")):
         quiet = runner.invoke(app, ["energy", str(sdf), "--no-gpu"])
     assert quiet.exit_code == 1
     assert "Traceback" not in quiet.stderr
 
-    with patch.object(Auto3D.SPE, "calc_spe", side_effect=KeyError("ID")):
+    with patch.object(Auto3D.entry.SPE, "calc_spe", side_effect=KeyError("ID")):
         verbose = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "-v"])
     assert verbose.exit_code == 1
     assert "Traceback" not in verbose.stdout
@@ -246,17 +246,17 @@ def test_models_test_verbose_flag_reaches_handle_error(monkeypatch):
     """`models test` also gained -v in this change; a DependencyError is a
     known Auto3DError, so verbose=1 must add a traceback on top of the
     existing clean panel (not replace it)."""
-    from Auto3D.exceptions import DependencyError
+    from Auto3D.foundation.exceptions import DependencyError
 
     def _boom(*a, **k):
         raise DependencyError("torchani not installed")
 
     monkeypatch.setattr(
-        Auto3D.model_factory,
+        Auto3D.engines.model_factory,
         "get_device",
         lambda *a, **k: __import__("torch").device("cpu"),
     )
-    monkeypatch.setattr(Auto3D.model_factory, "create_model", _boom)
+    monkeypatch.setattr(Auto3D.engines.model_factory, "create_model", _boom)
 
     quiet = runner.invoke(app, ["models", "test", "ANI2x", "--no-gpu"])
     assert quiet.exit_code == 3  # DependencyError -> 3, unchanged mapping
@@ -292,7 +292,7 @@ def _flat(text: str) -> str:
 def test_overwrite_refusal_does_not_suggest_config_init(capsys, tmp_path):
     """Raised by the real guard, not hand-built: this pins the raise site's
     choice of hint together with handle_error's presentation of it."""
-    from Auto3D.utils.output_guard import check_output_overwrite
+    from Auto3D.foundation.utils.output_guard import check_output_overwrite
 
     existing = tmp_path / "precious.sdf"
     existing.write_text("x")
@@ -338,7 +338,7 @@ def test_an_explicit_hint_replaces_the_class_hint(capsys):
 def test_dependency_error_still_accepts_its_own_hint_override(capsys):
     """DependencyError overrides __init__; the hint keyword must reach the
     base class through it rather than being swallowed."""
-    from Auto3D.exceptions import DependencyError
+    from Auto3D.foundation.exceptions import DependencyError
 
     with pytest.raises(SystemExit):
         handle_error(

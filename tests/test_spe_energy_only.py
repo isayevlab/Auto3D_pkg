@@ -31,8 +31,8 @@ import pytest
 import torch
 from torch import nn
 
-from Auto3D.batch_opt.model_wrapper import EnForce_ANI
-from Auto3D.exceptions import NumericalError
+from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.foundation.exceptions import NumericalError
 from tests.helpers_adapter import AdapterModuleMixin, FakeAdapter
 
 
@@ -182,7 +182,7 @@ class TestTheOneValueThatMoves:
 
     @staticmethod
     def _fp64_custom_adapter():
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
 
         class _Fp64Model(nn.Module):
             def forward(self, species, coords, charges):
@@ -269,7 +269,7 @@ class TestEnergyBatchedKeepsTheOomBehavior:
         )
 
     def test_a_single_molecule_that_still_ooms_raises_a_named_error(self):
-        from Auto3D.exceptions import OptimizationError
+        from Auto3D.foundation.exceptions import OptimizationError
 
         class _AlwaysOom(AdapterModuleMixin, nn.Module):
             def forward(self, coords, species, charges, atom_mask=None):
@@ -307,7 +307,7 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
         return adapter
 
     def test_ani2xt_energy_runs_no_backward(self, monkeypatch):
-        from Auto3D.models.adapter import ANI2xtAdapter
+        from Auto3D.engines.models.adapter import ANI2xtAdapter
 
         class _Toy(nn.Module):
             def forward(self, species, coords, **kwargs):
@@ -323,7 +323,7 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
         assert sum(calls) == 0
 
     def test_ani2x_energy_runs_no_backward(self, monkeypatch):
-        from Auto3D.models.adapter import ANI2xAdapter
+        from Auto3D.engines.models.adapter import ANI2xAdapter
 
         class _Toy(nn.Module):
             def forward(self, species_coords):
@@ -340,7 +340,7 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
         assert sum(calls) == 0
 
     def test_custom_energy_runs_no_backward(self, monkeypatch):
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
 
         class _Toy(nn.Module):
             def forward(self, species, coords, charges):
@@ -358,7 +358,7 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
     def test_aimnet2_energy_is_deliberately_the_forward_route(self):
         import inspect
 
-        from Auto3D.models.adapter import AIMNet2Adapter
+        from Auto3D.engines.models.adapter import AIMNet2Adapter
 
         source = inspect.getsource(AIMNet2Adapter.energy)
         assert "self.forward(" in source, (
@@ -375,7 +375,7 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.SPE as spe_mod
+        import Auto3D.entry.SPE as spe_mod
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -403,7 +403,7 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
 
         written = [m for m in Chem.SDMolSupplier(str(out), removeHs=False)]
         assert len(written) == 1
-        from Auto3D.constants import EV_TO_HARTREE
+        from Auto3D.foundation.constants import EV_TO_HARTREE
 
         assert float(written[0].GetProp("E_hartree")) == pytest.approx(-1.0 * EV_TO_HARTREE)
 

@@ -21,8 +21,8 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.filtering import DROP_REASONS, filter_conformers
-from Auto3D.utils.energy import set_e_tot_from_ev
+from Auto3D.domain.filtering import DROP_REASONS, filter_conformers
+from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 
 
 def _rec(e_ev, thermo_failed=None, seed=42):
@@ -76,7 +76,7 @@ def test_the_reason_is_in_the_authoritative_vocabulary():
 
 def test_the_k1_fast_path_drops_it_too(tmp_path):
     """``ConformerRanker``'s k==1 shortcut duplicates the predicate chain."""
-    from Auto3D.ranking import ConformerRanker
+    from Auto3D.domain.ranking import ConformerRanker
 
     saddle = _rec(-20.0, thermo_failed="transition_state", seed=7)
     minimum = _rec(-9.0, thermo_failed="", seed=1)

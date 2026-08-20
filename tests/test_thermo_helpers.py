@@ -1,6 +1,6 @@
 """Fast unit tests for thermochemistry helper functions.
 
-These cover the pure-Python helpers in Auto3D.ASE.thermo and do not run any
+These cover the pure-Python helpers in Auto3D.entry.ASE.thermo and do not run any
 neural-network potential or thermodynamic calculation, so they stay in the
 fast test suite (the main tests/test_thermo.py module is marked slow).
 
@@ -11,7 +11,7 @@ that, in the slow suite, the model still loads only once instead of twice.
 Test doubles handed to ``Calculator`` mix in
 :class:`tests.helpers_adapter.AdapterModuleMixin`. That is not incidental
 boilerplate: ``Calculator``'s first argument is a
-:class:`Auto3D.models.contract.ModelAdapter` and it asks that object for the
+:class:`Auto3D.engines.models.contract.ModelAdapter` and it asks that object for the
 species convention, so a bare ``nn.Module`` with only a ``forward`` is exactly
 the category error the constructor now rejects by name. The mixin supplies the
 members these doubles do not care about (the two pads, ``to_species``,
@@ -24,15 +24,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from Auto3D.ASE.thermo import calculator as _calculator
-from Auto3D.ASE.thermo import properties as _properties
-from Auto3D.ASE.thermo import vibrations as _vibrations
+from Auto3D.entry.ASE.thermo import calculator as _calculator
+from Auto3D.entry.ASE.thermo import properties as _properties
+from Auto3D.entry.ASE.thermo import vibrations as _vibrations
 
 pytest.importorskip("ase")
 
 from ase import Atoms  # noqa: E402
 
-from Auto3D.ASE.thermo.properties import _detect_geometry, _is_collinear  # noqa: E402
+from Auto3D.entry.ASE.thermo.properties import _detect_geometry, _is_collinear  # noqa: E402
 
 
 def _bent_triatomic(symbols: str, bond_length: float, angle_deg: float):
@@ -116,7 +116,7 @@ class TestLinearity:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2atoms
+        from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CC#CC#CC#CC"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -143,7 +143,7 @@ class TestLinearity:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2atoms
+        from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 
         mol = Chem.AddHs(Chem.MolFromSmiles("C#CC#C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -166,7 +166,7 @@ class TestIsotopeMasses:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2atoms
+        from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 
         def embedded(smiles):
             mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
@@ -191,7 +191,7 @@ class TestIsotopeMasses:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2atoms
+        from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 
         mol = Chem.AddHs(Chem.MolFromSmiles("ClC"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -218,7 +218,7 @@ class TestIsotopeMasses:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo.calculator import mol2atoms
+        from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 
         mol = Chem.AddHs(Chem.MolFromSmiles("[13C]#N"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -239,7 +239,7 @@ def aimnet_hessian_model():
     """Load the AIMNET Hessian evaluator once for this module's NNP checks."""
     import torch
 
-    from Auto3D.ASE.thermo.driver import _load_hessian_model
+    from Auto3D.entry.ASE.thermo.driver import _load_hessian_model
 
     return _load_hessian_model("AIMNET", torch.device("cpu"))
 
@@ -247,7 +247,7 @@ def aimnet_hessian_model():
 def test_detect_geometry_linear_vs_nonlinear():
     from ase import Atoms
 
-    from Auto3D.ASE.thermo.properties import _detect_geometry
+    from Auto3D.entry.ASE.thermo.properties import _detect_geometry
 
     co2 = Atoms("CO2", [[0, 0, 0], [0, 0, 1.16], [0, 0, -1.16]])
     water = Atoms("OH2", [[0, 0, 0], [0, 0.76, 0.59], [0, -0.76, 0.59]])
@@ -258,7 +258,7 @@ def test_detect_geometry_linear_vs_nonlinear():
 def test_symmetry_number_defaults_to_one():
     from rdkit import Chem
 
-    from Auto3D.ASE.thermo.properties import _symmetry_number
+    from Auto3D.entry.ASE.thermo.properties import _symmetry_number
 
     m = Chem.MolFromSmiles("CCO")
     assert _symmetry_number(m) == 1  # no property -> default 1
@@ -267,7 +267,7 @@ def test_symmetry_number_defaults_to_one():
 def test_symmetry_number_reads_property():
     from rdkit import Chem
 
-    from Auto3D.ASE.thermo.properties import _symmetry_number
+    from Auto3D.entry.ASE.thermo.properties import _symmetry_number
 
     m = Chem.MolFromSmiles("c1ccccc1")
     m.SetProp("symmetry_number", "12")
@@ -277,7 +277,7 @@ def test_symmetry_number_reads_property():
 def test_symmetry_number_invalid_property_falls_back():
     from rdkit import Chem
 
-    from Auto3D.ASE.thermo.properties import _symmetry_number
+    from Auto3D.entry.ASE.thermo.properties import _symmetry_number
 
     m = Chem.MolFromSmiles("CCO")
     m.SetProp("symmetry_number", "not_a_number")
@@ -287,7 +287,7 @@ def test_symmetry_number_invalid_property_falls_back():
 def test_resolve_multiplicity_closed_shell_is_singlet():
     from rdkit import Chem
 
-    from Auto3D.ASE.thermo.properties import _resolve_multiplicity
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
 
     m = Chem.MolFromSmiles("CCO")
     assert _resolve_multiplicity(m) == 1
@@ -298,7 +298,7 @@ def test_resolve_multiplicity_closed_shell_is_singlet():
 def test_resolve_multiplicity_radical_is_doublet():
     from rdkit import Chem
 
-    from Auto3D.ASE.thermo.properties import _resolve_multiplicity
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
 
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
     assert _resolve_multiplicity(m) == 2
@@ -308,7 +308,7 @@ def test_resolve_multiplicity_radical_is_doublet():
 def test_resolve_multiplicity_respects_explicit_property():
     from rdkit import Chem
 
-    from Auto3D.ASE.thermo.properties import _resolve_multiplicity
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
 
     m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
     m.SetUnsignedProp("multiplicity", 4)  # ... but an explicit value wins
@@ -319,7 +319,7 @@ def test_do_mol_thermo_default_temperature_is_298_15():
     """Reference temperature must be the thermochemistry standard 298.15 K."""
     import inspect
 
-    from Auto3D.ASE.thermo.driver import do_mol_thermo
+    from Auto3D.entry.ASE.thermo.driver import do_mol_thermo
 
     assert inspect.signature(do_mol_thermo).parameters["T"].default == 298.15
 
@@ -337,7 +337,7 @@ def test_load_hessian_model_aimnet(aimnet_hessian_model):
     """
     import torch
 
-    from Auto3D.models.adapter import AIMNet2Adapter
+    from Auto3D.engines.models.adapter import AIMNet2Adapter
 
     m = aimnet_hessian_model
     assert isinstance(m, AIMNet2Adapter)
@@ -361,7 +361,7 @@ def test_load_hessian_model_aimnet_is_fp32(aimnet_hessian_model):
     assert p.dtype == torch.float32
 
 
-from Auto3D.ASE.thermo.vibrations import analyze_vibrations  # noqa: E402
+from Auto3D.entry.ASE.thermo.vibrations import analyze_vibrations  # noqa: E402
 from tests.helpers_vibrations import energies_ev as _ev  # noqa: E402
 from tests.helpers_vibrations import wavenumbers  # noqa: E402
 
@@ -516,7 +516,7 @@ import logging  # noqa: E402
 
 from rdkit import Chem  # noqa: E402
 
-from Auto3D.ASE.thermo.properties import (  # noqa: E402
+from Auto3D.entry.ASE.thermo.properties import (  # noqa: E402
     _electron_count,
     _resolve_multiplicity,
     _symmetry_number,
@@ -533,21 +533,21 @@ def _mol(smiles, **props):
 class TestSymmetryNumber:
     def test_defaulting_warns_prominently(self, caplog, monkeypatch):
         """sigma=1 biases G by RT*ln(sigma) and does not cancel between isomers."""
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         # Isolate from the module-level once-per-run de-dup flag: another
         # test (or test_symmetry_number_defaults_to_one, earlier in this
         # file) may already have tripped it, which would otherwise make this
         # assertion depend on test execution order.
         monkeypatch.setattr(_properties, "_symmetry_default_warned", False)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             _symmetry_number(_mol("c1ccccc1"))
         assert any("symmetry_number" in r.message for r in caplog.records), (
             f"defaulting to sigma=1 was not warned about: {[r.message for r in caplog.records]}"
         )
 
     def test_an_explicit_value_does_not_warn(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             _symmetry_number(_mol("c1ccccc1", symmetry_number=12))
         assert not any("symmetry_number" in r.message for r in caplog.records)
 
@@ -558,7 +558,7 @@ class TestSymmetryNumber:
         takes the except branch, not the defaulting-from-absence branch that
         flag guards.
         """
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _symmetry_number(_mol("CCO", symmetry_number="not-a-number")) == 1
         assert any("symmetry_number" in r.message for r in caplog.records)
 
@@ -571,10 +571,10 @@ class TestSymmetryNumber:
         to one line per run; it needs its own de-dup state, reset at the top
         of calc_thermo the same way.
         """
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         monkeypatch.setattr(_properties, "_symmetry_default_warned", False)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             thermo_mod._symmetry_number(_mol("c1ccccc1"))
             thermo_mod._symmetry_number(_mol("CCO"))
         warnings = [r for r in caplog.records if "symmetry_number" in r.message]
@@ -598,7 +598,7 @@ class TestMultiplicity:
         parsed."""
         mol = _mol("CCO")
         mol.SetProp("multiplicity", "-1")
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -606,7 +606,7 @@ class TestMultiplicity:
         """GetUnsignedProp("0") parses cleanly to 0, giving spin = -0.5."""
         mol = _mol("CCO")
         mol.SetProp("multiplicity", "0")
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -616,7 +616,7 @@ class TestMultiplicity:
         The radical-electron count is 0 here, so nothing signals that the
         closed-shell assumption is wrong for this molecule.
         """
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             multiplicity = _resolve_multiplicity(_mol("O=O"))
         assert multiplicity == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records), (
@@ -625,7 +625,7 @@ class TestMultiplicity:
         )
 
     def test_an_ordinary_closed_shell_molecule_is_not_flagged(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             _resolve_multiplicity(_mol("CCO"))
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -638,7 +638,7 @@ class TestMultiplicity:
         upper bound (n_electrons + 1)."""
         mol = _mol("CCO")
         mol.SetProp("multiplicity", "4294967295")
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -648,7 +648,7 @@ class TestMultiplicity:
         mol = _mol("CCO")
         n_electrons = _electron_count(mol)
         mol.SetProp("multiplicity", str(n_electrons + 3))  # same parity, over the cap
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -658,7 +658,7 @@ class TestMultiplicity:
         and must be rejected even though it is within the electron-count
         bound."""
         mol = _mol("CCO", multiplicity=2)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 1
         assert any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -667,7 +667,7 @@ class TestMultiplicity:
         physically legitimate (e.g. a diradical or an excited state) and
         must pass through unchanged and unwarned."""
         mol = _mol("CCO", multiplicity=3)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 3
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -676,7 +676,7 @@ class TestMultiplicity:
         2 (even) is exactly the physically expected doublet and must pass
         through unchanged and unwarned."""
         mol = _mol("[CH3]", multiplicity=2)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             assert _resolve_multiplicity(mol) == 2
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
 
@@ -704,7 +704,7 @@ class TestHessianGeometrySourcing:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -790,7 +790,7 @@ class TestStationaryPointGate:
     """A structure that never converged must not yield thermochemistry."""
 
     def test_a_converged_run_reports_true(self, monkeypatch):
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         class _FakeOptimizer:
             def __init__(self, atoms):
@@ -808,7 +808,7 @@ class TestStationaryPointGate:
     def test_an_exhausted_run_reports_false_and_warns(self, monkeypatch, caplog):
         import logging
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         class _FakeOptimizer:
             def __init__(self, atoms):
@@ -818,7 +818,7 @@ class TestStationaryPointGate:
                 return False
 
         monkeypatch.setattr(thermo_mod, "BFGS", _FakeOptimizer)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             result = thermo_mod.relax_to_stationary_point(
                 object(), fmax=2e-4, steps=10, name="probe"
             )
@@ -830,7 +830,7 @@ class TestStationaryPointGate:
 
     def test_the_run_receives_the_thresholds_it_was_given(self, monkeypatch):
         """Guard against the hardcoded 3e-3 creeping back in."""
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         seen = {}
 
@@ -860,7 +860,7 @@ class TestRecordFiltering:
         return mol
 
     def test_a_none_record_between_valid_ones_is_skipped(self):
-        from Auto3D.ASE.thermo.driver import iter_thermo_records
+        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
 
         good1 = self._mol_with_conformer("first")
         good2 = self._mol_with_conformer("second")
@@ -870,7 +870,7 @@ class TestRecordFiltering:
     def test_a_conformerless_record_is_skipped(self):
         from rdkit import Chem
 
-        from Auto3D.ASE.thermo.driver import iter_thermo_records
+        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
 
         flat = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         flat.SetProp("_Name", "no_conformer")
@@ -881,16 +881,16 @@ class TestRecordFiltering:
     def test_skipping_is_reported(self, caplog):
         import logging
 
-        from Auto3D.ASE.thermo.driver import iter_thermo_records
+        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             list(iter_thermo_records([None, self._mol_with_conformer("ok")]))
         assert any("Skipping record" in r.message for r in caplog.records), (
             f"a dropped record was not reported: {[r.message for r in caplog.records]}"
         )
 
     def test_an_all_valid_batch_is_untouched(self):
-        from Auto3D.ASE.thermo.driver import iter_thermo_records
+        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
 
         mols = [self._mol_with_conformer(f"m{i}") for i in range(3)]
         assert len(list(iter_thermo_records(mols))) == 3
@@ -922,7 +922,7 @@ class TestThermoFailedMarker:
     def test_a_success_record_gets_the_empty_string_marker(self, tmp_path):
         from rdkit import Chem
 
-        from Auto3D.ASE.thermo.driver import _write_thermo_output
+        from Auto3D.entry.ASE.thermo.driver import _write_thermo_output
 
         mol = self._mol("success")
         outpath = tmp_path / "out.sdf"
@@ -936,7 +936,7 @@ class TestThermoFailedMarker:
     def test_a_failed_record_keeps_its_own_marker_unmodified(self, tmp_path):
         from rdkit import Chem
 
-        from Auto3D.ASE.thermo.driver import _write_thermo_output
+        from Auto3D.entry.ASE.thermo.driver import _write_thermo_output
 
         mol = self._mol("failed")
         mol.SetProp("Thermo_failed", "not_converged")
@@ -951,7 +951,7 @@ class TestThermoFailedMarker:
         """Exercises the exact filter CHANGELOG.md/migration.rst document."""
         from rdkit import Chem
 
-        from Auto3D.ASE.thermo.driver import _write_thermo_output
+        from Auto3D.entry.ASE.thermo.driver import _write_thermo_output
 
         success = self._mol("success")
         failed = self._mol("failed")
@@ -1002,7 +1002,7 @@ class TestFailedRecordKeepsInputGeometry:
     def test_a_failure_after_the_hessian_leaves_the_conformer_at_its_input_geometry(
         self, monkeypatch
     ):
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         mol = self._ethanol_with_conformer()
         atoms, original, relaxed = self._relaxed_atoms(mol, displacement=0.5)
@@ -1040,7 +1040,7 @@ class TestFailedRecordKeepsInputGeometry:
         assert not mol.HasProp("G_hartree")
 
     def test_a_converged_record_ends_with_the_relaxed_conformer(self, monkeypatch):
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         mol = self._ethanol_with_conformer()
         atoms, original, relaxed = self._relaxed_atoms(mol, displacement=0.1)
@@ -1082,7 +1082,7 @@ class TestTheNameKeyedHessianEvaluatorIsGone:
     """
 
     def test_the_helper_does_not_exist(self):
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         assert not hasattr(thermo_mod, "aimnet_hessian_helper")
 
@@ -1096,7 +1096,7 @@ class TestTheNameKeyedHessianEvaluatorIsGone:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
         from tests.helpers_adapter import FakeAdapter
 
         mol = Chem.AddHs(Chem.MolFromSmiles("O"))
@@ -1127,7 +1127,7 @@ class TestLoadHessianModelRouting:
     def _install_fake_factory(self, monkeypatch):
         import torch
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
         from tests.helpers_adapter import AdapterModuleMixin
 
         calls = {}
@@ -1218,7 +1218,7 @@ class TestCalculatorChargeInvalidatesCache:
         import torch
         from torch import nn
 
-        from Auto3D.ASE.thermo.calculator import Calculator
+        from Auto3D.entry.ASE.thermo.calculator import Calculator
         from tests.helpers_adapter import AdapterModuleMixin
 
         class _ChargeDependentModel(AdapterModuleMixin, nn.Module):
@@ -1392,7 +1392,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         """device=cpu means every tensor is on the CPU, CUDA visible or not."""
         import torch
 
-        from Auto3D.ASE.thermo.calculator import Calculator
+        from Auto3D.entry.ASE.thermo.calculator import Calculator
 
         self._pretend_cuda_is_available(monkeypatch)
         model = self._paramless_model()
@@ -1425,7 +1425,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         """
         import torch
 
-        from Auto3D.ASE.thermo.calculator import Calculator
+        from Auto3D.entry.ASE.thermo.calculator import Calculator
 
         self._pretend_cuda_is_available(monkeypatch)
         calc = Calculator(self._paramless_model(), 0)
@@ -1438,7 +1438,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         import torch
         from torch import nn
 
-        from Auto3D.ASE.thermo.calculator import Calculator
+        from Auto3D.entry.ASE.thermo.calculator import Calculator
         from tests.helpers_adapter import AdapterModuleMixin
 
         class _WithParam(AdapterModuleMixin, nn.Module):
@@ -1464,7 +1464,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
         self._pretend_cuda_is_available(monkeypatch)
         model = self._paramless_model()
@@ -1516,7 +1516,7 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        import Auto3D.ASE.thermo.driver as thermo_mod
+        import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
         model = self._paramless_model()
         monkeypatch.setattr(thermo_mod, "create_model", lambda *a, **k: model)
@@ -1560,10 +1560,10 @@ class TestSymmetryNumberIsValidatedNotClamped:
 
     @pytest.mark.parametrize("bad", ["0", "-3", "1000000", "61"])
     def test_an_impossible_value_warns_and_falls_back_to_one(self, bad, caplog):
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         mol = _mol("c1ccccc1", symmetry_number=bad)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             sigma = thermo_mod._symmetry_number(mol)
 
         assert sigma == 1, f"sigma={bad!r} was used or clamped without falling back"
@@ -1579,10 +1579,10 @@ class TestSymmetryNumberIsValidatedNotClamped:
         has to be accepted; a guard written as ``> 60`` versus ``>= 60`` differs
         exactly here.
         """
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         mol = _mol("c1ccccc1", symmetry_number=good)
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             sigma = thermo_mod._symmetry_number(mol)
 
         assert sigma == int(good)
@@ -1637,7 +1637,7 @@ class TestTheHessianPathBoundaryCasesAfterUnification:
         """
         import torch
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
         from tests.helpers_adapter import FakeAdapter
 
         adapter = FakeAdapter()
@@ -1670,8 +1670,8 @@ class TestTheHessianPathBoundaryCasesAfterUnification:
         from rdkit.Chem import AllChem
         from torch import nn
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
-        from Auto3D.models.adapter import CustomModelAdapter
+        from Auto3D.engines.models.adapter import CustomModelAdapter
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         seen = {}
 
@@ -1713,7 +1713,7 @@ class TestLoadHessianModelDispatchFoldsCase:
     def test_an_ani_name_takes_the_ani_branch_in_any_case(self, spelling, monkeypatch):
         import torch
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
         from tests.helpers_adapter import AdapterModuleMixin
 
         class _FakeModel(torch.nn.Module):
@@ -1764,7 +1764,7 @@ class TestDerivedMultiplicityIsAlsoChecked:
     def test_a_parity_inconsistent_derived_multiplicity_warns(self, caplog):
         from rdkit import Chem
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         # CH3 has 9 electrons (odd), so 2S+1 must be even. Forcing two unpaired
         # electrons makes the derived multiplicity 3 -- odd, and impossible.
@@ -1773,7 +1773,7 @@ class TestDerivedMultiplicityIsAlsoChecked:
         mol.SetProp("_Name", "impossible_radical")
         assert _properties._electron_count(mol) % 2 == 1, "test premise: odd electrons"
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
             multiplicity = thermo_mod._resolve_multiplicity(mol)
 
         assert multiplicity == 3, "the derived value is still returned, not replaced"
@@ -1786,12 +1786,12 @@ class TestDerivedMultiplicityIsAlsoChecked:
         """Every ordinary radical must stay quiet, or the check is noise."""
         from rdkit import Chem
 
-        from Auto3D.ASE.thermo import driver as thermo_mod
+        from Auto3D.entry.ASE.thermo import driver as thermo_mod
 
         for smiles in ("[CH3]", "[CH2]", "CCO", "[N]"):
             caplog.clear()
             mol = Chem.MolFromSmiles(smiles)
-            with caplog.at_level(logging.WARNING, logger="Auto3D.ASE.thermo"):
+            with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
                 thermo_mod._resolve_multiplicity(mol)
             assert not any("parity" in r.message for r in caplog.records), (
                 f"{smiles} triggered a parity warning it should not have"
@@ -1813,7 +1813,7 @@ def test_vib_hessian_passes_charge_as_float32():
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.ASE.thermo.vibrations import vib_hessian
+    from Auto3D.entry.ASE.thermo.vibrations import vib_hessian
 
     seen: dict[str, torch.dtype] = {}
 

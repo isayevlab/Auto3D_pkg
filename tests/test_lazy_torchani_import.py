@@ -7,11 +7,11 @@ import sys
 
 # Module names this test evicts from sys.modules so their module-level code
 # re-runs under the import block.
-_RELOADED = ("Auto3D.ASE.thermo", "Auto3D.models.ani2xt")
+_RELOADED = ("Auto3D.entry.ASE.thermo", "Auto3D.engines.models.ani2xt")
 
 
 def test_thermo_imports_with_torchani_blocked(monkeypatch):
-    """Importing Auto3D.ASE.thermo (and using its pure-Python helpers) must work
+    """Importing Auto3D.entry.ASE.thermo (and using its pure-Python helpers) must work
     even when torchani cannot be imported. torchani is only needed to *construct*
     an ANI2xt model, not to import the module that references the class.
     """
@@ -25,7 +25,7 @@ def test_thermo_imports_with_torchani_blocked(monkeypatch):
     # Drop cached copies so the re-import re-runs module-level code under the
     # block -- then put the originals back, because a re-import does not just
     # refresh a module, it creates a *second* module object with its own
-    # globals. Other test modules hold `from Auto3D.ASE.thermo import helper`
+    # globals. Other test modules hold `from Auto3D.entry.ASE.thermo import helper`
     # references bound to the first object, so leaving the second one in
     # sys.modules splits the module in two: a later test that patches
     # `thermo._symmetry_default_warned` patches the new module's global while
@@ -35,7 +35,7 @@ def test_thermo_imports_with_torchani_blocked(monkeypatch):
     # the output pointing back here.
     saved_modules = {name: sys.modules[name] for name in _RELOADED if name in sys.modules}
     # A re-import also rebinds the leaf attribute on the parent package
-    # (`Auto3D.ASE.thermo`), which is how `import Auto3D.ASE; Auto3D.ASE.thermo`
+    # (`Auto3D.entry.ASE.thermo`), which is how `import Auto3D.entry.ASE; Auto3D.entry.ASE.thermo`
     # resolves, so that needs restoring too.
     saved_parent_attrs = {}
     for name in saved_modules:
@@ -50,7 +50,7 @@ def test_thermo_imports_with_torchani_blocked(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", blocked_import)
 
     try:
-        import Auto3D.ASE.thermo.driver as thermo  # must NOT raise ModuleNotFoundError  # noqa: I001
+        import Auto3D.entry.ASE.thermo.driver as thermo  # must NOT raise ModuleNotFoundError  # noqa: I001
 
         from rdkit import Chem
 

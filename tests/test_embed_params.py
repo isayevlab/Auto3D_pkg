@@ -20,8 +20,8 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdDistGeom
 
-from Auto3D.constants import CONFORMER_RANDOM_SEED
-from Auto3D.embedding import embed_params
+from Auto3D.domain.embedding import embed_params
+from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED
 
 # The keyword overload's documented C++ defaults -- the behaviour being preserved.
 KWARG_DEFAULTS = {
