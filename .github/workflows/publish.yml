@@ -45,5 +45,18 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+      # Pinned by TAG, not by commit SHA -- deliberately, and unlike every
+      # other action in this repository.
+      #
+      # This is a Docker-based action: it derives its own image reference from
+      # the ref it was invoked with, so `@<sha>` makes it pull
+      # ghcr.io/pypa/gh-action-pypi-publish:<sha>. Upstream publishes images
+      # tagged by VERSION only, so no such image exists and the pull fails with
+      # `manifest unknown` -- after a successful build, before PyPI is ever
+      # contacted. Verified against the registry: the v1.14.2 and v1.14.1 SHA
+      # tags both 404, while `v1.14.2` and `v1.14.1` both resolve.
+      #
+      # checkout/setup-python/upload-artifact above stay SHA-pinned: they are
+      # JavaScript actions, where the ref selects code rather than an image.
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26  # v1.14.2
+        uses: pypa/gh-action-pypi-publish@v1.14.2
