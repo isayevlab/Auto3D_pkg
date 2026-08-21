@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-20
+
+> ### ⚠️ This minor release contains breaking changes
+>
+> Read this before upgrading. Strict semantic versioning would have made these
+> a major release; they ship in 3.1.0 instead, so a `>=3.0,<4` or `~=3.0` pin
+> **will** pick them up automatically.
+>
+> The two that will reach the most code:
+>
+> 1. **Every module moved into a layer directory.** `Auto3D.exceptions` is now
+>    `Auto3D.foundation.exceptions`, `Auto3D.SPE` is `Auto3D.entry.SPE`, and so
+>    on for every module path. **The top-level API is unaffected** — `from
+>    Auto3D import main, smiles2mols, Auto3DOptions, calc_spe, calc_thermo,
+>    opt_geometry, create_model, ...` all still work, so code that imports from
+>    `Auto3D` directly needs no change. Code that reaches into submodules does.
+> 2. **`Auto3D.isomer_engine` no longer exists**, split into
+>    `Auto3D.engines.isomers.{rdkit_smi,rdkit_sdf,omega,tautomers}`.
+>
+> There are **no compatibility shims** for either: a shim would give every moved
+> name two supported spellings. Pin `Auto3D==3.0.0` if you need the old paths
+> while you migrate. The tables below give the full before/after for each.
+
 ### Breaking Changes
 
 - **Every module now lives in a layer directory. All public import paths
@@ -264,6 +287,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importers and `rd_isomer` had one, in Auto3D's own tests. Neither was
   documented.
 
+### Added
+
+- **`G_rel(kcal/mol)` on a `calc_thermo` output, opt-in** — Gibbs free energy
+  relative to the lowest-*G* conformer of the same molecule. Request it with
+  `--relative-gibbs` or `calc_thermo(..., relative_gibbs=True)`.
+
+  Opt-in on purpose. The number is free once thermochemistry has run, but it is
+  the entry point to the path that is not: obtaining a Δ*G* at all costs a
+  Hessian per conformer, and a default that quietly depends on one turns the
+  cheap path expensive.
+
+- **`ConformerRanker(..., rank_by=RANK_BY_GIBBS)` selects on Gibbs free energy.**
+  Also opt-in, and for the same reason: the default stays `RANK_BY_ELECTRONIC`,
+  so the ordinary pipeline never depends on a thermochemistry run. Ranking a
+  file with no `G_hartree` on this basis is refused with a message pointing at
+  `calc_thermo`.
+
+  The energy window is measured on whichever basis is selected, and the
+  published relative energy is named for it — `G_rel(kcal/mol)` rather than
+  `E_rel(kcal/mol)`. Duplicate detection is deliberately *not* switched:
+  whether two records are the same structure is a question about geometry and
+  electronic energy, not about which is favoured at temperature.
+
+  This is the quantity conformer populations are built from: a Boltzmann weight
+  goes as `exp(-ΔG/RT)`, and at 298 K `RT` is 0.59 kcal/mol while conformer
+  differences in zero-point energy and vibrational entropy run 0.3–1 kcal/mol.
+  Populations taken from the electronic `E_rel(kcal/mol)` are wrong by a factor
+  of a few in exactly the regime anyone computes them for.
+
+  Its reference is chosen independently of `E_rel(kcal/mol)`'s: once ZPE and
+  *S*<sub>vib</sub> enter, the lowest-*G* conformer need not be the lowest-*E*
+  one. That is ordinary chemistry, not an inconsistency.
+
+  Withheld, rather than guessed, for any molecule whose conformers were
+  evaluated at more than one temperature. `calc_thermo`'s `mol_info_func`
+  returns a temperature per record, and *G*(*T*) carries a `-T·S` term — a
+  difference taken across two temperatures is a thermal term, not a
+  conformational preference, and for a druglike molecule it is tens of
+  kcal/mol.
+
+- **In-tree conda recipe.** `conda-recipe/meta.yaml` builds 3.0.0 from the
+  published PyPI sdist, and `docs/source/howto/conda_build.rst` documents
+  building and installing it locally. conda-forge itself remains on 2.3.0 until
+  `aimnet` is available as a conda package; the recipe records what blocks the
+  feedstock update.
+
+### Changed
+
+- **The package ships a `py.typed` marker.** `Typing :: Typed` was advertised
+  without it, so PEP 561 told every downstream type checker to treat the package
+  as `Any`. `main`'s `progress_callback` is now typed `Callable[[ProgressEvent],
+  None]`, matching what it is actually invoked with.
+
+- **`src/Auto3D/.gitignore` is no longer shipped inside the wheel.** It remains
+  in the repository.
+
+- **Single-point energies no longer pay for a backward pass they discard.**
+  `SPE.calc_spe` called `forward_batched` and threw the forces away. It now uses
+  a new `EnForce_ANI.energy_batched`, which routes through `ModelAdapter.energy`.
+  Verified by counting `torch.autograd.grad` calls: the energy path makes none.
+
+  The saving applies to ANI2xt, ANI2x and custom NNPs. `AIMNet2Adapter.energy`
+  still goes through `forward`, deliberately: switching to the calculator's
+  `forces=False` route changes which of aimnet's internal DFTD3/Coulomb paths
+  computes the energy, and asserting the two agree needs a real model on a GPU.
+  A test pins the current routing so it cannot change silently.
+
+  Bucketing `pad_from_mols` by molecule size was considered and **not** done. Only
+  the ANI engines pay for padded slots at all — AIMNet2 flattens to real atoms
+  before the model sees them — and `forward_batched` already caps by atom count,
+  so a wide batch costs throughput rather than memory. The reasoning is recorded
+  at the call site; if it is worth doing, it is worth measuring first.
+
+- **A custom NNP that returns float64 energies now keeps that precision in
+  `calc_spe`.** `forward` ended with a cast back to the input dtype (float32);
+  the energy path is dtype-preserving. `E_hartree` changes by ≤ 6e-8 relative
+  (~1e-6 kcal/mol at typical magnitudes) for such a model. Every other engine,
+  and a custom model returning float32, is bit-identical.
+
+- **`auto3d models info` and `auto3d models list` no longer quote a speed
+  ratio.** The `speed` field carried "~35x faster than ANI2x" for all four
+  AIMNet2 registry entries, "Moderate" for ANI2x and "Faster than ANI2x" for
+  ANI2xt. No benchmark for any of those exists in this repository -- the only
+  thing `benchmarks/` measures is eager against compiled -- so the field now
+  states what is actually checkable: how many networks the engine evaluates per
+  step (ANI2x loads torchani's 8-model ensemble; AIMNet2 and ANI2xt are single
+  models), marked "not benchmarked here". `auto3d models list` carried the same
+  ranking as a five-star Speed column (AIMNET five, ANI2xt four, ANI2x three);
+  that column is now `Networks/step`, showing the count itself. The guides that
+  quoted the figure were updated to match. This is the same standard already applied when "~1.25x" was
+  removed from the `torch.compile` documentation.
+
 ### Fixed
 
 - **A saddle point could be selected as a molecule's most stable conformer.**
@@ -398,104 +513,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was discarded while the list held the whole run's molecules in worker memory.
   It is now annotated `-> None`; an out-of-tree in-process caller gets `None`
   where it got a list, and the structures were already written to disk.
-
-### Added
-
-- **`G_rel(kcal/mol)` on a `calc_thermo` output, opt-in** — Gibbs free energy
-  relative to the lowest-*G* conformer of the same molecule. Request it with
-  `--relative-gibbs` or `calc_thermo(..., relative_gibbs=True)`.
-
-  Opt-in on purpose. The number is free once thermochemistry has run, but it is
-  the entry point to the path that is not: obtaining a Δ*G* at all costs a
-  Hessian per conformer, and a default that quietly depends on one turns the
-  cheap path expensive.
-
-- **`ConformerRanker(..., rank_by=RANK_BY_GIBBS)` selects on Gibbs free energy.**
-  Also opt-in, and for the same reason: the default stays `RANK_BY_ELECTRONIC`,
-  so the ordinary pipeline never depends on a thermochemistry run. Ranking a
-  file with no `G_hartree` on this basis is refused with a message pointing at
-  `calc_thermo`.
-
-  The energy window is measured on whichever basis is selected, and the
-  published relative energy is named for it — `G_rel(kcal/mol)` rather than
-  `E_rel(kcal/mol)`. Duplicate detection is deliberately *not* switched:
-  whether two records are the same structure is a question about geometry and
-  electronic energy, not about which is favoured at temperature.
-
-  This is the quantity conformer populations are built from: a Boltzmann weight
-  goes as `exp(-ΔG/RT)`, and at 298 K `RT` is 0.59 kcal/mol while conformer
-  differences in zero-point energy and vibrational entropy run 0.3–1 kcal/mol.
-  Populations taken from the electronic `E_rel(kcal/mol)` are wrong by a factor
-  of a few in exactly the regime anyone computes them for.
-
-  Its reference is chosen independently of `E_rel(kcal/mol)`'s: once ZPE and
-  *S*<sub>vib</sub> enter, the lowest-*G* conformer need not be the lowest-*E*
-  one. That is ordinary chemistry, not an inconsistency.
-
-  Withheld, rather than guessed, for any molecule whose conformers were
-  evaluated at more than one temperature. `calc_thermo`'s `mol_info_func`
-  returns a temperature per record, and *G*(*T*) carries a `-T·S` term — a
-  difference taken across two temperatures is a thermal term, not a
-  conformational preference, and for a druglike molecule it is tens of
-  kcal/mol.
-
-### Changed
-
-- **The package ships a `py.typed` marker.** `Typing :: Typed` was advertised
-  without it, so PEP 561 told every downstream type checker to treat the package
-  as `Any`. `main`'s `progress_callback` is now typed `Callable[[ProgressEvent],
-  None]`, matching what it is actually invoked with.
-
-- **`src/Auto3D/.gitignore` is no longer shipped inside the wheel.** It remains
-  in the repository.
-
-- **Single-point energies no longer pay for a backward pass they discard.**
-  `SPE.calc_spe` called `forward_batched` and threw the forces away. It now uses
-  a new `EnForce_ANI.energy_batched`, which routes through `ModelAdapter.energy`.
-  Verified by counting `torch.autograd.grad` calls: the energy path makes none.
-
-  The saving applies to ANI2xt, ANI2x and custom NNPs. `AIMNet2Adapter.energy`
-  still goes through `forward`, deliberately: switching to the calculator's
-  `forces=False` route changes which of aimnet's internal DFTD3/Coulomb paths
-  computes the energy, and asserting the two agree needs a real model on a GPU.
-  A test pins the current routing so it cannot change silently.
-
-  Bucketing `pad_from_mols` by molecule size was considered and **not** done. Only
-  the ANI engines pay for padded slots at all — AIMNet2 flattens to real atoms
-  before the model sees them — and `forward_batched` already caps by atom count,
-  so a wide batch costs throughput rather than memory. The reasoning is recorded
-  at the call site; if it is worth doing, it is worth measuring first.
-
-- **A custom NNP that returns float64 energies now keeps that precision in
-  `calc_spe`.** `forward` ended with a cast back to the input dtype (float32);
-  the energy path is dtype-preserving. `E_hartree` changes by ≤ 6e-8 relative
-  (~1e-6 kcal/mol at typical magnitudes) for such a model. Every other engine,
-  and a custom model returning float32, is bit-identical.
-
-### Changed
-
-- **`auto3d models info` and `auto3d models list` no longer quote a speed
-  ratio.** The `speed` field carried "~35x faster than ANI2x" for all four
-  AIMNet2 registry entries, "Moderate" for ANI2x and "Faster than ANI2x" for
-  ANI2xt. No benchmark for any of those exists in this repository -- the only
-  thing `benchmarks/` measures is eager against compiled -- so the field now
-  states what is actually checkable: how many networks the engine evaluates per
-  step (ANI2x loads torchani's 8-model ensemble; AIMNet2 and ANI2xt are single
-  models), marked "not benchmarked here". `auto3d models list` carried the same
-  ranking as a five-star Speed column (AIMNET five, ANI2xt four, ANI2x three);
-  that column is now `Networks/step`, showing the count itself. The guides that
-  quoted the figure were updated to match. This is the same standard already applied when "~1.25x" was
-  removed from the `torch.compile` documentation.
-
-### Added
-
-- **In-tree conda recipe.** `conda-recipe/meta.yaml` builds 3.0.0 from the
-  published PyPI sdist, and `docs/source/howto/conda_build.rst` documents
-  building and installing it locally. conda-forge itself remains on 2.3.0 until
-  `aimnet` is available as a conda package; the recipe records what blocks the
-  feedstock update.
-
-### Fixed
 
 - Roughly thirty tests that could not fail. The recurring shapes, each found
   more than once: an assertion computed from the same source it compares against
