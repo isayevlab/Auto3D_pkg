@@ -39,7 +39,7 @@ on first use, so the first run needs network access.
 
 <br>
 
-`conda install -c conda-forge auto3d` installs **2.3.0**, not 3.0.0. conda-forge
+`conda install -c conda-forge auto3d` installs **2.3.0**, not 3.1.0. conda-forge
 requires every dependency to be a conda package, and `aimnet` — a core dependency
 since 3.0.0 — is not one yet, nor is its own dependency `nvalchemi-toolkit-ops`.
 
