@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-08-27
+
 ### Added
 - Missing `aimnet` now reports as a `DependencyError` (CLI exit 3) with an
   install hint (`pip install aimnet`), from every entry point — CLI, `main()`,
