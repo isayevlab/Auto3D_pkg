@@ -24,8 +24,8 @@ The recipe lives in ``conda-recipe/meta.yaml`` in the repository, next to
 ``pyproject.toml``, so the dependency mapping can be updated in the same commit
 as a dependency change. conda-forge itself builds from a separate *feedstock*
 repository, not from this directory; the in-tree copy is the source of truth
-that a feedstock update is derived from, and it is updated as part of each
-release.
+that a feedstock update is derived from, and it is intended to be updated as
+part of each release.
 
 The in-tree recipe has not yet been updated to the 3.1.1 shape described
 below -- at this commit it still matches 3.0.0: ``aimnet`` is still a
