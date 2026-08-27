@@ -1,17 +1,17 @@
 {% set name = "auto3d" %}
-{% set version = "3.0.0" %}
+{% set version = "3.1.1" %}
 
 package:
   name: {{ name|lower }}
   version: {{ version }}
 
 source:
-  # PyPI sdist for 3.0.0, published 2026-08-04. Verified against the PyPI JSON
+  # PyPI sdist for 3.1.1, published 2026-08-27. Verified against the PyPI JSON
   # API rather than a local build: a locally built sdist is not guaranteed
   # byte-identical to the one the release workflow uploaded, and conda-forge
   # checks this hash against what it downloads.
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/auto3d-{{ version }}.tar.gz
-  sha256: a290499b54a8038734a2b8db8cde923d521f1faa4288723479b665c2a2565032
+  sha256: b6627db22ec55b60936daf5bf9cbf2abf83595e240bb9cef655d002d99a48be8
 
 build:
   # Auto3D is pure Python -- its own wheel is py3-none-any -- so this is
@@ -34,7 +34,7 @@ requirements:
     - python >=3.11
     # Names below are conda-forge names, which differ from the PyPI names in
     # two places: torch -> pytorch, and Send2Trash -> send2trash.
-    - aimnet >=0.2
+    - ase >=3.23.0
     - numpy >=1.21.0
     - pandas >=1.3.0
     - psutil >=5.8.0
@@ -45,6 +45,7 @@ requirements:
     - requests >=2.32.3
     - rich >=13.0.0
     - send2trash >=1.8.0
+    - torchani >=2.8
     - tqdm >=4.60.0
     - typer >=0.12.0
 
@@ -56,9 +57,12 @@ test:
     # tree into the test phase for no extra signal.
     - Auto3D
   commands:
+    # No `pip check`: the pip metadata intentionally requires aimnet (pip
+    # users get it), while this package intentionally omits it (conda-forge
+    # cannot ship it -- nvalchemi-toolkit-ops is pip-only). pip check would
+    # flag exactly that intended difference.
     - auto3d --help
     - auto3d models list
-    - pip check
   requires:
     - pip
 
@@ -71,10 +75,12 @@ about:
     neural network potential (AIMNet2 by default, optionally ANI2x/ANI2xt), and
     ranks the results by energy.
 
-    Optional extras are not expressed as conda run dependencies: `ase` enables
-    the thermochemistry and geometry-optimization APIs, and `torchani` enables
-    the ANI2x engine. Install `ase` or `torchani` alongside this package to use
-    those paths.
+    This conda package ships with the ANI2x/ANI2xt engines and the ASE
+    thermochemistry APIs working out of the box. The default AIMNet2 engine
+    requires the `aimnet` package, which cannot be packaged for conda-forge
+    (its dependency nvalchemi-toolkit-ops is pip-only); add it inside the
+    environment with `pip install aimnet`. Without it, requesting an AIMNet
+    engine exits with that exact instruction.
   license: MIT
   license_family: MIT
   license_file: LICENSE
