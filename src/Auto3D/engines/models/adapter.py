@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 
 from Auto3D.engines.models.ani2xt import ANI2xt, element_indices, self_atomic_energies
+from Auto3D.engines.models.availability import require_aimnet
 from Auto3D.engines.models.loading import load_custom_nnp
 from Auto3D.engines.models.species import to_ani2xt_species
 from Auto3D.foundation.constants import HARTREE_TO_EV
@@ -334,7 +335,11 @@ class AIMNet2Adapter(BaseModelAdapter):
             model_name: aimnet registry name/alias.
             device: Target device.
             compile_model: Forwarded to AIMNet2Calculator (torch.compile).
+
+        Raises:
+            DependencyError: The ``aimnet`` package is not installed.
         """
+        require_aimnet()
         from aimnet.calculators import AIMNet2Calculator
 
         if device is None:

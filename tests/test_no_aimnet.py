@@ -106,3 +106,17 @@ class TestPreflightWithoutAimnet:
 
         with pytest.raises(DependencyError):
             preflight_model("AIMNET")
+
+
+class TestAdapterWithoutAimnet:
+    def test_adapter_init_raises_dependency_error(self, monkeypatch):
+        """Direct construction (the Python-API path that bypasses preflight)
+        must fail with the same actionable error. require_aimnet() is the
+        first statement, so no calculator work happens first."""
+        from Auto3D.engines.models.adapter import AIMNet2Adapter
+
+        hide_aimnet(monkeypatch)
+
+        with pytest.raises(DependencyError) as exc_info:
+            AIMNet2Adapter()
+        assert exc_info.value.dependency_name == "aimnet"
