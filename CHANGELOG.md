@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **conda-recipe/meta.yaml**: Dropped `aimnet` from run requirements (it
+  depends on pip-only `nvalchemi-toolkit-ops` and cannot be packaged for
+  conda-forge); added `torchani` and `ase` as run dependencies instead (both
+  required for ANI2x/ANI2xt engines and ASE thermochemistry APIs to work out
+  of the box). Dropped `pip check` from test commands (it would flag the
+  intentional absence of `aimnet`, not a bug). Users wanting AIMNet2 should
+  install it with `pip install aimnet` in the same environment.
+
 ## [3.1.1] - 2026-08-27
 
 ### Added
