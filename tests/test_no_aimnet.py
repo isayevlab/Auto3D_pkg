@@ -54,3 +54,55 @@ class TestRequireAimnet:
 
         assert exc_info.value.name == "warp"
         assert not isinstance(exc_info.value, DependencyError)
+
+
+class TestPreflightWithoutAimnet:
+    def test_resolve_aimnet_literal_raises_dependency_error(self, monkeypatch):
+        from Auto3D.engines.models.preflight import resolve_engine_name
+
+        hide_aimnet(monkeypatch)
+
+        with pytest.raises(DependencyError) as exc_info:
+            resolve_engine_name("AIMNET")
+        assert exc_info.value.dependency_name == "aimnet"
+
+    def test_resolve_registry_name_raises_dependency_error(self, monkeypatch):
+        from Auto3D.engines.models.preflight import resolve_engine_name
+
+        hide_aimnet(monkeypatch)
+
+        with pytest.raises(DependencyError):
+            resolve_engine_name("aimnet2-2025")
+
+    def test_resolve_ani_engines_work_without_aimnet(self, monkeypatch):
+        from Auto3D.engines.models.preflight import resolve_engine_name
+        from Auto3D.foundation.constants import MODEL_ANI2X, MODEL_ANI2XT
+
+        hide_aimnet(monkeypatch)
+
+        assert resolve_engine_name("ANI2x") == MODEL_ANI2X
+        assert resolve_engine_name("ANI2xt") == MODEL_ANI2XT
+
+    def test_resolve_custom_path_works_without_aimnet(self, monkeypatch, tmp_path):
+        from Auto3D.engines.models.preflight import resolve_engine_name
+
+        hide_aimnet(monkeypatch)
+        nnp = tmp_path / "my_model.pt"
+        nnp.write_bytes(b"not a real model")
+
+        assert resolve_engine_name(str(nnp)) == str(nnp)
+
+    def test_preflight_model_ani_is_noop_without_aimnet(self, monkeypatch):
+        from Auto3D.engines.models.preflight import preflight_model
+
+        hide_aimnet(monkeypatch)
+
+        preflight_model("ANI2xt")  # must not raise
+
+    def test_preflight_model_aimnet_raises_dependency_error(self, monkeypatch):
+        from Auto3D.engines.models.preflight import preflight_model
+
+        hide_aimnet(monkeypatch)
+
+        with pytest.raises(DependencyError):
+            preflight_model("AIMNET")

@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from Auto3D.engines.models.availability import require_aimnet
 from Auto3D.foundation.constants import (
     DEFAULT_AIMNET_MODEL,
     MODEL_AIMNET,
@@ -74,6 +75,8 @@ def resolve_engine_name(name: str) -> str:
             the aimnet aliases, because a typo like ``aimnet2-2025x`` is the
             case this exists to catch and "not found in the registry" alone
             does not tell the user what they may write instead.
+        DependencyError: The name needs the aimnet registry (``AIMNET`` or a
+            registry name/alias) but the ``aimnet`` package is not installed.
     """
     name_upper = name.upper()
 
@@ -94,6 +97,8 @@ def resolve_engine_name(name: str) -> str:
 
     if not is_aimnet_literal and Path(name).exists():
         return name
+
+    require_aimnet()
 
     from aimnet.calculators.model_registry import (
         load_model_registry,
@@ -158,6 +163,8 @@ def preflight_model(engine: str) -> None:
 
     Raises:
         ConfigurationError: The engine name is not recognized.
+        DependencyError: The name needs the aimnet registry (``AIMNET`` or a
+            registry name/alias) but the ``aimnet`` package is not installed.
         ModelLoadError: The model could not be obtained -- a network failure
             while downloading it, a checksum mismatch on the cached file, or
             a cache directory that cannot be read or written.
@@ -178,6 +185,9 @@ def preflight_model(engine: str) -> None:
     # reach this module through a module-scope import in utils/validation.py,
     # which audit M43 deferred into the two functions that use it.)
     import requests
+
+    require_aimnet()
+
     from aimnet.calculators.model_registry import get_registry_model_path
 
     # Resolved as a plain string before the try, and reused in every handler
