@@ -360,6 +360,60 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
     assert "pip install torchani" not in err
 
 
+def _hide_aimnet(monkeypatch):
+    """Same technique and reasoning as ``_hide_torchani`` above, for aimnet:
+    block the import and swap ``ModelFactory._cache`` for an empty dict so a
+    previously built AIMNet model cannot satisfy the request without
+    reaching an import."""
+    from Auto3D.engines.model_factory import ModelFactory
+    from tests.helpers_no_aimnet import hide_aimnet
+
+    hide_aimnet(monkeypatch)
+    monkeypatch.setattr(ModelFactory, "_cache", {})
+
+
+def test_exit_3_models_test_without_aimnet(monkeypatch):
+    """The conda-forge package ships without aimnet (pip-only dependency
+    chain), so requesting the default engine in that environment must report
+    exit 3 with the install hint -- mirroring the torchani case above, which
+    is the same integer from a different missing dependency."""
+    _hide_aimnet(monkeypatch)
+
+    result = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
+
+    assert result.exit_code == 3, result.output
+    err = _flat(result.stderr)
+    assert "Dependency Error" in err
+    assert "Install: pip install aimnet" in err
+    assert "unknown" not in err
+
+
+def test_exit_3_run_without_aimnet(monkeypatch, tmp_path):
+    """The flagship conda-user path: ``auto3d run`` with the default engine,
+    in the environment the conda-forge package creates. ``models test`` above
+    covers the same dependency from the health-check command; this covers it
+    from the entry point people actually script against.
+
+    No ``--engine`` is passed, so this exercises the default (AIMNET) resolving
+    through to the aimnet import -- the exit-130 test elsewhere in this file
+    passes ``--engine ANI2xt`` specifically to avoid that import, which is the
+    corroboration that omitting it here reaches the real dependency check.
+    Preflight raises in the parent before any worker fork or model download,
+    so this stays fast-tier safe.
+    """
+    _hide_aimnet(monkeypatch)
+
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
+
+    assert result.exit_code == 3, result.output
+    err = _flat(result.stderr)
+    assert "Dependency Error" in err
+    assert "Install: pip install aimnet" in err
+
+
 # --- 4: GPU error ------------------------------------------------------------
 #
 # Two different guards produce exit 4, and both must keep working on both kinds

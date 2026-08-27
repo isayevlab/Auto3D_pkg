@@ -110,6 +110,27 @@ def test_models_info_ani2x(runner):
     assert "ANI-2x" in result.stdout
 
 
+def test_models_info_works_without_aimnet(runner, monkeypatch):
+    """CHANGELOG (Unreleased) claims ``auto3d models info`` works without
+    aimnet installed, and nothing exercised that claim.
+
+    ``execute_models_info`` (``src/Auto3D/presentation/cli/commands/models.py``)
+    is a static ``ENGINE_INFO`` dict lookup -- it never imports or probes
+    ``aimnet`` at all, unlike ``execute_models_list``'s ``torchani`` probe. So
+    this holds even for the ``AIMNET`` engine itself: the one command whose
+    *execution* (``models test``/``run``) genuinely needs the package still
+    describes it with the package hidden.
+    """
+    from Auto3D.presentation.cli.app import app
+    from tests.helpers_no_aimnet import hide_aimnet
+
+    hide_aimnet(monkeypatch)
+
+    result = runner.invoke(app, ["models", "info", "AIMNET"])
+    assert result.exit_code == 0, result.output
+    assert "AIMNet2" in result.stdout
+
+
 def test_models_info_unknown_engine(runner):
     """models info should fail for unknown engine.
 

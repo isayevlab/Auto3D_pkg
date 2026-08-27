@@ -37,21 +37,26 @@ on first use, so the first run needs network access.
 <details>
 <summary><b>Using conda?</b> Install Auto3D itself with pip, even inside a conda env.</summary>
 
-<br>
+Starting with **3.1.1**, the conda-forge package no longer requires `aimnet`
+(which cannot be packaged for conda-forge — its dependency
+`nvalchemi-toolkit-ops` is pip-only). The conda package ships with the ANI2x
+and ANI2xt engines and ASE thermochemistry working out of the box; add the
+default AIMNet2 engine with one pip command inside the environment:
 
-`conda install -c conda-forge auto3d` installs **2.3.0**, not 3.1.0. conda-forge
-requires every dependency to be a conda package, and `aimnet` — a core dependency
-since 3.0.0 — is not one yet, nor is its own dependency `nvalchemi-toolkit-ops`.
+```bash
+conda install -c conda-forge auto3d   # once the 3.1.1 feedstock update lands
+pip install aimnet                    # adds the AIMNet2 engines
+```
 
-Auto3D works fine *inside* a conda environment; it is only the conda **package**
-that lags. `installation.yml` sets up the supported combination:
+If conda-forge still shows an older version, install with pip inside a conda
+environment instead — `installation.yml` sets up the supported combination:
 
 ```bash
 conda env create --file installation.yml --name auto3D
 conda activate auto3D          # pip installs Auto3D[ani,ase] into it
 ```
 
-Details and the path forward: [Building the conda package](https://auto3d.readthedocs.io/en/latest/howto/conda_build.html).
+Details: [Building the conda package](https://auto3d.readthedocs.io/en/latest/howto/conda_build.html).
 
 </details>
 

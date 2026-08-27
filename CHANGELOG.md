@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Missing `aimnet` now reports as a `DependencyError` (CLI exit 3) with an
+  install hint (`pip install aimnet`), from every entry point — CLI, `main()`,
+  `smiles2mols()`, `calc_spe`, ASE geometry/thermo, and direct
+  `AIMNet2Adapter` construction — instead of a raw `ModuleNotFoundError`.
+  `import Auto3D`, the ANI2x/ANI2xt engines, custom NNP paths, and
+  `auto3d models info` all work without aimnet installed
+  (`Auto3D.engines.models.availability.require_aimnet`).
+- CI job `no-aimnet` that proves the package imports, collects, and runs the
+  ANI2xt engine in an environment without aimnet — the environment the
+  conda-forge package creates.
+
 ## [3.1.0] - 2026-08-21
 
 > ### ⚠️ This minor release contains breaking changes

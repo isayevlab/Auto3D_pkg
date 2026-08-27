@@ -56,6 +56,40 @@ jobs:
         if: matrix.ani
         run: mypy src/Auto3D/ || true
 
+  no-aimnet:
+    # The conda-forge package will ship Auto3D's dependency set minus aimnet
+    # plus torchani and ase -- aimnet cannot be packaged for conda-forge (its
+    # dependency nvalchemi-toolkit-ops is pip-only). conda-recipe/meta.yaml is
+    # updated to that shape as part of the 3.1.1 release. This job emulates
+    # that environment and is the enforcement mechanism for the no-aimnet
+    # path: without it, the path rots the first time someone adds a
+    # module-level `import aimnet`.
+    #
+    # `pip uninstall -y aimnet` below leaves aimnet's own transitive
+    # dependencies installed, so this emulation cannot catch code that leans
+    # on a package that only arrives via aimnet's dependency tree -- the
+    # genuine conda build is the true gate for that.
+    name: no-aimnet (conda package environment)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.12"
+      - name: Install, then remove aimnet
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ani,ase,dev]"
+          pip uninstall -y aimnet
+      - name: Bare import works without aimnet
+        run: python -c "import Auto3D"
+      - name: Whole-suite collection stays clean without aimnet
+        run: pytest tests/ --collect-only -q
+      - name: No-aimnet behavior tests
+        run: pytest tests/test_no_aimnet.py -q
+      - name: ANI2xt still constructs (bundled weights, no download)
+        run: pytest "tests/test_model_factory.py" -q -k "ani2xt"
+
   slow:
     name: slow tests (NNP integration)
     runs-on: ubuntu-latest

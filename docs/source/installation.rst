@@ -39,19 +39,22 @@ Note that ``installation.yml`` already runs ``pip install
 
 .. note::
 
-   **Install Auto3D itself with pip, even inside a conda environment.**
-   ``conda install -c conda-forge auto3d`` installs **2.3.0**, not 3.0.0.
+   **The conda-forge package does not include the AIMNet2 engines.**
 
-   conda-forge requires every runtime dependency to exist as a conda package,
-   and ``aimnet`` -- a core dependency as of 3.0.0 -- is not one, nor is its own
-   dependency ``nvalchemi-toolkit-ops``. Until both are packaged there, the
-   conda-forge build cannot be updated past 2.3.x.
+   ``aimnet`` cannot be packaged for conda-forge (its own dependency
+   ``nvalchemi-toolkit-ops`` is pip-only), so from 3.1.1 the conda package
+   ships without it: ANI2x/ANI2xt and the ASE thermochemistry APIs work out
+   of the box, and requesting an AIMNet engine reports exactly what to do.
+   Add AIMNet2 inside the environment with:
 
-   A conda environment with Auto3D installed by pip -- which is what the commands
-   above and ``installation.yml`` both do -- is the supported combination and
-   gets you 3.0.0. If you are packaging Auto3D rather than installing it, see
-   :doc:`howto/conda_build`, which covers the recipe, building it locally, and
-   what has to happen upstream first.
+   .. code:: console
+
+      pip install aimnet
+
+   If ``conda install -c conda-forge auto3d`` still resolves to an older
+   version, the feedstock update has not landed yet -- use the pip-inside-conda
+   route above, which is always current. If you are packaging Auto3D rather
+   than installing it, see :doc:`howto/conda_build`.
 
 Optional Dependencies Installation
 ----------------------------------

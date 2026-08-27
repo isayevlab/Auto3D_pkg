@@ -117,6 +117,19 @@ def test_dependency_error_hint_pins_ase_install(capsys):
     assert "unknown" not in captured.err
 
 
+def test_dependency_error_hint_pins_aimnet_install(capsys):
+    from Auto3D.foundation.exceptions import DependencyError
+
+    with pytest.raises(SystemExit):
+        handle_error(
+            DependencyError("aimnet is not installed", dependency_name="aimnet"),
+            verbose=0,
+        )
+    captured = capsys.readouterr()
+    assert "Install: pip install aimnet" in captured.err
+    assert "unknown" not in captured.err
+
+
 def test_dependency_error_without_dependency_name_falls_back_to_unknown(capsys):
     """A DependencyError raised without naming a dependency (e.g. by future or
     third-party code) must still produce a hint, not crash the hint lookup --

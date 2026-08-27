@@ -90,6 +90,7 @@ def get_error_hint(error: Auto3DError) -> str | None:
             "openeye": "Install: conda install -c openeye openeye-toolkits",
             "torchani": "Install: pip install torchani",
             "ase": "Install: pip install ase",
+            "aimnet": "Install: pip install aimnet",
         }
         return hints.get(dep, f"Install the missing dependency: {dep}")
 
