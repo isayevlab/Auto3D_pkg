@@ -384,7 +384,7 @@ def test_exit_3_models_test_without_aimnet(monkeypatch):
     assert result.exit_code == 3, result.output
     err = _flat(result.stderr)
     assert "Dependency Error" in err
-    assert "pip install aimnet" in err
+    assert "Install: pip install aimnet" in err
     assert "unknown" not in err
 
 
