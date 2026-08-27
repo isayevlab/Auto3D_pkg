@@ -360,6 +360,34 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
     assert "pip install torchani" not in err
 
 
+def _hide_aimnet(monkeypatch):
+    """Same technique and reasoning as ``_hide_torchani`` above, for aimnet:
+    block the import and swap ``ModelFactory._cache`` for an empty dict so a
+    previously built AIMNet model cannot satisfy the request without
+    reaching an import."""
+    from Auto3D.engines.model_factory import ModelFactory
+    from tests.helpers_no_aimnet import hide_aimnet
+
+    hide_aimnet(monkeypatch)
+    monkeypatch.setattr(ModelFactory, "_cache", {})
+
+
+def test_exit_3_models_test_without_aimnet(monkeypatch):
+    """The conda-forge package ships without aimnet (pip-only dependency
+    chain), so requesting the default engine in that environment must report
+    exit 3 with the install hint -- mirroring the torchani case above, which
+    is the same integer from a different missing dependency."""
+    _hide_aimnet(monkeypatch)
+
+    result = runner.invoke(app, ["models", "test", "AIMNET", "--no-gpu"])
+
+    assert result.exit_code == 3, result.output
+    err = _flat(result.stderr)
+    assert "Dependency Error" in err
+    assert "pip install aimnet" in err
+    assert "unknown" not in err
+
+
 # --- 4: GPU error ------------------------------------------------------------
 #
 # Two different guards produce exit 4, and both must keep working on both kinds
