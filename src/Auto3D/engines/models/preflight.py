@@ -186,6 +186,11 @@ def preflight_model(engine: str) -> None:
     # which audit M43 deferred into the two functions that use it.)
     import requests
 
+    # Deliberately redundant defense-in-depth: resolve_engine_name (above) already
+    # calls require_aimnet() before any aimnet import on every current path, so
+    # this call is a no-op today. It exists so this import site stays
+    # self-guarding if a future refactor stops routing through resolve_engine_name
+    # first.
     require_aimnet()
 
     from aimnet.calculators.model_registry import get_registry_model_path
