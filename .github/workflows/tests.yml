@@ -57,12 +57,13 @@ jobs:
         run: mypy src/Auto3D/ || true
 
   no-aimnet:
-    # The conda-forge package is Auto3D's dependency set minus aimnet plus
-    # torchani and ase (conda-recipe/meta.yaml) -- aimnet cannot be packaged
-    # for conda-forge (its dependency nvalchemi-toolkit-ops is pip-only).
-    # This job emulates that environment and is the enforcement mechanism
-    # for the no-aimnet path: without it, the path rots the first time
-    # someone adds a module-level `import aimnet`.
+    # The conda-forge package ships Auto3D's dependency set minus aimnet plus
+    # torchani and ase -- aimnet cannot be packaged for conda-forge (its
+    # dependency nvalchemi-toolkit-ops is pip-only). conda-recipe/meta.yaml is
+    # updated to that shape as part of each release. This job emulates that
+    # environment and is the enforcement mechanism for the no-aimnet path:
+    # without it, the path rots the first time someone adds a module-level
+    # `import aimnet`.
     name: no-aimnet (conda package environment)
     runs-on: ubuntu-latest
     steps:
