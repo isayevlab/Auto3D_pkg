@@ -35,7 +35,7 @@ from pydantic import ValidationError
 import Auto3D.entry.auto3D
 import Auto3D.presentation.cli.errors
 from Auto3D.foundation.config import FIELD_BOUNDS, SENTINEL_FIELDS, Auto3DOptions
-from Auto3D.foundation.exceptions import Auto3DError, ConfigurationError
+from Auto3D.foundation.exceptions import Auto3DError, ConfigurationError, OptimizationError
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -152,6 +152,7 @@ class TestAuxiliaryEntryPointGuards:
                     for m in mols:
                         m.SetProp("E_tot", "0.0")
                         w.write(m)
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         monkeypatch.setattr(geometry_mod, "optimizing", _FakeOptEngine)
 
@@ -291,7 +292,7 @@ class TestSmiles2MolsHonesty:
                 pass
 
             def run(self):
-                return None
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         class _StubRank:
             def __init__(self, *a, **k):
@@ -348,6 +349,41 @@ class TestSmiles2MolsHonesty:
         assert args.path == before, f"caller's config was mutated: {before!r} -> {args.path!r}"
 
 
+class TestSmiles2MolsRaisesWhenNothingWasOptimized:
+    """Issue 8: an all-embedding-failure run must raise OptimizationError, not
+    surface as an opaque OSError once the TemporaryDirectory smiles2mols
+    writes into has already been (or is about to be) torn down.
+
+    The isomer/embedding stage is stubbed to write nothing (as a genuine
+    all-SMILES-failed-to-embed run would leave `meta["enumerated_sdf"]`), so
+    the REAL `optimizing` class hits its own missing-input early return and
+    the guard added in `smiles2mols` fires against that real return value.
+    `preflight_model`/`create_model`/`get_device` are stubbed to avoid a
+    network call or a real NNP load.
+    """
+
+    def test_raises_optimization_error(self, monkeypatch):
+        import Auto3D.entry.auto3D as auto3D_mod
+
+        class _StubIsomerEngine:
+            def run(self):
+                return None  # writes nothing: meta["enumerated_sdf"] never exists
+
+        monkeypatch.setattr(
+            auto3D_mod.IsomerEngineFactory,
+            "create",
+            staticmethod(lambda **kwargs: _StubIsomerEngine()),
+        )
+        monkeypatch.setattr(auto3D_mod, "preflight_model", lambda *a, **k: None)
+        monkeypatch.setattr(auto3D_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(auto3D_mod, "create_model", lambda *a, **k: FakeAdapter())
+
+        args = Auto3DOptions(k=1, use_gpu=False)
+
+        with pytest.raises(OptimizationError):
+            auto3D_mod.smiles2mols(["CCO"], args)
+
+
 class TestDuplicateInchikeyInputs:
     """Two inputs that collide on InChIKey must both survive, not merge.
 
@@ -390,6 +426,7 @@ class TestDuplicateInchikeyInputs:
                         m.SetProp("Converged", "True")
                         m.SetProp("E_tot", str(float(i)))
                         w.write(m)
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         monkeypatch.setattr(auto3D_mod, "optimizing", _FakeOptimizing)
 

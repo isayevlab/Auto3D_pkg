@@ -298,15 +298,3 @@ def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device
             return torch.device(f"cuda:{gpu_idx}")
         return torch.device("cuda:0")
     return torch.device("cpu")
-
-
-def is_custom_model(name: str) -> bool:
-    """Check if a model name refers to a custom user model.
-
-    Args:
-        name: Model name or path.
-
-    Returns:
-        True if the name is a path to an existing file.
-    """
-    return Path(name).exists()

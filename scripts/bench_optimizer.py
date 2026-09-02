@@ -107,8 +107,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import torch
 
-    from Auto3D.batch_opt.batchopt import optimizing
-    from Auto3D.config import OptimizationConfig
+    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.foundation.config import OptimizationConfig
 
     device = torch.device(args.device)
     is_cuda = device.type == "cuda"

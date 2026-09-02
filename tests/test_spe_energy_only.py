@@ -165,19 +165,24 @@ class TestEnergyBatchedSkipsTheBackwardPass:
 class TestTheOneValueThatMoves:
     """A custom NNP returning float64 energies is no longer rounded to float32.
 
-    ``CustomModelAdapter.forward`` ends with ``energy.to(input_dtype)``, and
-    ``input_dtype`` on this path is float32 (``pad_from_mols`` builds float32
-    coordinates), so an SPE over a model that computes in double precision used
-    to have its energy round-tripped through float32 before ``E_hartree`` was
-    written -- a relative change of up to ~6e-8, around 1e-6 kcal/mol at a
-    typical total energy. ``energy`` is dtype-preserving by contract (that is why
-    the override exists at all: the Hessian path must not be answered in fp32),
-    so the reported value is now the model's own.
+    ``CustomModelAdapter.forward`` used to end with
+    ``energy.to(input_dtype)``, and ``input_dtype`` on this path is float32
+    (``pad_from_mols`` builds float32 coordinates), so an SPE over a model
+    that computes in double precision had its energy round-tripped through
+    float32 before ``E_hartree`` was written -- a relative change of up to
+    ~6e-8, around 1e-6 kcal/mol at a typical total energy.
 
-    This is the ONLY reported number the M39 change moves. AIMNet2 (energies
-    already float64), ANI2x (float32 both ways) and ANI2xt (float64 both ways)
-    are bit-identical. Pinned here so the difference is a recorded decision
-    rather than something a future reader has to rediscover.
+    M39 fixed the ``energy_batched``/``ModelAdapter.energy`` route (dtype-
+    preserving by contract, since the Hessian path must not be answered in
+    fp32) but left the ``forward_batched``/``ModelAdapter.forward`` route --
+    what the FIRE step loop actually calls, and what ``batchopt.py`` stores as
+    ``E_tot`` -- still downcasting, so ``auto3d energy`` (energy-only) and the
+    optimization pipeline (forward) could quantize or reorder two conformers
+    on the same geometry. Issue #5 closed that second gap, casting only the
+    RETURNED FORCES back to ``input_dtype`` and leaving energy at whatever
+    dtype the model produced. The two routes are now bit-identical for this
+    model, same as they already were for AIMNet2 (energies always float64),
+    ANI2x (float32 both ways) and ANI2xt (float64 both ways).
     """
 
     @staticmethod
@@ -186,9 +191,10 @@ class TestTheOneValueThatMoves:
 
         class _Fp64Model(nn.Module):
             def forward(self, species, coords, charges):
-                # A value that is NOT representable in float32, so the two paths
-                # differ observably rather than by luck. Kept connected to
-                # `coords` (times zero) because `forward` differentiates it.
+                # A value that is NOT representable in float32, so a
+                # regression back to downcasting would differ observably
+                # rather than by luck. Kept connected to `coords` (times
+                # zero) because `forward` differentiates it.
                 zero = coords.to(torch.float64).sum(dim=(1, 2)) * 0.0
                 return zero + (1.0 + 2.0**-40)
 
@@ -198,18 +204,28 @@ class TestTheOneValueThatMoves:
         adapter.coord_pad, adapter.species_pad = 0.0, -1
         return adapter
 
-    def test_the_forward_path_rounded_it_to_float32(self):
-        """The premise: this is what the old call site reported."""
+    def test_the_forward_path_now_also_reports_the_models_own_value(self):
+        """The regression this class guards: forward used to round this to 1.0."""
         wrapper = EnForce_ANI(self._fp64_custom_adapter(), batchsize_atoms=1024)
         es, _ = wrapper.forward_batched(*_batch(n_mols=1, n_atoms=2))
-        assert es.dtype is torch.float32
-        assert float(es[0].detach()) == 1.0
+        assert es.dtype is torch.float64
+        assert float(es[0].detach()) == 1.0 + 2.0**-40
 
     def test_the_energy_path_reports_the_models_own_value(self):
         wrapper = EnForce_ANI(self._fp64_custom_adapter(), batchsize_atoms=1024)
         es = wrapper.energy_batched(*_batch(n_mols=1, n_atoms=2))
         assert es.dtype is torch.float64
         assert float(es[0].detach()) == 1.0 + 2.0**-40
+
+    def test_forward_and_energy_paths_now_agree_bit_for_bit(self):
+        """The gap M39 left open (forward vs. energy) is closed (issue #5)."""
+        forward_es, _ = EnForce_ANI(
+            self._fp64_custom_adapter(), batchsize_atoms=1024
+        ).forward_batched(*_batch(n_mols=1, n_atoms=2))
+        energy_es = EnForce_ANI(self._fp64_custom_adapter(), batchsize_atoms=1024).energy_batched(
+            *_batch(n_mols=1, n_atoms=2)
+        )
+        assert torch.equal(forward_es.detach(), energy_es.detach())
 
 
 class TestEnergyBatchedStillGuardsTheNumbers:

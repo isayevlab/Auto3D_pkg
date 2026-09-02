@@ -75,7 +75,6 @@ DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
 # DEFAULT_ENERGY_TOL / DEFAULT_ENERGY_PATIENCE were removed in 3.0.0 along with
 # the optimizer's energy-stability criterion, which could never fire (audit M1).
 # Tuning the tolerance -- for fp32 noise or anything else -- changed nothing.
-DEFAULT_RANDOM_SEED = 42  # Default random seed for reproducibility
 
 # A linear molecule has one vanishing principal moment of inertia; a bent one
 # has two comparable large moments and a much smaller third. This is the

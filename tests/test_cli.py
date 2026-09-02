@@ -309,9 +309,9 @@ class TestCLIExceptionHandling:
         """GPUError -> exit code 4 (legacy YAML mode)."""
         assert self._run_legacy_with_error(GPUError("No CUDA device available")) == 4
 
-    def test_cli_optimization_error_exits_1(self):
-        """OptimizationError -> generic exit code 1 (legacy YAML mode)."""
-        assert self._run_legacy_with_error(OptimizationError("No structures converged")) == 1
+    def test_cli_optimization_error_exits_7(self):
+        """OptimizationError -> exit code 7 (legacy YAML mode)."""
+        assert self._run_legacy_with_error(OptimizationError("No structures converged")) == 7
 
 
 def _squash(text):

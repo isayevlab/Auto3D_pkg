@@ -190,6 +190,7 @@ class TestOptGeometryDurability:
                         mol.SetProp("E_tot", str(1.0 + i))
                         w.write(mol)
                 completed["bytes"] = Path(self._outpath).read_bytes()
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
 
@@ -429,6 +430,7 @@ class TestSameFileGuard:
                     for i, mol in enumerate(mols):
                         mol.SetProp("E_tot", str(1.0 + i))
                         w.write(mol)
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
 

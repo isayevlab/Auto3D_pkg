@@ -309,7 +309,22 @@ class optimizing:
         )  # Magic step
         return optdict
 
-    def run(self):
+    def run(self) -> bool:
+        """Run batch optimization, writing results to ``self.out_f``.
+
+        Returns:
+            True if ``self.out_f`` was written this call. False if
+            optimization was skipped entirely -- ``self.in_f`` missing, empty,
+            or containing no parseable record -- in which case ``self.out_f``
+            is left untouched (a caller that derives its output path once and
+            may re-run against it, e.g. ``ASE.geometry.opt_geometry`` /
+            ``entry.auto3D.smiles2mols`` with ``overwrite=True``, cannot tell a
+            fresh write from a stale leftover file by checking
+            ``os.path.exists(self.out_f)`` alone -- this return value is the
+            signal). ``workflow_workers.optim_rank_wrapper`` checks
+            ``os.path.exists`` on a chunk-local path that is always fresh for
+            that call, so it is unaffected either way and is not changed here.
+        """
         logger.info(
             "Preparing for parallel optimizing... (Max optimization steps: %i)"
             % self._config_dict["opt_steps"]
@@ -319,10 +334,10 @@ class optimizing:
         input_path = Path(self.in_f)
         if not input_path.exists():
             logger.warning(f"Input file {self.in_f} does not exist. Skipping optimization.")
-            return
+            return False
         if input_path.stat().st_size == 0:
             logger.warning(f"Input file {self.in_f} is empty. Skipping optimization.")
-            return
+            return False
 
         # Name every record that could not be parsed, not just the case where all
         # of them failed. The all-failed warning below was the only signal, so a
@@ -330,9 +345,9 @@ class optimizing:
         # input with nothing said about which one -- for `opt_geometry` that is an
         # output SDF with fewer records, the path returned and exit 0, and the only
         # trace is RDKit's own C++ parse error on stderr, which names a file offset
-        # rather than a molecule. `SPE.calc_spe` and `ASE/thermo`'s
-        # `iter_thermo_records` both log per-record for the identical situation;
-        # this was the one reader that did not.
+        # rather than a molecule. `Auto3D.foundation.utils.sdf_io.iter_conformer_records`
+        # (used by `SPE.calc_spe` and `ASE/thermo`) logs per-record for the
+        # identical situation; this was the one reader that did not.
         mols = []
         for index, mol in enumerate(Chem.SDMolSupplier(self.in_f, removeHs=False)):
             if mol is None:
@@ -342,7 +357,7 @@ class optimizing:
 
         if not mols:
             logger.warning("No valid molecules in input file. Skipping optimization.")
-            return
+            return False
 
         # Pre-size per-molecule output containers indexed by original position.
         # Buckets reorder molecules internally for size-homogeneous padding, but
@@ -442,3 +457,5 @@ class optimizing:
         # Clean up GPU memory after optimization
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+        return True

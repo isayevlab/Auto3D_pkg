@@ -6,42 +6,7 @@ from __future__ import annotations
 from rdkit import Chem
 
 from Auto3D.foundation.constants import MAX_CONFORMERS_CAP
-from Auto3D.foundation.utils.molprops import calculate_conformer_count, get_mol_charge
-
-
-class TestGetMolCharge:
-    """Test the get_mol_charge function."""
-
-    def test_neutral_molecule(self):
-        """Test charge of a neutral molecule."""
-        mol = Chem.MolFromSmiles("CCO")
-        assert get_mol_charge(mol) == 0
-
-    def test_cation(self):
-        """Test charge of a cation."""
-        mol = Chem.MolFromSmiles("[NH4+]")
-        assert get_mol_charge(mol) == 1
-
-    def test_anion(self):
-        """Test charge of an anion."""
-        mol = Chem.MolFromSmiles("[O-]")
-        assert get_mol_charge(mol) == -1
-
-    def test_doubly_charged_cation(self):
-        """Test charge of a doubly charged cation."""
-        mol = Chem.MolFromSmiles("[Ca+2]")
-        assert get_mol_charge(mol) == 2
-
-    def test_zwitterion(self):
-        """Test charge of a zwitterion (net neutral)."""
-        # Glycine zwitterion
-        mol = Chem.MolFromSmiles("[NH3+]CC([O-])=O")
-        assert get_mol_charge(mol) == 0
-
-    def test_multiple_charges(self):
-        """Test molecule with multiple charged atoms."""
-        mol = Chem.MolFromSmiles("[O-]C([O-])=O")  # Carbonate
-        assert get_mol_charge(mol) == -2
+from Auto3D.foundation.utils.molprops import calculate_conformer_count
 
 
 class TestCalculateConformerCount:

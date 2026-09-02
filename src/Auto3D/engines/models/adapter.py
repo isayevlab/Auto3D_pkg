@@ -1,4 +1,3 @@
-# src/Auto3D/models/adapter.py
 """Implementations of the adapter contract, one per NNP backend.
 
 The contract itself -- :class:`Auto3D.engines.models.contract.ModelAdapter` -- lives in
@@ -6,8 +5,10 @@ The contract itself -- :class:`Auto3D.engines.models.contract.ModelAdapter` -- l
 confused with. This module holds only implementations.
 
 Layering: :mod:`Auto3D.engines.models` is a leaf. It imports ``torch``,
-``Auto3D.foundation.constants``, ``Auto3D.foundation.exceptions`` and its own submodules, and nothing
-else from Auto3D. There is exactly one deliberate back-edge into
+``Auto3D.foundation.constants``, ``Auto3D.foundation.exceptions``,
+``Auto3D.foundation.utils.logging_config`` (L0, same as the other two -- for the
+one-time compile-fallback diagnostic below, issue #23) and its own submodules,
+and nothing else from Auto3D. There is exactly one deliberate back-edge into
 ``Auto3D.engines.batch_opt`` (``ANI2xtAdapter.__init__``'s deferred ``ANI2xt`` import);
 see the comment there before moving it.
 """
@@ -27,6 +28,9 @@ from Auto3D.engines.models.loading import load_custom_nnp
 from Auto3D.engines.models.species import to_ani2xt_species
 from Auto3D.foundation.constants import HARTREE_TO_EV
 from Auto3D.foundation.exceptions import NumericalError
+from Auto3D.foundation.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
@@ -57,6 +61,20 @@ def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
     # Opting in to compilation opts in to falling back rather than crashing
     # mid-optimization: without this a graph break Inductor cannot handle takes
     # down a run that was already thousands of steps in.
+    #
+    # Containment (issue #23): this is a `torch._dynamo.config` attribute --
+    # PROCESS-GLOBAL, not scoped to this model or even to this adapter class.
+    # `create_model(..., compile_model=True)` is called inside a
+    # `multiprocessing.get_context("spawn")` worker in production
+    # (``Auto3D.orchestration.workflow_workers``), which is a fresh
+    # interpreter that exits when the worker does, so the setting cannot
+    # outlive that one optimization job. It is NOT contained the same way for
+    # an in-process caller -- the Python API (``smiles2mols``, ``calc_spe``,
+    # ``opt_geometry``, ``calc_thermo``, or any direct
+    # ``create_model(..., compile_model=True)`` call) runs in the caller's own
+    # interpreter, so this flip persists for the rest of that process and
+    # silently changes how every OTHER ``torch.compile`` call in it handles a
+    # failure, Auto3D's or not.
     torch._dynamo.config.suppress_errors = True
     return torch.compile(model, mode=mode, fullgraph=False, dynamic=True)
 
@@ -199,6 +217,11 @@ class BaseModelAdapter(ABC, nn.Module):
         self.coord_pad = coord_pad
         self.species_pad = species_pad
         self._compiled = False
+        # Gates _warn_if_compile_fell_back_to_eager below to a single check,
+        # the call after the first compiled forward -- not per-step, which
+        # would defeat the whole point of suppress_errors avoiding a per-step
+        # cost (issue #23).
+        self._compile_fallback_checked = False
 
         # Disable gradients for model parameters (inference mode)
         for p in model.parameters():
@@ -208,8 +231,85 @@ class BaseModelAdapter(ABC, nn.Module):
         if compile_model:
             model = _try_compile(model)
             self._compiled = True
+            # Snapshot BEFORE this adapter's first forward, so the fallback
+            # check reads a DELTA scoped to ITS OWN compilation rather than
+            # the raw cumulative counter (issue #23). Both
+            # ``suppress_errors`` and ``torch._dynamo.utils.counters`` are
+            # process-global (see the containment comment on ``_try_compile``
+            # for the first half of that fact) -- without this snapshot, an
+            # in-process caller that already compiled and fell back once for
+            # some earlier adapter would have that stale failure blamed on
+            # the NEXT compiled adapter's unrelated first forward. A plain
+            # ``dict`` copy, not a reference: ``counters["frames"]`` is a
+            # live ``Counter`` that keeps mutating after this line.
+            self._compile_frame_stats_before = dict(torch._dynamo.utils.counters.get("frames", {}))
 
         self.model = model
+
+    def _warn_if_compile_fell_back_to_eager(self) -> None:
+        """Log once if the first compiled forward silently fell back to eager.
+
+        ``_try_compile`` sets ``torch._dynamo.config.suppress_errors = True``
+        so a graph break Inductor cannot handle degrades to eager rather than
+        crashing an optimization thousands of steps in -- but a silent
+        degrade is itself a defect (issue #23): nothing told a caller that
+        ``compile_model=True`` bought nothing for an entire run.
+
+        ``torch._dynamo.utils.counters["frames"]`` is Dynamo's own
+        bookkeeping: ``"total"`` increments for every frame it attempts,
+        ``"ok"`` only for one that completes without raising back up to the
+        `except` clause that does the actual suppressing (a normal partial
+        graph break -- a resume point Dynamo places itself -- still counts as
+        ``"ok"``; only a fully suppressed failure does not). ``total > ok`` is
+        therefore exactly "a suppressed error fired at least once", not
+        merely "there was a graph break" -- and both counts are read as a
+        DELTA against the snapshot ``__init__`` took right after compiling
+        (``_compile_frame_stats_before``), because the counter itself is
+        process-global: without the delta, one adapter's stale fallback would
+        get blamed on the next compiled adapter's unrelated first forward.
+
+        Called from each compilable adapter's ``forward`` (``ANI2xtAdapter``,
+        ``ANI2xAdapter``, ``CustomModelAdapter`` -- ``AIMNet2Adapter`` never
+        reaches ``_try_compile`` at all; its ``compile_model`` goes to
+        ``AIMNet2Calculator`` instead) and checked exactly ONCE per adapter
+        instance: compilation is lazy (see ``_try_compile``'s docstring), so
+        anything before the first forward would read nothing, and re-reading
+        a process-global counter every step would add sync-free but pointless
+        work to the hottest loop in the codebase for a fact that cannot
+        change after the first observation -- once compiled, an adapter's
+        ``forward`` keeps tracing the same code path every step.
+
+        ``getattr`` with a default, not direct attribute access: several
+        tests construct an adapter by bypassing ``BaseModelAdapter.__init__``
+        entirely and substituting a toy module (the same reason
+        ``ANI2xtAdapter._call_model`` reads ``self._element_indices`` through
+        ``getattr`` rather than directly), so neither ``_compiled`` nor
+        ``_compile_frame_stats_before`` may exist. An adapter with no
+        ``_compiled`` was never compiled, so "nothing to check" is the right
+        answer, not an ``AttributeError``; one with ``_compiled`` set by hand
+        but no snapshot (a test asserting this method's behavior directly)
+        falls back to treating the counter's absolute value as the delta,
+        which is exactly right when nothing else in the process has compiled
+        yet.
+        """
+        if not getattr(self, "_compiled", False) or getattr(
+            self, "_compile_fallback_checked", False
+        ):
+            return
+        self._compile_fallback_checked = True
+        before: dict[str, int] = getattr(self, "_compile_frame_stats_before", {})
+        after: dict[str, int] = torch._dynamo.utils.counters.get("frames", {})
+        total = after.get("total", 0) - before.get("total", 0)
+        ok = after.get("ok", 0) - before.get("ok", 0)
+        if total > ok:
+            logger.warning(
+                "torch.compile suppressed %d of %d frame compilation(s) for this "
+                "adapter and fell back to eager execution for them "
+                "(suppress_errors=True, see _try_compile); compile_model=True "
+                "may not be providing its intended benefit.",
+                total - ok,
+                total,
+            )
 
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
         """Identity: this model consumes raw atomic numbers.
@@ -633,6 +733,7 @@ class ANI2xtAdapter(BaseModelAdapter):
         grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
         forces = -grad
         _validate_outputs(energy, forces)
+        self._warn_if_compile_fell_back_to_eager()
         return energy, forces
 
 
@@ -700,7 +801,10 @@ class ANI2xAdapter(BaseModelAdapter):
                 number.
 
         Returns:
-            Tuple of (energies, forces) in eV units.
+            Tuple of (energies, forces) in eV units. ``forces`` is cast to
+            ``coords``' input dtype; ``energies`` is returned at whatever
+            dtype the model produced it, NOT downcast to match (see the
+            comment at the return statement -- issue #5).
         """
         # Convert to float32 for ANI2x (it uses float32 internally)
         input_dtype = coords.dtype
@@ -712,8 +816,21 @@ class ANI2xAdapter(BaseModelAdapter):
         forces = -grad
 
         _validate_outputs(energy, forces)
-        # Convert back to input dtype for consistency
-        return energy.to(input_dtype), forces.to(input_dtype)
+        # Only FORCES are cast back to input_dtype. Energy is left at whatever
+        # dtype the model produced (float32 for torchani 2.8.4's SelfEnergy
+        # today, but not guaranteed by the model's contract) -- `forward`'s
+        # caller is the FIRE step loop, which stores this energy as E_tot
+        # (batchopt.py) and coords always arrive float32, so `energy.to(f32)`
+        # here used to be a silent no-op-that-isn't: at NNP total-energy scale
+        # (tens of thousands of eV) float32 ULP is ~0.002 eV, enough to
+        # quantize or reorder two conformers 0.02 kcal/mol apart, and it made
+        # `auto3d energy` (which goes through `energy()` above, never
+        # downcast) disagree with the pipeline on the identical geometry
+        # (issue #5). Rounding forces costs nothing analogous: they are
+        # consumed once, by the optimizer step, not accumulated into a stored
+        # ranking key.
+        self._warn_if_compile_fell_back_to_eager()
+        return energy, forces.to(input_dtype)
 
 
 class CustomModelAdapter(BaseModelAdapter):
@@ -829,7 +946,10 @@ class CustomModelAdapter(BaseModelAdapter):
                 docstring.
 
         Returns:
-            Tuple of (energies, forces) in eV units.
+            Tuple of (energies, forces) in eV units. ``forces`` is cast to
+            ``coords``' input dtype; ``energies`` is returned exactly as the
+            wrapped model produced it, NOT downcast to match (see the comment
+            at the return statement -- issue #5).
         """
         # Intentional downcast to float32 for compatibility with most NNP
         # models (e.g., ANI2x). This silently loses precision for fp64 models;
@@ -845,5 +965,16 @@ class CustomModelAdapter(BaseModelAdapter):
         forces = -grad
 
         _validate_outputs(energy, forces)
-        # Convert output back to input dtype for consistency
-        return energy.to(input_dtype), forces.to(input_dtype)
+        # Only FORCES are cast back to input_dtype. `forward`'s caller is the
+        # FIRE step loop (coords always float32 there), which stores this
+        # energy verbatim as E_tot (batchopt.py) -- so `energy.to(f32)` here
+        # rounded a fp64-returning custom model's energy to float32 on the
+        # ranking path while `energy()` above (M39) already preserved it,
+        # making `auto3d energy` and the pipeline disagree on the identical
+        # geometry: NNP total energies run ~tens of thousands of eV, where a
+        # float32 ULP (~0.002 eV, ~0.05 kcal/mol) can quantize or reorder two
+        # conformers 0.02 kcal/mol apart (issue #5). Forces have no such
+        # accumulate-into-a-stored-key exposure -- they are consumed once, by
+        # the optimizer step -- so rounding them costs nothing analogous.
+        self._warn_if_compile_fell_back_to_eager()
+        return energy, forces.to(input_dtype)

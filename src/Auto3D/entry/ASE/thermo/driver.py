@@ -7,7 +7,6 @@ per-record sequence it drives.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import ase
@@ -53,8 +52,11 @@ from Auto3D.foundation.constants import (
     STANDARD_PRESSURE,
 )
 from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+from Auto3D.foundation.utils.convergence import THERMO_FAILED_PROP
 from Auto3D.foundation.utils.energy import (
     E_REL_KCAL_PROP,
+    G_HARTREE_PROP,
+    T_K_PROP,
     clear_relative_energies,
     set_e_hartree_from_ev,
     set_e_tot_from_ev,
@@ -63,11 +65,15 @@ from Auto3D.foundation.utils.energy import (
 )
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
+from Auto3D.foundation.utils.output_names import default_output_path
+from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
 logger = get_logger(__name__)
 
 
-THERMO_FAILED_PROP = "Thermo_failed"
+# THERMO_FAILED_PROP is imported from Auto3D.foundation.utils.convergence, its
+# single declared owner (used by the three ranking/filtering readers as well
+# as every write site in this module) -- it must not be redefined here.
 TRANSITION_STATE_FAILURE = "transition_state"
 
 
@@ -235,8 +241,8 @@ def do_mol_thermo(
 
     mol.SetProp("H_hartree", str(H))
     mol.SetProp("S_hartree_per_K", str(S))
-    mol.SetProp("T_K", str(T))
-    mol.SetProp("G_hartree", str(G))
+    mol.SetProp(T_K_PROP, str(T))
+    mol.SetProp(G_HARTREE_PROP, str(G))
     set_e_hartree_from_ev(mol, e)
     # `E_tot` too, through its owner. calc_thermo relaxes to a threshold 50x
     # tighter than the one the conformer pipeline used, so `atoms` is almost
@@ -368,32 +374,6 @@ def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> b
             steps,
         )
     return converged
-
-
-def iter_thermo_records(mols) -> Iterator[Chem.Mol]:
-    """Yield records `calc_thermo` can actually process, skipping the rest.
-
-    ``SDMolSupplier`` yields ``None`` for a record it cannot parse, and a
-    parsed record can still lack a conformer. Both used to reach
-    ``mol.GetConformer()`` outside the try block, so one bad record aborted a
-    batch that may already have computed hundreds of Hessians -- none of which
-    are written until the loop finishes. ``SPE.py`` filters for exactly this
-    reason; this is the same guard.
-    """
-    for position, mol in enumerate(mols):
-        if mol is None:
-            logger.warning(
-                "Skipping record %d: RDKit could not parse it.",
-                position,
-            )
-            continue
-        if mol.GetNumConformers() == 0:
-            logger.warning(
-                "Skipping %s: no 3D conformer, so there is no geometry to evaluate.",
-                _mol_name(mol, default=f"record {position}"),
-            )
-            continue
-        yield mol
 
 
 def _write_thermo_output(
@@ -545,15 +525,16 @@ def calc_thermo(
     # (this path previously ignored it).
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
 
-    # Prepare output name (unless overridden)
+    # Prepare output name (unless overridden). default_output_path is the
+    # single owner of this naming convention (Auto3D.foundation.utils.
+    # output_names) -- it used to be re-derived here, in SPE.py and in
+    # ASE/geometry.py, each with its own Path(model_name).exists() check for
+    # the custom-NNP case.
     out_mols, mols_failed = [], []
-    path_obj = Path(path)
     if out_path is not None:
         outpath = Path(out_path)
-    elif Path(model_name).exists():
-        outpath = path_obj.parent / f"{path_obj.stem}_userNNP_G.sdf"
     else:
-        outpath = path_obj.parent / f"{path_obj.stem}_{model_name}_G.sdf"
+        outpath = Path(default_output_path(path, model_name, "G"))
 
     # Refuse to truncate a file that already exists. `_write_thermo_output`
     # opens `Chem.SDWriter(outpath)`, which truncates on open, so without this
@@ -566,17 +547,15 @@ def calc_thermo(
     # model_name2model_calculator so nothing is loaded first.
     check_output_overwrite(outpath, overwrite)
 
-    mols = list(Chem.SDMolSupplier(path, removeHs=False))
-
-    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
-    # charged or out-of-set species handed to either would otherwise be
-    # silently relaxed and differentiated as a different, neutral species --
-    # wrong energy, wrong Hessian, wrong thermochemistry. Parsing `mols`
-    # needs only `path`, not a device or model, so it -- and this guard,
-    # which needs only `mols`/`model_name` -- both happen before
+    # Read once, raw (None entries included), purely for the C11 guard below --
+    # it needs every parseable record regardless of whether it carries a
+    # conformer, which is a looser filter than the main loop's below. Parsing
+    # `mols` needs only `path`, not a device or model, so it -- and this
+    # guard, which needs only `mols`/`model_name` -- both happen before
     # get_device/_load_hessian_model/model_name2model_calculator below,
     # matching check_gpu_requested's already-first placement: every guard
     # that can fail fast, does, before any device/model construction.
+    mols = list(Chem.SDMolSupplier(path, removeHs=False))
     check_engine_supports_molecules([mol for mol in mols if mol is not None], model_name)
 
     device = get_device(gpu_idx, use_gpu=use_gpu)
@@ -587,7 +566,13 @@ def calc_thermo(
     hessian_adapter = _load_hessian_model(model_name, device)
     opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
-    for mol in tqdm(list(iter_thermo_records(mols))):
+    # A second read of `path` (the first, above, was raw and only for the C11
+    # guard): `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is the
+    # single owner of the None/conformerless filter -- `SPE.calc_spe` applies
+    # the identical guard for the identical reason. The extra parse costs
+    # nothing worth avoiding against a real SDF, and it keeps this filter from
+    # having its own hand-rolled copy that could drift from SPE's.
+    for mol in tqdm(list(iter_conformer_records(path))):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))
         # so isotope masses are applied consistently with vib_hessian's Atoms
         # object -- otherwise the optimization and the Hessian/thermo stages

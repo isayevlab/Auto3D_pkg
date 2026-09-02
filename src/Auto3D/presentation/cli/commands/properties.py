@@ -1,4 +1,3 @@
-# src/Auto3D/cli/commands/properties.py
 """CLI commands for the property calculators that wrap the Python API:
 
 - ``auto3d energy``    -> Auto3D.entry.SPE.calc_spe

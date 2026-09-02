@@ -134,9 +134,9 @@ def env_block() -> dict:
 
 def make_state(mols: list, batch: int, device: torch.device, model) -> tuple[dict, torch.Tensor, int]:
     """Pad one bucket of ``batch`` molecules (cycled) into an ``n_steps`` state."""
-    from Auto3D.batch_opt.model_wrapper import EnForce_ANI
-    from Auto3D.batch_opt.padding import pad_from_mols
-    from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.padding import pad_from_mols
+    from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 
     picked = [mols[i % len(mols)] for i in range(batch)]
     coord, numbers, charges, atom_mask = pad_from_mols(picked, model, device)
@@ -163,7 +163,7 @@ def _sync() -> None:
 
 def time_steps(mols, batch, device, model, steps, reps) -> dict:
     """Median/min microseconds per step over ``reps``, with nothing converging."""
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     for _ in range(N_WARMUP_CALLS):
         state, mask, _ = make_state(mols, batch, device, model)
@@ -195,7 +195,7 @@ def count_syncs(mols, batch, device, model, steps=10) -> float | None:
     Returns None without CUDA, where the concept does not apply -- the CPU-side
     equivalent is counted exactly by ``tests/test_optimization_engine_indexing.py``.
     """
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     if not torch.cuda.is_available():
         return None
@@ -230,7 +230,7 @@ def count_subgraphs(device) -> int | str | None:
 
     import torch._dynamo as dynamo
 
-    from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt, element_indices, self_atomic_energies
+    from Auto3D.engines.models.ani2xt import ANI2xt, element_indices, self_atomic_energies
 
     graphs: list = []
 
@@ -264,7 +264,7 @@ def count_subgraphs(device) -> int | str | None:
 
 def realism_pass(mols, device, model) -> dict:
     """Production settings end to end, so ``--compare`` can verify outcomes match."""
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     everything = [m for group in mols.values() for m in group]
     state, mask, _ = make_state(everything, len(everything), device, model)
@@ -280,7 +280,7 @@ def realism_pass(mols, device, model) -> dict:
 
 def run(label: str, engines: list[str], device_str: str, steps: int, reps: int) -> None:
     """Benchmark every engine x size x batch combination and write a JSON record."""
-    from Auto3D.model_factory import create_model
+    from Auto3D.engines.model_factory import create_model
 
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
     mols = build_mols()

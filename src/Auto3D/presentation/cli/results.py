@@ -1,4 +1,3 @@
-# src/Auto3D/cli/results.py
 """Results display components for Auto3D CLI."""
 
 from __future__ import annotations

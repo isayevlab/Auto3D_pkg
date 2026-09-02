@@ -65,6 +65,8 @@ __all__ = [
     # Tautomers
     "get_stable_tautomers",
     "select_tautomers",
+    # Progress reporting
+    "ProgressEvent",
 ]
 
 # name -> (module, attribute) for lazy public-API imports. generate_conformers is
@@ -82,6 +84,7 @@ _LAZY_API: dict[str, tuple[str, str]] = {
     "calc_thermo": ("Auto3D.entry.ASE.thermo", "calc_thermo"),
     "get_stable_tautomers": ("Auto3D.entry.tautomer", "get_stable_tautomers"),
     "select_tautomers": ("Auto3D.entry.tautomer", "select_tautomers"),
+    "ProgressEvent": ("Auto3D.orchestration.workflow_workers", "ProgressEvent"),
 }
 
 

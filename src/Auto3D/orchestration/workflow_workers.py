@@ -18,13 +18,12 @@ from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
-import torch
 from send2trash import send2trash
 
 from Auto3D.domain.ranking import ranking
 from Auto3D.engines.batch_opt.batchopt import optimizing
 from Auto3D.engines.isomers import IsomerEngineFactory
-from Auto3D.engines.model_factory import create_model
+from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.foundation.config import optimizer_worker_indices
 from Auto3D.orchestration.job_layout import create_chunk_meta_names, housekeeping
 from Auto3D.orchestration.processors import TautomerProcessor
@@ -241,10 +240,16 @@ def optim_rank_wrapper(
                 opt_config = args.to_optimization_config()
                 optimized_og = meta["optimized_og"]
                 optimizing_engine = args.optimizing_engine
-                if args.use_gpu:
-                    device = torch.device(f"cuda:{gpu_idx}")
-                else:
-                    device = torch.device("cpu")
+                # Resolved through model_factory.get_device -- the single
+                # owner of gpu_idx -> torch.device (see entry/auto3D.py's
+                # smiles2mols for the same rationale) -- rather than
+                # rebuilding the `cuda:{idx}` string by hand here, which used
+                # to bypass get_device's own out-of-range GPUError entirely.
+                # `gpu_idx` here is already a single resolved index (this
+                # worker's own assignment from optimizer_worker_indices, see
+                # the spawn loop in workflow.py), so no int-or-list branch is
+                # needed the way smiles2mols' single-process caller needs one.
+                device = get_device(gpu_idx, use_gpu=args.use_gpu)
                 # When a progress queue is supplied (interactive `auto3d run`), tag
                 # each event with this chunk's job id and forward it to the main
                 # process for the live display. Guarded so a full/closed queue can

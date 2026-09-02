@@ -20,7 +20,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.domain.ranking import RANK_BY_ELECTRONIC, RANK_BY_GIBBS, ConformerRanker
-from Auto3D.foundation.constants import HARTREE_TO_EV
+from Auto3D.foundation.constants import HARTREE_TO_EV, HARTREE_TO_KCAL_PER_MOL
 from Auto3D.foundation.exceptions import InputValidationError
 from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 
@@ -88,15 +88,64 @@ def test_ranking_by_gibbs_can_pick_a_different_conformer_than_energy(tmp_path):
     )
 
 
-def test_ranking_by_gibbs_reports_a_gibbs_relative_energy(tmp_path):
-    """The published relative energy must name the basis it came from."""
-    mols = [
-        _mol("m", e_ev=-10.0, g_hartree=-100.0, seed=1),
-        _mol("m", e_ev=-10.0, g_hartree=-99.5, seed=7),
-    ]
+def test_ranking_by_gibbs_with_k2_returns_the_two_lowest_g_conformers(tmp_path):
+    """``k>1`` must truncate on the SELECTED basis, not always on E_tot.
+
+    Three conformers, E strictly ascending (A < B < C) and G strictly
+    descending over the same triple (so the E-ascending and G-ascending
+    orders are exact reverses of each other -- maximal disagreement).
+    ``top_k``'s ``k>1`` branch delegates to ``filter_conformers``, which
+    always sorts its ``kept`` list on E_tot (duplicate detection is a
+    geometry notion and compares electronic energies unconditionally -- see
+    filtering.py); before the fix, ``ranking.py`` truncated that E-ordered
+    list to k, so ``k=2`` returned {A, B} -- the two lowest-E conformers,
+    dropping C, the actual G-minimum.
+    """
+    low_e = _mol("m", e_ev=-20.0, g_hartree=-99.0, seed=1)  # A: lowest E, highest G
+    mid = _mol("m", e_ev=-15.0, g_hartree=-99.5, seed=13)  # B: middle E, middle G
+    low_g = _mol("m", e_ev=-10.0, g_hartree=-100.0, seed=7)  # C: highest E, lowest G
 
     out = ConformerRanker(
-        input_path=_write(mols, tmp_path / "in.sdf"),
+        input_path=_write([low_e, mid, low_g], tmp_path / "in3.sdf"),
+        out_path=str(tmp_path / "out3.sdf"),
+        threshold=0.3,
+        k=2,
+        rank_by=RANK_BY_GIBBS,
+    ).run()
+
+    g_values = [float(m.GetProp("G_hartree")) for m in out]
+    assert g_values == pytest.approx([-100.0, -99.5]), (
+        "k=2 on the Gibbs basis must return the two LOWEST-G conformers, in "
+        f"ascending G order (expected [-100.0, -99.5], got {g_values}) -- "
+        "not the two lowest-E ones"
+    )
+
+
+def test_ranking_by_gibbs_reports_a_gibbs_relative_energy(tmp_path):
+    """The published relative energy must name the basis it came from, be
+    measured from the G-minimum (never negative, zero on the minimum), and
+    reproduce the value a correct upstream ``calc_thermo`` run would have
+    written.
+
+    E and G orderings deliberately disagree here (``low_e`` is the E-minimum
+    but the G-*maximum* of the pair): giving both conformers the same E_tot,
+    as the original version of this test did, cannot distinguish "correct"
+    from "referenced to the wrong (E-minimum) conformer" -- with only one
+    E_tot value, ranking.py's old ``kept[0]`` (an E-minimum) and the true
+    G-minimum happened to coincide half the time, which is exactly what let
+    the ranking.py:361 bug (G_rel referenced to the lowest-E conformer, not
+    the lowest-G one) through undetected.
+    """
+    low_e = _mol("m", e_ev=-20.0, g_hartree=-99.0, seed=1)  # E-min, G-max
+    low_g = _mol("m", e_ev=-10.0, g_hartree=-100.0, seed=7)  # E-max, G-min
+    # Simulate a correct upstream `calc_thermo(relative_gibbs=True)` output:
+    # G_rel already correctly measured from the G-minimum (low_g = 0.0).
+    expected_g_rel_low_e = (-99.0 - -100.0) * HARTREE_TO_KCAL_PER_MOL
+    low_e.SetProp("G_rel(kcal/mol)", str(expected_g_rel_low_e))
+    low_g.SetProp("G_rel(kcal/mol)", "0.0")
+
+    out = ConformerRanker(
+        input_path=_write([low_e, low_g], tmp_path / "in.sdf"),
         out_path=str(tmp_path / "out.sdf"),
         threshold=0.3,
         k=2,
@@ -107,6 +156,20 @@ def test_ranking_by_gibbs_reports_a_gibbs_relative_energy(tmp_path):
     assert not any(m.HasProp("E_rel(kcal/mol)") for m in out), (
         "an electronic relative energy was published for a Gibbs ranking"
     )
+
+    g_rel_by_g = {float(m.GetProp("G_hartree")): float(m.GetProp("G_rel(kcal/mol)")) for m in out}
+    assert all(v >= 0 for v in g_rel_by_g.values()), (
+        f"a relative Gibbs energy went negative: {g_rel_by_g} -- G_rel is "
+        "being referenced to the lowest-E conformer instead of the lowest-G one"
+    )
+    assert g_rel_by_g[-100.0] == pytest.approx(0.0), (
+        "the G-minimum conformer must be its own reference (G_rel == 0.0)"
+    )
+    # ranking.py recomputes G_rel from the SELECTED set rather than trusting
+    # whatever the file already carried, but recomputing over the same group
+    # (nothing was truncated: k=2 == the whole group) must reproduce the same
+    # value a correct upstream run already wrote -- not corrupt it.
+    assert g_rel_by_g[-99.0] == pytest.approx(expected_g_rel_low_e)
 
 
 def test_the_default_basis_still_reports_the_electronic_relative_energy(tmp_path):
@@ -145,24 +208,38 @@ def test_an_unknown_basis_is_refused_at_construction(tmp_path):
 
 
 def test_the_window_is_measured_on_the_selected_basis(tmp_path):
-    """A 1 kcal/mol window on G must not be applied to E, or vice versa."""
-    # Identical electronic energies; G differs by ~3 kcal/mol (0.00478 Hartree).
+    """A window on G must not be applied to E, or vice versa -- and the
+    ``break`` that stops the scan early must be sound on whichever basis is
+    selected.
+
+    Three conformers, E strictly ascending, with a NON-MONOTONE G sequence
+    over that same E order: 0.00 / 5.00 / 0.50 kcal/mol. Giving both
+    conformers identical E_tot, as the original version of this test did,
+    made E-order and G-order trivially compatible with each other and could
+    not catch ``top_window``'s ``break`` firing on the wrong (E-sorted)
+    order: with 5.00 kcal/mol (outside the window) sorted ahead of 0.50
+    kcal/mol (inside it), the old code stopped at the 5.00 entry and silently
+    dropped the 0.50 one, which a monotone G sequence can never expose.
+    """
+    g0 = -99.0
     mols = [
-        _mol("m", e_ev=-10.0, g_hartree=-100.0, seed=1),
-        _mol("m", e_ev=-10.0, g_hartree=-99.99522, seed=7),
+        _mol("m", e_ev=-10.00, g_hartree=g0 + 0.0 / HARTREE_TO_KCAL_PER_MOL, seed=1),
+        _mol("m", e_ev=-9.50, g_hartree=g0 + 5.0 / HARTREE_TO_KCAL_PER_MOL, seed=13),
+        _mol("m", e_ev=-9.00, g_hartree=g0 + 0.5 / HARTREE_TO_KCAL_PER_MOL, seed=7),
     ]
 
     out = ConformerRanker(
         input_path=_write(mols, tmp_path / "in.sdf"),
         out_path=str(tmp_path / "out.sdf"),
         threshold=0.3,
-        window=1.0,
+        window=2.0,
         rank_by=RANK_BY_GIBBS,
     ).run()
 
-    assert len(out) == 1, (
-        "the second conformer is ~3 kcal/mol above in G and outside a 1 kcal/mol "
-        f"window, but {len(out)} were kept"
+    g_rel = sorted(float(m.GetProp("G_rel(kcal/mol)")) for m in out)
+    assert g_rel == pytest.approx([0.0, 0.5], abs=1e-6), (
+        "window=2.0 kcal/mol on G must keep the 0.00 and 0.50 kcal/mol members "
+        f"(the 5.00 kcal/mol one is genuinely outside the window), got {g_rel}"
     )
 
 

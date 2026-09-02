@@ -1,4 +1,3 @@
-# src/Auto3D/batch_opt/model_wrapper.py
 """Model wrapper providing batched inference for NNP models.
 
 This module contains the EnForce_ANI class which wraps model adapters

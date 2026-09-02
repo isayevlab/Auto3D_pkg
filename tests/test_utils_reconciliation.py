@@ -83,6 +83,42 @@ class TestFindSmilesNotInSdfTautStripping:
         assert bad == [], f"mol_a wrongly reported missing: {bad}"
 
 
+class TestBareAtSurvivesTautStripping:
+    """Regression for the results.py/reconciliation.py drift bug: an id that
+    legitimately contains a bare "@" (not the "@tautN" separator written by
+    ``hash_taut_smi``) must round-trip through reconciliation unmodified.
+    ``foundation.results.count_output`` used to split on bare "@" instead of
+    "@taut", which would have truncated an id like "cmpd@1" to "cmpd" -- these
+    functions were already correct, but now share the same
+    ``strip_taut_suffix`` helper, so this pins that they stay correct.
+    """
+
+    def test_find_smiles_not_in_sdf_does_not_truncate_bare_at_id(self, tmp_path):
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO cmpd@1\n")
+
+        sdf = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(sdf))
+        writer.write(_make_mol("cmpd@1"))
+        writer.close()
+
+        bad = find_smiles_not_in_sdf(str(smi), str(sdf))
+        assert bad == [], f"'cmpd@1' wrongly reported missing (truncated to 'cmpd'?): {bad}"
+
+    def test_find_ids_not_in_sdf_does_not_truncate_bare_at_id(self, tmp_path):
+        source = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source))
+        writer.write(_make_mol("cmpd@1"))
+        writer.close()
+
+        out = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(out))
+        writer.write(_make_mol("cmpd@1"))
+        writer.close()
+
+        assert find_ids_not_in_sdf(str(source), str(out)) == []
+
+
 class TestFindIdsNotInSdf:
     """find_ids_not_in_sdf: the SDF-input counterpart to find_smiles_not_in_sdf."""
 

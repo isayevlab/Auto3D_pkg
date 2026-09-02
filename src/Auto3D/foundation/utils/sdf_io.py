@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Reading, splitting, counting and reordering SDF files.
+"""Reading, splitting, counting, filtering and reordering SDF files.
 
 Structural SDF file handling only: nothing here knows what an Auto3D energy or
 convergence flag means (``utils/energy.py`` and ``utils/convergence.py`` own
@@ -11,12 +11,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rdkit import Chem
 
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.smi_io import iter_smi_records
+from Auto3D.foundation.utils.smi_io import iter_smi_records, strip_taut_suffix
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 logger = get_logger(__name__)
 
@@ -87,6 +91,39 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     return chunks
 
 
+def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
+    """Yield the SDF records at ``path`` a per-record consumer can process.
+
+    ``SDMolSupplier`` yields ``None`` for a record it cannot parse, and a
+    parsed record can still lack a conformer -- and a caller that reaches
+    ``mol.GetConformer()`` (or a padding/geometry call that assumes one)
+    without guarding against both aborts a whole batch on one bad record,
+    discarding results already computed for every record before it (nothing
+    is written until the pass finishes). ``SPE.calc_spe`` and
+    ``ASE.thermo.driver.calc_thermo`` each used to inline this exact filter
+    by hand -- once directly on the supplier, once (as ``iter_thermo_records``)
+    over an already-parsed list -- with nothing pinning the two in agreement.
+    This is the one implementation both now call.
+
+    Args:
+        path: Path to the SDF file to read.
+
+    Yields:
+        Each record RDKit parsed that carries at least one conformer, in file
+        order. Every record that does not -- unparseable or conformerless --
+        is logged at WARNING and skipped.
+    """
+    for position, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
+        if mol is None:
+            logger.warning("Skipping record %d: RDKit could not parse it.", position)
+            continue
+        if mol.GetNumConformers() == 0:
+            name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
+            logger.warning("Skipping %s: no 3D conformer.", name)
+            continue
+        yield mol
+
+
 def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
     """Reorder conformers in an SDF file to match the input source file order.
 
@@ -142,9 +179,9 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
         if mol is None:
             logger.warning("Skipping molecule at index %d: failed to parse", i)
             continue
-        id = mol.GetProp("_Name")
-        if "@taut" in id:
-            id = id.split("@taut")[0]
+        # strip_taut_suffix is the single owner of the "@tautN" parse; it is a
+        # no-op (returns the id unchanged) when the id carries no such suffix.
+        id = strip_taut_suffix(mol.GetProp("_Name"))
         if id not in id_mols:
             discovery_order.append(id)
         id_mols[id].append(mol)

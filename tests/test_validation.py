@@ -98,6 +98,38 @@ class TestCheckInputExceptions:
                 check_input(args)
         assert exc_info.value.dependency_name == "torchani"
 
+    def test_ani2xt_without_torchani_raises_dependency_error(self):
+        """ANI2xt needs torchani too (its AEV computer is built from
+        torchani.AEVComputer, engines/models/ani2xt.py), but the probe used
+        to check only "ANI2x". With torchani missing, an ANI2xt run sailed
+        past check_input and preflight_model, then failed inside every
+        chunk's worker where optim_rank_wrapper's blanket per-chunk
+        `except Exception` swallowed the real DependencyError -- the run
+        ended in a misleading OptimizationError at exit 1 instead of exit 3.
+        Mirrors test_ani2x_without_torchani_raises_dependency_error above.
+        """
+        import builtins
+
+        args = MagicMock()
+        args.use_gpu = False
+        args.isomer_engine = "rdkit"
+        args.optimizing_engine = "ANI2xt"
+        args.opt_steps = 100
+        args.input_format = "smi"
+        args.path = "/fake/path.smi"
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "torchani":
+                raise ImportError("No module named 'torchani'")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            with pytest.raises(DependencyError, match="TorchANI") as exc_info:
+                check_input(args)
+        assert exc_info.value.dependency_name == "torchani"
+
     def test_custom_nnp_load_failure_raises_model_load_error(self, tmp_path):
         """Should raise ModelLoadError when custom NNP cannot be loaded."""
         # Create a dummy file that exists but isn't a valid model
