@@ -295,7 +295,16 @@ class TestFIREMultipleSteps:
 
         # At least verify dt didn't go negative or crazy
         assert final_dt > 0
-        assert final_dt <= optimizer.dt_max
+        # dt_max is a bare python float (float64); self.dt is float32, and
+        # clamp(max=dt_max) clamps in the tensor's own dtype, so a saturated
+        # dt reads back as float32's nearest representation of 0.1
+        # (0.10000000149011612), one ULP above the float64 literal. Now that
+        # the per-molecule fix makes the speedup/clamp path reachable for a
+        # single consistently-progressing molecule (previously the
+        # batch-coupled defect made a batch-of-one's `speedup` always False,
+        # so dt never climbed back up to the clamp boundary), this bound
+        # needs float32-scale tolerance rather than an exact <=.
+        assert final_dt <= optimizer.dt_max + 1e-6
 
     def test_fire_resets_on_force_reversal(self):
         """FIRE should reset velocity when forces reverse direction."""
@@ -349,17 +358,18 @@ class TestFIREBatchBehavior:
 
         Protocol (all pure tensor arithmetic; deterministic, no randomness):
         Phase 1 -- all 3 molecules push in the same fixed direction, so they
-        progress together and jointly build up ``Nsteps`` past ``Nmin``
-        (bootstrapping requires ALL molecules progressing at least once; see
-        the ``all_progressing`` branch). Phase 2 -- molecule 0 starts
-        flipping its own force sign every step. Once misaligned with its own
-        velocity, a molecule can never re-progress under an alternating
-        force (each non-progressing step resets v to align with THAT step's
-        force, and the next step's opposite force is then anti-aligned) --
-        so molecule 0 is guaranteed to be "not progressing" for the rest of
-        phase 2, while molecules 1/2 keep progressing and trigger the
-        speed-up branch (``past_nmin`` already true from phase 1,
-        ``all_progressing`` now false because molecule 0 dissents).
+        each independently progress every step and build up their own
+        ``Nsteps`` past ``Nmin`` (the per-molecule rule increments each
+        molecule's ``Nsteps`` on its own ``progressing`` flag alone, with no
+        dependency on batch-mates). Phase 2 -- molecule 0 starts flipping its
+        own force sign every step. Once misaligned with its own velocity, a
+        molecule can never re-progress under an alternating force (each
+        non-progressing step resets v to align with THAT step's force, and
+        the next step's opposite force is then anti-aligned) -- so molecule 0
+        is guaranteed to be "not progressing" for the rest of phase 2, while
+        molecules 1/2 keep progressing and trigger the speed-up branch
+        (``past_nmin`` already true from phase 1) regardless of molecule 0's
+        state.
         """
         n_atoms = 2
         astart = 0.1
@@ -436,8 +446,116 @@ class TestFIRETorchScript:
         assert not torch.allclose(new_coord, coord)
 
 
+class TestFIREPerMoleculeRule:
+    """Guards the per-molecule FIRE rule (Bitzek et al. 2006): dt/a/Nsteps
+    adaptation must depend only on a molecule's own progressing history, never
+    on whether every other molecule in the batch happened to be progressing
+    on the same step. See fire_optimizer.py's module docstring for the
+    reviewer-verified failure this replaces.
+    """
+
+    def test_solo_molecule_accelerates_past_dt_init(self):
+        """A single molecule on a smooth quadratic potential must have its
+        time step grow back toward dt_max once it has progressed for more
+        than Nmin steps -- FIRE's inertial acceleration.
+
+        FIRE initializes dt AT dt_max (0.1), so there is no room to observe
+        growth until dt first dips below it. It always does dip on step 1:
+        v starts at zero, so v.f == 0 (not > 0), step 1 is unconditionally
+        "not progressing", and dt drops to dt_max*fdec == 0.07 -- this is
+        exactly the reviewer's reproduced probe ("a solo molecule's dt drops
+        to 0.07 at step 1"). From step 2 on, forces stay aligned with the
+        velocity that step 1 built up, so the molecule progresses every
+        step. Under the batch-coupled defect a solo molecule is trivially
+        "all_progressing" every step it progresses (a length-1 `.all()` is a
+        tautology of `progressing` itself), so `speedup` (`progressing &
+        ~all_progressing & past_nmin`) is always False and dt stays frozen
+        at 0.07 "for 60 steps" (reviewer's finding) instead of growing back
+        toward dt_max.
+        """
+        coord = torch.ones(1, 3, 3)
+        optimizer = FIRE(coord)
+        k = 1.0
+
+        # Step 1: v == 0 makes this step unconditionally non-progressing,
+        # dropping dt to dt_max * fdec == 0.07.
+        forces = -k * coord
+        coord = optimizer(coord, forces)
+        dt_after_reset = float(optimizer.dt[0])
+        assert dt_after_reset == pytest.approx(0.1 * 0.7)
+
+        # From here on, forces stay aligned with velocity every step.
+        for _ in range(15):
+            forces = -k * coord
+            coord = optimizer(coord, forces)
+
+        assert optimizer.Nsteps[0] > optimizer.Nmin, "setup failed to pass Nmin"
+        assert float(optimizer.dt[0]) > dt_after_reset, (
+            f"dt must grow past its post-reset value ({dt_after_reset}) toward "
+            f"dt_max once past Nmin steps of progress; got "
+            f"{float(optimizer.dt[0])}"
+        )
+
+    def test_dt_and_nsteps_independent_of_batchmate(self):
+        """The same molecule's dt/Nsteps sequence must be identical whether
+        it is optimized alone or alongside a permanently stalling batchmate.
+
+        Under the batch-coupled defect, adding a batchmate that never
+        progresses flips `all_progressing` from True to False for every
+        step, which changes which branch the OTHER (healthy) molecule's
+        Nsteps/dt updates take -- so its trajectory depends on bucket
+        composition, a reproducibility hazard for ranking.
+        """
+        torch.manual_seed(0)
+        n_atoms = 4
+        n_steps = 15
+        k = 1.0
+
+        # Solo run.
+        coord_solo = torch.linspace(-1, 1, n_atoms * 3).reshape(1, n_atoms, 3).clone()
+        opt_solo = FIRE(coord_solo)
+        dt_solo, nsteps_solo = [], []
+        c = coord_solo
+        for _ in range(n_steps):
+            forces = -k * c
+            c = opt_solo(c, forces)
+            dt_solo.append(float(opt_solo.dt[0]))
+            nsteps_solo.append(int(opt_solo.Nsteps[0]))
+
+        # Same molecule (row 0) alongside a batchmate (row 1) whose forces
+        # flip sign every step, so it never progresses.
+        coord_pair = torch.cat([coord_solo, coord_solo], dim=0)
+        opt_pair = FIRE(coord_pair)
+        dt_pair, nsteps_pair = [], []
+        c2 = coord_pair
+        for step in range(n_steps):
+            f0 = -k * c2[0:1]
+            f1 = c2[1:2] if step % 2 == 0 else -c2[1:2]
+            forces = torch.cat([f0, f1], dim=0)
+            c2 = opt_pair(c2, forces)
+            dt_pair.append(float(opt_pair.dt[0]))
+            nsteps_pair.append(int(opt_pair.Nsteps[0]))
+
+        assert nsteps_pair == nsteps_solo, (
+            f"Nsteps sequence for molecule 0 changed with a stalling "
+            f"batchmate: solo={nsteps_solo} paired={nsteps_pair}"
+        )
+        assert dt_pair == pytest.approx(dt_solo), (
+            f"dt sequence for molecule 0 changed with a stalling batchmate: "
+            f"solo={dt_solo} paired={dt_pair}"
+        )
+
+
 def test_fire_trajectory_golden():
-    """FIRE must produce a deterministic trajectory; guards the branchless rewrite."""
+    """FIRE must produce a deterministic trajectory for a fixed input.
+
+    This is a 3-molecule batch with deliberately mixed progressing/resetting
+    dynamics, so its checksum is sensitive to the per-molecule vs
+    batch-coupled `speedup`/`nsteps_inc` rule: EXPECTED was regenerated after
+    removing the `all_progressing` batch coupling (see fire_optimizer.py),
+    and will not match a checksum taken from the old coupled implementation
+    or from a differently-composed batch.
+    """
     import torch
 
     from Auto3D.engines.batch_opt.fire_optimizer import FIRE
@@ -452,7 +570,8 @@ def test_fire_trajectory_golden():
             forces = -0.5 * coord + 0.1 * torch.sin(coord * 3.0)
             coord = opt(coord, forces).detach()
     checksum = float(coord.abs().sum().item())
-    # EXPECTED generated from the ORIGINAL (pre-rewrite) FIRE implementation and
-    # matched by the branchless rewrite; guards numerical equivalence.
-    EXPECTED = 12.077177047729492
+    # EXPECTED regenerated from the per-molecule FIRE rule (Bitzek et al.
+    # 2006), post-fix. The prior value (12.077177047729492) was generated
+    # from -- and only ever matched -- the batch-coupled defect.
+    EXPECTED = 9.390698432922363
     assert abs(checksum - EXPECTED) < 1e-5, f"got {checksum}"
