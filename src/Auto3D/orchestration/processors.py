@@ -1,8 +1,11 @@
-"""Pipeline processors for Auto3D.
+"""The tautomer-enumeration step of the Auto3D conformer generation pipeline.
 
-This module provides processor classes for various stages of the
-conformer generation pipeline, encapsulating logic for tautomer
-enumeration, isomer generation, and other processing steps.
+Exactly one processor lives here: ``TautomerProcessor``, whose ``process``
+method wraps the optional tautomer-enumeration call so its one caller,
+``workflow_workers.isomer_wrapper``, does not have to branch on
+``config.enumerate_tautomer`` itself. Isomer generation and every other
+pipeline stage live elsewhere (``Auto3D.engines.isomers``,
+``Auto3D.engines.batch_opt``, ...), not in this module.
 """
 
 from __future__ import annotations

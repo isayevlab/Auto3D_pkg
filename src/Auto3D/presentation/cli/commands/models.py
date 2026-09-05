@@ -1,4 +1,3 @@
-# src/Auto3D/cli/commands/models.py
 """Model information commands."""
 
 from __future__ import annotations
@@ -8,9 +7,9 @@ import importlib
 from rich.panel import Panel
 from rich.table import Table
 
-from Auto3D.engines.models.policy import ANI_ELEMENTS
+from Auto3D.engines.models.policy import ANI_ELEMENTS, check_gpu_requested
 from Auto3D.engines.models.species import format_elements
-from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.foundation.exceptions import ConfigurationError, NumericalError
 from Auto3D.presentation.cli.console import console
 from Auto3D.presentation.cli.errors import handle_error
 
@@ -109,7 +108,9 @@ def execute_models_list() -> None:
     console.print(table)
     console.print()
     console.print("[dim]aimnet2-2025: B97-3c, improved non-covalent interactions[/dim]")
-    console.print("[dim]aimnet2-nse: open-shell / radicals (spin support)[/dim]")
+    console.print(
+        "[dim]aimnet2-nse: open-shell chemistry model (Auto3D uses default multiplicity)[/dim]"
+    )
     console.print("[dim]aimnet2-pd: palladium catalysis[/dim]")
     console.print(
         "[dim]Any aimnet registry name is accepted; registry models are "
@@ -152,15 +153,15 @@ ENGINE_INFO = {
     },
     "AIMNET2-NSE": {
         "name": "aimnet2-nse",
-        "description": "AIMNet2 model with open-shell support for radicals and spin states.",
+        "description": "AIMNet2 model trained with open-shell chemistry. Auto3D evaluates all models at default multiplicity (singlet).",
         "elements": "H, B, C, N, O, F, Si, P, S, Cl, As, Se, Br, I",
         "speed": "Single model (not benchmarked here)",
-        "accuracy": "Best for open-shell / radical species",
+        "accuracy": "Trained on open-shell species but Auto3D does not yet expose spin-state control",
         "reference": "https://github.com/isayevlab/aimnetcentral",
         "notes": [
             "Registry model: downloaded on first use into ~/.cache/aimnet",
-            "Adds open-shell (spin) support for radicals",
-            "Use when modeling radicals or non-singlet spin states",
+            "Model supports open-shell chemistry but Auto3D currently evaluates at default (singlet) multiplicity",
+            "Spin-state control is not yet available through the Auto3D API",
         ],
     },
     "AIMNET2-PD": {
@@ -272,8 +273,6 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose
         import torch
 
         from Auto3D.engines.model_factory import create_model, get_device
-        from Auto3D.engines.models.policy import check_gpu_requested
-        from Auto3D.foundation.exceptions import NumericalError
 
         # `energy`/`optimize`/`thermo` (cli/commands/properties.py) already call
         # this before doing any work; `models test` reached

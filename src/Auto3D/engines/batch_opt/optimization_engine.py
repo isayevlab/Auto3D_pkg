@@ -1,4 +1,3 @@
-# src/Auto3D/batch_opt/optimization_engine.py
 """Optimization loop for batch geometry optimization.
 
 This module contains the main optimization loop (n_steps) and status reporting
@@ -41,7 +40,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
-import numpy as np
 import torch
 
 from Auto3D.engines.batch_opt.fire_optimizer import FIRE
@@ -227,18 +225,33 @@ def _step_active_subset(
     # from a sentinel value (numbers == species_pad) broke for any model whose
     # species_pad collides with a real index (audit C13). Masking before the
     # optimizer step also keeps padded atoms from drifting.
+    #
+    # `.detach()` HERE, not only on `stepped` below (issue #22): `f` is what
+    # `optimizer(coord, f)` folds into FIRE's own persistent velocity state
+    # (`self.v`, set in `fire_optimizer.py`), which survives across steps
+    # rather than being rebuilt fresh each call. Production adapters already
+    # return detached forces, so this is a no-op for them -- but a
+    # nonconforming third-party adapter whose forces still carried a grad
+    # graph would have grown that graph into `self.v` on every step, one
+    # `optimizer(coord, f)` call our own detach on `stepped` below never
+    # touches, since `self.v` is optimizer-internal state, not the returned
+    # geometry.
     pad_mask = ~atom_mask_subset.unsqueeze(-1)
-    f = f.masked_fill(pad_mask, 0.0)
+    f = f.detach().masked_fill(pad_mask, 0.0)
     # Norm is the length of each force vector; the max over atoms is the
     # per-molecule convergence measure.
     fmax = f.norm(dim=-1).max(dim=-1)[0]
 
     # The force-convergence test runs BEFORE the FIRE step, and must stay there.
     not_converged_post1 = fmax > opttol
-    # Detach the optimizer output so the next step starts from a leaf tensor.
-    # Production adapters return detached forces, so coord never tracks grad
-    # across steps; detaching here makes the loop robust to NNPs whose forces
-    # still carry a grad graph (otherwise the next requires_grad_ would error).
+    # Detach the optimizer's own OUTPUT (the stepped geometry) so the next
+    # step starts from a leaf tensor -- `coord`'s graph history from THIS
+    # step's `forward_batched`/FIRE-step call must not carry into the next
+    # one. This is now the full story, not merely the claim: `f`'s detach
+    # above already keeps a nonconforming adapter's graph out of FIRE's
+    # persistent `self.v`, so this detach only has coord's own step to worry
+    # about, and the loop is robust to both (otherwise the next
+    # `requires_grad_` would error, or `self.v` would grow a graph forever).
     stepped = optimizer(coord, f).detach()
     # A structure that has just met the force criterion keeps the geometry its
     # force was measured at; only the ones still moving take the step.
@@ -435,10 +448,15 @@ def n_steps(
 
     optimizer = FIRE(coord)
 
-    # The following two terms are used to detect oscillating conformers
-    smallest_fmax0 = torch.tensor(np.ones((len(coord), 1)) * 999, dtype=torch.float).to(
-        coord.device
-    )
+    # The following two terms are used to detect oscillating conformers.
+    # Allocated directly on `coord.device` (issue #24): the previous spelling
+    # built a numpy array, materialized it as a CPU tensor, and only then
+    # moved it to the target device -- a numpy allocation plus a host-to-device
+    # copy for what is, on CUDA, a single fill instruction the device can do
+    # itself. `torch.full` needs neither the intermediate array nor the
+    # `.to()`; dtype (float32, via `torch.float`) and shape (`len(coord), 1`)
+    # are unchanged.
+    smallest_fmax0 = torch.full((len(coord), 1), 999.0, dtype=torch.float, device=coord.device)
     # Integer step counter: only ever compared to `patience` and reset to zero,
     # so use torch.long rather than float for a quantity that is conceptually
     # an integer count.

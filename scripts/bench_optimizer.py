@@ -34,26 +34,26 @@ from pathlib import Path
 # A small, fixed pool of diverse drug-like molecules (real drugs and fragments).
 # The pool is cycled to reach --n so the benchmark is deterministic at any size.
 _SMILES_POOL = [
-    "CC(=O)Oc1ccccc1C(=O)O",                       # aspirin
-    "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",                 # caffeine
-    "CC(C)Cc1ccc(cc1)C(C)C(=O)O",                   # ibuprofen
-    "CC(=O)Nc1ccc(O)cc1",                           # paracetamol
-    "OC(=O)c1ccccc1O",                              # salicylic acid
-    "C1=CC=C(C=C1)C2=CC=CC=C2",                     # biphenyl
-    "CN1CCC[C@H]1c1cccnc1",                         # nicotine
-    "Cc1ccc(cc1)S(=O)(=O)N",                        # p-toluenesulfonamide
-    "C1CCC(CC1)NC(=O)c1ccccc1",                     # N-cyclohexylbenzamide
-    "Clc1ccccc1Cl",                                 # o-dichlorobenzene
-    "OCC(O)C(O)C(O)C(O)CO",                         # sorbitol
-    "c1ccc2c(c1)cccc2",                             # naphthalene
-    "CC(C)(C)OC(=O)N1CCNCC1",                       # boc-piperazine
-    "Fc1ccc(cc1)C(=O)c1ccccc1",                     # 4-fluorobenzophenone
-    "COc1ccc(cc1)CCN",                              # 4-methoxyphenethylamine
-    "O=C1CCCCC1",                                   # cyclohexanone
-    "CCN(CC)CCOC(=O)c1ccc(N)cc1",                   # procaine
-    "c1ccncc1",                                     # pyridine
-    "CC1=CC(=O)CC(C)(C)C1",                         # isophorone
-    "Oc1ccc(cc1)C(=O)c1ccc(O)cc1",                  # 4,4'-dihydroxybenzophenone
+    "CC(=O)Oc1ccccc1C(=O)O",  # aspirin
+    "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",  # caffeine
+    "CC(C)Cc1ccc(cc1)C(C)C(=O)O",  # ibuprofen
+    "CC(=O)Nc1ccc(O)cc1",  # paracetamol
+    "OC(=O)c1ccccc1O",  # salicylic acid
+    "C1=CC=C(C=C1)C2=CC=CC=C2",  # biphenyl
+    "CN1CCC[C@H]1c1cccnc1",  # nicotine
+    "Cc1ccc(cc1)S(=O)(=O)N",  # p-toluenesulfonamide
+    "C1CCC(CC1)NC(=O)c1ccccc1",  # N-cyclohexylbenzamide
+    "Clc1ccccc1Cl",  # o-dichlorobenzene
+    "OCC(O)C(O)C(O)C(O)CO",  # sorbitol
+    "c1ccc2c(c1)cccc2",  # naphthalene
+    "CC(C)(C)OC(=O)N1CCNCC1",  # boc-piperazine
+    "Fc1ccc(cc1)C(=O)c1ccccc1",  # 4-fluorobenzophenone
+    "COc1ccc(cc1)CCN",  # 4-methoxyphenethylamine
+    "O=C1CCCCC1",  # cyclohexanone
+    "CCN(CC)CCOC(=O)c1ccc(N)cc1",  # procaine
+    "c1ccncc1",  # pyridine
+    "CC1=CC(=O)CC(C)(C)C1",  # isophorone
+    "Oc1ccc(cc1)C(=O)c1ccc(O)cc1",  # 4,4'-dihydroxybenzophenone
 ]
 
 
@@ -96,9 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         help="optimizing engine (AIMNET, an aimnet registry name, ANI2x, ANI2xt, or a model path)",
     )
     parser.add_argument("--steps", type=int, default=200, help="max optimization steps")
-    parser.add_argument(
-        "--device", default="cpu", help="torch device: cpu, cuda, cuda:0, ..."
-    )
+    parser.add_argument("--device", default="cpu", help="torch device: cpu, cuda, cuda:0, ...")
     parser.add_argument("--seed", type=int, default=42, help="RDKit embedding seed")
     parser.add_argument(
         "--batchsize-atoms", type=int, default=1024, help="atoms per optimization batch"
@@ -107,8 +105,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import torch
 
-    from Auto3D.batch_opt.batchopt import optimizing
-    from Auto3D.config import OptimizationConfig
+    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.foundation.config import OptimizationConfig
 
     device = torch.device(args.device)
     is_cuda = device.type == "cuda"

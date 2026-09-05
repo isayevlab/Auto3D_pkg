@@ -1,4 +1,3 @@
-# src/Auto3D/utils/energy.py
 """The one place that knows what unit the ``E_tot`` SDF property is in.
 
 ``E_tot`` is written in **Hartree**, always, by every Auto3D writer. That is

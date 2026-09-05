@@ -1,4 +1,3 @@
-# src/Auto3D/cli/commands/run.py
 """Main run command implementation."""
 
 from __future__ import annotations
@@ -7,7 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
 from Auto3D.foundation.utils.logging_config import configure_logging
 from Auto3D.presentation.cli.config_schema import (
     build_cli_config,
@@ -152,8 +151,6 @@ def execute_run(
         try:
             # Validate input file exists
             if not input_file.exists():
-                from Auto3D.foundation.exceptions import InputValidationError
-
                 raise InputValidationError(f"Input file not found: {input_file}")
 
             # Build configuration

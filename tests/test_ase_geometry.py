@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     """Output filename must reflect the model, not always 'userNNP'."""
     import Auto3D.entry.ASE.geometry as geo
@@ -10,7 +13,7 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
             pass
 
         def run(self):
-            pass
+            return True  # matches optimizing.run()'s real True-on-write contract
 
     monkeypatch.setattr(geo, "optimizing", _Stub)
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [])
@@ -51,7 +54,7 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
             pass
 
         def run(self):
-            pass
+            return True  # matches optimizing.run()'s real True-on-write contract
 
     monkeypatch.setattr(geo, "optimizing", _Stub)
     # The re-read supplier yields a None record, a record with no E_tot, and a
@@ -74,3 +77,72 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
         text = fh.read()
     assert "good" in text
     assert "no_etot" not in text
+
+
+class TestOptGeometryRaisesWhenNothingWasOptimized:
+    """Issue 8: optimizing.run() returns early (no write) for an empty/missing/
+    unparseable input, and opt_geometry must not treat that as success.
+
+    Uses the REAL `optimizing` class (not a stub) so the guard is exercised
+    against `optimizing.run()`'s actual return-value contract; only
+    `create_model`/`get_device`/`configure_torch` are stubbed to avoid loading
+    a real NNP or requiring a GPU.
+
+    The input below is deliberately NOT a literal 0-byte file:
+    `Chem.SDMolSupplier` raises its own OSError at construction for a truly
+    empty file, at the earlier `check_engine_supports_molecules` read
+    (unrelated to this guard) -- before `optimizing.run()` is ever reached.
+    A single unparseable-but-non-empty record reaches `SDMolSupplier` as a
+    `None` entry instead, which is what actually drives `optimizing.run()`'s
+    "no valid molecules" early return (batch_opt/batchopt.py) that this guard
+    exists to catch.
+    """
+
+    _UNPARSEABLE_SDF = "not a real record\n$$$$\n"
+
+    def test_raises_optimization_error_on_unparseable_input(self, tmp_path, monkeypatch):
+        import torch
+
+        import Auto3D.entry.ASE.geometry as geo
+        from Auto3D.foundation.exceptions import OptimizationError
+        from tests.helpers_adapter import FakeAdapter
+
+        bad = tmp_path / "bad.sdf"
+        bad.write_text(self._UNPARSEABLE_SDF)
+
+        monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+        monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
+
+        with pytest.raises(OptimizationError, match="bad.sdf"):
+            geo.opt_geometry(str(bad), "AIMNET", use_gpu=False)
+
+    def test_does_not_silently_return_a_stale_previous_output(self, tmp_path, monkeypatch):
+        """The scenario that rules out a plain `os.path.exists(outpath)` guard.
+
+        With overwrite=True (the default), a stale output from an earlier run
+        already exists at the derived path. A run against an unparseable
+        input must still raise -- not silently re-annotate and return that
+        stale file as if it were produced by this call.
+        """
+        import torch
+
+        import Auto3D.entry.ASE.geometry as geo
+        from Auto3D.foundation.exceptions import OptimizationError
+        from tests.helpers_adapter import FakeAdapter
+
+        bad = tmp_path / "bad.sdf"
+        bad.write_text(self._UNPARSEABLE_SDF)
+        stale_out = tmp_path / "bad_AIMNET_opt.sdf"
+        stale_out.write_text("STALE PREVIOUS RESULT\n")
+
+        monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+        monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
+
+        with pytest.raises(OptimizationError):
+            geo.opt_geometry(str(bad), "AIMNET", use_gpu=False)  # overwrite=True default
+
+        assert stale_out.read_text() == "STALE PREVIOUS RESULT\n", (
+            "the stale output was modified even though this run produced nothing"
+        )

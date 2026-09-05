@@ -18,7 +18,12 @@ from Auto3D.domain.id_mapping import decode_ids, encode_ids
 from Auto3D.engines.model_factory import ModelFactory
 from Auto3D.engines.models.preflight import preflight_model
 from Auto3D.foundation.config import Auto3DOptions, optimizer_worker_indices
-from Auto3D.foundation.exceptions import ConfigurationError, FileFormatError, OptimizationError
+from Auto3D.foundation.exceptions import (
+    ConfigurationError,
+    FileFormatError,
+    InputValidationError,
+    OptimizationError,
+)
 from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
@@ -39,6 +44,24 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Backstop timeout (seconds) for joining an optimizer worker after the isomer
+# worker has been found to have been killed by a signal -- see
+# _isomer_worker_was_signal_killed/_join_optimizer_bounded. Deliberately NOT
+# used for every nonzero exit code: an unhandled exception in isomer_wrapper
+# still runs its own `finally` (a `finally` always executes while the
+# exception unwinds the stack, before multiprocessing's bootstrap ever calls
+# sys.exit(1)) before the process exits with a *positive* code, so the
+# sentinels are already genuinely in the queue and any optimizer still
+# running is doing legitimate work on the finite backlog of chunks queued
+# before the failure -- one chunk at a high opt_steps can easily run longer
+# than this window on its own, and bounding that join would silently drop a
+# real result. A *negative* exitcode is the one case worth bounding: the
+# process was killed by a signal (SIGKILL from the OOM killer, a segfault),
+# so nothing -- including this worker's own cleanup -- ran, and an optimizer
+# that is *also* wedged by the same pressure must not be allowed to hang the
+# run a second, unrecoverable way.
+_ABNORMAL_EXIT_JOIN_TIMEOUT = 600
+
 
 def _package_version() -> str:
     """Read the installed ``Auto3D`` distribution version.
@@ -56,6 +79,35 @@ def _package_version() -> str:
         return _dist_version("Auto3D")
     except PackageNotFoundError:
         return "unknown"
+
+
+class _DropOnFullQueueHandler(QueueHandler):
+    """A ``QueueHandler`` that drops a record instead of raising when full.
+
+    ``_setup_logging`` bounds the logging queue at 999 items on purpose: it
+    is a ``Manager().Queue()`` shared by every worker process, and an
+    unbounded one would let a runaway burst of log records grow it without
+    limit if ``logger_process`` (the sole consumer) ever falls behind. The
+    stock ``QueueHandler.enqueue()`` calls ``queue.put_nowait()``, and stdlib
+    ``logging.Handler.handleError()`` reacts to the resulting ``queue.Full``
+    by printing a full traceback to stderr -- once per dropped record, so a
+    genuine burst does not just lose N records quietly, it also prints N
+    tracebacks while doing it, which is worse than the loss itself. This
+    override keeps the bound (unlike simply removing it, which would trade a
+    bounded memory ceiling for an unbounded one under the very same burst)
+    and makes the drop itself -- not a wall of tracebacks about the drop --
+    the only visible symptom, which is exactly what a full queue already
+    means.
+    """
+
+    def enqueue(self, record: logging.LogRecord) -> None:
+        try:
+            self.queue.put_nowait(record)
+        except Exception:
+            # queue.Full (the burst this class exists for) and any other put
+            # failure alike: a lost log record must never crash, or spam
+            # stderr about, the run it exists to describe.
+            pass
 
 
 class WorkflowOrchestrator:
@@ -343,7 +395,7 @@ class WorkflowOrchestrator:
 
         # Configure main process logger
         self.logger = logging.getLogger("auto3d")
-        self.logger.addHandler(QueueHandler(self.logging_queue))
+        self.logger.addHandler(_DropOnFullQueueHandler(self.logging_queue))
         self.logger.setLevel(logging.INFO)
 
         # Log banner
@@ -359,7 +411,16 @@ class WorkflowOrchestrator:
         """
         if self.logging_queue is not None:
             try:
-                self.logging_queue.put(None)
+                # Bounded (see _setup_logging's Queue(999)) precisely so a
+                # burst of worker log records cannot grow it without limit --
+                # which means a plain blocking put(None) here could itself
+                # block on that same bound if logger_process has fallen
+                # behind or died, hanging this method's caller (run()'s
+                # `finally`) forever. A short timeout turns that hang into a
+                # logged warning; queue.Full (like any other put failure) is
+                # swallowed the same way below, since failing to enqueue the
+                # shutdown sentinel must never stop the run itself returning.
+                self.logging_queue.put(None, timeout=5)
             except Exception:
                 logger.warning("Failed to enqueue logger shutdown sentinel.")
 
@@ -414,6 +475,21 @@ class WorkflowOrchestrator:
         # prepare_chunks() no longer mutates the shared config, so we thread the
         # scaled value through to a per-run config copy in _run_pipeline.
         self.scaled_batchsize_atoms = chunk_manager.scaled_batchsize_atoms
+
+        if not chunk_info:
+            # A 0-record input (an empty .smi, or a .smi/.sdf that parses but
+            # yields no rows) makes every chunk empty; prepare_chunks() skips
+            # each one (chunk_manager.py's _create_chunk_files) and returns []
+            # silently. Left unchecked, that [] reaches _run_pipeline, no
+            # worker ever writes a "*_3d.sdf", and the failure only surfaces
+            # in _finalize_output as "no chunk produced a 3D structure output
+            # file" -- a message that says "pre-flight passed" and points at
+            # memory/opt_steps/SMILES validity, none of which is the actual
+            # cause. Raising here, with the real cause named, turns that into
+            # exit 2 (with the `auto3d validate` hint) instead of exit 1.
+            raise InputValidationError(
+                f"Input file {self.config.path} contains no molecules; there is nothing to process."
+            )
         return chunk_info
 
     def _run_pipeline(self, chunk_info: list[tuple[str, str]]) -> None:
@@ -463,17 +539,112 @@ class WorkflowOrchestrator:
         for p2 in p2s:
             p2.start()
 
-        # Wait for completion and supervise exit codes. The isomer worker emits
-        # a "Done" sentinel per optimizer in a `finally`, so even if it crashed
-        # the optimizers will drain and exit rather than block on queue.get().
+        # Wait for completion and supervise exit codes.
+        #
+        # Two-layer guarantee against an isomer worker that dies without
+        # running its `finally` (SIGKILL from the OOM killer, a segfault in
+        # RDKit/Boost, os._exit -- none of which give Python a chance to run
+        # cleanup code): layer one is workflow_workers.isomer_wrapper's own
+        # `finally`, which puts one "Done" sentinel per optimizer on every
+        # exit Python *does* get to run cleanup for -- including an unhandled
+        # exception, since a `finally` still runs on the way to exit(1).
+        # Layer two is `_ensure_done_sentinels` below: when `p1.exitcode`
+        # comes back neither 0 nor None, layer one cannot be assumed to have
+        # run, so the parent -- which holds the very same queue proxy --
+        # tops the queue up itself, using the identical
+        # `optimizer_worker_indices` count both the isomer worker and the
+        # spawn loop above use (a doubled-up sentinel from a worker that
+        # *did* clean up normally is harmless: every optimizer has already
+        # exited by the time it would be consumed). `_join_optimizer_bounded`
+        # backstops that second layer with a bounded join + terminate() --
+        # but ONLY when `_isomer_worker_was_signal_killed`, not for every
+        # nonzero exit code; see that helper and `_ABNORMAL_EXIT_JOIN_TIMEOUT`
+        # for why a plain unhandled exception (a positive exit code, `finally`
+        # already ran) must keep blocking indefinitely rather than risk
+        # cutting off an optimizer still doing legitimate, possibly
+        # long-running work on the backlog queued before the failure.
         if progress_queue is not None:
-            self._supervise_with_progress(p1, p2s, progress_queue)
+            self._supervise_with_progress(p1, p2s, progress_queue, chunk_queue)
         else:
             p1.join()
             self._check_exit(p1, "Isomer generation")
+            self._ensure_done_sentinels(p1.exitcode, chunk_queue)
+            degraded = self._isomer_worker_was_signal_killed(p1.exitcode)
             for p2 in p2s:
-                p2.join()
+                if degraded:
+                    self._join_optimizer_bounded(p2)
+                else:
+                    p2.join()
                 self._check_exit(p2, "Optimization")
+
+    def _ensure_done_sentinels(
+        self, p1_exitcode: int | None, chunk_queue: Queue[tuple[str, str, str, int] | str]
+    ) -> None:
+        """Supply the "Done" sentinels isomer_wrapper's `finally` may have missed.
+
+        See the two-layer comment in `_run_pipeline`. Tops the queue up
+        whenever `p1_exitcode` is neither 0 nor None -- i.e. every case that
+        is not "the isomer worker ran to completion or was never started at
+        all" -- regardless of *how* it failed: unlike
+        `_isomer_worker_was_signal_killed` below, this must not narrow to
+        signal deaths only. A positive exit code (an unhandled exception)
+        already means `isomer_wrapper`'s own `finally` ran and the sentinels
+        it put are already in the queue, but topping the queue up again here
+        is harmless (every optimizer has already exited by the time a
+        doubled-up sentinel would be consumed) -- so there is no reason to
+        skip it, and every reason to: an `os._exit()` deep in a dependency
+        can still exit with a small positive code while skipping `finally`
+        exactly like a signal would, and this is the one guarantee that must
+        never depend on telling that case apart from a normal exception.
+        """
+        if p1_exitcode not in (0, None):
+            n_optimizers = len(optimizer_worker_indices(self.config.use_gpu, self.config.gpu_idx))
+            for _ in range(n_optimizers):
+                chunk_queue.put("Done")
+
+    @staticmethod
+    def _isomer_worker_was_signal_killed(p1_exitcode: int | None) -> bool:
+        """Whether `p1_exitcode` indicates the isomer worker was killed by a
+        signal (SIGKILL from the OOM killer, a segfault) rather than exiting
+        through ordinary Python control flow.
+
+        On POSIX, `multiprocessing.Process.exitcode` is negative (the
+        negated signal number) for a signal death and non-negative
+        otherwise: 0 for success, and a positive code -- typically 1 -- for
+        an unhandled exception, because multiprocessing's own bootstrap
+        catches it and calls `sys.exit(1)` only *after* the exception has
+        already unwound the stack and run every `finally` along the way.
+        A negative exitcode is therefore the one reliable signal that
+        cleanup did NOT run, which is what `_join_optimizer_bounded`'s
+        bounded-join-then-terminate is for -- see
+        `_ABNORMAL_EXIT_JOIN_TIMEOUT`. It intentionally does not try to catch
+        an `os._exit()` with a small positive code (indistinguishable here
+        from a normal exception): `_ensure_done_sentinels` already covers
+        that case for the sentinel guarantee, and bounding the join for
+        every positive code as well would risk terminating a healthy
+        optimizer mid-chunk on the much more common unhandled-exception path.
+        """
+        return p1_exitcode is not None and p1_exitcode < 0
+
+    def _join_optimizer_bounded(self, p2: BaseProcess) -> None:
+        """Join one optimizer worker, backstopped by a bounded timeout.
+
+        Only used once `_isomer_worker_was_signal_killed` is True: at that
+        point the run is already in a degraded state, and this bounds how
+        long a possibly-also-wedged optimizer can hang it. Not reached on
+        the ordinary path, nor on a plain unhandled-exception exit -- see
+        `_ABNORMAL_EXIT_JOIN_TIMEOUT`.
+        """
+        p2.join(timeout=_ABNORMAL_EXIT_JOIN_TIMEOUT)
+        if p2.is_alive():
+            logger.error(
+                "Optimization process (pid=%s) did not exit within %ss of the "
+                "isomer worker's abnormal exit; terminating it.",
+                p2.pid,
+                _ABNORMAL_EXIT_JOIN_TIMEOUT,
+            )
+            p2.terminate()
+            p2.join()
 
     def _check_exit(self, proc: BaseProcess, label: str) -> None:
         """Log a warning if a worker process exited abnormally."""
@@ -499,24 +670,45 @@ class WorkflowOrchestrator:
             (self.logger.warning if warning else self.logger.info)(msg)
 
     def _supervise_with_progress(
-        self, p1: BaseProcess, p2s: list[BaseProcess], progress_queue: Queue[ProgressEvent]
+        self,
+        p1: BaseProcess,
+        p2s: list[BaseProcess],
+        progress_queue: Queue[ProgressEvent],
+        chunk_queue: Queue[tuple[str, str, str, int] | str],
     ) -> None:
         """Drain progress events to the callback while workers run, then join.
 
         Used only when a progress callback is set. The progress queue is an
         unbounded Manager queue, so workers never block on put even if draining
         lags; after the workers exit we drain any buffered events, then join
-        (immediate) and run the same exit-code checks as the default path.
+        (bounded only in the same degraded case _run_pipeline handles) and run
+        the same exit-code checks as the default path.
+
+        The `any(p.is_alive() for p in procs)` loop below is, on its own, the
+        same hang `_run_pipeline`'s two-layer comment describes: if the isomer
+        worker (`p1`) dies without running its `finally`, every optimizer
+        blocks on `queue.get()` forever, so `p1` is the only process that ever
+        goes not-alive and this loop never exits. Layer two therefore has to
+        run from *inside* the loop here, the moment `p1` is seen to have
+        exited -- not after it, the way the non-progress path can afford to.
         """
         import queue as _queue
 
         procs = [p1, *p2s]
+        sentinels_checked = False
         while any(p.is_alive() for p in procs):
+            if not sentinels_checked and not p1.is_alive():
+                self._ensure_done_sentinels(p1.exitcode, chunk_queue)
+                sentinels_checked = True
             try:
                 event = progress_queue.get(timeout=0.2)
             except _queue.Empty:
                 continue
             self._emit_progress(event)
+        if not sentinels_checked:
+            # Every process (including p1) was already done by the time the
+            # while-condition above was first evaluated.
+            self._ensure_done_sentinels(p1.exitcode, chunk_queue)
         # Drain events buffered after the liveness check.
         while True:
             try:
@@ -527,8 +719,12 @@ class WorkflowOrchestrator:
 
         p1.join()
         self._check_exit(p1, "Isomer generation")
+        degraded = self._isomer_worker_was_signal_killed(p1.exitcode)
         for p2 in p2s:
-            p2.join()
+            if degraded:
+                self._join_optimizer_bounded(p2)
+            else:
+                p2.join()
             self._check_exit(p2, "Optimization")
 
     def _emit_progress(self, event: ProgressEvent) -> None:
@@ -569,12 +765,35 @@ class WorkflowOrchestrator:
                 "errors already recorded during this run."
             )
 
-        # Combine output data
-        combined_data: list[str] = []
-        for file_path in output_files:
-            combined_data.extend(file_path.read_text().splitlines(keepends=True))
+        # Combine output data, streaming each chunk file into the combined
+        # path one at a time rather than reading every chunk into one shared
+        # list and then joining that whole list into a second string before
+        # writing -- the previous approach held three live copies of the
+        # combined output at once (the list of lines, the joined string, and
+        # the OS write buffer), measured at 2.70x the file's own size (53 MB
+        # peak for a 19.6 MB SDF); a 2 GB output would have meant roughly
+        # 5.4 GB resident in the orchestrator. Iterating line-by-line while
+        # writing keeps the $$$$-terminator check exactly as it was (`any`
+        # line, across every chunk, stripped, equal to "$$$$") without ever
+        # holding more than the current line in memory, and sidesteps the
+        # line-splitting-across-a-read-boundary edge case a raw
+        # shutil.copyfileobj byte-chunk copy would have to guard against
+        # separately to answer the same question.
+        path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
+        found_terminator = False
+        with path_combined.open("w") as combined_fh:
+            for file_path in output_files:
+                with file_path.open("r") as chunk_fh:
+                    for line in chunk_fh:
+                        if line.strip() == "$$$$":
+                            found_terminator = True
+                        combined_fh.write(line)
 
-        if not any(line.strip() == "$$$$" for line in combined_data):
+        if not found_terminator:
+            # Nothing converged: leave no partial/empty output file behind,
+            # matching the "no chunk produced output" branch above, which
+            # never creates path_combined at all.
+            path_combined.unlink()
             raise OptimizationError(
                 "No 3D structure converged. Every chunk produced an output "
                 "file, but none of them contain a converged structure. The "
@@ -587,10 +806,6 @@ class WorkflowOrchestrator:
                 f"all conformers. See {log_path} for the per-chunk errors "
                 "already recorded during this run."
             )
-
-        # Write combined output
-        path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
-        path_combined.write_text("".join(combined_data))
 
         # Log timing
         self._log_timing(start_time)

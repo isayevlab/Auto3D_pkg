@@ -13,6 +13,7 @@ mapping or reference SMILES is required.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 
 from rdkit import Chem
@@ -127,6 +128,44 @@ def species_key(mol: Chem.Mol) -> str:
     probe = Chem.Mol(mol)
     Chem.AssignStereochemistryFrom3D(probe)
     return Chem.MolToSmiles(probe)
+
+
+def formula_key(mol: Chem.Mol) -> str:
+    """A canonical element-composition identifier for ``mol``, ignoring
+    connectivity and stereochemistry.
+
+    Two molecules share this key exactly when they have the same atoms in the
+    same counts, however those atoms are bonded. That is the identity
+    tautomer selection needs and :func:`species_key` cannot give it: a
+    tautomer pair (e.g. keto/enol) is a constitutional isomer of its partner
+    by definition, so a canonical-SMILES key never matches between them and
+    would put every tautomer in its own singleton group -- which is
+    indistinguishable from "nothing to rank" and defeats the point of
+    tautomer selection entirely.
+
+    Pair this with ``Chem.GetFormalCharge(mol)`` (as the tautomer-partition
+    key in ``Auto3D.entry.tautomer.select_tautomers`` does) rather than
+    folding charge in here: a genuine protonation-state pair (e.g. acetic
+    acid vs. its conjugate base) already differs in formula -- the conjugate
+    base has one fewer hydrogen -- so it splits on formula alone, while two
+    true tautomers, which share both formula and charge, stay comparable.
+
+    Args:
+        mol: Any molecule. Not modified. Counts only atoms present on the
+            ``Chem.Mol`` object (``GetAtoms()`` does not see implicit
+            hydrogens) -- callers on molecules with implicit-only hydrogens
+            would need ``Chem.AddHs(mol)`` first. Auto3D's own callers read
+            explicit-H SDFs (``Chem.SDMolSupplier(sdf, removeHs=False)``), so
+            this is never an issue on Auto3D's own path.
+
+    Returns:
+        A string built from a plain atom-symbol count, e.g. ``"C3H6O1"``.
+        Not Hill-formula formatted and carries no charge suffix -- charge is
+        a separate key component the caller adds, since a bare formula
+        string cannot distinguish sign without one.
+    """
+    counts = Counter(atom.GetSymbol() for atom in mol.GetAtoms())
+    return "".join(f"{symbol}{counts[symbol]}" for symbol in sorted(counts))
 
 
 def apply_optimized_coords(mol: Chem.Mol, coords: Sequence[Sequence[float]]) -> bool:

@@ -324,6 +324,12 @@ faithful gate.
      - Partial success: the run completed, but some input molecules produced
        no output
      - ``auto3d run mols.smi --k 1`` where a molecule yields no conformer
+   * - ``7``
+     - Optimization error -- no 3D structure converged for any molecule
+     - ``auto3d run mols.smi --k 1`` where every chunk fails to produce a
+       converged structure (e.g. every input molecule fails geometry
+       optimization, or the energy window/top-k filtering removes all
+       conformers)
    * - ``130``
      - Interrupted by the user (128 + ``SIGINT``)
      - Ctrl-C during ``auto3d run mols.smi --k 1`` or ``auto3d params.yaml``
@@ -333,6 +339,14 @@ Code ``6`` is specific to ``auto3d run`` and to the deprecated
 same data. The results summary -- and, with ``--json``, the results document --
 is printed *before* the process exits with it, so a caller always learns which
 molecules were missing.
+
+Code ``7`` is distinct from ``6``: it fires when ``main()`` raises
+``OptimizationError`` instead of returning at all -- no chunk produced any
+output file, or none of the chunks that did contains a converged structure --
+so no results summary or ``--json`` document exists to print first. It behaves
+like any other exception in the ``1``-``5`` range (a panel on stderr, or a JSON
+failure document with ``--json``); it simply has its own code instead of
+falling into the generic ``1``.
 
 Code ``130`` follows the shell convention for a process terminated by
 ``SIGINT``. Before exiting, both run entry points print what is known about the

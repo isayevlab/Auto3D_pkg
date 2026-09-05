@@ -95,23 +95,29 @@ class FIRE:
         vf = (forces * self.v).flatten(-2, -1).sum(-1)
         progressing = vf > 0.0  # Molecules making progress (v aligned with f)
 
-        # Branchless reformulation of the original four if/elif blocks. The
-        # original branched on whole-batch reductions (w_vf.all()/.any()),
-        # each forcing a GPU->CPU sync. We instead keep `all_progressing` as a
-        # 0-d on-device boolean tensor and select per-molecule with torch.where,
-        # so no host-device sync occurs. The math is identical per molecule.
-        #
-        # The original is genuinely batch-dependent: a progressing molecule in
-        # the "all progress" path (Case 1) only mixes its velocity and bumps
-        # Nsteps (dt/a untouched), whereas in the "some progress" path (Case 2)
-        # the dt/a/Nsteps speed-up applies only to progressing molecules past
-        # Nmin. `all_progressing` is therefore required to reproduce Case 1 vs
-        # Case 2 exactly.
-        all_progressing = progressing.all()  # 0-d bool tensor (no .item() sync)
+        # Per-molecule FIRE rule (Bitzek et al. 2006): dt/a/Nsteps adaptation
+        # for a molecule depends only on that molecule's OWN progressing
+        # history, never on whether its batchmates happen to be progressing
+        # on the same step. Earlier revisions gated `speedup`/`nsteps_inc` on
+        # a whole-batch `progressing.all()` reduction, which is a defect, not
+        # a batching optimization: for a batch of one, `.all()` is a
+        # tautology of `progressing` itself, so `speedup` (`progressing &
+        # ~all_progressing & ...`) was always False and a solo molecule's dt
+        # never left dt_init -- verified on a CPU harmonic-potential probe
+        # where dt drops to 0.07 at step 1 (dt_max=0.1, fdec=0.7) and stays
+        # frozen there for 60 steps, i.e. FIRE's inertial acceleration never
+        # runs and what executes is damped MD at a fixed small step. Worse,
+        # once any batchmate stalls, `all_progressing` goes permanently
+        # False for the whole batch, so `nsteps_inc` (`progressing &
+        # (all_progressing | past_nmin)`) fell back to requiring
+        # `past_nmin`, and a molecule whose own Nsteps had not yet passed
+        # Nmin got its counter frozen at 0 forever -- a molecule's
+        # trajectory (and therefore its converged conformer's energy) would
+        # depend on which unrelated molecules shared its batch. Removing
+        # `all_progressing` fixes both: `speedup` and `nsteps_inc` below are
+        # now plain per-molecule predicates.
         past_nmin = self.Nsteps > self.Nmin
-        # Speed-up applies only in the "some progress" branch (not all_progressing)
-        # to progressing molecules that have exceeded Nmin steps.
-        speedup = progressing & (~all_progressing) & past_nmin
+        speedup = progressing & past_nmin
 
         # Velocity mix toward normalized force direction (computed for every
         # molecule; selected below). Matches the original mixing expression.
@@ -143,10 +149,9 @@ class FIRE:
         self.a = torch.where(progressing, a_prog, torch.full_like(self.a, self.astart))
 
         # Nsteps:
-        #   progressing & (all_progressing | past_nmin) -> Nsteps + 1
-        #   progressing & else                          -> unchanged
-        #   not progressing                             -> 0  (reset)
-        nsteps_inc = progressing & (all_progressing | past_nmin)
+        #   progressing     -> Nsteps + 1
+        #   not progressing -> 0  (reset)
+        nsteps_inc = progressing
         nsteps_prog = torch.where(nsteps_inc, self.Nsteps + 1, self.Nsteps)
         self.Nsteps = torch.where(progressing, nsteps_prog, torch.zeros_like(self.Nsteps))
 

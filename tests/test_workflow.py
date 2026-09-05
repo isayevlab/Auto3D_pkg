@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import logging
 import multiprocessing as mp
+import queue
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -116,6 +118,34 @@ class TestWorkflowExceptions:
 
         with pytest.raises(OptimizationError, match="no 3D structure converged"):
             orchestrator._finalize_output(0.0)
+
+    def test_prepare_chunks_raises_input_validation_error_on_empty_input(self, tmp_path):
+        """A 0-molecule input must be diagnosed as such (exit 2, `auto3d
+        validate` hint), not left to surface three phases later as a
+        misleading 'no chunk produced a 3D structure output file' /
+        OptimizationError (exit 1) once _finalize_output finds nothing.
+
+        ChunkManager.prepare_chunks() returns [] silently for a 0-record
+        input: every chunk ends up empty and _create_chunk_files (audit
+        location chunk_manager.py:276-280) skips all of them. _prepare_chunks
+        must catch that emptiness itself.
+        """
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import InputValidationError
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        smi = tmp_path / "empty.smi"
+        smi.write_text("")  # 0 molecules
+
+        config = Auto3DOptions(path=str(smi), k=1, use_gpu=False)
+        config.input_format = "smi"
+        orchestrator = WorkflowOrchestrator(config)
+        orchestrator.job_dir = tmp_path
+        orchestrator.input_path = smi
+        orchestrator.logger = None
+
+        with pytest.raises(InputValidationError, match="no molecules"):
+            orchestrator._prepare_chunks()
 
 
 class TestChunkCreation:
@@ -547,6 +577,51 @@ def test_finalize_raises_when_all_outputs_empty(tmp_path):
     with pytest.raises(OptimizationError):
         orch._finalize_output(start_time=0.0)
 
+    # The streaming combine (Issue 13) writes the combined file incrementally
+    # and only discovers "nothing converged" once every chunk has been
+    # streamed through it -- it must still clean up the resulting empty
+    # combined file before raising, matching the "no chunk produced output"
+    # branch above, which never creates one at all.
+    assert not (tmp_path / "x_encoded_out.sdf").exists()
+
+
+def test_finalize_output_streams_chunks_in_order(tmp_path):
+    """The combined output must contain every chunk's molecules, in chunk
+    order, exactly as the old read-everything-then-join implementation
+    produced -- pinning that streaming the combine line-by-line (Issue 13)
+    did not change what gets written, only how much memory it takes.
+    """
+    from rdkit import Chem
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    orig_smi = tmp_path / "orig.smi"
+    orig_smi.write_text("C mol_a\nC mol_b\n")
+
+    config = Auto3DOptions(path=str(orig_smi), k=1, use_gpu=False)
+    config.input_format = "smi"
+    orch = WorkflowOrchestrator(config)
+    orch.job_dir = tmp_path
+    orch.input_path = tmp_path / "orig_encoded.smi"
+    orch.input_path.write_text("C 0\nC 1\n")
+    orch.id_mapping = {"mol_a": 0, "mol_b": 1}
+    orch.logger = None
+
+    job1 = tmp_path / "job1"
+    job1.mkdir()
+    job2 = tmp_path / "job2"
+    job2.mkdir()
+    with Chem.SDWriter(str(job1 / "orig_encoded_3d.sdf")) as w:
+        w.write(_encoded_mol(0))
+    with Chem.SDWriter(str(job2 / "orig_encoded_3d.sdf")) as w:
+        w.write(_encoded_mol(1))
+
+    path_output = orch._finalize_output(start_time=0.0)
+
+    produced = [m.GetProp("_Name") for m in Chem.SDMolSupplier(path_output) if m is not None]
+    assert produced == ["mol_a", "mol_b"]
+
 
 def test_run_pipeline_does_not_mutate_shared_batchsize():
     """_run_pipeline must apply the memory-scaled batchsize via a per-run config
@@ -602,9 +677,168 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
     assert opt_configs, "optimizer did not receive the memory-scaled batchsize"
 
 
-def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
+class TestAbnormalIsomerWorkerExit:
+    """Issue 3: an isomer worker that dies without running its `finally`
+    (SIGKILL from the OOM killer, a segfault in RDKit/Boost, os._exit -- none
+    of which give Python a chance to run cleanup code) must not leave the
+    optimizer workers blocked on ``queue.get()`` forever. Reproduced upstream
+    as worker exitcode -9, the optimizer wedged indefinitely.
+
+    ``_ThreadProcess`` stands in for ``mp_context.Process``, backed by a real
+    thread rather than being fully inert (contrast
+    ``test_run_pipeline_does_not_mutate_shared_batchsize``'s ``_FakeProcess``,
+    whose ``join()`` never blocks on anything): ``p1`` and the optimizer
+    stand-in genuinely run concurrently and genuinely block on a real
+    ``queue.Queue.get()``. That is deliberate -- if the fix regresses, this
+    test really hangs, which is why it carries its own ``pytest.mark.timeout``
+    bound instead of relying on the suite's overall time limit to catch it.
+    A real spawned ``multiprocessing.Process`` was avoided: the stand-in
+    targets below would need to be pickled by reference for ``spawn``, which
+    means being importable top-level functions in a fresh interpreter --
+    fragile in a pytest worker -- for no benefit here, since the behavior
+    under test (``_run_pipeline``'s supervisory logic) does not depend on
+    workers being real OS processes, only on them being genuinely concurrent.
+    """
+
+    class _ThreadProcess:
+        """Stands in for ``mp_context.Process``, backed by a thread.
+
+        ``exitcode`` is set from whatever the target callable returns: the
+        deliberately-abnormal isomer stand-in below returns a negative int,
+        the way a real SIGKILL's exitcode would read.
+        """
+
+        def __init__(self, target=None, args=(), **kwargs):
+            self._target = target
+            self._args = args
+            self._thread: threading.Thread | None = None
+            self.exitcode = None
+            self.pid = None
+            self.terminated = False
+
+        def start(self) -> None:
+            def _run():
+                self.exitcode = self._target(*self._args)
+
+            self._thread = threading.Thread(target=_run, daemon=True)
+            self._thread.start()
+            self.pid = self._thread.ident
+
+        def is_alive(self) -> bool:
+            return self._thread is not None and self._thread.is_alive()
+
+        def join(self, timeout=None) -> None:
+            if self._thread is not None:
+                self._thread.join(timeout)
+
+        def terminate(self) -> None:
+            # Real threads cannot be force-killed; record the request so a
+            # test could assert the backstop path was reached, if it ever is.
+            self.terminated = True
+
+    @staticmethod
+    def _dying_isomer(chunk_info, config, chunk_queue, logging_queue):
+        """A stand-in for isomer_wrapper that simulates a SIGKILL: exits with
+        an abnormal code and never touches chunk_queue at all -- no "Done"
+        sentinel, exactly as a real SIGKILL/segfault would skip
+        isomer_wrapper's `finally` (workflow_workers.py:209-212).
+        """
+        return -9
+
+    @staticmethod
+    def _draining_optimizer(config, chunk_queue, logging_queue, gpu_idx, progress_queue=None):
+        """A stand-in for optim_rank_wrapper's consume loop -- only the part
+        under test (blocking on queue.get() until a "Done" sentinel) matters
+        here; no model, no isomer/optimization work.
+        """
+        while True:
+            item = chunk_queue.get()
+            if item == "Done":
+                return 0
+
+    @pytest.mark.timeout(10)
+    def test_run_pipeline_recovers_when_isomer_worker_dies_abnormally(self, monkeypatch):
+        """Without _ensure_done_sentinels, this test hangs forever: the
+        optimizer stand-in blocks on chunk_queue.get() because the dying
+        isomer stand-in never puts a "Done" sentinel, and nothing else would
+        ever unblock it. The pytest-timeout bound above turns a regression
+        into a fast, clear failure instead of an indefinitely stuck suite.
+        """
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        config = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+        orch = WorkflowOrchestrator(config)
+        orch.logging_queue = None
+
+        real_chunk_queue: queue.Queue = queue.Queue()
+        fake_context = MagicMock()
+        fake_context.Process = self._ThreadProcess
+        fake_context.Manager.return_value.Queue.return_value = real_chunk_queue
+        orch.mp_context = fake_context
+
+        monkeypatch.setattr(Auto3D.orchestration.workflow, "isomer_wrapper", self._dying_isomer)
+        monkeypatch.setattr(
+            Auto3D.orchestration.workflow, "optim_rank_wrapper", self._draining_optimizer
+        )
+
+        # Must return -- not hang -- within the pytest.mark.timeout bound.
+        orch._run_pipeline([("chunk.smi", "job1")])
+
+        # The parent must have topped the queue up with the sentinel the
+        # dying isomer worker never put, and nothing more: the single
+        # optimizer worker (use_gpu=False -> one worker regardless of
+        # gpu_idx) consumed exactly one "Done" and returned.
+        assert real_chunk_queue.empty()
+
+    @pytest.mark.timeout(10)
+    def test_supervise_with_progress_recovers_when_isomer_worker_dies_abnormally(self, monkeypatch):
+        """The progress-queue supervision loop (workflow.py's
+        `_supervise_with_progress`, `while any(p.is_alive())`) is the subtler
+        of the two hang sites the issue names: unlike the plain path's
+        sequential joins, this loop's own exit condition never goes false
+        while an optimizer is blocked on queue.get() forever, so sentinel
+        injection has to happen from *inside* the loop, the moment p1 is
+        seen to have died -- not after it, the way the non-progress path can
+        afford to. Exercised via a real progress_callback so this actually
+        takes the `_supervise_with_progress` branch of `_run_pipeline`.
+        """
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        config = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+        orch = WorkflowOrchestrator(config, progress_callback=lambda event: None)
+        orch.logging_queue = None
+
+        # Two distinct real queues: chunk_queue and progress_queue must not
+        # be the same object, or the progress-draining calls in the loop
+        # would consume the "Done" sentinel meant for the optimizer.
+        chunk_q: queue.Queue = queue.Queue()
+        progress_q: queue.Queue = queue.Queue()
+        fake_context = MagicMock()
+        fake_context.Process = self._ThreadProcess
+        fake_context.Manager.return_value.Queue.side_effect = [chunk_q, progress_q]
+        orch.mp_context = fake_context
+
+        monkeypatch.setattr(Auto3D.orchestration.workflow, "isomer_wrapper", self._dying_isomer)
+        monkeypatch.setattr(
+            Auto3D.orchestration.workflow, "optim_rank_wrapper", self._draining_optimizer
+        )
+
+        # Must return -- not hang -- within the pytest.mark.timeout bound.
+        orch._run_pipeline([("chunk.smi", "job1")])
+
+        assert chunk_q.empty()
+
+
+def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch, stub_torchani_importable):
     """A second main(args) call in the same process must not reuse the first
     run's job_name (M16).
+
+    Uses ``stub_torchani_importable`` so this test keeps running unchanged on
+    the ani=false CI leg: ``optimizing_engine="ANI2xt"`` below is picked only
+    to keep Phase 1's real ``preflight_model`` offline, and this test's
+    assertion is about job_name reuse, not about the ANI2xt engine itself.
 
     main() builds a fresh WorkflowOrchestrator(args) on every call but the
     two calls share the same Auto3DOptions object. Before this fix, run()
@@ -682,7 +916,7 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
             pass
 
         def run(self):
-            return None
+            return True  # matches optimizing.run()'s real True-on-write contract
 
     class _StubRank:
         def __init__(self, in_f, out_f, *args, **kwargs):
@@ -962,7 +1196,7 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
             pass
 
         def run(self):
-            return None
+            return True  # matches optimizing.run()'s real True-on-write contract
 
     class _StubRank:
         def __init__(self, in_f, out_f, threshold, k=None, window=None):

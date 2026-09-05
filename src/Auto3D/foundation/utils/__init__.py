@@ -28,12 +28,11 @@ What each module owns:
     The single owner of the ``E_tot`` SDF properties, in both eV and hartree,
     and of the energy-unit constants.
 ``geometry``
-    RMSD and geometric comparison between conformers.
+    Distance measurement between conformer coordinates.
 ``logging_config``
     Logging setup and the logger factory every module calls.
 ``molprops``
-    Molecular properties read off an RDKit mol: charge, and the
-    conformer-count heuristic.
+    The conformer-count heuristic, read off an RDKit mol's graph.
 ``output_guard``
     Output-path gates (overwrite, and output-is-not-input). Split out of
     ``validation`` so a ``.smi`` writer does not pull in torch and the whole
@@ -51,10 +50,4 @@ What each module owns:
 ``stereochemistry``
     Stereocenter detection, enantiomer enumeration and removal, configuration
     amendment.
-``validation``
-    Input and configuration validation. The one module here that is not a
-    pure leaf by nature: it needs ``Auto3D.engines.models`` to resolve an engine name
-    and to load a custom NNP, so both imports are function-scope, keeping
-    ``utils`` free of a dependency on a domain package
-    (``tests/test_import_boundaries.py`` enforces this).
 """

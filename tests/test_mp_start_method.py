@@ -90,13 +90,15 @@ def test_main_does_not_mutate_the_callers_start_method(fork_locked_in, monkeypat
     assertion sees ``spawn`` here and fails.
     """
     import Auto3D.entry.auto3D as auto3D
-    import Auto3D.orchestration.workflow as workflow
 
-    # main() does a local ``from Auto3D.orchestration.workflow import WorkflowOrchestrator``,
-    # so the stub has to be installed there. Only the start-method handling is
-    # under test; the real pipeline is slow and GPU-dependent.
+    # ``WorkflowOrchestrator`` is a module-level import in auto3D.py (not a
+    # local one inside main() -- the deferred form used to be here purely for
+    # no reason: no import cycle, and torch is already pulled in statically
+    # by other module-level imports in this file), so the stub is installed
+    # on auto3D's own name for it. Only the start-method handling is under
+    # test; the real pipeline is slow and GPU-dependent.
     monkeypatch.setattr(
-        workflow,
+        auto3D,
         "WorkflowOrchestrator",
         lambda args, progress_callback=None: types.SimpleNamespace(run=lambda: "out.sdf"),
     )

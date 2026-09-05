@@ -264,8 +264,8 @@ def test_exit_code_mapping():
     assert exit_code_for(DependencyError("x")) == 3
     assert exit_code_for(GPUError("x")) == 4
     assert exit_code_for(ModelLoadError("x")) == 5  # ModelError subclass -> 5
-    assert exit_code_for(OptimizationError("x")) == 1  # generic
-    assert exit_code_for(RuntimeError("x")) == 1
+    assert exit_code_for(OptimizationError("x")) == 7
+    assert exit_code_for(RuntimeError("x")) == 1  # unmapped -> generic
 
 
 # --- modernization ----------------------------------------------------------

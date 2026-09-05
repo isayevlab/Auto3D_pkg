@@ -190,6 +190,7 @@ class TestOptGeometryDurability:
                         mol.SetProp("E_tot", str(1.0 + i))
                         w.write(mol)
                 completed["bytes"] = Path(self._outpath).read_bytes()
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
 
@@ -429,6 +430,7 @@ class TestSameFileGuard:
                     for i, mol in enumerate(mols):
                         mol.SetProp("E_tot", str(1.0 + i))
                         w.write(mol)
+                return True  # matches optimizing.run()'s real True-on-write contract
 
         monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
 
@@ -644,7 +646,9 @@ class TestEncodedInputStaging:
     just the location.
     """
 
-    def test_a_users_encoded_file_is_untouched_byte_for_byte(self, job_dir, monkeypatch):
+    def test_a_users_encoded_file_is_untouched_byte_for_byte(
+        self, job_dir, monkeypatch, stub_torchani_importable
+    ):
         """The whole point: run the pipeline over `mols.smi` with a user's
         `mols_encoded.smi` sitting beside it, and that file must come back
         identical -- not merely still present.
@@ -655,6 +659,14 @@ class TestEncodedInputStaging:
         cleaned up. `id_mapping` is asserted too, because the run must
         *succeed* past encoding -- a fix that refused the run whenever the
         encoded name was taken would leave the file intact and still be wrong.
+
+        Uses ``stub_torchani_importable`` because this test is about staging,
+        not about the ANI2xt engine itself -- ``optimizing_engine="ANI2xt"``
+        is only picked so Phase 1's real ``preflight_model`` stays offline
+        (bundled weights, no registry/network lookup). ``check_input`` now
+        also probes torchani for ANI2xt (correctly -- see input_checks.py),
+        which would otherwise make this test depend on the ``[ani]`` extra
+        being installed for a reason unrelated to what it verifies.
         """
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
@@ -693,7 +705,9 @@ class TestEncodedInputStaging:
         )
         assert not orch.input_path.exists()
 
-    def test_the_job_directory_is_never_reused(self, job_dir, monkeypatch):
+    def test_the_job_directory_is_never_reused(
+        self, job_dir, monkeypatch, stub_torchani_importable
+    ):
         """`_setup_job_directory` must fail on a name collision, not merge.
 
         Everything above rests on the job directory being new: that is the
@@ -703,6 +717,9 @@ class TestEncodedInputStaging:
         up -- Auto3D would clobber and delete inside a directory the user
         already owned -- while leaving the first test green, since it never
         collides on the job name.
+
+        ``stub_torchani_importable``: see the note on the test above -- this
+        test is about job-directory collision, not the ANI2xt engine.
         """
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
@@ -1170,7 +1187,12 @@ class TestRejectedRunLeavesNoTrace:
     `dupes_<timestamp>/` beside the user's input, one more on every retry.
     """
 
-    def test_duplicate_smi_ids_leave_no_job_directory(self, job_dir, monkeypatch):
+    def test_duplicate_smi_ids_leave_no_job_directory(
+        self, job_dir, monkeypatch, stub_torchani_importable
+    ):
+        # stub_torchani_importable: this test is about cleanup ordering after
+        # a rejected run, not about the ANI2xt engine -- see the note on
+        # TestEncodedInputStaging's tests above.
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.foundation.exceptions import InputValidationError
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
@@ -1200,10 +1222,16 @@ class TestRejectedRunLeavesNoTrace:
         assert not orch.job_dir.exists(), f"rejected run left {orch.job_dir} behind"
         assert sorted(p.name for p in job_dir.iterdir()) == ["dupes.smi"]
 
-    def test_a_partially_written_encoded_sdf_goes_with_the_directory(self, job_dir, monkeypatch):
+    def test_a_partially_written_encoded_sdf_goes_with_the_directory(
+        self, job_dir, monkeypatch, stub_torchani_importable
+    ):
         """The `.sdf` branch opens `Chem.SDWriter` before it sees the
         duplicate, so the rejected run has already written a partial encoded
-        file inside the job directory. It must not survive either."""
+        file inside the job directory. It must not survive either.
+
+        stub_torchani_importable: same reasoning as the tests above -- this
+        is about the partial-write cleanup, not the ANI2xt engine.
+        """
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.foundation.exceptions import InputValidationError
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
