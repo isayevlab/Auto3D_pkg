@@ -792,9 +792,7 @@ class TestAbnormalIsomerWorkerExit:
         assert real_chunk_queue.empty()
 
     @pytest.mark.timeout(10)
-    def test_supervise_with_progress_recovers_when_isomer_worker_dies_abnormally(
-        self, monkeypatch
-    ):
+    def test_supervise_with_progress_recovers_when_isomer_worker_dies_abnormally(self, monkeypatch):
         """The progress-queue supervision loop (workflow.py's
         `_supervise_with_progress`, `while any(p.is_alive())`) is the subtler
         of the two hang sites the issue names: unlike the plain path's
@@ -833,9 +831,14 @@ class TestAbnormalIsomerWorkerExit:
         assert chunk_q.empty()
 
 
-def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch):
+def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch, stub_torchani_importable):
     """A second main(args) call in the same process must not reuse the first
     run's job_name (M16).
+
+    Uses ``stub_torchani_importable`` so this test keeps running unchanged on
+    the ani=false CI leg: ``optimizing_engine="ANI2xt"`` below is picked only
+    to keep Phase 1's real ``preflight_model`` offline, and this test's
+    assertion is about job_name reuse, not about the ANI2xt engine itself.
 
     main() builds a fresh WorkflowOrchestrator(args) on every call but the
     two calls share the same Auto3DOptions object. Before this fix, run()

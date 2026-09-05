@@ -183,8 +183,21 @@ class TestCheckInputExceptions:
         with pytest.raises(ConfigurationError, match="Only AIMNET can handle"):
             check_input(args)
 
-    def test_only_aimnet_molecules_with_ani2xt_raises_configuration_error(self, tmp_path):
-        """Should raise ConfigurationError when molecules require AIMNET but ANI2xt selected."""
+    def test_only_aimnet_molecules_with_ani2xt_raises_configuration_error(
+        self, tmp_path, stub_torchani_importable
+    ):
+        """Should raise ConfigurationError when molecules require AIMNET but ANI2xt selected.
+
+        ``check_input`` now probes torchani for ANI2xt too (it needs
+        torchani installed for its AEV computer, even without ANI2x's
+        pretrained ensemble), and that probe runs before this test's
+        element-compatibility check. This test's assertion is about that
+        compatibility check's ordering, not about torchani itself, so
+        ``stub_torchani_importable`` keeps the probe passing (and this test
+        running and meaningful) on both the ani=false and ani=true CI legs,
+        rather than skipping it on ani=false and losing the coverage this
+        test provided before the probe widened to cover ANI2xt.
+        """
         # Create a SMILES file with a molecule containing non-ANI element (e.g., Br)
         smi_file = tmp_path / "bromine.smi"
         smi_file.write_text("CBr methyl_bromide\n")

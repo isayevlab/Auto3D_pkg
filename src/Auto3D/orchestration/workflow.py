@@ -488,8 +488,7 @@ class WorkflowOrchestrator:
             # cause. Raising here, with the real cause named, turns that into
             # exit 2 (with the `auto3d validate` hint) instead of exit 1.
             raise InputValidationError(
-                f"Input file {self.config.path} contains no molecules; "
-                "there is nothing to process."
+                f"Input file {self.config.path} contains no molecules; there is nothing to process."
             )
         return chunk_info
 

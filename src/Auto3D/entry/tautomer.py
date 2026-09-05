@@ -12,7 +12,7 @@ from Auto3D.foundation.utils.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
 from Auto3D.foundation.utils.smi_io import strip_taut_suffix
-from Auto3D.foundation.utils.stereo_check import species_key
+from Auto3D.foundation.utils.stereo_check import formula_key
 
 logger = get_logger(__name__)
 
@@ -118,14 +118,25 @@ def select_tautomers(
         # energy is not a tautomer-stability comparison: a formal-charge
         # difference moves E_tot by hundreds of kcal/mol, so the neutral member
         # would always "win" and silently defeat the pKa normalization this
-        # selection step exists to respect. Reuses the identity
-        # `Auto3D.foundation.utils.energy._comparable_groups` applies for the
-        # same reason on the conformer-energy side. `out_mols0` is already
+        # selection step exists to respect.
+        #
+        # The key is (element composition, formal charge) -- deliberately
+        # `formula_key`, not `Auto3D.foundation.utils.stereo_check.species_key`
+        # (a canonical SMILES). Tautomers are constitutional isomers of each
+        # other *by definition* -- keto and enol differ in exactly where a
+        # proton and a double bond sit -- so a connectivity-sensitive key
+        # never matches between them and would put every tautomer in its own
+        # singleton partition, silently turning "select the most stable
+        # tautomer" into "keep all of them", which is what let a bare enol
+        # (no C=O) survive selection alongside its keto partner and fail this
+        # module's own test. A genuine protonation-state pair still splits
+        # under `formula_key` + charge: the conjugate base has one fewer
+        # hydrogen, so its formula differs too. `out_mols0` is already
         # energy-sorted (just above), and dict insertion preserves that order,
         # so each partition's own list stays sorted ascending too.
         partitions: dict[tuple[str, int], list] = {}
         for mol in out_mols0:
-            key = (species_key(mol), Chem.GetFormalCharge(mol))
+            key = (formula_key(mol), Chem.GetFormalCharge(mol))
             partitions.setdefault(key, []).append(mol)
 
         if len(partitions) > 1:
