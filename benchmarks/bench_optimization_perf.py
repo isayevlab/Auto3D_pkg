@@ -41,6 +41,7 @@ number you can trust:
   counts and energies. If those move, ``--compare`` aborts rather than reporting
   a speedup, because a faster loop that computes something else is not faster.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,20 +63,36 @@ RESULTS = Path(__file__).parent / "results"
 # (~55-70). Embedded rather than read from a file so the benchmark is identical
 # across checkouts and needs no network.
 SMILES = {
-    "small": ["CCO", "c1ccccc1O", "CC(=O)N", "CC(N)C(=O)O", "c1ccncc1",
-              "CSCC", "OCC(O)CO", "Clc1ccccc1"],
-    "medium": ["CC(=O)Nc1ccc(O)cc1", "CN1CCC[C@H]1c1cccnc1",
-               "c1ccc2[nH]ccc2c1C(=O)NCC", "OC(=O)c1ccccc1OC(C)=O",
-               "CC(C)Cc1ccc(cc1)C(C)C(=O)O", "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
-               "CCN(CC)CCNC(=O)c1ccc(N)cc1", "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1"],
-    "large": ["CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
-              "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
-              "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
-              "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
-              "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
-              "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
-              "CN(C)CCCN1c2ccccc2CCc2ccccc21",
-              "CC(C)NCC(O)COc1cccc2ccccc12"],
+    "small": [
+        "CCO",
+        "c1ccccc1O",
+        "CC(=O)N",
+        "CC(N)C(=O)O",
+        "c1ccncc1",
+        "CSCC",
+        "OCC(O)CO",
+        "Clc1ccccc1",
+    ],
+    "medium": [
+        "CC(=O)Nc1ccc(O)cc1",
+        "CN1CCC[C@H]1c1cccnc1",
+        "c1ccc2[nH]ccc2c1C(=O)NCC",
+        "OC(=O)c1ccccc1OC(C)=O",
+        "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+        "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+        "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+    ],
+    "large": [
+        "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+        "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+        "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+        "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+        "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+        "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+        "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+        "CC(C)NCC(O)COc1cccc2ccccc12",
+    ],
 }
 BATCHES = (8, 64, 256, 1024)
 N_STEPS_TIMED = 200
@@ -108,10 +125,12 @@ def build_mols() -> dict[str, list]:
 
 def env_block() -> dict:
     """Capture everything needed to tell two runs apart, and to reproduce one."""
+
     def git(*args: str) -> str:
         try:
-            return subprocess.check_output(["git", *args], text=True,
-                                           stderr=subprocess.DEVNULL).strip()
+            return subprocess.check_output(
+                ["git", *args], text=True, stderr=subprocess.DEVNULL
+            ).strip()
         except Exception:
             return "unknown"
 
@@ -122,8 +141,9 @@ def env_block() -> dict:
         "gpu": torch.cuda.get_device_name(0) if on_gpu else "CPU-ONLY",
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
-        "capability": (".".join(map(str, torch.cuda.get_device_capability(0)))
-                       if on_gpu else "n/a"),
+        "capability": (
+            ".".join(map(str, torch.cuda.get_device_capability(0))) if on_gpu else "n/a"
+        ),
         "python": platform.python_version(),
         "commit": git("rev-parse", "--short", "HEAD"),
         "ref": git("rev-parse", "--abbrev-ref", "HEAD"),
@@ -132,11 +152,13 @@ def env_block() -> dict:
     }
 
 
-def make_state(mols: list, batch: int, device: torch.device, model) -> tuple[dict, torch.Tensor, int]:
+def make_state(
+    mols: list, batch: int, device: torch.device, model
+) -> tuple[dict, torch.Tensor, int]:
     """Pad one bucket of ``batch`` molecules (cycled) into an ``n_steps`` state."""
-    from Auto3D.batch_opt.model_wrapper import EnForce_ANI
-    from Auto3D.batch_opt.padding import pad_from_mols
-    from Auto3D.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.padding import pad_from_mols
+    from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 
     picked = [mols[i % len(mols)] for i in range(batch)]
     coord, numbers, charges, atom_mask = pad_from_mols(picked, model, device)
@@ -149,8 +171,7 @@ def make_state(mols: list, batch: int, device: torch.device, model) -> tuple[dic
         "nn": EnForce_ANI(model, 1024 * 16),
         "converged_mask": torch.zeros(size, dtype=torch.bool, device=device),
         "fmax": torch.full((size,), INITIAL_FMAX_SENTINEL, device=device),
-        "energy": torch.full((size,), INITIAL_ENERGY_SENTINEL, dtype=torch.double,
-                             device=device),
+        "energy": torch.full((size,), INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=device),
         "timing": defaultdict(float),
     }
     return state, atom_mask, int(coord.shape[1])
@@ -163,11 +184,11 @@ def _sync() -> None:
 
 def time_steps(mols, batch, device, model, steps, reps) -> dict:
     """Median/min microseconds per step over ``reps``, with nothing converging."""
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     for _ in range(N_WARMUP_CALLS):
         state, mask, _ = make_state(mols, batch, device, model)
-        n_steps(state, n=N_WARMUP_STEPS, opttol=0.0, patience=10 ** 9, atom_mask=mask)
+        n_steps(state, n=N_WARMUP_STEPS, opttol=0.0, patience=10**9, atom_mask=mask)
     _sync()
 
     per_step = []
@@ -178,14 +199,18 @@ def time_steps(mols, batch, device, model, steps, reps) -> dict:
         start = time.perf_counter()
         # Brackets only the outside of the rep. Synchronizing inside would add
         # exactly the syncs under study.
-        n_steps(state, n=steps, opttol=0.0, patience=10 ** 9, atom_mask=mask)
+        n_steps(state, n=steps, opttol=0.0, patience=10**9, atom_mask=mask)
         _sync()
         per_step.append((time.perf_counter() - start) / steps * 1e6)
 
     quartiles = statistics.quantiles(per_step, n=4) if len(per_step) >= 4 else [0, 0, 0]
-    return {"median_us": statistics.median(per_step), "min_us": min(per_step),
-            "iqr_us": quartiles[2] - quartiles[0], "natoms": natoms,
-            "reps": per_step}
+    return {
+        "median_us": statistics.median(per_step),
+        "min_us": min(per_step),
+        "iqr_us": quartiles[2] - quartiles[0],
+        "natoms": natoms,
+        "reps": per_step,
+    }
 
 
 def count_syncs(mols, batch, device, model, steps=10) -> float | None:
@@ -195,20 +220,20 @@ def count_syncs(mols, batch, device, model, steps=10) -> float | None:
     Returns None without CUDA, where the concept does not apply -- the CPU-side
     equivalent is counted exactly by ``tests/test_optimization_engine_indexing.py``.
     """
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     if not torch.cuda.is_available():
         return None
 
     state, mask, _ = make_state(mols, batch, device, model)
-    n_steps(state, n=2, opttol=0.0, patience=10 ** 9, atom_mask=mask)  # warm
+    n_steps(state, n=2, opttol=0.0, patience=10**9, atom_mask=mask)  # warm
     state, mask, _ = make_state(mols, batch, device, model)
     _sync()
     torch.cuda.set_sync_debug_mode("warn")
     try:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            n_steps(state, n=steps, opttol=0.0, patience=10 ** 9, atom_mask=mask)
+            n_steps(state, n=steps, opttol=0.0, patience=10**9, atom_mask=mask)
         hits = [w for w in caught if "synchron" in str(w.message).lower()]
         return len(hits) / steps
     finally:
@@ -230,7 +255,7 @@ def count_subgraphs(device) -> int | str | None:
 
     import torch._dynamo as dynamo
 
-    from Auto3D.batch_opt.ANI2xt_no_rep import ANI2xt, element_indices, self_atomic_energies
+    from Auto3D.engines.models.ani2xt import ANI2xt, element_indices, self_atomic_energies
 
     graphs: list = []
 
@@ -247,14 +272,16 @@ def count_subgraphs(device) -> int | str | None:
     try:
         kwargs = {
             "elem_index": element_indices(species, len(model.networks)),
-            "self_energies": self_atomic_energies(species, model.energy_shifts,
-                                                  len(model.networks)),
+            "self_energies": self_atomic_energies(
+                species, model.energy_shifts, len(model.networks)
+            ),
         }
     except Exception:
         pass
     try:
-        torch.compile(model, backend=backend, dynamic=True,
-                      fullgraph=False)(species, coords, **kwargs)
+        torch.compile(model, backend=backend, dynamic=True, fullgraph=False)(
+            species, coords, **kwargs
+        )
     except Exception as exc:
         return f"error: {type(exc).__name__}: {exc}"
     finally:
@@ -264,7 +291,7 @@ def count_subgraphs(device) -> int | str | None:
 
 def realism_pass(mols, device, model) -> dict:
     """Production settings end to end, so ``--compare`` can verify outcomes match."""
-    from Auto3D.batch_opt.optimization_engine import n_steps
+    from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     everything = [m for group in mols.values() for m in group]
     state, mask, _ = make_state(everything, len(everything), device, model)
@@ -272,25 +299,36 @@ def realism_pass(mols, device, model) -> dict:
     start = time.perf_counter()
     n_steps(state, n=2000, opttol=0.01, patience=250, atom_mask=mask)
     _sync()
-    return {"wall_s": time.perf_counter() - start,
-            "converged": int(state["converged_mask"].sum().item()),
-            "total": len(everything),
-            "energies": [float(x) for x in state["energy"].tolist()]}
+    return {
+        "wall_s": time.perf_counter() - start,
+        "converged": int(state["converged_mask"].sum().item()),
+        "total": len(everything),
+        "energies": [float(x) for x in state["energy"].tolist()],
+    }
 
 
 def run(label: str, engines: list[str], device_str: str, steps: int, reps: int) -> None:
     """Benchmark every engine x size x batch combination and write a JSON record."""
-    from Auto3D.model_factory import create_model
+    from Auto3D.engines.model_factory import create_model
 
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
     mols = build_mols()
-    record = {"label": label, "env": env_block(), "steps": steps, "reps": reps,
-              "rows": [], "extra": {}}
+    record = {
+        "label": label,
+        "env": env_block(),
+        "steps": steps,
+        "reps": reps,
+        "rows": [],
+        "extra": {},
+    }
 
     if not torch.cuda.is_available():
-        print("WARNING: no CUDA device. Sync counts are unavailable and timings "
-              "are NOT representative of the change under test. Do not report "
-              "these numbers.", file=sys.stderr)
+        print(
+            "WARNING: no CUDA device. Sync counts are unavailable and timings "
+            "are NOT representative of the change under test. Do not report "
+            "these numbers.",
+            file=sys.stderr,
+        )
 
     for engine in engines:
         compile_model = engine.endswith("+compile")
@@ -306,11 +344,19 @@ def run(label: str, engines: list[str], device_str: str, steps: int, reps: int) 
             for batch in BATCHES:
                 timing = time_steps(group, batch, device, model, steps, reps)
                 syncs = count_syncs(group, batch, device, model)
-                record["rows"].append({"engine": engine, "size": size,
-                                       "batch": batch, "syncs_per_step": syncs,
-                                       **timing})
-                print(f"  {engine:16s} {size:6s} b={batch:<5d} "
-                      f"{timing['median_us']:9.1f} us/step  syncs/step={syncs}")
+                record["rows"].append(
+                    {
+                        "engine": engine,
+                        "size": size,
+                        "batch": batch,
+                        "syncs_per_step": syncs,
+                        **timing,
+                    }
+                )
+                print(
+                    f"  {engine:16s} {size:6s} b={batch:<5d} "
+                    f"{timing['median_us']:9.1f} us/step  syncs/step={syncs}"
+                )
         record["extra"][f"realism.{engine}"] = realism_pass(mols, device, model)
         del model
         if torch.cuda.is_available():
@@ -336,19 +382,27 @@ def compare(before_label: str, after_label: str) -> None:
 
     for record in (before, after):
         if "env" not in record or record["env"].get("commit") == "unknown":
-            sys.exit("ABORT: a result file has no usable environment block. "
-                     "Re-run both sides inside a git checkout.")
+            sys.exit(
+                "ABORT: a result file has no usable environment block. "
+                "Re-run both sides inside a git checkout."
+            )
     if before["env"]["auto3d_path"] == after["env"]["auto3d_path"]:
-        sys.exit("ABORT: both runs imported Auto3D from "
-                 f"{before['env']['auto3d_path']}. Nothing was compared. Use "
-                 "benchmarks/run_perf_ab.sh, which points PYTHONPATH at two trees.")
+        sys.exit(
+            "ABORT: both runs imported Auto3D from "
+            f"{before['env']['auto3d_path']}. Nothing was compared. Use "
+            "benchmarks/run_perf_ab.sh, which points PYTHONPATH at two trees."
+        )
     if before["env"]["gpu"] != after["env"]["gpu"]:
-        sys.exit(f"ABORT: different hardware ({before['env']['gpu']} vs "
-                 f"{after['env']['gpu']}). A cross-machine ratio is not a speedup.")
+        sys.exit(
+            f"ABORT: different hardware ({before['env']['gpu']} vs "
+            f"{after['env']['gpu']}). A cross-machine ratio is not a speedup."
+        )
     if before["env"]["gpu"] == "CPU-ONLY":
-        sys.exit("ABORT: these runs had no GPU. The change under test removes "
-                 "host-device synchronizations, which do not exist on CPU. "
-                 "Report nothing.")
+        sys.exit(
+            "ABORT: these runs had no GPU. The change under test removes "
+            "host-device synchronizations, which do not exist on CPU. "
+            "Report nothing."
+        )
 
     # Outcome equality gate. A faster loop that computes something else is not
     # faster, so this refuses to print a ratio at all.
@@ -359,25 +413,39 @@ def compare(before_label: str, after_label: str) -> None:
         if after_extra is None:
             continue
         if before_extra["converged"] != after_extra["converged"]:
-            sys.exit(f"ABORT: OUTCOMES CHANGED for {key}: converged "
-                     f"{before_extra['converged']} -> {after_extra['converged']}. "
-                     "Do not report a speedup.")
-        worst = max(abs(x - y) for x, y in
-                    zip(before_extra["energies"], after_extra["energies"], strict=True))
+            sys.exit(
+                f"ABORT: OUTCOMES CHANGED for {key}: converged "
+                f"{before_extra['converged']} -> {after_extra['converged']}. "
+                "Do not report a speedup."
+            )
+        worst = max(
+            abs(x - y)
+            for x, y in zip(before_extra["energies"], after_extra["energies"], strict=True)
+        )
         if worst > ENERGY_TOLERANCE_EV:
-            sys.exit(f"ABORT: OUTCOMES CHANGED for {key}: max |dE| = {worst:.3e} eV "
-                     f"> {ENERGY_TOLERANCE_EV:.0e}. Do not report a speedup.")
+            sys.exit(
+                f"ABORT: OUTCOMES CHANGED for {key}: max |dE| = {worst:.3e} eV "
+                f"> {ENERGY_TOLERANCE_EV:.0e}. Do not report a speedup."
+            )
 
     env = after["env"]
     print("### Performance (measured, not estimated)\n")
-    print(f"Host: {env['gpu']} (sm_{env['capability']}) | torch {env['torch']} "
-          f"| CUDA {env['cuda']} | python {env['python']}")
-    print(f"Before: {before['env']['ref']} ({before['env']['commit']})   "
-          f"After: {env['ref']} ({env['commit']})")
-    print(f"Fixed-work loop: {after['steps']} steps, opttol=0, patience=1e9, "
-          f"{after['reps']} reps, median of per-step wall clock.\n")
-    print("| engine | mol size | batch | atoms/mol | us/step before | us/step after "
-          "| speedup | syncs/step before | after |")
+    print(
+        f"Host: {env['gpu']} (sm_{env['capability']}) | torch {env['torch']} "
+        f"| CUDA {env['cuda']} | python {env['python']}"
+    )
+    print(
+        f"Before: {before['env']['ref']} ({before['env']['commit']})   "
+        f"After: {env['ref']} ({env['commit']})"
+    )
+    print(
+        f"Fixed-work loop: {after['steps']} steps, opttol=0, patience=1e9, "
+        f"{after['reps']} reps, median of per-step wall clock.\n"
+    )
+    print(
+        "| engine | mol size | batch | atoms/mol | us/step before | us/step after "
+        "| speedup | syncs/step before | after |"
+    )
     print("|---|---|---|---|---|---|---|---|---|")
 
     by_key = {(r["engine"], r["size"], r["batch"]): r for r in before["rows"]}
@@ -388,46 +456,60 @@ def compare(before_label: str, after_label: str) -> None:
             continue
         base = by_key[key]
         ratio = base["median_us"] / row["median_us"]
-        noisy = (base["iqr_us"] > NOISE_FRACTION * base["median_us"]
-                 or row["iqr_us"] > NOISE_FRACTION * row["median_us"])
+        noisy = (
+            base["iqr_us"] > NOISE_FRACTION * base["median_us"]
+            or row["iqr_us"] > NOISE_FRACTION * row["median_us"]
+        )
         if not noisy:
             speedups.append(ratio)
-        print(f"| {row['engine']} | {row['size']} | {row['batch']} | "
-              f"{row['natoms']} | {base['median_us']:.1f} | {row['median_us']:.1f} | "
-              f"{ratio:.2f}x{' (noisy)' if noisy else ''} | "
-              f"{base['syncs_per_step']} | {row['syncs_per_step']} |")
+        print(
+            f"| {row['engine']} | {row['size']} | {row['batch']} | "
+            f"{row['natoms']} | {base['median_us']:.1f} | {row['median_us']:.1f} | "
+            f"{ratio:.2f}x{' (noisy)' if noisy else ''} | "
+            f"{base['syncs_per_step']} | {row['syncs_per_step']} |"
+        )
 
-    print(f"\nCompiled subgraphs in ANI2xt.forward: "
-          f"before {before['extra'].get('ani2xt_subgraphs')}, "
-          f"after {after['extra'].get('ani2xt_subgraphs')}.")
+    print(
+        f"\nCompiled subgraphs in ANI2xt.forward: "
+        f"before {before['extra'].get('ani2xt_subgraphs')}, "
+        f"after {after['extra'].get('ani2xt_subgraphs')}."
+    )
 
     for key, before_extra in before["extra"].items():
         if key.startswith("realism.") and key in after["extra"]:
             after_extra = after["extra"][key]
             engine = key.split(".", 1)[1]
-            print(f"End-to-end {engine} (opttol=0.01, patience=250, "
-                  f"{before_extra['total']} molecules): before "
-                  f"{before_extra['wall_s']:.1f}s, after {after_extra['wall_s']:.1f}s "
-                  f"({before_extra['wall_s'] / after_extra['wall_s']:.2f}x). "
-                  f"Outcomes unchanged: converged {before_extra['converged']}/"
-                  f"{before_extra['total']} -> {after_extra['converged']}/"
-                  f"{after_extra['total']}.")
+            print(
+                f"End-to-end {engine} (opttol=0.01, patience=250, "
+                f"{before_extra['total']} molecules): before "
+                f"{before_extra['wall_s']:.1f}s, after {after_extra['wall_s']:.1f}s "
+                f"({before_extra['wall_s'] / after_extra['wall_s']:.2f}x). "
+                f"Outcomes unchanged: converged {before_extra['converged']}/"
+                f"{before_extra['total']} -> {after_extra['converged']}/"
+                f"{after_extra['total']}."
+            )
 
     if speedups:
-        print(f"\nSummary: {min(speedups):.2f}x-{max(speedups):.2f}x per optimization "
-              f"step across batch sizes {min(BATCHES)}-{max(BATCHES)} and three "
-              f"molecule sizes (noisy rows excluded). Quote the range, not the "
-              f"best row.")
+        print(
+            f"\nSummary: {min(speedups):.2f}x-{max(speedups):.2f}x per optimization "
+            f"step across batch sizes {min(BATCHES)}-{max(BATCHES)} and three "
+            f"molecule sizes (noisy rows excluded). Quote the range, not the "
+            f"best row."
+        )
     else:
         print("\nSummary: NO non-noisy rows. Re-run on an idle GPU. Report nothing.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--label", help="Run the benchmark and save as this label.")
-    parser.add_argument("--engines", default="aimnet2,ANI2xt,ANI2xt+compile",
-                        help="Comma-separated. Append '+compile' for torch.compile.")
+    parser.add_argument(
+        "--engines",
+        default="aimnet2,ANI2xt,ANI2xt+compile",
+        help="Comma-separated. Append '+compile' for torch.compile.",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--steps", type=int, default=N_STEPS_TIMED)
     parser.add_argument("--reps", type=int, default=N_REPS)

@@ -773,6 +773,47 @@ def test_file_io_modules_do_not_load_torch_or_the_model_tree():
     )
 
 
+# Subprocess probe: what the Typer app itself costs to import -- this is the
+# module `auto3d --help` reaches (`auto3Dcli.py` -> `presentation.cli.app`).
+_CLI_APP_PROBE_SOURCE = """
+import json, sys
+import Auto3D.presentation.cli.app   # noqa: F401
+print(json.dumps({
+    "torch": any(m == "torch" or m.startswith("torch.") for m in sys.modules),
+    "rdkit": any(m == "rdkit" or m.startswith("rdkit.") for m in sys.modules),
+}))
+"""
+
+
+def test_cli_app_import_does_not_load_torch_or_rdkit():
+    """``auto3d --help`` must not pay for either heavyweight dependency.
+
+    ``Auto3D.presentation.cli.app`` imports
+    ``Auto3D.presentation.cli.commands.properties`` at module scope, which
+    imports ``Auto3D.engines.models.policy`` at module scope -- and until
+    issue #14, ``policy.py`` had its own module-scope ``import torch`` and
+    ``from rdkit import Chem``, so a bare ``import
+    Auto3D.presentation.cli.app`` (measured: ~1.9s) paid for both regardless
+    of which command ran, ``--help`` included. ``policy.py`` now defers both
+    into the functions that actually need them (``check_gpu_requested`` for
+    torch; ``_requires_aimnet`` / ``check_engine_supports_molecules`` for
+    rdkit), each with a comment saying why.
+
+    Subprocess, for the same reason as the probes above: ``conftest`` imports
+    every ``Auto3D`` submodule before any test runs, so in-process this would
+    pass unconditionally.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _CLI_APP_PROBE_SOURCE],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
+    result = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert not result["torch"], "importing Auto3D.presentation.cli.app pulled in torch"
+    assert not result["rdkit"], "importing Auto3D.presentation.cli.app pulled in rdkit"
+
+
 # `test_validation_imports_torch_at_module_scope` stood here. It forbade
 # `utils/validation.py` from deferring its `import torch`, and the only reason
 # given was that twenty-two test sites patched

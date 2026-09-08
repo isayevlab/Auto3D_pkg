@@ -13,7 +13,7 @@ from __future__ import annotations
 from rdkit import Chem
 
 from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.smi_io import iter_smi_records
+from Auto3D.foundation.utils.smi_io import iter_smi_records, strip_taut_suffix
 
 logger = get_logger(__name__)
 
@@ -58,10 +58,12 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
         name = mol.GetProp("_Name")
         # decode_ids keeps a "@tautN" suffix on tautomer-enumerated conformers
         # (see Auto3D.domain.id_mapping.decode_ids), but the .smi input has only the
-        # base id. Strip it the same way reorder_sdf/count_output do, or every
-        # tautomer-derived molecule would be misreported as missing.
-        if "@taut" in name:
-            name = name.split("@taut")[0]
+        # base id. Strip it the same way reorder_sdf/count_output do (via the
+        # single-owner strip_taut_suffix, which splits on "@taut" -- never a
+        # bare "@" -- so an id that legitimately contains "@" is not
+        # truncated), or every tautomer-derived molecule would be misreported
+        # as missing.
+        name = strip_taut_suffix(name)
         sdf_data.append(name)
     sdf_data = list(set(sdf_data))
 
@@ -146,9 +148,7 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
         if mol is None:
             logger.warning("Skipping molecule at index %d: failed to parse", i)
             continue
-        name = mol.GetProp("_Name")
-        if "@taut" in name:
-            name = name.split("@taut")[0]
+        name = strip_taut_suffix(mol.GetProp("_Name"))
         sdf_ids.add(name)
 
     # Find molecules without 3D structures, preserving source order and

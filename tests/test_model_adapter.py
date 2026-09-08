@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -736,6 +737,69 @@ class TestEnergyIsDtypePreserving:
         adapter.forward(coords.clone(), species, charges)
         assert seen == [(torch.float32, torch.float32)]
 
+    def test_custom_forward_preserves_the_models_own_energy_dtype(self):
+        """``forward()[0]`` must not round a float64 energy to float32 (issue #5).
+
+        ``forward`` casts the INPUT coords to float32 for the model -- checked
+        above and unaffected by this fix. It used to ALSO downcast the OUTPUT
+        energy to match (``energy.to(input_dtype)``), and ``input_dtype`` in the
+        FIRE step loop is always float32 (``pad_from_mols`` builds float32
+        coordinates), so a custom NNP that computes in double precision had its
+        energy quantized before ``batchopt.py`` stored it as ``E_tot`` -- the
+        one path ``energy()``'s dtype-preservation guarantee above did not
+        reach. Only forces are cast back to ``input_dtype`` now.
+        """
+        from Auto3D.engines.models.adapter import CustomModelAdapter
+
+        class _Fp64Model(torch.nn.Module):
+            def forward(self, species, coords, charges):
+                # A value NOT representable in float32, so a regression that
+                # downcasts the ENERGY (not just the model's input) produces a
+                # visibly wrong number, not merely a wrong dtype.
+                zero = coords.to(torch.float64).sum(dim=(1, 2)) * 0.0
+                return zero + (1.0 + 2.0**-40)
+
+        adapter = self._bypassed(CustomModelAdapter, _Fp64Model())
+        coords = torch.randn(2, 4, 3, dtype=torch.float32)  # the FIRE loop's real dtype
+        species = torch.tensor([[1, 6, 7, 8], [1, 6, 7, -1]])
+        charges = torch.zeros(2)
+
+        energy, forces = adapter.forward(coords, species, charges)
+        assert energy.dtype is torch.float64
+        assert float(energy[0].detach()) == 1.0 + 2.0**-40
+        assert forces.dtype is torch.float32  # forces still follow input_dtype
+
+    def test_ani2x_forward_preserves_the_models_own_energy_dtype(self):
+        """Same guard as the custom-adapter test above, for the other site
+        issue #5 fixed. Currently a no-op in production (torchani 2.8.4's
+        SelfEnergy returns float32), but the adapter must not silently
+        truncate a future torchani version whose energies come back float64
+        -- ``forward()[0]`` promised dtype-preservation is a contract
+        property, not a fact about today's torchani build.
+        """
+        from collections import namedtuple
+
+        from Auto3D.engines.models.adapter import ANI2xAdapter
+
+        _SpeciesEnergies = namedtuple("SpeciesEnergies", ["species", "energies"])
+
+        class _Fp64Model(torch.nn.Module):
+            def forward(self, species_coords):
+                species, coords = species_coords
+                zero = coords.to(torch.float64).sum(dim=(1, 2)) * 0.0
+                return _SpeciesEnergies(species, zero + 1.0)
+
+        adapter = self._bypassed(ANI2xAdapter, _Fp64Model())
+        coords = torch.randn(2, 4, 3, dtype=torch.float32)  # the FIRE loop's real dtype
+        species = torch.tensor([[1, 6, 7, 8], [1, 6, 7, -1]])
+        charges = torch.zeros(2)
+
+        energy, forces = adapter.forward(coords, species, charges)
+        assert energy.dtype is torch.float64, (
+            "forward()[0] rounded the model's float64 energy to input_dtype"
+        )
+        assert forces.dtype is torch.float32  # forces still follow input_dtype
+
     def test_ani2xt_energy_accepts_a_non_leaf_tensor(self):
         """``ANI2xtAdapter.forward`` calls ``coords.requires_grad_(True)``, which
         raises on the non-leaf tensor an autograd Hessian hands in. Its own
@@ -767,3 +831,108 @@ class TestEnergyIsDtypePreserving:
         coords = torch.randn(1, 3, 3, requires_grad=True)
         energy = adapter.energy(coords, torch.ones(1, 3, dtype=torch.long), torch.zeros(1))
         assert energy.requires_grad
+
+
+class TestWarnIfCompileFellBackToEager:
+    """``BaseModelAdapter._warn_if_compile_fell_back_to_eager`` (issue #23b).
+
+    Never loads torch.compile or Dynamo for real -- ``torch._dynamo.utils.counters``
+    is just a dict-like the method reads, so every case here fakes its content
+    directly rather than forcing an actual graph break.
+    """
+
+    @staticmethod
+    def _adapter(compiled: bool, frame_stats_before: dict | None = None):
+        """A bare adapter with only the attributes the method under test reads."""
+        from Auto3D.engines.models.adapter import BaseModelAdapter
+
+        class _Concrete(BaseModelAdapter):
+            def forward(self, coords, species, charges, atom_mask=None):
+                raise AssertionError("not called")
+
+        adapter = _Concrete.__new__(_Concrete)
+        torch.nn.Module.__init__(adapter)
+        adapter._compiled = compiled
+        adapter._compile_fallback_checked = False
+        if frame_stats_before is not None:
+            adapter._compile_frame_stats_before = dict(frame_stats_before)
+        return adapter
+
+    def test_a_suppressed_failure_warns(self, monkeypatch, caplog):
+        adapter = self._adapter(compiled=True, frame_stats_before={"total": 0, "ok": 0})
+        monkeypatch.setitem(torch._dynamo.utils.counters, "frames", {"total": 2, "ok": 1})
+
+        with caplog.at_level(logging.WARNING):
+            adapter._warn_if_compile_fell_back_to_eager()
+
+        assert "fell back to eager" in caplog.text
+
+    def test_a_clean_compile_does_not_warn(self, monkeypatch, caplog):
+        """Every frame ``ok`` -- graph breaks (resume points) included -- is silent."""
+        adapter = self._adapter(compiled=True, frame_stats_before={"total": 0, "ok": 0})
+        monkeypatch.setitem(torch._dynamo.utils.counters, "frames", {"total": 2, "ok": 2})
+
+        with caplog.at_level(logging.WARNING):
+            adapter._warn_if_compile_fell_back_to_eager()
+
+        assert caplog.text == ""
+
+    def test_checked_only_once_even_across_repeated_calls(self, monkeypatch, caplog):
+        """The gate: a second call must not re-log, even if the counter still
+        shows a failure -- this is what keeps the check off the hot loop."""
+        adapter = self._adapter(compiled=True, frame_stats_before={"total": 0, "ok": 0})
+        monkeypatch.setitem(torch._dynamo.utils.counters, "frames", {"total": 2, "ok": 1})
+
+        with caplog.at_level(logging.WARNING):
+            adapter._warn_if_compile_fell_back_to_eager()
+            adapter._warn_if_compile_fell_back_to_eager()
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warnings) == 1
+
+    def test_an_uncompiled_adapter_never_warns(self, caplog):
+        """``compile_model=False`` (or a bypassed ``__init__``): no check at all."""
+        adapter = self._adapter(compiled=False)
+
+        with caplog.at_level(logging.WARNING):
+            adapter._warn_if_compile_fell_back_to_eager()  # must not raise
+
+        assert caplog.text == ""
+
+    def test_a_bypassed_init_with_no_attributes_at_all_does_not_raise(self, caplog):
+        """The regression this class exists to pin: several tests construct an
+        adapter via ``cls.__new__`` + ``nn.Module.__init__`` alone (see
+        ``TestEnergyIsDtypePreserving._bypassed`` above and
+        ``tests/test_spe_energy_only.py``'s ``_fp64_custom_adapter``), which
+        never sets ``_compiled`` at all. Direct attribute access used to raise
+        ``AttributeError: '...' object has no attribute '_compiled'`` the
+        first time such an adapter's ``forward`` ran."""
+        from Auto3D.engines.models.adapter import BaseModelAdapter
+
+        class _Concrete(BaseModelAdapter):
+            def forward(self, coords, species, charges, atom_mask=None):
+                raise AssertionError("not called")
+
+        adapter = _Concrete.__new__(_Concrete)
+        torch.nn.Module.__init__(adapter)  # deliberately nothing else set
+
+        with caplog.at_level(logging.WARNING):
+            adapter._warn_if_compile_fell_back_to_eager()  # must not raise
+
+        assert caplog.text == ""
+
+    def test_a_prior_adapters_stale_failure_is_not_blamed_on_this_one(self, monkeypatch, caplog):
+        """The delta, not the raw counter: ``torch._dynamo.utils.counters`` is
+        process-global, so without subtracting the snapshot ``__init__`` took,
+        an EARLIER compiled adapter's fallback would resurface as a false
+        warning on a LATER, cleanly-compiled adapter's first forward."""
+        # An earlier adapter already left the process-global counter at 2/1.
+        monkeypatch.setitem(torch._dynamo.utils.counters, "frames", {"total": 2, "ok": 1})
+        # This adapter's own __init__ would have snapshotted that state...
+        adapter = self._adapter(compiled=True, frame_stats_before={"total": 2, "ok": 1})
+        # ...and its own compilation adds no new attempts, let alone failures.
+
+        with caplog.at_level(logging.WARNING):
+            adapter._warn_if_compile_fell_back_to_eager()
+
+        assert caplog.text == ""

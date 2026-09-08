@@ -57,11 +57,8 @@ class TestModuleImports:
         """Each name resolves at the module that now defines it."""
         from Auto3D.foundation.utils.connectivity import check_connectivity
         from Auto3D.foundation.utils.energy import HARTREE_TO_EV, hartree2ev
-        from Auto3D.foundation.utils.geometry import get_rmsd, min_pairwise_distance
-        from Auto3D.foundation.utils.molprops import get_mol_charge
+        from Auto3D.foundation.utils.geometry import min_pairwise_distance
 
         assert HARTREE_TO_EV == hartree2ev
-        assert callable(get_mol_charge)
         assert callable(min_pairwise_distance)
-        assert callable(get_rmsd)
         assert callable(check_connectivity)

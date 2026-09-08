@@ -43,3 +43,21 @@ def test_workflow_result_counts(tmp_path):
 def test_count_output_missing_file_is_zero(tmp_path):
     assert count_output(str(tmp_path / "nope.sdf")) == (0, 0)
     assert count_output("") == (0, 0)
+
+
+def test_count_output_preserves_bare_at_in_ids(tmp_path):
+    """A legitimate id containing a bare "@" (not the "@tautN" separator)
+    must not be truncated by molecule-identity grouping.
+
+    Regression for the drift bug where this module split on bare "@" instead
+    of "@taut": three distinct ids "cmpd@1", "cmpd@2", "plain" collapsed to
+    two molecules ("cmpd" x2, "plain") instead of three, because "@1"/"@2"
+    were mistaken for a tautomer suffix. count_output must now agree with
+    strip_taut_suffix's actual separator and report (3, 3).
+    """
+    p = tmp_path / "out.sdf"
+    _write_sdf(p, ["cmpd@1", "cmpd@2", "plain"])
+    r = WorkflowResult(str(p))
+    assert r.n_molecules == 3
+    assert r.n_conformers == 3
+    assert count_output(str(p)) == (3, 3)

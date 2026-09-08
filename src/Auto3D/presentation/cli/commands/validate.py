@@ -1,4 +1,3 @@
-# src/Auto3D/cli/commands/validate.py
 """Input file validation command."""
 
 from __future__ import annotations

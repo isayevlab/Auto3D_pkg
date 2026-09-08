@@ -5,8 +5,6 @@ Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 
 from __future__ import annotations
 
-import os
-
 from rdkit import Chem
 
 from Auto3D.engines.batch_opt.batchopt import optimizing
@@ -22,10 +20,12 @@ from Auto3D.foundation.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
 )
+from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
+from Auto3D.foundation.utils.output_names import default_output_path
 
 __all__ = ["opt_geometry"]
 
@@ -141,6 +141,10 @@ def opt_geometry(
     Returns:
         Path to output SDF file with optimized geometries.
 
+    Raises:
+        OptimizationError: `path` is missing, empty, or contains no
+            parseable record, so nothing was optimized.
+
     Example:
         >>> from Auto3D.entry.ASE.geometry import opt_geometry
         >>> output = opt_geometry(
@@ -179,23 +183,19 @@ def opt_geometry(
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
 
     # Create output path in the same directory as the input file (unless
-    # overridden). splitext (not split(".")) so an input like 'batch.v2.sdf'
-    # keeps 'batch.v2' instead of collapsing to 'batch' and risking collisions.
+    # overridden). default_output_path is the single owner of this naming
+    # convention (Auto3D.foundation.utils.output_names) -- it used to be
+    # re-derived here, in SPE.py and in thermo/driver.py, each with its own
+    # Path(model_name).exists() check for the custom-NNP case.
     if out_path is not None:
         outpath = out_path
     else:
-        dir = os.path.dirname(path)
-        stem = os.path.splitext(os.path.basename(path))[0]
-        if os.path.exists(model_name):  # custom NNP passed as a file path
-            basename = stem + "_userNNP_opt.sdf"
-        else:
-            basename = stem + f"_{model_name}_opt.sdf"
-        outpath = os.path.join(dir, basename)
+        outpath = default_output_path(path, model_name, "opt")
 
     # Refuse to truncate a file that already exists. `optimizing.run()` opens
     # `Chem.SDWriter(outpath)`, which truncates on open, so without this
     # `-o precious.sdf` destroyed precious.sdf. Not at the start: that writer
-    # is opened at batch_opt/batchopt.py:323, AFTER every bucket has been
+    # is opened inside `optimizing.run()`, AFTER every bucket has been
     # optimized, so precious.sdf survived the whole optimization and was
     # replaced by the final write -- a completed run, no error, no warning.
     # Checked on the RESOLVED path, so the derived default name is covered
@@ -223,7 +223,20 @@ def opt_geometry(
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
     opt_engine = optimizing(path, outpath, adapter=adapter, device=device, config=opt_config)
-    opt_engine.run()
+    wrote_output = opt_engine.run()
+
+    # optimizing.run() returns False (and leaves outpath untouched) when
+    # `path` is missing, empty, or contains no parseable record. Checked on
+    # the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
+    # (the default here), a stale outpath from an earlier call is left in
+    # place by a skipped run, so an existence check alone would let
+    # `_annotate_and_rewrite` below silently re-annotate and return THAT file
+    # as if it were produced by this call.
+    if not wrote_output:
+        raise OptimizationError(
+            f"No optimized structures were produced from {path!r}: the input "
+            "file is missing, empty, or contains no parseable record."
+        )
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds
     # the unit-labeled sibling, staged through a temp file so a failed rewrite

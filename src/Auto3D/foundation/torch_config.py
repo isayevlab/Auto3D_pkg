@@ -1,4 +1,3 @@
-# src/Auto3D/torch_config.py
 """Centralized PyTorch configuration for Auto3D.
 
 This module provides a centralized way to configure PyTorch backend settings

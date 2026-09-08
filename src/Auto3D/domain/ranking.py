@@ -227,8 +227,16 @@ class ConformerRanker:
             mols: List of RDKit Mol objects to filter.
 
         Returns:
-            A ``FilterResult``: unique molecules sorted by energy, plus the
-            per-reason drop counts the "nothing survived" messages below need.
+            A ``FilterResult``: unique molecules sorted by the ELECTRONIC
+            energy (``E_tot``) -- always, regardless of ``self.rank_by`` --
+            because duplicate detection is a geometry question, not a ranking
+            one. That order is only the RANKING order when ``rank_by`` is
+            RANK_BY_ELECTRONIC; callers that select on another basis (e.g.
+            ``top_k``/``top_window`` on RANK_BY_GIBBS) must re-sort ``kept``
+            on ``self._read_energy_ev`` before truncating or referencing
+            ``kept[0]`` as the minimum -- see the re-sort in ``top_k`` and
+            ``top_window`` below. Also returns the per-reason drop counts the
+            "nothing survived" messages below need.
         """
         return filter_conformers(
             mols,
@@ -306,10 +314,22 @@ class ConformerRanker:
             result = self._account(FilterResult(kept=out_mols, dropped=dropped))
         else:
             result = self._account(self._filter_mols(list(df2["mols"])))
+            # `filter_conformers` sorts `result.kept` on the ELECTRONIC energy
+            # unconditionally (`_energy_sort_key` -> `try_e_tot_ev`), because
+            # duplicate detection is a geometry question and always compares
+            # electronic energies -- see filtering.py. That order equals the
+            # ranking order only when `self.rank_by` is RANK_BY_ELECTRONIC; on
+            # the Gibbs basis `result.kept` is sorted on the wrong quantity, so
+            # `[:k]` below would truncate on E_tot and drop the true G-minimum.
+            # Re-sorting on `self._read_energy_ev` fixes both bases at once: for
+            # the electronic basis `result.kept` is already in that order (this
+            # sort is then a no-op, `sorted` being stable), so the default path
+            # is unchanged.
+            ranked = sorted(result.kept, key=self._read_energy_ev)
             # Truncation to k is selection, not a filter drop: those conformers
             # are valid and unique, they just lost the ranking, so they are not
             # counted among `dropped` (nothing is "missing" to explain).
-            out_mols = result.kept[:k] if k < len(result.kept) else result.kept
+            out_mols = ranked[:k] if k < len(ranked) else ranked
 
         if len(out_mols) == 0:
             # names[0] is already the group's species id (see species_id()
@@ -358,8 +378,21 @@ class ConformerRanker:
             # stored in Hartree, so both sides of the comparison are eV here.
             # Reading the Hartree number as if it were eV is what made the
             # window 27.2x too wide for an opt_geometry-produced input.
-            ref_energy = self._read_energy_ev(result.kept[0])
-            for mol in result.kept:
+            #
+            # `result.kept` is sorted on the ELECTRONIC energy unconditionally
+            # (`filter_conformers` always sorts by `try_e_tot_ev`, since
+            # duplicate detection is a geometry question -- see filtering.py).
+            # That coincides with the ranking order only when `self.rank_by`
+            # is RANK_BY_ELECTRONIC; on the Gibbs basis it does not, so reading
+            # `result.kept[0]` as the reference and breaking out of `kept`'s
+            # order picked the lowest-E conformer as the zero of a G_rel window
+            # and could stop before every in-window conformer had been seen.
+            # Re-sorting on `self._read_energy_ev` fixes both: for the
+            # electronic basis `result.kept` is already in that order (a
+            # no-op, `sorted` being stable), so the default path is unchanged.
+            ranked = sorted(result.kept, key=self._read_energy_ev)
+            ref_energy = self._read_energy_ev(ranked[0])
+            for mol in ranked:
                 my_energy = self._read_energy_ev(mol)
                 rel_energy = my_energy - ref_energy
                 if rel_energy <= window:
@@ -370,9 +403,10 @@ class ConformerRanker:
             # The window is the one drop reason this method owns, and it is
             # merged into the same tally as the filter's own counts rather than
             # reported separately, so `run`'s summary is one accounting of the
-            # whole selection. `break` above is safe because `kept` ascends in
-            # energy, so every remaining conformer is outside the window too.
-            n_outside = len(result.kept) - len(out_mols)
+            # whole selection. `break` above is safe because `ranked` ascends
+            # on the SELECTED basis (`self.rank_by`) -- not necessarily on
+            # E_tot -- so every remaining conformer is outside the window too.
+            n_outside = len(ranked) - len(out_mols)
             if n_outside:
                 self._account(FilterResult(kept=out_mols, dropped={"energy_window": n_outside}))
         return out_mols

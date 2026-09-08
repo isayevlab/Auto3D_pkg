@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """Geometric measurements on a conformer's coordinates.
 
-Distances and RMSD only. Nothing here reads or writes a molecular property,
-consults a force field, or decides whether a structure is acceptable -- those
-belong to ``utils/connectivity.py``, ``Auto3D.domain.clash_relief`` and
+Distances only (RMSD lives in ``Auto3D.domain.filtering``, the only production
+caller). Nothing here reads or writes a molecular property, consults a force
+field, or decides whether a structure is acceptable -- those belong to
+``utils/connectivity.py``, ``Auto3D.domain.clash_relief`` and
 ``Auto3D.domain.filtering`` respectively.
 """
 
@@ -12,12 +13,10 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-from rdkit import Chem
-from rdkit.Chem import rdMolAlign
 
 logger = logging.getLogger("auto3d")
 
-__all__ = ["min_pairwise_distance", "get_rmsd"]
+__all__ = ["min_pairwise_distance"]
 
 
 def min_pairwise_distance(points: np.ndarray) -> float:
@@ -65,48 +64,3 @@ def min_pairwise_distance(points: np.ndarray) -> float:
 
     # Return the square root of the minimum squared distance
     return float(np.sqrt(min_squared_distance))
-
-
-def get_rmsd(mol1: Chem.Mol, mol2: Chem.Mol, remove_hs: bool = True) -> float:
-    """Calculate the RMSD between two molecular conformers.
-
-    Uses RDKit's GetBestRMS function which finds the optimal alignment
-    between the two molecules before computing RMSD.
-
-    Args:
-        mol1: First RDKit Mol object with a conformer.
-        mol2: Second RDKit Mol object with a conformer.
-        remove_hs: If True (default), remove hydrogens before RMSD calculation.
-            This speeds up the calculation and focuses on heavy atom positions.
-
-    Returns:
-        The RMSD value in Angstroms. Returns ``float("inf")`` if alignment
-        fails (e.g., due to atom mismatch). An incomparable pair is treated as
-        "distinct" rather than "identical", which is the same convention used
-        by the duplicate filter; a downstream ``rmsd < threshold`` check therefore
-        keeps the structure instead of dropping it as a false duplicate.
-
-    Example:
-        >>> from rdkit import Chem
-        >>> from rdkit.Chem import AllChem
-        >>> mol1 = Chem.MolFromSmiles("CCO")
-        >>> mol1 = Chem.AddHs(mol1)
-        >>> AllChem.EmbedMolecule(mol1)
-        0
-        >>> mol2 = Chem.Mol(mol1)  # Copy
-        >>> get_rmsd(mol1, mol2)
-        0.0
-    """
-    try:
-        if remove_hs:
-            mol1_proc = Chem.RemoveHs(mol1)
-            mol2_proc = Chem.RemoveHs(mol2)
-        else:
-            mol1_proc = mol1
-            mol2_proc = mol2
-        # Temporary bug fix for https://github.com/rdkit/rdkit/issues/6826
-        rmsd = rdMolAlign.GetBestRMS(mol1_proc, mol2_proc)
-    except RuntimeError:
-        # Incomparable pair: treat as distinct (inf), as the filter requires.
-        rmsd = float("inf")
-    return float(rmsd)

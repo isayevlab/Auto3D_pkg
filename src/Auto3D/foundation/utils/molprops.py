@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 """Scalar properties read straight off a molecular graph.
 
-Formal charge and the conformer budget: both are functions of the graph alone
-(no coordinates, no force field, no energy), which is what separates them from
-``utils/geometry.py`` and ``utils/connectivity.py``.
+The conformer budget: a function of the graph alone (no coordinates, no force
+field, no energy), which is what separates it from ``utils/geometry.py`` and
+``utils/connectivity.py``.
 """
 
 from __future__ import annotations
 
 from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors, rdmolops
+from rdkit.Chem import rdMolDescriptors
 
 from Auto3D.foundation.constants import (
     CONFORMER_MULTIPLIER,
@@ -18,7 +18,7 @@ from Auto3D.foundation.constants import (
     MAX_CONFORMERS_CAP,
 )
 
-__all__ = ["calculate_conformer_count", "get_mol_charge"]
+__all__ = ["calculate_conformer_count"]
 
 
 def calculate_conformer_count(mol: Chem.Mol) -> int:
@@ -55,21 +55,3 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     # Floor at 1: a heavy-atom-free species (e.g. [H+]) or a single atom must
     # still receive at least one conformer instead of being silently dropped.
     return min(max(1, num_heavy, formula_count), MAX_CONFORMERS_CAP)
-
-
-def get_mol_charge(mol: Chem.Mol) -> int:
-    """Get the formal charge of a molecule.
-
-    Args:
-        mol: RDKit Mol object.
-
-    Returns:
-        The total formal charge of the molecule.
-
-    Example:
-        >>> from rdkit import Chem
-        >>> mol = Chem.MolFromSmiles("[NH4+]")
-        >>> get_mol_charge(mol)
-        1
-    """
-    return rdmolops.GetFormalCharge(mol)

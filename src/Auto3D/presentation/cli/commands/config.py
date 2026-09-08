@@ -1,4 +1,3 @@
-# src/Auto3D/cli/commands/config.py
 """Configuration management commands."""
 
 from __future__ import annotations

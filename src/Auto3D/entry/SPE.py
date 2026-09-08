@@ -19,6 +19,8 @@ from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.energy import set_e_hartree_from_ev
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
+from Auto3D.foundation.utils.output_names import default_output_path
+from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
 logger = get_logger(__name__)
 
@@ -80,17 +82,15 @@ def calc_spe(
     # (this path previously ignored it).
     configure_torch(TorchConfig(allow_tf32=allow_tf32))
 
-    # Create output path in the same directory as the input (unless overridden)
+    # Create output path in the same directory as the input (unless
+    # overridden). default_output_path is the single owner of this naming
+    # convention (Auto3D.foundation.utils.output_names) -- it used to be
+    # re-derived here, in ASE/geometry.py and in thermo/driver.py, each with
+    # its own Path(model_name).exists() check for the custom-NNP case.
     if out_path is not None:
         outpath = Path(out_path)
     else:
-        dir_path = Path(path).parent
-        stem = Path(path).stem
-        if Path(model_name).exists():
-            basename = f"{stem}_userNNP_E.sdf"
-        else:
-            basename = f"{stem}_{model_name}_E.sdf"
-        outpath = dir_path / basename
+        outpath = Path(default_output_path(path, model_name, "E"))
 
     # Refuse to truncate a file that already exists. `Chem.SDWriter(outpath)`
     # below truncates on open, so without this `-o precious.sdf` destroyed
@@ -102,22 +102,15 @@ def calc_spe(
 
     # Filter once up front: drop None records (unparseable) and conformerless
     # molecules so pad_from_mols never dereferences a bad record, and so the
-    # writer loop below stays index-aligned with the energies tensor. Parsing
-    # `mols` needs only `path`, not a device or model, so it -- and the C11
-    # guard right below, which needs only `mols`/`model_name` -- both happen
-    # before get_device/create_model, matching check_gpu_requested's
-    # already-first placement: every guard that can fail fast, does, before
-    # any device/model construction.
-    mols = []
-    for i, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
-        if mol is None:
-            logger.warning(f"Skipping molecule at index {i}: failed to parse")
-            continue
-        if mol.GetNumConformers() == 0:
-            name = mol.GetProp("_Name") if mol.HasProp("_Name") else "<unnamed>"
-            logger.warning(f"Skipping record without a conformer: {name!r}.")
-            continue
-        mols.append(mol)
+    # writer loop below stays index-aligned with the energies tensor.
+    # iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the single
+    # owner of this filter -- calc_thermo applies the identical guard for the
+    # identical reason. Parsing `mols` needs only `path`, not a device or
+    # model, so it -- and the C11 guard right below, which needs only
+    # `mols`/`model_name` -- both happen before get_device/create_model,
+    # matching check_gpu_requested's already-first placement: every guard
+    # that can fail fast, does, before any device/model construction.
+    mols = list(iter_conformer_records(path))
 
     # If every record was dropped (all None / conformerless), pad_from_mols([])
     # would raise a cryptic "max() arg is an empty sequence". Write an empty

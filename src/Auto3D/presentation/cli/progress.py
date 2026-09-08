@@ -1,4 +1,3 @@
-# src/Auto3D/cli/progress.py
 """Live optimization status panel for the Auto3D CLI.
 
 This module renders the counts the optimizer workers emit. It deliberately

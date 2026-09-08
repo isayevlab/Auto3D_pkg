@@ -649,6 +649,66 @@ def test_exit_6_is_not_used_for_a_clean_run(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
 
 
+# --- 7: optimization error (no 3D structure converged) -----------------------
+
+
+def test_exit_7_no_structure_converged(tmp_path, monkeypatch):
+    """``main`` raises ``OptimizationError`` -- no chunk produced a converged
+    structure, so there is no results summary to print at all.
+
+    Distinct from 6 by construction: 6 is a run that *returned* but lost some
+    molecules; this is a run that never returned, which is why it goes through
+    ``handle_error`` (a stderr panel, or a JSON failure document with
+    ``--json``) instead of the results-summary path. Distinct from 1-5 only by
+    the exception class -- before this fix, ``OptimizationError`` was absent
+    from ``EXIT_CODES`` and fell through to the generic code 1, making "no 3D
+    structure converged" indistinguishable from an internal crash.
+    """
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.exceptions import OptimizationError
+
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    def _raise_optimization_error(options, **kw):
+        raise OptimizationError("No 3D structure converged.")
+
+    monkeypatch.setattr(a3d, "main", _raise_optimization_error)
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu"])
+
+    assert result.exit_code == 7, result.output
+    err = _flat(result.stderr)
+    assert "Optimization Error" in err
+    assert "No 3D structure converged." in err
+
+
+def test_exit_7_json_document_reports_the_failure(tmp_path, monkeypatch):
+    """With ``--json``, the failure still reaches stdout as a parseable
+    document -- same guarantee ``handle_error`` gives every other exception,
+    keyed on the new code rather than the generic ``1``."""
+    import json
+
+    import Auto3D.entry.auto3D as a3d
+    from Auto3D.foundation.exceptions import OptimizationError
+
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    def _raise_optimization_error(options, **kw):
+        raise OptimizationError("No 3D structure converged.")
+
+    monkeypatch.setattr(a3d, "main", _raise_optimization_error)
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", "--json"])
+
+    assert result.exit_code == 7, result.output
+    document = json.loads(result.stdout)
+    assert document["success"] is False
+    assert document["error_type"] == "OptimizationError"
+    assert document["exit_code"] == 7
+
+
 # --- 130: interrupted --------------------------------------------------------
 
 

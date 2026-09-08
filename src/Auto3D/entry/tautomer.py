@@ -11,6 +11,8 @@ from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
+from Auto3D.foundation.utils.smi_io import strip_taut_suffix
+from Auto3D.foundation.utils.stereo_check import formula_key
 
 logger = get_logger(__name__)
 
@@ -96,39 +98,81 @@ def select_tautomers(
             mol.ClearProp("E_rel(kcal/mol)")  # conformer-level energy, not tautomer-level
 
     titles = [mol.GetProp("_Name") for mol in mols]
-    # Tautomers of one input molecule are named "id@tautN", so the base ID is
-    # the part before '@' -- this is the real tautomer-grouping separator (see
-    # test_select_tautomers_groups_by_id), distinct from the '_' conformer index.
-    ids = [title.split("@")[0].strip() for title in titles]
+    # Tautomers of one input molecule are named "id@tautN"; strip_taut_suffix
+    # is the single owner of that parse (Auto3D.foundation.utils.smi_io) --
+    # this used to split on a bare '@' by hand, which also truncates a user ID
+    # that legitimately contains '@' (an email-style ID, say), the same drift
+    # bug M-audit found in foundation/results.py.
+    ids = [strip_taut_suffix(title).strip() for title in titles]
     energies = [e_tot_hartree(mol) * hartree2kcalpermol for mol in mols]
     df = pd.DataFrame({"id": ids, "energy": energies, "mol": mols})
     for group_name, group in df.groupby("id"):
         group = group.sort_values(by="energy")
         out_mols0 = list(group["mol"])
-        ref_energy = e_tot_hartree(out_mols0[0]) * hartree2kcalpermol
-        # select top k
-        if k is not None:
-            if k >= len(out_mols0):
-                out_mols = out_mols0
-            else:
-                out_mols = out_mols0[:k]
-            for mol in out_mols:
-                mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
-                e_rel = mol_energy - ref_energy
-                mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
-                mol.SetProp("_Name", group_name)
-        # select E <= window -- window is not None here, guaranteed by the
-        # argument check above
-        else:
-            out_mols = []
-            for mol in out_mols0:
-                mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
-                e_rel = mol_energy - ref_energy
-                if e_rel <= window:
+
+        # Partition by species identity BEFORE ranking. Grouping is on the
+        # base id alone, and two chemically different species can legitimately
+        # share one -- most notably a pKa-normalized protonation pair (e.g. an
+        # acid and its conjugate base) that tautomer enumeration deliberately
+        # keeps under the same id. Ranking across that boundary by electronic
+        # energy is not a tautomer-stability comparison: a formal-charge
+        # difference moves E_tot by hundreds of kcal/mol, so the neutral member
+        # would always "win" and silently defeat the pKa normalization this
+        # selection step exists to respect.
+        #
+        # The key is (element composition, formal charge) -- deliberately
+        # `formula_key`, not `Auto3D.foundation.utils.stereo_check.species_key`
+        # (a canonical SMILES). Tautomers are constitutional isomers of each
+        # other *by definition* -- keto and enol differ in exactly where a
+        # proton and a double bond sit -- so a connectivity-sensitive key
+        # never matches between them and would put every tautomer in its own
+        # singleton partition, silently turning "select the most stable
+        # tautomer" into "keep all of them", which is what let a bare enol
+        # (no C=O) survive selection alongside its keto partner and fail this
+        # module's own test. A genuine protonation-state pair still splits
+        # under `formula_key` + charge: the conjugate base has one fewer
+        # hydrogen, so its formula differs too. `out_mols0` is already
+        # energy-sorted (just above), and dict insertion preserves that order,
+        # so each partition's own list stays sorted ascending too.
+        partitions: dict[tuple[str, int], list] = {}
+        for mol in out_mols0:
+            key = (formula_key(mol), Chem.GetFormalCharge(mol))
+            partitions.setdefault(key, []).append(mol)
+
+        if len(partitions) > 1:
+            logger.warning(
+                "Tautomer group %r spans %d distinct species/formal-charge "
+                "states; ranking each separately rather than cross-comparing "
+                "their electronic energies.",
+                group_name,
+                len(partitions),
+            )
+
+        for out_mols0_partition in partitions.values():
+            ref_energy = e_tot_hartree(out_mols0_partition[0]) * hartree2kcalpermol
+            # select top k
+            if k is not None:
+                if k >= len(out_mols0_partition):
+                    out_mols = out_mols0_partition
+                else:
+                    out_mols = out_mols0_partition[:k]
+                for mol in out_mols:
+                    mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
+                    e_rel = mol_energy - ref_energy
                     mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
                     mol.SetProp("_Name", group_name)
-                    out_mols.append(mol)
-        results += out_mols
+            # select E <= window -- window is not None here, guaranteed by the
+            # argument check above
+            else:
+                out_mols = []
+                for mol in out_mols0_partition:
+                    mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
+                    e_rel = mol_energy - ref_energy
+                    if e_rel <= window:
+                        mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
+                        mol.SetProp("_Name", group_name)
+                        out_mols.append(mol)
+            results += out_mols
 
     with Chem.SDWriter(output_path) as w:
         for mol in results:

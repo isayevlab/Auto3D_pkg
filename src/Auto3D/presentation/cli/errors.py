@@ -1,4 +1,3 @@
-# src/Auto3D/cli/errors.py
 """Error handling for Auto3D CLI."""
 
 from __future__ import annotations
@@ -15,18 +14,26 @@ from Auto3D.foundation.exceptions import (
     GPUError,
     InputValidationError,
     ModelError,
+    OptimizationError,
 )
 from Auto3D.presentation.cli.console import emit_json, error_console
 
 # Differentiated exit codes for scripting/CI. 1 = generic; the rest let callers
 # branch on error class. (Click reserves 2 for usage errors, which aligns with
-# our configuration/input errors below.)
+# our configuration/input errors below.) 6 is EXIT_PARTIAL_SUCCESS
+# (cli/commands/run.py), not an exception at all, so it is not in this table.
 EXIT_CODES: dict[type, int] = {
     ConfigurationError: 2,
     InputValidationError: 2,
     DependencyError: 3,
     GPUError: 4,
     ModelError: 5,  # includes ModelLoadError / NumericalError
+    # Raised when no 3D structure converges for any molecule (see
+    # WorkflowOrchestrator._run_pipeline). Previously unmapped, so it fell
+    # through to the generic code 1 -- indistinguishable from an internal
+    # crash to a calling shell script, even though it is a recognized,
+    # documented Auto3DError with its own hint-worthy cause.
+    OptimizationError: 7,
 }
 
 # Ctrl-C. 128 + SIGINT(2) is the shell convention for "terminated by a signal",

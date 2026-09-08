@@ -100,23 +100,32 @@ def check_input(args: Any) -> None:
                 dependency_name="openeye",
             )
 
-    if args.optimizing_engine == "ANI2x":
+    if args.optimizing_engine in ("ANI2x", "ANI2xt"):
+        # ANI2xt needs torchani too -- its AEV computer is built from
+        # torchani.AEVComputer (engines/models/ani2xt.py), it just does not
+        # need torchani's pretrained ensemble weights the way ANI2x does.
+        # This used to probe only "ANI2x", so an ANI2xt run with torchani
+        # missing sailed through both this check and preflight_model, then
+        # failed inside every chunk's worker -- caught by
+        # optim_rank_wrapper's blanket per-chunk `except Exception`, which
+        # swallows the real DependencyError and leaves the run ending in a
+        # misleading OptimizationError at exit 1 instead of exit 3.
+        # args.optimizing_engine is already canonicalized (ENGINE_CANONICAL_CASE,
+        # applied upstream) by the time it reaches here, so this exact-match
+        # is safe against case variants like "ani2xt".
         try:
             import torchani  # noqa: F401
         except ImportError:
             raise DependencyError(
-                "ANI2x is used as optimizing engine, but TorchANI is not installed.",
+                f"{args.optimizing_engine} is used as optimizing engine, "
+                "but TorchANI is not installed.",
                 dependency_name="torchani",
             )
 
     if Path(args.optimizing_engine).exists():
         # Validate that a custom NNP path loads (TorchScript archive or eager
         # nn.Module); shared load contract -- see Auto3D.engines.models.loading.
-        #
-        # Function-scope on purpose: `utils` is the bottom of the stack and must
-        # not import the `models` domain package at module level. Reached only
-        # when the engine really is a path on disk.
-
+        # Reached only when the engine really is a path on disk.
         try:
             load_custom_nnp(args.optimizing_engine, torch.device("cpu"))
         except ModelLoadError as e:
@@ -376,10 +385,6 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     # optim_rank_wrapper's per-chunk handler swallowed it. The registry lookup
     # is a pure offline dict read against a bundled YAML, so validating costs
     # nothing.
-    #
-    # Function-scope for the same reason as load_custom_nnp above: it keeps
-    # `utils` from importing the `models` domain package at module level.
-
     try:
         resolve_engine_name(options.optimizing_engine)
     except ConfigurationError as exc:

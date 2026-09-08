@@ -9,6 +9,7 @@ from Auto3D.foundation.utils.sdf_io import (
     SDF2chunks,
     count_sdf,
     guess_file_type,
+    iter_conformer_records,
     reorder_sdf,
 )
 
@@ -309,6 +310,65 @@ class TestSDF2chunksTrailingRecord:
         joined = "".join(chunks[1])
         assert "line2" in joined
         assert "line3" in joined
+
+
+class TestIterConformerRecords:
+    """The one filter `calc_spe` and `calc_thermo` both call: skip a record
+    RDKit could not parse, and skip a parsed record with no 3D conformer, so
+    neither caller aborts a whole batch on one bad record (issue 32).
+
+    Fakes ``Chem.SDMolSupplier`` at the module level, the same pattern
+    ``TestNoneMolHardening`` above uses -- `iter_conformer_records` opens the
+    path itself, so the fake replaces what that open would yield rather than
+    needing a real (or real-looking) SDF on disk.
+    """
+
+    def _mol_with_conformer(self, name):
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", name)
+        return mol
+
+    def _fake_supplier(self, records, monkeypatch):
+        import Auto3D.foundation.utils.sdf_io as sdf_io
+
+        monkeypatch.setattr(sdf_io.Chem, "SDMolSupplier", lambda *a, **k: records)
+
+    def test_a_none_record_between_valid_ones_is_skipped(self, tmp_path, monkeypatch):
+        good1 = self._mol_with_conformer("first")
+        good2 = self._mol_with_conformer("second")
+        self._fake_supplier([good1, None, good2], monkeypatch)
+
+        kept = list(iter_conformer_records(str(tmp_path / "unused.sdf")))
+        assert [m.GetProp("_Name") for m in kept] == ["first", "second"]
+
+    def test_a_conformerless_record_is_skipped(self, tmp_path, monkeypatch):
+        flat = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        flat.SetProp("_Name", "no_conformer")
+        good = self._mol_with_conformer("ok")
+        self._fake_supplier([flat, good], monkeypatch)
+
+        kept = list(iter_conformer_records(str(tmp_path / "unused.sdf")))
+        assert [m.GetProp("_Name") for m in kept] == ["ok"]
+
+    def test_skipping_is_reported(self, tmp_path, monkeypatch, caplog):
+        import logging
+
+        self._fake_supplier([None, self._mol_with_conformer("ok")], monkeypatch)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.foundation.utils.sdf_io"):
+            list(iter_conformer_records(str(tmp_path / "unused.sdf")))
+        assert any("Skipping record" in r.message for r in caplog.records), (
+            f"a dropped record was not reported: {[r.message for r in caplog.records]}"
+        )
+
+    def test_an_all_valid_batch_is_untouched(self, tmp_path, monkeypatch):
+        mols = [self._mol_with_conformer(f"m{i}") for i in range(3)]
+        self._fake_supplier(mols, monkeypatch)
+
+        assert len(list(iter_conformer_records(str(tmp_path / "unused.sdf")))) == 3
 
 
 if __name__ == "__main__":

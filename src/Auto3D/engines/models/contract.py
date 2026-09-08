@@ -1,4 +1,3 @@
-# src/Auto3D/models/contract.py
 """Both model contracts, in one file, next to what enforces each of them.
 
 Auto3D has two distinct and *permanently* separate model interfaces. Conflating

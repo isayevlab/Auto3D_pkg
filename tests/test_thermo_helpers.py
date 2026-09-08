@@ -847,53 +847,15 @@ class TestStationaryPointGate:
         assert seen == {"fmax": 2e-4, "steps": 123}
 
 
-class TestRecordFiltering:
-    """One malformed record must not destroy a batch of Hessians."""
-
-    def _mol_with_conformer(self, name):
-        from rdkit import Chem
-        from rdkit.Chem import AllChem
-
-        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
-        AllChem.EmbedMolecule(mol, randomSeed=42)
-        mol.SetProp("_Name", name)
-        return mol
-
-    def test_a_none_record_between_valid_ones_is_skipped(self):
-        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
-
-        good1 = self._mol_with_conformer("first")
-        good2 = self._mol_with_conformer("second")
-        kept = list(iter_thermo_records([good1, None, good2]))
-        assert [m.GetProp("_Name") for m in kept] == ["first", "second"]
-
-    def test_a_conformerless_record_is_skipped(self):
-        from rdkit import Chem
-
-        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
-
-        flat = Chem.AddHs(Chem.MolFromSmiles("CCO"))
-        flat.SetProp("_Name", "no_conformer")
-        good = self._mol_with_conformer("ok")
-        kept = list(iter_thermo_records([flat, good]))
-        assert [m.GetProp("_Name") for m in kept] == ["ok"]
-
-    def test_skipping_is_reported(self, caplog):
-        import logging
-
-        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
-
-        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
-            list(iter_thermo_records([None, self._mol_with_conformer("ok")]))
-        assert any("Skipping record" in r.message for r in caplog.records), (
-            f"a dropped record was not reported: {[r.message for r in caplog.records]}"
-        )
-
-    def test_an_all_valid_batch_is_untouched(self):
-        from Auto3D.entry.ASE.thermo.driver import iter_thermo_records
-
-        mols = [self._mol_with_conformer(f"m{i}") for i in range(3)]
-        assert len(list(iter_thermo_records(mols))) == 3
+# One malformed record must not destroy a batch of Hessians: the underlying
+# filter used to live here as driver.iter_thermo_records (mols-list-based),
+# with its own copy of the "skip None / skip conformerless" guard duplicated
+# in SPE.py. It is now Auto3D.foundation.utils.sdf_io.iter_conformer_records
+# (path-based, single owner) -- see TestIterConformerRecords in
+# tests/test_utils_sdf_io.py for the hermetic filtering tests, and
+# tests/test_thermo_reference.py::TestBatchRobustness for the slow, real-file,
+# real-`calc_thermo` integration proof that a malformed record does not abort
+# the batch.
 
 
 class TestThermoFailedMarker:

@@ -1,4 +1,3 @@
-# src/Auto3D/embedding.py
 """Parallel conformer embedding using multiprocessing.
 
 Lives at the top level rather than under ``Auto3D.engines.isomers`` because

@@ -18,13 +18,21 @@ from __future__ import annotations
 from functools import cached_property
 from pathlib import Path
 
+from Auto3D.foundation.utils.smi_io import strip_taut_suffix
+
 
 def count_output(output_path: str) -> tuple[int, int]:
     """Return (unique_molecule_count, conformer_count) for an output SDF.
 
     Molecule identity is the input id -- the part of the conformer name before
-    the first ``@`` (the tautomer separator, ``id@tautN``), so all tautomers of
-    one input molecule count as a single molecule. A missing/unreadable file
+    the ``@tautN`` tautomer separator (``id@tautN``), so all tautomers of one
+    input molecule count as a single molecule. Stripped with
+    ``strip_taut_suffix`` (splits on ``"@taut"``, never a bare ``"@"``) so an
+    input id that legitimately contains ``@`` (an email-style id, say) is not
+    truncated into a different, wrong id -- splitting on bare ``"@"`` was a
+    real drift bug here, previously out of sync with
+    ``reconciliation.find_smiles_not_in_sdf``/``find_ids_not_in_sdf``, which
+    already used the correct ``"@taut"`` split. A missing/unreadable file
     yields ``(0, 0)``.
     """
     from rdkit import Chem
@@ -39,7 +47,7 @@ def count_output(output_path: str) -> tuple[int, int]:
             if mol is None:
                 continue
             conformers += 1
-            ids.add(mol.GetProp("_Name").split("@")[0].strip())
+            ids.add(strip_taut_suffix(mol.GetProp("_Name")).strip())
     return (len(ids), conformers)
 
 

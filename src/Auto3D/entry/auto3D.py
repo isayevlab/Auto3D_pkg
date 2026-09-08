@@ -23,13 +23,14 @@ from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.preflight import preflight_model
 from Auto3D.foundation.config import Auto3DOptions
-from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.foundation.exceptions import ConfigurationError, OptimizationError
 from Auto3D.foundation.utils.logging_config import configure_logging, get_logger
 from Auto3D.foundation.utils.reconciliation import find_smiles_not_in_sdf
 from Auto3D.foundation.utils.sdf_io import reorder_sdf
 from Auto3D.foundation.utils.smi_io import smiles2smi
 from Auto3D.orchestration.job_layout import create_chunk_meta_names
 from Auto3D.orchestration.pipeline.input_checks import check_input, check_valid_configuration
+from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
 # Pipeline workers live in workflow_workers to break the auto3D<->workflow import
 # cycle. Re-exported here for backward compatibility with code/tests that import
@@ -86,8 +87,11 @@ def main(
     # Configure logging based on verbose setting
     configure_logging(verbose=args.verbose)
 
+    # Left deferred (unlike WorkflowOrchestrator below, hoisted to module
+    # level): out of scope for that cleanup, which targeted WorkflowOrchestrator
+    # specifically. foundation/results.py is not this module's file to
+    # restructure.
     from Auto3D.foundation.results import WorkflowResult
-    from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     # No start-method call here, deliberately. This used to be
     # `mp.set_start_method("spawn", force=True)`: a global mutation performed by
@@ -140,6 +144,8 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         ModelLoadError: If the optimizing model could not be obtained or
             loaded.
         DependencyError: If a required optional dependency is missing.
+        OptimizationError: If no input SMILES embedded a usable 3D conformer,
+            so nothing reached the optimizer.
     """
     # Copy the caller's config up front: smiles2mols must not mutate the
     # object it was given (M15). Every assignment below (path, input_format)
@@ -245,7 +251,23 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             device=device,
             config=opt_config,
         )
-        opt_engine.run()
+        wrote_output = opt_engine.run()
+
+        # optimizing.run() returns False (and does not write
+        # meta["optimized_og"]) when meta["enumerated_sdf"] is missing, empty,
+        # or contains no parseable record -- which happens here when every
+        # input SMILES failed to embed a 3D conformer. Unguarded, ranking()
+        # below would then read a nonexistent path (inside a TemporaryDirectory
+        # that is still open at this point, but gone by the time the resulting
+        # OSError is seen by a caller working with the returned path) and the
+        # failure would surface as an opaque OSError with no indication of the
+        # actual cause.
+        if not wrote_output:
+            raise OptimizationError(
+                f"No optimized structures were produced from {meta['enumerated_sdf']!r}: "
+                "isomer/embedding produced no usable 3D conformer for any input "
+                "SMILES (embedding likely failed for all of them)."
+            )
 
         # Ranking step
         rank_engine = ranking(

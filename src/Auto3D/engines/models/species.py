@@ -1,4 +1,3 @@
-# src/Auto3D/models/species.py
 """ANI2xt's species convention, owned by ``models/`` because it is the model's.
 
 ANI2xt is constructed with ``periodic_table_index=False`` at every site, so its

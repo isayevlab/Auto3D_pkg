@@ -328,6 +328,35 @@ def job_dir(tmp_path):
 
 
 @pytest.fixture
+def stub_torchani_importable(monkeypatch):
+    """Make ``import torchani`` succeed, regardless of whether TorchANI is
+    actually installed in this environment.
+
+    ``input_checks.check_input`` probes ANI2x/ANI2xt support with a bare
+    ``import torchani`` inside a ``try/except ImportError`` -- closing the gap
+    where ANI2xt (whose AEV computer is built from ``torchani.AEVComputer``,
+    see ``engines/models/ani2xt.py``) was not probed the way ANI2x always was,
+    even though it needs torchani installed too. Tests whose assertion is
+    about something else entirely -- job-directory staging, encoded-input
+    handling, or the *ordering* of checks after this probe -- must not start
+    failing on the ani=false CI leg (no ``[ani]`` extra installed) just
+    because ``check_input`` now also probes torchani for ANI2xt. This fixture
+    makes that probe succeed on both the ani=false and ani=true legs, so those
+    tests keep exercising exactly the coverage they provided before the probe
+    was widened, without actually depending on torchani.
+
+    A fresh dummy module is inserted unconditionally (not only when torchani
+    is genuinely absent), so a test using this fixture behaves identically
+    whether or not torchani happens to be installed on the box that runs it.
+    ``monkeypatch`` restores ``sys.modules['torchani']`` (or its absence)
+    afterwards.
+    """
+    import types
+
+    monkeypatch.setitem(sys.modules, "torchani", types.ModuleType("torchani"))
+
+
+@pytest.fixture
 def isolated_input(job_dir):
     """Copy a file from tests/files into this test's own directory.
 

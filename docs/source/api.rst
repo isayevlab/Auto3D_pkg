@@ -110,6 +110,16 @@ Functions for tautomer enumeration and selection:
    Auto3D.entry.tautomer.get_stable_tautomers
    Auto3D.entry.tautomer.select_tautomers
 
+Progress Reporting
+------------------
+
+The schema of the events ``main()``'s optional ``progress_callback`` receives:
+
+.. autosummary::
+   :toctree: generated
+
+   Auto3D.orchestration.workflow_workers.ProgressEvent
+
 Utility Functions
 -----------------
 

@@ -1,4 +1,3 @@
-# src/Auto3D/utils/convergence.py
 """The one place that knows what the ``Converged`` SDF property means.
 
 ``Converged`` is written by :mod:`Auto3D.engines.batch_opt.batchopt` for every record

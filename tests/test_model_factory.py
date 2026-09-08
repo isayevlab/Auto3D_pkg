@@ -8,12 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from Auto3D.engines.model_factory import (
-    ModelFactory,
-    create_model,
-    get_device,
-    is_custom_model,
-)
+from Auto3D.engines.model_factory import ModelFactory, create_model, get_device
 from Auto3D.engines.models.contract import ModelAdapter
 
 
@@ -193,25 +188,6 @@ class TestGetDevice:
         mock_cuda.return_value = True
         device = get_device(gpu_idx=None, use_gpu=True)
         assert device == torch.device("cuda:0")
-
-
-class TestIsCustomModel:
-    """Tests for is_custom_model function."""
-
-    def test_is_custom_model_false_for_builtin(self):
-        """Test that built-in model names return False."""
-        assert not is_custom_model("AIMNET")
-        assert not is_custom_model("ANI2x")
-
-    def test_is_custom_model_true_for_existing_path(self, tmp_path):
-        """Test that existing file paths return True."""
-        model_file = tmp_path / "model.pt"
-        model_file.touch()
-        assert is_custom_model(str(model_file))
-
-    def test_is_custom_model_false_for_nonexistent_path(self):
-        """Test that non-existent paths return False."""
-        assert not is_custom_model("/nonexistent/path/model.pt")
 
 
 class TestFactoryReturnsAdapter:

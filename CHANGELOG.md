@@ -7,7 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `rank_by="G"` (Gibbs) with `k>1` selected and ordered conformers by
+  electronic energy instead of Gibbs free energy; `G_rel(kcal/mol)` was
+  referenced to the lowest-*E* conformer, overwriting correct upstream values
+  with negative ones; and the energy-window cutoff could silently drop
+  in-window conformers on the Gibbs basis. All three shared one root cause —
+  the ranking basis is now honored end to end.
+- The orchestrator hung forever when the isomer worker died without cleanup
+  (OOM kill, segfault): the parent now injects the queue sentinels itself and
+  bounds the optimizer join.
+- fp64 model energies were rounded to float32 on the optimization/ranking
+  path (custom NNPs; ANI2x on torchani versions with fp64 self-energies) —
+  a ~0.05 kcal/mol quantization at NNP total-energy scale that could reorder
+  close conformers.
+- ANI2xt without torchani installed failed mid-run with a misleading error
+  instead of exit 3 at preflight, like ANI2x already did.
+- `opt_geometry` and `smiles2mols` could return a stale previous output file
+  (or crash naming the wrong path) when the input contained no usable
+  molecules; a zero-molecule input now fails validation with exit 2.
+- Molecule IDs containing a bare `@` were truncated by the run summary and
+  reconciliation, producing false "produced no output" failures (exit 6) on
+  successful runs; the `@tautN` parse now has a single owner
+  (`strip_taut_suffix`).
+- Radical/open-shell inputs were silently accepted by ANI2x/ANI2xt and
+  optimized as closed-shell species; they are now rejected for ANI engines
+  (same mechanism as the charge gate) and warned about on AIMNet engines.
+- Tautomer selection with the OpenEye engine could rank different protonation
+  states of one input against each other on raw `E_tot` (the extra proton
+  always wins); selection now stays within same-species groups and warns when
+  a group splits.
+- FIRE's timestep adaptation was coupled across the batch: acceleration
+  effectively never engaged, and a molecule's optimization trajectory
+  depended on which molecules shared its bucket. Decoupled to the published
+  per-molecule rule (Bitzek et al. 2006).
+- `OptimizationError` ("no 3D structure converged") now exits 7 instead of
+  the generic 1, so scripts can tell a legitimate convergence failure from an
+  internal crash.
+- `_finalize_output` no longer materializes the whole combined SDF in memory
+  (measured 2.7x file size); chunk outputs are streamed.
+- `Thermo_failed` is written and read through one constant again; the thermo
+  driver's duplicate definition is gone.
+- Optimizer workers derive their device via `get_device` again instead of a
+  hand-rolled `cuda:{idx}` string that bypassed its out-of-range check.
+- Benchmarks, `scripts/bench_optimizer.py`, and the examples import live
+  3.1.x module paths again (they still referenced pre-layer-move paths and
+  crashed on import).
+
 ### Changed
+- `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
+  `engines/models/policy.py` defers both, and an import-boundary test pins it.
+- The `aimnet2-nse` CLI description no longer claims spin-state control that
+  Auto3D does not yet expose (multiplicity is not threaded to models).
+- `ProgressEvent` is importable from the top-level `Auto3D` package and
+  documented in the API reference.
 - **conda-recipe/meta.yaml**: Dropped `aimnet` from run requirements (it
   depends on pip-only `nvalchemi-toolkit-ops` and cannot be packaged for
   conda-forge); added `torchani` and `ase` as run dependencies instead (both

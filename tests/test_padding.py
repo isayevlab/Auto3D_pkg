@@ -132,8 +132,19 @@ class TestPadFromMols:
 
         np.testing.assert_array_almost_equal(actual_positions, expected_positions)
 
-    def test_requires_grad_enabled(self):
-        """Coords tensor should have requires_grad=True."""
+    def test_coords_are_a_plain_leaf_tensor_grad_state_is_the_callers(self):
+        """``pad_from_mols`` must not set ``requires_grad`` itself (issue #18).
+
+        It used to return ``requires_grad=True`` unconditionally, which was
+        dead on the optimization path (``ensemble_opt`` immediately detaches,
+        and the FIRE step loop sets its own ``requires_grad_(True)`` per step)
+        and harmful on the SPE path: ``energy_batched`` builds an autograd
+        graph whenever the coords it is handed already require grad, so for
+        ANI2x's 8-model ensemble every sub-batch saved activations for a
+        backward ``energy_batched`` (M39) deliberately never calls, roughly
+        doubling peak memory for nothing. Both callers own their own grad
+        state now; this pins the padder's own output as a fresh, ordinary leaf.
+        """
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
 
@@ -142,7 +153,9 @@ class TestPadFromMols:
 
         c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
 
-        assert c.requires_grad is True
+        assert c.requires_grad is False
+        assert c.is_leaf
+        assert c.grad_fn is None
 
     def test_ani2xt_unsupported_element_raises_valueerror(self):
         """ANI2xt only supports H,C,N,O,F,S,Cl. A phosphorus-containing

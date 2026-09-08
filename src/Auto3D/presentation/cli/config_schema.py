@@ -1,4 +1,3 @@
-# src/Auto3D/cli/config_schema.py
 """Pydantic configuration schema for Auto3D CLI.
 
 This module provides validated configuration using Pydantic, supporting

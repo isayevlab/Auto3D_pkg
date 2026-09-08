@@ -34,6 +34,7 @@ def test_all_public_names_resolve():
         "calc_thermo",
         "get_stable_tautomers",
         "select_tautomers",
+        "ProgressEvent",
     }
     assert set(Auto3D.__all__) == expected
 

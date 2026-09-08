@@ -223,6 +223,18 @@ def hash_taut_smi(smi: str, out: str) -> None:
             f.write(molecule)
 
 
+def strip_taut_suffix(name: str) -> str:
+    """Return a molecule ID with any ``@tautN`` suffix removed.
+
+    The suffix is written by :func:`hash_taut_smi` (``id + f"@taut{c}"``), so
+    this is its inverse and the single place the parse lives. Splitting on
+    ``"@taut"`` -- never on a bare ``"@"`` -- keeps user IDs that legitimately
+    contain ``@`` (an email-style ID, say) intact; splitting on ``"@"`` was a
+    real drift bug in ``foundation/results.py``, which under-counted such IDs.
+    """
+    return name.split("@taut")[0]
+
+
 def combine_smi(smies: list[str], out: str) -> None:
     """Combine multiple SMILES files into a single file.
 

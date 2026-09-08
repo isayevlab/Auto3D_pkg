@@ -1,4 +1,3 @@
-# src/Auto3D/cli/app.py
 """Main Typer application for Auto3D CLI."""
 
 from __future__ import annotations
