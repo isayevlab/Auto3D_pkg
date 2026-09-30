@@ -1340,3 +1340,28 @@ class TestQuietPathsNameWhatTheyDropped:
 
         assert results, "test premise: ethanol should embed"
         assert "produced no conformers" not in caplog.text
+
+
+def test_optim_rank_wrapper_applies_torch_config(tmp_path):
+    """N-M8: torch.backends state is process-global and does not cross the spawn
+    boundary, so the worker must apply allow_tf32 itself."""
+    import queue
+
+    import torch
+
+    import Auto3D.orchestration.workflow_workers as ww
+    from Auto3D.foundation.config import Auto3DOptions
+
+    previous = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = False
+    run_logger = logging.getLogger("auto3d")
+    previous_handlers = list(run_logger.handlers)
+    try:
+        args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False, allow_tf32=True)
+        q = queue.Queue()
+        q.put("Done")
+        ww.optim_rank_wrapper(args, q, queue.Queue(), gpu_idx=0)
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = previous
+        run_logger.handlers[:] = previous_handlers

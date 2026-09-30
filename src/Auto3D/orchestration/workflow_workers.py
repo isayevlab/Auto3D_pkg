@@ -24,7 +24,9 @@ from Auto3D.domain.ranking import ranking
 from Auto3D.engines.batch_opt.batchopt import optimizing
 from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
+from Auto3D.engines.models.policy import check_gpu_requested
 from Auto3D.foundation.config import optimizer_worker_indices
+from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.orchestration.job_layout import create_chunk_meta_names, housekeeping
 from Auto3D.orchestration.processors import TautomerProcessor
 
@@ -219,6 +221,14 @@ def optim_rank_wrapper(
     progress_queue: Queue[ProgressEvent] | None = None,
 ) -> None:
     with _worker_stdout_to_stderr():
+        # torch.backends.* is process-global and this is a fresh spawned
+        # interpreter: the parent's configure_torch never reached here (N-M8).
+        configure_torch(TorchConfig(allow_tf32=args.allow_tf32))
+        # The fatal-not-fallback GPU policy was enforced only in the parent;
+        # get_device below would silently return CPU if CUDA failed to
+        # initialize in this process (P-m18).
+        check_gpu_requested(args.use_gpu)
+
         # prepare logging
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
