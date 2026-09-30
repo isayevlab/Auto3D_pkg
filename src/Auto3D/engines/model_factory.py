@@ -16,12 +16,14 @@ from Auto3D.engines.models.adapter import (
 )
 from Auto3D.foundation.constants import (
     BUILTIN_ANI_MODELS,
+    COMPILE_PROBE_TOLERANCE_EV,
+    CONFORMER_RANDOM_SEED,
     DEFAULT_AIMNET_MODEL,
     MODEL_AIMNET,
     MODEL_ANI2X,
     MODEL_ANI2XT,
 )
-from Auto3D.foundation.exceptions import DependencyError, GPUError
+from Auto3D.foundation.exceptions import DependencyError, GPUError, NumericalError
 from Auto3D.foundation.registry import Registry
 
 if TYPE_CHECKING:
@@ -37,6 +39,47 @@ if TYPE_CHECKING:
 
 # Environment variable to enable torch.compile() by default
 _COMPILE_ENV_VAR = "AUTO3D_COMPILE_MODEL"
+
+
+def _probe_mols() -> list:
+    """Two small molecules every engine can score (H, C, O only)."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    out = []
+    for smi in ("O", "CCO"):
+        m = Chem.AddHs(Chem.MolFromSmiles(smi))
+        AllChem.EmbedMolecule(m, randomSeed=CONFORMER_RANDOM_SEED)
+        out.append(m)
+    return out
+
+
+def verify_compiled_adapter(compiled: ModelAdapter, eager: ModelAdapter, device: torch.device) -> None:
+    """Raise NumericalError if ``compiled`` and ``eager`` disagree on a probe batch.
+
+    torch.compile can return numerically wrong results without raising
+    (2026-09-21 review, P-C1: hundreds of eV on ANI2xt/ANI2x). This runs
+    once per compiled adapter, at construction, so a wrong compilation never
+    reaches the optimizer. The probe also triggers the (lazy) compilation, so
+    its cost is the compile the caller asked for plus two tiny forwards.
+    """
+    from Auto3D.engines.batch_opt.padding import pad_from_mols
+
+    mols = _probe_mols()
+    coord, species, charges, mask = pad_from_mols(mols, eager, device)
+    # .forward(...), not eager(...)/compiled(...): ModelAdapter is a Protocol that
+    # declares forward but not __call__ (same reason model_wrapper.py's EnForce_ANI
+    # calls self.model.forward(...) rather than self.model(...)).
+    e_eager, f_eager = eager.forward(coord.clone(), species.clone(), charges.clone(), atom_mask=mask)
+    e_comp, f_comp = compiled.forward(coord.clone(), species.clone(), charges.clone(), atom_mask=mask)
+    de = float((e_comp.detach() - e_eager.detach()).abs().max())
+    df = float((f_comp.detach() - f_eager.detach()).abs().max())
+    if de > COMPILE_PROBE_TOLERANCE_EV or df > 10 * COMPILE_PROBE_TOLERANCE_EV:
+        raise NumericalError(
+            f"The compiled {type(compiled).__name__} disagrees with eager on a probe "
+            f"batch (max|dE| = {de:.3e} eV, max|dF| = {df:.3e} eV/A). Refusing to use "
+            "it. Run with compile_model=False / AUTO3D_COMPILE_MODEL=0."
+        )
 
 
 class ModelFactory:
@@ -178,6 +221,10 @@ class ModelFactory:
                     f"{name} requires TorchANI, which is not installed.",
                     dependency_name="torchani",
                 ) from exc
+            if compile_model and getattr(adapter, "_compiled", False):
+                eager = adapter_cls(device, compile_model=False)  # same seam as model_factory.py:166
+                verify_compiled_adapter(adapter, eager, device)
+                del eager
             if use_cache:
                 cls._cache[cache_key] = adapter
             return adapter
@@ -187,7 +234,12 @@ class ModelFactory:
         #    cls._cache, so `use_cache` has no effect for a custom model path
         #    -- a fresh CustomModelAdapter is always created.
         if Path(name).exists():
-            return CustomModelAdapter(name, device, compile_model=compile_model)
+            adapter = CustomModelAdapter(name, device, compile_model=compile_model)
+            if compile_model and getattr(adapter, "_compiled", False):
+                eager = CustomModelAdapter(name, device, compile_model=False)
+                verify_compiled_adapter(adapter, eager, device)
+                del eager
+            return adapter
 
         # 3. Everything else -> aimnet registry name. "AIMNET" is the legacy
         #    alias for the registry default.

@@ -59,3 +59,27 @@ def test_ani2x_compile_request_warns_and_runs_eager(caplog):
         adapter = create_model("ANI2x", torch.device("cpu"), compile_model=True, use_cache=False)
     assert adapter._compiled is False
     assert any("ANI2x" in r.message and "compile" in r.message.lower() for r in caplog.records)
+
+
+from Auto3D.foundation.exceptions import NumericalError
+
+
+def test_create_model_refuses_a_compiled_adapter_that_disagrees_with_eager(monkeypatch):
+    """A compile that silently changes the numbers must not reach the optimizer."""
+    import Auto3D.engines.models.adapter as adapter_mod
+
+    def _bad_compile(obj, **kwargs):
+        # Simulate a numerically wrong compilation: +1 eV per molecule.
+        if isinstance(obj, torch.nn.Module):
+            class _Wrapped(torch.nn.Module):
+                def __init__(self, inner):
+                    super().__init__()
+                    self._orig_mod = inner
+                def forward(self, *a, **k):
+                    return self._orig_mod(*a, **k) + 1.0
+            return _Wrapped(obj)
+        return lambda *a, **k: obj(*a, **k) + 1.0
+
+    monkeypatch.setattr(adapter_mod.torch, "compile", _bad_compile)
+    with pytest.raises(NumericalError, match="compiled"):
+        create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)

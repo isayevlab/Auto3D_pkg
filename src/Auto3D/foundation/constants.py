@@ -39,6 +39,12 @@ CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 INITIAL_FMAX_SENTINEL = 999.0  # Initial value for max force (unconverged)
 INITIAL_ENERGY_SENTINEL = 999.0  # Initial value for energy (unconverged)
 
+# eV. A compiled adapter must reproduce the eager adapter's energies on a
+# two-molecule probe batch to within this tolerance, or create_model refuses
+# it. fp32 compile-vs-eager reordering is ~1e-5 eV; the P-C1 defect was
+# hundreds of eV. Set well above the former and far below the latter.
+COMPILE_PROBE_TOLERANCE_EV = 1e-3
+
 # Thermodynamics
 STANDARD_PRESSURE = 101325  # Pa
 
