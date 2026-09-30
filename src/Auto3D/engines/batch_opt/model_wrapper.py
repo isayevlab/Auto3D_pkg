@@ -18,6 +18,9 @@ import torch.nn as nn
 from Auto3D.engines.models.adapter import validate_energies
 from Auto3D.engines.models.contract import ModelAdapter, missing_adapter_members
 from Auto3D.foundation.exceptions import OptimizationError
+from Auto3D.foundation.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class EnForce_ANI(nn.Module):
@@ -100,6 +103,7 @@ class EnForce_ANI(nn.Module):
             )
         self.model = model_adapter
         self.batchsize_atoms = batchsize_atoms
+        self._bsize_by_n: dict[int, int] = {}
 
     def forward(
         self,
@@ -161,7 +165,7 @@ class EnForce_ANI(nn.Module):
         results: list = []
         # Ensure at least 1 molecule per batch to avoid empty batches
         remaining = torch.arange(B, device=coord.device)
-        bsize = max(1, self.batchsize_atoms // N)
+        bsize = self._bsize_by_n.get(N, max(1, self.batchsize_atoms // N))
 
         # Process slices of molecules; on CUDA OOM, free the cache and retry
         # the failing slice with a halved batch. A single molecule that still
@@ -203,6 +207,12 @@ class EnForce_ANI(nn.Module):
                         f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
                     )
                 bsize = max(1, sub.numel() // 2)
+                self._bsize_by_n[N] = bsize
+                logger.warning(
+                    "CUDA out of memory at %d molecules x %d atoms; continuing at %d "
+                    "molecules per sub-batch for the rest of this chunk.",
+                    sub.numel(), N, bsize,
+                )
                 remaining = torch.cat([sub, remaining])
                 continue
             results.append(out)

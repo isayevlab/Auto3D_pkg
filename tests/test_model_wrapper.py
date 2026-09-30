@@ -404,3 +404,29 @@ class TestEnForceANIRejectsNonAdapters:
         message = str(excinfo.value)
         for name in ModelAdapter.__annotations__:
             assert name in message
+
+
+def test_oom_shrunk_bsize_persists_across_calls():
+    """P-M3: the halved sub-batch size must be remembered for the next step,
+    not recomputed from batchsize_atoms on every forward_batched call."""
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from tests.helpers_adapter import FakeAdapter
+
+    calls = {"oom": 0}
+
+    class _OOMAdapter(FakeAdapter):
+        def forward(self, coord, numbers, charges, atom_mask=None):
+            if coord.shape[0] > 16:
+                calls["oom"] += 1
+                raise torch.cuda.OutOfMemoryError("simulated OOM")
+            return super().forward(coord, numbers, charges, atom_mask)
+
+    B, N = 64, 5
+    nn_ = EnForce_ANI(_OOMAdapter(), batchsize_atoms=B * N)  # bsize starts at 64
+    coord = torch.zeros(B, N, 3); numbers = torch.ones(B, N, dtype=torch.long)
+    charges = torch.zeros(B); mask = torch.ones(B, N, dtype=torch.bool)
+    nn_.forward_batched(coord, numbers, charges, mask)
+    first = calls["oom"]
+    assert first >= 1
+    nn_.forward_batched(coord, numbers, charges, mask)
+    assert calls["oom"] == first, "second call must start at the shrunk size"
