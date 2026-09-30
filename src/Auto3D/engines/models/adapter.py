@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -33,11 +34,16 @@ from Auto3D.foundation.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
+def _try_compile(model: Callable[..., Any] | nn.Module, mode: str = "default") -> Any:
     """Attempt to compile a model with torch.compile.
 
     Args:
-        model: The model to compile.
+        model: The model to compile. An ``nn.Module`` for
+            :meth:`BaseModelAdapter._compile` (whole-module compilation), but a
+            plain **function** for :meth:`ANI2xtAdapter._compile`, which
+            compiles ``ANI2xt._atom_energies_fn`` and leaves the AEV computer
+            eager -- ``torch.compile`` accepts either, and the annotation has
+            to say so.
         mode: Compilation mode ('default', 'reduce-overhead', 'max-autotune').
             Defaults to "default" and the model is compiled with dynamic=True.
             The optimization batch shrinks every step as conformers converge, and
@@ -47,8 +53,11 @@ def _try_compile(model: nn.Module, mode: str = "default") -> nn.Module:
             #24); dynamic default mode avoids that.
 
     Returns:
-        The compiled model. Compilation is lazy, so this returns an
-        ``OptimizedModule`` immediately and any Dynamo/Inductor failure surfaces
+        The compiled model, of whatever kind ``torch.compile`` hands back for
+        the input (an ``OptimizedModule`` for a module, a callable wrapper for
+        a function) -- hence ``Any``, which is the only annotation that is not
+        wrong for one of the two call sites. Compilation is lazy, so this
+        returns immediately and any Dynamo/Inductor failure surfaces
         at the **first forward** -- which happens inside the FIRE step loop,
         far from here.
 
@@ -217,11 +226,14 @@ class BaseModelAdapter(ABC, nn.Module):
         self.coord_pad = coord_pad
         self.species_pad = species_pad
         self._compiled = False
-        # Gates _warn_if_compile_fell_back_to_eager below to a single check,
-        # the call after the first compiled forward -- not per-step, which
-        # would defeat the whole point of suppress_errors avoiding a per-step
-        # cost (issue #23).
-        self._compile_fallback_checked = False
+        # How many suppressed frame compilations
+        # _warn_if_compile_fell_back_to_eager has already reported for this
+        # adapter. A running count, NOT a "checked yet" flag: Dynamo can fall
+        # back long after the first forward (the recompile limit -- see that
+        # method's docstring), so a one-shot gate spent its single observation
+        # on a frame that always compiles cleanly and then stayed silent
+        # forever (T-2).
+        self._compile_suppressed_seen = 0
 
         # Disable gradients for model parameters (inference mode)
         for p in model.parameters():
@@ -261,7 +273,7 @@ class BaseModelAdapter(ABC, nn.Module):
         return _try_compile(model)
 
     def _warn_if_compile_fell_back_to_eager(self) -> None:
-        """Log once if the first compiled forward silently fell back to eager.
+        """Log each time a NEW compiled frame silently fell back to eager.
 
         ``_try_compile`` sets ``torch._dynamo.config.suppress_errors = True``
         so a graph break Inductor cannot handle degrades to eager rather than
@@ -285,13 +297,28 @@ class BaseModelAdapter(ABC, nn.Module):
         Called from each compilable adapter's ``forward`` (``ANI2xtAdapter``,
         ``ANI2xAdapter``, ``CustomModelAdapter`` -- ``AIMNet2Adapter`` never
         reaches ``_try_compile`` at all; its ``compile_model`` goes to
-        ``AIMNet2Calculator`` instead) and checked exactly ONCE per adapter
-        instance: compilation is lazy (see ``_try_compile``'s docstring), so
-        anything before the first forward would read nothing, and re-reading
-        a process-global counter every step would add sync-free but pointless
-        work to the hottest loop in the codebase for a fact that cannot
-        change after the first observation -- once compiled, an adapter's
-        ``forward`` keeps tracing the same code path every step.
+        ``AIMNet2Calculator`` instead) on EVERY forward, and it logs once per
+        *increase* in the suppressed count (``_compile_suppressed_seen``).
+
+        This used to be gated to a single check, on the premise that whether a
+        compiled frame falls back "cannot change after the first observation".
+        That premise is false, and measurably so (T-2): Dynamo 0/1-specializes
+        the seven per-element index tensors ``ANI2xt`` builds, so each distinct
+        element-presence pattern is a fresh recompile, and once
+        ``torch._dynamo.config.recompile_limit`` is reached the frame runs
+        eager for the rest of the process (measured on CPU: total 9, ok 8).
+        The one allowed observation, meanwhile, was spent on the
+        compiled-vs-eager probe forward ``create_model`` runs at construction
+        -- a frame that by construction compiles cleanly -- so the real
+        fallback, hundreds of steps later, was never reported at all. The
+        factory re-baselines ``_compile_frame_stats_before`` and this count
+        after that probe, so the probe's own frame is excluded from these
+        deltas.
+
+        The per-forward cost is two dict lookups and a handful of integer
+        subtractions -- no device traffic and no host-device sync -- which is
+        what makes reading it every step affordable in the hottest loop in the
+        codebase.
 
         ``getattr`` with a default, not direct attribute access: several
         tests construct an adapter by bypassing ``BaseModelAdapter.__init__``
@@ -306,22 +333,20 @@ class BaseModelAdapter(ABC, nn.Module):
         which is exactly right when nothing else in the process has compiled
         yet.
         """
-        if not getattr(self, "_compiled", False) or getattr(
-            self, "_compile_fallback_checked", False
-        ):
+        if not getattr(self, "_compiled", False):
             return
-        self._compile_fallback_checked = True
         before: dict[str, int] = getattr(self, "_compile_frame_stats_before", {})
         after: dict[str, int] = torch._dynamo.utils.counters.get("frames", {})
         total = after.get("total", 0) - before.get("total", 0)
-        ok = after.get("ok", 0) - before.get("ok", 0)
-        if total > ok:
+        suppressed = total - (after.get("ok", 0) - before.get("ok", 0))
+        if suppressed > getattr(self, "_compile_suppressed_seen", 0):
+            self._compile_suppressed_seen = suppressed
             logger.warning(
                 "torch.compile suppressed %d of %d frame compilation(s) for this "
                 "adapter and fell back to eager execution for them "
                 "(suppress_errors=True, see _try_compile); compile_model=True "
                 "may not be providing its intended benefit.",
-                total - ok,
+                suppressed,
                 total,
             )
 

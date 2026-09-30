@@ -88,6 +88,26 @@ def verify_compiled_adapter(
         )
 
 
+def _rebaseline_compile_fallback_counters(adapter: BaseModelAdapter) -> None:
+    """Exclude the probe's own forward from the adapter's fallback deltas.
+
+    ``BaseModelAdapter._warn_if_compile_fell_back_to_eager`` reports a suppressed
+    Dynamo frame as a DELTA against the snapshot ``__init__`` took right after
+    compiling. ``verify_compiled_adapter`` above then runs the adapter's **first**
+    forward, which is what triggers the (lazy) compilation -- so every frame that
+    compilation attempts lands inside that delta and is attributed to the probe
+    batch rather than to the optimizer's own geometries. Re-baselining here
+    means a later warning describes a fallback the *caller's* work provoked.
+
+    ``_compile_suppressed_seen`` is reset along with the snapshot, and must be:
+    if the probe itself suppressed a frame, the count is already 1, and after
+    the snapshot moves forward the next genuine suppression computes a delta of
+    1 again -- which is not greater than 1, so it would never be reported (T-2).
+    """
+    adapter._compile_frame_stats_before = dict(torch._dynamo.utils.counters.get("frames", {}))
+    adapter._compile_suppressed_seen = 0
+
+
 class ModelFactory:
     """Factory for creating and managing NNP model adapters.
 
@@ -231,6 +251,7 @@ class ModelFactory:
                 # Same constructor call as above, but eager -- never cached.
                 eager = adapter_cls(device, compile_model=False)
                 verify_compiled_adapter(adapter, eager, device)
+                _rebaseline_compile_fallback_counters(adapter)
                 del eager
             if use_cache:
                 cls._cache[cache_key] = adapter
@@ -245,6 +266,7 @@ class ModelFactory:
             if compile_model and getattr(adapter, "_compiled", False):
                 eager = CustomModelAdapter(name, device, compile_model=False)
                 verify_compiled_adapter(adapter, eager, device)
+                _rebaseline_compile_fallback_counters(adapter)
                 del eager
             return adapter
 
