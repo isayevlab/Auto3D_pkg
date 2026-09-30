@@ -4,7 +4,7 @@
 # ONE command: benchmark <base-ref> and the current working tree on the same GPU,
 # then print a CHANGELOG-ready block. Nothing to interpret, nothing to assemble.
 #
-#   bash benchmarks/run_perf_ab.sh v4.0.0
+#   bash benchmarks/run_perf_ab.sh v3.1.1
 #
 # A read-only git worktree of <base-ref> is created in a temp dir and removed on
 # exit. Auto3D is pure Python, so PYTHONPATH is enough -- no reinstall, and the
@@ -16,7 +16,7 @@
 # runs importing Auto3D from the same tree.
 set -euo pipefail
 
-BASE="${1:?usage: run_perf_ab.sh <base-ref>   (e.g. v4.0.0, or a SHA)}"
+BASE="${1:?usage: run_perf_ab.sh <base-ref>   (e.g. v3.1.1, or a SHA)}"
 REPO="$(git rev-parse --show-toplevel)"
 BENCH="$REPO/benchmarks/bench_optimization_perf.py"
 TMP="$(mktemp -d)"

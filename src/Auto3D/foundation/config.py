@@ -525,7 +525,7 @@ class Auto3DOptions(BaseModel):
         """
         if isinstance(v, bool):
             raise ValueError(
-                f"got {v}, which is not a number. Since 4.0 the 'not specified' "
+                f"got {v}, which is not a number. Since 3.0.0 the 'not specified' "
                 f"sentinel is None, not False -- omit the option, or pass None."
             )
         return v
