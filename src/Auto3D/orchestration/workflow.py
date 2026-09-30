@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from logging import LogRecord
     from multiprocessing import Queue
+    from multiprocessing.managers import SyncManager
 
 logger = get_logger(__name__)
 
@@ -166,6 +167,8 @@ class WorkflowOrchestrator:
         self.logging_queue: Queue[LogRecord | None] | None = None
         self.logger: logging.Logger | None = None
         self._logger_p: BaseProcess | None = None
+        self._logging_manager: SyncManager | None = None
+        self._log_handler: _DropOnFullQueueHandler | None = None
         # Memory-scaled atom batch size for optimization, set in _prepare_chunks.
         # Defaults to the unscaled config value.
         self.scaled_batchsize_atoms: int = config.batchsize_atoms
@@ -382,7 +385,8 @@ class WorkflowOrchestrator:
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""
         logging_path = self.job_dir / "Auto3D.log"
-        self.logging_queue = self.mp_context.Manager().Queue(999)
+        self._logging_manager = self.mp_context.Manager()
+        self.logging_queue = self._logging_manager.Queue(999)
 
         # Start logging process
         logger_p = self.mp_context.Process(
@@ -395,7 +399,8 @@ class WorkflowOrchestrator:
 
         # Configure main process logger
         self.logger = logging.getLogger("auto3d")
-        self.logger.addHandler(_DropOnFullQueueHandler(self.logging_queue))
+        self._log_handler = _DropOnFullQueueHandler(self.logging_queue)
+        self.logger.addHandler(self._log_handler)
         self.logger.setLevel(logging.INFO)
 
         # Log banner
@@ -427,6 +432,17 @@ class WorkflowOrchestrator:
         if self._logger_p is not None:
             self._logger_p.join(timeout=10)
             self._logger_p = None
+
+        if self._log_handler is not None and self.logger is not None:
+            self.logger.removeHandler(self._log_handler)
+            self._log_handler = None
+        if self._logging_manager is not None:
+            try:
+                self._logging_manager.shutdown()
+            except Exception:
+                logger.warning("Logging manager shutdown failed.")
+            self._logging_manager = None
+            self.logging_queue = None
 
     def _log_banner(self) -> None:
         """Log the Auto3D ASCII art banner."""

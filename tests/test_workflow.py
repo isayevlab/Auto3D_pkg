@@ -1392,3 +1392,31 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path):
                     logger.removeHandler(handler)
                     handler.close()
             logger.handlers[:] = before
+
+
+def test_shutdown_logging_removes_handler_and_stops_manager(tmp_path):
+    """P-M10: one handler and one SyncManager leaked per run."""
+    import logging
+    import multiprocessing as mp
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    def _managers():
+        # A Manager's server is a SpawnProcess whose .name is "SyncManager-N";
+        # type(c).__name__ would never match (the reviewer's repro printed .name).
+        return sum(1 for c in mp.active_children() if c.name.startswith("SyncManager"))
+
+    root = logging.getLogger("auto3d")
+    handlers_before, managers_before = list(root.handlers), _managers()
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+    orch.job_dir = tmp_path
+    try:
+        orch._setup_logging()
+        assert len(root.handlers) == len(handlers_before) + 1
+        assert _managers() == managers_before + 1
+    finally:
+        orch._shutdown_logging()
+    assert list(root.handlers) == handlers_before
+    # Other tests may have leaked a Manager; compare to baseline, not zero.
+    assert _managers() == managers_before
