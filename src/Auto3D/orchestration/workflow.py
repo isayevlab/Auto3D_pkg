@@ -22,6 +22,7 @@ from Auto3D.domain.id_mapping import decode_ids, encode_ids
 from Auto3D.engines.model_factory import ModelFactory
 from Auto3D.engines.models.preflight import preflight_model
 from Auto3D.foundation.config import Auto3DOptions, optimizer_worker_indices
+from Auto3D.foundation.constants import EXIT_TERMINATED
 from Auto3D.foundation.exceptions import (
     ConfigurationError,
     FileFormatError,
@@ -89,12 +90,13 @@ def _package_version() -> str:
 def _raise_on_sigterm(signum: int, frame: object) -> None:
     """Turn SIGTERM into a normal unwind so every ``finally`` runs.
 
-    143 = 128 + SIGTERM, the shell's own convention for "killed by SIGTERM",
-    so a caller that reads the exit code sees exactly what it would have seen
-    from the default disposition -- the difference is only that the workers
-    were terminated on the way out (P-C2).
+    :data:`~Auto3D.foundation.constants.EXIT_TERMINATED` (143 = 128 + SIGTERM) is
+    the shell's own convention for "killed by SIGTERM", so a caller that reads
+    the exit code sees exactly what it would have seen from the default
+    disposition -- the difference is only that the workers were terminated on
+    the way out (P-C2).
     """
-    raise SystemExit(143)
+    raise SystemExit(EXIT_TERMINATED)
 
 
 @contextlib.contextmanager
@@ -107,26 +109,46 @@ def _sigterm_raises() -> Iterator[None]:
     queue on the GPU (P-C2, P-M12). Raising instead gives the parent an
     ordinary unwind, which is all that block needs.
 
-    Installed only when running on the main thread: ``signal.signal`` raises
-    ``ValueError`` anywhere else, and Auto3D is a library that may well be
-    called from someone else's worker thread. The previous handler is always
-    restored, so the process is left exactly as it was found -- one ``main()``
-    call does not change how the next SIGTERM behaves.
+    Two conditions, and the block is a no-op unless BOTH hold:
+
+    * **The main thread.** ``signal.signal`` raises ``ValueError`` anywhere
+      else, and Auto3D is a library that may well be called from someone
+      else's worker thread.
+    * **SIGTERM is still at its default disposition.** A host that has
+      installed its own SIGTERM handler -- a service supervisor draining
+      requests, a test runner, a notebook kernel, an outer CLI of its own --
+      means something by it, and a library call has no business replacing it
+      for the duration of one ``main()``. Nothing is lost by declining:
+      every worker arms ``PR_SET_PDEATHSIG`` plus a parent-sentinel watchdog
+      of its own (``Auto3D.foundation.process_lifecycle``), so the workers
+      still die with the parent however the parent goes (A-3).
+
+    When the handler IS installed, the previous disposition -- ``SIG_DFL`` by
+    the guard above -- is put back on the way out, so one ``main()`` call
+    never changes how the next SIGTERM behaves.
     """
     if threading.current_thread() is not threading.main_thread():
         yield
         return
 
-    previous = signal.signal(signal.SIGTERM, _raise_on_sigterm)
+    previous = signal.getsignal(signal.SIGTERM)
+    if previous != signal.SIG_DFL:
+        yield
+        return
+
+    signal.signal(signal.SIGTERM, _raise_on_sigterm)
     try:
         yield
     finally:
-        # None means the previous handler was installed from C and is not
-        # representable in Python -- signal.signal() rejects it, and there is
-        # nothing to restore it to, so leave ours in place rather than raising
-        # out of a `finally` and masking whatever the block was doing.
-        if previous is not None:
-            signal.signal(signal.SIGTERM, previous)
+        # `previous` is SIG_DFL by the guard above, so this restores exactly
+        # what was found; written as a restore rather than as a literal
+        # SIG_DFL so it cannot drift away from the install condition. The
+        # ``None`` arm (a handler installed from C, not representable in
+        # Python, which ``signal.signal`` refuses) is unreachable for the same
+        # reason -- and SIG_DFL would be the right answer for it anyway,
+        # because leaving Auto3D's handler installed after the block is the
+        # one outcome this must never produce.
+        signal.signal(signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
 
 
 class _DropOnFullQueueHandler(QueueHandler):

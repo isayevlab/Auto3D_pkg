@@ -75,6 +75,11 @@ def _exit_when_parent_dies() -> None:
         parent.join()
         # os._exit, not sys.exit: SystemExit raised in a non-main thread only
         # ends that thread, leaving the worker running.
+        #
+        # 143 as a literal, not Auto3D.foundation.constants.EXIT_TERMINATED:
+        # this module is stdlib-only by contract (see the module docstring --
+        # it is imported by every Manager server process purely to unpickle
+        # this function), so it imports nothing from Auto3D.
         os._exit(143)
 
     threading.Thread(target=_watch, name="auto3d-parent-watchdog", daemon=True).start()

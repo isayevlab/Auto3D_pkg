@@ -219,8 +219,19 @@ def isomer_wrapper(
             raise
         finally:
             # Always wake every optimizer, even on failure, so none blocks forever.
-            for _ in range(n_optimizers):
-                queue.put("Done")
+            #
+            # Suppressed, not guarded: a sentinel is only worth anything while
+            # something is still waiting for it. On a process-group Ctrl-C the
+            # Manager server that owns this queue may already be gone, and the
+            # put then raises from inside a `finally` -- turning a quiet
+            # SystemExit(130) into a BrokenPipeError traceback on the shared
+            # stderr, which is the exact noise the `except KeyboardInterrupt`
+            # above exists to avoid (C-3b). (Belt-and-braces in practice: since
+            # bpo-36368 the Manager server ignores SIGINT, so it normally
+            # survives the group interrupt that reaches these workers.)
+            with contextlib.suppress(OSError, EOFError, BrokenPipeError):
+                for _ in range(n_optimizers):
+                    queue.put("Done")
 
 
 def optim_rank_wrapper(
@@ -414,8 +425,16 @@ def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     stderr_handler.setLevel(logging.WARNING)
     logger.addHandler(stderr_handler)
     logger.setLevel(logging.INFO)
-    while True:
-        message = queue.get()
-        if message is None:
-            break
-        logger.handle(message)
+    try:
+        while True:
+            message = queue.get()
+            if message is None:
+                break
+            logger.handle(message)
+    except KeyboardInterrupt:
+        # Ctrl-C reached this worker directly (process-group SIGINT). The two
+        # pipeline workers already convert it into a clean exit code; without
+        # the same clause here, the one process whose whole job is to keep the
+        # run's diagnostics readable was itself printing
+        # "Process SpawnProcess-N: Traceback ..." across them (C-3a, P-M12).
+        raise SystemExit(130)

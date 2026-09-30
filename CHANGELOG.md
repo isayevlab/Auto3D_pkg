@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A parent killed by SIGTERM/SIGKILL, or interrupted with Ctrl-C, left the
   optimizer workers running through the whole remaining queue on the GPU;
   workers now die with their parent and the parent terminates them on any exit.
+- SIGTERM during `main()` now unwinds through `SystemExit(143)` so the workers
+  are terminated (previously the process died by signal and left them running).
+  A host that has installed its own SIGTERM handler keeps it.
 - Each `main()` call in one interpreter leaked a log handler and a Manager process.
 - The CUDA-OOM sub-batch halving was forgotten on every optimizer step.
 - The spawned optimizer worker did not apply `allow_tf32` or the GPU policy.

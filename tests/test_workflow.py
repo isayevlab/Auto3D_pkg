@@ -7,6 +7,7 @@ import contextlib
 import logging
 import multiprocessing as mp
 import queue
+import signal
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1587,3 +1588,177 @@ def test_shutdown_logging_removes_handler_and_stops_manager(tmp_path):
     assert list(root.handlers) == handlers_before
     # Other tests may have leaked a Manager; compare to baseline, not zero.
     assert _managers() == managers_before
+
+
+@contextlib.contextmanager
+def _sigterm_disposition_restored():
+    """Put the process's SIGTERM disposition back, whatever these tests did to it."""
+    previous = signal.getsignal(signal.SIGTERM)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+
+
+def _unused_sigterm_handler(signum, frame):  # pragma: no cover - never delivered
+    raise AssertionError("this handler must never run")
+
+
+class TestSigtermRaises:
+    """C-4/A-3: the scoped SIGTERM handler had no direct test at all.
+
+    ``_run_pipeline``'s worker-termination ``finally`` is the whole point of
+    turning SIGTERM into ``SystemExit``: under the default disposition the
+    process dies outright and the optimizer workers grind through the rest of
+    the queue on the GPU. The three cases below are the install, and the two
+    situations in which installing would be wrong.
+    """
+
+    def test_the_handler_is_installed_and_the_default_put_back(self):
+        from Auto3D.foundation.constants import EXIT_TERMINATED
+        from Auto3D.orchestration.workflow import _raise_on_sigterm, _sigterm_raises
+
+        with _sigterm_disposition_restored():
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with _sigterm_raises():
+                assert signal.getsignal(signal.SIGTERM) is _raise_on_sigterm
+            assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+
+        # The code the handler raises is the shell's "killed by SIGTERM".
+        with pytest.raises(SystemExit) as excinfo:
+            _raise_on_sigterm(signal.SIGTERM, None)
+        assert excinfo.value.code == EXIT_TERMINATED == 143
+
+    def test_a_host_that_already_owns_sigterm_keeps_its_handler(self):
+        """A-3(a): a non-default disposition means something to somebody.
+
+        A service supervisor draining requests, an outer CLI, a notebook
+        kernel: replacing its handler for the duration of one ``main()`` is not
+        a library's call to make. Nothing is lost by declining -- every worker
+        arms PR_SET_PDEATHSIG and a parent-sentinel watchdog of its own, so the
+        workers still die with the parent however the parent goes.
+        """
+        from Auto3D.orchestration.workflow import _sigterm_raises
+
+        with _sigterm_disposition_restored():
+            signal.signal(signal.SIGTERM, _unused_sigterm_handler)
+            with _sigterm_raises():
+                assert signal.getsignal(signal.SIGTERM) is _unused_sigterm_handler
+            assert signal.getsignal(signal.SIGTERM) is _unused_sigterm_handler
+
+    def test_off_the_main_thread_it_is_a_no_op_and_leaves_nothing_behind(self):
+        """``signal.signal`` raises ValueError anywhere but the main thread, and
+        Auto3D is a library that may well be called from someone else's worker
+        thread -- so the block must yield quietly and touch nothing.
+
+        A-3(b): this is also the branch that used to be able to leave Auto3D's
+        own handler installed after ``run()`` returned.
+        """
+        from Auto3D.orchestration.workflow import _sigterm_raises
+
+        before = signal.getsignal(signal.SIGTERM)
+        escaped: list[BaseException] = []
+
+        def _body():
+            try:
+                with _sigterm_raises():
+                    pass
+            except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+                escaped.append(exc)
+
+        thread = threading.Thread(target=_body)
+        thread.start()
+        thread.join(timeout=10)
+
+        assert not thread.is_alive(), "the context manager hung off the main thread"
+        assert escaped == [], f"_sigterm_raises raised off the main thread: {escaped}"
+        assert signal.getsignal(signal.SIGTERM) is before
+
+
+class _StubbornProcess:
+    """A process double that outlives its first join, like a wedged worker.
+
+    C-7: the escalation branches -- ``_shutdown_logging``'s ``terminate()`` and
+    ``_terminate_workers``' ``kill()`` -- only run when ``is_alive()`` is still
+    True after a bounded join, which never happens in a test that uses a real
+    (and therefore promptly exiting) process.
+
+    Args:
+        alive_for: how many ``is_alive()`` calls report True before it reports
+            False. ``None`` means "never dies", which is what drives
+            ``_terminate_workers`` all the way to ``kill()``.
+    """
+
+    def __init__(self, alive_for: int | None = None) -> None:
+        self._alive_for = alive_for
+        self.calls: list[str] = []
+        self._is_alive_calls = 0
+
+    def is_alive(self) -> bool:
+        self._is_alive_calls += 1
+        if self._alive_for is None:
+            return True
+        return self._is_alive_calls <= self._alive_for
+
+    def join(self, timeout: float | None = None) -> None:
+        self.calls.append(f"join({timeout})")
+
+    def terminate(self) -> None:
+        self.calls.append("terminate")
+
+    def kill(self) -> None:
+        self.calls.append("kill")
+
+
+class TestWedgedChildrenAreEscalated:
+    """C-7: the terminate/kill branches, with a process that will not go."""
+
+    def test_shutdown_logging_terminates_a_logger_that_outlives_its_join(self, tmp_path):
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+        # Only the logger process: no queue, no handler, no Manager, so this
+        # exercises exactly the join -> still alive -> terminate escalation.
+        stubborn = _StubbornProcess(alive_for=1)
+        orch._logger_p = stubborn
+        orch.logging_queue = None
+        orch._log_handler = None
+        orch._logging_manager = None
+
+        orch._shutdown_logging()
+
+        assert stubborn.calls == ["join(10)", "terminate", "join(5)"]
+        assert orch._logger_p is None
+
+    def test_terminate_workers_kills_a_worker_that_survives_terminate(self, tmp_path):
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+        never_dies = _StubbornProcess()  # is_alive() is True forever
+        shut_down: list[str] = []
+
+        class _Manager:
+            def shutdown(self):
+                shut_down.append("shutdown")
+
+        orch._terminate_workers([never_dies], [_Manager()])
+
+        assert never_dies.calls == ["terminate", "join(5)", "kill", "join(5)"]
+        # The Managers go LAST, after the workers holding proxies into them.
+        assert shut_down == ["shutdown"]
+
+    def test_a_manager_that_is_already_gone_does_not_raise_out_of_the_finally(self, tmp_path):
+        """``_terminate_workers`` runs from a ``finally``; a dead Manager socket
+        must not become the exception the run reports."""
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+
+        class _DeadManager:
+            def shutdown(self):
+                raise BrokenPipeError("server already gone")
+
+        orch._terminate_workers([], [_DeadManager()])  # must not raise
