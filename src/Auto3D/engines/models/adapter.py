@@ -767,10 +767,8 @@ class ANI2xAdapter(BaseModelAdapter):
     ANI2x uses periodic table indexing for species.
     Requires torchani to be installed.
 
-    ``compile_model=True`` compiles the torchani model. No speedup figure is
-    claimed: none has been measured for this path, and the ~1.25x these
-    docstrings used to assert had no measurement behind it.
-    ``benchmarks/bench_optimization_perf.py`` is what produces one.
+    ``compile_model=True`` is ignored with a warning: torch.compile of
+    torchani's AEV path corrupts energies (P-C1, 2026-09-21).
     """
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
@@ -784,6 +782,18 @@ class ANI2xAdapter(BaseModelAdapter):
 
         model = torchani.models.ANI2x(periodic_table_index=True).to(device)
         super().__init__(model, device, coord_pad=0.0, species_pad=-1, compile_model=compile_model)
+
+    def _compile(self, model: nn.Module) -> nn.Module:
+        # torchani's ANI2x has no separable network module at the top level
+        # (children: neighborlist, energy_shifter, species_converter,
+        # potentials), and compiling the whole model corrupts energies by
+        # thousands of eV (P-C1, 2026-09-21). Refuse rather than risk it.
+        logger.warning(
+            "compile_model=True is not supported for ANI2x; running eager. "
+            "torch.compile of torchani's AEV path produces wrong energies."
+        )
+        self._compiled = False
+        return model
 
     def energy(
         self,
