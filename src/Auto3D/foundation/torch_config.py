@@ -5,10 +5,9 @@ like TF32 precision and cuDNN benchmark mode. The settings are applied
 globally to the PyTorch backends.
 
 **These settings are process-global state the caller may already own.** Every
-Auto3D entry point (``main``, ``smiles2mols``, ``calc_spe``, ``opt_geometry``,
-``calc_thermo``) calls :func:`configure_torch` on the way in, so anything this
-module writes unconditionally is written into *the caller's* process and stays
-that way after Auto3D returns. Only ``allow_tf32`` is written unconditionally,
+in-process entry point calls configure_torch on the way in, and the spawned
+optimizer worker calls it again for itself: torch.backends state does not
+cross the spawn boundary. Only ``allow_tf32`` is written unconditionally,
 because it is a real Auto3D option with a documented default
 (``Auto3DOptions.allow_tf32``, ``--allow-tf32``) that the user chose by
 choosing Auto3D's default. ``cudnn_benchmark`` and ``deterministic`` have no

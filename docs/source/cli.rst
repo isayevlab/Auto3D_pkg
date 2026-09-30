@@ -627,7 +627,8 @@ Environment Variables
    * - Variable
      - Description
    * - ``AUTO3D_COMPILE_MODEL``
-     - Set to ``1`` to enable torch.compile() for ANI models
+     - Set to ``1`` to enable torch.compile() for ANI2xt and eager custom
+       NNPs (ignored with a warning for ANI2x)
    * - ``AIMNET_CACHE_DIR``
      - Override the AIMNet2 model download cache (default: ``~/.cache/aimnet``)
    * - ``OE_LICENSE``

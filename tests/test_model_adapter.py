@@ -853,7 +853,7 @@ class TestWarnIfCompileFellBackToEager:
         adapter = _Concrete.__new__(_Concrete)
         torch.nn.Module.__init__(adapter)
         adapter._compiled = compiled
-        adapter._compile_fallback_checked = False
+        adapter._compile_suppressed_seen = 0
         if frame_stats_before is not None:
             adapter._compile_frame_stats_before = dict(frame_stats_before)
         return adapter
@@ -877,9 +877,14 @@ class TestWarnIfCompileFellBackToEager:
 
         assert caplog.text == ""
 
-    def test_checked_only_once_even_across_repeated_calls(self, monkeypatch, caplog):
-        """The gate: a second call must not re-log, even if the counter still
-        shows a failure -- this is what keeps the check off the hot loop."""
+    def test_an_unchanged_suppressed_count_does_not_re_log(self, monkeypatch, caplog):
+        """The check runs every forward, so it must report *increases* only.
+
+        A standing fallback the caller has already been told about must not
+        produce one warning per optimizer step. This is the half of the old
+        one-shot gate that survives T-2 -- the half that dropped is the claim
+        that no LATER fallback can happen (see the test below).
+        """
         adapter = self._adapter(compiled=True, frame_stats_before={"total": 0, "ok": 0})
         monkeypatch.setitem(torch._dynamo.utils.counters, "frames", {"total": 2, "ok": 1})
 
@@ -889,6 +894,65 @@ class TestWarnIfCompileFellBackToEager:
 
         warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warnings) == 1
+
+    def test_a_fallback_that_first_appears_on_a_later_forward_still_warns(
+        self, monkeypatch, caplog
+    ):
+        """T-2: the fallback is not decided once, so neither is the warning.
+
+        ``compile_model=True`` on ANI2xt 0/1-specializes seven per-element index
+        tensors, so a new element-presence pattern is a fresh recompile; once
+        ``recompile_limit`` is reached the frame runs eager for the rest of the
+        process (measured on CPU: total 9, ok 8). Under the old one-shot gate the
+        single allowed observation was spent on the factory's probe forward --
+        which always compiles cleanly -- and nothing was ever reported.
+
+        Driven through ``forward``, not by calling the check directly, because
+        "per forward" is the part of the fix that matters; the fake counter dict
+        is mutated in place between calls to stand in for Dynamo's bookkeeping.
+        """
+        from Auto3D.engines.models.adapter import BaseModelAdapter
+
+        class _WarningConcrete(BaseModelAdapter):
+            def forward(self, coords, species, charges, atom_mask=None):
+                self._warn_if_compile_fell_back_to_eager()
+                return coords.sum(dim=(1, 2)), torch.zeros_like(coords)
+
+        adapter = _WarningConcrete.__new__(_WarningConcrete)
+        torch.nn.Module.__init__(adapter)
+        adapter._compiled = True
+        adapter._compile_suppressed_seen = 0
+        adapter._compile_frame_stats_before = {"total": 0, "ok": 0}
+
+        frames = {"total": 1, "ok": 1}
+        monkeypatch.setitem(torch._dynamo.utils.counters, "frames", frames)
+        coords = torch.zeros(1, 2, 3)
+        species = torch.ones(1, 2, dtype=torch.long)
+        charges = torch.zeros(1)
+
+        def _warnings():
+            return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+        with caplog.at_level(logging.WARNING):
+            # A clean compile: the probe-shaped first forward says nothing.
+            adapter.forward(coords, species, charges)
+            assert _warnings() == [], caplog.text
+
+            # The recompile limit trips: one attempted frame, not ok.
+            frames.update(total=2, ok=1)
+            adapter.forward(coords, species, charges)
+            assert len(_warnings()) == 1, caplog.text
+            assert "fell back to eager" in _warnings()[0].getMessage()
+
+            # Every later step reads the same standing count: still one warning.
+            adapter.forward(coords, species, charges)
+            adapter.forward(coords, species, charges)
+            assert len(_warnings()) == 1, caplog.text
+
+            # A SECOND distinct suppression is new information.
+            frames.update(total=3, ok=1)
+            adapter.forward(coords, species, charges)
+            assert len(_warnings()) == 2, caplog.text
 
     def test_an_uncompiled_adapter_never_warns(self, caplog):
         """``compile_model=False`` (or a bypassed ``__init__``): no check at all."""

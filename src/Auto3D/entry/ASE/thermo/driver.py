@@ -474,10 +474,10 @@ def calc_thermo(
 
         The vibrational spectrum comes from an Eckart/Sayvetz-projected
         Hessian (``projected_vibrations``), so exactly 3N-6 / 3N-5 modes reach
-        ``IdealGasThermo`` and ASE's own mode selection is disabled. Before
-        4.0 the full 3N list was passed and ASE chose; that choice changed in
-        ASE 3.28.0, so the same input gave different Gibbs energies on
-        different ASE versions.
+        ``IdealGasThermo`` and ASE's own mode selection is disabled. Since
+        3.0.0 only the projected modes are passed; previously the full 3N list
+        was passed and ASE chose, and that choice changed in ASE 3.28.0, so the
+        same input gave different Gibbs energies on different ASE versions.
     """
     # Fail fast on an unrecognized engine name -- the same guard the CLI's
     # `thermo` command already runs before calling this function

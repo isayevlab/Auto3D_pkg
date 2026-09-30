@@ -35,9 +35,30 @@ CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
 CONFORMER_MULTIPLIER = 2  # Multiplier for the formula
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
+# Process exit codes owned outside the CLI.
+#
+# 143 = 128 + SIGTERM, the shell's convention for "terminated by SIGTERM", so a
+# caller reading the exit code of a SIGTERMed `auto3d run` sees exactly what the
+# default disposition would have produced -- the only difference being that
+# Auto3D's workers were terminated on the way out (P-C2). Lives here rather than
+# in `presentation/cli/errors.py` next to EXIT_INTERRUPTED because its user is
+# `orchestration/workflow._raise_on_sigterm`, and L3 may not import L5.
+#
+# `foundation/process_lifecycle.py`'s parent-death watchdog exits with the same
+# number and deliberately spells it as a literal: that module is stdlib-only by
+# contract (it is unpickled in every Manager server process), so it imports
+# nothing from Auto3D, this module included.
+EXIT_TERMINATED = 143
+
 # Optimization sentinel values
 INITIAL_FMAX_SENTINEL = 999.0  # Initial value for max force (unconverged)
 INITIAL_ENERGY_SENTINEL = 999.0  # Initial value for energy (unconverged)
+
+# eV. A compiled adapter must reproduce the eager adapter's energies on a
+# two-molecule probe batch to within this tolerance, or create_model refuses
+# it. fp32 compile-vs-eager reordering is ~1e-5 eV; the P-C1 defect was
+# hundreds of eV. Set well above the former and far below the latter.
+COMPILE_PROBE_TOLERANCE_EV = 1e-3
 
 # Thermodynamics
 STANDARD_PRESSURE = 101325  # Pa

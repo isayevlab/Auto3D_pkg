@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `AUTO3D_COMPILE_MODEL=1` compiled torchani's AEV computer, which returned
+  energies off by hundreds of eV without raising; ANI2xt now compiles only its
+  per-element networks, ANI2x ignores the option with a warning, and
+  `create_model` verifies any adapter Auto3D itself compiles against eager on
+  a probe batch (AIMNet2's compilation happens inside `aimnet` and is not
+  probed).
+- A parent killed by SIGTERM/SIGKILL, or interrupted with Ctrl-C, left the
+  optimizer workers running through the whole remaining queue on the GPU;
+  workers now die with their parent and the parent terminates them on any exit.
+- SIGTERM during `main()` now unwinds through `SystemExit(143)` so the workers
+  are terminated (previously the process died by signal and left them running).
+  A host that has installed its own SIGTERM handler keeps it.
+- Each `main()` call in one interpreter leaked a log handler and a Manager process.
+- The CUDA-OOM sub-batch halving was forgotten on every optimizer step.
+- The spawned optimizer worker did not apply `allow_tf32` or the GPU policy.
+- Manager server processes (chunk queue, progress queue, run log) start with the
+  same parent-death detection as the workers, so a SIGKILLed parent no longer
+  leaves them behind.
 - `rank_by="G"` (Gibbs) with `k>1` selected and ordered conformers by
   electronic energy instead of Gibbs free energy; `G_rel(kcal/mol)` was
   referenced to the lowest-*E* conformer, overwriting correct upstream values

@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import multiprocessing as mp
 import queue
+import signal
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -256,6 +258,114 @@ class TestIsomerWrapperFailure:
         assert drained.count("Done") == 2
 
 
+@contextlib.contextmanager
+def _restored_worker_globals():
+    """Run a worker body in-process without leaking its process-global writes.
+
+    Both wrappers touch state that outlives the call: ``_attach_run_log_handlers``
+    adds a ``QueueHandler`` to the "auto3d" and "Auto3D" trees, and
+    ``optim_rank_wrapper`` additionally runs ``configure_torch``, which writes the
+    tf32 booleans and (torch >= 2.9) the ``fp32_precision`` knob -- note
+    ``torch.backends.cudnn.allow_tf32`` defaults to True, so even
+    ``allow_tf32=False`` changes it. Same snapshot/restore discipline as
+    ``test_optim_rank_wrapper_applies_torch_config`` below.
+    """
+    import torch
+
+    previous_matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    previous_cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    previous_matmul_fp32 = getattr(torch.backends.cuda.matmul, "fp32_precision", None)
+    previous_cudnn_fp32 = getattr(torch.backends.cudnn, "fp32_precision", None)
+    loggers = (logging.getLogger("auto3d"), logging.getLogger("Auto3D"))
+    previous_handlers = {logger: list(logger.handlers) for logger in loggers}
+    try:
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = previous_matmul_tf32
+        torch.backends.cudnn.allow_tf32 = previous_cudnn_tf32
+        if previous_matmul_fp32 is not None:
+            torch.backends.cuda.matmul.fp32_precision = previous_matmul_fp32
+        if previous_cudnn_fp32 is not None:
+            torch.backends.cudnn.fp32_precision = previous_cudnn_fp32
+        for logger in loggers:
+            before = previous_handlers[logger]
+            for handler in list(logger.handlers):
+                if handler not in before:
+                    logger.removeHandler(handler)
+                    handler.close()
+            logger.handlers[:] = before
+
+
+class _InterruptingQueue:
+    """A chunk queue that interrupts the worker the way a Ctrl-C does.
+
+    A process-group SIGINT raises ``KeyboardInterrupt`` wherever the worker
+    happens to be, and for an optimizer that is almost always the blocking
+    ``queue.get()`` between chunks.
+    """
+
+    def get(self):
+        raise KeyboardInterrupt
+
+
+class TestWorkersExitQuietlyOnKeyboardInterrupt:
+    """P-M12: Ctrl-C must not print a traceback per worker.
+
+    Both wrappers convert ``KeyboardInterrupt`` into ``SystemExit(130)``, which
+    ``multiprocessing``'s ``_bootstrap`` treats as a clean exit code instead of
+    dumping a traceback on the shared stderr. Exercised in-process -- the
+    ``multiprocessing.parent_process() is None`` guard in
+    ``_exit_when_parent_dies`` makes that safe -- because the spawned-subprocess
+    harness in ``tests/test_worker_lifecycle.py`` substitutes stub workers and so
+    never runs these two clauses.
+    """
+
+    def test_optim_rank_wrapper_exits_130_instead_of_raising(self, tmp_path, monkeypatch):
+        import Auto3D.orchestration.workflow_workers as ww
+        from Auto3D.foundation.config import Auto3DOptions
+        from tests.helpers_adapter import FakeAdapter
+
+        # The adapter is built once, before the first `queue.get()` (C-2), so
+        # this in-process call would otherwise load a real AIMNet2 model just to
+        # reach the interrupt the test is about.
+        monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
+
+        args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False)
+        with _restored_worker_globals(), pytest.raises(SystemExit) as excinfo:
+            ww.optim_rank_wrapper(args, _InterruptingQueue(), queue.Queue(), gpu_idx=0)
+        assert excinfo.value.code == 130
+
+    def test_isomer_wrapper_exits_130_and_still_wakes_every_optimizer(self, tmp_path, monkeypatch):
+        """The quiet exit must not cost the sentinels: the `finally` still runs."""
+        import Auto3D.orchestration.workflow_workers as ww
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.processors import TautomerProcessor
+
+        def _interrupt(self, *args, **kwargs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(TautomerProcessor, "process", _interrupt)
+
+        args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, gpu_idx=[0, 1])
+        args.input_format = "smi"
+        chunk_queue = queue.Queue()
+        with _restored_worker_globals(), pytest.raises(SystemExit) as excinfo:
+            ww.isomer_wrapper(
+                [(str(tmp_path / "chunk.smi"), str(tmp_path))],
+                args,
+                chunk_queue,
+                queue.Queue(),
+            )
+        assert excinfo.value.code == 130
+
+        drained = []
+        while not chunk_queue.empty():
+            drained.append(chunk_queue.get())
+        assert drained.count("Done") == 2, (
+            f"a quiet interrupt must still wake every optimizer; queue held {drained!r}"
+        )
+
+
 class TestOptimizerEmptyInput:
     """Tests for optimizer handling of empty/missing input files."""
 
@@ -456,6 +566,7 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
 
     from Auto3D.foundation.config import Auto3DOptions
     from Auto3D.orchestration import workflow_workers as ww
+    from tests.helpers_adapter import FakeAdapter
 
     attempted = []
 
@@ -467,9 +578,12 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
             attempted.append(self._enumerated)
             raise RuntimeError("optimizer blew up on this chunk")
 
-    # Replace the heavy optimizing class (which would build a real model) with
-    # one that always raises, so we exercise only the loop's failure isolation.
+    # Replace the heavy optimizing class with one that always raises, so we
+    # exercise only the loop's failure isolation. `create_model` is stubbed for
+    # the same reason: since C-2 the adapter is built once before the loop, and
+    # a real AIMNet2 load has nothing to do with per-chunk isolation.
     monkeypatch.setattr(ww, "optimizing", _BoomOptimizing)
+    monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
 
     q: queue_mod.Queue = queue_mod.Queue()
     d1 = tmp_path / "job1"
@@ -495,6 +609,52 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     # read by nobody. Ranked structures reach the caller through the output
     # SDF each chunk writes, not through this frame.
     assert result is None
+
+
+def test_model_construction_failure_is_fatal_and_consumes_no_chunk(tmp_path, monkeypatch):
+    """C-2: a model that cannot be built is not a skippable chunk.
+
+    ``create_model`` used to run INSIDE the per-chunk ``except Exception:
+    continue``, so a ``NumericalError`` from the compile probe -- or a bad
+    checksum, or a missing weight file -- was logged once per chunk and the
+    worker went on to "skip" every one of them. The run then ended on
+    ``_finalize_output``'s convergence-failure message over an empty or partial
+    SDF, naming three causes (memory, invalid SMILES, patience) that did not
+    apply. Construction now happens once, before the first ``queue.get()``, and
+    its failure propagates out of the worker.
+    """
+    import queue as queue_mod
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import NumericalError
+    from Auto3D.orchestration import workflow_workers as ww
+
+    def _refuse(*args_, **kwargs_):
+        raise NumericalError("the compiled adapter disagrees with eager")
+
+    monkeypatch.setattr(ww, "create_model", _refuse)
+    # A tripwire, not a stub: if construction were still inside the loop, the
+    # worker would swallow the NumericalError and optimize the chunk anyway.
+    # ``pytest.fail`` raises a BaseException, so the per-chunk ``except
+    # Exception`` cannot hide it either.
+    monkeypatch.setattr(
+        ww,
+        "optimizing",
+        lambda *args_, **kwargs_: pytest.fail("a chunk was optimized with no model"),
+    )
+
+    q: queue_mod.Queue = queue_mod.Queue()
+    q.put(("enum1.sdf", str(tmp_path / "c1.smi"), str(tmp_path), 1))
+    q.put(("enum2.sdf", str(tmp_path / "c2.smi"), str(tmp_path), 2))
+    q.put("Done")
+    args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+
+    with _restored_worker_globals(), pytest.raises(NumericalError):
+        ww.optim_rank_wrapper(args, q, queue_mod.Queue(), gpu_idx=0)
+
+    # Nothing was taken off the queue: both chunks and the sentinel are still
+    # there. (The parent tops the sentinels up itself; see _ensure_done_sentinels.)
+    assert q.qsize() == 3
 
 
 def test_unsupported_extension_rejected_before_encoding(tmp_path):
@@ -649,6 +809,19 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
         def join(self, timeout=None):
             return None
 
+        # _run_pipeline's `finally` terminates whatever it started, so the fake
+        # has to answer the three calls _terminate_workers makes. "Already
+        # finished" is the honest answer for a process whose start() only
+        # recorded its arguments: terminate()/kill() are then never reached.
+        def is_alive(self):
+            return False
+
+        def terminate(self):
+            return None
+
+        def kill(self):
+            return None
+
         @property
         def exitcode(self):
             return 0
@@ -667,6 +840,12 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
     fake_context.Process = _FakeProcess
     fake_context.Manager.return_value.Queue.return_value = MagicMock()
     orch.mp_context = fake_context
+    # _run_pipeline no longer calls mp_context.Manager() directly: _start_manager
+    # constructs a real SyncManager against the context so it can pass an
+    # initializer (see its docstring), and a real SyncManager cannot be built on
+    # a MagicMock context. Redirecting the one seam keeps the fake context above
+    # as the single place this test describes the multiprocessing world.
+    orch._start_manager = fake_context.Manager
 
     orch._run_pipeline([("chunk.smi", "job1")])
 
@@ -776,6 +955,9 @@ class TestAbnormalIsomerWorkerExit:
         fake_context.Process = self._ThreadProcess
         fake_context.Manager.return_value.Queue.return_value = real_chunk_queue
         orch.mp_context = fake_context
+        # See test_run_pipeline_does_not_mutate_shared_batchsize: _start_manager
+        # is the seam now, and a real SyncManager cannot be built on a MagicMock.
+        orch._start_manager = fake_context.Manager
 
         monkeypatch.setattr(Auto3D.orchestration.workflow, "isomer_wrapper", self._dying_isomer)
         monkeypatch.setattr(
@@ -819,6 +1001,9 @@ class TestAbnormalIsomerWorkerExit:
         fake_context.Process = self._ThreadProcess
         fake_context.Manager.return_value.Queue.side_effect = [chunk_q, progress_q]
         orch.mp_context = fake_context
+        # Same seam as above; the side_effect order still holds because
+        # _run_pipeline asks for the chunk queue before the progress queue.
+        orch._start_manager = fake_context.Manager
 
         monkeypatch.setattr(Auto3D.orchestration.workflow, "isomer_wrapper", self._dying_isomer)
         monkeypatch.setattr(
@@ -1340,3 +1525,240 @@ class TestQuietPathsNameWhatTheyDropped:
 
         assert results, "test premise: ethanol should embed"
         assert "produced no conformers" not in caplog.text
+
+
+def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
+    """N-M8: torch.backends state is process-global and does not cross the spawn
+    boundary, so the worker must apply allow_tf32 itself.
+
+    ``configure_torch(allow_tf32=True)`` writes up to four process-global
+    flags (``torch.backends.cuda.matmul.allow_tf32``,
+    ``torch.backends.cudnn.allow_tf32``, and -- on torch >= 2.9 -- the modern
+    ``fp32_precision`` knob on both), and ``_attach_run_log_handlers`` adds a
+    ``QueueHandler`` to both the "auto3d" and "Auto3D" logger trees. All of
+    that is process-wide state that outlives this test unless it is put back,
+    which is exactly what ``_restored_worker_globals`` above exists to do --
+    this test used to carry its own inline copy of that snapshot/restore block
+    (C-11).
+    """
+    import queue
+
+    import torch
+
+    import Auto3D.orchestration.workflow_workers as ww
+    from Auto3D.foundation.config import Auto3DOptions
+    from tests.helpers_adapter import FakeAdapter
+
+    # Since C-2 the adapter is built before the first `queue.get()`, so even a
+    # "Done"-only queue would load a real AIMNet2 model without this.
+    monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
+
+    with _restored_worker_globals():
+        torch.backends.cuda.matmul.allow_tf32 = False
+        args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False, allow_tf32=True)
+        q = queue.Queue()
+        q.put("Done")
+        ww.optim_rank_wrapper(args, q, queue.Queue(), gpu_idx=0)
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+
+
+def test_shutdown_logging_removes_handler_and_stops_manager(tmp_path):
+    """P-M10: one handler and one SyncManager leaked per run."""
+    import logging
+    import multiprocessing as mp
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    def _managers():
+        # A Manager's server is a SpawnProcess whose .name is "SyncManager-N";
+        # type(c).__name__ would never match (the reviewer's repro printed .name).
+        return sum(1 for c in mp.active_children() if c.name.startswith("SyncManager"))
+
+    root = logging.getLogger("auto3d")
+    handlers_before, managers_before = list(root.handlers), _managers()
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+    orch.job_dir = tmp_path
+    try:
+        orch._setup_logging()
+        assert len(root.handlers) == len(handlers_before) + 1
+        assert _managers() == managers_before + 1
+    finally:
+        orch._shutdown_logging()
+    assert list(root.handlers) == handlers_before
+    # Other tests may have leaked a Manager; compare to baseline, not zero.
+    assert _managers() == managers_before
+
+
+@contextlib.contextmanager
+def _sigterm_disposition_restored():
+    """Put the process's SIGTERM disposition back, whatever these tests did to it."""
+    previous = signal.getsignal(signal.SIGTERM)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous if previous is not None else signal.SIG_DFL)
+
+
+def _unused_sigterm_handler(signum, frame):  # pragma: no cover - never delivered
+    raise AssertionError("this handler must never run")
+
+
+class TestSigtermRaises:
+    """C-4/A-3: the scoped SIGTERM handler had no direct test at all.
+
+    ``_run_pipeline``'s worker-termination ``finally`` is the whole point of
+    turning SIGTERM into ``SystemExit``: under the default disposition the
+    process dies outright and the optimizer workers grind through the rest of
+    the queue on the GPU. The three cases below are the install, and the two
+    situations in which installing would be wrong.
+    """
+
+    def test_the_handler_is_installed_and_the_default_put_back(self):
+        from Auto3D.foundation.constants import EXIT_TERMINATED
+        from Auto3D.orchestration.workflow import _raise_on_sigterm, _sigterm_raises
+
+        with _sigterm_disposition_restored():
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with _sigterm_raises():
+                assert signal.getsignal(signal.SIGTERM) is _raise_on_sigterm
+            assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+
+        # The code the handler raises is the shell's "killed by SIGTERM".
+        with pytest.raises(SystemExit) as excinfo:
+            _raise_on_sigterm(signal.SIGTERM, None)
+        assert excinfo.value.code == EXIT_TERMINATED == 143
+
+    def test_a_host_that_already_owns_sigterm_keeps_its_handler(self):
+        """A-3(a): a non-default disposition means something to somebody.
+
+        A service supervisor draining requests, an outer CLI, a notebook
+        kernel: replacing its handler for the duration of one ``main()`` is not
+        a library's call to make. Nothing is lost by declining -- every worker
+        arms PR_SET_PDEATHSIG and a parent-sentinel watchdog of its own, so the
+        workers still die with the parent however the parent goes.
+        """
+        from Auto3D.orchestration.workflow import _sigterm_raises
+
+        with _sigterm_disposition_restored():
+            signal.signal(signal.SIGTERM, _unused_sigterm_handler)
+            with _sigterm_raises():
+                assert signal.getsignal(signal.SIGTERM) is _unused_sigterm_handler
+            assert signal.getsignal(signal.SIGTERM) is _unused_sigterm_handler
+
+    def test_off_the_main_thread_it_is_a_no_op_and_leaves_nothing_behind(self):
+        """``signal.signal`` raises ValueError anywhere but the main thread, and
+        Auto3D is a library that may well be called from someone else's worker
+        thread -- so the block must yield quietly and touch nothing.
+
+        A-3(b): this is also the branch that used to be able to leave Auto3D's
+        own handler installed after ``run()`` returned.
+        """
+        from Auto3D.orchestration.workflow import _sigterm_raises
+
+        before = signal.getsignal(signal.SIGTERM)
+        escaped: list[BaseException] = []
+
+        def _body():
+            try:
+                with _sigterm_raises():
+                    pass
+            except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+                escaped.append(exc)
+
+        thread = threading.Thread(target=_body)
+        thread.start()
+        thread.join(timeout=10)
+
+        assert not thread.is_alive(), "the context manager hung off the main thread"
+        assert escaped == [], f"_sigterm_raises raised off the main thread: {escaped}"
+        assert signal.getsignal(signal.SIGTERM) is before
+
+
+class _StubbornProcess:
+    """A process double that outlives its first join, like a wedged worker.
+
+    C-7: the escalation branches -- ``_shutdown_logging``'s ``terminate()`` and
+    ``_terminate_workers``' ``kill()`` -- only run when ``is_alive()`` is still
+    True after a bounded join, which never happens in a test that uses a real
+    (and therefore promptly exiting) process.
+
+    Args:
+        alive_for: how many ``is_alive()`` calls report True before it reports
+            False. ``None`` means "never dies", which is what drives
+            ``_terminate_workers`` all the way to ``kill()``.
+    """
+
+    def __init__(self, alive_for: int | None = None) -> None:
+        self._alive_for = alive_for
+        self.calls: list[str] = []
+        self._is_alive_calls = 0
+
+    def is_alive(self) -> bool:
+        self._is_alive_calls += 1
+        if self._alive_for is None:
+            return True
+        return self._is_alive_calls <= self._alive_for
+
+    def join(self, timeout: float | None = None) -> None:
+        self.calls.append(f"join({timeout})")
+
+    def terminate(self) -> None:
+        self.calls.append("terminate")
+
+    def kill(self) -> None:
+        self.calls.append("kill")
+
+
+class TestWedgedChildrenAreEscalated:
+    """C-7: the terminate/kill branches, with a process that will not go."""
+
+    def test_shutdown_logging_terminates_a_logger_that_outlives_its_join(self, tmp_path):
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+        # Only the logger process: no queue, no handler, no Manager, so this
+        # exercises exactly the join -> still alive -> terminate escalation.
+        stubborn = _StubbornProcess(alive_for=1)
+        orch._logger_p = stubborn
+        orch.logging_queue = None
+        orch._log_handler = None
+        orch._logging_manager = None
+
+        orch._shutdown_logging()
+
+        assert stubborn.calls == ["join(10)", "terminate", "join(5)"]
+        assert orch._logger_p is None
+
+    def test_terminate_workers_kills_a_worker_that_survives_terminate(self, tmp_path):
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+        never_dies = _StubbornProcess()  # is_alive() is True forever
+        shut_down: list[str] = []
+
+        class _Manager:
+            def shutdown(self):
+                shut_down.append("shutdown")
+
+        orch._terminate_workers([never_dies], [_Manager()])
+
+        assert never_dies.calls == ["terminate", "join(5)", "kill", "join(5)"]
+        # The Managers go LAST, after the workers holding proxies into them.
+        assert shut_down == ["shutdown"]
+
+    def test_a_manager_that_is_already_gone_does_not_raise_out_of_the_finally(self, tmp_path):
+        """``_terminate_workers`` runs from a ``finally``; a dead Manager socket
+        must not become the exception the run reports."""
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orch = WorkflowOrchestrator(Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False))
+
+        class _DeadManager:
+            def shutdown(self):
+                raise BrokenPipeError("server already gone")
+
+        orch._terminate_workers([], [_DeadManager()])  # must not raise

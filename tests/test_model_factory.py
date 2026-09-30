@@ -403,3 +403,74 @@ class TestRemovedParameters:
         sig = inspect.signature(create_model)
         with pytest.raises(TypeError):
             sig.bind("AIMNET", torch.device("cpu"), use_ensembel=True)
+
+
+def test_the_compile_probes_own_frames_are_excluded_from_later_warnings(
+    tmp_path, monkeypatch, caplog
+):
+    """T-2: the probe IS the adapter's first forward, so it owns the first frames.
+
+    ``_verify_compiled_adapter`` triggers the lazy compilation itself, which means
+    every frame that compilation attempts -- including one Dynamo suppresses --
+    falls inside the delta ``_warn_if_compile_fell_back_to_eager`` measures from
+    ``__init__``'s snapshot. Without re-baselining after the probe, the FIRST
+    forward the caller runs reports the probe's fallback as if the caller's own
+    geometry had provoked it, and (because the count is then already 1) the
+    caller's real fallback is never reported at all.
+    """
+    import collections
+    import logging
+
+    import Auto3D.engines.models.adapter as adapter_mod
+    from tests.helpers_custom_nnp import ScriptableNNP
+
+    path = tmp_path / "eager_nnp.pt"
+    torch.save(ScriptableNNP(), str(path))
+
+    frames: collections.Counter = collections.Counter()
+    monkeypatch.setitem(torch._dynamo.utils.counters, "frames", frames)
+
+    class _SuppressedOnFirstForward(torch.nn.Module):
+        """Numerically identical to the eager module, but bookkeeps like a
+        compile whose one frame Dynamo suppressed on the first call."""
+
+        def __init__(self, inner):
+            super().__init__()
+            self._orig_mod = inner
+            self._seen = False
+
+        def forward(self, *args, **kwargs):
+            if not self._seen:
+                self._seen = True
+                frames["total"] += 1  # ... and deliberately no "ok"
+            return self._orig_mod(*args, **kwargs)
+
+    monkeypatch.setattr(
+        adapter_mod.torch, "compile", lambda obj, **kw: _SuppressedOnFirstForward(obj)
+    )
+
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        adapter = create_model(str(path), torch.device("cpu"), compile_model=True, use_cache=False)
+    # The probe forward is the one that saw the suppression, so it is the one
+    # that reports it -- at construction, where it belongs.
+    assert "fell back to eager" in caplog.text
+
+    # ...and the adapter is handed back re-baselined, so the caller starts clean.
+    assert adapter._compile_suppressed_seen == 0
+    assert adapter._compile_frame_stats_before == {"total": 1}
+
+    coords = torch.zeros(1, 2, 3)
+    species = torch.ones(1, 2, dtype=torch.long)
+    charges = torch.zeros(1)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        adapter.forward(coords, species, charges)
+    assert caplog.text == "", "the probe's own frame was blamed on the caller"
+
+    # A fallback the caller provokes IS reported -- the re-baseline must not
+    # have cost the diagnostic it exists to make accurate, which is what
+    # resetting _compile_suppressed_seen alongside the snapshot buys.
+    frames["total"] += 1
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        adapter.forward(coords, species, charges)
+    assert "fell back to eager" in caplog.text
