@@ -28,6 +28,7 @@ from Auto3D.foundation.exceptions import (
     InputValidationError,
     OptimizationError,
 )
+from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
@@ -36,7 +37,6 @@ from Auto3D.orchestration.chunk_manager import ChunkManager
 from Auto3D.orchestration.pipeline.input_checks import check_input, check_valid_configuration
 from Auto3D.orchestration.workflow_workers import (
     ProgressEvent,
-    _exit_when_parent_dies,
     isomer_wrapper,
     logger_process,
     optim_rank_wrapper,
@@ -449,6 +449,14 @@ class WorkflowOrchestrator:
         would ever read again -- the last orphans of a killed run (P-C2).
         ``_exit_when_parent_dies`` returns immediately when there is no parent
         process, so it is inert if this is ever called in-process.
+
+        Imported from ``Auto3D.foundation.process_lifecycle``, not from
+        ``workflow_workers`` (I1): under ``spawn`` the server unpickles the
+        initializer by importing its defining module, so a reference into
+        ``workflow_workers`` dragged torch and rdkit into every Manager
+        server process just to be able to call this one stdlib-only
+        function. ``process_lifecycle`` has no Auto3D imports at all, so the
+        server now imports only that.
         """
         manager = SyncManager(ctx=self.mp_context)
         manager.start(initializer=_exit_when_parent_dies)
@@ -503,6 +511,13 @@ class WorkflowOrchestrator:
 
         if self._logger_p is not None:
             self._logger_p.join(timeout=10)
+            if self._logger_p.is_alive():
+                # Same order _terminate_workers documents: the logger process
+                # must be gone before the Manager whose queue it holds a proxy
+                # into is torn down, or shutdown() pulls the queue out from
+                # under a still-running logger process.
+                self._logger_p.terminate()
+                self._logger_p.join(timeout=5)
             self._logger_p = None
 
         if self._log_handler is not None and self.logger is not None:
@@ -586,50 +601,13 @@ class WorkflowOrchestrator:
         Args:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
-        # Both Managers below are owned for the duration of this method and shut
-        # down by _terminate_workers in the `finally`: their server processes are
-        # children of this process too, and an abandoned one keeps a queue (and
-        # everything it references) alive with nothing left to consume it.
-        chunk_manager = self._start_manager()
-        chunk_queue: Queue[tuple[str, str, str, int] | str] = chunk_manager.Queue()
-        managers = [chunk_manager]
-
-        # Process-safe channel for live progress events, created only when a
-        # progress callback was supplied (interactive `auto3d run`). When None,
-        # the optimizer workers emit nothing and the supervise loop below falls
-        # back to plain blocking joins -- the default/library path is unchanged.
-        progress_queue = None
-        if self.progress_callback is not None:
-            progress_manager = self._start_manager()
-            progress_queue = progress_manager.Queue()
-            managers.append(progress_manager)
-
-        # Per-run config carrying the memory-scaled batch size for optimization.
-        # Built with dataclasses.replace so self.config (itself already a
-        # private copy made at the top of run(), see M16) is left holding the
-        # unscaled value -- only the optimizer workers get the scaled one.
-        opt_config = self.config.replace(batchsize_atoms=self.scaled_batchsize_atoms)
-
-        # Create isomer generation process
-        p1 = self.mp_context.Process(
-            target=isomer_wrapper,
-            args=(chunk_info, self.config, chunk_queue, self.logging_queue),
-        )
-
-        # Create optimization processes: one per GPU when running on GPU with a
-        # list of indices, a single worker otherwise. A CPU run with a list of
-        # gpu_idx must NOT spawn N processes all contending for the same cores
-        # (N model loads -> OOM risk); optimizer_worker_indices collapses that to
-        # one, and the isomer worker derives its sentinel count the same way.
-        p2s: list[BaseProcess] = []
-        for idx in optimizer_worker_indices(self.config.use_gpu, self.config.gpu_idx):
-            p2s.append(
-                self.mp_context.Process(
-                    target=optim_rank_wrapper,
-                    args=(opt_config, chunk_queue, self.logging_queue, idx, progress_queue),
-                )
-            )
-
+        # Declared before the `try` -- and mutated only inside it -- so that a
+        # failure partway through setup (a Manager server that fails to start,
+        # `config.replace()` raising, `Process(...)` construction itself
+        # raising) still reaches the `finally` with whatever was actually
+        # created so far, instead of leaking it (M3). `_terminate_workers`
+        # tolerates both being empty.
+        managers: list[SyncManager] = []
         # Every process that actually started, so the `finally` below only ever
         # touches processes it can legally join: Process.join() asserts on one
         # that was never started, and a start() that fails partway (EAGAIN under
@@ -637,6 +615,54 @@ class WorkflowOrchestrator:
         # AssertionError raised from the cleanup path on top of it.
         started: list[BaseProcess] = []
         try:
+            # Both Managers below are owned for the duration of this method and
+            # shut down by _terminate_workers in the `finally`: their server
+            # processes are children of this process too, and an abandoned one
+            # keeps a queue (and everything it references) alive with nothing
+            # left to consume it.
+            chunk_manager = self._start_manager()
+            chunk_queue: Queue[tuple[str, str, str, int] | str] = chunk_manager.Queue()
+            managers.append(chunk_manager)
+
+            # Process-safe channel for live progress events, created only when a
+            # progress callback was supplied (interactive `auto3d run`). When
+            # None, the optimizer workers emit nothing and the supervise loop
+            # below falls back to plain blocking joins -- the default/library
+            # path is unchanged.
+            progress_queue = None
+            if self.progress_callback is not None:
+                progress_manager = self._start_manager()
+                progress_queue = progress_manager.Queue()
+                managers.append(progress_manager)
+
+            # Per-run config carrying the memory-scaled batch size for
+            # optimization. Built with dataclasses.replace so self.config
+            # (itself already a private copy made at the top of run(), see
+            # M16) is left holding the unscaled value -- only the optimizer
+            # workers get the scaled one.
+            opt_config = self.config.replace(batchsize_atoms=self.scaled_batchsize_atoms)
+
+            # Create isomer generation process
+            p1 = self.mp_context.Process(
+                target=isomer_wrapper,
+                args=(chunk_info, self.config, chunk_queue, self.logging_queue),
+            )
+
+            # Create optimization processes: one per GPU when running on GPU
+            # with a list of indices, a single worker otherwise. A CPU run
+            # with a list of gpu_idx must NOT spawn N processes all contending
+            # for the same cores (N model loads -> OOM risk);
+            # optimizer_worker_indices collapses that to one, and the isomer
+            # worker derives its sentinel count the same way.
+            p2s: list[BaseProcess] = []
+            for idx in optimizer_worker_indices(self.config.use_gpu, self.config.gpu_idx):
+                p2s.append(
+                    self.mp_context.Process(
+                        target=optim_rank_wrapper,
+                        args=(opt_config, chunk_queue, self.logging_queue, idx, progress_queue),
+                    )
+                )
+
             # Start all processes
             p1.start()
             started.append(p1)

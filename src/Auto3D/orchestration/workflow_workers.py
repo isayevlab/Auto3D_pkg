@@ -9,15 +9,11 @@ auto3D<->workflow import cycle, so the dependency direction is now one-way:
 from __future__ import annotations
 
 import contextlib
-import ctypes
 import logging
-import multiprocessing
 import os
 import shutil
-import signal
 import sys
 import tarfile
-import threading
 from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -30,6 +26,7 @@ from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.policy import check_gpu_requested
 from Auto3D.foundation.config import optimizer_worker_indices
+from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.orchestration.job_layout import create_chunk_meta_names, housekeeping
 from Auto3D.orchestration.processors import TautomerProcessor
@@ -83,59 +80,6 @@ class ProgressEvent(TypedDict):
     converged: int
     dropped: int
     active: int
-
-
-def _exit_when_parent_dies() -> None:
-    """Make this worker die with its parent.
-
-    Two mechanisms, because neither alone covers every case (P-C2):
-
-    * On Linux, ``prctl(PR_SET_PDEATHSIG, SIGTERM)`` asks the kernel to send
-      SIGTERM when the parent *thread* that created us exits. It is delivered
-      even when the parent is SIGKILLed (OOM killer, exit 137), when no Python
-      cleanup runs in the parent. This is the fast path: the kernel signals us
-      the instant the parent goes.
-    * A daemon thread waits on ``multiprocessing.parent_process().join()`` and
-      exits the process with 143 when it returns. ``_ParentProcess.join()``
-      waits on the *sentinel pipe* multiprocessing already hands every child,
-      so it needs no polling, and -- crucially -- it returns immediately when
-      the parent is already gone. This is the portable path and the backstop
-      for the prctl edge cases.
-
-    Why the sentinel and not ``os.getppid()``: a spawned child spends a second
-    or two importing torch before this function runs, and a parent that dies
-    inside that window has already re-parented us to init. A watchdog that
-    captured ``os.getppid()`` here would record 1 and compare against 1
-    forever, while prctl would have armed against a parent that was already
-    dead -- both mechanisms silently missing, in exactly the OOM-kill scenario
-    above. The sentinel fd is at EOF the moment the parent dies, whenever that
-    was, and it is start-method agnostic (under ``forkserver`` the ppid is the
-    fork server, not the process whose death matters).
-
-    Called at the top of every spawned worker, before any GPU work. A no-op
-    when there is no parent process to die with -- i.e. when the worker
-    function was called in-process rather than through ``Process.start()``,
-    as the unit tests for the worker bodies do: installing a watchdog or a
-    PDEATHSIG there would arm them against the test runner itself.
-    """
-    parent = multiprocessing.parent_process()
-    if parent is None:
-        return
-    if sys.platform.startswith("linux"):
-        try:
-            PR_SET_PDEATHSIG = 1
-            libc = ctypes.CDLL("libc.so.6")
-            libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-        except Exception:
-            pass
-
-    def _watch() -> None:
-        parent.join()
-        # os._exit, not sys.exit: SystemExit raised in a non-main thread only
-        # ends that thread, leaving the worker running.
-        os._exit(143)
-
-    threading.Thread(target=_watch, name="auto3d-parent-watchdog", daemon=True).start()
 
 
 def _worker_stdout_to_stderr() -> contextlib.AbstractContextManager[object]:

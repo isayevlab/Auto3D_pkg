@@ -15,14 +15,20 @@ PARENT = ROOT / "tests" / "helpers_lifecycle_parent.py"
 
 # Every (Popen, stderr file) this module started, so the fixture below can tear
 # the whole session down again. `_run_pipeline` starts a THIRD child besides the
-# two workers: the chunk queue's Manager server process (it re-imports the
-# parent script, so it is a torch-loaded process). That one used to have neither
-# PR_SET_PDEATHSIG nor the watchdog thread, so it survived a killed parent
-# forever and every launch leaked one. It is now started with
-# `_exit_when_parent_dies` as its initializer and shut down in the parent's own
-# `finally` (`_start_manager`/`_terminate_workers`), and `_children` below
-# asserts that -- so this teardown is belt-and-braces rather than the only thing
-# keeping the box clean.
+# two workers: the chunk queue's Manager server process. In THIS harness it is
+# a torch-loaded process, but only because `helpers_lifecycle_parent.py` (the
+# script re-executed as `__mp_main__` under spawn) imports `workflow` at
+# module scope for stubbing -- not because starting a Manager loads torch in
+# production. Since I1, the initializer passed to `manager.start()` is
+# `Auto3D.foundation.process_lifecycle._exit_when_parent_dies`, a stdlib-only
+# function, so a production Manager server (started from a parent script that
+# does not itself import `workflow`) imports neither torch nor rdkit just to
+# unpickle it. That one used to have neither PR_SET_PDEATHSIG nor the watchdog
+# thread, so it survived a killed parent forever and every launch leaked one.
+# It is now started with `_exit_when_parent_dies` as its initializer and shut
+# down in the parent's own `finally` (`_start_manager`/`_terminate_workers`),
+# and `_children` below asserts that -- so this teardown is belt-and-braces
+# rather than the only thing keeping the box clean.
 _LAUNCHED: list[tuple[subprocess.Popen, object]] = []
 
 
