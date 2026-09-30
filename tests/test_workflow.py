@@ -1344,7 +1344,19 @@ class TestQuietPathsNameWhatTheyDropped:
 
 def test_optim_rank_wrapper_applies_torch_config(tmp_path):
     """N-M8: torch.backends state is process-global and does not cross the spawn
-    boundary, so the worker must apply allow_tf32 itself."""
+    boundary, so the worker must apply allow_tf32 itself.
+
+    ``configure_torch(allow_tf32=True)`` writes up to four process-global
+    flags (``torch.backends.cuda.matmul.allow_tf32``,
+    ``torch.backends.cudnn.allow_tf32``, and -- on torch >= 2.9 -- the modern
+    ``fp32_precision`` knob on both), and ``_attach_run_log_handlers`` adds a
+    ``QueueHandler`` to both the "auto3d" and "Auto3D" logger trees. All of
+    that is process-wide state that outlives this test unless it is put back,
+    so everything this call touches is snapshotted before and restored after,
+    following the established pattern in
+    ``TestAFailedChunksCauseReachesTheUser._drain`` above (snapshot, then in
+    ``finally`` remove/close only what was added and restore the rest).
+    """
     import queue
 
     import torch
@@ -1352,10 +1364,14 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path):
     import Auto3D.orchestration.workflow_workers as ww
     from Auto3D.foundation.config import Auto3DOptions
 
-    previous = torch.backends.cuda.matmul.allow_tf32
+    previous_matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    previous_cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    previous_matmul_fp32_precision = getattr(torch.backends.cuda.matmul, "fp32_precision", None)
+    previous_cudnn_fp32_precision = getattr(torch.backends.cudnn, "fp32_precision", None)
     torch.backends.cuda.matmul.allow_tf32 = False
-    run_logger = logging.getLogger("auto3d")
-    previous_handlers = list(run_logger.handlers)
+
+    loggers = (logging.getLogger("auto3d"), logging.getLogger("Auto3D"))
+    previous_handlers = {logger: list(logger.handlers) for logger in loggers}
     try:
         args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False, allow_tf32=True)
         q = queue.Queue()
@@ -1363,5 +1379,16 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path):
         ww.optim_rank_wrapper(args, q, queue.Queue(), gpu_idx=0)
         assert torch.backends.cuda.matmul.allow_tf32 is True
     finally:
-        torch.backends.cuda.matmul.allow_tf32 = previous
-        run_logger.handlers[:] = previous_handlers
+        torch.backends.cuda.matmul.allow_tf32 = previous_matmul_tf32
+        torch.backends.cudnn.allow_tf32 = previous_cudnn_tf32
+        if previous_matmul_fp32_precision is not None:
+            torch.backends.cuda.matmul.fp32_precision = previous_matmul_fp32_precision
+        if previous_cudnn_fp32_precision is not None:
+            torch.backends.cudnn.fp32_precision = previous_cudnn_fp32_precision
+        for logger in loggers:
+            before = previous_handlers[logger]
+            for handler in list(logger.handlers):
+                if handler not in before:
+                    logger.removeHandler(handler)
+                    handler.close()
+            logger.handlers[:] = before
