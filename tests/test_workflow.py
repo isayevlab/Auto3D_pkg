@@ -319,9 +319,15 @@ class TestWorkersExitQuietlyOnKeyboardInterrupt:
     never runs these two clauses.
     """
 
-    def test_optim_rank_wrapper_exits_130_instead_of_raising(self, tmp_path):
+    def test_optim_rank_wrapper_exits_130_instead_of_raising(self, tmp_path, monkeypatch):
         import Auto3D.orchestration.workflow_workers as ww
         from Auto3D.foundation.config import Auto3DOptions
+        from tests.helpers_adapter import FakeAdapter
+
+        # The adapter is built once, before the first `queue.get()` (C-2), so
+        # this in-process call would otherwise load a real AIMNet2 model just to
+        # reach the interrupt the test is about.
+        monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
 
         args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False)
         with _restored_worker_globals(), pytest.raises(SystemExit) as excinfo:
@@ -559,6 +565,7 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
 
     from Auto3D.foundation.config import Auto3DOptions
     from Auto3D.orchestration import workflow_workers as ww
+    from tests.helpers_adapter import FakeAdapter
 
     attempted = []
 
@@ -570,9 +577,12 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
             attempted.append(self._enumerated)
             raise RuntimeError("optimizer blew up on this chunk")
 
-    # Replace the heavy optimizing class (which would build a real model) with
-    # one that always raises, so we exercise only the loop's failure isolation.
+    # Replace the heavy optimizing class with one that always raises, so we
+    # exercise only the loop's failure isolation. `create_model` is stubbed for
+    # the same reason: since C-2 the adapter is built once before the loop, and
+    # a real AIMNet2 load has nothing to do with per-chunk isolation.
     monkeypatch.setattr(ww, "optimizing", _BoomOptimizing)
+    monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
 
     q: queue_mod.Queue = queue_mod.Queue()
     d1 = tmp_path / "job1"
@@ -598,6 +608,52 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     # read by nobody. Ranked structures reach the caller through the output
     # SDF each chunk writes, not through this frame.
     assert result is None
+
+
+def test_model_construction_failure_is_fatal_and_consumes_no_chunk(tmp_path, monkeypatch):
+    """C-2: a model that cannot be built is not a skippable chunk.
+
+    ``create_model`` used to run INSIDE the per-chunk ``except Exception:
+    continue``, so a ``NumericalError`` from the compile probe -- or a bad
+    checksum, or a missing weight file -- was logged once per chunk and the
+    worker went on to "skip" every one of them. The run then ended on
+    ``_finalize_output``'s convergence-failure message over an empty or partial
+    SDF, naming three causes (memory, invalid SMILES, patience) that did not
+    apply. Construction now happens once, before the first ``queue.get()``, and
+    its failure propagates out of the worker.
+    """
+    import queue as queue_mod
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import NumericalError
+    from Auto3D.orchestration import workflow_workers as ww
+
+    def _refuse(*args_, **kwargs_):
+        raise NumericalError("the compiled adapter disagrees with eager")
+
+    monkeypatch.setattr(ww, "create_model", _refuse)
+    # A tripwire, not a stub: if construction were still inside the loop, the
+    # worker would swallow the NumericalError and optimize the chunk anyway.
+    # ``pytest.fail`` raises a BaseException, so the per-chunk ``except
+    # Exception`` cannot hide it either.
+    monkeypatch.setattr(
+        ww,
+        "optimizing",
+        lambda *args_, **kwargs_: pytest.fail("a chunk was optimized with no model"),
+    )
+
+    q: queue_mod.Queue = queue_mod.Queue()
+    q.put(("enum1.sdf", str(tmp_path / "c1.smi"), str(tmp_path), 1))
+    q.put(("enum2.sdf", str(tmp_path / "c2.smi"), str(tmp_path), 2))
+    q.put("Done")
+    args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+
+    with _restored_worker_globals(), pytest.raises(NumericalError):
+        ww.optim_rank_wrapper(args, q, queue_mod.Queue(), gpu_idx=0)
+
+    # Nothing was taken off the queue: both chunks and the sentinel are still
+    # there. (The parent tops the sentinels up itself; see _ensure_done_sentinels.)
+    assert q.qsize() == 3
 
 
 def test_unsupported_extension_rejected_before_encoding(tmp_path):
@@ -1470,7 +1526,7 @@ class TestQuietPathsNameWhatTheyDropped:
         assert "produced no conformers" not in caplog.text
 
 
-def test_optim_rank_wrapper_applies_torch_config(tmp_path):
+def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
     """N-M8: torch.backends state is process-global and does not cross the spawn
     boundary, so the worker must apply allow_tf32 itself.
 
@@ -1480,10 +1536,9 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path):
     ``fp32_precision`` knob on both), and ``_attach_run_log_handlers`` adds a
     ``QueueHandler`` to both the "auto3d" and "Auto3D" logger trees. All of
     that is process-wide state that outlives this test unless it is put back,
-    so everything this call touches is snapshotted before and restored after,
-    following the established pattern in
-    ``TestAFailedChunksCauseReachesTheUser._drain`` above (snapshot, then in
-    ``finally`` remove/close only what was added and restore the rest).
+    which is exactly what ``_restored_worker_globals`` above exists to do --
+    this test used to carry its own inline copy of that snapshot/restore block
+    (C-11).
     """
     import queue
 
@@ -1491,35 +1546,19 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path):
 
     import Auto3D.orchestration.workflow_workers as ww
     from Auto3D.foundation.config import Auto3DOptions
+    from tests.helpers_adapter import FakeAdapter
 
-    previous_matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
-    previous_cudnn_tf32 = torch.backends.cudnn.allow_tf32
-    previous_matmul_fp32_precision = getattr(torch.backends.cuda.matmul, "fp32_precision", None)
-    previous_cudnn_fp32_precision = getattr(torch.backends.cudnn, "fp32_precision", None)
-    torch.backends.cuda.matmul.allow_tf32 = False
+    # Since C-2 the adapter is built before the first `queue.get()`, so even a
+    # "Done"-only queue would load a real AIMNet2 model without this.
+    monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
 
-    loggers = (logging.getLogger("auto3d"), logging.getLogger("Auto3D"))
-    previous_handlers = {logger: list(logger.handlers) for logger in loggers}
-    try:
+    with _restored_worker_globals():
+        torch.backends.cuda.matmul.allow_tf32 = False
         args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False, allow_tf32=True)
         q = queue.Queue()
         q.put("Done")
         ww.optim_rank_wrapper(args, q, queue.Queue(), gpu_idx=0)
         assert torch.backends.cuda.matmul.allow_tf32 is True
-    finally:
-        torch.backends.cuda.matmul.allow_tf32 = previous_matmul_tf32
-        torch.backends.cudnn.allow_tf32 = previous_cudnn_tf32
-        if previous_matmul_fp32_precision is not None:
-            torch.backends.cuda.matmul.fp32_precision = previous_matmul_fp32_precision
-        if previous_cudnn_fp32_precision is not None:
-            torch.backends.cudnn.fp32_precision = previous_cudnn_fp32_precision
-        for logger in loggers:
-            before = previous_handlers[logger]
-            for handler in list(logger.handlers):
-                if handler not in before:
-                    logger.removeHandler(handler)
-                    handler.close()
-            logger.handlers[:] = before
 
 
 def test_shutdown_logging_removes_handler_and_stops_manager(tmp_path):

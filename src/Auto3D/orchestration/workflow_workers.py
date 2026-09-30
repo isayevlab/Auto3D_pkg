@@ -246,6 +246,45 @@ def optim_rank_wrapper(
         _attach_run_log_handlers(logging_queue)
 
         try:
+            # Built ONCE per worker, before the first chunk is taken off the
+            # queue, and deliberately OUTSIDE the per-chunk `except Exception:
+            # continue` below. A model that cannot be built is never
+            # chunk-specific: inside the loop, a NumericalError from the
+            # compile probe (or a bad checksum, or a missing weight file)
+            # downgraded to "chunk skipped" for EVERY chunk in turn, and the
+            # run ended with an empty or partial SDF reported as a
+            # convergence failure instead of naming the real cause (C-2). This
+            # `raise` kills the worker, which is what the parent's
+            # reconciliation is there to notice.
+            #
+            # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
+            # worker, and must stay here. `optimizing` used to construct it
+            # itself; hoisting construction out to this function keeps it in the
+            # same process, but hoisting it any further -- to `workflow.py`,
+            # which drives the pool, where these duplicated `create_model` calls
+            # would look like an obvious cleanup -- pushes a device-resident
+            # nn.Module, and for AIMNET a live AIMNet2Calculator, across the
+            # `spawn` boundary. That is either an unpicklable-object failure or
+            # CUDA re-initialization in the parent, and nothing in the signature
+            # says so.
+            #
+            # `device` is resolved through model_factory.get_device -- the single
+            # owner of gpu_idx -> torch.device (see entry/auto3D.py's smiles2mols
+            # for the same rationale) -- rather than rebuilding the
+            # `cuda:{idx}` string by hand, which used to bypass get_device's own
+            # out-of-range GPUError entirely. `gpu_idx` here is already a single
+            # resolved index (this worker's own assignment from
+            # optimizer_worker_indices, see the spawn loop in workflow.py), so no
+            # int-or-list branch is needed the way smiles2mols' single-process
+            # caller needs one.
+            optimizing_engine = args.optimizing_engine
+            try:
+                device = get_device(gpu_idx, use_gpu=args.use_gpu)
+                adapter = create_model(optimizing_engine, device)
+            except Exception:
+                logger.exception("Model construction failed; this worker cannot optimize.")
+                raise
+
             while True:
                 sdf_path_dir_job = queue.get()
                 if sdf_path_dir_job == "Done":
@@ -262,17 +301,6 @@ def optim_rank_wrapper(
                     # Optimizing step
                     opt_config = args.to_optimization_config()
                     optimized_og = meta["optimized_og"]
-                    optimizing_engine = args.optimizing_engine
-                    # Resolved through model_factory.get_device -- the single
-                    # owner of gpu_idx -> torch.device (see entry/auto3D.py's
-                    # smiles2mols for the same rationale) -- rather than
-                    # rebuilding the `cuda:{idx}` string by hand here, which used
-                    # to bypass get_device's own out-of-range GPUError entirely.
-                    # `gpu_idx` here is already a single resolved index (this
-                    # worker's own assignment from optimizer_worker_indices, see
-                    # the spawn loop in workflow.py), so no int-or-list branch is
-                    # needed the way smiles2mols' single-process caller needs one.
-                    device = get_device(gpu_idx, use_gpu=args.use_gpu)
                     # When a progress queue is supplied (interactive `auto3d run`), tag
                     # each event with this chunk's job id and forward it to the main
                     # process for the live display. Guarded so a full/closed queue can
@@ -286,17 +314,6 @@ def optim_rank_wrapper(
                             except Exception:
                                 pass
 
-                    # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
-                    # worker, and must stay here. `optimizing` used to construct it
-                    # itself; hoisting construction one frame out (to this function)
-                    # keeps it in the same process, but hoisting it any further -- to
-                    # `workflow.py`, which drives the pool, where these duplicated
-                    # `create_model` calls would look like an obvious cleanup -- pushes
-                    # a device-resident nn.Module, and for AIMNET a live
-                    # AIMNet2Calculator, across the `spawn` boundary. That is either an
-                    # unpicklable-object failure or CUDA re-initialization in the
-                    # parent, and nothing in the signature says so.
-                    adapter = create_model(optimizing_engine, device)
                     optimizer = optimizing(
                         enumerated_sdf,
                         optimized_og,
