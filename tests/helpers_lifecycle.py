@@ -13,7 +13,7 @@ def _record(name: str, text: str) -> None:
 
 
 def isomer_stub(chunk_info, config, chunk_queue, logging_queue):
-    _exit_when_parent_dies(poll_s=0.2)
+    _exit_when_parent_dies()
     _record("isomer.pid", str(os.getpid()))
     n_opt = int(os.environ.get("LIFECYCLE_N_OPT", "1"))
     try:
@@ -27,7 +27,7 @@ def isomer_stub(chunk_info, config, chunk_queue, logging_queue):
 
 
 def optimizer_stub(config, chunk_queue, logging_queue, gpu_idx, progress_queue=None):
-    _exit_when_parent_dies(poll_s=0.2)
+    _exit_when_parent_dies()
     _record(f"opt{gpu_idx}.pid", str(os.getpid()))
     processed = []
     try:

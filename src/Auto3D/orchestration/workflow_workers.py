@@ -18,7 +18,6 @@ import signal
 import sys
 import tarfile
 import threading
-import time
 from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -86,18 +85,32 @@ class ProgressEvent(TypedDict):
     active: int
 
 
-def _exit_when_parent_dies(poll_s: float = 1.0) -> None:
+def _exit_when_parent_dies() -> None:
     """Make this worker die with its parent.
 
     Two mechanisms, because neither alone covers every case (P-C2):
 
     * On Linux, ``prctl(PR_SET_PDEATHSIG, SIGTERM)`` asks the kernel to send
-      SIGTERM when the parent thread that created us exits. It is delivered
-      even when the parent is SIGKILLed (OOM killer, exit 137), when no
-      Python cleanup runs in the parent.
-    * A daemon thread polls ``os.getppid()``; when it changes (we were
-      re-parented to init/subreaper), the process exits with 143. This is
-      the portable path and the backstop for the prctl edge cases.
+      SIGTERM when the parent *thread* that created us exits. It is delivered
+      even when the parent is SIGKILLed (OOM killer, exit 137), when no Python
+      cleanup runs in the parent. This is the fast path: the kernel signals us
+      the instant the parent goes.
+    * A daemon thread waits on ``multiprocessing.parent_process().join()`` and
+      exits the process with 143 when it returns. ``_ParentProcess.join()``
+      waits on the *sentinel pipe* multiprocessing already hands every child,
+      so it needs no polling, and -- crucially -- it returns immediately when
+      the parent is already gone. This is the portable path and the backstop
+      for the prctl edge cases.
+
+    Why the sentinel and not ``os.getppid()``: a spawned child spends a second
+    or two importing torch before this function runs, and a parent that dies
+    inside that window has already re-parented us to init. A watchdog that
+    captured ``os.getppid()`` here would record 1 and compare against 1
+    forever, while prctl would have armed against a parent that was already
+    dead -- both mechanisms silently missing, in exactly the OOM-kill scenario
+    above. The sentinel fd is at EOF the moment the parent dies, whenever that
+    was, and it is start-method agnostic (under ``forkserver`` the ppid is the
+    fork server, not the process whose death matters).
 
     Called at the top of every spawned worker, before any GPU work. A no-op
     when there is no parent process to die with -- i.e. when the worker
@@ -105,24 +118,22 @@ def _exit_when_parent_dies(poll_s: float = 1.0) -> None:
     as the unit tests for the worker bodies do: installing a watchdog or a
     PDEATHSIG there would arm them against the test runner itself.
     """
-    if multiprocessing.parent_process() is None:
+    parent = multiprocessing.parent_process()
+    if parent is None:
         return
     if sys.platform.startswith("linux"):
         try:
             PR_SET_PDEATHSIG = 1
-            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            libc = ctypes.CDLL("libc.so.6")
             libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
         except Exception:
             pass
-    parent = os.getppid()
 
     def _watch() -> None:
-        while True:
-            time.sleep(poll_s)
-            if os.getppid() != parent:
-                # os._exit, not sys.exit: SystemExit raised in a non-main
-                # thread only ends that thread, leaving the worker running.
-                os._exit(143)
+        parent.join()
+        # os._exit, not sys.exit: SystemExit raised in a non-main thread only
+        # ends that thread, leaving the worker running.
+        os._exit(143)
 
     threading.Thread(target=_watch, name="auto3d-parent-watchdog", daemon=True).start()
 
@@ -432,6 +443,10 @@ def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     tear that panel -- an acceptable trade for a diagnosis, and the reason INFO
     is kept out of it.
     """
+    # The third spawned worker in this file, and it blocks on queue.get() for
+    # the whole run: without this it survives a SIGKILLed parent forever,
+    # waiting on an orphaned logging queue (P-C2).
+    _exit_when_parent_dies()
     logger = logging.getLogger("auto3d")
     logger.addHandler(logging.FileHandler(logging_path))
     stderr_handler = logging.StreamHandler(sys.stderr)

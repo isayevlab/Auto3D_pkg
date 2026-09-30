@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import multiprocessing as mp
 import queue
@@ -254,6 +255,108 @@ class TestIsomerWrapperFailure:
             drained.append(q.get())
         # one "Done" per GPU even though generation failed
         assert drained.count("Done") == 2
+
+
+@contextlib.contextmanager
+def _restored_worker_globals():
+    """Run a worker body in-process without leaking its process-global writes.
+
+    Both wrappers touch state that outlives the call: ``_attach_run_log_handlers``
+    adds a ``QueueHandler`` to the "auto3d" and "Auto3D" trees, and
+    ``optim_rank_wrapper`` additionally runs ``configure_torch``, which writes the
+    tf32 booleans and (torch >= 2.9) the ``fp32_precision`` knob -- note
+    ``torch.backends.cudnn.allow_tf32`` defaults to True, so even
+    ``allow_tf32=False`` changes it. Same snapshot/restore discipline as
+    ``test_optim_rank_wrapper_applies_torch_config`` below.
+    """
+    import torch
+
+    previous_matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    previous_cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    previous_matmul_fp32 = getattr(torch.backends.cuda.matmul, "fp32_precision", None)
+    previous_cudnn_fp32 = getattr(torch.backends.cudnn, "fp32_precision", None)
+    loggers = (logging.getLogger("auto3d"), logging.getLogger("Auto3D"))
+    previous_handlers = {logger: list(logger.handlers) for logger in loggers}
+    try:
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = previous_matmul_tf32
+        torch.backends.cudnn.allow_tf32 = previous_cudnn_tf32
+        if previous_matmul_fp32 is not None:
+            torch.backends.cuda.matmul.fp32_precision = previous_matmul_fp32
+        if previous_cudnn_fp32 is not None:
+            torch.backends.cudnn.fp32_precision = previous_cudnn_fp32
+        for logger in loggers:
+            before = previous_handlers[logger]
+            for handler in list(logger.handlers):
+                if handler not in before:
+                    logger.removeHandler(handler)
+                    handler.close()
+            logger.handlers[:] = before
+
+
+class _InterruptingQueue:
+    """A chunk queue that interrupts the worker the way a Ctrl-C does.
+
+    A process-group SIGINT raises ``KeyboardInterrupt`` wherever the worker
+    happens to be, and for an optimizer that is almost always the blocking
+    ``queue.get()`` between chunks.
+    """
+
+    def get(self):
+        raise KeyboardInterrupt
+
+
+class TestWorkersExitQuietlyOnKeyboardInterrupt:
+    """P-M12: Ctrl-C must not print a traceback per worker.
+
+    Both wrappers convert ``KeyboardInterrupt`` into ``SystemExit(130)``, which
+    ``multiprocessing``'s ``_bootstrap`` treats as a clean exit code instead of
+    dumping a traceback on the shared stderr. Exercised in-process -- the
+    ``multiprocessing.parent_process() is None`` guard in
+    ``_exit_when_parent_dies`` makes that safe -- because the spawned-subprocess
+    harness in ``tests/test_worker_lifecycle.py`` substitutes stub workers and so
+    never runs these two clauses.
+    """
+
+    def test_optim_rank_wrapper_exits_130_instead_of_raising(self, tmp_path):
+        import Auto3D.orchestration.workflow_workers as ww
+        from Auto3D.foundation.config import Auto3DOptions
+
+        args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False)
+        with _restored_worker_globals(), pytest.raises(SystemExit) as excinfo:
+            ww.optim_rank_wrapper(args, _InterruptingQueue(), queue.Queue(), gpu_idx=0)
+        assert excinfo.value.code == 130
+
+    def test_isomer_wrapper_exits_130_and_still_wakes_every_optimizer(self, tmp_path, monkeypatch):
+        """The quiet exit must not cost the sentinels: the `finally` still runs."""
+        import Auto3D.orchestration.workflow_workers as ww
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.processors import TautomerProcessor
+
+        def _interrupt(self, *args, **kwargs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(TautomerProcessor, "process", _interrupt)
+
+        args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, gpu_idx=[0, 1])
+        args.input_format = "smi"
+        chunk_queue = queue.Queue()
+        with _restored_worker_globals(), pytest.raises(SystemExit) as excinfo:
+            ww.isomer_wrapper(
+                [(str(tmp_path / "chunk.smi"), str(tmp_path))],
+                args,
+                chunk_queue,
+                queue.Queue(),
+            )
+        assert excinfo.value.code == 130
+
+        drained = []
+        while not chunk_queue.empty():
+            drained.append(chunk_queue.get())
+        assert drained.count("Done") == 2, (
+            f"a quiet interrupt must still wake every optimizer; queue held {drained!r}"
+        )
 
 
 class TestOptimizerEmptyInput:
