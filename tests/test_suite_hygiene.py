@@ -119,3 +119,17 @@ def test_the_shared_test_doubles_are_not_shadowed():
     assert not offenders, "import the shared double instead of redefining it:\n  " + "\n  ".join(
         offenders
     )
+
+
+def test_pytest_timeout_is_a_dev_dependency_and_a_declared_marker():
+    """P-m49: the hang guards in test_workflow.py use @pytest.mark.timeout, which
+    is a no-op unless pytest-timeout is installed and the marker is declared."""
+    import pathlib
+    import tomllib
+
+    pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+    dev = pyproject["project"]["optional-dependencies"]["dev"]
+    assert any(d.startswith("pytest-timeout") for d in dev), dev
+    markers = pyproject["tool"]["pytest"]["ini_options"].get("markers", [])
+    assert any(m.startswith("timeout") for m in markers), markers
+    assert "--strict-markers" in pyproject["tool"]["pytest"]["ini_options"]["addopts"]

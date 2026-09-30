@@ -70,6 +70,7 @@ ase = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-timeout>=2.3",
     "mypy>=1.0",
     # requests ships no inline types; without the stubs mypy reports
     # `import-untyped` at models/preflight.py's download path.
@@ -242,9 +243,10 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --tb=short -m 'not slow'"
+addopts = "-v --tb=short -m 'not slow' --strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "timeout: per-test wall-clock limit (pytest-timeout)",
 ]
 filterwarnings = [
     "error::pytest.PytestUnraisableExceptionWarning",
