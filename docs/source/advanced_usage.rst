@@ -106,15 +106,16 @@ Python API:
 torch.compile() Optimization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Enable PyTorch 2.0 compilation for ANI models (off by default):
+Enable PyTorch 2.0 compilation for ANI2xt, the engine Auto3D actually
+compiles (off by default):
 
 .. code:: console
 
    # Enable via environment variable
-   AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --engine=ANI2x --gpu
-
-   # Combine multiple optimizations
    AUTO3D_COMPILE_MODEL=1 auto3d run input.smi --k=1 --engine=ANI2xt --gpu
+
+``--engine=ANI2x`` ignores this option with a warning and runs eager instead:
+compiling torchani's AEV path corrupts energies.
 
 Python API:
 
@@ -128,11 +129,14 @@ Python API:
    model = create_model("ANI2xt", device=device, compile_model=True)
 
 .. note::
-   ``AIMNET`` forwards this flag to aimnet's own compilation; ANI2x/ANI2xt
-   compile through Auto3D's wrapper. A **custom NNP path ignores it**
-   entirely -- ``CustomModelAdapter`` is constructed with compilation off,
-   so neither ``compile_model=True`` nor ``AUTO3D_COMPILE_MODEL=1`` reaches
-   your model.
+   ``AIMNET`` forwards this flag to aimnet's own compilation. ``ANI2xt``
+   compiles its per-element networks through Auto3D's wrapper (the AEV
+   computer stays eager); ``ANI2x`` **ignores the option with a warning**,
+   because compiling torchani's AEV path corrupts energies. A **custom NNP**
+   loaded eagerly is compiled as a whole module and probed against eager at
+   construction (``create_model`` raises ``NumericalError`` if they
+   disagree); a TorchScript archive is already a compiled graph and is not
+   recompiled.
 
    No speedup figure is documented here because none has been measured on this
    codebase. Earlier versions of these docs quoted "~1.25x"; that number had no
@@ -229,7 +233,8 @@ Control Auto3D behavior via environment variables:
 
 .. code:: console
 
-   # Enable torch.compile for ANI models
+   # Enable torch.compile for ANI2xt and eager custom NNPs (ignored with a
+   # warning for ANI2x)
    export AUTO3D_COMPILE_MODEL=1
 
    # Override the AIMNet2 model download cache (default: ~/.cache/aimnet)
@@ -250,7 +255,8 @@ Control Auto3D behavior via environment variables:
      - Description
    * - ``AUTO3D_COMPILE_MODEL``
      - ``0``
-     - Enable torch.compile() for ANI models
+     - Enable torch.compile() for ANI2xt and eager custom NNPs (ignored with
+       a warning for ANI2x)
    * - ``AIMNET_CACHE_DIR``
      - ``~/.cache/aimnet``
      - Override the AIMNet2 model download cache location

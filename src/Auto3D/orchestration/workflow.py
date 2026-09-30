@@ -492,7 +492,11 @@ class WorkflowOrchestrator:
 
         Sends the poison-pill sentinel on the logging queue and joins the
         logger process so its file handler flushes before the run returns.
-        Safe to call multiple times and when logging was never started.
+        Also removes the run-log handler from the ``auto3d`` logger and shuts
+        down the logging ``SyncManager`` that owns the logging queue, so
+        repeated ``main()`` calls in one interpreter leak neither the handler
+        nor the Manager's server process. Safe to call multiple times and when
+        logging was never started.
         """
         if self.logging_queue is not None:
             try:

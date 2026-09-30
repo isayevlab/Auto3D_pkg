@@ -622,16 +622,16 @@ class ANI2xtAdapter(BaseModelAdapter):
 
     ``compile_model=True`` compiles the per-element network evaluation only; the
     AEV computer stays eager because compiling it corrupts the energies (P-C1,
-    2026-09-21). Until this change it attempted to compile *all* of
-    ``forward``, and that compiled *nothing*: the per-element loop contained a
-    data-dependent branch (``if mask.any():``), and a graph break inside a loop
-    gives Dynamo nowhere to place a resume point, so it skipped the frame --
-    measured as **zero** compiled subgraphs. The loop is now free of
-    data-dependent ops and compiles to one subgraph
-    (``tests/test_ani2xt_atom_energies.py``). Whether that is a wall-clock win,
-    and by how much, is a GPU measurement this repository does not make; see
-    ``benchmarks/bench_optimization_perf.py``. No speedup figure is claimed
-    here because none has been measured.
+    2026-09-21). Before this change, ``compile_model=True`` compiled all of
+    ``forward``, including torchani's AEV computer -- that compiled
+    *successfully* and returned energies off by hundreds of eV with no error
+    raised (P-C1, 2026-09-21). Now only ``_atom_energies_fn`` -- the
+    per-element loop, separately rewritten (M7) to be free of the
+    data-dependent branch that used to make it uncompilable on its own -- is
+    compiled (``tests/test_ani2xt_atom_energies.py``). Whether that is a
+    wall-clock win, and by how much, is a GPU measurement this repository does
+    not make; see ``benchmarks/bench_optimization_perf.py``. No speedup figure
+    is claimed here because none has been measured.
     """
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:

@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AUTO3D_COMPILE_MODEL=1` compiled torchani's AEV computer, which returned
   energies off by hundreds of eV without raising; ANI2xt now compiles only its
   per-element networks, ANI2x ignores the option with a warning, and
-  `create_model` verifies any compiled adapter against eager on a probe batch.
+  `create_model` verifies any adapter Auto3D itself compiles against eager on
+  a probe batch (AIMNet2's compilation happens inside `aimnet` and is not
+  probed).
 - A parent killed by SIGTERM/SIGKILL, or interrupted with Ctrl-C, left the
   optimizer workers running through the whole remaining queue on the GPU;
   workers now die with their parent and the parent terminates them on any exit.

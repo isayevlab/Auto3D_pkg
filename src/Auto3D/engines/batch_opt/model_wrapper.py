@@ -178,7 +178,8 @@ class EnForce_ANI(nn.Module):
         # at the original `bsize`, repeating the same OOM-and-recurse cycle for
         # each one. The `while` loop over `remaining` (re-queuing the failed
         # slice at the front instead of recursing) makes the smaller size the new
-        # default for everything that has not run yet.
+        # default for everything that has not run yet -- and, since the P-M3
+        # fix, for every later call on this instance too, via `_bsize_by_n`.
         while remaining.numel() > 0:
             sub, remaining = remaining[:bsize], remaining[bsize:]
             oom = False
