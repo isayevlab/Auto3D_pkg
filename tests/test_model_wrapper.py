@@ -423,8 +423,10 @@ def test_oom_shrunk_bsize_persists_across_calls():
 
     B, N = 64, 5
     nn_ = EnForce_ANI(_OOMAdapter(), batchsize_atoms=B * N)  # bsize starts at 64
-    coord = torch.zeros(B, N, 3); numbers = torch.ones(B, N, dtype=torch.long)
-    charges = torch.zeros(B); mask = torch.ones(B, N, dtype=torch.bool)
+    coord = torch.zeros(B, N, 3)
+    numbers = torch.ones(B, N, dtype=torch.long)
+    charges = torch.zeros(B)
+    mask = torch.ones(B, N, dtype=torch.bool)
     nn_.forward_batched(coord, numbers, charges, mask)
     first = calls["oom"]
     assert first >= 1

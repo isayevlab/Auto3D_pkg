@@ -211,7 +211,9 @@ class EnForce_ANI(nn.Module):
                 logger.warning(
                     "CUDA out of memory at %d molecules x %d atoms; continuing at %d "
                     "molecules per sub-batch for the rest of this chunk.",
-                    sub.numel(), N, bsize,
+                    sub.numel(),
+                    N,
+                    bsize,
                 )
                 remaining = torch.cat([sub, remaining])
                 continue
