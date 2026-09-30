@@ -71,12 +71,15 @@ def test_create_model_refuses_a_compiled_adapter_that_disagrees_with_eager(monke
     def _bad_compile(obj, **kwargs):
         # Simulate a numerically wrong compilation: +1 eV per molecule.
         if isinstance(obj, torch.nn.Module):
+
             class _Wrapped(torch.nn.Module):
                 def __init__(self, inner):
                     super().__init__()
                     self._orig_mod = inner
+
                 def forward(self, *a, **k):
                     return self._orig_mod(*a, **k) + 1.0
+
             return _Wrapped(obj)
         return lambda *a, **k: obj(*a, **k) + 1.0
 

@@ -54,7 +54,9 @@ def _probe_mols() -> list:
     return out
 
 
-def verify_compiled_adapter(compiled: ModelAdapter, eager: ModelAdapter, device: torch.device) -> None:
+def verify_compiled_adapter(
+    compiled: ModelAdapter, eager: ModelAdapter, device: torch.device
+) -> None:
     """Raise NumericalError if ``compiled`` and ``eager`` disagree on a probe batch.
 
     torch.compile can return numerically wrong results without raising
@@ -70,8 +72,12 @@ def verify_compiled_adapter(compiled: ModelAdapter, eager: ModelAdapter, device:
     # .forward(...), not eager(...)/compiled(...): ModelAdapter is a Protocol that
     # declares forward but not __call__ (same reason model_wrapper.py's EnForce_ANI
     # calls self.model.forward(...) rather than self.model(...)).
-    e_eager, f_eager = eager.forward(coord.clone(), species.clone(), charges.clone(), atom_mask=mask)
-    e_comp, f_comp = compiled.forward(coord.clone(), species.clone(), charges.clone(), atom_mask=mask)
+    e_eager, f_eager = eager.forward(
+        coord.clone(), species.clone(), charges.clone(), atom_mask=mask
+    )
+    e_comp, f_comp = compiled.forward(
+        coord.clone(), species.clone(), charges.clone(), atom_mask=mask
+    )
     de = float((e_comp.detach() - e_eager.detach()).abs().max())
     df = float((f_comp.detach() - f_eager.detach()).abs().max())
     if de > COMPILE_PROBE_TOLERANCE_EV or df > 10 * COMPILE_PROBE_TOLERANCE_EV:
@@ -222,7 +228,8 @@ class ModelFactory:
                     dependency_name="torchani",
                 ) from exc
             if compile_model and getattr(adapter, "_compiled", False):
-                eager = adapter_cls(device, compile_model=False)  # same seam as model_factory.py:166
+                # Same constructor call as above, but eager -- never cached.
+                eager = adapter_cls(device, compile_model=False)
                 verify_compiled_adapter(adapter, eager, device)
                 del eager
             if use_cache:
