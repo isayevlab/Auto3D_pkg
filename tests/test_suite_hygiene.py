@@ -121,13 +121,24 @@ def test_the_shared_test_doubles_are_not_shadowed():
     )
 
 
-def test_pytest_timeout_is_a_dev_dependency_and_a_declared_marker():
+def test_pytest_timeout_is_a_dev_dependency_and_a_declared_marker(request):
     """P-m49: the hang guards in test_workflow.py use @pytest.mark.timeout, which
-    is a no-op unless pytest-timeout is installed and the marker is declared."""
-    import pathlib
+    is a no-op unless pytest-timeout is installed and the marker is declared.
+
+    The declaration is read off ``pyproject.toml`` anchored on ``TESTS_DIR.parent``
+    rather than on the process's working directory, which is whatever the caller
+    happened to invoke pytest from; and the plugin is checked through the
+    running session's own plugin manager, so this proves the marker is ACTIVE
+    here rather than merely listed as a dev extra somewhere (C-8).
+    """
     import tomllib
 
-    pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+    assert request.config.pluginmanager.hasplugin("timeout"), (
+        "pytest-timeout is not loaded in THIS session, so every "
+        "@pytest.mark.timeout in the suite is inert"
+    )
+
+    pyproject = tomllib.loads((TESTS_DIR.parent / "pyproject.toml").read_text())
     dev = pyproject["project"]["optional-dependencies"]["dev"]
     assert any(d.startswith("pytest-timeout") for d in dev), dev
     markers = pyproject["tool"]["pytest"]["ini_options"].get("markers", [])

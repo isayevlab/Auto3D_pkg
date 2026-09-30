@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from Auto3D.engines.batch_opt.padding import pad_from_mols
 from Auto3D.engines.models.adapter import (
     AIMNet2Adapter,
     ANI2xAdapter,
@@ -54,7 +55,7 @@ def _probe_mols() -> list:
     return out
 
 
-def verify_compiled_adapter(
+def _verify_compiled_adapter(
     compiled: ModelAdapter, eager: ModelAdapter, device: torch.device
 ) -> None:
     """Raise NumericalError if ``compiled`` and ``eager`` disagree on a probe batch.
@@ -64,9 +65,12 @@ def verify_compiled_adapter(
     once per compiled adapter, at construction, so a wrong compilation never
     reaches the optimizer. The probe also triggers the (lazy) compilation, so
     its cost is the compile the caller asked for plus two tiny forwards.
-    """
-    from Auto3D.engines.batch_opt.padding import pad_from_mols
 
+    Private: it is absent from ``docs/source/api.rst``, its only caller is
+    :meth:`ModelFactory.create`, and what a user needs to know about it is
+    ``create_model``'s ``Raises:`` block (A-2). ``_probe_mols`` beside it is
+    private for the same reason.
+    """
     mols = _probe_mols()
     coord, species, charges, mask = pad_from_mols(mols, eager, device)
     # .forward(...), not eager(...)/compiled(...): ModelAdapter is a Protocol that
@@ -93,7 +97,7 @@ def _rebaseline_compile_fallback_counters(adapter: BaseModelAdapter) -> None:
 
     ``BaseModelAdapter._warn_if_compile_fell_back_to_eager`` reports a suppressed
     Dynamo frame as a DELTA against the snapshot ``__init__`` took right after
-    compiling. ``verify_compiled_adapter`` above then runs the adapter's **first**
+    compiling. ``_verify_compiled_adapter`` above then runs the adapter's **first**
     forward, which is what triggers the (lazy) compilation -- so every frame that
     compilation attempts lands inside that delta and is attributed to the probe
     batch rather than to the optimizer's own geometries. Re-baselining here
@@ -206,6 +210,17 @@ class ModelFactory:
                 never run ``check_input`` and so reported the identical
                 environment problem as an "Unexpected Error" at exit 1 with no
                 install hint at all.
+            NumericalError: `compile_model` is true (explicitly, or through
+                ``AUTO3D_COMPILE_MODEL``), the adapter reported that it really
+                did compile, and ``_verify_compiled_adapter``'s construction-time
+                probe found the compiled adapter disagreeing with an eager one
+                by more than ``COMPILE_PROBE_TOLERANCE_EV``. torch.compile can
+                return numerically wrong results without raising anything
+                (P-C1: hundreds of eV on the torchani AEV path), so this is the
+                gate that keeps a silently wrong compilation out of the
+                optimizer. Not reachable with `compile_model=False`, and not
+                reachable for AIMNet2, whose compilation happens inside
+                ``aimnet`` and is never probed here.
         """
         if device is None:
             device = torch.device("cpu")
@@ -250,7 +265,7 @@ class ModelFactory:
             if compile_model and getattr(adapter, "_compiled", False):
                 # Same constructor call as above, but eager -- never cached.
                 eager = adapter_cls(device, compile_model=False)
-                verify_compiled_adapter(adapter, eager, device)
+                _verify_compiled_adapter(adapter, eager, device)
                 _rebaseline_compile_fallback_counters(adapter)
                 del eager
             if use_cache:
@@ -265,7 +280,7 @@ class ModelFactory:
             adapter = CustomModelAdapter(name, device, compile_model=compile_model)
             if compile_model and getattr(adapter, "_compiled", False):
                 eager = CustomModelAdapter(name, device, compile_model=False)
-                verify_compiled_adapter(adapter, eager, device)
+                _verify_compiled_adapter(adapter, eager, device)
                 _rebaseline_compile_fallback_counters(adapter)
                 del eager
             return adapter
@@ -323,6 +338,13 @@ def create_model(
 
     Returns:
         Initialized model adapter.
+
+    Raises:
+        DependencyError: `name` is ANI2x/ANI2xt and `torchani` is not installed.
+        NumericalError: `compile_model` is true and the construction-time probe
+            found the compiled adapter disagreeing with an eager one. See
+            :meth:`ModelFactory.create`, which this delegates to and which
+            documents both in full.
 
     Example:
         >>> model = create_model("AIMNET", device=torch.device("cuda:0"))  # Fast single model (default)

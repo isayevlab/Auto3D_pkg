@@ -410,7 +410,7 @@ def test_the_compile_probes_own_frames_are_excluded_from_later_warnings(
 ):
     """T-2: the probe IS the adapter's first forward, so it owns the first frames.
 
-    ``verify_compiled_adapter`` triggers the lazy compilation itself, which means
+    ``_verify_compiled_adapter`` triggers the lazy compilation itself, which means
     every frame that compilation attempts -- including one Dynamo suppresses --
     falls inside the delta ``_warn_if_compile_fell_back_to_eager`` measures from
     ``__init__``'s snapshot. Without re-baselining after the probe, the FIRST

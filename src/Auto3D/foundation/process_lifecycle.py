@@ -20,11 +20,17 @@ box). Living here instead means the server only ever imports this module.
 from __future__ import annotations
 
 import ctypes
+import logging
 import multiprocessing
 import os
 import signal
 import sys
 import threading
+
+# Stdlib ``logging``, not ``Auto3D.foundation.utils.logging_config``: this module is
+# stdlib-only by contract (see the module docstring) and importing Auto3D's own
+# logging helper would put it back on the Manager server's import path.
+logger = logging.getLogger(__name__)
 
 
 def _exit_when_parent_dies() -> None:
@@ -64,12 +70,27 @@ def _exit_when_parent_dies() -> None:
     if parent is None:
         return
     if sys.platform.startswith("linux"):
+        # DEBUG, not WARNING: the watchdog thread below is a complete backstop,
+        # so a missing or refused prctl costs nothing a user needs to act on --
+        # but a bare `pass` left no way to tell "the fast path is armed" from
+        # "only the watchdog is" when diagnosing a worker that outlived its
+        # parent for longer than expected (C-12).
         try:
             PR_SET_PDEATHSIG = 1
             libc = ctypes.CDLL("libc.so.6")
-            libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+            rc = libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+            if rc != 0:
+                logger.debug(
+                    "prctl(PR_SET_PDEATHSIG) returned %d; relying on the "
+                    "parent-sentinel watchdog alone.",
+                    rc,
+                )
         except Exception:
-            pass
+            logger.debug(
+                "prctl(PR_SET_PDEATHSIG) is unavailable; relying on the "
+                "parent-sentinel watchdog alone.",
+                exc_info=True,
+            )
 
     def _watch() -> None:
         parent.join()
