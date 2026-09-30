@@ -229,8 +229,11 @@ class BaseModelAdapter(ABC, nn.Module):
 
         # Optionally compile the model
         if compile_model:
-            model = _try_compile(model)
+            # Set BEFORE calling the hook: ANI2xAdapter's override resets
+            # ``_compiled`` back to False when it refuses to compile, which
+            # only takes effect if this assignment runs first.
             self._compiled = True
+            model = self._compile(model)
             # Snapshot BEFORE this adapter's first forward, so the fallback
             # check reads a DELTA scoped to ITS OWN compilation rather than
             # the raw cumulative counter (issue #23). Both
@@ -245,6 +248,17 @@ class BaseModelAdapter(ABC, nn.Module):
             self._compile_frame_stats_before = dict(torch._dynamo.utils.counters.get("frames", {}))
 
         self.model = model
+
+    def _compile(self, model: nn.Module) -> nn.Module:
+        """Apply torch.compile for this backend. Default: the whole module.
+
+        Overridden where whole-module compilation is numerically wrong
+        (ANI2xt: only the per-element networks compile safely; ANI2x: nothing
+        does, see ANI2xAdapter). Called once from __init__ before the model is
+        stored, so a subclass may compile a sub-component and return the same
+        module object.
+        """
+        return _try_compile(model)
 
     def _warn_if_compile_fell_back_to_eager(self) -> None:
         """Log once if the first compiled forward silently fell back to eager.
@@ -606,15 +620,18 @@ class ANI2xtAdapter(BaseModelAdapter):
     ANI2xt is a retrained version of ANI with improved performance.
     Uses indexed species (H=0, C=1, N=2, O=3, F=4, S=5, Cl=6).
 
-    ``compile_model=True`` compiles ``ANI2xt.forward``. Until this change it compiled
-    *nothing*: ``forward``'s per-element loop contained a data-dependent branch
-    (``if mask.any():``), and a graph break inside a loop gives Dynamo nowhere to
-    place a resume point, so it skipped the frame -- measured as **zero**
-    compiled subgraphs. The loop is now free of data-dependent ops and compiles
-    to one subgraph (``tests/test_ani2xt_atom_energies.py``). Whether that is a
-    wall-clock win, and by how much, is a GPU measurement this repository does
-    not make; see ``benchmarks/bench_optimization_perf.py``. No speedup figure
-    is claimed here because none has been measured.
+    ``compile_model=True`` compiles the per-element network evaluation only; the
+    AEV computer stays eager because compiling it corrupts the energies (P-C1,
+    2026-09-21). Until this change it attempted to compile *all* of
+    ``forward``, and that compiled *nothing*: the per-element loop contained a
+    data-dependent branch (``if mask.any():``), and a graph break inside a loop
+    gives Dynamo nowhere to place a resume point, so it skipped the frame --
+    measured as **zero** compiled subgraphs. The loop is now free of
+    data-dependent ops and compiles to one subgraph
+    (``tests/test_ani2xt_atom_energies.py``). Whether that is a wall-clock win,
+    and by how much, is a GPU measurement this repository does not make; see
+    ``benchmarks/bench_optimization_perf.py``. No speedup figure is claimed
+    here because none has been measured.
     """
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
@@ -641,6 +658,13 @@ class ANI2xtAdapter(BaseModelAdapter):
         self._self_atomic_energies = self_atomic_energies
         self._num_elements = num_elements
         self._energy_shifts = energy_shifts
+
+    def _compile(self, model: nn.Module) -> nn.Module:
+        # Compile only the per-element MLP evaluation. Compiling the whole
+        # module (which includes torchani's AEVComputer) gives energies off by
+        # hundreds of eV with no error raised (P-C1). The AEV stays eager.
+        model._atom_energies_fn = _try_compile(model._atom_energies_fn)
+        return model
 
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
         """Remap atomic numbers to ANI2xt's 0-based network indices.

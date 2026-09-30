@@ -281,6 +281,12 @@ class ANI2xt(nn.Module):
             ),
         )
         self.aev_computer = aev_computer.to(device)
+        # The per-element network evaluation, as an instance attribute so an
+        # adapter can install a torch.compile'd version of it WITHOUT compiling
+        # the AEV computer: compiling torchani's AEVComputer produces wrong
+        # energies (hundreds of eV) on CPU and GPU alike (2026-09-21 review,
+        # P-C1), while compiling only this function is exact to ~1e-6 eV.
+        self._atom_energies_fn = _atom_energies
         self._device = device
         self.periodic = periodic_table_index
         # Canonical atomic-number -> ANI2xt species index map (species.ANI2XT_INDEX).
@@ -369,7 +375,7 @@ class ANI2xt(nn.Module):
         # explicitly (index_copy will not cast for us, in either direction).
         # reshape with an explicit trailing size rather than -1: inferring -1 on
         # a zero-element tensor is ambiguous and raises.
-        atom_energies = _atom_energies(
+        atom_energies = self._atom_energies_fn(
             self.networks,
             aev.reshape(n_rows, aev.shape[-1]),
             elem_index,
