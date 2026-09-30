@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import multiprocessing as mp
 import shutil
+import signal
+import threading
 import time
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from logging.handlers import QueueHandler
+from multiprocessing.managers import SyncManager
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,16 +36,16 @@ from Auto3D.orchestration.chunk_manager import ChunkManager
 from Auto3D.orchestration.pipeline.input_checks import check_input, check_valid_configuration
 from Auto3D.orchestration.workflow_workers import (
     ProgressEvent,
+    _exit_when_parent_dies,
     isomer_wrapper,
     logger_process,
     optim_rank_wrapper,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from logging import LogRecord
     from multiprocessing import Queue
-    from multiprocessing.managers import SyncManager
 
 logger = get_logger(__name__)
 
@@ -80,6 +84,49 @@ def _package_version() -> str:
         return _dist_version("Auto3D")
     except PackageNotFoundError:
         return "unknown"
+
+
+def _raise_on_sigterm(signum: int, frame: object) -> None:
+    """Turn SIGTERM into a normal unwind so every ``finally`` runs.
+
+    143 = 128 + SIGTERM, the shell's own convention for "killed by SIGTERM",
+    so a caller that reads the exit code sees exactly what it would have seen
+    from the default disposition -- the difference is only that the workers
+    were terminated on the way out (P-C2).
+    """
+    raise SystemExit(143)
+
+
+@contextlib.contextmanager
+def _sigterm_raises() -> Iterator[None]:
+    """Make SIGTERM raise ``SystemExit(143)`` for the duration of the block.
+
+    The default disposition for SIGTERM kills the process outright: no
+    ``finally`` runs, so ``_run_pipeline``'s worker-termination block never
+    executes and the optimizer workers are left to finish the whole remaining
+    queue on the GPU (P-C2, P-M12). Raising instead gives the parent an
+    ordinary unwind, which is all that block needs.
+
+    Installed only when running on the main thread: ``signal.signal`` raises
+    ``ValueError`` anywhere else, and Auto3D is a library that may well be
+    called from someone else's worker thread. The previous handler is always
+    restored, so the process is left exactly as it was found -- one ``main()``
+    call does not change how the next SIGTERM behaves.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    previous = signal.signal(signal.SIGTERM, _raise_on_sigterm)
+    try:
+        yield
+    finally:
+        # None means the previous handler was installed from C and is not
+        # representable in Python -- signal.signal() rejects it, and there is
+        # nothing to restore it to, so leave ours in place rather than raising
+        # out of a `finally` and masking whatever the block was doing.
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
 
 class _DropOnFullQueueHandler(QueueHandler):
@@ -201,68 +248,72 @@ class WorkflowOrchestrator:
         torch_config = TorchConfig(allow_tf32=self.config.allow_tf32)
         configure_torch(torch_config)
 
-        try:
-            # Phase 1: Validation and setup. Kept inside the try so the encoded
-            # temp file written by _encode_input is cleaned up even when a
-            # later setup step (logging) raises. The job directory is created
-            # BEFORE the encoding, because that is where the encoded file goes
-            # -- see _encode_input.
-            self._validate_input()
-            self._setup_job_directory()
+        # Scoped to this run only (see _sigterm_raises): SIGTERM has to reach
+        # _run_pipeline's `finally` as an exception, or the workers outlive the
+        # parent that was told to stop.
+        with _sigterm_raises():
             try:
-                self._encode_input()
-            except BaseException:
-                # encode_ids is the last step that can still *reject* the run:
-                # it raises InputValidationError on a duplicate ID, a blank
-                # molecule name, or a malformed .smi row. Moving it after the
-                # mkdir() (which is what lets it write the encoded copy into a
-                # provably new directory) therefore made a rejected run leave
-                # an empty `<stem>_<timestamp>/` beside the user's input --
-                # one more on every retry -- and, for .sdf input, a partial
-                # `<stem>_encoded.sdf` inside it, because Chem.SDWriter opens
-                # before the duplicate is seen. Removing the directory here
-                # restores the property _validate_input's docstring names: a
-                # rejected run leaves no trace on disk.
+                # Phase 1: Validation and setup. Kept inside the try so the encoded
+                # temp file written by _encode_input is cleaned up even when a
+                # later setup step (logging) raises. The job directory is created
+                # BEFORE the encoding, because that is where the encoded file goes
+                # -- see _encode_input.
+                self._validate_input()
+                self._setup_job_directory()
+                try:
+                    self._encode_input()
+                except BaseException:
+                    # encode_ids is the last step that can still *reject* the run:
+                    # it raises InputValidationError on a duplicate ID, a blank
+                    # molecule name, or a malformed .smi row. Moving it after the
+                    # mkdir() (which is what lets it write the encoded copy into a
+                    # provably new directory) therefore made a rejected run leave
+                    # an empty `<stem>_<timestamp>/` beside the user's input --
+                    # one more on every retry -- and, for .sdf input, a partial
+                    # `<stem>_encoded.sdf` inside it, because Chem.SDWriter opens
+                    # before the duplicate is seen. Removing the directory here
+                    # restores the property _validate_input's docstring names: a
+                    # rejected run leaves no trace on disk.
+                    #
+                    # Unconditionally safe, and only because _setup_job_directory
+                    # used a bare mkdir(): the directory is provably new, so
+                    # nothing in it can predate this run. `except BaseException`
+                    # (matching ASE/geometry.py's staging cleanup) so a
+                    # KeyboardInterrupt mid-encode cleans up too, and
+                    # ignore_errors so a cleanup failure never masks the real
+                    # rejection the user needs to see.
+                    shutil.rmtree(self.job_dir, ignore_errors=True)
+                    raise
+                self._setup_logging()
+
+                # Phase 2: Prepare chunks
+                chunk_info = self._prepare_chunks()
+
+                # Phase 3: Run pipeline
+                self._run_pipeline(chunk_info)
+
+                # Phase 4: Combine and finalize
+                output_path = self._finalize_output(start_time)
+
+                return output_path
+            finally:
+                # Always flush the daemon logger and remove the temporary encoded
+                # input file, even when a phase raises partway through.
                 #
-                # Unconditionally safe, and only because _setup_job_directory
-                # used a bare mkdir(): the directory is provably new, so
-                # nothing in it can predate this run. `except BaseException`
-                # (matching ASE/geometry.py's staging cleanup) so a
-                # KeyboardInterrupt mid-encode cleans up too, and
-                # ignore_errors so a cleanup failure never masks the real
-                # rejection the user needs to see.
-                shutil.rmtree(self.job_dir, ignore_errors=True)
-                raise
-            self._setup_logging()
-
-            # Phase 2: Prepare chunks
-            chunk_info = self._prepare_chunks()
-
-            # Phase 3: Run pipeline
-            self._run_pipeline(chunk_info)
-
-            # Phase 4: Combine and finalize
-            output_path = self._finalize_output(start_time)
-
-            return output_path
-        finally:
-            # Always flush the daemon logger and remove the temporary encoded
-            # input file, even when a phase raises partway through.
-            #
-            # What makes this unlink safe is NOT the is_file() test -- that
-            # only distinguishes a file from input_path's Path() default (the
-            # cwd, a directory), and an earlier version of this comment
-            # wrongly claimed it "guards against ever unlinking anything but a
-            # real encoded input". It cannot: a file is a file, and when the
-            # encoded copy was written beside the user's input this line
-            # deleted whatever happened to be named `<stem>_encoded.<ext>`
-            # there, including a file the user owned. Safety comes from
-            # _encode_input writing into self.job_dir, which _setup_job_directory
-            # created with a bare mkdir() (no exist_ok) moments earlier: the
-            # directory is provably new, so nothing inside it predates this run.
-            self._shutdown_logging()
-            if self.input_path.is_file():
-                self.input_path.unlink()
+                # What makes this unlink safe is NOT the is_file() test -- that
+                # only distinguishes a file from input_path's Path() default (the
+                # cwd, a directory), and an earlier version of this comment
+                # wrongly claimed it "guards against ever unlinking anything but a
+                # real encoded input". It cannot: a file is a file, and when the
+                # encoded copy was written beside the user's input this line
+                # deleted whatever happened to be named `<stem>_encoded.<ext>`
+                # there, including a file the user owned. Safety comes from
+                # _encode_input writing into self.job_dir, which _setup_job_directory
+                # created with a bare mkdir() (no exist_ok) moments earlier: the
+                # directory is provably new, so nothing inside it predates this run.
+                self._shutdown_logging()
+                if self.input_path.is_file():
+                    self.input_path.unlink()
 
     def _validate_input(self) -> None:
         """Validate the input configuration. Writes nothing.
@@ -382,10 +433,31 @@ class WorkflowOrchestrator:
         encoded_path, self.id_mapping = encode_ids(self.config.path, out_dir=self.job_dir)
         self.input_path = Path(encoded_path)
 
+    def _start_manager(self) -> SyncManager:
+        """Start a ``SyncManager`` server process that dies with this process.
+
+        ``self.mp_context.Manager()`` is exactly this minus the initializer:
+        it constructs the same ``SyncManager(ctx=...)`` and calls ``start()``
+        with no arguments. The initializer is the whole point of doing it by
+        hand -- ``BaseManager.start`` runs it inside the server process before
+        the server accepts anything, which is the only hook there is for
+        arming ``_exit_when_parent_dies`` there.
+
+        A Manager server otherwise has no death detection of any kind (unlike
+        the workers, which call ``_exit_when_parent_dies`` themselves), so a
+        SIGKILLed parent left its Manager processes serving a queue nobody
+        would ever read again -- the last orphans of a killed run (P-C2).
+        ``_exit_when_parent_dies`` returns immediately when there is no parent
+        process, so it is inert if this is ever called in-process.
+        """
+        manager = SyncManager(ctx=self.mp_context)
+        manager.start(initializer=_exit_when_parent_dies)
+        return manager
+
     def _setup_logging(self) -> None:
         """Initialize logging infrastructure."""
         logging_path = self.job_dir / "Auto3D.log"
-        self._logging_manager = self.mp_context.Manager()
+        self._logging_manager = self._start_manager()
         self.logging_queue = self._logging_manager.Queue(999)
 
         # Start logging process
@@ -514,15 +586,23 @@ class WorkflowOrchestrator:
         Args:
             chunk_info: List of (chunk_path, chunk_dir) tuples.
         """
-        chunk_queue: Queue[tuple[str, str, str, int] | str] = self.mp_context.Manager().Queue()
+        # Both Managers below are owned for the duration of this method and shut
+        # down by _terminate_workers in the `finally`: their server processes are
+        # children of this process too, and an abandoned one keeps a queue (and
+        # everything it references) alive with nothing left to consume it.
+        chunk_manager = self._start_manager()
+        chunk_queue: Queue[tuple[str, str, str, int] | str] = chunk_manager.Queue()
+        managers = [chunk_manager]
 
         # Process-safe channel for live progress events, created only when a
         # progress callback was supplied (interactive `auto3d run`). When None,
         # the optimizer workers emit nothing and the supervise loop below falls
         # back to plain blocking joins -- the default/library path is unchanged.
-        progress_queue = (
-            self.mp_context.Manager().Queue() if self.progress_callback is not None else None
-        )
+        progress_queue = None
+        if self.progress_callback is not None:
+            progress_manager = self._start_manager()
+            progress_queue = progress_manager.Queue()
+            managers.append(progress_manager)
 
         # Per-run config carrying the memory-scaled batch size for optimization.
         # Built with dataclasses.replace so self.config (itself already a
@@ -550,48 +630,95 @@ class WorkflowOrchestrator:
                 )
             )
 
-        # Start all processes
-        p1.start()
-        for p2 in p2s:
-            p2.start()
-
-        # Wait for completion and supervise exit codes.
-        #
-        # Two-layer guarantee against an isomer worker that dies without
-        # running its `finally` (SIGKILL from the OOM killer, a segfault in
-        # RDKit/Boost, os._exit -- none of which give Python a chance to run
-        # cleanup code): layer one is workflow_workers.isomer_wrapper's own
-        # `finally`, which puts one "Done" sentinel per optimizer on every
-        # exit Python *does* get to run cleanup for -- including an unhandled
-        # exception, since a `finally` still runs on the way to exit(1).
-        # Layer two is `_ensure_done_sentinels` below: when `p1.exitcode`
-        # comes back neither 0 nor None, layer one cannot be assumed to have
-        # run, so the parent -- which holds the very same queue proxy --
-        # tops the queue up itself, using the identical
-        # `optimizer_worker_indices` count both the isomer worker and the
-        # spawn loop above use (a doubled-up sentinel from a worker that
-        # *did* clean up normally is harmless: every optimizer has already
-        # exited by the time it would be consumed). `_join_optimizer_bounded`
-        # backstops that second layer with a bounded join + terminate() --
-        # but ONLY when `_isomer_worker_was_signal_killed`, not for every
-        # nonzero exit code; see that helper and `_ABNORMAL_EXIT_JOIN_TIMEOUT`
-        # for why a plain unhandled exception (a positive exit code, `finally`
-        # already ran) must keep blocking indefinitely rather than risk
-        # cutting off an optimizer still doing legitimate, possibly
-        # long-running work on the backlog queued before the failure.
-        if progress_queue is not None:
-            self._supervise_with_progress(p1, p2s, progress_queue, chunk_queue)
-        else:
-            p1.join()
-            self._check_exit(p1, "Isomer generation")
-            self._ensure_done_sentinels(p1.exitcode, chunk_queue)
-            degraded = self._isomer_worker_was_signal_killed(p1.exitcode)
+        # Every process that actually started, so the `finally` below only ever
+        # touches processes it can legally join: Process.join() asserts on one
+        # that was never started, and a start() that fails partway (EAGAIN under
+        # process pressure) must surface its own error rather than an
+        # AssertionError raised from the cleanup path on top of it.
+        started: list[BaseProcess] = []
+        try:
+            # Start all processes
+            p1.start()
+            started.append(p1)
             for p2 in p2s:
-                if degraded:
-                    self._join_optimizer_bounded(p2)
-                else:
-                    p2.join()
-                self._check_exit(p2, "Optimization")
+                p2.start()
+                started.append(p2)
+
+            # Wait for completion and supervise exit codes.
+            #
+            # Two-layer guarantee against an isomer worker that dies without
+            # running its `finally` (SIGKILL from the OOM killer, a segfault in
+            # RDKit/Boost, os._exit -- none of which give Python a chance to run
+            # cleanup code): layer one is workflow_workers.isomer_wrapper's own
+            # `finally`, which puts one "Done" sentinel per optimizer on every
+            # exit Python *does* get to run cleanup for -- including an unhandled
+            # exception, since a `finally` still runs on the way to exit(1).
+            # Layer two is `_ensure_done_sentinels` below: when `p1.exitcode`
+            # comes back neither 0 nor None, layer one cannot be assumed to have
+            # run, so the parent -- which holds the very same queue proxy --
+            # tops the queue up itself, using the identical
+            # `optimizer_worker_indices` count both the isomer worker and the
+            # spawn loop above use (a doubled-up sentinel from a worker that
+            # *did* clean up normally is harmless: every optimizer has already
+            # exited by the time it would be consumed). `_join_optimizer_bounded`
+            # backstops that second layer with a bounded join + terminate() --
+            # but ONLY when `_isomer_worker_was_signal_killed`, not for every
+            # nonzero exit code; see that helper and `_ABNORMAL_EXIT_JOIN_TIMEOUT`
+            # for why a plain unhandled exception (a positive exit code, `finally`
+            # already ran) must keep blocking indefinitely rather than risk
+            # cutting off an optimizer still doing legitimate, possibly
+            # long-running work on the backlog queued before the failure.
+            if progress_queue is not None:
+                self._supervise_with_progress(p1, p2s, progress_queue, chunk_queue)
+            else:
+                p1.join()
+                self._check_exit(p1, "Isomer generation")
+                self._ensure_done_sentinels(p1.exitcode, chunk_queue)
+                degraded = self._isomer_worker_was_signal_killed(p1.exitcode)
+                for p2 in p2s:
+                    if degraded:
+                        self._join_optimizer_bounded(p2)
+                    else:
+                        p2.join()
+                    self._check_exit(p2, "Optimization")
+        finally:
+            self._terminate_workers(started, managers)
+
+    def _terminate_workers(self, processes: list[BaseProcess], managers: list[SyncManager]) -> None:
+        """Stop every child this run started. Safe after a normal join.
+
+        Runs on every exit from ``_run_pipeline``, including SIGTERM (via the
+        handler ``run()`` installs), KeyboardInterrupt, and any exception
+        between stages. Without it a dead parent left the optimizer workers
+        running through the whole remaining queue on the GPU (P-C2, P-M12).
+
+        A no-op on the ordinary path: every process has already been joined by
+        the time this runs, so ``is_alive()`` is False for all of them and the
+        joins return immediately. The Managers are shut down last, *after* the
+        workers are gone -- the reverse order tears the queue's server down
+        underneath a worker still holding a proxy, which is how a Ctrl-C used
+        to end in a ``BrokenPipeError`` traceback from each worker.
+
+        ``self._logging_manager`` is deliberately absent: it outlives this
+        method (``_shutdown_logging`` flushes the run log in ``run()``'s own
+        ``finally``, after this) and is owned there.
+        """
+        for p in processes:
+            if p.is_alive():
+                p.terminate()
+        for p in processes:
+            p.join(timeout=5)
+        for p in processes:
+            if p.is_alive():
+                p.kill()
+                p.join(timeout=5)
+        for m in managers:
+            try:
+                m.shutdown()
+            except Exception:
+                # Already gone, never fully started, or its socket is dead:
+                # none of that is worth raising out of a `finally` over.
+                pass
 
     def _ensure_done_sentinels(
         self, p1_exitcode: int | None, chunk_queue: Queue[tuple[str, str, str, int] | str]

@@ -752,6 +752,19 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
         def join(self, timeout=None):
             return None
 
+        # _run_pipeline's `finally` terminates whatever it started, so the fake
+        # has to answer the three calls _terminate_workers makes. "Already
+        # finished" is the honest answer for a process whose start() only
+        # recorded its arguments: terminate()/kill() are then never reached.
+        def is_alive(self):
+            return False
+
+        def terminate(self):
+            return None
+
+        def kill(self):
+            return None
+
         @property
         def exitcode(self):
             return 0
@@ -770,6 +783,12 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
     fake_context.Process = _FakeProcess
     fake_context.Manager.return_value.Queue.return_value = MagicMock()
     orch.mp_context = fake_context
+    # _run_pipeline no longer calls mp_context.Manager() directly: _start_manager
+    # constructs a real SyncManager against the context so it can pass an
+    # initializer (see its docstring), and a real SyncManager cannot be built on
+    # a MagicMock context. Redirecting the one seam keeps the fake context above
+    # as the single place this test describes the multiprocessing world.
+    orch._start_manager = fake_context.Manager
 
     orch._run_pipeline([("chunk.smi", "job1")])
 
@@ -879,6 +898,9 @@ class TestAbnormalIsomerWorkerExit:
         fake_context.Process = self._ThreadProcess
         fake_context.Manager.return_value.Queue.return_value = real_chunk_queue
         orch.mp_context = fake_context
+        # See test_run_pipeline_does_not_mutate_shared_batchsize: _start_manager
+        # is the seam now, and a real SyncManager cannot be built on a MagicMock.
+        orch._start_manager = fake_context.Manager
 
         monkeypatch.setattr(Auto3D.orchestration.workflow, "isomer_wrapper", self._dying_isomer)
         monkeypatch.setattr(
@@ -922,6 +944,9 @@ class TestAbnormalIsomerWorkerExit:
         fake_context.Process = self._ThreadProcess
         fake_context.Manager.return_value.Queue.side_effect = [chunk_q, progress_q]
         orch.mp_context = fake_context
+        # Same seam as above; the side_effect order still holds because
+        # _run_pipeline asks for the chunk queue before the progress queue.
+        orch._start_manager = fake_context.Manager
 
         monkeypatch.setattr(Auto3D.orchestration.workflow, "isomer_wrapper", self._dying_isomer)
         monkeypatch.setattr(

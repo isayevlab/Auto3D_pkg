@@ -14,13 +14,15 @@ ROOT = Path(__file__).resolve().parent.parent
 PARENT = ROOT / "tests" / "helpers_lifecycle_parent.py"
 
 # Every (Popen, stderr file) this module started, so the fixture below can tear
-# the whole session down again. `_run_pipeline` starts a THIRD child the brief's
-# recorded pids never cover: `mp_context.Manager()`'s server process, which has
-# neither PR_SET_PDEATHSIG nor the watchdog thread and so survives a killed
-# parent forever (it re-imports the parent script, so it is a torch-loaded
-# process). Without this teardown every run of the default suite would leak one
-# per launch. Task 9 owns the production-side fix (shut the Manager down in the
-# parent's `finally`); this only keeps the tests themselves clean.
+# the whole session down again. `_run_pipeline` starts a THIRD child besides the
+# two workers: the chunk queue's Manager server process (it re-imports the
+# parent script, so it is a torch-loaded process). That one used to have neither
+# PR_SET_PDEATHSIG nor the watchdog thread, so it survived a killed parent
+# forever and every launch leaked one. It is now started with
+# `_exit_when_parent_dies` as its initializer and shut down in the parent's own
+# `finally` (`_start_manager`/`_terminate_workers`), and `_children` below
+# asserts that -- so this teardown is belt-and-braces rather than the only thing
+# keeping the box clean.
 _LAUNCHED: list[tuple[subprocess.Popen, object]] = []
 
 
@@ -80,9 +82,10 @@ def _launch(tmp_path, **env_extra):
 
 
 def _children(tmp_path):
+    """Every process the parent started: both workers and the Manager server."""
     return [
         int((tmp_path / n).read_text())
-        for n in ("isomer.pid", "opt0.pid")
+        for n in ("isomer.pid", "opt0.pid", "manager.pid")
         if (tmp_path / n).exists()
     ]
 
@@ -92,17 +95,14 @@ def _children(tmp_path):
     "sig",
     [
         signal.SIGTERM,
-        # SIGINT leaves the parent alive through interpreter shutdown, and
-        # `multiprocessing.util._exit_function` tears the Manager server down
-        # (exitpriority 0) BEFORE joining the workers -- so the next
-        # `chunk_queue.get()`/`put()` in a still-running worker raises
-        # BrokenPipeError and `_bootstrap` prints it. The workers do stop, but
-        # not quietly. Fixed parent-side in Task 9 by terminating the workers
-        # in a `finally`, before shutdown reaches the Manager.
-        pytest.param(
-            signal.SIGINT,
-            marks=pytest.mark.xfail(strict=True, reason="parent-side terminate lands in Task 9"),
-        ),
+        # SIGINT used to leave the parent alive through interpreter shutdown,
+        # where `multiprocessing.util._exit_function` tears the Manager server
+        # down (exitpriority 0) BEFORE joining the workers -- so the next
+        # `chunk_queue.get()`/`put()` in a still-running worker raised
+        # BrokenPipeError and `_bootstrap` printed it. The workers did stop,
+        # but not quietly. `_run_pipeline`'s `finally` now terminates them
+        # itself, before interpreter shutdown ever reaches the Manager.
+        signal.SIGINT,
     ],
 )
 def test_signal_to_parent_alone_stops_every_worker(tmp_path, sig):
@@ -122,5 +122,5 @@ def test_killed_parent_is_noticed_by_workers(tmp_path):
     time.sleep(1.0)
     os.kill(p.pid, signal.SIGKILL)  # no Python cleanup runs in the parent
     p.wait(timeout=20)
-    time.sleep(3.0)  # > watchdog poll interval
+    time.sleep(3.0)  # slack for the sentinel-driven exit (no polling involved)
     assert not any(_alive(c) for c in _children(tmp_path)), "orphaned workers after SIGKILL"
