@@ -432,3 +432,91 @@ def test_oom_shrunk_bsize_persists_across_calls():
     assert first >= 1
     nn_.forward_batched(coord, numbers, charges, mask)
     assert calls["oom"] == first, "second call must start at the shrunk size"
+
+
+def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
+    """T-3: the shrunk size comes from `bsize`, not from the tail's length.
+
+    The last slice of a batch is short because the molecules ran out, not
+    because memory did, so halving *it* published a size for
+    ``_bsize_by_n[N]`` that no other part of the batch had shown to be
+    necessary -- and ``_bsize_by_n`` is read again by every later optimizer
+    step (P-M3). Here 6 molecules at ``bsize`` 4 leave a tail of 2 that OOMs
+    once; the sub-batch size for the rest of the run must be 2 (4 // 2), not
+    1 (2 // 2).
+    """
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from tests.helpers_adapter import FakeAdapter
+
+    sizes = []
+
+    class _OneTransientOOM(FakeAdapter):
+        """OOMs exactly once, on the first two-molecule slice it is handed."""
+
+        def __init__(self):
+            super().__init__()
+            self.fired = False
+
+        def forward(self, coord, numbers, charges, atom_mask=None):
+            sizes.append(coord.shape[0])
+            if not self.fired and coord.shape[0] == 2:
+                self.fired = True
+                raise torch.cuda.OutOfMemoryError("simulated transient OOM")
+            return super().forward(coord, numbers, charges, atom_mask)
+
+    B, N = 6, 3
+    wrapper = EnForce_ANI(_OneTransientOOM(), batchsize_atoms=4 * N)  # bsize = 4
+    coord = torch.zeros(B, N, 3)
+    numbers = torch.ones(B, N, dtype=torch.long)
+    charges = torch.zeros(B)
+
+    e, _ = wrapper.forward_batched(coord, numbers, charges)
+
+    assert e.shape == (B,)
+    assert wrapper._bsize_by_n[N] == 2, (
+        f"the tail's own length was persisted as the sub-batch size; slices attempted were {sizes}"
+    )
+    # 4 (ok), 2 (OOM), 2 (the requeued tail, retried at the halved bsize).
+    assert sizes == [4, 2, 2], sizes
+
+
+def test_an_oom_far_below_the_sub_batch_size_does_not_walk_bsize_down_by_halves():
+    """T-3: the halved size is capped at the size that just failed.
+
+    ``bsize`` starts from ``batchsize_atoms // N`` and routinely exceeds the
+    number of molecules still active -- conformers converge and leave the batch
+    as an optimization proceeds. Halving ``bsize`` alone then re-slices the
+    requeued tail into *exactly* the forward that just OOM'd, so every halving
+    down to the active count is a wasted, guaranteed failure: 204 -> 102 -> 51
+    -> ... is 7 identical failed forwards for one real shortage, and it
+    overshoots to 1 molecule where the batch could carry 2.
+
+    Five molecules, ``bsize`` 204, memory enough for two: one retry at 5 (the
+    transient-OOM allowance), then a halving to 2, which sticks.
+    """
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from tests.helpers_adapter import FakeAdapter
+
+    sizes = []
+
+    class _CappedAdapter(FakeAdapter):
+        def forward(self, coord, numbers, charges, atom_mask=None):
+            sizes.append(coord.shape[0])
+            if coord.shape[0] > 2:
+                raise torch.cuda.OutOfMemoryError("simulated OOM")
+            return super().forward(coord, numbers, charges, atom_mask)
+
+    B, N = 5, 20
+    wrapper = EnForce_ANI(_CappedAdapter(), batchsize_atoms=4096)  # bsize = 204
+    coord = torch.zeros(B, N, 3)
+    numbers = torch.ones(B, N, dtype=torch.long)
+    charges = torch.zeros(B)
+
+    e, _ = wrapper.forward_batched(coord, numbers, charges)
+
+    assert e.shape == (B,)
+    failed = [s for s in sizes if s > 2]
+    assert len(failed) == 2, f"bsize was walked down by halves: {sizes}"
+    assert wrapper._bsize_by_n[N] == 2, (
+        f"undershot the batch's real capacity; slices attempted were {sizes}"
+    )

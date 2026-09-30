@@ -207,7 +207,33 @@ class EnForce_ANI(nn.Module):
                         f"A single molecule with {N} atoms exhausted GPU memory even "
                         f"at batch size 1. Reduce batchsize_atoms or use a smaller model."
                     )
-                bsize = max(1, sub.numel() // 2)
+                # Halve the SUB-BATCH SIZE, not the length of the slice that
+                # happened to fail (T-3) -- but never to more than that length.
+                # Both halves matter:
+                #
+                # * `bsize // 2` rather than `sub.numel() // 2`, because a tail
+                #   slice is short since the batch ran out, not since memory
+                #   did. With `bsize` 4 and two molecules left, the old
+                #   arithmetic published 1 molecule per forward for the rest of
+                #   the process through `_bsize_by_n` (P-M3), on the evidence of
+                #   one -- possibly transient -- failure at the one slice that
+                #   was smaller than every other slice in the batch.
+                # * `min(..., sub.numel())`, because a new size ABOVE the
+                #   failing size re-slices the requeued tail into exactly the
+                #   same forward, which then fails again for the same reason: no
+                #   progress, one wasted forward per halving. `bsize` routinely
+                #   exceeds the number of molecules still active -- conformers
+                #   converge and leave the batch while `bsize` starts from
+                #   `batchsize_atoms // N` -- so uncapped, an OOM at 5 active
+                #   molecules under `bsize` 204 spent 7 identical failed
+                #   forwards walking `bsize` down and then landed on 1 molecule
+                #   where the batch could carry 2 (measured). Capped, it is 2
+                #   forwards and 2 molecules.
+                #
+                # So each OOM episode retries once at the size that failed --
+                # the transient case this deliberately keeps room for -- and
+                # halves from there.
+                bsize = max(1, min(bsize // 2, sub.numel()))
                 self._bsize_by_n[N] = bsize
                 logger.warning(
                     "CUDA out of memory at %d molecules x %d atoms; continuing at %d "
