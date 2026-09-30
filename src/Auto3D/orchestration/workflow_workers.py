@@ -9,11 +9,16 @@ auto3D<->workflow import cycle, so the dependency direction is now one-way:
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import logging
+import multiprocessing
 import os
 import shutil
+import signal
 import sys
 import tarfile
+import threading
+import time
 from logging.handlers import QueueHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -79,6 +84,47 @@ class ProgressEvent(TypedDict):
     converged: int
     dropped: int
     active: int
+
+
+def _exit_when_parent_dies(poll_s: float = 1.0) -> None:
+    """Make this worker die with its parent.
+
+    Two mechanisms, because neither alone covers every case (P-C2):
+
+    * On Linux, ``prctl(PR_SET_PDEATHSIG, SIGTERM)`` asks the kernel to send
+      SIGTERM when the parent thread that created us exits. It is delivered
+      even when the parent is SIGKILLed (OOM killer, exit 137), when no
+      Python cleanup runs in the parent.
+    * A daemon thread polls ``os.getppid()``; when it changes (we were
+      re-parented to init/subreaper), the process exits with 143. This is
+      the portable path and the backstop for the prctl edge cases.
+
+    Called at the top of every spawned worker, before any GPU work. A no-op
+    when there is no parent process to die with -- i.e. when the worker
+    function was called in-process rather than through ``Process.start()``,
+    as the unit tests for the worker bodies do: installing a watchdog or a
+    PDEATHSIG there would arm them against the test runner itself.
+    """
+    if multiprocessing.parent_process() is None:
+        return
+    if sys.platform.startswith("linux"):
+        try:
+            PR_SET_PDEATHSIG = 1
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+        except Exception:
+            pass
+    parent = os.getppid()
+
+    def _watch() -> None:
+        while True:
+            time.sleep(poll_s)
+            if os.getppid() != parent:
+                # os._exit, not sys.exit: SystemExit raised in a non-main
+                # thread only ends that thread, leaving the worker running.
+                os._exit(143)
+
+    threading.Thread(target=_watch, name="auto3d-parent-watchdog", daemon=True).start()
 
 
 def _worker_stdout_to_stderr() -> contextlib.AbstractContextManager[object]:
@@ -150,6 +196,9 @@ def isomer_wrapper(
         logging_queue: Queue for centralized logging.
     """
     with _worker_stdout_to_stderr():
+        # First, before anything else: never outlive the parent (P-C2).
+        _exit_when_parent_dies()
+
         # prepare logging
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
@@ -204,6 +253,12 @@ def isomer_wrapper(
                 engine.run()
 
                 queue.put((enumerated_sdf, path, dir, i + 1))
+        except KeyboardInterrupt:
+            # Ctrl-C reached this worker directly (process-group SIGINT). Exit
+            # quietly with the conventional code instead of printing a
+            # traceback per worker (P-M12). The `finally` below still runs, so
+            # every optimizer is still woken.
+            raise SystemExit(130)
         except Exception:
             logger.exception("Isomer generation failed; signaling optimizers to stop.")
             raise
@@ -221,6 +276,8 @@ def optim_rank_wrapper(
     progress_queue: Queue[ProgressEvent] | None = None,
 ) -> None:
     with _worker_stdout_to_stderr():
+        # First, before anything else: never outlive the parent (P-C2).
+        _exit_when_parent_dies()
         # torch.backends.* is process-global and this is a fresh spawned
         # interpreter: the parent's configure_torch never reached here (N-M8).
         configure_torch(TorchConfig(allow_tf32=args.allow_tf32))
@@ -233,115 +290,123 @@ def optim_rank_wrapper(
         logger = logging.getLogger("auto3d")
         _attach_run_log_handlers(logging_queue)
 
-        while True:
-            sdf_path_dir_job = queue.get()
-            if sdf_path_dir_job == "Done":
-                break
-            enumerated_sdf, path, dir, job = sdf_path_dir_job
-            # Isolate each chunk: a single failing chunk (a molecule the optimizer
-            # chokes on, a CUDA OOM, an isomer step that produced nothing, an mkdir
-            # collision) must not kill this worker and silently drop every chunk
-            # still queued behind it. Log it and move on to the next chunk.
-            try:
-                logger.info(f"\n\nOptimizing on job{job}")
-                meta = create_chunk_meta_names(path, dir)
+        try:
+            while True:
+                sdf_path_dir_job = queue.get()
+                if sdf_path_dir_job == "Done":
+                    break
+                enumerated_sdf, path, dir, job = sdf_path_dir_job
+                # Isolate each chunk: a single failing chunk (a molecule the optimizer
+                # chokes on, a CUDA OOM, an isomer step that produced nothing, an mkdir
+                # collision) must not kill this worker and silently drop every chunk
+                # still queued behind it. Log it and move on to the next chunk.
+                try:
+                    logger.info(f"\n\nOptimizing on job{job}")
+                    meta = create_chunk_meta_names(path, dir)
 
-                # Optimizing step
-                opt_config = args.to_optimization_config()
-                optimized_og = meta["optimized_og"]
-                optimizing_engine = args.optimizing_engine
-                # Resolved through model_factory.get_device -- the single
-                # owner of gpu_idx -> torch.device (see entry/auto3D.py's
-                # smiles2mols for the same rationale) -- rather than
-                # rebuilding the `cuda:{idx}` string by hand here, which used
-                # to bypass get_device's own out-of-range GPUError entirely.
-                # `gpu_idx` here is already a single resolved index (this
-                # worker's own assignment from optimizer_worker_indices, see
-                # the spawn loop in workflow.py), so no int-or-list branch is
-                # needed the way smiles2mols' single-process caller needs one.
-                device = get_device(gpu_idx, use_gpu=args.use_gpu)
-                # When a progress queue is supplied (interactive `auto3d run`), tag
-                # each event with this chunk's job id and forward it to the main
-                # process for the live display. Guarded so a full/closed queue can
-                # never break the optimization.
-                progress_cb = None
-                if progress_queue is not None:
+                    # Optimizing step
+                    opt_config = args.to_optimization_config()
+                    optimized_og = meta["optimized_og"]
+                    optimizing_engine = args.optimizing_engine
+                    # Resolved through model_factory.get_device -- the single
+                    # owner of gpu_idx -> torch.device (see entry/auto3D.py's
+                    # smiles2mols for the same rationale) -- rather than
+                    # rebuilding the `cuda:{idx}` string by hand here, which used
+                    # to bypass get_device's own out-of-range GPUError entirely.
+                    # `gpu_idx` here is already a single resolved index (this
+                    # worker's own assignment from optimizer_worker_indices, see
+                    # the spawn loop in workflow.py), so no int-or-list branch is
+                    # needed the way smiles2mols' single-process caller needs one.
+                    device = get_device(gpu_idx, use_gpu=args.use_gpu)
+                    # When a progress queue is supplied (interactive `auto3d run`), tag
+                    # each event with this chunk's job id and forward it to the main
+                    # process for the live display. Guarded so a full/closed queue can
+                    # never break the optimization.
+                    progress_cb = None
+                    if progress_queue is not None:
 
-                    def progress_cb(event, _q=progress_queue, _job=job):
-                        try:
-                            _q.put(cast(ProgressEvent, {**event, "job": _job}))
-                        except Exception:
-                            pass
+                        def progress_cb(event, _q=progress_queue, _job=job):
+                            try:
+                                _q.put(cast(ProgressEvent, {**event, "job": _job}))
+                            except Exception:
+                                pass
 
-                # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
-                # worker, and must stay here. `optimizing` used to construct it
-                # itself; hoisting construction one frame out (to this function)
-                # keeps it in the same process, but hoisting it any further -- to
-                # `workflow.py`, which drives the pool, where these duplicated
-                # `create_model` calls would look like an obvious cleanup -- pushes
-                # a device-resident nn.Module, and for AIMNET a live
-                # AIMNet2Calculator, across the `spawn` boundary. That is either an
-                # unpicklable-object failure or CUDA re-initialization in the
-                # parent, and nothing in the signature says so.
-                adapter = create_model(optimizing_engine, device)
-                optimizer = optimizing(
-                    enumerated_sdf,
-                    optimized_og,
-                    adapter=adapter,
-                    device=device,
-                    config=opt_config,
-                    progress_cb=progress_cb,
-                )
-                optimizer.run()
+                    # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
+                    # worker, and must stay here. `optimizing` used to construct it
+                    # itself; hoisting construction one frame out (to this function)
+                    # keeps it in the same process, but hoisting it any further -- to
+                    # `workflow.py`, which drives the pool, where these duplicated
+                    # `create_model` calls would look like an obvious cleanup -- pushes
+                    # a device-resident nn.Module, and for AIMNET a live
+                    # AIMNet2Calculator, across the `spawn` boundary. That is either an
+                    # unpicklable-object failure or CUDA re-initialization in the
+                    # parent, and nothing in the signature says so.
+                    adapter = create_model(optimizing_engine, device)
+                    optimizer = optimizing(
+                        enumerated_sdf,
+                        optimized_og,
+                        adapter=adapter,
+                        device=device,
+                        config=opt_config,
+                        progress_cb=progress_cb,
+                    )
+                    optimizer.run()
 
-                # optimizing.run() returns early without writing optimized_og when
-                # the isomer step yielded an empty/missing SDF for this chunk. Skip
-                # ranking rather than letting RDKit raise on a nonexistent path; the
-                # chunk simply contributes no conformers.
-                if not os.path.exists(optimized_og):
-                    logger.warning(
-                        f"job{job}: no optimized structures were produced; "
-                        "skipping ranking for this chunk."
+                    # optimizing.run() returns early without writing optimized_og when
+                    # the isomer step yielded an empty/missing SDF for this chunk. Skip
+                    # ranking rather than letting RDKit raise on a nonexistent path; the
+                    # chunk simply contributes no conformers.
+                    if not os.path.exists(optimized_og):
+                        logger.warning(
+                            f"job{job}: no optimized structures were produced; "
+                            "skipping ranking for this chunk."
+                        )
+                        continue
+
+                    # Ranking step
+                    output = meta["output"]
+                    duplicate_threshold = args.threshold
+                    k = args.k
+                    window = args.window
+                    rank_engine = ranking(
+                        optimized_og, output, duplicate_threshold, k=k, window=window
+                    )
+                    # The ranked mols are written to `output` by `run()`; they are
+                    # deliberately not accumulated. Every call site in this
+                    # repository runs this as an `mp.Process` target
+                    # (workflow.py:448), so anything returned is discarded --
+                    # collecting them held every chunk's molecules in worker memory
+                    # for the whole run and nothing ever read them. The function is
+                    # re-exported from `Auto3D.entry.auto3D`, so an out-of-tree in-process
+                    # caller now gets None where it got a list; the structures were
+                    # already on disk either way.
+                    rank_engine.run()
+
+                    # Housekeeping
+                    housekeeping_folder = meta["housekeeping_folder"]
+                    os.mkdir(housekeeping_folder)
+                    housekeeping(dir, housekeeping_folder, output)
+                    # Conpress verbose folder
+                    housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
+                    with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
+                        tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
+                    shutil.rmtree(housekeeping_folder)
+                    if not args.verbose:
+                        try:  # Clusters does not support send2trash
+                            send2trash(housekeeping_folder_gz)
+                        except OSError:
+                            os.remove(housekeeping_folder_gz)
+                except Exception:
+                    logger.exception(
+                        f"job{job} failed during optimization/ranking; "
+                        "skipping this chunk and continuing with the rest."
                     )
                     continue
-
-                # Ranking step
-                output = meta["output"]
-                duplicate_threshold = args.threshold
-                k = args.k
-                window = args.window
-                rank_engine = ranking(optimized_og, output, duplicate_threshold, k=k, window=window)
-                # The ranked mols are written to `output` by `run()`; they are
-                # deliberately not accumulated. Every call site in this
-                # repository runs this as an `mp.Process` target
-                # (workflow.py:448), so anything returned is discarded --
-                # collecting them held every chunk's molecules in worker memory
-                # for the whole run and nothing ever read them. The function is
-                # re-exported from `Auto3D.entry.auto3D`, so an out-of-tree in-process
-                # caller now gets None where it got a list; the structures were
-                # already on disk either way.
-                rank_engine.run()
-
-                # Housekeeping
-                housekeeping_folder = meta["housekeeping_folder"]
-                os.mkdir(housekeeping_folder)
-                housekeeping(dir, housekeeping_folder, output)
-                # Conpress verbose folder
-                housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
-                with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
-                    tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)
-                shutil.rmtree(housekeeping_folder)
-                if not args.verbose:
-                    try:  # Clusters does not support send2trash
-                        send2trash(housekeeping_folder_gz)
-                    except OSError:
-                        os.remove(housekeeping_folder_gz)
-            except Exception:
-                logger.exception(
-                    f"job{job} failed during optimization/ranking; "
-                    "skipping this chunk and continuing with the rest."
-                )
-                continue
+        except KeyboardInterrupt:
+            # Ctrl-C reached this worker directly (process-group SIGINT). Exit
+            # quietly with the conventional code instead of printing a
+            # traceback per worker (P-M12).
+            raise SystemExit(130)
 
 
 def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
