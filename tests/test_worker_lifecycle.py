@@ -10,6 +10,14 @@ from pathlib import Path
 
 import pytest
 
+# Every case here reads /proc to tell a live child from a zombie, and arms
+# PR_SET_PDEATHSIG in the workers. Skipped rather than silently vacuous
+# elsewhere (A-10): `_alive` returning False on a platform without /proc would
+# make "no orphaned workers" true for the wrong reason.
+pytestmark = pytest.mark.skipif(
+    sys.platform != "linux", reason="lifecycle tests observe /proc and PR_SET_PDEATHSIG"
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 PARENT = ROOT / "tests" / "helpers_lifecycle_parent.py"
 
@@ -130,3 +138,35 @@ def test_killed_parent_is_noticed_by_workers(tmp_path):
     p.wait(timeout=20)
     time.sleep(3.0)  # slack for the sentinel-driven exit (no polling involved)
     assert not any(_alive(c) for c in _children(tmp_path)), "orphaned workers after SIGKILL"
+
+
+@pytest.mark.timeout(60)
+def test_a_process_group_interrupt_stops_every_worker_quietly(tmp_path):
+    """Ctrl-C at a terminal is delivered to the whole foreground process GROUP.
+
+    The parametrized case above signals the parent pid alone, which is what a
+    supervisor or `kill` does; it leaves the workers to notice their parent is
+    gone. A terminal Ctrl-C instead raises ``KeyboardInterrupt`` inside every
+    process at once, wherever each happens to be -- for an optimizer that is
+    almost always the blocking ``chunk_queue.get()``, and for the isomer worker
+    a ``time.sleep``. That is the path that used to print one
+    ``Process SpawnProcess-N: Traceback`` per child across the run's own output
+    (P-M12), and the path on which a sentinel ``put`` can find the Manager
+    already gone (C-3b).
+
+    ``_launch`` passes ``start_new_session=True``, so the parent's pid IS its
+    process-group id: this signals exactly the processes this harness started
+    and nothing else on the box.
+    """
+    p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
+    time.sleep(1.0)
+    os.killpg(p.pid, signal.SIGINT)
+    p.wait(timeout=20)
+    time.sleep(2.0)
+
+    assert not any(_alive(c) for c in _children(tmp_path)), "orphaned workers"
+    stderr = (tmp_path / "stderr.txt").read_text()
+    assert "Traceback" not in stderr, stderr
+    # 130 = the parent's own `return 130`; -2 = it was still in the default
+    # SIGINT disposition when the signal landed. Either is a quiet Ctrl-C.
+    assert p.returncode in (130, -2), (p.returncode, stderr)
