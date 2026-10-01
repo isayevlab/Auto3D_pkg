@@ -23,7 +23,7 @@ from Auto3D.presentation.cli.console import emit_json, error_console
 # `Console.print(..., width=200)` cannot do this: rich clamps a per-call width
 # to the console's own width, which under a pipe or pytest capture is 80, so
 # long file paths wrapped mid-name and became unsearchable in the output.
-traceback_console = Console(stderr=True, width=200, force_terminal=True)
+traceback_console = Console(stderr=True, width=200)
 
 # Differentiated exit codes for scripting/CI. 1 = generic; the rest let callers
 # branch on error class. (Click reserves 2 for usage errors, which aligns with
