@@ -415,7 +415,10 @@ class _FakeStderr(io.StringIO):
     def isatty(self) -> bool:
         return self._tty
 
-    def fileno(self) -> int:  # rich probes os.get_terminal_size(fileno) when width is None
+    def fileno(self) -> int:
+        # Belt and braces, not load-bearing: with width=None rich probes fds
+        # 0/1/2 directly rather than this object's fileno, and falls back to
+        # COLUMNS (which both tests set) when none of them is a terminal.
         raise OSError("no fileno")
 
 
