@@ -115,6 +115,45 @@ def test_select_tautomers_same_species_case_is_unchanged(tmp_path):
     assert float(mols[0].GetProp("E_tot")) == -1.0
 
 
+def test_select_tautomers_skips_implicit_hydrogen_records(tmp_path, caplog):
+    """An implicit-H record is a heavy-atom skeleton (N-C1): ranking it
+    against an explicit-H tautomer by electronic energy would compare two
+    different species, so it must not reach the output at all. Routed through
+    `iter_conformer_records`, the same filter `calc_spe`/`opt_geometry` apply.
+    """
+    import logging
+
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.entry.tautomer import select_tautomers
+    from Auto3D.foundation.utils.energy import set_e_tot_from_ev
+
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        no_h = Chem.MolFromSmiles("CCO")
+        AllChem.EmbedMolecule(no_h, randomSeed=1)
+        no_h.SetProp("_Name", "mol@taut1")
+        set_e_tot_from_ev(no_h, -1.0)
+        w.write(no_h)
+
+        with_h = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(with_h, randomSeed=1)
+        with_h.SetProp("_Name", "mol@taut2")
+        set_e_tot_from_ev(with_h, -2.0)
+        w.write(with_h)
+
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        out = select_tautomers(str(sdf), k=1)
+
+    mols = list(Chem.SDMolSupplier(out, removeHs=False))
+    assert len(mols) == 1
+    assert not any(a.GetTotalNumHs() > 0 for a in mols[0].GetAtoms()), (
+        "the implicit-H record survived selection instead of being filtered out"
+    )
+    assert any("implicit hydrogen" in r.message for r in caplog.records)
+
+
 def test_select_tautomers_ranks_across_genuine_tautomers(tmp_path):
     """Regression for the slow-suite failure in test_tauto.py::test_get_stable_tautomers2.
 

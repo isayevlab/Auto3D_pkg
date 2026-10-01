@@ -558,6 +558,26 @@ def calc_thermo(
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     check_engine_supports_molecules([mol for mol in mols if mol is not None], model_name)
 
+    # `iter_conformer_records` (used by the per-record loop below) silently
+    # SKIPS a record with implicit hydrogens, the same way it skips a None or
+    # conformerless one (N-C1) -- correct for `calc_spe`/`opt_geometry`, which
+    # simply drop such a record from their output. `calc_thermo` must not let
+    # it vanish the same way: it is a defect in the INPUT, not a computation
+    # that failed, and a caller filtering on `Thermo_failed` needs to see it
+    # marked rather than silently missing. So it is caught here, against the
+    # raw `mols` read above, before the loop below's `iter_conformer_records`
+    # call would otherwise skip it without a trace in the output. This
+    # duplicates `iter_conformer_records`'s own implicit-H predicate; accepted
+    # until a later task centralizes the record policy.
+    for mol in mols:
+        if mol is None or mol.GetNumConformers() == 0:
+            continue
+        if any(a.GetTotalNumHs() > 0 for a in mol.GetAtoms()):
+            name = mol.GetProp("_Name") if mol.HasProp("_Name") else "<unnamed>"
+            mol.SetProp(THERMO_FAILED_PROP, "implicit_hydrogens")
+            logger.warning("%s: implicit hydrogens; no thermochemistry computed.", name)
+            mols_failed.append(mol)
+
     device = get_device(gpu_idx, use_gpu=use_gpu)
 
     # Two adapters, deliberately: `hessian_adapter`'s module is fp64 for the
@@ -571,7 +591,10 @@ def calc_thermo(
     # single owner of the None/conformerless filter -- `SPE.calc_spe` applies
     # the identical guard for the identical reason. The extra parse costs
     # nothing worth avoiding against a real SDF, and it keeps this filter from
-    # having its own hand-rolled copy that could drift from SPE's.
+    # having its own hand-rolled copy that could drift from SPE's. It also
+    # skips implicit-H records, but those were already pulled out (and marked
+    # `Thermo_failed`) by the pass over the raw `mols` above, so this iterator
+    # simply never sees them again -- not a second attempt to process them.
     for mol in tqdm(list(iter_conformer_records(path))):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))
         # so isotope masses are applied consistently with vib_hessian's Atoms

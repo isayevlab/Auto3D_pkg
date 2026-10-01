@@ -199,15 +199,25 @@ class TestOptGeometryDurability:
             like production, then fails after one successful write -- leaving
             the file truncated/partial, the same way a real disk-full crash
             would.
+
+            `Chem.SDWriter` is one shared module attribute, so this monkeypatch
+            (on `geometry.Chem`, the same `rdkit.Chem` module object) also
+            reaches `opt_geometry`'s scratch-file write of its implicit-H-
+            filtered input (N-C1, see geometry.py), which happens in a
+            `tempfile.TemporaryDirectory()` elsewhere on disk, BEFORE
+            `optimizing.run()`/the rewrite this test targets. Armed only for
+            writes under `job_dir` -- where `outpath`'s own atomic rewrite temp
+            file lives -- so that unrelated write is not what trips the fault.
             """
 
             def __init__(self, path, *a, **k):
                 self._real = _real_sdwriter(path, *a, **k)
                 self._n = 0
+                self._armed = Path(path).parent == job_dir
 
             def write(self, mol):
                 self._n += 1
-                if self._n >= 2:
+                if self._armed and self._n >= 2:
                     raise RuntimeError("disk full")
                 self._real.write(mol)
 

@@ -1,8 +1,77 @@
 import pytest
 
 
+def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
+    """An implicit-H record must not be optimized as a bare heavy-atom
+    skeleton (N-C1): it is routed through `iter_conformer_records`, the same
+    filter `calc_spe`/`select_tautomers` apply, and a scratch-file redirect
+    (see geometry.py) keeps `optimizing()` -- which re-reads the input path
+    itself -- from scoring it anyway. Two records (one implicit-H, one
+    explicit-H) so the surviving one proves the filter discriminates rather
+    than dropping everything.
+    """
+    import logging
+
+    pytest.importorskip("torchani")  # ANI2xt's AEV computer is torchani's; two CI legs lack it
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.entry.ASE.geometry import opt_geometry
+
+    no_h = Chem.MolFromSmiles("CCO")
+    AllChem.EmbedMolecule(no_h, randomSeed=1)
+    no_h.SetProp("_Name", "noH")
+
+    with_h = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(with_h, randomSeed=1)
+    with_h.SetProp("_Name", "withH")
+
+    p = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(p)) as w:
+        w.write(no_h)
+        w.write(with_h)
+
+    # The bundled ANI2xt weights load on CPU in the fast tier already
+    # (tests/test_ani2xt_atom_energies.py); no custom-NNP file is needed.
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        out = opt_geometry(str(p), "ANI2xt", use_gpu=False)
+
+    results = [x for x in Chem.SDMolSupplier(out, removeHs=False) if x is not None]
+    assert len(results) == 1
+    assert results[0].GetProp("_Name") == "withH"
+    assert not any(a.GetTotalNumHs() > 0 for a in results[0].GetAtoms())
+    assert any("implicit hydrogen" in r.message for r in caplog.records)
+
+
+def test_opt_geometry_raises_when_every_record_has_implicit_hydrogens(tmp_path):
+    """The all-skipped case must fail fast, not silently return a bogus path.
+
+    Before the scratch-file redirect, this exact input produced a 1-record
+    output scoring the bare {C, C, O} skeleton instead of ethanol.
+    """
+    pytest.importorskip("torchani")
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.entry.ASE.geometry import opt_geometry
+    from Auto3D.foundation.exceptions import OptimizationError
+
+    no_h = Chem.MolFromSmiles("CCO")
+    AllChem.EmbedMolecule(no_h, randomSeed=1)
+    no_h.SetProp("_Name", "noH")
+    p = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(p)) as w:
+        w.write(no_h)
+
+    with pytest.raises(OptimizationError, match="in.sdf"):
+        opt_geometry(str(p), "ANI2xt", use_gpu=False)
+
+
 def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     """Output filename must reflect the model, not always 'userNNP'."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
     import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
@@ -15,8 +84,17 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
         def run(self):
             return True  # matches optimizing.run()'s real True-on-write contract
 
+    # A real record with a conformer, not an empty list: opt_geometry now
+    # raises fast (before loading a model) when `iter_conformer_records`
+    # yields nothing, so this test's stubbed supplier must still yield
+    # something for that guard not to fire before the filename logic below
+    # is ever reached.
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    mol.SetProp("_Name", "m1")
+
     monkeypatch.setattr(geo, "optimizing", _Stub)
-    monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [])
+    monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [mol])
     import torch
 
     monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
@@ -90,12 +168,13 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
 
     The input below is deliberately NOT a literal 0-byte file:
     `Chem.SDMolSupplier` raises its own OSError at construction for a truly
-    empty file, at the earlier `check_engine_supports_molecules` read
-    (unrelated to this guard) -- before `optimizing.run()` is ever reached.
-    A single unparseable-but-non-empty record reaches `SDMolSupplier` as a
-    `None` entry instead, which is what actually drives `optimizing.run()`'s
-    "no valid molecules" early return (batch_opt/batchopt.py) that this guard
-    exists to catch.
+    empty file, at the earlier `iter_conformer_records` read (unrelated to
+    this guard) -- before `optimizing.run()` is ever reached. A single
+    unparseable-but-non-empty record is instead logged and skipped by
+    `iter_conformer_records`, leaving `input_mols` empty; the scratch SDF
+    `opt_geometry` writes from it is then a valid but 0-byte file, which is
+    what actually drives `optimizing.run()`'s "input file is empty" early
+    return (batch_opt/batchopt.py) that this guard exists to catch.
     """
 
     _UNPARSEABLE_SDF = "not a real record\n$$$$\n"
