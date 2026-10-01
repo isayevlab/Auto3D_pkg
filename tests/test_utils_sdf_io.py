@@ -370,6 +370,27 @@ class TestIterConformerRecords:
 
         assert len(list(iter_conformer_records(str(tmp_path / "unused.sdf")))) == 3
 
+    def test_iter_conformer_records_skips_records_with_implicit_hydrogens(self, tmp_path, caplog):
+        """N-C1: a heavy-atom-only 3D record would be scored as a different species."""
+        import logging
+
+        from rdkit.Chem import AllChem
+
+        m = Chem.MolFromSmiles("CCO")  # no AddHs: 6 implicit H
+        AllChem.EmbedMolecule(m, randomSeed=1)
+        m.SetProp("_Name", "ethanol_noH")
+        full = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(full, randomSeed=1)
+        full.SetProp("_Name", "ethanol")
+        p = tmp_path / "in.sdf"
+        with Chem.SDWriter(str(p)) as w:
+            w.write(m)
+            w.write(full)
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            kept = [x.GetProp("_Name") for x in iter_conformer_records(str(p))]
+        assert kept == ["ethanol"]
+        assert any("implicit hydrogen" in r.message for r in caplog.records)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -111,7 +111,8 @@ def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     Yields:
         Each record RDKit parsed that carries at least one conformer, in file
         order. Every record that does not -- unparseable or conformerless --
-        is logged at WARNING and skipped.
+        is logged at WARNING and skipped. Records with implicit hydrogens are
+        skipped for the same reason.
     """
     for position, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
         if mol is None:
@@ -120,6 +121,13 @@ def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
         if mol.GetNumConformers() == 0:
             name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
             logger.warning("Skipping %s: no 3D conformer.", name)
+            continue
+        if any(a.GetTotalNumHs() > 0 for a in mol.GetAtoms()):
+            # A record with implicit hydrogens is a heavy-atom skeleton: the
+            # model would score C2O for "ethanol" while the electron count
+            # says C2H6O (N-C1). Every Auto3D writer emits explicit H.
+            name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
+            logger.warning("Skipping %s: it has implicit hydrogens; add explicit H first.", name)
             continue
         yield mol
 
