@@ -19,6 +19,9 @@ Two layers of coverage:
 
 from __future__ import annotations
 
+import io
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -28,7 +31,7 @@ import Auto3D.engines.model_factory
 import Auto3D.entry.SPE
 from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.presentation.cli.app import app
-from Auto3D.presentation.cli.errors import handle_error
+from Auto3D.presentation.cli.errors import _traceback_console, handle_error
 
 runner = CliRunner()
 
@@ -370,10 +373,15 @@ def test_dependency_error_still_accepts_its_own_hint_override(capsys):
 
 def test_verbose_traceback_does_not_wrap_long_paths(capsys, monkeypatch):
     """The traceback is rendered at a fixed generous width regardless of the
-    ambient console width, so a long absolute path stays on one line and the
-    file name is searchable in the output."""
-    import rich.console
+    ambient console width, so a long absolute path stays on one line and is
+    searchable in the output.
 
+    Asserted on the *whole* absolute path appearing contiguously, not on the
+    file name being somewhere in the frame line: at width 60 rich folds a long
+    path mid-name, and the continuation line still contains
+    ``test_cli_errors.py`` -- so a bare "the name is in there" check passes
+    with the fix reverted.
+    """
     # Force the narrowest plausible ambient width.
     monkeypatch.setenv("COLUMNS", "60")
 
@@ -389,4 +397,43 @@ def test_verbose_traceback_does_not_wrap_long_paths(capsys, monkeypatch):
     err = capsys.readouterr().err
     frame_lines = [line for line in err.splitlines() if "in _raise_keyerror_id" in line]
     assert frame_lines, err
-    assert "test_cli_errors.py" in frame_lines[0]  # path and name on ONE line
+    assert str(Path(__file__)) in err  # the absolute path to this test file appears unbroken
+
+
+class _FakeStderr(io.StringIO):
+    """A stderr stand-in whose ``isatty`` answer the test chooses.
+
+    ``_traceback_console`` decides the traceback width from
+    ``sys.stderr.isatty()`` per call, so a fake stream is all that is needed to
+    cover both branches -- no real terminal, no pty.
+    """
+
+    def __init__(self, tty: bool) -> None:
+        super().__init__()
+        self._tty = tty
+
+    def isatty(self) -> bool:
+        return self._tty
+
+    def fileno(self) -> int:  # rich probes os.get_terminal_size(fileno) when width is None
+        raise OSError("no fileno")
+
+
+def test_traceback_console_is_pinned_to_200_columns_when_stderr_is_not_a_terminal(monkeypatch):
+    """Under a pipe, a log file or test capture: 200 columns, so long absolute
+    paths stay on one line and remain greppable."""
+    monkeypatch.setattr(sys, "stderr", _FakeStderr(tty=False))
+    monkeypatch.setenv("COLUMNS", "120")
+    assert _traceback_console().size.width == 200
+
+
+def test_traceback_console_follows_the_terminal_when_stderr_is_a_terminal(monkeypatch):
+    """On a real terminal the console must size itself to the terminal: a
+    200-column render on an 80-column terminal is hard-wrapped by the terminal
+    into mangled thirds of the panel's box drawing."""
+    monkeypatch.setattr(sys, "stderr", _FakeStderr(tty=True))
+    # rich honors COLUMNS when it cannot query the fd; TERM must not be the
+    # "dumb"/"unknown" that makes Console.size short-circuit to (80, 25).
+    monkeypatch.setenv("COLUMNS", "120")
+    monkeypatch.setenv("TERM", "xterm")
+    assert _traceback_console().size.width == 120

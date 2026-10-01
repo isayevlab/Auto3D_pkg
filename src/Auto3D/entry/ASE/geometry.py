@@ -144,7 +144,7 @@ def opt_geometry(
 
     Raises:
         OptimizationError: `path` is missing, empty, or contains no
-            parseable record, or every record was skipped (no 3D conformer,
+            parseable record, or every record was skipped (no conformer,
             or implicit hydrogens -- see `iter_conformer_records`), so
             nothing was optimized.
 
@@ -222,7 +222,7 @@ def opt_geometry(
     # Fail fast, before create_model/optimizing load anything, exactly like
     # check_gpu_requested above (`get_device` itself has already run -- it
     # only resolves a torch.device, it does not load a model). If every
-    # record of `path` was skipped (no parseable record, no 3D conformer, or
+    # record of `path` was skipped (no parseable record, no conformer, or
     # implicit hydrogens), there is nothing to optimize. Checked here rather
     # than relying on `optimizing.run()`'s own "input file is empty"/"no
     # valid molecules" early returns, which would load the model for
@@ -231,7 +231,7 @@ def opt_geometry(
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
             "file is missing, empty, contains no parseable record, or every "
-            "record was skipped (no 3D conformer, or implicit hydrogens)."
+            "record was skipped (no conformer, or implicit hydrogens)."
         )
 
     opt_config = OptimizationConfig(
@@ -253,8 +253,9 @@ def opt_geometry(
     wrote_output = opt_engine.run()
 
     # optimizing.run() returns False (and leaves outpath untouched) when
-    # `path` is missing, empty, or contains no parseable record. Checked on
-    # the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
+    # `path` is missing, empty, contains no parseable record, or every record
+    # was skipped by the filter (no conformer, or implicit hydrogens). Checked
+    # on the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
     # (the default here), a stale outpath from an earlier call is left in
     # place by a skipped run, so an existence check alone would let
     # `_annotate_and_rewrite` below silently re-annotate and return THAT file
@@ -266,7 +267,9 @@ def opt_geometry(
     if not wrote_output:
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
-            "file is missing, empty, or contains no parseable record."
+            "file is missing, empty, contains no parseable record, or every "
+            "record was skipped by the filter (no conformer, or implicit "
+            "hydrogens)."
         )
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds

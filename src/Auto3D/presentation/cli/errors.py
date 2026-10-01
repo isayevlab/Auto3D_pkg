@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -19,11 +20,21 @@ from Auto3D.foundation.exceptions import (
 )
 from Auto3D.presentation.cli.console import emit_json, error_console
 
-# The verbose traceback is rendered on its own console pinned to 200 columns.
-# `Console.print(..., width=200)` cannot do this: rich clamps a per-call width
-# to the console's own width, which under a pipe or pytest capture is 80, so
-# long file paths wrapped mid-name and became unsearchable in the output.
-traceback_console = Console(stderr=True, width=200)
+
+def _traceback_console() -> Console:
+    """The stderr console the verbose traceback is rendered on.
+
+    On a terminal rich sizes it to the terminal, so the panel is never
+    hard-wrapped by the terminal itself. Under a pipe, a log file or test
+    capture it is pinned to 200 columns: ``Console.print(..., width=200)``
+    cannot do that, because rich clamps a per-call width to the console's own
+    width (80 under capture), so long file paths wrapped mid-name and became
+    unsearchable in logs. Built per call, not at import: ``sys.stderr`` is
+    swapped after import by pytest and Typer's CliRunner.
+    """
+    interactive = sys.stderr is not None and sys.stderr.isatty()
+    return Console(stderr=True, width=None if interactive else 200, highlight=True, emoji=False)
+
 
 # Differentiated exit codes for scripting/CI. 1 = generic; the rest let callers
 # branch on error class. (Click reserves 2 for usage errors, which aligns with
@@ -176,7 +187,7 @@ def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) 
         )
 
     if verbose > 0:
-        traceback_console.print(
+        _traceback_console().print(
             Traceback.from_exception(type(error), error, error.__traceback__, width=200)
         )
 

@@ -316,12 +316,14 @@ class optimizing:
         Returns:
             True if ``self.out_f`` was written this call. False if
             optimization was skipped entirely -- ``self.in_f`` missing, empty,
-            or containing no parseable record -- in which case ``self.out_f``
-            is left untouched (a caller that derives its output path once and
-            may re-run against it, e.g. ``ASE.geometry.opt_geometry`` /
-            ``entry.auto3D.smiles2mols`` with ``overwrite=True``, cannot tell a
-            fresh write from a stale leftover file by checking
-            ``os.path.exists(self.out_f)`` alone -- this return value is the
+            containing no parseable record, or with every record skipped by
+            the filter (no conformer, or implicit hydrogens) -- in which case
+            ``self.out_f`` is left untouched (a caller that derives its output
+            path once and may re-run against it, e.g.
+            ``ASE.geometry.opt_geometry`` / ``entry.auto3D.smiles2mols`` with
+            ``overwrite=True``, cannot tell a fresh write from a stale
+            leftover file by checking ``os.path.exists(self.out_f)`` alone --
+            this return value is the
             signal). ``workflow_workers.optim_rank_wrapper`` checks
             ``os.path.exists`` on a chunk-local path that is always fresh for
             that call, so it is unaffected either way and is not changed here.

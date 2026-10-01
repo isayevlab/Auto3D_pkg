@@ -103,16 +103,26 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
 
 
 # iter_conformer_records' own wording for each reason record_skip_reason can
-# return (never "unparseable", by naming a record rather than its index).
-# `ASE.thermo.driver.calc_thermo` does NOT use these: it logs its own
+# return. Every reason other than "unparseable" names the record (`_Name`)
+# rather than its index, which is all an unparseable record has.
+# `ASE.thermo.driver.calc_thermo` does NOT use the latter two: it logs its own
 # thermo-specific phrasing ("...; no thermochemistry computed") for the two
 # reasons it marks `Thermo_failed` rather than drops, since those messages
 # explain a different outcome than "skipped".
 _SKIP_MESSAGES = {
     "unparseable": "Skipping record %d: RDKit could not parse it.",
-    "no_conformer": "Skipping %s: no 3D conformer.",
+    "no_conformer": "Skipping %s: no conformer.",
     "implicit_hydrogens": "Skipping %s: it has implicit hydrogens; add explicit H first.",
 }
+
+
+def skip_message(reason: str) -> str:
+    """The logging template :func:`iter_conformer_records` uses for ``reason``.
+
+    Exposed so other readers that log the same outcome (``calc_thermo`` for
+    unparseable records) do not keep a second copy of the wording.
+    """
+    return _SKIP_MESSAGES[reason]
 
 
 def record_skip_reason(mol: Chem.Mol | None) -> str | None:
@@ -132,10 +142,11 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
 
     Returns:
         ``"unparseable"`` for ``None``. ``"no_conformer"`` for a record with
-        no 3D conformer -- ``mol.GetConformer()`` (or any padding/geometry
-        call that assumes one) raises on it, aborting a whole batch on one bad
-        record and discarding results already computed for every record
-        before it, since nothing is written until the pass finishes.
+        no conformer at all (no coordinates of any kind) --
+        ``mol.GetConformer()`` (or any padding/geometry call that assumes one)
+        raises on it, aborting a whole batch on one bad record and discarding
+        results already computed for every record before it, since nothing is
+        written until the pass finishes.
         ``"implicit_hydrogens"`` for a record with implicit hydrogens: a
         heavy-atom skeleton, since every Auto3D writer emits explicit H -- the
         model would score C2O for "ethanol" while the electron count says

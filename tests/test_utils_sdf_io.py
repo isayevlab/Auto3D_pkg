@@ -10,6 +10,7 @@ from Auto3D.foundation.utils.sdf_io import (
     count_sdf,
     guess_file_type,
     iter_conformer_records,
+    record_skip_reason,
     reorder_sdf,
 )
 
@@ -313,9 +314,14 @@ class TestSDF2chunksTrailingRecord:
 
 
 class TestIterConformerRecords:
-    """The one filter `calc_spe` and `calc_thermo` both call: skip a record
-    RDKit could not parse, and skip a parsed record with no 3D conformer, so
-    neither caller aborts a whole batch on one bad record (issue 32).
+    """The one filter every single-file reader goes through -- `calc_spe`,
+    `opt_geometry`, `select_tautomers` and the batch optimizer: skip a record
+    RDKit could not parse, a parsed record with no conformer, and a record
+    with implicit hydrogens, so no caller aborts a whole batch on one bad
+    record (issue 32) or scores a heavy-atom skeleton. `calc_thermo` is the
+    one reader that does not call this function -- it applies
+    `record_skip_reason` (covered by ``TestRecordSkipReason`` below) directly,
+    so it can mark a defective record ``Thermo_failed`` instead of dropping it.
 
     Fakes ``Chem.SDMolSupplier`` at the module level, the same pattern
     ``TestNoneMolHardening`` above uses -- `iter_conformer_records` opens the
@@ -390,6 +396,41 @@ class TestIterConformerRecords:
             kept = [x.GetProp("_Name") for x in iter_conformer_records(str(p))]
         assert kept == ["ethanol"]
         assert any("implicit hydrogen" in r.message for r in caplog.records)
+
+
+class TestRecordSkipReason:
+    """The predicate itself, pinned reason by reason.
+
+    `iter_conformer_records` can only be driven through a file or a faked
+    supplier, and ``"no_conformer"`` is unreachable that way:
+    ``SDMolSupplier`` attaches a conformer to every record it parses, so no
+    SDF on disk can produce a conformerless ``Mol``. That branch exists for
+    the in-memory callers (`calc_thermo` applies this predicate to its own
+    already-read list, where a caller-supplied ``Mol`` really can have none),
+    and this table is what covers it.
+    """
+
+    def _embedded(self, mol):
+        from rdkit.Chem import AllChem
+
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        return mol
+
+    def test_none_is_unparseable(self):
+        assert record_skip_reason(None) == "unparseable"
+
+    def test_a_mol_without_a_conformer_has_no_conformer(self):
+        # Explicit H, so only the missing conformer can be the reason.
+        assert record_skip_reason(Chem.AddHs(Chem.MolFromSmiles("CCO"))) == "no_conformer"
+
+    def test_an_embedded_mol_with_implicit_hydrogens_is_reported_as_such(self):
+        # No AddHs: a 3D heavy-atom skeleton, the N-C1 case.
+        mol = self._embedded(Chem.MolFromSmiles("CCO"))
+        assert record_skip_reason(mol) == "implicit_hydrogens"
+
+    def test_an_embedded_mol_with_explicit_hydrogens_is_accepted(self):
+        mol = self._embedded(Chem.AddHs(Chem.MolFromSmiles("CCO")))
+        assert record_skip_reason(mol) is None
 
 
 if __name__ == "__main__":

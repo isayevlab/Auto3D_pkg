@@ -147,9 +147,18 @@ def test_select_tautomers_skips_implicit_hydrogen_records(tmp_path, caplog):
         out = select_tautomers(str(sdf), k=1)
 
     mols = list(Chem.SDMolSupplier(out, removeHs=False))
-    assert len(mols) == 1
+    # Both messages name the same defect from the two sides it can show up on.
+    # Unfiltered, the implicit-H record does NOT lose a head-to-head ranking to
+    # the explicit-H one: the two have different formulas, so `formula_key`
+    # puts each in a group of its own and k=1 keeps a winner from each -- both
+    # records survive, which is the length assertion below.
+    assert len(mols) == 1, (
+        "both records survived: the implicit-H record was not filtered out, "
+        "and it partitions separately from the explicit-H one rather than "
+        "being ranked against it"
+    )
     assert not any(a.GetTotalNumHs() > 0 for a in mols[0].GetAtoms()), (
-        "the implicit-H record survived selection instead of being filtered out"
+        "the one surviving record is the implicit-H one, not the explicit-H one"
     )
     assert any("implicit hydrogen" in r.message for r in caplog.records)
 

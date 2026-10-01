@@ -66,7 +66,7 @@ from Auto3D.foundation.utils.energy import (
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.foundation.utils.output_names import default_output_path
-from Auto3D.foundation.utils.sdf_io import record_skip_reason
+from Auto3D.foundation.utils.sdf_io import record_skip_reason, skip_message
 
 logger = get_logger(__name__)
 
@@ -75,6 +75,15 @@ logger = get_logger(__name__)
 # single declared owner (used by the three ranking/filtering readers as well
 # as every write site in this module) -- it must not be redefined here.
 TRANSITION_STATE_FAILURE = "transition_state"
+
+# Thermo-specific phrasing for the reasons calc_thermo marks Thermo_failed
+# rather than drops (sdf_io's wording says "Skipping", which is not what
+# happens here). Looked up with [reason] on purpose: a new reason that is
+# missing here fails loud instead of being logged under the wrong label.
+_THERMO_SKIP_MESSAGES = {
+    "no_conformer": "%s: no conformer; no thermochemistry computed.",
+    "implicit_hydrogens": "%s: implicit hydrogens; no thermochemistry computed.",
+}
 
 
 def do_mol_thermo(
@@ -582,13 +591,10 @@ def calc_thermo(
             survivors.append(mol)
             continue
         if reason == "unparseable":
-            logger.warning("Skipping record %d: RDKit could not parse it.", position)
+            logger.warning(skip_message("unparseable"), position)
             continue
         name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
-        if reason == "no_conformer":
-            logger.warning("%s: no 3D conformer; no thermochemistry computed.", name)
-        else:
-            logger.warning("%s: implicit hydrogens; no thermochemistry computed.", name)
+        logger.warning(_THERMO_SKIP_MESSAGES[reason], name)
         mol.SetProp(THERMO_FAILED_PROP, reason)
         mols_failed.append(mol)
 
