@@ -505,6 +505,10 @@ A ``calc_thermo`` output carries more, and two of them are relative:
 - **G_rel(kcal/mol)**: Gibbs free energy relative to the lowest-*G* conformer of
   the same molecule — **only when asked for**, with ``--relative-gibbs`` or
   ``calc_thermo(..., relative_gibbs=True)``
+- **Thermo_failed**: ``""`` when thermochemistry was computed; otherwise why it
+  was not — ``"not_converged"``, ``"transition_state"``,
+  ``"implicit_hydrogens"``, ``"no_conformer"``, or the exception type name.
+  Filter on ``Thermo_failed == ""`` before reading the absolute energies.
 
 The Gibbs quantity is opt-in because it is the entry point to the expensive
 path: obtaining a Δ*G* at all costs a Hessian per conformer. Conformer

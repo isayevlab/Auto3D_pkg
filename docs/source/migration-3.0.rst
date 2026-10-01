@@ -314,6 +314,12 @@ property:
 - ``""`` (empty) on success.
 - ``"not_converged"`` when the geometry failed the stationary-point gate
   above.
+- ``"transition_state"`` for a confirmed saddle point (see the
+  transition-state section below).
+- ``"implicit_hydrogens"`` (3.2.0+) when the record has no explicit
+  hydrogens.
+- ``"no_conformer"`` (3.2.0+) when the record carries no 3D coordinates --
+  no conformer at all, of any kind.
 - The exception type name (e.g. ``"RuntimeError"``) for any other failure.
 
 .. code:: python
@@ -325,11 +331,16 @@ property:
    if mol.GetProp("Thermo_failed") == "":
        g = mol.GetProp("G_hartree")
 
-A malformed or conformer-less record is now skipped with a logged warning
-instead of raising an uncaught ``AttributeError`` that killed the whole run --
-possibly after hundreds of Hessians had already been computed and were about
-to be discarded, since nothing is written until the loop over all records
-finishes.
+A record RDKit cannot parse at all is skipped with a logged warning instead of
+raising an uncaught ``AttributeError`` that killed the whole run -- possibly
+after hundreds of Hessians had already been computed and were about to be
+discarded, since nothing is written until the loop over all records finishes.
+Since 3.2.0 a record that parses but carries no conformer, or carries implicit
+hydrogens, is not skipped either: it is kept in the output and marked with the
+value above (``"no_conformer"`` or ``"implicit_hydrogens"``), so a defective
+*input* record is visible to a caller filtering on ``Thermo_failed`` rather
+than silently missing from the output. Nothing in any of these cases aborts
+the run.
 
 An unspecified C=C is warned about on the SMILES path too
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

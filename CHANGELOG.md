@@ -43,7 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of exit 3 at preflight, like ANI2x already did.
 - `opt_geometry` and `smiles2mols` could return a stale previous output file
   (or crash naming the wrong path) when the input contained no usable
-  molecules; a zero-molecule input now fails validation with exit 2.
+  molecules; both now raise `OptimizationError` (exit 7) instead —
+  `opt_geometry` before any model is loaded, `smiles2mols` when the optimizer
+  reports that nothing was written.
 - Molecule IDs containing a bare `@` were truncated by the run summary and
   reconciliation, producing false "produced no output" failures (exit 6) on
   successful runs; the `@tautN` parse now has a single owner
@@ -71,6 +73,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmarks, `scripts/bench_optimizer.py`, and the examples import live
   3.1.x module paths again (they still referenced pre-layer-move paths and
   crashed on import).
+- SDF records with implicit hydrogens (a heavy-atom-only 3D record) were
+  scored as the bare skeleton by `calc_spe`, `calc_thermo`, `opt_geometry`,
+  `select_tautomers` and the batch optimizer; every reader now goes through
+  one record filter (`iter_conformer_records` / `record_skip_reason`) that
+  skips them with a warning. `calc_thermo` keeps such records in its output
+  marked `Thermo_failed="implicit_hydrogens"` (a record without any conformer
+  is marked `"no_conformer"`); `opt_geometry` raises `OptimizationError`
+  (exit 7) when every record is skipped. The batch optimizer's
+  unparseable-record warning now says `record N` instead of `index N`.
+- `auto3d ... -v` rendered the verbose traceback at the ambient console
+  width, so under a pipe, a log file or test capture long file paths wrapped
+  mid-name and could not be searched for; when stderr is not a terminal the
+  traceback now renders at 200 columns (a terminal keeps its own width).
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
