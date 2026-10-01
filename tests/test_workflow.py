@@ -1437,14 +1437,18 @@ class TestQuietPathsNameWhatTheyDropped:
     def test_the_optimizer_names_each_record_it_could_not_parse(
         self, tmp_path, caplog, monkeypatch
     ):
-        """`optimizing` logged only the all-records-failed case.
+        """`optimizing` used to log only the all-records-failed case.
 
         A single bad record among a thousand left the output SDF shorter than the
         input with nothing said about which one -- for `opt_geometry`, that is a
         short file, the path returned, and exit 0. The only trace was RDKit's own
         C++ parse error, which names a file offset rather than a molecule.
-        `SPE.calc_spe` and `ASE/thermo`'s `iter_thermo_records` both log
-        per-record for exactly this; this reader did not.
+        `SPE.calc_spe` and `ASE/thermo` both logged per-record for exactly this;
+        this reader did not. It now reads through the same
+        `Auto3D.foundation.utils.sdf_io.iter_conformer_records` those callers use
+        (N-C1), whose unparseable-record message says "record %d", not
+        "index %d" -- a wording change the record-policy unification review
+        confirmed is the only effect on this path.
         """
         import torch
         from rdkit import Chem
@@ -1480,7 +1484,7 @@ class TestQuietPathsNameWhatTheyDropped:
         with caplog.at_level(logging.WARNING):
             optimizer.run()
 
-        assert "index 0" in caplog.text, (
+        assert "record 0" in caplog.text, (
             "the unparseable record was dropped without being named; only the "
             f"all-failed case was reported. Log was: {caplog.text!r}"
         )

@@ -83,3 +83,62 @@ def test_a_sigma_convention_difference_is_tolerated():
 def test_a_record_that_contradicts_itself_is_rejected(label, mol):
     with pytest.raises(AssertionError):
         _check(mol)
+
+
+def test_calc_thermo_marks_implicit_hydrogen_records_as_failed(tmp_path, caplog, monkeypatch):
+    """calc_thermo must mark an implicit-H record `Thermo_failed`, not score
+    its bare heavy-atom skeleton and not let it silently vanish from the
+    output the way a None/conformerless record does (N-C1).
+
+    Runs `calc_thermo` end to end with a param-less stub NNP -- the same
+    double-and-monkeypatch pattern
+    `tests.test_thermo_helpers.TestCalculatorDeviceAndDtypeFollowTheCaller`
+    uses to exercise `calc_thermo` without a real NNP in the fast tier --
+    rather than the slow, real-model integration tests in test_thermo.py.
+    Since the implicit-H record is caught before the fmax pre-check/
+    relaxation/Hessian stages, the stub's `forward` need not even behave
+    realistically; it exists only so `create_model`/`_load_hessian_model`
+    never try to download or load a real model.
+    """
+    import logging
+
+    import torch
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from torch import nn
+
+    import Auto3D.entry.ASE.thermo.driver as thermo_mod
+    from Auto3D.entry.ASE.thermo import calculator as _calculator
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _StubNNP(AdapterModuleMixin, nn.Module):
+        def forward(self, coords, species, charges, atom_mask=None):
+            energy = torch.zeros(coords.shape[0], dtype=coords.dtype)
+            forces = torch.zeros_like(coords)
+            return energy, forces
+
+    stub = _StubNNP()
+    monkeypatch.setattr(thermo_mod, "create_model", lambda *a, **k: stub)
+    monkeypatch.setattr(_calculator, "create_model", lambda *a, **k: stub)
+    monkeypatch.setattr(thermo_mod, "_load_hessian_model", lambda *a, **k: object())
+
+    mol = Chem.MolFromSmiles("CCO")
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    mol.SetProp("_Name", "noH")
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        w.write(mol)
+    out = tmp_path / "out.sdf"
+
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        thermo_mod.calc_thermo(str(sdf), "AIMNET", use_gpu=False, out_path=str(out))
+
+    results = list(Chem.SDMolSupplier(str(out), removeHs=False))
+    assert len(results) == 1, "the implicit-H record must be present in the output, not dropped"
+    assert results[0].GetProp("Thermo_failed") == "implicit_hydrogens"
+    implicit_h_warnings = [r for r in caplog.records if "implicit hydrogen" in r.message]
+    assert len(implicit_h_warnings) == 1, (
+        "the implicit-H record must be named exactly once -- calc_thermo reads "
+        "`path` a single time now, so a second, contradictory 'Skipping ...' "
+        f"line from sdf_io must not appear; got {[r.message for r in caplog.records]}"
+    )

@@ -26,6 +26,7 @@ from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.foundation.utils.output_names import default_output_path
+from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
 __all__ = ["opt_geometry"]
 
@@ -143,7 +144,9 @@ def opt_geometry(
 
     Raises:
         OptimizationError: `path` is missing, empty, or contains no
-            parseable record, so nothing was optimized.
+            parseable record, or every record was skipped (no conformer,
+            or implicit hydrogens -- see `iter_conformer_records`), so
+            nothing was optimized.
 
     Example:
         >>> from Auto3D.entry.ASE.geometry import opt_geometry
@@ -207,9 +210,29 @@ def opt_geometry(
     # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
     # charged or out-of-set species handed to either would otherwise be
     # silently optimized as a different, neutral species -- wrong energy,
-    # wrong forces, wrong geometry.
-    input_mols = [mol for mol in Chem.SDMolSupplier(path, removeHs=False) if mol is not None]
+    # wrong forces, wrong geometry. `iter_conformer_records` (Auto3D.foundation
+    # .utils.sdf_io) is the single owner of the None/conformerless/implicit-H
+    # filter -- `calc_spe` applies the identical guard for the identical
+    # reason (N-C1): a record with implicit hydrogens is a heavy-atom
+    # skeleton, and scoring it silently substitutes a different molecule for
+    # the one the engine was told to optimize.
+    input_mols = list(iter_conformer_records(path))
     check_engine_supports_molecules(input_mols, model_name)
+
+    # Fail fast, before create_model/optimizing load anything, exactly like
+    # check_gpu_requested above (`get_device` itself has already run -- it
+    # only resolves a torch.device, it does not load a model). If every
+    # record of `path` was skipped (no parseable record, no conformer, or
+    # implicit hydrogens), there is nothing to optimize. Checked here rather
+    # than relying on `optimizing.run()`'s own "input file is empty"/"no
+    # valid molecules" early returns, which would load the model for
+    # nothing.
+    if not input_mols:
+        raise OptimizationError(
+            f"No optimized structures were produced from {path!r}: the input "
+            "file is missing, empty, contains no parseable record, or every "
+            "record was skipped (no conformer, or implicit hydrogens)."
+        )
 
     opt_config = OptimizationConfig(
         opt_steps=opt_steps,
@@ -222,20 +245,31 @@ def opt_geometry(
     # `Auto3D.orchestration.workflow_workers.optim_rank_wrapper` about why construction must
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
+    # `optimizing` (Auto3D.engines.batch_opt.batchopt) reads `path` itself
+    # through the same `iter_conformer_records` filter as `input_mols` above
+    # (N-C1), so the two agree on what counts as a record without this
+    # function having to re-derive or re-write anything for it.
     opt_engine = optimizing(path, outpath, adapter=adapter, device=device, config=opt_config)
     wrote_output = opt_engine.run()
 
     # optimizing.run() returns False (and leaves outpath untouched) when
-    # `path` is missing, empty, or contains no parseable record. Checked on
-    # the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
+    # `path` is missing, empty, contains no parseable record, or every record
+    # was skipped by the filter (no conformer, or implicit hydrogens). Checked
+    # on the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
     # (the default here), a stale outpath from an earlier call is left in
     # place by a skipped run, so an existence check alone would let
     # `_annotate_and_rewrite` below silently re-annotate and return THAT file
-    # as if it were produced by this call.
+    # as if it were produced by this call. In practice this should not fire:
+    # `input_mols` being non-empty (checked above) already implies
+    # `optimizing.run()` will find at least one record through its own,
+    # identical filter -- this is defense against that invariant ever
+    # drifting, not the primary guard.
     if not wrote_output:
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
-            "file is missing, empty, or contains no parseable record."
+            "file is missing, empty, contains no parseable record, or every "
+            "record was skipped by the filter (no conformer, or implicit "
+            "hydrogens)."
         )
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds

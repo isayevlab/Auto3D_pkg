@@ -66,7 +66,7 @@ from Auto3D.foundation.utils.energy import (
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.foundation.utils.output_names import default_output_path
-from Auto3D.foundation.utils.sdf_io import iter_conformer_records
+from Auto3D.foundation.utils.sdf_io import record_skip_reason, skip_message
 
 logger = get_logger(__name__)
 
@@ -75,6 +75,15 @@ logger = get_logger(__name__)
 # single declared owner (used by the three ranking/filtering readers as well
 # as every write site in this module) -- it must not be redefined here.
 TRANSITION_STATE_FAILURE = "transition_state"
+
+# Thermo-specific phrasing for the reasons calc_thermo marks Thermo_failed
+# rather than drops (sdf_io's wording says "Skipping", which is not what
+# happens here). Looked up with [reason] on purpose: a new reason that is
+# missing here fails loud instead of being logged under the wrong label.
+_THERMO_SKIP_MESSAGES = {
+    "no_conformer": "%s: no conformer; no thermochemistry computed.",
+    "implicit_hydrogens": "%s: implicit hydrogens; no thermochemistry computed.",
+}
 
 
 def do_mol_thermo(
@@ -547,16 +556,47 @@ def calc_thermo(
     # model_name2model_calculator so nothing is loaded first.
     check_output_overwrite(outpath, overwrite)
 
-    # Read once, raw (None entries included), purely for the C11 guard below --
-    # it needs every parseable record regardless of whether it carries a
-    # conformer, which is a looser filter than the main loop's below. Parsing
-    # `mols` needs only `path`, not a device or model, so it -- and this
-    # guard, which needs only `mols`/`model_name` -- both happen before
-    # get_device/_load_hessian_model/model_name2model_calculator below,
+    # Read `path` once. `record_skip_reason` (Auto3D.foundation.utils.sdf_io)
+    # is the single definition of which records are defective (N-C1):
+    # unparseable, conformerless, or carrying implicit hydrogens.
+    # `iter_conformer_records`'s other callers (`SPE.calc_spe`,
+    # `ASE.geometry.opt_geometry`, `tautomer.select_tautomers`,
+    # `batch_opt.batchopt.optimizing.run`) simply drop such a record from
+    # their output. `calc_thermo` must not: a defect in the INPUT is not a
+    # computation that failed, and a caller filtering on `Thermo_failed`
+    # needs to see it marked rather than silently missing. So this applies
+    # the same predicate directly against the one read of `path` below,
+    # marking every record it can rather than dropping it -- except an
+    # unparseable (`None`) record, which has no `Mol` to set a property on
+    # and is still logged and dropped, matching every other caller.
+    #
+    # Parsing `mols` needs only `path`, not a device or model, so it -- and
+    # the C11 guard right below, which needs only `mols`/`model_name` -- both
+    # happen before get_device/_load_hessian_model/model_name2model_calculator,
     # matching check_gpu_requested's already-first placement: every guard
     # that can fail fast, does, before any device/model construction.
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
     check_engine_supports_molecules([mol for mol in mols if mol is not None], model_name)
+
+    # One pass, not a second read of `path`: a record pulled out here (and
+    # marked `Thermo_failed`) must not also be re-skipped-and-logged by a
+    # separate `iter_conformer_records(path)` call feeding the loop below --
+    # that produced a contradictory "Skipping ..." line for a record this
+    # function was simultaneously keeping. `survivors` (file order preserved)
+    # is what the per-record loop below iterates.
+    survivors = []
+    for position, mol in enumerate(mols):
+        reason = record_skip_reason(mol)
+        if reason is None:
+            survivors.append(mol)
+            continue
+        if reason == "unparseable":
+            logger.warning(skip_message("unparseable"), position)
+            continue
+        name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
+        logger.warning(_THERMO_SKIP_MESSAGES[reason], name)
+        mol.SetProp(THERMO_FAILED_PROP, reason)
+        mols_failed.append(mol)
 
     device = get_device(gpu_idx, use_gpu=use_gpu)
 
@@ -566,13 +606,7 @@ def calc_thermo(
     hessian_adapter = _load_hessian_model(model_name, device)
     opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
-    # A second read of `path` (the first, above, was raw and only for the C11
-    # guard): `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is the
-    # single owner of the None/conformerless filter -- `SPE.calc_spe` applies
-    # the identical guard for the identical reason. The extra parse costs
-    # nothing worth avoiding against a real SDF, and it keeps this filter from
-    # having its own hand-rolled copy that could drift from SPE's.
-    for mol in tqdm(list(iter_conformer_records(path))):
+    for mol in tqdm(survivors):
         # Routed through mol2atoms (rather than a bare Atoms(species, coord))
         # so isotope masses are applied consistently with vib_hessian's Atoms
         # object -- otherwise the optimization and the Hessian/thermo stages

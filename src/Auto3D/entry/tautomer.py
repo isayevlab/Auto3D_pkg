@@ -11,6 +11,7 @@ from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
+from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 from Auto3D.foundation.utils.smi_io import strip_taut_suffix
 from Auto3D.foundation.utils.stereo_check import formula_key
 
@@ -91,8 +92,13 @@ def select_tautomers(
     output_path = os.path.join(folder, stem + "_top_tautomers.sdf")
     check_output_overwrite(output_path, overwrite)
 
-    supplier = Chem.SDMolSupplier(sdf, removeHs=False)
-    mols = [m for m in supplier if m is not None]
+    # iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the single
+    # owner of the None/conformerless/implicit-H filter -- calc_spe and
+    # opt_geometry apply the identical guard for the identical reason (N-C1):
+    # a record with implicit hydrogens is a heavy-atom skeleton, and ranking
+    # it against explicit-H tautomers by electronic energy would compare two
+    # different species.
+    mols = list(iter_conformer_records(sdf))
     for mol in mols:
         if mol.HasProp("E_rel(kcal/mol)"):
             mol.ClearProp("E_rel(kcal/mol)")  # conformer-level energy, not tautomer-level
