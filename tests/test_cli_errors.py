@@ -366,3 +366,27 @@ def test_dependency_error_still_accepts_its_own_hint_override(capsys):
     err = _flat(capsys.readouterr().err)
     assert "conda install -c conda-forge ase" in err
     assert "pip install ase" not in err  # the dependency-name hint, overridden
+
+
+def test_verbose_traceback_does_not_wrap_long_paths(capsys, monkeypatch):
+    """The traceback is rendered at a fixed generous width regardless of the
+    ambient console width, so a long absolute path stays on one line and the
+    file name is searchable in the output."""
+    import rich.console
+
+    # Force the narrowest plausible ambient width.
+    monkeypatch.setenv("COLUMNS", "60")
+
+    def _raise_keyerror_id():
+        d: dict = {}
+        return d["ID"]
+
+    try:
+        _raise_keyerror_id()
+    except KeyError as e:
+        with pytest.raises(SystemExit):
+            handle_error(e, verbose=1)
+    err = capsys.readouterr().err
+    frame_lines = [line for line in err.splitlines() if "in _raise_keyerror_id" in line]
+    assert frame_lines, err
+    assert "test_cli_errors.py" in frame_lines[0]  # path and name on ONE line
