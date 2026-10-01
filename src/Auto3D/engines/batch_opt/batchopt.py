@@ -39,6 +39,7 @@ from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SE
 # see `optimizing.__init__`.
 from Auto3D.foundation.utils.convergence import set_converged
 from Auto3D.foundation.utils.energy import set_e_tot_from_ev
+from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 from Auto3D.foundation.utils.stereo_check import apply_optimized_coords
 
 from .padding import pad_from_mols
@@ -339,21 +340,17 @@ class optimizing:
             logger.warning(f"Input file {self.in_f} is empty. Skipping optimization.")
             return False
 
-        # Name every record that could not be parsed, not just the case where all
-        # of them failed. The all-failed warning below was the only signal, so a
-        # single bad record among a thousand left the output file shorter than the
-        # input with nothing said about which one -- for `opt_geometry` that is an
-        # output SDF with fewer records, the path returned and exit 0, and the only
-        # trace is RDKit's own C++ parse error on stderr, which names a file offset
-        # rather than a molecule. `Auto3D.foundation.utils.sdf_io.iter_conformer_records`
-        # (used by `SPE.calc_spe` and `ASE/thermo`) logs per-record for the
-        # identical situation; this was the one reader that did not.
-        mols = []
-        for index, mol in enumerate(Chem.SDMolSupplier(self.in_f, removeHs=False)):
-            if mol is None:
-                logger.warning("Skipping molecule at index %d: failed to parse", index)
-                continue
-            mols.append(mol)
+        # `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is the
+        # single owner of the None/conformerless/implicit-H filter -- every
+        # other single-file reader (`SPE.calc_spe`, `ASE.geometry.opt_geometry`,
+        # `tautomer.select_tautomers`) already goes through it. It also names
+        # every record it skips, not just the all-failed case: a single bad
+        # record among a thousand used to leave the output file shorter than
+        # the input with nothing said about which one -- for `opt_geometry`
+        # that was an output SDF with fewer records, the path returned, and
+        # exit 0, with only RDKit's own C++ parse error on stderr (which names
+        # a file offset, not a molecule) as a trace.
+        mols = list(iter_conformer_records(self.in_f))
 
         if not mols:
             logger.warning("No valid molecules in input file. Skipping optimization.")

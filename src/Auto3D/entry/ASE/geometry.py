@@ -5,9 +5,6 @@ Geometry optimization with ANI2xt, AIMNET, userNNP or ANI2x
 
 from __future__ import annotations
 
-import os
-import tempfile
-
 from rdkit import Chem
 
 from Auto3D.engines.batch_opt.batchopt import optimizing
@@ -222,13 +219,14 @@ def opt_geometry(
     input_mols = list(iter_conformer_records(path))
     check_engine_supports_molecules(input_mols, model_name)
 
-    # Fail fast, before get_device/optimizing load anything, exactly like
-    # check_gpu_requested above: if every record of `path` was skipped (no
-    # parseable record, no 3D conformer, or implicit hydrogens), there is
-    # nothing to optimize. Checked here rather than relying on
-    # `optimizing.run()`'s own "input file is empty" early return against the
-    # scratch file below, which would load the model for nothing and log a
-    # warning naming a scratch path the caller never sees.
+    # Fail fast, before create_model/optimizing load anything, exactly like
+    # check_gpu_requested above (`get_device` itself has already run -- it
+    # only resolves a torch.device, it does not load a model). If every
+    # record of `path` was skipped (no parseable record, no 3D conformer, or
+    # implicit hydrogens), there is nothing to optimize. Checked here rather
+    # than relying on `optimizing.run()`'s own "input file is empty"/"no
+    # valid molecules" early returns, which would load the model for
+    # nothing.
     if not input_mols:
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
@@ -247,42 +245,29 @@ def opt_geometry(
     # `Auto3D.orchestration.workflow_workers.optim_rank_wrapper` about why construction must
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
+    # `optimizing` (Auto3D.engines.batch_opt.batchopt) reads `path` itself
+    # through the same `iter_conformer_records` filter as `input_mols` above
+    # (N-C1), so the two agree on what counts as a record without this
+    # function having to re-derive or re-write anything for it.
+    opt_engine = optimizing(path, outpath, adapter=adapter, device=device, config=opt_config)
+    wrote_output = opt_engine.run()
 
-    # `optimizing` (Auto3D.engines.batch_opt.batchopt) re-reads `path` itself
-    # -- it only drops unparseable (None) records, not conformerless or
-    # implicit-H ones -- so `input_mols` above being filtered does not by
-    # itself keep a skipped record out of the optimization. Writing the
-    # already-filtered records to a scratch SDF and optimizing THAT is what
-    # actually keeps them out, at the cost of one extra parse/write of the
-    # whole input per call -- the same trade `calc_spe`/`calc_thermo` already
-    # accept for the identical filter. The scratch directory must outlive
-    # `opt_engine.run()`, which reads it synchronously. `input_mols` is
-    # non-empty here (checked above), so the scratch file is never empty.
-    with tempfile.TemporaryDirectory() as scratch_dir:
-        filtered_path = os.path.join(scratch_dir, "filtered_input.sdf")
-        with Chem.SDWriter(filtered_path) as writer:
-            for mol in input_mols:
-                writer.write(mol)
-        opt_engine = optimizing(
-            filtered_path, outpath, adapter=adapter, device=device, config=opt_config
+    # optimizing.run() returns False (and leaves outpath untouched) when
+    # `path` is missing, empty, or contains no parseable record. Checked on
+    # the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
+    # (the default here), a stale outpath from an earlier call is left in
+    # place by a skipped run, so an existence check alone would let
+    # `_annotate_and_rewrite` below silently re-annotate and return THAT file
+    # as if it were produced by this call. In practice this should not fire:
+    # `input_mols` being non-empty (checked above) already implies
+    # `optimizing.run()` will find at least one record through its own,
+    # identical filter -- this is defense against that invariant ever
+    # drifting, not the primary guard.
+    if not wrote_output:
+        raise OptimizationError(
+            f"No optimized structures were produced from {path!r}: the input "
+            "file is missing, empty, or contains no parseable record."
         )
-        wrote_output = opt_engine.run()
-
-        # optimizing.run() returns False (and leaves outpath untouched) only
-        # in the residual case where the scratch file above -- non-empty,
-        # since `input_mols` was checked above -- still fails to parse back.
-        # Should not happen for records this process just wrote, but checked
-        # anyway: with overwrite=True (the default here), a stale outpath
-        # from an earlier call is left in place by a skipped run, so an
-        # existence check alone would let `_annotate_and_rewrite` below
-        # silently re-annotate and return THAT file as if it were produced by
-        # this call.
-        if not wrote_output:
-            raise OptimizationError(
-                f"No optimized structures were produced from {path!r}: its "
-                "filtered, scratch-written copy could not be re-parsed for "
-                "optimization."
-            )
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds
     # the unit-labeled sibling, staged through a temp file so a failed rewrite

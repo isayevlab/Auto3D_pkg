@@ -3,10 +3,12 @@ import pytest
 
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom
-    skeleton (N-C1): it is routed through `iter_conformer_records`, the same
-    filter `calc_spe`/`select_tautomers` apply, and a scratch-file redirect
-    (see geometry.py) keeps `optimizing()` -- which re-reads the input path
-    itself -- from scoring it anyway. Two records (one implicit-H, one
+    skeleton (N-C1). `optimizing.run()` (Auto3D.engines.batch_opt.batchopt)
+    reads its input through `iter_conformer_records` directly -- the same
+    filter `calc_spe`/`opt_geometry`/`select_tautomers` apply to their own
+    reads of `path` -- so the implicit-H record is skipped at the one place
+    that actually does the optimizing and the writing, not pre-filtered into
+    a separate copy of the input. Two records (one implicit-H, one
     explicit-H) so the surviving one proves the filter discriminates rather
     than dropping everything.
     """
@@ -46,7 +48,7 @@ def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
 def test_opt_geometry_raises_when_every_record_has_implicit_hydrogens(tmp_path):
     """The all-skipped case must fail fast, not silently return a bogus path.
 
-    Before the scratch-file redirect, this exact input produced a 1-record
+    Before this record-policy fix, this exact input produced a 1-record
     output scoring the bare {C, C, O} skeleton instead of ethanol.
     """
     pytest.importorskip("torchani")
@@ -158,23 +160,24 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
 
 
 class TestOptGeometryRaisesWhenNothingWasOptimized:
-    """Issue 8: optimizing.run() returns early (no write) for an empty/missing/
-    unparseable input, and opt_geometry must not treat that as success.
+    """Issue 8: opt_geometry must not treat "nothing to optimize" as success.
 
-    Uses the REAL `optimizing` class (not a stub) so the guard is exercised
-    against `optimizing.run()`'s actual return-value contract; only
-    `create_model`/`get_device`/`configure_torch` are stubbed to avoid loading
-    a real NNP or requiring a GPU.
+    Two different guards can fire, and the two tests below exercise the one
+    that actually fires for an unparseable-input file: `input_mols =
+    list(iter_conformer_records(path))` comes back empty (the record is
+    logged and skipped by `iter_conformer_records` itself), which trips
+    `opt_geometry`'s own empty-filter fail-fast check -- BEFORE
+    `create_model`/`optimizing` are ever reached. That is why neither test
+    below stubs `create_model`: doing so would silently pass even if the
+    fail-fast check were deleted, since the stub would never be called
+    either way.
 
-    The input below is deliberately NOT a literal 0-byte file:
-    `Chem.SDMolSupplier` raises its own OSError at construction for a truly
-    empty file, at the earlier `iter_conformer_records` read (unrelated to
-    this guard) -- before `optimizing.run()` is ever reached. A single
-    unparseable-but-non-empty record is instead logged and skipped by
-    `iter_conformer_records`, leaving `input_mols` empty; the scratch SDF
-    `opt_geometry` writes from it is then a valid but 0-byte file, which is
-    what actually drives `optimizing.run()`'s "input file is empty" early
-    return (batch_opt/batchopt.py) that this guard exists to catch.
+    `test_raises_optimization_error_when_optimizing_reports_no_write` below
+    pins the OTHER guard -- `optimizing.run()` returning `False` -- which
+    needs a non-empty `input_mols` to reach at all, so it stubs `optimizing`
+    itself (the real `optimizing` class is not used anywhere in this class;
+    `get_device`/`configure_torch` are stubbed throughout just to avoid a
+    real device lookup or global torch config changes under test).
     """
 
     _UNPARSEABLE_SDF = "not a real record\n$$$$\n"
@@ -184,14 +187,12 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
 
         import Auto3D.entry.ASE.geometry as geo
         from Auto3D.foundation.exceptions import OptimizationError
-        from tests.helpers_adapter import FakeAdapter
 
         bad = tmp_path / "bad.sdf"
         bad.write_text(self._UNPARSEABLE_SDF)
 
         monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
-        monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
 
         with pytest.raises(OptimizationError, match="bad.sdf"):
             geo.opt_geometry(str(bad), "AIMNET", use_gpu=False)
@@ -208,7 +209,6 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
 
         import Auto3D.entry.ASE.geometry as geo
         from Auto3D.foundation.exceptions import OptimizationError
-        from tests.helpers_adapter import FakeAdapter
 
         bad = tmp_path / "bad.sdf"
         bad.write_text(self._UNPARSEABLE_SDF)
@@ -217,7 +217,6 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
 
         monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
-        monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
 
         with pytest.raises(OptimizationError):
             geo.opt_geometry(str(bad), "AIMNET", use_gpu=False)  # overwrite=True default
@@ -225,3 +224,49 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
         assert stale_out.read_text() == "STALE PREVIOUS RESULT\n", (
             "the stale output was modified even though this run produced nothing"
         )
+
+    def test_raises_optimization_error_when_optimizing_reports_no_write(
+        self, tmp_path, monkeypatch
+    ):
+        """`wrote_output is False` must still raise with a non-empty `input_mols`.
+
+        The two tests above both resolve `input_mols == []` and never reach
+        `optimizing` at all -- so neither exercises the `if not wrote_output:
+        raise` guard in `opt_geometry` any more. This test gives `opt_geometry`
+        one real, valid record (so the empty-filter fail-fast does not fire)
+        and stubs `optimizing` itself to report `run() -> False`, the contract
+        the real class uses for "nothing was written" (missing/empty/no
+        parseable record in ITS OWN read of `path` -- a residual case, since a
+        non-empty `input_mols` here already implies the real `optimizing`
+        would find the same record through its own, identical
+        `iter_conformer_records` filter).
+        """
+        import torch
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        import Auto3D.entry.ASE.geometry as geo
+        from Auto3D.foundation.exceptions import OptimizationError
+        from tests.helpers_adapter import FakeAdapter
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        AllChem.EmbedMolecule(mol, randomSeed=1)
+        mol.SetProp("_Name", "m1")
+        sdf = tmp_path / "mols.sdf"
+        with Chem.SDWriter(str(sdf)) as w:
+            w.write(mol)
+
+        class _StubReportsNoWrite:
+            def __init__(self, *a, **k):
+                pass
+
+            def run(self):
+                return False  # matches optimizing.run()'s real False-on-skip contract
+
+        monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+        monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
+        monkeypatch.setattr(geo, "optimizing", _StubReportsNoWrite)
+
+        with pytest.raises(OptimizationError, match="mols.sdf"):
+            geo.opt_geometry(str(sdf), "AIMNET", use_gpu=False)

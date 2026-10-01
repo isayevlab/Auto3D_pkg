@@ -5,6 +5,17 @@ Structural SDF file handling only: nothing here knows what an Auto3D energy or
 convergence flag means (``utils/energy.py`` and ``utils/convergence.py`` own
 those), and nothing here decides pipeline layout (``Auto3D.orchestration.job_layout``) or ID
 policy (``Auto3D.domain.id_mapping``).
+
+:func:`record_skip_reason` is the one definition of which SDF records a
+per-record consumer cannot process (N-C1): unparseable, conformerless, or
+carrying implicit hydrogens (a heavy-atom skeleton -- every Auto3D writer
+emits explicit H). :func:`iter_conformer_records` is built on it and is the
+single-file read path's single owner of "skip these silently" -- used by
+``SPE.calc_spe``, ``ASE.thermo.driver.calc_thermo`` (for the None/
+conformerless skip only; implicit-H records are instead marked
+``Thermo_failed`` rather than dropped, via :func:`record_skip_reason` applied
+to its own already-read ``mols`` list), ``ASE.geometry.opt_geometry``,
+``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``.
 """
 
 from __future__ import annotations
@@ -91,45 +102,84 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     return chunks
 
 
+# iter_conformer_records' own wording for each reason record_skip_reason can
+# return (never "unparseable", by naming a record rather than its index).
+# `ASE.thermo.driver.calc_thermo` does NOT use these: it logs its own
+# thermo-specific phrasing ("...; no thermochemistry computed") for the two
+# reasons it marks `Thermo_failed` rather than drops, since those messages
+# explain a different outcome than "skipped".
+_SKIP_MESSAGES = {
+    "unparseable": "Skipping record %d: RDKit could not parse it.",
+    "no_conformer": "Skipping %s: no 3D conformer.",
+    "implicit_hydrogens": "Skipping %s: it has implicit hydrogens; add explicit H first.",
+}
+
+
+def record_skip_reason(mol: Chem.Mol | None) -> str | None:
+    """Classify why a parsed SDF record cannot be processed, or ``None`` if it can.
+
+    The single definition of "what is wrong with this record" (N-C1), so every
+    caller judges a record the same way instead of carrying its own copy of
+    the checks. :func:`iter_conformer_records` uses this to decide what to
+    skip (and log); ``ASE.thermo.driver.calc_thermo`` uses it directly against
+    its own already-read record list, because unlike every other caller it
+    must not let a defective record vanish silently -- it marks the record
+    ``Thermo_failed`` with this same reason string instead of dropping it.
+
+    Args:
+        mol: A parsed record, or ``None`` for one ``SDMolSupplier`` could not
+            parse.
+
+    Returns:
+        ``"unparseable"`` for ``None``. ``"no_conformer"`` for a record with
+        no 3D conformer -- ``mol.GetConformer()`` (or any padding/geometry
+        call that assumes one) raises on it, aborting a whole batch on one bad
+        record and discarding results already computed for every record
+        before it, since nothing is written until the pass finishes.
+        ``"implicit_hydrogens"`` for a record with implicit hydrogens: a
+        heavy-atom skeleton, since every Auto3D writer emits explicit H -- the
+        model would score C2O for "ethanol" while the electron count says
+        C2H6O. ``None`` if the record is fine as it stands.
+    """
+    if mol is None:
+        return "unparseable"
+    if mol.GetNumConformers() == 0:
+        return "no_conformer"
+    if any(a.GetTotalNumHs() > 0 for a in mol.GetAtoms()):
+        return "implicit_hydrogens"
+    return None
+
+
 def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     """Yield the SDF records at ``path`` a per-record consumer can process.
 
-    ``SDMolSupplier`` yields ``None`` for a record it cannot parse, and a
-    parsed record can still lack a conformer -- and a caller that reaches
-    ``mol.GetConformer()`` (or a padding/geometry call that assumes one)
-    without guarding against both aborts a whole batch on one bad record,
-    discarding results already computed for every record before it (nothing
-    is written until the pass finishes). ``SPE.calc_spe`` and
-    ``ASE.thermo.driver.calc_thermo`` each used to inline this exact filter
-    by hand -- once directly on the supplier, once (as ``iter_thermo_records``)
-    over an already-parsed list -- with nothing pinning the two in agreement.
-    This is the one implementation both now call.
+    ``SPE.calc_spe``, ``ASE.geometry.opt_geometry``,
+    ``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``
+    each used to inline their own copy of this filter by hand -- some only the
+    None/conformerless half, with nothing pinning them in agreement, and none
+    of them skipping an implicit-hydrogens record. This is the one
+    implementation all four now call. ``ASE.thermo.driver.calc_thermo`` is the
+    one caller that does NOT use this function for implicit hydrogens: see
+    :func:`record_skip_reason`.
 
     Args:
         path: Path to the SDF file to read.
 
     Yields:
-        Each record RDKit parsed that carries at least one conformer, in file
-        order. Every record that does not -- unparseable or conformerless --
-        is logged at WARNING and skipped. Records with implicit hydrogens are
-        skipped for the same reason.
+        Each record :func:`record_skip_reason` passes (reason ``None``), in
+        file order. Every other record is logged at WARNING -- naming its
+        reason -- and skipped.
     """
     for position, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
-        if mol is None:
-            logger.warning("Skipping record %d: RDKit could not parse it.", position)
+        reason = record_skip_reason(mol)
+        if reason is None:
+            yield mol
             continue
-        if mol.GetNumConformers() == 0:
+        if reason == "unparseable":
+            logger.warning(_SKIP_MESSAGES[reason], position)
+        else:
             name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
-            logger.warning("Skipping %s: no 3D conformer.", name)
-            continue
-        if any(a.GetTotalNumHs() > 0 for a in mol.GetAtoms()):
-            # A record with implicit hydrogens is a heavy-atom skeleton: the
-            # model would score C2O for "ethanol" while the electron count
-            # says C2H6O (N-C1). Every Auto3D writer emits explicit H.
-            name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
-            logger.warning("Skipping %s: it has implicit hydrogens; add explicit H first.", name)
-            continue
-        yield mol
+            logger.warning(_SKIP_MESSAGES[reason], name)
 
 
 def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:

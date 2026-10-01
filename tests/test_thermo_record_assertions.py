@@ -136,4 +136,9 @@ def test_calc_thermo_marks_implicit_hydrogen_records_as_failed(tmp_path, caplog,
     results = list(Chem.SDMolSupplier(str(out), removeHs=False))
     assert len(results) == 1, "the implicit-H record must be present in the output, not dropped"
     assert results[0].GetProp("Thermo_failed") == "implicit_hydrogens"
-    assert any("implicit hydrogen" in r.message for r in caplog.records)
+    implicit_h_warnings = [r for r in caplog.records if "implicit hydrogen" in r.message]
+    assert len(implicit_h_warnings) == 1, (
+        "the implicit-H record must be named exactly once -- calc_thermo reads "
+        "`path` a single time now, so a second, contradictory 'Skipping ...' "
+        f"line from sdf_io must not appear; got {[r.message for r in caplog.records]}"
+    )
