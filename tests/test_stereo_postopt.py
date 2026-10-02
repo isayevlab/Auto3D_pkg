@@ -8,6 +8,8 @@ caught it. These tests pin the detector and the three filters that act on it.
 
 from __future__ import annotations
 
+import random
+
 import pandas as pd
 import pytest
 from rdkit import Chem
@@ -23,10 +25,10 @@ from Auto3D.foundation.utils.stereo_check import (
 )
 
 
-def _embedded(smiles: str = "C/C=C/C[C@H](O)Cl") -> Chem.Mol:
+def _embedded(smiles: str = "C/C=C/C[C@H](O)Cl", seed: int = 7) -> Chem.Mol:
     """A molecule carrying both a tetrahedral center and a defined C=C."""
     mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-    assert AllChem.EmbedMolecule(mol, randomSeed=7) == 0
+    assert AllChem.EmbedMolecule(mol, randomSeed=seed) == 0
     return mol
 
 
@@ -139,10 +141,13 @@ class TestDescriptorReading:
     def test_phosphine_inversion_is_detected(self, stereo_perception):
         """A trivalent phosphorus that inverts during optimization must register.
 
-        P(III) is configurationally stable at room temperature (inversion
-        barrier ~30 kcal/mol, against ~6 for an amine), so an optimizer that
-        walks a phosphine through its planar transition state has changed the
-        compound. RDKit perceives no stereochemistry there at all -- no
+        A pyramidal P(III) is configurationally stable at room temperature
+        (inversion costs tens of kcal/mol for an ordinary tertiary phosphine,
+        against roughly 6 for an amine), so an optimizer that walks one through
+        its planar transition state has changed the compound. The barrier is
+        substituent-dependent and much lower for aromatic phosphorus, which is
+        why that case is excluded instead -- see
+        ``test_aromatic_phosphorus_is_not_flagged_after_relaxation``. RDKit perceives no stereochemistry there at all -- no
         ``_CIPCode`` and no chiral tag, under either perception mode -- so
         without the hand-assigned tag both readings are empty and the
         inversion is reported as preserved (finding N-M10).
@@ -156,6 +161,44 @@ class TestDescriptorReading:
             conf.SetAtomPosition(i, position)
 
         assert stereo_descriptors_from_3d(mol) != before, "a phosphine inversion went undetected"
+
+    def test_aromatic_phosphorus_is_not_flagged_after_relaxation(self, stereo_perception):
+        """A planar, aromatic phosphorus must not produce a false ``Stereo_changed``.
+
+        A phosphole's P is sp2 and nearly coplanar with its three neighbors, so
+        the signed volume that resolves a pyramidal phosphine is noise-level
+        here and its sign is a property of the conformer. Tagging it means an
+        ordinary relaxation can flip the tag -- measured 2 of 6 noise trials at
+        this amplitude before aromatic P was excluded -- and each flip marks the
+        record ``Stereo_changed=True``, which drops it in ``filter_conformers``
+        and rejects the relaxation in ``clash_relief``. Excluding aromatic P
+        makes the tetrahedral half empty for this molecule, so it cannot change.
+        """
+        mol = _embedded("Cc1cccp1C", seed=1)
+        before = stereo_descriptors_from_3d(mol)
+        assert not before[0], (
+            f"an aromatic phosphorus was tagged, so a relaxation can flip it: {before[0]}"
+        )
+
+        noise = random.Random(0)
+        for trial in range(6):
+            perturbed = Chem.Mol(mol)
+            conf = perturbed.GetConformer()
+            for i in range(perturbed.GetNumAtoms()):
+                position = conf.GetAtomPosition(i)
+                conf.SetAtomPosition(
+                    i,
+                    (
+                        position.x + noise.gauss(0, 0.15),
+                        position.y + noise.gauss(0, 0.15),
+                        position.z + noise.gauss(0, 0.15),
+                    ),
+                )
+            AllChem.MMFFOptimizeMolecule(perturbed, maxIters=2000)
+            assert stereo_descriptors_from_3d(perturbed) == before, (
+                f"trial {trial}: relaxing a phosphole changed its descriptor, which "
+                f"would be reported as a stereochemistry change"
+            )
 
 
 class TestApplyOptimizedCoords:
@@ -197,6 +240,36 @@ class TestStereoPreservedPredicate:
         mol = _embedded()
         mol.SetProp(STEREO_CHANGED_PROP, "true")
         assert stereo_preserved(mol) is False
+
+
+class TestClashReliefDoesNotRejectPlanarPnictogens:
+    """``relieve_clash`` reads the descriptor, runs a force field, reads again.
+
+    That makes it the one seam where the molecule's *graph* can change between
+    the two readings, not just its coordinates: ``MMFFOptimizeMolecule``
+    sanitizes under MMFF's own aromaticity model, which does not consider a
+    phosphole aromatic, so it clears ``GetIsAromatic()`` on the phosphorus in
+    place. An exclusion that consulted only that flag would therefore hold on
+    the "before" read and lapse on the "after" read, inventing a configuration
+    change out of nothing and discarding every phosphole conformer that needed
+    clash relief. The companion to this is
+    ``TestDescriptorReading.test_phosphine_inversion_is_detected``, which pins
+    the other direction -- that a pyramidal phosphine is still checked.
+    """
+
+    def test_aromatic_phosphorus_survives_clash_relief(self):
+        from Auto3D.domain.clash_relief import relieve_clash
+
+        mol = _embedded("Cc1cccp1C", seed=1)
+        conf = mol.GetConformer()
+        # Force the clashing branch: put atom 1 almost on top of atom 0.
+        origin = conf.GetAtomPosition(0)
+        conf.SetAtomPosition(1, (origin.x + 0.2, origin.y, origin.z))
+
+        assert relieve_clash(mol, conf_id=0, min_distance=0.8) is True, (
+            "a phosphole conformer was discarded by clash relief, because the "
+            "force field cleared the aromatic flag between the two descriptor reads"
+        )
 
 
 def _optimized(energy: float, changed: bool | None) -> Chem.Mol:

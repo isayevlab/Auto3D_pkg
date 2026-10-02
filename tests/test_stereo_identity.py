@@ -10,6 +10,8 @@ Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path).
 
 from __future__ import annotations
 
+import random
+
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
@@ -34,11 +36,37 @@ def _embedded(smiles: str, seed: int = 1) -> Chem.Mol:
     return mol
 
 
-def _phosphorus(mol: Chem.Mol) -> Chem.Atom:
-    """The molecule's single phosphorus atom."""
-    found = [atom for atom in mol.GetAtoms() if atom.GetAtomicNum() == 15]
-    assert len(found) == 1, f"expected exactly one phosphorus: {len(found)}"
+def _pnictogen(mol: Chem.Mol) -> Chem.Atom:
+    """The molecule's single phosphorus or arsenic atom."""
+    found = [atom for atom in mol.GetAtoms() if atom.GetAtomicNum() in (15, 33)]
+    assert len(found) == 1, f"expected exactly one P or As: {len(found)}"
     return found[0]
+
+
+def _assert_recovered_tag_matches_parsed(epimers: tuple[str, ...]) -> None:
+    """The helper must recover exactly the tag RDKit parsed from the SMILES.
+
+    Shared by the phosphorus and arsenic agreement tests: the geometric argument
+    is the same for both elements, so the check is too, and duplicating it per
+    element would let the two drift apart.
+    """
+    from Auto3D.foundation.utils.stereo_check import _assign_pnictogen_tags
+
+    for smiles in epimers:
+        parsed = _pnictogen(Chem.MolFromSmiles(smiles)).GetChiralTag()
+        assert parsed != Chem.ChiralType.CHI_UNSPECIFIED, f"no parsed tag: {smiles}"
+
+        for seed in range(1, 6):
+            mol = _embedded(smiles, seed=seed)
+            # Production reads tags after this call, which wipes the tag RDKit
+            # itself cannot re-derive -- exactly the gap being filled.
+            Chem.AssignStereochemistryFrom3D(mol)
+            assert _pnictogen(mol).GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED
+
+            _assign_pnictogen_tags(mol)
+            assert _pnictogen(mol).GetChiralTag() == parsed, (
+                f"{smiles} seed {seed}: recovered {_pnictogen(mol).GetChiralTag()}, parsed {parsed}"
+            )
 
 
 class TestEnantiomerPredicate:
@@ -256,10 +284,12 @@ class TestSdfInputStereo:
 class TestChiralPhosphorusIdentity:
     """P(III) epimers are distinct compounds and must not share a species key.
 
-    A trivalent phosphine is a configurationally stable stereocenter -- the
-    pyramidal inversion barrier is around 30 kcal/mol, against roughly 6 for
-    the analogous amine -- so its two epimers are separable compounds, not
-    conformers. RDKit perceives none of this: ``AssignStereochemistryFrom3D``
+    A pyramidal trivalent phosphine is a configurationally stable stereocenter
+    -- inversion costs tens of kcal/mol for an ordinary tertiary phosphine,
+    against roughly 6 for the analogous amine -- so its two epimers are
+    separable compounds, not conformers. The barrier is substituent-dependent,
+    and an aromatic phosphorus is not stable at all, which is why that case is
+    excluded rather than tagged. RDKit perceives none of this: ``AssignStereochemistryFrom3D``
     leaves degree-3 P untagged under both perception modes, and
     ``AssignAtomChiralTagsFromStructure`` leaves it untagged too, so there is
     no label for ``rdCIPLabeler`` to compute either. With no tag, both epimers
@@ -325,24 +355,7 @@ class TestChiralPhosphorusIdentity:
         resulting coordinates. If a future RDKit flips the convention this test
         fails rather than the species keys quietly swapping identities.
         """
-        from Auto3D.foundation.utils.stereo_check import _assign_phosphine_tags
-
-        for smiles in ("CC[P@@](C)CCC", "CC[P@](C)CCC"):
-            parsed = _phosphorus(Chem.MolFromSmiles(smiles)).GetChiralTag()
-            assert parsed != Chem.ChiralType.CHI_UNSPECIFIED, f"no parsed tag: {smiles}"
-
-            for seed in range(1, 6):
-                mol = _embedded(smiles, seed=seed)
-                # Production reads tags after this call, which wipes the P tag
-                # RDKit itself cannot re-derive -- exactly the gap being filled.
-                Chem.AssignStereochemistryFrom3D(mol)
-                assert _phosphorus(mol).GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED
-
-                _assign_phosphine_tags(mol)
-                assert _phosphorus(mol).GetChiralTag() == parsed, (
-                    f"{smiles} seed {seed}: recovered "
-                    f"{_phosphorus(mol).GetChiralTag()}, parsed {parsed}"
-                )
+        _assert_recovered_tag_matches_parsed(("CC[P@@](C)CCC", "CC[P@](C)CCC"))
 
     def test_phosphine_oxide_epimers_have_distinct_species_keys(self, stereo_perception):
         """The P(V) path must keep working, and must not go through the helper.
@@ -357,3 +370,125 @@ class TestChiralPhosphorusIdentity:
         a = _embedded("CC[P@@](=O)(C)CCC")
         b = _embedded("CC[P@](=O)(C)CCC")
         assert species_key(a) != species_key(b)
+
+    def test_phosphine_key_is_invariant_to_atom_order(self, stereo_perception):
+        """The key is a property of the configuration, not of the atom numbering.
+
+        ``species_key`` is compared across separately parsed molecules, so the
+        sign convention has to be read off the reference RDKit's own CW/CCW are
+        defined against -- **bond** order. A neighbor-index-order reading is not
+        caught by any other test here: the fixture molecules' P has bond-order
+        neighbors ``[1, 3, 4]``, which is already sorted, so the two readings
+        are indistinguishable on them. Renumbering is what separates them -- an
+        index-order implementation changes the key on 4 of these 9 orderings,
+        and on the reversed one recovers the opposite tag from the parsed SMILES.
+        """
+        from Auto3D.foundation.utils.stereo_check import species_key
+
+        mol = _embedded("CC[P@@](C)CCC")
+        count = mol.GetNumAtoms()
+        expected = species_key(mol)
+
+        orderings = {
+            "reversed": list(reversed(range(count))),
+            "rotated_by_one": [*range(1, count), 0],
+            "rotated_by_three": [*range(3, count), 0, 1, 2],
+        }
+        shuffler = random.Random(0)
+        for index in range(6):
+            permutation = list(range(count))
+            shuffler.shuffle(permutation)
+            orderings[f"shuffled_{index}"] = permutation
+
+        for name, permutation in orderings.items():
+            renumbered = Chem.RenumberAtoms(mol, permutation)
+            assert species_key(renumbered) == expected, (
+                f"the {name} renumbering changed the phosphine species key, so one "
+                f"compound will split across two keys depending on atom numbering"
+            )
+
+    def test_aromatic_phosphorus_gets_no_tag_and_a_stable_key(self, stereo_perception):
+        """A phosphole's phosphorus is planar, so its signed volume is noise.
+
+        Trivalent P is a stereocenter because its lone pair holds the fourth
+        vertex of a pyramid. In a conjugated five-membered ring the lone pair
+        joins the aromatic system instead: RDKit perceives the atom as aromatic
+        and sp2, the three bonds are very nearly coplanar, and the sign of the
+        triple product is then a property of the conformer rather than of the
+        compound -- measured over 25 ETKDG seeds of 1,2-dimethylphosphole the
+        volume ranges from -1.96 to +2.23 and the sign changes 11 times, which
+        splits one compound across two species keys.
+
+        The chemistry agrees with excluding it: a 1-substituted phosphole
+        inverts with a barrier near 16 kcal/mol, because aromatic stabilization
+        of the planar transition state is exactly what flattens the center, so
+        it is not configurationally stable on any relevant timescale.
+
+        Seeds 1 and 2 are chosen because they are the shortest pair whose
+        volumes land on opposite sides of zero (-0.94 and +1.25).
+        """
+        from Auto3D.foundation.utils.stereo_check import (
+            _assign_pnictogen_tags,
+            species_key,
+        )
+
+        first, second = _embedded("Cc1cccp1C", seed=1), _embedded("Cc1cccp1C", seed=2)
+        assert _pnictogen(first).GetIsAromatic(), "fixture is not an aromatic phosphorus"
+
+        assert species_key(first) == species_key(second), (
+            "an aromatic phosphorus was given a conformer-dependent tag, so one "
+            "compound splits across two species keys"
+        )
+        for mol in (first, second):
+            probe = Chem.Mol(mol)
+            Chem.AssignStereochemistryFrom3D(probe)
+            _assign_pnictogen_tags(probe)
+            assert _pnictogen(probe).GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED, (
+                f"aromatic phosphorus was tagged {_pnictogen(probe).GetChiralTag()}"
+            )
+
+    def test_charged_phosphorus_gets_no_tag(self, stereo_perception):
+        """The lone-pair-as-fourth-vertex model does not apply to an anion.
+
+        ``CC[P-](C)CCC`` has three bonds plus a lone pair plus an extra
+        non-bonding electron (RDKit reads it as one radical electron), so the
+        geometry the sign convention assumes is not the geometry present. Guard
+        on charge and radical count so the code and the stated model agree.
+        """
+        from Auto3D.foundation.utils.stereo_check import _assign_pnictogen_tags
+
+        probe = Chem.Mol(_embedded("CC[P-](C)CCC"))
+        Chem.AssignStereochemistryFrom3D(probe)
+        _assign_pnictogen_tags(probe)
+        assert _pnictogen(probe).GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED
+
+    def test_arsine_epimers_have_distinct_species_keys(self, stereo_perception):
+        """N-M10 is the same defect for arsenic, and the pipeline reaches it.
+
+        ``FindPotentialStereo`` counts a trivalent As center, so
+        ``count_unspecified_stereo`` warns about it, and
+        ``EnumerateStereoisomers`` builds both epimers of ``CC[As](C)CCC``.
+        They then meet in one duplicate-filter group, because
+        ``ranking.species_id`` strips both the isomer and the conformer index.
+        Without a tag they share a key and the higher-energy epimer is dropped
+        with nothing logged -- and arsine inversion barriers are *higher* than
+        phosphine's (~40 kcal/mol), so the two are certainly separable compounds.
+        """
+        from Auto3D.foundation.utils.stereo_check import species_key
+
+        a = _embedded("CC[As@@](C)CCC")
+        b = _embedded("CC[As@](C)CCC")
+        assert species_key(a) != species_key(b), (
+            "the two arsine epimers share a species key, so a duplicate filter "
+            "will drop one of two distinct compounds"
+        )
+
+    def test_arsine_tag_matches_the_parsed_smiles_tag(self, stereo_perception):
+        """Arsenic must use the same sign convention, pinned the same way.
+
+        Nothing guarantees a priori that RDKit's CW/CCW reference for a
+        three-coordinate As matches the one measured for P, so it is checked
+        rather than assumed. (It does: the volumes are negative for ``[As@@]``
+        and positive for ``[As@]`` across seeds 1-5, exactly as for P.)
+        """
+        _assert_recovered_tag_matches_parsed(("CC[As@@](C)CCC", "CC[As@](C)CCC"))
