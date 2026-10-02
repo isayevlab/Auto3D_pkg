@@ -122,6 +122,37 @@ def check_gpu_requested(use_gpu: bool) -> None:
             )
 
 
+def has_dummy_atoms(mol: Chem.Mol) -> bool:
+    """True if `mol` carries a dummy atom (atomic number 0) -- see the definition
+    in :func:`Auto3D.foundation.utils.molprops.has_dummy_atoms`.
+
+    The predicate itself lives in ``foundation`` because ``utils/sdf_io.py``
+    applies it per SDF record and ``foundation`` may not import ``engines``.
+    It is surfaced here as well because it is a *model* precondition of the
+    same kind as :func:`_requires_aimnet`: a model-layer caller asking "can the
+    engine represent this molecule" should find it next to the other answer
+    rather than in a graph-properties helper.
+
+    A delegating call, not ``from ... import has_dummy_atoms``: a module-scope
+    import of ``molprops`` would pull rdkit in at *this* module's import time
+    (``molprops`` imports ``rdkit`` and ``rdMolDescriptors`` at module scope),
+    and this module sits on the CLI's ``--help`` path -- the exact cost issue
+    #14 removed and ``tests/test_import_boundaries.py::
+    test_cli_app_import_does_not_load_torch_or_rdkit`` now forbids. Deferring
+    the import into the function body is the same pattern every other function
+    in this module uses, for the same reason.
+
+    Args:
+        mol: An RDKit molecule.
+
+    Returns:
+        True if the molecule carries at least one dummy atom.
+    """
+    from Auto3D.foundation.utils.molprops import has_dummy_atoms as _has_dummy_atoms
+
+    return _has_dummy_atoms(mol)
+
+
 def _requires_aimnet(mol: Chem.Mol) -> bool:
     """True if `mol` cannot be represented by ANI2x/ANI2xt.
 

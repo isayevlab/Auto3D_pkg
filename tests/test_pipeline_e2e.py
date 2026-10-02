@@ -199,6 +199,61 @@ class TestExitStatus:
         )
 
 
+class TestDummyAtomInput:
+    """N-M3: an R-group placeholder must leave the run as a reported failure.
+
+    The seam-by-seam skips are unit-tested (``test_utils_sdf_io``,
+    ``test_parallel_embed``, ``test_validation``), but what matters to a user
+    is the whole path: ``*CCO`` must not reach AIMNet2 -- which would score the
+    dummy atom with its padding embedding (index 0) and write a number for a
+    species nobody submitted -- it must be absent from the output, named by
+    reconciliation, and must make the CLI exit non-zero instead of reporting
+    success for a run that lost a molecule.
+    """
+
+    @pytest.mark.slow
+    def test_a_dummy_atom_molecule_is_reported_rather_than_scored(self, job_dir):
+        from typer.testing import CliRunner
+
+        from Auto3D.entry.auto3D import main
+        from Auto3D.presentation.cli.app import app
+
+        # Two runs, in two directories: the pipeline writes its job folder next
+        # to the input file, and only `main()` hands back the output path and
+        # the reconciliation list, while only the CLI wrapper turns that list
+        # into an exit code.
+        api_dir = job_dir / "api"
+        api_dir.mkdir()
+        smi = api_dir / "frag.smi"
+        smi.write_text("*CCO frag\nCCO ethanol\n")
+
+        out = main(Auto3DOptions(path=str(smi), k=1, use_gpu=False, max_confs=2))
+
+        produced = {
+            base_molecule_id(m.GetProp("_Name"))
+            for m in Chem.SDMolSupplier(out, removeHs=False)
+            if m is not None
+        }
+        assert produced == {"ethanol"}, (
+            f"the dummy-atom species must not reach the output; produced {sorted(produced)}"
+        )
+        assert out.n_molecules == 1
+        assert "frag" in out.failures, (
+            f"the skipped species must be reconciled, not lost silently; got {out.failures}"
+        )
+
+        cli_dir = job_dir / "cli"
+        cli_dir.mkdir()
+        cli_smi = cli_dir / "frag.smi"
+        cli_smi.write_text("*CCO frag\nCCO ethanol\n")
+
+        result = CliRunner().invoke(app, ["run", str(cli_smi), "--k", "1", "--no-gpu"])
+        assert result.exit_code == 6, (
+            "losing the dummy-atom molecule must exit EXIT_PARTIAL_SUCCESS; "
+            f"got {result.exit_code}, output:\n{result.output}"
+        )
+
+
 class TestEnergyAndRankingSanity:
     """Assert on the numbers, not merely that the program ran."""
 

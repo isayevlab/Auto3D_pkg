@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from rdkit import Chem
 
 import Auto3D.presentation.cli.errors
 
@@ -370,3 +371,70 @@ def isolated_input(job_dir):
         return str(dest)
 
     return _copy
+
+
+@pytest.fixture
+def new_stereo_perception():
+    """Run a test under RDKit's new (non-legacy) stereo perception.
+
+    The setting is process-global, so it is restored in a ``finally`` -- and to
+    whatever the process had on entry rather than to a hard-coded ``True``, so
+    that nesting this inside :func:`stereo_perception` cannot silently rewrite
+    that fixture's choice.
+
+    Why the setting matters here: ``AssignStereochemistryFrom3D`` populates the
+    ``_CIPCode`` property only under legacy perception, while chiral *tags* are
+    set under both. Code that reads ``_CIPCode`` therefore goes stereo-blind the
+    moment anything in the process -- Auto3D, a notebook, another library --
+    turns legacy perception off (finding N-M9).
+    """
+    previous = Chem.GetUseLegacyStereoPerception()
+    Chem.SetUseLegacyStereoPerception(False)
+    try:
+        yield
+    finally:
+        Chem.SetUseLegacyStereoPerception(previous)
+
+
+@pytest.fixture(params=[True, False], ids=["legacy", "new"])
+def stereo_perception(request):
+    """Run a test once under each stereo-perception mode.
+
+    Use this where the assertion must hold regardless of the process-global
+    setting; use :func:`new_stereo_perception` where the new mode is the
+    specific condition under test.
+    """
+    previous = Chem.GetUseLegacyStereoPerception()
+    Chem.SetUseLegacyStereoPerception(request.param)
+    try:
+        yield request.param
+    finally:
+        Chem.SetUseLegacyStereoPerception(previous)
+
+
+@pytest.fixture(autouse=True)
+def _forget_which_untabulated_elements_were_already_reported(monkeypatch):
+    """Give each test a fresh ``connectivity._REPORTED_UNTABULATED_ELEMENTS``.
+
+    ``check_connectivity`` names an element with no UFF reference radius in one
+    WARNING the first time it meets it, and remembers it in module state so the
+    O(n^2) pair loop does not repeat the line thousands of times per run. That
+    budget is per *process*, which makes the set a cross-test channel: a test
+    that merely touches a sodium salt (``TestCheckConnectivity::
+    test_salt_with_metal_does_not_crash``) leaves ``{11}`` behind, and any later
+    test asserting that Na *is* named then passes or fails by collection order.
+
+    Defined last in this file so it is the innermost autouse fixture: it is set
+    up after :func:`_fail_on_auto3d_state_a_test_leaves_behind` snapshots the
+    module, and ``monkeypatch`` therefore undoes the substitution before that
+    fixture checks -- it sees the original set object back in place, holding
+    whatever it held before, which is nothing.
+
+    Autouse rather than a per-class ``_reset``, so the isolation does not depend
+    on each future test remembering to ask for it. The explicit resets already
+    in ``tests/test_utils_connectivity.py`` stay harmless: they replace a set
+    this fixture has already replaced.
+    """
+    from Auto3D.foundation.utils import connectivity
+
+    monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS", set())

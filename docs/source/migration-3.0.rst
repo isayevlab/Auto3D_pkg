@@ -320,6 +320,9 @@ property:
   hydrogens.
 - ``"no_conformer"`` (3.2.0+) when the record carries no 3D coordinates --
   no conformer at all, of any kind.
+- ``"dummy_atoms"`` (3.2.0+) when the record contains a dummy atom (atomic
+  number 0) -- an R-group placeholder such as ``*`` or ``[3*]``, which is not
+  a species.
 - The exception type name (e.g. ``"RuntimeError"``) for any other failure.
 
 .. code:: python

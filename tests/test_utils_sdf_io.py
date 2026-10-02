@@ -397,6 +397,32 @@ class TestIterConformerRecords:
         assert kept == ["ethanol"]
         assert any("implicit hydrogen" in r.message for r in caplog.records)
 
+    def test_iter_conformer_records_skips_dummy_atom_records(self, tmp_path, caplog):
+        """N-M3: a record carrying an R-group placeholder is not a species.
+
+        AIMNet2 would score the dummy atom as a zero-feature ghost (its
+        embedding index 0 is the padding slot), so the record must be dropped
+        and named rather than silently given a number.
+        """
+        import logging
+
+        from rdkit.Chem import AllChem
+
+        bad = Chem.AddHs(Chem.MolFromSmiles("*CCO"))
+        assert AllChem.EmbedMolecule(bad, randomSeed=1) == 0, "test premise: must embed"
+        bad.SetProp("_Name", "frag")
+        good = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        assert AllChem.EmbedMolecule(good, randomSeed=1) == 0, "test premise: must embed"
+        good.SetProp("_Name", "ethanol")
+        p = tmp_path / "in.sdf"
+        with Chem.SDWriter(str(p)) as w:
+            w.write(bad)
+            w.write(good)
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            kept = [m.GetProp("_Name") for m in iter_conformer_records(str(p))]
+        assert kept == ["ethanol"]
+        assert any("dummy atom" in r.message for r in caplog.records)
+
 
 class TestRecordSkipReason:
     """The predicate itself, pinned reason by reason.
@@ -427,6 +453,13 @@ class TestRecordSkipReason:
         # No AddHs: a 3D heavy-atom skeleton, the N-C1 case.
         mol = self._embedded(Chem.MolFromSmiles("CCO"))
         assert record_skip_reason(mol) == "implicit_hydrogens"
+
+    def test_an_embedded_mol_with_a_dummy_atom_is_reported_as_such(self):
+        # Explicit H and a conformer, so only the dummy atom (atomic number 0)
+        # can be the reason -- the N-M3 case, checked after implicit hydrogens.
+        mol = self._embedded(Chem.AddHs(Chem.MolFromSmiles("*CCO")))
+        assert mol.GetNumConformers() == 1, "test premise: must embed"
+        assert record_skip_reason(mol) == "dummy_atoms"
 
     def test_an_embedded_mol_with_explicit_hydrogens_is_accepted(self):
         mol = self._embedded(Chem.AddHs(Chem.MolFromSmiles("CCO")))

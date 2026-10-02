@@ -93,11 +93,13 @@ def select_tautomers(
     check_output_overwrite(output_path, overwrite)
 
     # iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the single
-    # owner of the None/conformerless/implicit-H filter -- calc_spe and
-    # opt_geometry apply the identical guard for the identical reason (N-C1):
-    # a record with implicit hydrogens is a heavy-atom skeleton, and ranking
-    # it against explicit-H tautomers by electronic energy would compare two
-    # different species.
+    # owner of the defective-record filter, and `record_skip_reason` is the one
+    # statement of which records those are -- calc_spe and opt_geometry apply
+    # the identical guard for the identical reason (N-C1). Two of those reasons
+    # bite particularly hard here: a record with implicit hydrogens is a
+    # heavy-atom skeleton, and one carrying a dummy atom is an R-group
+    # placeholder; ranking either against explicit-H tautomers by electronic
+    # energy would compare two different species.
     mols = list(iter_conformer_records(sdf))
     for mol in mols:
         if mol.HasProp("E_rel(kcal/mol)"):

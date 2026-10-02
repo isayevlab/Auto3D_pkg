@@ -88,6 +88,70 @@ class TestCheckConnectivity:
         assert isinstance(result, bool)
 
 
+class TestUntabulatedElementsAreReportedOncePerProcess:
+    """N-m27: "no opinion" must not be silent, and must not be a wall of lines.
+
+    Skipping every pair that involves an element outside the UFF radii table
+    means check_connectivity returns True for a geometry it never actually
+    checked -- a dissociated metal complex passes the filter. The user has to
+    be told which element bought that silence. But the skip sits in an
+    O(n^2) atom-pair loop, so a per-pair (or even per-call) warning would
+    bury a run's log; one line per new element per process is the budget.
+
+    ``_REPORTED_UNTABULATED_ELEMENTS`` is module state, so each test resets it
+    through ``monkeypatch.setattr`` rather than leaving the previous test's
+    elements behind (which would make these pass or fail by ordering).
+    """
+
+    @staticmethod
+    def _reset(monkeypatch):
+        from Auto3D.foundation.utils import connectivity
+
+        monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS", set())
+
+    @staticmethod
+    def _embedded(smiles):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0, "test premise: must embed"
+        return mol
+
+    def test_the_element_is_named_once_however_many_pairs_skip(self, caplog, monkeypatch):
+        import logging
+
+        self._reset(monkeypatch)
+        mol = self._embedded("CC(=O)[O-].[Na+]")  # Na (11) is untabulated
+
+        with caplog.at_level(logging.WARNING, logger="auto3d"):
+            check_connectivity(mol)
+
+        hits = [r for r in caplog.records if "no reference radius" in r.getMessage()]
+        assert len(hits) == 1, [r.getMessage() for r in hits]
+        assert "Na" in hits[0].getMessage()
+
+    def test_a_second_call_for_the_same_element_stays_quiet(self, caplog, monkeypatch):
+        import logging
+
+        self._reset(monkeypatch)
+        mol = self._embedded("CC(=O)[O-].[Na+]")
+
+        with caplog.at_level(logging.WARNING, logger="auto3d"):
+            check_connectivity(mol)
+            caplog.clear()
+            check_connectivity(mol)
+
+        assert [r for r in caplog.records if "no reference radius" in r.getMessage()] == []
+
+    def test_a_tabulated_only_molecule_is_never_reported(self, caplog, monkeypatch):
+        import logging
+
+        self._reset(monkeypatch)
+
+        with caplog.at_level(logging.WARNING, logger="auto3d"):
+            check_connectivity(self._embedded("CCO"))
+
+        assert [r for r in caplog.records if "no reference radius" in r.getMessage()] == []
+
+
 class TestAmendMol:
     """Test the amend_mol function for fixing molecule issues."""
 

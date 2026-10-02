@@ -29,7 +29,11 @@ import logging
 import pytest
 from rdkit import Chem
 
-from Auto3D.engines.models.policy import _requires_aimnet, check_engine_supports_molecules
+from Auto3D.engines.models.policy import (
+    _requires_aimnet,
+    check_engine_supports_molecules,
+    has_dummy_atoms,
+)
 from Auto3D.foundation.exceptions import ConfigurationError
 
 
@@ -128,3 +132,23 @@ class TestOpenShellWarningIsBatchedOncePerCall:
             check_engine_supports_molecules(mol, "/path/to/my_model.pt")
 
         assert "open-shell" in caplog.text.lower()
+
+
+class TestHasDummyAtoms:
+    """N-M3: an R-group placeholder (``*``, ``[3*]``) is not a species.
+
+    AIMNet2 uses embedding index 0 as its padding slot, so a dummy atom is
+    scored as a zero-feature ghost rather than rejected; ANI refuses it as
+    out-of-set. The predicate is what lets every record seam skip such a
+    record with a warning instead of handing it to a model. Re-exported from
+    ``policy`` (defined in ``foundation.utils.molprops``, which ``sdf_io`` can
+    reach without the ``foundation -> engines`` import a shared definition in
+    this module would need).
+    """
+
+    @pytest.mark.parametrize(
+        "smi,expected",
+        [("*CCO", True), ("[3*]C(=O)N", True), ("[*]c1ccccc1", True), ("CCO", False)],
+    )
+    def test_dummy_atoms_are_detected(self, smi, expected):
+        assert has_dummy_atoms(_mol(smi)) is expected

@@ -24,6 +24,7 @@ from rdkit.Chem import inchi
 
 from Auto3D.foundation.exceptions import InputValidationError
 from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
 
 logger = get_logger(__name__)
@@ -93,6 +94,14 @@ def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:
     to serve as a unique identifier. The output file contains one molecule per
     line in the format: "SMILES  InChIKey".
 
+    An input carrying a dummy atom (atomic number 0: an R-group placeholder such
+    as ``*`` or ``[3*]``) is named in a WARNING and omitted from the output, the
+    same rule every other record seam applies (N-M3). It is skipped *before*
+    minting, because ``MolToInchiKey`` returns the empty string for such a
+    molecule: it used to be written with an empty id, which distinct
+    placeholders then collided on and which made the downstream parser refuse
+    the whole file for a "missing molecule ID".
+
     Args:
         smiles: List of SMILES strings to convert.
         path: Output file path for the .smi file.
@@ -132,6 +141,23 @@ def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:
             raise InputValidationError(
                 f"Invalid SMILES at index {idx}: {smi!r} could not be parsed by RDKit."
             )
+        if has_dummy_atoms(mol):
+            # Before `MolToInchiKey`, deliberately: it returns "" for a
+            # dummy-atom molecule ("Invalid InChI prefix in generating InChI
+            # Key"), so such an input was written with an EMPTY id -- and two
+            # different placeholders collided on it. `smiles2mols` then handed
+            # that file to `check_input`, whose parser refused the whole call
+            # with "Line 1 is missing a molecule ID", naming an id problem
+            # instead of the dummy atom and losing the healthy molecules too.
+            # Skipping here makes this seam behave like every other one (N-M3):
+            # warn, drop that record, keep the rest.
+            logger.warning(
+                "Skipping input SMILES %r at index %d: it contains a dummy atom "
+                "(atomic number 0); an R-group placeholder is not a species.",
+                smi,
+                idx,
+            )
+            continue
         inchikey = inchi.MolToInchiKey(mol)
         # Distinct inputs can share a standard InChIKey (e.g. tautomers the
         # standard InChIKey conflates, or the same molecule written two ways).

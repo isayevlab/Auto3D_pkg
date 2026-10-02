@@ -22,7 +22,7 @@ from tqdm import tqdm
 from Auto3D.domain.clash_relief import relieve_clash
 from Auto3D.domain.embedding import embed_params
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
-from Auto3D.foundation.utils.molprops import calculate_conformer_count
+from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import (
     hash_enumerated_smi_IDs,
     iter_smi_records,
@@ -157,9 +157,15 @@ class RDKitIsomer:
         Returns None if the SMILES cannot be parsed, mirroring the parallel
         worker (_embed_single) so a single unparseable SMILES is skipped rather
         than crashing the whole serial embedding loop on AddHs(None).
+
+        Also returns None for a SMILES carrying a dummy atom (atomic number 0):
+        an R-group placeholder is not a species, and AIMNet2 would score it
+        with its padding embedding rather than refuse it (N-M3). The serial
+        loop's warning names both possibilities, so the two cases share one
+        return value rather than needing a second sentinel.
         """
         mol_noh = Chem.MolFromSmiles(smi)
-        if mol_noh is None:
+        if mol_noh is None or has_dummy_atoms(mol_noh):
             return None
         mol = Chem.AddHs(mol_noh)
         if self.n_conformers is None:
@@ -249,7 +255,14 @@ class RDKitIsomer:
             for smi, name in tqdm(smi_name_tuples):
                 mol = self.embed_conformer(smi)
                 if mol is None:
-                    logger.warning(f"Skipping molecule {name!r}: failed to parse {smi!r}")
+                    logger.warning(
+                        f"Skipping molecule {name!r} (an internal "
+                        "<id>_<isomer> label -- in a pipeline run the id half "
+                        "is Auto3D's numeric index rather than the input ID, "
+                        "so the SMILES at the end of this line is what "
+                        "identifies the record): failed to parse or contains "
+                        f"a dummy atom (atomic number 0): {smi!r}"
+                    )
                     continue
                 n_written = 0
                 for i in range(mol.GetNumConformers()):

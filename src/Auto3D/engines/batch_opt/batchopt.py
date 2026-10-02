@@ -317,7 +317,9 @@ class optimizing:
             True if ``self.out_f`` was written this call. False if
             optimization was skipped entirely -- ``self.in_f`` missing, empty,
             containing no parseable record, or with every record skipped by
-            the filter (no conformer, or implicit hydrogens) -- in which case
+            the filter as defective (see
+            :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` for what
+            counts as defective) -- in which case
             ``self.out_f`` is left untouched (a caller that derives its output
             path once and may re-run against it, e.g.
             ``ASE.geometry.opt_geometry`` / ``entry.auto3D.smiles2mols`` with
@@ -343,8 +345,10 @@ class optimizing:
             return False
 
         # `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is the
-        # single owner of the None/conformerless/implicit-H filter -- every
-        # other single-file reader (`SPE.calc_spe`, `ASE.geometry.opt_geometry`,
+        # single owner of the defective-record filter -- `record_skip_reason` is
+        # the one statement of which records those are, so no caller keeps its
+        # own copy of the list -- and every other single-file reader
+        # (`SPE.calc_spe`, `ASE.geometry.opt_geometry`,
         # `tautomer.select_tautomers`) already goes through it. It also names
         # every record it skips, not just the all-failed case: a single bad
         # record among a thousand used to leave the output file shorter than

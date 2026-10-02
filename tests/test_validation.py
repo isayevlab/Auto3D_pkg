@@ -346,3 +346,160 @@ class TestGpuPolicyIsUniform:
                 check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
         assert type(exc_via_check_input.value) is type(exc_via_check_valid_configuration.value)
+
+
+class TestDummyAtomRecordsAreAnnouncedUpFront:
+    """N-M3: the input check names the dummy-atom records before the run starts.
+
+    Every record seam downstream skips them with its own warning, but those
+    warnings arrive scattered through a long run. One line per input check,
+    naming up to five IDs, is what tells the user at submission time which
+    molecules will be missing from the output -- and it must stay a warning:
+    the rest of the file is still processed, so this never raises.
+    """
+
+    @staticmethod
+    def _args(path):
+        args = MagicMock()
+        args.path = str(path)
+        args.enumerate_isomer = False
+        return args
+
+    def _dummy_warnings(self, caplog):
+        return [r for r in caplog.records if "dummy atom" in r.message]
+
+    def test_check_smi_format_warns_once_and_names_the_record(self, tmp_path, caplog):
+        import logging
+        import warnings as warnings_mod
+
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
+
+        p = tmp_path / "in.smi"
+        # `*C(F)(Cl)Br` is a dummy record whose stereo is ALSO open: with
+        # enumerate_isomer=False the stereo loop would tell the user to set
+        # enumerate_isomer=True -- advice about a record that is skipped at every
+        # seam downstream, so the setting cannot change its absence from the
+        # output. The dummy skip has to come first.
+        p.write_text("*C(F)(Cl)Br frag\nCCO ethanol\n")
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            with warnings_mod.catch_warnings(record=True) as caught:
+                warnings_mod.simplefilter("always")
+                ANI, only_aimnet = check_smi_format(self._args(p))
+
+        assert [str(w.message) for w in caught if "unspecified stereo" in str(w.message)] == [], (
+            "a record that will be skipped must not be given stereo advice"
+        )
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        assert "frag" in warnings_seen[0].getMessage()
+        # The dummy record must not also drive the engine gate: atomic number 0
+        # is outside ANI_ELEMENTS, so counting it would make check_input raise
+        # "Only AIMNET can handle: ['*CCO']" for an ANI run instead of warning
+        # and skipping, which is the opposite of this task's contract.
+        assert ANI is True
+        assert only_aimnet == []
+
+    def test_check_sdf_format_warns_once_and_names_the_record(self, tmp_path, caplog):
+        import logging
+
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
+
+        p = tmp_path / "in.sdf"
+        with Chem.SDWriter(str(p)) as w:
+            for smi, name in (("*CCO", "frag"), ("CCO", "ethanol")):
+                mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+                assert AllChem.EmbedMolecule(mol, randomSeed=1) == 0, "test premise: must embed"
+                mol.SetProp("_Name", name)
+                w.write(mol)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            ANI, only_aimnet_ids = check_sdf_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        assert "frag" in warnings_seen[0].getMessage()
+        assert ANI is True
+        assert only_aimnet_ids == []
+
+    def test_a_clean_file_produces_no_dummy_warning(self, tmp_path, caplog):
+        """Without this, both tests above would pass on a check that warns
+        unconditionally."""
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
+
+        p = tmp_path / "clean.smi"
+        p.write_text("CCO ethanol\nCCCO propanol\n")
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            check_smi_format(self._args(p))
+
+        assert self._dummy_warnings(caplog) == []
+
+    def test_the_warning_truncates_a_long_list_and_counts_what_it_dropped(self, tmp_path, caplog):
+        """More dummy records than one line will name: the rest are counted.
+
+        An R-group-only input file would otherwise put every one of its IDs on a
+        single log line, so ``_MAX_DUMMY_IDS_REPORTED`` caps how many are named.
+        The remainder has to be *stated* rather than silently dropped: a user who
+        sees five IDs and seven missing molecules has no way to tell the line was
+        truncated. This is the one branch of ``_warn_about_dummy_atom_records``
+        the two tests above never reach, since both supply a single dummy record.
+        """
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import (
+            _MAX_DUMMY_IDS_REPORTED,
+            check_smi_format,
+        )
+
+        ids = [f"frag{i}" for i in range(1, _MAX_DUMMY_IDS_REPORTED + 3)]
+        p = tmp_path / "all_dummy.smi"
+        p.write_text("".join(f"*CCO {mol_id}\n" for mol_id in ids))
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            check_smi_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        message = warnings_seen[0].getMessage()
+        # The count is of every dummy record, not of the ones named.
+        assert f"{len(ids)} record(s)" in message
+        named, dropped = ids[:_MAX_DUMMY_IDS_REPORTED], ids[_MAX_DUMMY_IDS_REPORTED:]
+        assert all(mol_id in message for mol_id in named), message
+        assert not any(mol_id in message for mol_id in dropped), (
+            "the list was not truncated at _MAX_DUMMY_IDS_REPORTED"
+        )
+        assert f"... ({len(dropped)} more)" in message, message
+
+    def test_the_dummy_warning_comes_before_the_all_valid_line(self, tmp_path, caplog):
+        """The reassurance must not land immediately before its contradiction.
+
+        ``check_sdf_format`` has always warned before "All conformers and IDs are
+        valid.", while the SMILES path logged "All SMILES and IDs are valid."
+        beside the record count -- i.e. before the loop that collects the
+        dummy-atom IDs. The two formats therefore sequenced the same two lines
+        oppositely, and the SMILES one told the user everything was fine one line
+        before telling them a record would be skipped.
+        """
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
+
+        p = tmp_path / "in.smi"
+        p.write_text("*CCO frag\nCCO ethanol\n")
+
+        with caplog.at_level(logging.INFO, logger="Auto3D"):
+            check_smi_format(self._args(p))
+
+        order = [
+            "dummy" if "dummy atom" in r.message else "valid"
+            for r in caplog.records
+            if "dummy atom" in r.message or "are valid" in r.message
+        ]
+        assert order == ["dummy", "valid"], [r.message for r in caplog.records]

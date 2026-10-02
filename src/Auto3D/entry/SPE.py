@@ -100,12 +100,13 @@ def calc_spe(
     # too, and before get_device/create_model so nothing is loaded first.
     check_output_overwrite(outpath, overwrite)
 
-    # Filter once up front: drop None records (unparseable) and conformerless
-    # molecules so pad_from_mols never dereferences a bad record, and so the
-    # writer loop below stays index-aligned with the energies tensor.
-    # iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the single
-    # owner of this filter -- calc_thermo applies the identical guard for the
-    # identical reason. Parsing `mols` needs only `path`, not a device or
+    # Filter once up front: drop every defective record -- see
+    # `record_skip_reason`, the one statement of which records those are, rather
+    # than a copy of its list here -- so pad_from_mols never dereferences a bad
+    # record, and so the writer loop below stays index-aligned with the energies
+    # tensor. iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the
+    # single owner of this filter -- calc_thermo applies the identical guard for
+    # the identical reason. Parsing `mols` needs only `path`, not a device or
     # model, so it -- and the C11 guard right below, which needs only
     # `mols`/`model_name` -- both happen before get_device/create_model,
     # matching check_gpu_requested's already-first placement: every guard

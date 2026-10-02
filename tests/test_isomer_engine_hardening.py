@@ -142,6 +142,95 @@ class TestInvalidSmilesDoesNotAbort:
 
 
 # ---------------------------------------------------------------------------
+# N-M3 — a dummy atom (atomic number 0) is not a species
+# ---------------------------------------------------------------------------
+
+
+class TestDummyAtomRecordsAreSkippedByBothIsomerEngines:
+    """An R-group placeholder (``*``, ``[3*]``) must leave each engine named.
+
+    AIMNet2 uses embedding index 0 as its padding slot, so a dummy atom reaches
+    it as a zero-feature ghost rather than being refused. Both isomer engines
+    are a record seam, so both skip such a record -- the SMILES path by
+    returning the same ``None`` ``embed_conformer`` already uses for an
+    unparseable SMILES, the SDF path in its record loop.
+    """
+
+    def test_embed_conformer_returns_none_for_a_dummy_atom_smiles(self, tmp_path):
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        engine = _make_engine(str(tmp_path), smi)
+
+        assert engine.embed_conformer("*CCO") is None
+        # The neighboring good case must keep working, or this would pass with
+        # embed_conformer returning None for everything.
+        assert engine.embed_conformer("CCO").GetNumConformers() >= 1
+
+    def test_serial_embedding_names_the_dummy_atom_molecule_and_keeps_the_others(
+        self, tmp_path, caplog
+    ):
+        """The serial loop reports `None` for both causes, so its warning has to
+        name both -- otherwise a dummy-atom molecule is reported as a SMILES
+        RDKit could not parse, which is false and sends the user looking for a
+        syntax error."""
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        engine = _make_engine(str(tmp_path), smi)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            engine._run_serial_embedding([("CCO", "ethanol"), ("*CCO", "frag")])
+
+        names = {
+            m.GetProp("_Name").rsplit("_", 1)[0]
+            for m in Chem.SDMolSupplier(engine.enumerated_sdf)
+            if m is not None
+        }
+        assert "ethanol" in names
+        assert "frag" not in names
+        assert any("dummy atom" in r.message for r in caplog.records), (
+            f"the skipped molecule was not named: {[r.message for r in caplog.records]}"
+        )
+
+    def test_sdf_run_skips_and_names_a_dummy_atom_record(self, tmp_path, monkeypatch, caplog):
+        frag = Chem.AddHs(Chem.MolFromSmiles("*CCO"))
+        assert AllChem.EmbedMolecule(frag, randomSeed=1) == 0, "test premise: must embed"
+        frag.SetProp("_Name", "frag")
+        good = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        assert AllChem.EmbedMolecule(good, randomSeed=1) == 0, "test premise: must embed"
+        good.SetProp("_Name", "ethanol")
+
+        class FakeSupplier:
+            def __init__(self, *a, **k):
+                self._mols = [frag, good]
+
+            def __iter__(self):
+                return iter(self._mols)
+
+        monkeypatch.setattr(Chem, "SDMolSupplier", FakeSupplier)
+
+        out_sdf = tmp_path / "out.sdf"
+        eng = RDKitSdfIsomer(
+            sdf=str(tmp_path / "ignored.sdf"),
+            enumerated_sdf=str(out_sdf),
+            max_confs=2,
+            threshold=0.3,
+            np=1,
+        )
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            eng.run()
+
+        # SDMolSupplier is faked for the whole test, so read the output back
+        # through the fake's real counterpart rather than the patched name.
+        monkeypatch.undo()
+        written = [m for m in Chem.SDMolSupplier(str(out_sdf), removeHs=False) if m is not None]
+        species = {m.GetProp("_Name").split("_")[0] for m in written}
+        assert species == {"ethanol"}, f"the dummy-atom record was written: {species}"
+        assert any("dummy atom" in r.message for r in caplog.records), (
+            f"the skipped record was not named: {[r.message for r in caplog.records]}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # FIX 2 — silent stereoisomer truncation at maxIsomers=1024
 # ---------------------------------------------------------------------------
 

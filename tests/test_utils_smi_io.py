@@ -279,6 +279,49 @@ class TestSmiles2SmiInvalidInput:
             smiles2smi(["CCO", "C(C"], str(out))
 
 
+class TestSmiles2SmiSkipsDummyAtoms:
+    """N-M3: `smiles2smi` is a record seam too, and it is the ID-minting one.
+
+    `MolToInchiKey` returns the empty string for a dummy-atom molecule (RDKit
+    logs "Invalid InChI prefix in generating InChI Key"), so such an input used
+    to be written with an EMPTY id -- and two different placeholders collided on
+    it. `smiles2mols` then handed that file to `check_input`, whose parser
+    refused the whole call with "Line 1 is missing a molecule ID", pointing the
+    user at an ID problem rather than at the dummy atom and refusing the healthy
+    molecules along with it. Skipping before minting is what makes this seam
+    behave like the others: warn, drop that record, keep the rest.
+    """
+
+    def test_a_dummy_atom_smiles_is_skipped_and_named(self, tmp_path, caplog):
+        import logging
+
+        out = tmp_path / "out.smi"
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            smiles2smi(["*CCO", "CCO"], str(out))
+
+        lines = out.read_text().strip().split("\n")
+        assert len(lines) == 1, f"the dummy-atom input must not be written: {lines}"
+        smi, mol_id = lines[0].split()
+        assert smi == "CCO"
+        assert mol_id, "the surviving record must still carry a non-empty InChIKey id"
+        dummy_warnings = [r for r in caplog.records if "dummy atom" in r.message]
+        assert len(dummy_warnings) == 1, [r.message for r in caplog.records]
+
+    def test_a_clean_list_is_written_in_full_and_warns_about_nothing(self, tmp_path, caplog):
+        """Without this, the test above would pass on a function that dropped
+        every input and warned unconditionally."""
+        import logging
+
+        out = tmp_path / "out.smi"
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            smiles2smi(["CCO", "CCC"], str(out))
+
+        assert len(out.read_text().strip().split("\n")) == 2
+        assert [r for r in caplog.records if "dummy atom" in r.message] == []
+
+
 class TestHashHelpersBlankLines:
     """FIX 5: blank / malformed lines must not crash the hashing helpers."""
 
