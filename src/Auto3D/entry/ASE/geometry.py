@@ -211,19 +211,22 @@ def opt_geometry(
     # charged or out-of-set species handed to either would otherwise be
     # silently optimized as a different, neutral species -- wrong energy,
     # wrong forces, wrong geometry. `iter_conformer_records` (Auto3D.foundation
-    # .utils.sdf_io) is the single owner of the None/conformerless/implicit-H
-    # filter -- `calc_spe` applies the identical guard for the identical
-    # reason (N-C1): a record with implicit hydrogens is a heavy-atom
-    # skeleton, and scoring it silently substitutes a different molecule for
-    # the one the engine was told to optimize.
+    # .utils.sdf_io) is the single owner of the defective-record filter, and
+    # `record_skip_reason` is the one statement of which records those are --
+    # `calc_spe` applies the identical guard for the identical reason (N-C1):
+    # a record with implicit hydrogens is a heavy-atom skeleton, and one
+    # carrying a dummy atom is an R-group placeholder; optimizing either
+    # silently substitutes a different molecule for the one the engine was
+    # told to optimize.
     input_mols = list(iter_conformer_records(path))
     check_engine_supports_molecules(input_mols, model_name)
 
     # Fail fast, before create_model/optimizing load anything, exactly like
     # check_gpu_requested above (`get_device` itself has already run -- it
     # only resolves a torch.device, it does not load a model). If every
-    # record of `path` was skipped (no parseable record, no conformer, or
-    # implicit hydrogens), there is nothing to optimize. Checked here rather
+    # record of `path` was skipped as defective (`record_skip_reason` is the
+    # one statement of what that means), there is nothing to optimize. Checked
+    # here rather
     # than relying on `optimizing.run()`'s own "input file is empty"/"no
     # valid molecules" early returns, which would load the model for
     # nothing.
@@ -231,7 +234,8 @@ def opt_geometry(
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
             "file is missing, empty, contains no parseable record, or every "
-            "record was skipped (no conformer, or implicit hydrogens)."
+            "record in it was skipped as defective -- no conformer, implicit "
+            "hydrogens, or a dummy atom (atomic number 0)."
         )
 
     opt_config = OptimizationConfig(
@@ -254,7 +258,7 @@ def opt_geometry(
 
     # optimizing.run() returns False (and leaves outpath untouched) when
     # `path` is missing, empty, contains no parseable record, or every record
-    # was skipped by the filter (no conformer, or implicit hydrogens). Checked
+    # was skipped by the filter as defective (`record_skip_reason`). Checked
     # on the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
     # (the default here), a stale outpath from an earlier call is left in
     # place by a skipped run, so an existence check alone would let
@@ -268,8 +272,8 @@ def opt_geometry(
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
             "file is missing, empty, contains no parseable record, or every "
-            "record was skipped by the filter (no conformer, or implicit "
-            "hydrogens)."
+            "record in it was skipped by the filter as defective -- no "
+            "conformer, implicit hydrogens, or a dummy atom (atomic number 0)."
         )
 
     # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds

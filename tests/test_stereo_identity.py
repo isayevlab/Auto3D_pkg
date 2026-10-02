@@ -294,8 +294,18 @@ class TestChiralPhosphorusIdentity:
     ``AssignAtomChiralTagsFromStructure`` leaves it untagged too, so there is
     no label for ``rdCIPLabeler`` to compute either. With no tag, both epimers
     canonicalize to the same SMILES, the duplicate filters read them as
-    conformers of one species, and whichever has the higher energy is dropped
-    with nothing logged (finding N-M10).
+    conformers of one species, and -- for a pair whose heavy-atom RMSD can fall
+    below the threshold on a rigid scaffold -- whichever has the higher energy
+    is dropped with nothing logged (finding N-M10).
+
+    That last step is a guarded case rather than a demonstrated one for small
+    tertiary phosphines: the closest cross pair of MMFF-relaxed conformers is
+    0.73 A heavy-atom ``GetBestRMS`` for the diastereomeric epimers here and
+    0.62 A for the enantiomeric ones, both well above the 0.3 A duplicate
+    threshold, so RMSD alone already separates these molecules. What the
+    species key buys unconditionally is that relative Gibbs energies are not
+    subtracted across two compounds sharing one title, and that an inversion
+    during optimization is detected -- both tested in their own right.
     """
 
     def test_phosphorus_epimers_have_distinct_species_keys(self, stereo_perception):
@@ -416,8 +426,8 @@ class TestChiralPhosphorusIdentity:
         and sp2, the three bonds are very nearly coplanar, and the sign of the
         triple product is then a property of the conformer rather than of the
         compound -- measured over 25 ETKDG seeds of 1,2-dimethylphosphole the
-        volume ranges from -1.96 to +2.23 and the sign changes 11 times, which
-        splits one compound across two species keys.
+        volume ranges from about -1.98 to +2.23 and the center reads CW for 11 of
+        those 25 seeds, which splits one compound across two species keys.
 
         The chemistry agrees with excluding it: a 1-substituted phosphole
         inverts with a barrier near 16 kcal/mol, because aromatic stabilization

@@ -317,7 +317,9 @@ class optimizing:
             True if ``self.out_f`` was written this call. False if
             optimization was skipped entirely -- ``self.in_f`` missing, empty,
             containing no parseable record, or with every record skipped by
-            the filter (no conformer, or implicit hydrogens) -- in which case
+            the filter as defective (see
+            :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` for what
+            counts as defective) -- in which case
             ``self.out_f`` is left untouched (a caller that derives its output
             path once and may re-run against it, e.g.
             ``ASE.geometry.opt_geometry`` / ``entry.auto3D.smiles2mols`` with

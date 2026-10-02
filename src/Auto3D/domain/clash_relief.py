@@ -48,7 +48,7 @@ def relieve_clash(
 
     Known limitation: the "before" snapshot is read while the conformer is
     still in violation of ``min_distance`` — by definition, since that is the
-    only way execution reaches this branch. CIP perception on a geometry that
+    only way execution reaches this branch. Tag perception on a geometry that
     is itself clashing is not a trustworthy baseline, unlike the equivalent
     check in ``batch_opt/batchopt.py``, whose "before" reading is always
     taken from a valid, non-clashing conformer. This matters only when the
@@ -59,13 +59,18 @@ def relieve_clash(
     artificially forced clashes, this guard rejected 96 conformers, and about
     56% of those rejections had a post-relaxation configuration that actually
     matched the molecule's true configuration -- spurious rejections caused
-    by the unreliable baseline rather than a real inversion. The known
-    improvement is to compare against the molecule's graph-encoded stereo
-    tags instead of a 3D read of the clashing geometry, but that needs its
-    own measurement first: RDKit's graph ``AssignStereochemistry`` and
-    ``AssignStereochemistryFrom3D`` label pseudoasymmetric centers
-    differently (``r``/``s`` vs ``R``/``S``), which could introduce a
-    systematic false positive.
+    by the unreliable baseline rather than a real inversion. Both rates were
+    measured against the pre-3.2.0 ``_CIPCode`` descriptor; re-measuring them
+    against the chiral-tag descriptor that replaced it changed nothing at this
+    seam (0 of 105 clean relaxations and 10 of 420 noised ones flip under
+    either reading, molecule by molecule), so the two figures still describe
+    what happens here. The known improvement is to compare against the
+    molecule's graph-encoded stereo tags instead of a 3D read of the clashing
+    geometry, and that is now a measurement rather than a research question:
+    a tag carried on the graph and a tag derived from the coordinates are the
+    same ``CHI_TETRAHEDRAL_CW``/``CCW`` alphabet, so the two are directly
+    comparable -- what still has to be measured is how often a record
+    reaching this branch carries a graph tag to compare against at all.
 
     Args:
         mol: RDKit molecule holding the conformer.

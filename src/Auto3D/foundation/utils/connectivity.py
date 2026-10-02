@@ -30,10 +30,17 @@ __all__ = ["check_connectivity", "amend_mol", "get_mol_connectivity"]
 #: pairs means ``check_connectivity`` returns True for a geometry it never
 #: actually checked, so a dissociated metal complex passes the filter.
 #:
-#: Tests reset it with
-#: ``monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS", set())``
-#: rather than leaving a previous test's elements behind, which would make them
-#: pass or fail by ordering.
+#: Per *process*, and that is not the same as per run: ``check_connectivity``
+#: runs inside each ``workflow_workers.optim_rank_wrapper`` worker, which has
+#: its own copy of this module, so a run spread over N chunk workers can emit
+#: the line up to N times for one element. Deduplicating across processes would
+#: need shared state for a log line, which is not worth it; read the budget as
+#: "not once per atom pair", not as "exactly once per run".
+#:
+#: An autouse fixture in ``tests/conftest.py`` gives every test a fresh set
+#: (``monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS",
+#: set())``) rather than leaving a previous test's elements behind, which would
+#: make a test asserting an element *is* named pass or fail by ordering.
 _REPORTED_UNTABULATED_ELEMENTS: set[int] = set()
 
 
@@ -57,7 +64,9 @@ def check_connectivity(mol: Chem.Mol) -> bool:
 
         Any atom pair involving an element outside that table is skipped, and the
         element is named in one WARNING the first time it is met in this process
-        (see ``_REPORTED_UNTABULATED_ELEMENTS``) -- so a True from this function
+        -- once per worker process, so a chunked run may say it more than once
+        for the same element (see ``_REPORTED_UNTABULATED_ELEMENTS``) -- so a
+        True from this function
         for a molecule containing such an element is "found nothing wrong among
         the pairs I could judge", not "checked everything".
 

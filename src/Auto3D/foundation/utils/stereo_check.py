@@ -73,8 +73,9 @@ def _assign_pnictogen_tags(work: Chem.Mol, conf_id: int = -1) -> None:
       five-membered ring the lone pair joins the aromatic system instead, the
       center is sp2 and essentially planar, and the signed volume is then
       noise-level and changes sign between conformers of one compound (measured
-      -1.96 to +2.23 over 25 embeddings of 1,2-dimethylphosphole, against 2.3-5.2
-      with a fixed sign for an ordinary phosphine). Tagging it both split one
+      about -1.98 to +2.23 over 25 embeddings of 1,2-dimethylphosphole, CW for 11
+      of those 25 seeds, against 2.3-5.2 with a fixed sign for an ordinary
+      phosphine). Tagging it both split one
       compound across two species keys and flipped during ordinary relaxations,
       marking good records ``Stereo_changed``. The chemistry agrees: a
       1-substituted phosphole inverts with a barrier near 16 kcal/mol, precisely
@@ -244,11 +245,11 @@ def species_key(mol: Chem.Mol) -> str:
     every enumerated stereoisomer of one input arrives in the same group, and
     heavy-atom ``GetBestRMS`` between two diastereomers of a 1,4-disubstituted
     ring is small -- 0.300 A measured between cis- and trans-4-tert-
-    butylcyclohexanol, 0.335 A for cyclohexane-1,4-diol, both at or below the
-    0.3 A default threshold. Only the duplicate energy tolerance stood between
-    them and a collapse, and two ring diastereomers within 0.23 kcal/mol are
-    ordinary. When it fired, one of two distinct compounds left the output with
-    nothing logged.
+    butylcyclohexanol, at the 0.3 A default threshold, and 0.335 A for
+    cyclohexane-1,4-diol, just above it, where the duplicate energy tolerance
+    was the only thing left between the pair and a collapse. Two ring
+    diastereomers within 0.23 kcal/mol are ordinary. When it fired, one of two
+    distinct compounds left the output with nothing logged.
 
     Stereochemistry is perceived from the coordinates rather than read from the
     molecule's tags, because the question is about the geometry in front of us: a
@@ -265,8 +266,19 @@ def species_key(mol: Chem.Mol) -> str:
     phosphines and more for arsines, against roughly 6 for the analogous amine,
     though it is substituent-dependent and much lower for aromatic phosphorus,
     which is therefore excluded -- but with no tag they canonicalize to the same
-    SMILES, so a duplicate filter reads them as conformers of one species and
-    drops the higher-energy one silently (finding N-M10). A tagged center writes
+    SMILES, so a duplicate filter reads them as conformers of one species and,
+    for a pair whose heavy-atom RMSD can fall below the threshold on a rigid
+    scaffold, drops the higher-energy one silently (finding N-M10). That
+    collapse is a guarded case rather than a demonstrated one for small
+    tertiary phosphines: measured over MMFF-relaxed conformer pools, the
+    closest cross pair of a diastereomeric P epimer pair is 0.73 A heavy-atom
+    ``GetBestRMS`` (621 pairs) and of an enantiomeric one 0.62 A (575 pairs),
+    both well above the 0.3 A threshold, so for those molecules the RMSD term
+    alone already keeps the epimers apart. What the key buys unconditionally is
+    the rest of the chain: ``energy.annotate_relative`` no longer subtracts
+    energies across two compounds under one title, and
+    :func:`stereo_descriptors_from_3d` detects a P inversion during
+    optimization. A tagged center writes
     as ``[P@]``/``[P@@]`` (or ``[As@]``/``[As@@]``), so the canonical SMILES
     separates them with no further work here.
 
