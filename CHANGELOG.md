@@ -112,6 +112,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relative Gibbs energies for that title are withheld with a warning (the
   existing "not all the same compound" guard) rather than subtracted across
   two compounds.
+- A stereoisomer that ETKDG cannot embed (for example a geometrically impossible
+  fused-ring configuration) used to run unbounded, roughly a minute per species
+  serially on the 2026-09-21 bench set, before failing; the cap bounds each
+  attempt at 60 s, and the retry recovers strained systems that random initial
+  coordinates still solve.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -144,6 +149,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The connectivity check now logs an element with no reference radius once
   per element instead of silently skipping its pairs. Once per element per
   worker process, so a chunked run can name the same element more than once.
+- Conformer embedding runs in parallel worker processes by default
+  (`use_parallel_embedding=True`); `parallel_workers=None` resolves to
+  min(cores // threads per worker, species after stereoisomer enumeration,
+  32), dividing by the per-worker RDKit thread count so one worker per core
+  does not oversubscribe the box, while an explicit integer is honored as
+  given. Pass `--no-parallel-embedding` / `use_parallel_embedding=False` for
+  the serial path, which also remains the path for inputs below
+  `parallel_embedding_threshold`. `smiles2mols` keeps its documented
+  single-process behavior: it embeds in parallel only when the caller sets
+  `use_parallel_embedding=True` explicitly, since parallel embedding spawns
+  worker processes that re-import the calling script; a broken worker pool
+  now carries a note telling the user to guard the script's entry point or
+  pass `use_parallel_embedding=False`. Every ETKDG call (SMILES and SDF
+  isomer engines, serial and parallel) is capped at `EMBED_TIMEOUT_S` (60 s)
+  and retried once with random initial coordinates when it embeds nothing.
 
 ## [3.1.1] - 2026-08-27
 
