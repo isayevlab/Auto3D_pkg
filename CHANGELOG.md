@@ -100,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collapsed the same way); aromatic P (phospholes), whose near-planar center
   makes the sign conformer noise, and charged or radical P centers are
   excluded, since the lone-pair-as-fourth-vertex model does not describe
-  their geometry. A trivalent P left unspecified IS enumerated by RDKit, so
+  their geometry. A trivalent P left unspecified is enumerated by RDKit, so
   what the user sees depends on what else the molecule carries. When the P is
   the only stereo element (e.g. `CCP(C)CCC`) the two epimers are enantiomers
   and the existing enantiomer filter keeps one of them, so the output is a

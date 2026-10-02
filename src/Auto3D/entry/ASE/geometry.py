@@ -226,10 +226,9 @@ def opt_geometry(
     # only resolves a torch.device, it does not load a model). If every
     # record of `path` was skipped as defective (`record_skip_reason` is the
     # one statement of what that means), there is nothing to optimize. Checked
-    # here rather
-    # than relying on `optimizing.run()`'s own "input file is empty"/"no
-    # valid molecules" early returns, which would load the model for
-    # nothing.
+    # here rather than relying on `optimizing.run()`'s own "input file is
+    # empty"/"no valid molecules" early returns, which would load the model
+    # for nothing.
     if not input_mols:
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
