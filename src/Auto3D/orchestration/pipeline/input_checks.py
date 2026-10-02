@@ -27,6 +27,7 @@ from Auto3D.engines.models.loading import load_custom_nnp
 from Auto3D.engines.models.policy import (
     _requires_aimnet,
     check_gpu_requested,
+    has_dummy_atoms,
 )
 from Auto3D.engines.models.preflight import resolve_engine_name
 from Auto3D.foundation.exceptions import (
@@ -173,6 +174,39 @@ def check_input(args: Any) -> None:
             )
 
 
+#: How many dummy-atom record IDs the up-front warning names before it stops.
+#: An R-group-only input file would otherwise put every one of its IDs on a
+#: single log line; five is enough to recognize the problem, and the per-record
+#: warnings downstream name the rest as they are reached.
+_MAX_DUMMY_IDS_REPORTED = 5
+
+
+def _warn_about_dummy_atom_records(ids: list[str]) -> None:
+    """Announce, once per input check, the records a dummy atom will cost (N-M3).
+
+    Deliberately a warning and not an exception: every seam that consumes a
+    record skips a dummy-atom record on its own, so the rest of the file still
+    runs, and reconciliation names the missing IDs at the end. What this adds is
+    *when* the user hears about it -- at submission time, before a long run,
+    rather than scattered through its log.
+
+    Shared by :func:`check_smi_format` and :func:`check_sdf_format` so the two
+    formats cannot drift into reporting the same defect differently (the C11
+    lesson, which is also why ``has_dummy_atoms`` itself has one definition).
+
+    Args:
+        ids: Input IDs of the records carrying a dummy atom. Empty means
+            nothing is logged.
+    """
+    if not ids:
+        return
+    shown = ids[:_MAX_DUMMY_IDS_REPORTED]
+    listed = ", ".join(shown)
+    if len(ids) > len(shown):
+        listed += f", ... ({len(ids) - len(shown)} more)"
+    logger.warning("%d record(s) contain dummy atoms and will be skipped: %s", len(ids), listed)
+
+
 def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     """Check the SMILES input file format and validate molecules.
 
@@ -200,9 +234,14 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # cannot silently disagree about what a well-formed line looks like
     # (M25). The parser also tolerates ragged rows (extra whitespace columns
     # beyond SMILES+ID), matching the chunk loader's usecols=[0, 1].
-    smiles_all = [
-        smiles for _line_no, smiles, _id in iter_smi_records(args.path, on_malformed="raise")
+    # Kept as (SMILES, ID) pairs, read once: the dummy-atom warning below has to
+    # name the records the way the user wrote them, and a second pass over the
+    # file to recover the IDs could disagree with this one.
+    smi_records = [
+        (smiles, mol_id)
+        for _line_no, smiles, mol_id in iter_smi_records(args.path, on_malformed="raise")
     ]
+    smiles_all = [smiles for smiles, _mol_id in smi_records]
 
     logger.info(f"\tThere are {len(smiles_all)} SMILES in the input file {args.path}.")
     logger.info("\tAll SMILES and IDs are valid.")
@@ -236,14 +275,25 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
 
     # Check the properties of molecules
     only_aimnet_smiles = []
-    for smiles in smiles_all:
+    dummy_atom_ids: list[str] = []
+    for smiles, mol_id in smi_records:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             logger.warning(f"Skipping invalid SMILES: {smiles}")
             continue
+        if has_dummy_atoms(mol):
+            # Collected, then skipped -- not folded into the engine question.
+            # Atomic number 0 is outside ANI_ELEMENTS, so counting this record
+            # would make check_input raise "Only AIMNET can handle: [...]" for
+            # an ANI run, which is the opposite of the N-M3 contract: a
+            # dummy-atom record is warned about and skipped, never fatal, and
+            # it must not decide anything on behalf of the records that stay.
+            dummy_atom_ids.append(mol_id)
+            continue
         if _requires_aimnet(mol):
             ANI = False
             only_aimnet_smiles.append(smiles)
+    _warn_about_dummy_atom_records(dummy_atom_ids)
     return ANI, only_aimnet_smiles
 
 
@@ -271,6 +321,7 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
 
     supp = Chem.SDMolSupplier(args.path, removeHs=False)
     mols, only_aimnet_ids = [], []
+    dummy_atom_ids: list[str] = []
     for i, mol in enumerate(supp):
         if mol is None:
             logger.warning(f"Skipping invalid molecule at index {i} in SDF")
@@ -281,11 +332,22 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
             # both must raise the same Auto3DError subclass so the CLI shows
             # the same hint and exit code regardless of input format.
             raise InputValidationError("Empty molecule ID (empty _Name property)")
+        # Appended before the dummy-atom skip below: `mols` only feeds the
+        # record count logged for the *input* file, and a record that is in the
+        # file has to be counted whether or not it will survive the pipeline.
         mols.append(mol)
+
+        if has_dummy_atoms(mol):
+            # Same reasoning as check_smi_format's branch: collected for the
+            # one up-front warning, excluded from the engine question (N-M3).
+            dummy_atom_ids.append(id)
+            continue
 
         if _requires_aimnet(mol):
             ANI = False
             only_aimnet_ids.append(id)
+
+    _warn_about_dummy_atom_records(dummy_atom_ids)
 
     logger.info(f"\tThere are {len(mols)} conformers in the input file {args.path}.")
     logger.info("\tAll conformers and IDs are valid.")

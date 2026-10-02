@@ -346,3 +346,85 @@ class TestGpuPolicyIsUniform:
                 check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True))
 
         assert type(exc_via_check_input.value) is type(exc_via_check_valid_configuration.value)
+
+
+class TestDummyAtomRecordsAreAnnouncedUpFront:
+    """N-M3: the input check names the dummy-atom records before the run starts.
+
+    Every record seam downstream skips them with its own warning, but those
+    warnings arrive scattered through a long run. One line per input check,
+    naming up to five IDs, is what tells the user at submission time which
+    molecules will be missing from the output -- and it must stay a warning:
+    the rest of the file is still processed, so this never raises.
+    """
+
+    @staticmethod
+    def _args(path):
+        args = MagicMock()
+        args.path = str(path)
+        args.enumerate_isomer = False
+        return args
+
+    def _dummy_warnings(self, caplog):
+        return [r for r in caplog.records if "dummy atom" in r.message]
+
+    def test_check_smi_format_warns_once_and_names_the_record(self, tmp_path, caplog):
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
+
+        p = tmp_path / "in.smi"
+        p.write_text("*CCO frag\nCCO ethanol\n")
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            ANI, only_aimnet = check_smi_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        assert "frag" in warnings_seen[0].getMessage()
+        # The dummy record must not also drive the engine gate: atomic number 0
+        # is outside ANI_ELEMENTS, so counting it would make check_input raise
+        # "Only AIMNET can handle: ['*CCO']" for an ANI run instead of warning
+        # and skipping, which is the opposite of this task's contract.
+        assert ANI is True
+        assert only_aimnet == []
+
+    def test_check_sdf_format_warns_once_and_names_the_record(self, tmp_path, caplog):
+        import logging
+
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
+
+        p = tmp_path / "in.sdf"
+        with Chem.SDWriter(str(p)) as w:
+            for smi, name in (("*CCO", "frag"), ("CCO", "ethanol")):
+                mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+                assert AllChem.EmbedMolecule(mol, randomSeed=1) == 0, "test premise: must embed"
+                mol.SetProp("_Name", name)
+                w.write(mol)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            ANI, only_aimnet_ids = check_sdf_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        assert "frag" in warnings_seen[0].getMessage()
+        assert ANI is True
+        assert only_aimnet_ids == []
+
+    def test_a_clean_file_produces_no_dummy_warning(self, tmp_path, caplog):
+        """Without this, both tests above would pass on a check that warns
+        unconditionally."""
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
+
+        p = tmp_path / "clean.smi"
+        p.write_text("CCO ethanol\nCCCO propanol\n")
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            check_smi_format(self._args(p))
+
+        assert self._dummy_warnings(caplog) == []

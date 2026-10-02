@@ -20,6 +20,22 @@ logger = logging.getLogger("auto3d")
 
 __all__ = ["check_connectivity", "amend_mol", "get_mol_connectivity"]
 
+#: Atomic numbers already named by :func:`check_connectivity`'s untabulated-element
+#: warning in this process (N-m27).
+#:
+#: Module state, deliberately: the skip lives in an O(n^2) atom-pair loop, and a
+#: run optimizes the same species thousands of times, so a per-pair -- or even
+#: per-call -- warning would bury the log it is supposed to inform. One line per
+#: element per process is the budget. It also must not be silent: skipping those
+#: pairs means ``check_connectivity`` returns True for a geometry it never
+#: actually checked, so a dissociated metal complex passes the filter.
+#:
+#: Tests reset it with
+#: ``monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS", set())``
+#: rather than leaving a previous test's elements behind, which would make them
+#: pass or fail by ordering.
+_REPORTED_UNTABULATED_ELEMENTS: set[int] = set()
+
 
 def check_connectivity(mol: Chem.Mol) -> bool:
     """Check if there is a new bond formed or a bond broken in the molecule.
@@ -38,6 +54,12 @@ def check_connectivity(mol: Chem.Mol) -> bool:
         Uses UFF bond radii from Rappe et al. JACS 1992. The radii neglect bond-order
         and electronegativity corrections. Bond is considered broken if length > 1.25x
         reference, and formed if distance < 1.1x reference.
+
+        Any atom pair involving an element outside that table is skipped, and the
+        element is named in one WARNING the first time it is met in this process
+        (see ``_REPORTED_UNTABULATED_ELEMENTS``) -- so a True from this function
+        for a molecule containing such an element is "found nothing wrong among
+        the pairs I could judge", not "checked everything".
 
         Bonds involving elements outside the covalent-radii table (e.g. alkali/
         alkaline-earth counterions or transition-metal coordination bonds, M-L)
@@ -91,8 +113,19 @@ def check_connectivity(mol: Chem.Mol) -> bool:
             # Elements outside the UFF radii table (e.g. Na, K, Mg, Fe, Zn in
             # salts/metal complexes) have no reference radius. Skip such pairs
             # ("no opinion") rather than indexing the dict blindly, which would
-            # raise KeyError and crash the whole filtering pass.
+            # raise KeyError and crash the whole filtering pass -- but say so
+            # once per element (N-m27), because "no opinion" on every pair means
+            # this function returns True for a geometry it never checked.
             if atomic_num_i not in Radii or atomic_num_j not in Radii:
+                for z in (atomic_num_i, atomic_num_j):
+                    if z in Radii or z in _REPORTED_UNTABULATED_ELEMENTS:
+                        continue
+                    _REPORTED_UNTABULATED_ELEMENTS.add(z)
+                    logger.warning(
+                        "Element %s has no reference radius; connectivity checks "
+                        "skip pairs involving it.",
+                        Chem.GetPeriodicTable().GetElementSymbol(z),
+                    )
                 continue
 
             bond = mol.GetBondBetweenAtoms(atom_i_idx, atom_j_idx)
