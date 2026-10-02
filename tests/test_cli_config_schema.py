@@ -257,6 +257,11 @@ def test_shipped_parameters_yaml_loads():
     # k/window are mutually exclusive; the example sets k and leaves window unset.
     assert cfg.k == 1
     assert cfg.window is None
+    # The example must show the shipped defaults, and `parallel_workers: None`
+    # has to survive the file's "None"-string-to-None conversion -- an example
+    # carrying a stale `4` would teach a worker count the code no longer picks.
+    assert cfg.use_parallel_embedding is True
+    assert cfg.parallel_workers is None
     require_input_path(cfg)  # the shipped example is runnable, not settings-only
 
 

@@ -1148,3 +1148,35 @@ def test_run_forwards_each_new_flag_to_auto3d_options(
     assert getattr(options, field) == expected, (
         f"{flag}={value} did not reach Auto3DOptions.{field}"
     )
+
+
+@pytest.mark.parametrize(
+    "flag,expected",
+    [("--parallel-embedding", True), ("--no-parallel-embedding", False)],
+)
+def test_run_forwards_the_parallel_embedding_flag(runner, tmp_path_cwd, flag, expected):
+    """Both halves of the flag must reach ``use_parallel_embedding``.
+
+    The ``--no-`` half is the one that matters: parallel embedding is on by
+    default since 3.2.0, so this flag is how a user gets the serial path back
+    on a box where spawning workers is unwelcome. ``merge_configs`` drops
+    ``None`` overrides, and ``False`` is not ``None`` -- a mapping that leaked
+    the two together would leave ``--no-parallel-embedding`` silently doing
+    nothing while still exiting 0.
+    """
+    from unittest.mock import patch
+
+    from Auto3D.presentation.cli.app import app
+
+    smi = tmp_path_cwd / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    with patch.object(Auto3D.entry.auto3D, "main", return_value="out.sdf") as m:
+        result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", flag])
+
+    assert result.exit_code == 0, result.output
+    assert m.called, f"{flag} prevented the run from starting"
+    options = m.call_args[0][0]
+    assert options.use_parallel_embedding is expected, (
+        f"{flag} did not reach Auto3DOptions.use_parallel_embedding"
+    )

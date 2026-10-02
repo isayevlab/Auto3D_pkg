@@ -375,6 +375,21 @@ Configuration Options
        )
        output_path = main(config)
 
+Conformer Embedding
+~~~~~~~~~~~~~~~~~~~
+
+Initial conformers are embedded with ETKDG in parallel worker processes, for
+SMILES input with the RDKit isomer engine: ``use_parallel_embedding`` is on by
+default since 3.2.0 (SDF input and ``omega`` ignore it), and
+``parallel_workers`` is ``None``, meaning the worker count is resolved per run
+as ``min(cores, species, 32)``. Set ``parallel_workers`` to pin a number, or
+pass ``use_parallel_embedding=False`` (``--no-parallel-embedding``) for the
+serial path, which also remains the path for inputs with fewer molecules than
+``parallel_embedding_threshold`` (10). Each embedding attempt is capped at 60
+seconds and retried once with random initial coordinates when it produces no
+conformer, so a geometrically impossible stereoisomer is reported and skipped
+instead of holding up the run.
+
 Wrapper Functions
 -----------------
 
