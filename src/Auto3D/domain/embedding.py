@@ -44,14 +44,16 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdDistGeom
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED
+from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED, EMBED_TIMEOUT_S
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 
 logger = get_logger(__name__)
 
 
-def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
+def embed_params(
+    *, n_threads: int, prune_rms_thresh: float, timeout_s: int = EMBED_TIMEOUT_S
+) -> Any:
     """The ETKDG settings every Auto3D embedding uses, in one place.
 
     ``EmbedMultipleConfs``'s keyword form cannot express two of these:
@@ -83,7 +85,41 @@ def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
     params.pruneRmsThresh = prune_rms_thresh
     params.onlyHeavyAtomsForRMS = True
     params.useSymmetryForPruning = True
+    if hasattr(params, "timeout"):
+        params.timeout = timeout_s
+    else:
+        logger.warning(
+            "This RDKit has no EmbedParameters.timeout; a species that cannot embed may run long."
+        )
     return params
+
+
+def embed_with_retry(
+    mol: Chem.Mol,
+    *,
+    n_conformers: int,
+    n_threads: int,
+    prune_rms_thresh: float,
+    timeout_s: int = EMBED_TIMEOUT_S,
+) -> int:
+    """Embed up to ``n_conformers`` conformers; retry once with random
+    coordinates if none embed. Returns the number embedded.
+
+    ETKDG's default initial coordinates can fail on strained systems that
+    random initial coordinates still solve; one retry is cheap because the
+    timeout bounds both attempts (N-m2, P-C3).
+    """
+    params = embed_params(
+        n_threads=n_threads, prune_rms_thresh=prune_rms_thresh, timeout_s=timeout_s
+    )
+    ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+    if len(ids) == 0:
+        logger.debug(
+            "First ETKDG attempt embedded nothing; retrying with random initial coordinates."
+        )
+        params.useRandomCoords = True
+        ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+    return len(ids)
 
 
 def _embed_single(
@@ -141,10 +177,8 @@ def _embed_single(
         # hydrogens are explicit (e.g. glycerol 238 vs 52 conformers).
         n_conformers = calculate_conformer_count(mol)
 
-    AllChem.EmbedMultipleConfs(
-        mol,
-        numConfs=n_conformers,
-        params=embed_params(n_threads=np_threads, prune_rms_thresh=threshold),
+    embed_with_retry(
+        mol, n_conformers=n_conformers, n_threads=np_threads, prune_rms_thresh=threshold
     )
 
     results = []

@@ -103,6 +103,41 @@ class TestEmbedSingle:
         assert any("dummy atom" in r.message for r in caplog.records)
 
 
+def test_embed_with_retry_retries_once_with_random_coords(monkeypatch):
+    from rdkit import Chem
+
+    import Auto3D.domain.embedding as emb
+
+    seen = []
+
+    def fake_embed(mol, numConfs, params):
+        seen.append(bool(params.useRandomCoords))
+        return [] if not params.useRandomCoords else [0, 1]
+
+    monkeypatch.setattr(emb.AllChem, "EmbedMultipleConfs", fake_embed)
+    n = emb.embed_with_retry(
+        Chem.AddHs(Chem.MolFromSmiles("CCO")), n_conformers=2, n_threads=1, prune_rms_thresh=0.3
+    )
+    assert seen == [False, True] and n == 2
+
+
+def test_embed_with_retry_gives_up_after_the_retry(monkeypatch):
+    from rdkit import Chem
+
+    import Auto3D.domain.embedding as emb
+
+    monkeypatch.setattr(emb.AllChem, "EmbedMultipleConfs", lambda mol, numConfs, params: [])
+    assert (
+        emb.embed_with_retry(
+            Chem.AddHs(Chem.MolFromSmiles("CCO")),
+            n_conformers=2,
+            n_threads=1,
+            prune_rms_thresh=0.3,
+        )
+        == 0
+    )
+
+
 class TestEmbedConformersParallel:
     """Tests for the parallel embedding function."""
 

@@ -35,6 +35,13 @@ CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
 CONFORMER_MULTIPLIER = 2  # Multiplier for the formula
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
+# Seconds. Wall-clock cap on one EmbedMultipleConfs call (RDKit's
+# EmbedParameters.timeout). Measured on the 2026-09-21 bench set: a
+# geometrically impossible stereoisomer (fused-ring steroid) burned ~67 s
+# per species failing to embed while possible ones took seconds. The cap
+# turns an hour of serial failures into a minute.
+EMBED_TIMEOUT_S = 60
+
 # Process exit codes owned outside the CLI.
 #
 # 143 = 128 + SIGTERM, the shell's convention for "terminated by SIGTERM", so a
