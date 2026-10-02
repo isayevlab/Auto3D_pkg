@@ -115,6 +115,48 @@ class TestDescriptorReading:
         assert after[0] != before[0], "inverting one center was not detected"
         assert len(after[0]) == len(before[0]), after
 
+    def test_inversion_is_flagged_under_new_stereo_perception(self, new_stereo_perception):
+        """The detector must not depend on a process-global RDKit setting.
+
+        ``AssignStereochemistryFrom3D`` sets ``_CIPCode`` only under RDKit's
+        legacy stereo perception; chiral tags it sets under both. A descriptor
+        read from ``_CIPCode`` therefore returns an empty tetrahedral half --
+        and reports every inversion as "preserved" -- as soon as anything in
+        the process turns legacy perception off (finding N-M9).
+        """
+        mol = _embedded("C[C@H](O)CC")
+        before = stereo_descriptors_from_3d(mol)
+        assert before[0], "no tetrahedral descriptor was read under new perception"
+
+        conf = mol.GetConformer()
+        for i, position in enumerate(_reflected_coords(mol)):
+            conf.SetAtomPosition(i, position)
+
+        assert stereo_descriptors_from_3d(mol) != before, (
+            "reflection went undetected under new stereo perception"
+        )
+
+    def test_phosphine_inversion_is_detected(self, stereo_perception):
+        """A trivalent phosphorus that inverts during optimization must register.
+
+        P(III) is configurationally stable at room temperature (inversion
+        barrier ~30 kcal/mol, against ~6 for an amine), so an optimizer that
+        walks a phosphine through its planar transition state has changed the
+        compound. RDKit perceives no stereochemistry there at all -- no
+        ``_CIPCode`` and no chiral tag, under either perception mode -- so
+        without the hand-assigned tag both readings are empty and the
+        inversion is reported as preserved (finding N-M10).
+        """
+        mol = _embedded("CC[P@@](C)CCC")
+        before = stereo_descriptors_from_3d(mol)
+        assert before[0], "no descriptor was read for the phosphine center"
+
+        conf = mol.GetConformer()
+        for i, position in enumerate(_reflected_coords(mol)):
+            conf.SetAtomPosition(i, position)
+
+        assert stereo_descriptors_from_3d(mol) != before, "a phosphine inversion went undetected"
+
 
 class TestApplyOptimizedCoords:
     def test_inversion_is_detected_and_marked(self):

@@ -11,6 +11,7 @@ Findings: C1 (E/Z collapse), C2 (tautomer stereo loss), M19 (SDF path).
 from __future__ import annotations
 
 from rdkit import Chem
+from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -24,6 +25,20 @@ def _enumerate(smiles: str) -> list[str]:
     opts = StereoEnumerationOptions(unique=True, maxIsomers=64, onlyUnassigned=True)
     mol = Chem.MolFromSmiles(smiles)
     return sorted(Chem.MolToSmiles(m) for m in EnumerateStereoisomers(mol, options=opts))
+
+
+def _embedded(smiles: str, seed: int = 1) -> Chem.Mol:
+    """An H-explicit, embedded molecule -- the form the duplicate filters see."""
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    assert AllChem.EmbedMolecule(mol, randomSeed=seed) == 0, f"embedding failed: {smiles}"
+    return mol
+
+
+def _phosphorus(mol: Chem.Mol) -> Chem.Atom:
+    """The molecule's single phosphorus atom."""
+    found = [atom for atom in mol.GetAtoms() if atom.GetAtomicNum() == 15]
+    assert len(found) == 1, f"expected exactly one phosphorus: {len(found)}"
+    return found[0]
 
 
 class TestEnantiomerPredicate:
@@ -111,8 +126,6 @@ class TestSdfInputStereo:
         configurations are written as numbered conformers under one species
         name -- the defect this test targets.
         """
-        from rdkit.Chem import AllChem
-
         from Auto3D.engines.isomers import IsomerEngineFactory
 
         # Alanine drawn flat (2D), with no stereo specified anywhere: no
@@ -183,8 +196,6 @@ class TestSdfInputStereo:
         happen to carry different labels. Track the full (atom_idx, code)
         configuration per conformer instead.
         """
-        from rdkit.Chem import AllChem
-
         from Auto3D.engines.isomers import IsomerEngineFactory
 
         # C2 (attached to OH) is specified via @; C3 (attached to NH2) is left
@@ -240,3 +251,109 @@ class TestSdfInputStereo:
             f"RDKitSdfIsomer wrote more than one stereochemical configuration "
             f"under a single species name: {mixed}"
         )
+
+
+class TestChiralPhosphorusIdentity:
+    """P(III) epimers are distinct compounds and must not share a species key.
+
+    A trivalent phosphine is a configurationally stable stereocenter -- the
+    pyramidal inversion barrier is around 30 kcal/mol, against roughly 6 for
+    the analogous amine -- so its two epimers are separable compounds, not
+    conformers. RDKit perceives none of this: ``AssignStereochemistryFrom3D``
+    leaves degree-3 P untagged under both perception modes, and
+    ``AssignAtomChiralTagsFromStructure`` leaves it untagged too, so there is
+    no label for ``rdCIPLabeler`` to compute either. With no tag, both epimers
+    canonicalize to the same SMILES, the duplicate filters read them as
+    conformers of one species, and whichever has the higher energy is dropped
+    with nothing logged (finding N-M10).
+    """
+
+    def test_phosphorus_epimers_have_distinct_species_keys(self, stereo_perception):
+        from Auto3D.foundation.utils.stereo_check import species_key
+
+        a = _embedded("CC[P@@](C)CCC")
+        b = _embedded("CC[P@](C)CCC")
+        assert species_key(a) != species_key(b), (
+            "the two phosphine epimers share a species key, so a duplicate "
+            "filter will drop one of two distinct compounds"
+        )
+
+    def test_phosphine_epimer_keys_are_stable_across_embeddings(self, stereo_perception):
+        """One epimer must key identically from two independent conformers.
+
+        The key is the filters' answer to "same compound?", so it has to be a
+        property of the configuration and not of the conformer that happened to
+        be embedded. A sign convention read off the wrong reference -- neighbor
+        index order rather than bond order, say -- can still separate the two
+        epimers above while varying between conformers of one of them, which
+        would split a species into singletons instead of merging two.
+        """
+        from Auto3D.foundation.utils.stereo_check import species_key
+
+        assert species_key(_embedded("CC[P@@](C)CCC", seed=1)) == species_key(
+            _embedded("CC[P@@](C)CCC", seed=7)
+        )
+
+    def test_non_stereogenic_phosphine_gets_no_tag(self, stereo_perception):
+        """A phosphorus with two identical substituents is not a stereocenter.
+
+        ``CP(C)CC`` has two methyls, so its signed volume still has a sign and a
+        tag assigned from that sign alone would flip between conformers --
+        splitting one compound across two keys, the mirror of the defect above.
+        Symmetry-aware canonical ranks (``breakTies=False``) are what rule it
+        out: two neighbors sharing a rank means there is nothing to resolve.
+        """
+        from Auto3D.foundation.utils.stereo_check import species_key
+
+        first, second = _embedded("CP(C)CC", seed=1), _embedded("CP(C)CC", seed=7)
+        assert species_key(first) == species_key(second), (
+            "a non-stereogenic phosphorus was given a conformer-dependent tag"
+        )
+        assert "@" not in species_key(first), (
+            f"a non-stereogenic phosphorus was tagged: {species_key(first)}"
+        )
+
+    def test_phosphine_tag_matches_the_parsed_smiles_tag(self, stereo_perception):
+        """Pin the sign convention against RDKit's own reading of ``[P@]``/``[P@@]``.
+
+        ``CHI_TETRAHEDRAL_CW``/``CCW`` are defined relative to the atom's bond
+        ordering, with RDKit's own rule for where the implicit fourth position
+        (here the lone pair) sits, so which sign of the triple product means CW
+        is not derivable from the enum names. It was determined empirically and
+        is pinned here: RDKit parses the tag from the SMILES, ETKDG honors it
+        when it embeds, and the helper must recover exactly that tag from the
+        resulting coordinates. If a future RDKit flips the convention this test
+        fails rather than the species keys quietly swapping identities.
+        """
+        from Auto3D.foundation.utils.stereo_check import _assign_phosphine_tags
+
+        for smiles in ("CC[P@@](C)CCC", "CC[P@](C)CCC"):
+            parsed = _phosphorus(Chem.MolFromSmiles(smiles)).GetChiralTag()
+            assert parsed != Chem.ChiralType.CHI_UNSPECIFIED, f"no parsed tag: {smiles}"
+
+            for seed in range(1, 6):
+                mol = _embedded(smiles, seed=seed)
+                # Production reads tags after this call, which wipes the P tag
+                # RDKit itself cannot re-derive -- exactly the gap being filled.
+                Chem.AssignStereochemistryFrom3D(mol)
+                assert _phosphorus(mol).GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED
+
+                _assign_phosphine_tags(mol)
+                assert _phosphorus(mol).GetChiralTag() == parsed, (
+                    f"{smiles} seed {seed}: recovered "
+                    f"{_phosphorus(mol).GetChiralTag()}, parsed {parsed}"
+                )
+
+    def test_phosphine_oxide_epimers_have_distinct_species_keys(self, stereo_perception):
+        """The P(V) path must keep working, and must not go through the helper.
+
+        A four-coordinate phosphorus is an ordinary tetrahedral center that
+        ``AssignStereochemistryFrom3D`` tags on its own, so the helper has to
+        leave it alone -- a degree filter that caught it would overwrite a
+        correct tag with one derived from only three of its four substituents.
+        """
+        from Auto3D.foundation.utils.stereo_check import species_key
+
+        a = _embedded("CC[P@@](=O)(C)CCC")
+        b = _embedded("CC[P@](=O)(C)CCC")
+        assert species_key(a) != species_key(b)

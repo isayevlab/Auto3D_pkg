@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from rdkit import Chem
 
 import Auto3D.presentation.cli.errors
 
@@ -370,3 +371,42 @@ def isolated_input(job_dir):
         return str(dest)
 
     return _copy
+
+
+@pytest.fixture
+def new_stereo_perception():
+    """Run a test under RDKit's new (non-legacy) stereo perception.
+
+    The setting is process-global, so it is restored in a ``finally`` -- and to
+    whatever the process had on entry rather than to a hard-coded ``True``, so
+    that nesting this inside :func:`stereo_perception` cannot silently rewrite
+    that fixture's choice.
+
+    Why the setting matters here: ``AssignStereochemistryFrom3D`` populates the
+    ``_CIPCode`` property only under legacy perception, while chiral *tags* are
+    set under both. Code that reads ``_CIPCode`` therefore goes stereo-blind the
+    moment anything in the process -- Auto3D, a notebook, another library --
+    turns legacy perception off (finding N-M9).
+    """
+    previous = Chem.GetUseLegacyStereoPerception()
+    Chem.SetUseLegacyStereoPerception(False)
+    try:
+        yield
+    finally:
+        Chem.SetUseLegacyStereoPerception(previous)
+
+
+@pytest.fixture(params=[True, False], ids=["legacy", "new"])
+def stereo_perception(request):
+    """Run a test once under each stereo-perception mode.
+
+    Use this where the assertion must hold regardless of the process-global
+    setting; use :func:`new_stereo_perception` where the new mode is the
+    specific condition under test.
+    """
+    previous = Chem.GetUseLegacyStereoPerception()
+    Chem.SetUseLegacyStereoPerception(request.param)
+    try:
+        yield request.param
+    finally:
+        Chem.SetUseLegacyStereoPerception(previous)

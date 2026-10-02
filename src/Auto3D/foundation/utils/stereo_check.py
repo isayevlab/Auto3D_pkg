@@ -21,8 +21,84 @@ from rdkit import Chem
 #: SD property recording whether optimization changed a molecule's configuration.
 STEREO_CHANGED_PROP = "Stereo_changed"
 
-#: Sorted tetrahedral CIP codes by atom index, then double-bond stereo by bond index.
+#: Sorted tetrahedral chiral tags by atom index, then double-bond stereo by bond index.
 StereoDescriptors = tuple[tuple[tuple[int, str], ...], tuple[tuple[int, str], ...]]
+
+
+def _assign_phosphine_tags(work: Chem.Mol, conf_id: int = -1) -> None:
+    """Tag every stereogenic trivalent phosphorus in ``work`` from its geometry.
+
+    Modifies ``work`` in place; call it on a copy. Callers must have run
+    ``AssignStereochemistryFrom3D`` first -- that call *clears* the tag on a
+    degree-3 phosphorus, so running it afterwards would undo this one.
+
+    A trivalent phosphine is a configurationally stable stereocenter: pyramidal
+    inversion costs around 30 kcal/mol, against roughly 6 for the analogous
+    amine, so its two epimers are separable compounds rather than conformers
+    that interconvert at room temperature. RDKit perceives none of it -- neither
+    ``AssignStereochemistryFrom3D`` nor ``AssignAtomChiralTagsFromStructure``
+    tags a degree-3 phosphorus, and with no tag there is no label for
+    ``rdCIPLabeler`` to compute either -- so the configuration has to be derived
+    here (finding N-M10).
+
+    The lone pair occupies the fourth vertex, which makes the sign of the
+    signed volume of the three bond vectors a complete description of the
+    configuration. Neighbors are read in **bond** order, because that is the
+    reference RDKit's own ``CHI_TETRAHEDRAL_CW``/``CCW`` are defined against;
+    reading them in neighbor-index order would still separate two epimers but
+    could vary between conformers of one of them. Which sign means CW is not
+    derivable from the enum names and was determined empirically against
+    RDKit's reading of ``[P@]``/``[P@@]``; the mapping is pinned by
+    ``test_phosphine_tag_matches_the_parsed_smiles_tag``.
+
+    Scope is deliberately narrow, since a tag assigned where there is nothing
+    to resolve would split one compound across two keys -- the mirror of the
+    defect being fixed:
+
+    * Phosphorus whose three neighbors do not have pairwise-distinct
+      *symmetry-aware* canonical ranks (``breakTies=False``) is not stereogenic
+      (``CP(C)CC``, with its two equivalent methyls) and is left alone.
+    * Four-coordinate phosphorus -- P(V) such as a phosphine oxide, or a
+      phosphonium -- is an ordinary tetrahedral center that
+      ``AssignStereochemistryFrom3D`` already tags correctly, and a tag derived
+      from only three of its four substituents would be wrong. The degree and
+      hydrogen-count filters keep those out. On the H-explicit molecules
+      Auto3D's own callers pass, that leaves a secondary phosphine
+      ``P(H)(R)(R')`` in scope, where the bonded hydrogen is simply one of the
+      three ranked neighbors; it is a genuine stereocenter of the same kind.
+
+    Args:
+        work: Molecule to tag, with a conformer. Modified in place.
+        conf_id: Conformer to read. -1 (default) uses the molecule's default.
+    """
+    centers = [
+        atom
+        for atom in work.GetAtoms()
+        if atom.GetAtomicNum() == 15 and atom.GetDegree() == 3 and atom.GetTotalNumHs() == 0
+    ]
+    if not centers:
+        # The common path: one scan, no ranking and no conformer access.
+        return
+
+    # Ranked once, before any tag is written, so the outcome cannot depend on
+    # the order two phosphorus centers in one molecule happen to be visited in.
+    ranks = list(Chem.CanonicalRankAtoms(work, breakTies=False))
+    conformer = work.GetConformer(conf_id)
+
+    for atom in centers:
+        neighbors = [bond.GetOtherAtom(atom) for bond in atom.GetBonds()]
+        if len({ranks[neighbor.GetIdx()] for neighbor in neighbors}) < len(neighbors):
+            continue
+        origin = conformer.GetAtomPosition(atom.GetIdx())
+        first, second, third = (
+            conformer.GetAtomPosition(neighbor.GetIdx()) - origin for neighbor in neighbors
+        )
+        volume = first.DotProduct(second.CrossProduct(third))
+        atom.SetChiralTag(
+            Chem.ChiralType.CHI_TETRAHEDRAL_CW
+            if volume < 0
+            else Chem.ChiralType.CHI_TETRAHEDRAL_CCW
+        )
 
 
 def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescriptors:
@@ -33,8 +109,8 @@ def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescri
         conf_id: Conformer to read. -1 (default) uses the molecule's default.
 
     Returns:
-        A pair of sorted tuples: tetrahedral CIP codes keyed by atom index, and
-        double-bond stereo labels keyed by bond index. Sorting makes two
+        A pair of sorted tuples: tetrahedral chiral tags keyed by atom index,
+        and double-bond stereo labels keyed by bond index. Sorting makes two
         readings of the same molecule comparable with ``==``.
 
     Note:
@@ -43,17 +119,28 @@ def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescri
         separately parsed molecules, whose atom orderings need not agree.
 
     Scope:
-        Only atoms RDKit assigns a ``_CIPCode`` (genuine tetrahedral
-        stereocenters) and bonds it assigns a non-``STEREONONE`` label
-        (defined double bonds) are covered. Trivalent (sp3) nitrogen never
-        receives a ``_CIPCode`` from ``AssignStereochemistryFrom3D``, so an
+        Chiral tags, not ``_CIPCode``: the CIP property is populated only by
+        RDKit's legacy stereo perception, a process-global setting (N-M9); tags
+        are assigned by ``AssignStereochemistryFrom3D`` under both modes and
+        flip on mirroring. Reading tags also widens coverage slightly, in the
+        right direction: a ring diastereocenter (the 1,4-disubstituted
+        cyclohexanes :func:`species_key` describes) carries a tag but no
+        ``_CIPCode``, so its cis/trans configuration is now checked too.
+
+        Covered, then, are atoms RDKit tags from the coordinates -- plus
+        trivalent phosphorus, which it does not tag and
+        :func:`_assign_phosphine_tags` supplies (N-M10) -- and bonds it
+        assigns a non-``STEREONONE`` label (defined double bonds). Trivalent
+        (sp3) nitrogen receives no chiral tag from
+        ``AssignStereochemistryFrom3D`` under either perception mode, so an
         inverting amine nitrogen -- a real stereocenter in principle, but one
         that freely interconverts at room temperature and is not treated as
         configurational by RDKit's perception -- is never flagged. That is
         the intended trade-off: it is exactly what keeps ordinary amine
-        inversion from being reported as a false positive. Other stereo
-        elements RDKit does not perceive this way (e.g. atropisomers) are
-        likewise invisible to this function.
+        inversion from being reported as a false positive, and it is why
+        phosphorus is special-cased while nitrogen is not -- P(III) does not
+        interconvert. Other stereo elements RDKit does not perceive this way
+        (e.g. atropisomers) are likewise invisible to this function.
 
         A double bond explicitly marked ``Chem.BondStereo.STEREOANY``
         (drawn with no defined geometry) is also invisible to a change:
@@ -67,11 +154,12 @@ def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescri
     """
     work = Chem.Mol(mol)
     Chem.AssignStereochemistryFrom3D(work, confId=conf_id)
+    _assign_phosphine_tags(work, conf_id)
     atoms = tuple(
         sorted(
-            (atom.GetIdx(), atom.GetProp("_CIPCode"))
+            (atom.GetIdx(), str(atom.GetChiralTag()))
             for atom in work.GetAtoms()
-            if atom.HasProp("_CIPCode")
+            if atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
         )
     )
     bonds = tuple(
@@ -110,6 +198,15 @@ def species_key(mol: Chem.Mol) -> str:
     because a stereocenter whose fourth substituent is a hydrogen cannot be
     perceived once the hydrogens are gone.
 
+    One stereocenter is tagged by hand, by :func:`_assign_phosphine_tags`:
+    trivalent phosphorus, which RDKit's perception does not see at all. A
+    phosphine's two epimers are separable compounds -- inversion costs around
+    30 kcal/mol, five times the amine barrier -- but with no tag they
+    canonicalize to the same SMILES, so a duplicate filter reads them as
+    conformers of one species and drops the higher-energy one silently
+    (finding N-M10). A tagged phosphorus writes as ``[P@]``/``[P@@]``, so the
+    canonical SMILES separates them with no further work here.
+
     Contrast :func:`stereo_descriptors_from_3d`, which answers a different
     question: it keys descriptors by atom index and is therefore only comparable
     between two readings of *one* molecule object. This returns a canonical
@@ -127,6 +224,7 @@ def species_key(mol: Chem.Mol) -> str:
     """
     probe = Chem.Mol(mol)
     Chem.AssignStereochemistryFrom3D(probe)
+    _assign_phosphine_tags(probe)
     return Chem.MolToSmiles(probe)
 
 
