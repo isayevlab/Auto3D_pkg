@@ -86,6 +86,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   width, so under a pipe, a log file or test capture long file paths wrapped
   mid-name and could not be searched for; when stderr is not a terminal the
   traceback now renders at 200 columns (a terminal keeps its own width).
+- The post-optimization stereo check read `_CIPCode`, which RDKit's new
+  stereo perception never populates, so under that mode an inverted center
+  passed as preserved; it now reads chiral tags, which both modes assign and
+  which also cover ring cis/trans pseudo-asymmetric centers (e.g.
+  1,4-disubstituted cyclohexanes) that carried no `_CIPCode`, so a ring
+  diastereomer that flips during optimization is now reported as
+  `Stereo_changed`. Trivalent phosphorus epimers shared one species key (and
+  one post-optimization descriptor) because RDKit assigns no chiral tag to
+  P(III); the key and the descriptor now derive P(III)'s tag from the
+  coordinates, so `[P@]`/`[P@@]` phosphines are distinct species. The same
+  hand-assigned tag covers trivalent arsenic (`[As@]`/`[As@@]` arsines were
+  collapsed the same way); aromatic P (phospholes), whose near-planar center
+  makes the sign conformer noise, and charged or radical P centers are
+  excluded, since the lone-pair-as-fourth-vertex model does not describe
+  their geometry. An input with an unspecified trivalent P (e.g.
+  `CCP(C)CCC`) is not enumerated by RDKit, so embedding produces both
+  epimers; because they are now distinct species, the relative Gibbs
+  energies for that molecule are withheld with a warning (the existing "not
+  all the same compound" guard) rather than written across two compounds as
+  before.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -101,6 +121,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the box). Dropped `pip check` from test commands (it would flag the
   intentional absence of `aimnet`, not a bug). Users wanting AIMNet2 should
   install it with `pip install aimnet` in the same environment.
+- Records containing a dummy atom (atomic number 0, an R-group placeholder)
+  are skipped with a warning at every record seam: input validation warns up
+  front, the isomer engines and the embedder skip the species,
+  `iter_conformer_records` skips the record, `calc_thermo` keeps it marked
+  `Thermo_failed="dummy_atoms"`, and reconciliation reports the species
+  (exit 6). They used to be scored as a zero-feature ghost atom.
+  `smiles2smi` (the `smiles2mols` input path) also skips a dummy-atom SMILES
+  with a warning before minting an ID, instead of minting an empty ID that
+  failed validation with a misleading message. `calc_thermo` now runs the
+  engine-support check on the filtered records, matching `calc_spe` and
+  `opt_geometry`, so a dummy record under ANI2x/ANI2xt no longer refuses the
+  whole file. Also: the connectivity check now logs an element with no
+  reference radius once per element instead of silently skipping its pairs.
 
 ## [3.1.1] - 2026-08-27
 
