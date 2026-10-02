@@ -203,3 +203,66 @@ def test_calc_thermo_marks_dummy_atom_records_as_failed(tmp_path, caplog, monkey
         "`path` a single time, so a second, contradictory 'Skipping ...' line "
         f"from sdf_io must not appear; got {[r.message for r in caplog.records]}"
     )
+
+
+def test_calc_thermo_does_not_refuse_a_file_under_ani_for_a_dummy_record(
+    tmp_path, caplog, monkeypatch
+):
+    """D2: a dummy-atom record must never make calc_thermo refuse the file.
+
+    The C11 engine gate (`check_engine_supports_molecules`) rejects any molecule
+    `_requires_aimnet` is True for, and atomic number 0 is outside
+    `ANI_ELEMENTS` -- so while that gate ran on the RAW record list, one
+    placeholder made `calc_thermo(file, "ANI2xt")` raise `ConfigurationError`
+    for the whole file, healthy records included. `calc_spe` and `opt_geometry`
+    never had that hole: both filter first and gate the survivors. This pins
+    calc_thermo to the same order.
+
+    Deliberately a dummy-ONLY file. `calc_thermo` has no "no survivors" guard,
+    so an empty `survivors` simply makes the per-record loop iterate nothing --
+    whereas a healthy second record would reach `vib_hessian` and the stub
+    `_load_hessian_model` (a bare `object()`) has no Hessian to give it, which
+    would need a real model and the slow tier to assert anything about.
+
+    No `pytest.importorskip("torchani")`: `create_model` is stubbed on both
+    holders and `_load_hessian_model` is replaced outright, so the ANI2xt
+    loading branch never runs, and the gate itself reads only `ANI_ELEMENTS`
+    and `BUILTIN_ANI_MODELS`. Nothing here imports torchani.
+    """
+    import logging
+
+    import torch
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    from torch import nn
+
+    import Auto3D.entry.ASE.thermo.driver as thermo_mod
+    from Auto3D.entry.ASE.thermo import calculator as _calculator
+    from tests.helpers_adapter import AdapterModuleMixin
+
+    class _StubNNP(AdapterModuleMixin, nn.Module):
+        def forward(self, coords, species, charges, atom_mask=None):
+            energy = torch.zeros(coords.shape[0], dtype=coords.dtype)
+            forces = torch.zeros_like(coords)
+            return energy, forces
+
+    stub = _StubNNP()
+    monkeypatch.setattr(thermo_mod, "create_model", lambda *a, **k: stub)
+    monkeypatch.setattr(_calculator, "create_model", lambda *a, **k: stub)
+    monkeypatch.setattr(thermo_mod, "_load_hessian_model", lambda *a, **k: object())
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("*CCO"))
+    assert AllChem.EmbedMolecule(mol, randomSeed=1) == 0, "test premise: must embed"
+    mol.SetProp("_Name", "frag")
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        w.write(mol)
+    out = tmp_path / "out.sdf"
+
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        # Must not raise ConfigurationError("Only AIMNET can handle: ['frag']").
+        thermo_mod.calc_thermo(str(sdf), "ANI2xt", use_gpu=False, out_path=str(out))
+
+    results = list(Chem.SDMolSupplier(str(out), removeHs=False))
+    assert len(results) == 1, "the dummy-atom record must be present in the output, not dropped"
+    assert results[0].GetProp("Thermo_failed") == "dummy_atoms"

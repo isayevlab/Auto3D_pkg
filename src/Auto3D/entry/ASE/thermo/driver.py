@@ -558,8 +558,10 @@ def calc_thermo(
     check_output_overwrite(outpath, overwrite)
 
     # Read `path` once. `record_skip_reason` (Auto3D.foundation.utils.sdf_io)
-    # is the single definition of which records are defective (N-C1):
-    # unparseable, conformerless, or carrying implicit hydrogens.
+    # is the single definition of which records are defective (N-C1) -- see
+    # that function for the set of reasons; this module deliberately does not
+    # restate it, because a copy of the list here is exactly what went stale
+    # each time a reason was added.
     # `iter_conformer_records`'s other callers (`SPE.calc_spe`,
     # `ASE.geometry.opt_geometry`, `tautomer.select_tautomers`,
     # `batch_opt.batchopt.optimizing.run`) simply drop such a record from
@@ -571,13 +573,13 @@ def calc_thermo(
     # unparseable (`None`) record, which has no `Mol` to set a property on
     # and is still logged and dropped, matching every other caller.
     #
-    # Parsing `mols` needs only `path`, not a device or model, so it -- and
-    # the C11 guard right below, which needs only `mols`/`model_name` -- both
-    # happen before get_device/_load_hessian_model/model_name2model_calculator,
-    # matching check_gpu_requested's already-first placement: every guard
-    # that can fail fast, does, before any device/model construction.
+    # Parsing `mols` needs only `path`, not a device or model, so it -- and the
+    # C11 engine gate after the filter below, which needs only the surviving
+    # records and `model_name` -- both happen before get_device/
+    # _load_hessian_model/model_name2model_calculator, matching
+    # check_gpu_requested's already-first placement: every guard that can fail
+    # fast, does, before any device/model construction.
     mols = list(Chem.SDMolSupplier(path, removeHs=False))
-    check_engine_supports_molecules([mol for mol in mols if mol is not None], model_name)
 
     # One pass, not a second read of `path`: a record pulled out here (and
     # marked `Thermo_failed`) must not also be re-skipped-and-logged by a
@@ -598,6 +600,16 @@ def calc_thermo(
         logger.warning(_THERMO_SKIP_MESSAGES[reason], name)
         mol.SetProp(THERMO_FAILED_PROP, reason)
         mols_failed.append(mol)
+
+    # The C11 gate runs on `survivors`, NOT on the raw `mols` -- the order
+    # `calc_spe` and `opt_geometry` have always used, and the one D2 requires: a
+    # defective record is warned about and marked, never a reason to refuse the
+    # file. `_requires_aimnet` is True for a dummy atom (0 is outside
+    # ANI_ELEMENTS), so gating the raw list made ONE R-group placeholder raise
+    # "Only AIMNET can handle: [...]" for an ANI run and take every healthy
+    # record in the file down with it. A record this function is dropping or
+    # marking must not get a vote on whether the engine can do the rest.
+    check_engine_supports_molecules(survivors, model_name)
 
     device = get_device(gpu_idx, use_gpu=use_gpu)
 
