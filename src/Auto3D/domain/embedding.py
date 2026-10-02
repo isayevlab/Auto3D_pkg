@@ -13,6 +13,7 @@ removes the cycle rather than deferring it.
 from __future__ import annotations
 
 import multiprocessing
+import os
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -44,11 +45,46 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdDistGeom
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED, EMBED_TIMEOUT_S
+from Auto3D.foundation.constants import (
+    CONFORMER_RANDOM_SEED,
+    EMBED_TIMEOUT_S,
+    PARALLEL_EMBED_MAX_WORKERS,
+)
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 
 logger = get_logger(__name__)
+
+
+def resolve_embedding_workers(requested: int | None, n_species: int) -> int:
+    """Worker-process count for parallel conformer embedding.
+
+    ``None`` -- the default -- means: as many workers as this machine has
+    cores, but never more than there are species to embed and never more than
+    ``PARALLEL_EMBED_MAX_WORKERS``. A fixed default of 4 left 124 of 128 cores
+    idle on the 2026-09-21 bench (P-C3), and no class default can do better,
+    because the useful number depends both on the box and on how many species
+    this particular run enumerated. So the resolution happens here, called at
+    dispatch by whoever is about to start the pool.
+
+    An explicit ``requested`` is obeyed as given -- cap included, since a
+    caller who names a number has a reason -- and only floored at 1, because a
+    pool cannot be started with zero workers. ``Auto3DOptions`` already refuses
+    a ``parallel_workers`` below 1; the floor is here for the engine's direct
+    callers, which go through no such validation.
+
+    Args:
+        requested: Explicit worker count, or None to scale to the machine.
+        n_species: How many species this dispatch has to embed.
+
+    Returns:
+        A worker count of at least 1.
+    """
+    if requested is not None:
+        return max(1, requested)
+    # Through the module, not `from os import cpu_count`, so a test (and a
+    # caller measuring on a different machine shape) can substitute it.
+    return max(1, min(os.cpu_count() or 1, n_species, PARALLEL_EMBED_MAX_WORKERS))
 
 
 def embed_params(

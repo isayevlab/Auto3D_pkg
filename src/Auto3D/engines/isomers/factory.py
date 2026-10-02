@@ -124,7 +124,7 @@ class IsomerEngineFactory:
         mode: str = "classic",
         use_parallel_embedding: bool = False,
         parallel_embedding_threshold: int = 10,
-        parallel_workers: int = 4,
+        parallel_workers: int | None = None,
     ) -> IsomerEngine:
         """Create an isomer engine adapter.
 
@@ -146,6 +146,8 @@ class IsomerEngineFactory:
             use_parallel_embedding: Use parallel conformer embedding (rdkit only).
             parallel_embedding_threshold: Minimum molecules for parallel embedding.
             parallel_workers: Number of worker processes for parallel embedding.
+                None resolves to min(cores, species, PARALLEL_EMBED_MAX_WORKERS)
+                at dispatch.
 
         Returns:
             Configured isomer engine, whose ``run()`` builds and drives the

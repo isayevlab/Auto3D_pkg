@@ -138,6 +138,43 @@ def test_embed_with_retry_gives_up_after_the_retry(monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    "cpus,n_species,requested,expected",
+    [
+        # A full box, more species than the cap: the cap wins.
+        (128, 98, None, 32),
+        # Fewer cores than the cap: the cores win.
+        (4, 98, None, 4),
+        # Fewer species than cores: the species win -- an idle worker still
+        # pays the spawn and rdkit re-import cost of a busy one.
+        (128, 3, None, 3),
+        # An explicit request is honored verbatim, cap and cores included.
+        (128, 98, 8, 8),
+        # A single-core box still gets one worker, never zero.
+        (1, 98, None, 1),
+    ],
+)
+def test_resolve_embedding_workers(monkeypatch, cpus, n_species, requested, expected):
+    """``None`` means "scale to this machine"; an explicit count is obeyed.
+
+    A fixed default of 4 left 124 of 128 cores idle (P-C3), so the resolution
+    has to happen where both the machine and the batch size are known rather
+    than in a constructor default.
+    """
+    from Auto3D.domain.embedding import resolve_embedding_workers
+
+    monkeypatch.setattr(os, "cpu_count", lambda: cpus)
+    assert resolve_embedding_workers(requested, n_species) == expected
+
+
+def test_resolve_embedding_workers_survives_an_unknown_core_count(monkeypatch):
+    """``os.cpu_count()`` returns None when the platform cannot say."""
+    from Auto3D.domain.embedding import resolve_embedding_workers
+
+    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    assert resolve_embedding_workers(None, 98) == 1
+
+
 class TestEmbedConformersParallel:
     """Tests for the parallel embedding function."""
 

@@ -19,7 +19,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from tqdm import tqdm
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.domain.embedding import embed_with_retry
+from Auto3D.domain.embedding import embed_with_retry, resolve_embedding_workers
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import (
@@ -50,7 +50,8 @@ class RDKitIsomer:
         parallel_embedding_threshold: Minimum number of molecules to trigger
             parallel embedding. Default 10.
         parallel_workers: Number of worker processes for parallel embedding.
-            Default 4.
+            None (the default) resolves to min(cores, species,
+            PARALLEL_EMBED_MAX_WORKERS) at dispatch.
     """
 
     def __init__(
@@ -67,7 +68,7 @@ class RDKitIsomer:
         flipper: bool = True,
         use_parallel_embedding: bool = False,
         parallel_embedding_threshold: int = 10,
-        parallel_workers: int = 4,
+        parallel_workers: int | None = None,
     ) -> None:
         self.input_f = smi
         self.n_conformers = max_confs
@@ -283,7 +284,17 @@ class RDKitIsomer:
         # ``Auto3D.domain.embedding`` and rely on this lookup re-reading it.
         from Auto3D.domain.embedding import embed_conformers_parallel
 
-        logger.info(f"Using parallel embedding with {self.parallel_workers} workers...")
+        # ``self.parallel_workers`` may be None ("scale to this machine"), and
+        # the pool needs a number. Resolved here rather than in __init__
+        # because the species count is only known once enumeration has run, and
+        # logged resolved rather than as requested -- a line reading "with None
+        # workers" told the user nothing about what the run is doing.
+        n_workers = resolve_embedding_workers(self.parallel_workers, len(smi_name_tuples))
+        logger.info(
+            "Using parallel embedding with %d worker processes for %d species",
+            n_workers,
+            len(smi_name_tuples),
+        )
 
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for mol, conf_idx, conf_id in embed_conformers_parallel(
@@ -291,7 +302,7 @@ class RDKitIsomer:
                 n_conformers=self.n_conformers,
                 threshold=self.threshold,
                 np_threads=self.np,
-                n_workers=self.parallel_workers,
+                n_workers=n_workers,
             ):
                 mol.SetProp("ID", conf_id)
                 mol.SetProp("_Name", conf_id)

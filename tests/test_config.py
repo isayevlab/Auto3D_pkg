@@ -320,7 +320,7 @@ def test_default_and_valid_k_window_accepted():
 
 
 def test_false_is_refused_as_a_sentinel_on_every_field_that_has_one():
-    """``False`` no longer means "not specified" on any of the four fields.
+    """``False`` no longer means "not specified" on any of the sentinel fields.
 
     It used to, on ``Auto3DOptions`` only -- ``CLIConfig`` spelled the same idea
     ``None``, and a translation function converted between them on the way
@@ -339,9 +339,17 @@ def test_false_is_refused_as_a_sentinel_on_every_field_that_has_one():
         with pytest.raises(ConfigurationError, match="None, not False"):
             Auto3DOptions(path="x.smi", **{field: False})
 
-    # None is accepted on all four, together and mixed with a real value.
-    opts = Auto3DOptions(path="x.smi", k=None, window=None, memory=None, max_confs=None)
-    assert (opts.k, opts.window, opts.memory, opts.max_confs) == (None, None, None, None)
+    # None is accepted on all of them, together and mixed with a real value.
+    opts = Auto3DOptions(
+        path="x.smi", k=None, window=None, memory=None, max_confs=None, parallel_workers=None
+    )
+    assert (opts.k, opts.window, opts.memory, opts.max_confs, opts.parallel_workers) == (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
     assert Auto3DOptions(path="x.smi", k=1, window=None).k == 1
 
 
@@ -497,12 +505,23 @@ class TestParallelEmbeddingIsReachable:
             "gate could not be tuned"
         )
 
-    def test_the_default_is_still_serial(self):
-        """Off by default: enabling it changes a run's resource profile."""
+    def test_parallel_embedding_is_the_default(self):
+        """On by default since 3.2.0, with the worker count left unresolved.
+
+        Was ``test_the_default_is_still_serial``. The serial path did not go
+        away -- it still runs below ``parallel_embedding_threshold`` and for
+        ``--no-parallel-embedding`` -- but a default of 4 workers behind an
+        off-by-default switch meant the ordinary run embedded one species at a
+        time however many cores the box had (P-C3, D1). ``parallel_workers``
+        is ``None`` rather than a number because the useful count depends on
+        the machine and on how many species this run actually has, neither of
+        which a class default can know.
+        """
         from Auto3D.foundation.config import Auto3DOptions
 
         options = Auto3DOptions(path="in.smi", k=1)
-        assert options.use_parallel_embedding is False
+        assert options.use_parallel_embedding is True
+        assert options.parallel_workers is None
 
     @pytest.mark.parametrize("field", ["parallel_workers", "parallel_embedding_threshold"])
     def test_a_count_below_one_is_rejected(self, field):
@@ -512,3 +531,15 @@ class TestParallelEmbeddingIsReachable:
 
         with pytest.raises(ConfigurationError, match=field):
             Auto3DOptions(path="in.smi", k=1, **{field: 0})
+
+    def test_an_unset_worker_count_is_accepted(self):
+        """``parallel_workers=None`` is the default, so the bound must skip it.
+
+        The bound still applies to a concrete int (the sibling test above), so
+        ``parallel_workers`` belongs in ``SENTINEL_FIELDS`` rather than out of
+        ``FIELD_BOUNDS``: None means "resolve from the machine", 0 means a
+        worker count nothing can run.
+        """
+        from Auto3D.foundation.config import Auto3DOptions
+
+        assert Auto3DOptions(path="in.smi", k=1, parallel_workers=None).parallel_workers is None
