@@ -11,14 +11,13 @@ from rdkit import Chem
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
 )
 from tqdm import tqdm
 
-from Auto3D.domain.embedding import embed_params
+from Auto3D.domain.embedding import embed_with_retry
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 from Auto3D.foundation.utils.sdf_io import skip_message
@@ -163,10 +162,11 @@ class RDKitSdfIsomer:
                         n_conformers = calculate_conformer_count(mol2)
                     else:
                         n_conformers = self.n_conformers
-                    AllChem.EmbedMultipleConfs(
+                    embed_with_retry(
                         mol2,
-                        numConfs=n_conformers,
-                        params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
+                        n_conformers=n_conformers,
+                        n_threads=self.np,
+                        prune_rms_thresh=self.threshold,
                     )
                     if mol2.GetNumConformers() == 0:
                         logger.warning(

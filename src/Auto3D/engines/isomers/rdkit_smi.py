@@ -12,7 +12,6 @@ from rdkit import Chem
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -20,7 +19,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from tqdm import tqdm
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.domain.embedding import embed_params
+from Auto3D.domain.embedding import embed_with_retry
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import (
@@ -174,18 +173,10 @@ class RDKitIsomer:
             # CalcNumRotatableBonds only counts O-H / N-H torsions when hydrogens
             # are explicit, so the with-H count samples hydroxyl/amine rotors
             # that the no-H count drops (e.g. glycerol 238 vs 52 conformers).
-            n_conformers = calculate_conformer_count(mol)
-            AllChem.EmbedMultipleConfs(
-                mol,
-                numConfs=n_conformers,
-                params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
-            )
+            n = calculate_conformer_count(mol)
         else:
-            AllChem.EmbedMultipleConfs(
-                mol,
-                numConfs=self.n_conformers,
-                params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
-            )
+            n = self.n_conformers
+        embed_with_retry(mol, n_conformers=n, n_threads=self.np, prune_rms_thresh=self.threshold)
         return mol
 
     def run(self) -> str:
