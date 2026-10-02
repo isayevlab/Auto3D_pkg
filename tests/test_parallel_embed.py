@@ -1,15 +1,17 @@
 # tests/test_parallel_embed.py
 """Tests for Auto3D.domain.embedding (parallel conformer embedding)."""
 
+import logging
 import multiprocessing as mp
 import os
+from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool
 
 import pytest
 from rdkit import Chem
 
 import Auto3D.domain.embedding
-from Auto3D.domain.embedding import _embed_single, embed_conformers_parallel
+from Auto3D.domain.embedding import SpeciesSkipped, _embed_single, embed_conformers_parallel
 
 
 def _suicide_embed(smi, name, n_conformers, threshold, np_threads):
@@ -86,7 +88,7 @@ class TestEmbedSingle:
             # min_pairwise_distance should be > 0.9 for all returned conformers
             assert positions.shape[0] > 0
 
-    def test_dummy_atom_species_embeds_nothing_and_warns(self, caplog):
+    def test_a_dummy_atom_species_is_refused_with_a_reason(self):
         """N-M3: an R-group placeholder must be named, not quietly dropped.
 
         Without the skip, `*CCO` embeds and is handed to AIMNet2, which scores
@@ -95,12 +97,26 @@ class TestEmbedSingle:
         conformer of such a mol today (UFF/MMFF cannot type atom ``*``), so the
         molecule disappears either way; what this pins is that it disappears
         for the stated reason and says so.
-        """
-        import logging
 
-        with caplog.at_level(logging.WARNING, logger="Auto3D"):
-            assert _embed_single("*CCO", "frag", 2, 0.3, 1) == []
-        assert any("dummy atom" in r.message for r in caplog.records)
+        The reason travels as ``SpeciesSkipped`` rather than as a warning logged
+        here: this function runs in a spawned pool worker with no run-log
+        handler of its own, so a warning from it reached stderr unformatted and
+        never the run log, on top of the parent's own line for the same species.
+        Raising lets the parent -- which is wired into Auto3D's logging -- emit
+        exactly one fully formatted line.
+        """
+        with pytest.raises(SpeciesSkipped, match="dummy atom"):
+            _embed_single("*CCO", "frag", 2, 0.3, 1)
+
+    def test_an_unparseable_smiles_is_refused_with_a_reason(self):
+        """The other skip reason travels the same way, and names the SMILES.
+
+        A bare ``return []`` made this indistinguishable in the parent from
+        "every conformer was rejected by clash relief", so the run log recorded
+        that a species had vanished but not why.
+        """
+        with pytest.raises(SpeciesSkipped, match="failed to parse"):
+            _embed_single("this-is-not-a-smiles", "bad", 2, 0.3, 1)
 
 
 def test_embed_with_retry_retries_once_with_random_coords(monkeypatch):
@@ -214,6 +230,82 @@ def test_resolve_embedding_workers_survives_a_zero_thread_count(monkeypatch):
 
     monkeypatch.setattr(os, "cpu_count", lambda: 8)
     assert resolve_embedding_workers(None, 98, threads_per_worker=0) == 8
+
+
+def test_the_embedding_pool_arms_the_parent_death_initializer(monkeypatch):
+    """Every process Auto3D starts has to die with its parent (P-C2).
+
+    The isomer worker, the optimizers, the logger process and the Manager
+    servers all pass ``_exit_when_parent_dies``; this pool did not, and this
+    branch makes it part of an ordinary run. Under ``spawn`` each pool child
+    holds a dup of the call queue's *write* end as well as its read end, so the
+    parent's death never produces EOF: an idle worker blocks on ``get()``
+    forever and a busy one keeps burning a core on ETKDG. A parent-only signal
+    -- the orchestrator's own ``p1.terminate()``, an OOM kill, a plain ``kill``
+    -- then strands up to ``PARALLEL_EMBED_MAX_WORKERS`` RDKit processes.
+
+    The executor kwargs are asserted rather than the behavior because the
+    behavior needs a real killed parent; that is
+    ``tests/test_worker_lifecycle.py::test_a_killed_parent_leaves_no_embedding_pool_workers``,
+    which is slow. This one keeps the wiring pinned in the fast tier.
+    """
+    import Auto3D.domain.embedding as emb
+
+    captured: dict = {}
+
+    class _RecordingExecutor:
+        """Enough of ProcessPoolExecutor to run the submit loop in-process."""
+
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def submit(self, fn, *args):
+            future: Future = Future()
+            future.set_result(fn(*args))
+            return future
+
+    monkeypatch.setattr(emb, "ProcessPoolExecutor", _RecordingExecutor)
+    list(emb.embed_conformers_parallel([("C", "methane")], n_conformers=1, n_workers=2))
+
+    assert captured.get("initializer") is emb._embedding_worker_init, (
+        "the embedding pool started its workers with "
+        f"initializer={captured.get('initializer')!r}: a worker that does not "
+        "arm _exit_when_parent_dies outlives a SIGTERMed or OOM-killed parent"
+    )
+
+
+def test_the_pool_initializer_arms_both_parent_death_and_double_coordinates(monkeypatch):
+    """One initializer, two jobs, both of which only matter inside a worker.
+
+    ``_exit_when_parent_dies`` is a no-op in a process with no parent, so this
+    substitutes it to see that it is called at all. The pickle property is
+    process-global, which is exactly why it is set here rather than at import:
+    the worker is where conformers are pickled, and importing
+    ``Auto3D.domain.embedding`` must not reconfigure RDKit for an unrelated
+    caller (the same stance the module takes on ``set_start_method``).
+    """
+    import Auto3D.domain.embedding as emb
+
+    armed = []
+    monkeypatch.setattr(emb, "_exit_when_parent_dies", lambda: armed.append(True))
+
+    before = Chem.GetDefaultPickleProperties()
+    try:
+        Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.NoProps)
+        emb._embedding_worker_init()
+        assert armed == [True], "the pool initializer never armed parent-death detection"
+        assert Chem.GetDefaultPickleProperties() & Chem.PropertyPickleOptions.CoordsAsDouble, (
+            "the pool initializer left conformer pickling at float32, so a "
+            "coordinate crossing the pool boundary loses its low bits"
+        )
+    finally:
+        Chem.SetDefaultPickleProperties(before)
 
 
 class TestEmbedConformersParallel:
@@ -405,4 +497,97 @@ class TestEmbedConformersParallel:
         )
         assert "use_parallel_embedding=False" in notes, (
             f"the note does not mention the serial fallback: {notes!r}"
+        )
+
+    def test_parallel_embedding_returns_the_serial_path_coordinates_exactly(self):
+        """Toggling ``--parallel-embedding`` must not move an atom.
+
+        ``_embed_single`` is the serial reference here on purpose: the parallel
+        path runs that very same function, so the only difference between the
+        two columns is the pickle round trip back from the worker. RDKit pickles
+        conformer coordinates as float32 unless ``CoordsAsDouble`` is set, which
+        showed up as a 1.0e-4 A difference on one coordinate of
+        ``OC(=O)C(N)Cc1c[nH]c2ccccc12`` at SDF write precision -- chemically
+        irrelevant, but it made a documented performance switch change the bytes
+        of the output, which the repo's other bit-identity guards
+        (``test_state_is_bit_identical``, ``TestStepForStepIdentity``) show it
+        cares about. Compared at full float64 width, which is where the
+        truncation is unambiguous.
+        """
+        pairs = [
+            ("OC(=O)C(N)Cc1c[nH]c2ccccc12", "s_trp"),  # the species the parity probe caught
+            ("CCO", "s_ethanol"),
+            ("CC(=O)O", "s_acetic"),
+            ("Oc1ccccc1", "s_phenol"),
+            ("CC(C)CC(N)C(=O)O", "s_leucine"),
+            ("OCC(O)CO", "s_glycerol"),
+            ("CN1CCC[C@H]1c1cccnc1", "s_nicotine"),
+            ("CC(=O)Nc1ccc(O)cc1", "s_paracetamol"),
+            ("C1CCCCC1", "s_cyclohexane"),
+            ("CSCC[C@H](N)C(=O)O", "s_methionine"),
+            ("OC(=O)c1ccccc1O", "s_salicylic"),
+            ("CCCCCC", "s_hexane"),
+        ]
+
+        expected = {}
+        for smi, name in pairs:
+            for mol, conf_idx, conf_id in _embed_single(smi, name, 2, 0.3, 1):
+                expected[conf_id] = mol.GetConformer(conf_idx).GetPositions().tobytes()
+        assert len(expected) >= len(pairs), "test premise: every species embeds something"
+
+        got = {}
+        for mol, conf_idx, conf_id in embed_conformers_parallel(
+            pairs, n_conformers=2, threshold=0.3, np_threads=1, n_workers=2
+        ):
+            got[conf_id] = mol.GetConformer(conf_idx).GetPositions().tobytes()
+
+        assert sorted(got) == sorted(expected), (
+            "the two paths did not even produce the same conformer set: "
+            f"{sorted(set(expected) ^ set(got))}"
+        )
+        differing = [cid for cid in expected if got[cid] != expected[cid]]
+        assert not differing, (
+            f"{len(differing)} of {len(expected)} conformers came back from the "
+            f"pool with different coordinates than the serial path: {differing}"
+        )
+
+    def test_a_skipped_species_is_reported_once_in_the_parent_with_its_reason(self, caplog):
+        """One line per skipped species, from the process that has the run log.
+
+        The worker's own ``logger.warning`` reached neither the run log nor
+        Auto3D's formatting: under ``spawn`` the pool children have no
+        ``QueueHandler`` (``_attach_run_log_handlers`` is for the optimizer
+        workers), so the line fell through to ``logging.lastResort`` -- raw on
+        stderr, ungoverned by ``--quiet`` -- while the run log recorded only the
+        parent's "produced no conformers", which named the species but not the
+        reason. Two console lines per bad species where the serial path shows
+        one. Now the reason rides a ``SpeciesSkipped`` back to the parent, which
+        emits exactly one formatted warning and no second line.
+        """
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            results = list(
+                embed_conformers_parallel(
+                    [
+                        ("C", "methane"),
+                        ("this-is-not-a-smiles", "bad_smiles"),
+                        ("*CCO", "dummy_atom"),
+                    ],
+                    n_conformers=2,
+                    n_workers=2,
+                )
+            )
+
+        assert [cid for _, _, cid in results], "test premise: methane still embeds"
+        assert not any("bad_smiles" in cid or "dummy_atom" in cid for _, _, cid in results)
+
+        messages = [r.getMessage() for r in caplog.records]
+        for name, reason in (("bad_smiles", "failed to parse"), ("dummy_atom", "dummy atom")):
+            named = [m for m in messages if name in m]
+            assert len(named) == 1, f"expected exactly one warning naming {name!r}, got {named!r}"
+            assert reason in named[0], (
+                f"the warning for {name!r} does not say why it was skipped: {named[0]!r}"
+            )
+        assert "produced no conformers" not in caplog.text, (
+            "a species skipped with a stated reason also drew the generic "
+            f"empty-result warning: {caplog.text!r}"
         )

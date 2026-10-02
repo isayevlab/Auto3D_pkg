@@ -50,10 +50,70 @@ from Auto3D.foundation.constants import (
     EMBED_TIMEOUT_S,
     PARALLEL_EMBED_MAX_WORKERS,
 )
+from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 
 logger = get_logger(__name__)
+
+
+class SpeciesSkipped(Exception):  # noqa: N818 - a skip signal, not a failure
+    """A species the embedding worker refused before embedding anything.
+
+    No ``Error`` suffix, unlike ``Auto3D.foundation.exceptions``'s members: this
+    is not a failure the run has to recover from but the worker's way of saying
+    "not this one" across a process boundary. The batch continues, the species is
+    reported, and nothing upstream treats it as an error -- naming it
+    ``SpeciesSkippedError`` would describe the mechanism and misdescribe the
+    meaning.
+
+    Carries the reason back to the parent instead of logging it in the worker.
+    Under ``spawn`` the pool children have no run-log handler of their own
+    (``workflow_workers._attach_run_log_handlers`` wires up the optimizer
+    workers, not this pool), so a warning emitted in a worker fell through to
+    ``logging.lastResort``: raw on stderr, carrying no level or logger prefix,
+    ungoverned by Auto3D's logging configuration -- and absent from the run log,
+    which recorded only that the species had vanished. The parent is already
+    wired into that configuration, so it logs the single line.
+
+    One argument, always a plain string, and no custom ``__init__``: the
+    instance is pickled across the pool boundary, and a signature that differs
+    from ``Exception``'s does not survive the round trip.
+    """
+
+
+def _embedding_worker_init() -> None:
+    """Prepare one pool worker. Passed as the executor's ``initializer``.
+
+    Two jobs, both of which only make sense inside a worker:
+
+    * ``_exit_when_parent_dies`` -- the same arming every other process Auto3D
+      starts gets (the isomer worker, the optimizers, the logger process, the
+      Manager servers). Without it this pool was the one that outlived a
+      parent-only signal: under ``spawn`` each child holds a dup of the call
+      queue's *write* end as well as its read end, so the parent's death never
+      produces EOF, and SIGTERM/SIGKILL to the parent runs none of the ``with``
+      block's shutdown sentinels either. An idle worker then blocks on
+      ``get()`` forever and a busy one keeps burning a core on ETKDG (P-C2).
+      A no-op when there is no parent process, and every failure path inside it
+      is caught and logged at DEBUG, so it cannot break the pool.
+    * ``CoordsAsDouble`` -- RDKit pickles conformer coordinates as float32
+      unless asked otherwise, and the worker's result travels back by pickle. At
+      SDF write precision that flipped the last digit of one coordinate of one
+      species in a 28-species comparison, which made toggling
+      ``--parallel-embedding`` change the bytes of the output.
+
+    Set here rather than at module import, deliberately: the pickle properties
+    are process-global, this is the process where the pickling happens, and
+    every spawned worker runs the initializer. Importing
+    ``Auto3D.domain.embedding`` must not reconfigure RDKit for a caller that
+    never starts a pool -- the same stance the module takes on
+    ``set_start_method`` (see ``EMBEDDING_MP_CONTEXT``).
+    """
+    _exit_when_parent_dies()
+    Chem.SetDefaultPickleProperties(
+        Chem.GetDefaultPickleProperties() | Chem.PropertyPickleOptions.CoordsAsDouble
+    )
 
 
 def resolve_embedding_workers(
@@ -197,26 +257,28 @@ def _embed_single(
             - mol: RDKit Mol object with conformers
             - conf_idx: Index of the conformer in the molecule
             - conf_id: Unique identifier string (name_idx format)
+
+    Raises:
+        SpeciesSkipped: The SMILES cannot be parsed, or carries a dummy atom.
+            Raised rather than logged here: see ``SpeciesSkipped`` for why a
+            warning from a pool worker is the wrong place for the reason.
     """
     # Validate SMILES first to avoid unpicklable Boost.Python errors
     mol_noh = Chem.MolFromSmiles(smi)
     if mol_noh is None:
-        # Same message the serial path emits (isomer_engine._run_serial_embedding).
+        # Same reason the serial path reports (isomer_engine._run_serial_embedding).
         # This branch returned [] in silence, so a molecule dropped for an
         # unparseable SMILES was reported by the parallel path and not by the
         # serial one -- a switch documented as a performance option decided how
-        # much the user was told. The parent also warns on an empty result, which
-        # is the guaranteed signal; this one adds the reason.
-        logger.warning(f"Skipping molecule {name!r}: failed to parse {smi!r}")
-        return []
+        # much the user was told.
+        raise SpeciesSkipped(f"failed to parse {smi!r}")
     if has_dummy_atoms(mol_noh):
         # N-M3: an R-group placeholder is not a species. Clash relief happens
         # to reject every conformer of such a molecule today (neither MMFF nor
         # UFF can type atom `*`), so it already disappeared -- but silently and
         # for an unrelated reason. Named and skipped here instead, before any
         # embedding work, so the same rule holds whatever the force fields do.
-        logger.warning(f"Skipping molecule {name!r}: it contains a dummy atom (atomic number 0).")
-        return []
+        raise SpeciesSkipped("it contains a dummy atom (atomic number 0)")
     mol = Chem.AddHs(mol_noh)
 
     if n_conformers is None:
@@ -274,7 +336,11 @@ def embed_conformers_parallel(
     if not smiles_names:
         return
 
-    with ProcessPoolExecutor(max_workers=n_workers, mp_context=EMBEDDING_MP_CONTEXT) as executor:
+    with ProcessPoolExecutor(
+        max_workers=n_workers,
+        mp_context=EMBEDDING_MP_CONTEXT,
+        initializer=_embedding_worker_init,
+    ) as executor:
         futures = {
             executor.submit(_embed_single, smi, name, n_conformers, threshold, np_threads): (
                 smi,
@@ -310,6 +376,14 @@ def embed_conformers_parallel(
                     "use_parallel_embedding=False."
                 )
                 raise
+            except SpeciesSkipped as skipped:
+                # The worker refused this species and said why. One warning, from
+                # here -- the process that owns the run log -- and no second line:
+                # the `continue` is also what keeps the generic "produced no
+                # conformers" branch below from firing for a species whose reason
+                # is already on the record.
+                logger.warning("Skipping molecule %r: %s", name, skipped)
+                continue
             except Exception as e:
                 # Per-molecule boundary: a single molecule's failure (including
                 # RDKit's Boost.Python.ArgumentError, which is a TypeError and so

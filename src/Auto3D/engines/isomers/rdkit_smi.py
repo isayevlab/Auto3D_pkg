@@ -159,9 +159,13 @@ class RDKitIsomer:
     def embed_conformer(self, smi: str) -> Chem.Mol | None:
         """Embed multiple 3D conformers for a SMILES string.
 
-        Returns None if the SMILES cannot be parsed, mirroring the parallel
-        worker (_embed_single) so a single unparseable SMILES is skipped rather
-        than crashing the whole serial embedding loop on AddHs(None).
+        Returns None if the SMILES cannot be parsed, so a single unparseable
+        SMILES is skipped rather than crashing the whole serial embedding loop on
+        AddHs(None). The parallel worker (``_embed_single``) skips the same two
+        cases but raises ``SpeciesSkipped`` instead, because the reason has to
+        cross a process boundary to be logged where the run log is; here the
+        caller is already ``_run_serial_embedding``, two frames away, so a
+        sentinel return is enough.
 
         Also returns None for a SMILES carrying a dummy atom (atomic number 0):
         an R-group placeholder is not a species, and AIMNet2 would score it
