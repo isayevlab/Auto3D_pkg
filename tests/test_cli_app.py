@@ -487,6 +487,7 @@ def test_run_with_nonexistent_file(runner):
     assert result.exit_code != 0
 
 
+@pytest.mark.slow
 def test_json_output_is_pure_json(auto3d_process):
     """`auto3d run --json` must write the JSON document and nothing else to stdout.
 
@@ -504,6 +505,9 @@ def test_json_output_is_pure_json(auto3d_process):
     document that some future change decided to colorize with ANSI on a
     terminal, so re-serializing and comparing is what actually pins "the
     document, the whole document, and nothing but the document".
+
+    Marked slow for its wall-clock cost (20.1 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     import json
 
@@ -602,12 +606,16 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
     assert result.exit_code == 0
 
 
+@pytest.mark.slow
 def test_quiet_suppresses_third_party_stdout(auto3d_process):
     """`--quiet` must silence output Auto3D does not write, too.
 
     Before this, `auto3d run in.smi --k 1 -q` printed the 14-line warp device
     banner it had promised to suppress -- `quiet` only ever gated Auto3D's own
     `console.print` calls, and the banner is not one of them.
+
+    Marked slow for its wall-clock cost (21.3 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     result = auto3d_process("run", "--k", "1", "--quiet")
 

@@ -1,6 +1,7 @@
 import pytest
 
 
+@pytest.mark.slow
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom
     skeleton (N-C1). `optimizing.run()` (Auto3D.engines.batch_opt.batchopt)
@@ -11,6 +12,9 @@ def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     a separate copy of the input. Two records (one implicit-H, one
     explicit-H) so the surviving one proves the filter discriminates rather
     than dropping everything.
+
+    Marked slow for its wall-clock cost (43.6 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     import logging
 
@@ -69,8 +73,13 @@ def test_opt_geometry_raises_when_every_record_has_implicit_hydrogens(tmp_path):
         opt_geometry(str(p), "ANI2xt", use_gpu=False)
 
 
+@pytest.mark.slow
 def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
-    """Output filename must reflect the model, not always 'userNNP'."""
+    """Output filename must reflect the model, not always 'userNNP'.
+
+    Marked slow for its wall-clock cost (5.5 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
+    """
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
