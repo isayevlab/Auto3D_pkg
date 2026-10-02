@@ -20,7 +20,8 @@ from tqdm import tqdm
 
 from Auto3D.domain.embedding import embed_params
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
-from Auto3D.foundation.utils.molprops import calculate_conformer_count
+from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
+from Auto3D.foundation.utils.sdf_io import skip_message
 from Auto3D.foundation.utils.stereochemistry import (
     count_unspecified_stereo as _count_unspecified_stereo,
 )
@@ -143,6 +144,13 @@ class RDKitSdfIsomer:
                     )
                     continue
                 name = mol.GetProp("_Name")
+                if has_dummy_atoms(mol):
+                    # N-M3, same rule as the SMILES path's embed_conformer and
+                    # as every reader that goes through iter_conformer_records.
+                    # `skip_message` rather than a fourth copy of the sentence:
+                    # one wording for one outcome, wherever it is reported.
+                    logger.warning(skip_message("dummy_atoms"), name)
+                    continue
                 for isomer_idx, isomer in enumerate(self.stereoisomers(mol, name)):
                     mol2 = Chem.AddHs(isomer)
                     if self.n_conformers is None:

@@ -83,6 +83,7 @@ TRANSITION_STATE_FAILURE = "transition_state"
 _THERMO_SKIP_MESSAGES = {
     "no_conformer": "%s: no conformer; no thermochemistry computed.",
     "implicit_hydrogens": "%s: implicit hydrogens; no thermochemistry computed.",
+    "dummy_atoms": "%s: contains a dummy atom (atomic number 0); no thermochemistry computed.",
 }
 
 

@@ -86,6 +86,22 @@ class TestEmbedSingle:
             # min_pairwise_distance should be > 0.9 for all returned conformers
             assert positions.shape[0] > 0
 
+    def test_dummy_atom_species_embeds_nothing_and_warns(self, caplog):
+        """N-M3: an R-group placeholder must be named, not quietly dropped.
+
+        Without the skip, `*CCO` embeds and is handed to AIMNet2, which scores
+        the dummy atom with its padding embedding (index 0) -- a number for a
+        species nobody submitted. Clash relief happens to reject every
+        conformer of such a mol today (UFF/MMFF cannot type atom ``*``), so the
+        molecule disappears either way; what this pins is that it disappears
+        for the stated reason and says so.
+        """
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            assert _embed_single("*CCO", "frag", 2, 0.3, 1) == []
+        assert any("dummy atom" in r.message for r in caplog.records)
+
 
 class TestEmbedConformersParallel:
     """Tests for the parallel embedding function."""

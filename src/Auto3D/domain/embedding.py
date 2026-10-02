@@ -46,7 +46,7 @@ from rdkit.Chem import AllChem, rdDistGeom
 from Auto3D.domain.clash_relief import relieve_clash
 from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED
 from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.molprops import calculate_conformer_count
+from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 
 logger = get_logger(__name__)
 
@@ -123,6 +123,14 @@ def _embed_single(
         # much the user was told. The parent also warns on an empty result, which
         # is the guaranteed signal; this one adds the reason.
         logger.warning(f"Skipping molecule {name!r}: failed to parse {smi!r}")
+        return []
+    if has_dummy_atoms(mol_noh):
+        # N-M3: an R-group placeholder is not a species. Clash relief happens
+        # to reject every conformer of such a molecule today (neither MMFF nor
+        # UFF can type atom `*`), so it already disappeared -- but silently and
+        # for an unrelated reason. Named and skipped here instead, before any
+        # embedding work, so the same rule holds whatever the force fields do.
+        logger.warning(f"Skipping molecule {name!r}: it contains a dummy atom (atomic number 0).")
         return []
     mol = Chem.AddHs(mol_noh)
 

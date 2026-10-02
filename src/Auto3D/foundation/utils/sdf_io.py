@@ -7,12 +7,13 @@ those), and nothing here decides pipeline layout (``Auto3D.orchestration.job_lay
 policy (``Auto3D.domain.id_mapping``).
 
 :func:`record_skip_reason` is the one definition of which SDF records a
-per-record consumer cannot process (N-C1): unparseable, conformerless, or
+per-record consumer cannot process (N-C1): unparseable, conformerless,
 carrying implicit hydrogens (a heavy-atom skeleton -- every Auto3D writer
-emits explicit H). :func:`iter_conformer_records` is built on it and is the
+emits explicit H), or carrying a dummy atom (an R-group placeholder is not a
+species, N-M3). :func:`iter_conformer_records` is built on it and is the
 single-file read path's single owner of "skip these silently" -- used by
 ``SPE.calc_spe``, ``ASE.thermo.driver.calc_thermo`` (for the None/
-conformerless skip only; implicit-H records are instead marked
+conformerless skip only; implicit-H and dummy-atom records are instead marked
 ``Thermo_failed`` rather than dropped, via :func:`record_skip_reason` applied
 to its own already-read ``mols`` list), ``ASE.geometry.opt_geometry``,
 ``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``.
@@ -28,6 +29,7 @@ from rdkit import Chem
 
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import iter_smi_records, strip_taut_suffix
 
 if TYPE_CHECKING:
@@ -105,14 +107,18 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
 # iter_conformer_records' own wording for each reason record_skip_reason can
 # return. Every reason other than "unparseable" names the record (`_Name`)
 # rather than its index, which is all an unparseable record has.
-# `ASE.thermo.driver.calc_thermo` does NOT use the latter two: it logs its own
-# thermo-specific phrasing ("...; no thermochemistry computed") for the two
-# reasons it marks `Thermo_failed` rather than drops, since those messages
-# explain a different outcome than "skipped".
+# `ASE.thermo.driver.calc_thermo` does NOT use any reason but "unparseable": it
+# logs its own thermo-specific phrasing ("...; no thermochemistry computed")
+# for the reasons it marks `Thermo_failed` rather than drops, since those
+# messages explain a different outcome than "skipped".
 _SKIP_MESSAGES = {
     "unparseable": "Skipping record %d: RDKit could not parse it.",
     "no_conformer": "Skipping %s: no conformer.",
     "implicit_hydrogens": "Skipping %s: it has implicit hydrogens; add explicit H first.",
+    "dummy_atoms": (
+        "Skipping %s: it contains a dummy atom (atomic number 0); "
+        "an R-group placeholder is not a species."
+    ),
 }
 
 
@@ -150,7 +156,15 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
         ``"implicit_hydrogens"`` for a record with implicit hydrogens: a
         heavy-atom skeleton, since every Auto3D writer emits explicit H -- the
         model would score C2O for "ethanol" while the electron count says
-        C2H6O. ``None`` if the record is fine as it stands.
+        C2H6O.
+        ``"dummy_atoms"`` for a record carrying a dummy atom (atomic number 0:
+        ``*``, ``[3*]``), an R-group placeholder rather than a species (N-M3) --
+        AIMNet2 uses embedding index 0 as its padding slot and would score the
+        placeholder as a zero-feature ghost instead of refusing it, and ASE
+        cannot even build an ``Atoms`` object for it. Checked last, after
+        implicit hydrogens, so a record with both defects is reported under the
+        one that is cheapest to fix. ``None`` if the record is fine as it
+        stands.
     """
     if mol is None:
         return "unparseable"
@@ -158,6 +172,8 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
         return "no_conformer"
     if any(a.GetTotalNumHs() > 0 for a in mol.GetAtoms()):
         return "implicit_hydrogens"
+    if has_dummy_atoms(mol):
+        return "dummy_atoms"
     return None
 
 
@@ -168,9 +184,9 @@ def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     ``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``
     each used to inline their own copy of this filter by hand -- some only the
     None/conformerless half, with nothing pinning them in agreement, and none
-    of them skipping an implicit-hydrogens record. This is the one
-    implementation all four now call. ``ASE.thermo.driver.calc_thermo`` is the
-    one caller that does NOT use this function for implicit hydrogens: see
+    of them skipping an implicit-hydrogens or dummy-atom record. This is the
+    one implementation all four now call. ``ASE.thermo.driver.calc_thermo`` is
+    the one caller that does NOT use this function for those two reasons: see
     :func:`record_skip_reason`.
 
     Args:
