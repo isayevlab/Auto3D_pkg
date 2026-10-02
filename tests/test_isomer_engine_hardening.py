@@ -162,7 +162,7 @@ class TestDummyAtomRecordsAreSkippedByBothIsomerEngines:
         engine = _make_engine(str(tmp_path), smi)
 
         assert engine.embed_conformer("*CCO") is None
-        # The neighbouring good case must keep working, or this would pass with
+        # The neighboring good case must keep working, or this would pass with
         # embed_conformer returning None for everything.
         assert engine.embed_conformer("CCO").GetNumConformers() >= 1
 

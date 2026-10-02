@@ -343,8 +343,10 @@ class optimizing:
             return False
 
         # `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is the
-        # single owner of the None/conformerless/implicit-H filter -- every
-        # other single-file reader (`SPE.calc_spe`, `ASE.geometry.opt_geometry`,
+        # single owner of the defective-record filter -- `record_skip_reason` is
+        # the one statement of which records those are, so no caller keeps its
+        # own copy of the list -- and every other single-file reader
+        # (`SPE.calc_spe`, `ASE.geometry.opt_geometry`,
         # `tautomer.select_tautomers`) already goes through it. It also names
         # every record it skips, not just the all-failed case: a single bad
         # record among a thousand used to leave the output file shorter than

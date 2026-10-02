@@ -370,14 +370,26 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
 
     def test_check_smi_format_warns_once_and_names_the_record(self, tmp_path, caplog):
         import logging
+        import warnings as warnings_mod
 
         from Auto3D.orchestration.pipeline.input_checks import check_smi_format
 
         p = tmp_path / "in.smi"
-        p.write_text("*CCO frag\nCCO ethanol\n")
+        # `*C(F)(Cl)Br` is a dummy record whose stereo is ALSO open: with
+        # enumerate_isomer=False the stereo loop would tell the user to set
+        # enumerate_isomer=True -- advice about a record that is skipped at every
+        # seam downstream, so the setting cannot change its absence from the
+        # output. The dummy skip has to come first.
+        p.write_text("*C(F)(Cl)Br frag\nCCO ethanol\n")
 
         with caplog.at_level(logging.WARNING, logger="Auto3D"):
-            ANI, only_aimnet = check_smi_format(self._args(p))
+            with warnings_mod.catch_warnings(record=True) as caught:
+                warnings_mod.simplefilter("always")
+                ANI, only_aimnet = check_smi_format(self._args(p))
+
+        assert [str(w.message) for w in caught if "unspecified stereo" in str(w.message)] == [], (
+            "a record that will be skipped must not be given stereo advice"
+        )
 
         warnings_seen = self._dummy_warnings(caplog)
         assert len(warnings_seen) == 1, [r.message for r in caplog.records]

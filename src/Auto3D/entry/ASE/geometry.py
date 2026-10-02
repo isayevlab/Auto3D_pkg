@@ -144,9 +144,9 @@ def opt_geometry(
 
     Raises:
         OptimizationError: `path` is missing, empty, or contains no
-            parseable record, or every record was skipped (no conformer,
-            or implicit hydrogens -- see `iter_conformer_records`), so
-            nothing was optimized.
+            parseable record, or every record was skipped as defective -- see
+            :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` for what
+            counts as defective -- so nothing was optimized.
 
     Example:
         >>> from Auto3D.entry.ASE.geometry import opt_geometry

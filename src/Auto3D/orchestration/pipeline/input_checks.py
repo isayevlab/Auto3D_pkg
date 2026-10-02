@@ -241,13 +241,17 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         (smiles, mol_id)
         for _line_no, smiles, mol_id in iter_smi_records(args.path, on_malformed="raise")
     ]
-    smiles_all = [smiles for smiles, _mol_id in smi_records]
-
-    logger.info(f"\tThere are {len(smiles_all)} SMILES in the input file {args.path}.")
+    logger.info(f"\tThere are {len(smi_records)} SMILES in the input file {args.path}.")
     logger.info("\tAll SMILES and IDs are valid.")
 
-    # Warn about every stereo element the input leaves open -- tetrahedral
-    # centers AND double-bond geometry. This used to call
+    # One pass, one parse per record. The open-stereo warning and the
+    # engine/dummy-atom classification used to be two loops that each called
+    # MolFromSmiles on every line: twice the parsing, and two places that could
+    # come to different conclusions about the same record -- which is exactly
+    # what happened, since only the second one learned about dummy atoms.
+    #
+    # The stereo half warns about every stereo element the input leaves open --
+    # tetrahedral centers AND double-bond geometry. It used to call
     # CalcNumUnspecifiedAtomStereoCenters, which sees only ATOM centers, so an
     # unspecified C=C passed silently: with enumerate_isomer=False,
     # "OC(=O)C=CC(=O)O" embeds as fumaric AND maleic acid (~5 kcal/mol apart)
@@ -255,12 +259,34 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # trans isomer absent -- in both cases the user gets a molecule they did
     # not submit, or loses one they did. count_unspecified_stereo is the same
     # predicate RDKitSdfIsomer uses, so the SMILES and SDF paths agree.
-    if not args.enumerate_isomer:
-        for smiles in smiles_all:
-            mol = Chem.MolFromSmiles(smiles)
-            if mol is None:
+    only_aimnet_smiles = []
+    dummy_atom_ids: list[str] = []
+    for smiles, mol_id in smi_records:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            if not args.enumerate_isomer:
                 warnings.warn(f"Failed to parse SMILES: {smiles}", UserWarning)
-                continue
+            logger.warning(f"Skipping invalid SMILES: {smiles}")
+            continue
+
+        if has_dummy_atoms(mol):
+            # Collected, then skipped -- before BOTH remaining checks.
+            #
+            # Not folded into the engine question: atomic number 0 is outside
+            # ANI_ELEMENTS, so counting this record would make check_input raise
+            # "Only AIMNET can handle: [...]" for an ANI run, the opposite of
+            # the N-M3 contract (warned about and skipped, never fatal), and it
+            # must not decide anything on behalf of the records that stay.
+            #
+            # And not warned about for open stereo either: "set
+            # enumerate_isomer=True so Auto3D can enumerate the unspecified
+            # stereo elements" is advice about a record that will be skipped at
+            # every seam downstream -- it tells the user to change a setting
+            # that cannot affect this molecule's absence from the output.
+            dummy_atom_ids.append(mol_id)
+            continue
+
+        if not args.enumerate_isomer:
             c = count_unspecified_stereo(mol)
             if c > 0:
                 msg = (
@@ -273,23 +299,6 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
                 )
                 warnings.warn(msg, UserWarning)
 
-    # Check the properties of molecules
-    only_aimnet_smiles = []
-    dummy_atom_ids: list[str] = []
-    for smiles, mol_id in smi_records:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            logger.warning(f"Skipping invalid SMILES: {smiles}")
-            continue
-        if has_dummy_atoms(mol):
-            # Collected, then skipped -- not folded into the engine question.
-            # Atomic number 0 is outside ANI_ELEMENTS, so counting this record
-            # would make check_input raise "Only AIMNET can handle: [...]" for
-            # an ANI run, which is the opposite of the N-M3 contract: a
-            # dummy-atom record is warned about and skipped, never fatal, and
-            # it must not decide anything on behalf of the records that stay.
-            dummy_atom_ids.append(mol_id)
-            continue
         if _requires_aimnet(mol):
             ANI = False
             only_aimnet_smiles.append(smiles)
