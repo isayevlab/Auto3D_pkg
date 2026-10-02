@@ -256,8 +256,12 @@ class RDKitIsomer:
                 mol = self.embed_conformer(smi)
                 if mol is None:
                     logger.warning(
-                        f"Skipping molecule {name!r}: failed to parse or "
-                        f"contains a dummy atom (atomic number 0): {smi!r}"
+                        f"Skipping molecule {name!r} (an internal "
+                        "<id>_<isomer> label -- in a pipeline run the id half "
+                        "is Auto3D's numeric index rather than the input ID, "
+                        "so the SMILES below is what identifies the record): "
+                        "failed to parse or contains a dummy atom (atomic "
+                        f"number 0): {smi!r}"
                     )
                     continue
                 n_written = 0

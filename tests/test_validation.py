@@ -440,3 +440,66 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
             check_smi_format(self._args(p))
 
         assert self._dummy_warnings(caplog) == []
+
+    def test_the_warning_truncates_a_long_list_and_counts_what_it_dropped(self, tmp_path, caplog):
+        """More dummy records than one line will name: the rest are counted.
+
+        An R-group-only input file would otherwise put every one of its IDs on a
+        single log line, so ``_MAX_DUMMY_IDS_REPORTED`` caps how many are named.
+        The remainder has to be *stated* rather than silently dropped: a user who
+        sees five IDs and seven missing molecules has no way to tell the line was
+        truncated. This is the one branch of ``_warn_about_dummy_atom_records``
+        the two tests above never reach, since both supply a single dummy record.
+        """
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import (
+            _MAX_DUMMY_IDS_REPORTED,
+            check_smi_format,
+        )
+
+        ids = [f"frag{i}" for i in range(1, _MAX_DUMMY_IDS_REPORTED + 3)]
+        p = tmp_path / "all_dummy.smi"
+        p.write_text("".join(f"*CCO {mol_id}\n" for mol_id in ids))
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            check_smi_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        message = warnings_seen[0].getMessage()
+        # The count is of every dummy record, not of the ones named.
+        assert f"{len(ids)} record(s)" in message
+        named, dropped = ids[:_MAX_DUMMY_IDS_REPORTED], ids[_MAX_DUMMY_IDS_REPORTED:]
+        assert all(mol_id in message for mol_id in named), message
+        assert not any(mol_id in message for mol_id in dropped), (
+            "the list was not truncated at _MAX_DUMMY_IDS_REPORTED"
+        )
+        assert f"... ({len(dropped)} more)" in message, message
+
+    def test_the_dummy_warning_comes_before_the_all_valid_line(self, tmp_path, caplog):
+        """The reassurance must not land immediately before its contradiction.
+
+        ``check_sdf_format`` has always warned before "All conformers and IDs are
+        valid.", while the SMILES path logged "All SMILES and IDs are valid."
+        beside the record count -- i.e. before the loop that collects the
+        dummy-atom IDs. The two formats therefore sequenced the same two lines
+        oppositely, and the SMILES one told the user everything was fine one line
+        before telling them a record would be skipped.
+        """
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import check_smi_format
+
+        p = tmp_path / "in.smi"
+        p.write_text("*CCO frag\nCCO ethanol\n")
+
+        with caplog.at_level(logging.INFO, logger="Auto3D"):
+            check_smi_format(self._args(p))
+
+        order = [
+            "dummy" if "dummy atom" in r.message else "valid"
+            for r in caplog.records
+            if "dummy atom" in r.message or "are valid" in r.message
+        ]
+        assert order == ["dummy", "valid"], [r.message for r in caplog.records]

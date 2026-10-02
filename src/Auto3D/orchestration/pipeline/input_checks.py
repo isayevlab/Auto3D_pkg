@@ -242,7 +242,6 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         for _line_no, smiles, mol_id in iter_smi_records(args.path, on_malformed="raise")
     ]
     logger.info(f"\tThere are {len(smi_records)} SMILES in the input file {args.path}.")
-    logger.info("\tAll SMILES and IDs are valid.")
 
     # One pass, one parse per record. The open-stereo warning and the
     # engine/dummy-atom classification used to be two loops that each called
@@ -303,6 +302,16 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
             ANI = False
             only_aimnet_smiles.append(smiles)
     _warn_about_dummy_atom_records(dummy_atom_ids)
+    # Logged here, after the dummy-atom warning rather than beside the record
+    # count above: "All SMILES and IDs are valid." immediately followed by "N
+    # record(s) contain dummy atoms and will be skipped" reads as a
+    # reassurance the next line contradicts. `check_sdf_format` already warns
+    # before its own "All conformers and IDs are valid." line, so the two
+    # formats now sequence the same two lines the same way. The claim itself is
+    # unchanged -- it is about the file's shape (every non-blank line carries a
+    # SMILES and an ID), which `iter_smi_records(on_malformed="raise")` above
+    # has already established.
+    logger.info("\tAll SMILES and IDs are valid.")
     return ANI, only_aimnet_smiles
 
 

@@ -410,3 +410,31 @@ def stereo_perception(request):
         yield request.param
     finally:
         Chem.SetUseLegacyStereoPerception(previous)
+
+
+@pytest.fixture(autouse=True)
+def _forget_which_untabulated_elements_were_already_reported(monkeypatch):
+    """Give each test a fresh ``connectivity._REPORTED_UNTABULATED_ELEMENTS``.
+
+    ``check_connectivity`` names an element with no UFF reference radius in one
+    WARNING the first time it meets it, and remembers it in module state so the
+    O(n^2) pair loop does not repeat the line thousands of times per run. That
+    budget is per *process*, which makes the set a cross-test channel: a test
+    that merely touches a sodium salt (``TestCheckConnectivity::
+    test_salt_with_metal_does_not_crash``) leaves ``{11}`` behind, and any later
+    test asserting that Na *is* named then passes or fails by collection order.
+
+    Defined last in this file so it is the innermost autouse fixture: it is set
+    up after :func:`_fail_on_auto3d_state_a_test_leaves_behind` snapshots the
+    module, and ``monkeypatch`` therefore undoes the substitution before that
+    fixture checks -- it sees the original set object back in place, holding
+    whatever it held before, which is nothing.
+
+    Autouse rather than a per-class ``_reset``, so the isolation does not depend
+    on each future test remembering to ask for it. The explicit resets already
+    in ``tests/test_utils_connectivity.py`` stay harmless: they replace a set
+    this fixture has already replaced.
+    """
+    from Auto3D.foundation.utils import connectivity
+
+    monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS", set())
