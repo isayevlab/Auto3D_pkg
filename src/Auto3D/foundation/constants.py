@@ -48,8 +48,10 @@ EMBED_TIMEOUT_S = 60
 # Embedding is RDKit-bound and each worker is started under the ``spawn``
 # context, so every one of them re-imports rdkit before it does any work;
 # beyond this many the pool startup and the single-writer SDF output dominate
-# whatever the extra processes contribute. A caller who wants more passes an
-# explicit ``parallel_workers``.
+# whatever the extra processes contribute. It is the last of the three terms in
+# ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``, so
+# on a large box it is usually the one that binds. A caller who wants more
+# passes an explicit ``parallel_workers``.
 PARALLEL_EMBED_MAX_WORKERS = 32
 
 # Process exit codes owned outside the CLI.

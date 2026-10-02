@@ -170,15 +170,18 @@ def _format_validation_error(exc: PydanticValidationError) -> str:
 def check_field_bounds(values: dict) -> None:
     """Validate ``values`` (field name -> value) against ``FIELD_BOUNDS``.
 
-    Shared by Auto3DOptions.__post_init__ and CLIConfig's model validator so
-    both entry points reject the same out-of-range values with the same
-    message -- this is what closes C10/M27 on every path instead of just one.
+    Called from ``Auto3DOptions``'s ``_normalize_and_validate`` model
+    validator, so every entry point -- the Python API, ``auto3d run``, a ``-c``
+    config file and the legacy YAML form -- rejects the same out-of-range values
+    with the same message. That is what closes C10/M27 on every path instead of
+    just one.
 
     A value of ``None`` or ``False`` means "not specified" (dynamic/default
     behavior) only for the fields in ``SENTINEL_FIELDS`` (k, window,
-    max_confs, memory, parallel_workers) and is skipped there, matching both
-    classes' existing sentinel conventions. Every other bounded field has no "unset" meaning and
-    must reject ``None``/``False`` just like any other out-of-range value (see
+    max_confs, memory, parallel_workers) and is skipped there, matching those
+    fields' documented sentinel conventions. Every other bounded field has no
+    "unset" meaning and must reject ``None``/``False`` just like any other
+    out-of-range value (see
     ``SENTINEL_FIELDS``'s docstring). Fields missing from ``values`` are
     skipped too, so callers may pass a partial mapping.
 
@@ -443,6 +446,13 @@ class Auto3DOptions(BaseModel):
     off until then, which meant the ordinary run embedded one species at a time
     however many cores the machine had.
 
+    ``main()`` and ``auto3d run`` honor this default. ``smiles2mols`` does not:
+    it requires an explicit ``use_parallel_embedding=True``. The pool is started
+    under the ``spawn`` context, which re-imports the calling script in every
+    worker, so it is only safe when that script keeps its work behind an
+    ``if __name__ == "__main__":`` guard -- a requirement ``main()`` already
+    carries and the single-process convenience API deliberately does not.
+
     Until 3.0.0 this existed only as a constructor argument on the isomer engine
     with no route from here, so no ``main()``/``smiles2mols`` run could reach it
     and the code behind it was reachable only from tests.
@@ -451,17 +461,23 @@ class Auto3DOptions(BaseModel):
     parallel_workers: int | None = None
     """Worker processes used when ``use_parallel_embedding`` is on.
 
-    ``None`` resolves to ``min(cores, species, 32)`` at embedding time (see
-    ``Auto3D.domain.embedding.resolve_embedding_workers``), because the useful
-    count depends on the machine and on how many species the run enumerated --
-    neither of which is known here. An explicit value is used as given.
+    ``None`` resolves to ``min(cores // threads per worker, species, 32)`` at
+    embedding time (see ``Auto3D.domain.embedding.resolve_embedding_workers``),
+    because the useful count depends on the machine, on how many species the run
+    enumerated, and on ``mpi_np`` -- the threads each worker gives RDKit, which
+    the cores have to be shared out between. None of the three is known here. An
+    explicit value is used as given.
     """
 
     parallel_embedding_threshold: int = 10
-    """Fewest molecules worth embedding in parallel.
+    """Fewest species worth embedding in parallel.
+
+    Counted *after* stereoisomer enumeration, not on the input file: the gate
+    reads the enumerated set, so one input SMILES with three unspecified
+    stereocenters can cross a threshold of 10 on its own.
 
     Below this count a run stays serial even with ``use_parallel_embedding`` on,
-    since spawning processes for a handful of molecules costs more than it saves.
+    since spawning processes for a handful of species costs more than it saves.
     """
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS

@@ -125,6 +125,19 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
     A convenient single-process function for small batches. For larger batches
     (>150 SMILES), use the ``main()`` function for better performance.
 
+    Single-process is a contract, not an accident: this function runs in the
+    caller's own process, so it does **not** follow
+    ``Auto3DOptions.use_parallel_embedding``'s default. Parallel embedding
+    starts worker processes under the ``spawn`` context, which re-imports the
+    calling script in every child -- so it requires that script to be
+    importable without side effects, i.e. to keep its work behind an
+    ``if __name__ == "__main__":`` guard. ``main()`` has always required that
+    guard and every documented ``main()`` example has one; ``smiles2mols``
+    examples deliberately do not, because the function is the convenience API.
+    Pass ``use_parallel_embedding=True`` explicitly to opt in (and add the
+    guard); leaving it unset keeps this function serial whatever the field's
+    default becomes.
+
     Args:
         smiles: List of SMILES strings to generate conformers for.
         args: Configuration options as an ``Auto3DOptions`` instance.
@@ -147,6 +160,14 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         OptimizationError: If no input SMILES embedded a usable 3D conformer,
             so nothing reached the optimizer.
     """
+    # Did the caller *ask* for parallel embedding, or are they just carrying the
+    # field's default? This has to be read here, before `replace()`: that method
+    # rebuilds the model through its own constructor, so every field comes out
+    # marked as explicitly set and the distinction is gone. See the engine call
+    # below, and `Auto3DOptions.use_parallel_embedding`'s docstring, for why
+    # smiles2mols does not simply honor the default.
+    explicit_parallel = "use_parallel_embedding" in args.model_fields_set
+
     # Copy the caller's config up front: smiles2mols must not mutate the
     # object it was given (M15). Every assignment below (path, input_format)
     # lands on this private copy; `args` no longer refers to the caller's
@@ -220,7 +241,10 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             threshold=args.threshold,
             n_jobs=args.mpi_np,
             enumerate_isomers=args.enumerate_isomer,
-            use_parallel_embedding=args.use_parallel_embedding,
+            # Opt-in only (see `explicit_parallel` above): the spawn pool would
+            # re-import an unguarded caller script in every child, which is why
+            # this one entry point does not inherit the field's default.
+            use_parallel_embedding=args.use_parallel_embedding if explicit_parallel else False,
             parallel_workers=args.parallel_workers,
             parallel_embedding_threshold=args.parallel_embedding_threshold,
         )

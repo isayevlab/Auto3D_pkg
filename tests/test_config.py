@@ -505,6 +505,69 @@ class TestParallelEmbeddingIsReachable:
             "gate could not be tuned"
         )
 
+    @pytest.mark.parametrize(
+        "overrides,expected",
+        [
+            # (i) The default config: smiles2mols keeps its documented
+            # single-process contract even though the field now defaults to True.
+            ({}, False),
+            # (ii) An explicit opt-in is honored.
+            ({"use_parallel_embedding": True}, True),
+            # (iii) An explicit opt-out is honored too, and is not confused with
+            # "never mentioned it" -- both reach the engine as False, but through
+            # different paths, and a future change that only looked at the value
+            # would make these two indistinguishable.
+            ({"use_parallel_embedding": False}, False),
+        ],
+    )
+    def test_smiles2mols_embeds_in_parallel_only_on_an_explicit_opt_in(
+        self, monkeypatch, tmp_path, overrides, expected
+    ):
+        """``smiles2mols`` runs in the caller's own process, so it may not take
+        the spawn path on a default config.
+
+        ``main()`` already required the caller's script to be importable without
+        side effects -- it has always spawned its workers from an explicit spawn
+        context, and every documented ``main()`` example carries an
+        ``if __name__ == "__main__":`` guard. ``smiles2mols`` is documented as the
+        single-process convenience API and none of its examples have that guard,
+        so honoring the flipped default here would have made every such script
+        above ``parallel_embedding_threshold`` die with ``BrokenProcessPool`` from
+        a re-imported ``__main__``.
+
+        The opt-in has to be read from ``model_fields_set`` BEFORE
+        ``args.replace()``: ``replace()`` rebuilds the model through its
+        constructor, which marks every field as explicitly set, so a read
+        afterwards can never distinguish a default from a choice.
+        """
+        from Auto3D.entry import auto3D as auto3D_mod
+        from Auto3D.foundation.config import Auto3DOptions
+
+        seen = {}
+
+        class _StubEngine:
+            def run(self):
+                raise RuntimeError("stop here: the factory call is what is asserted")
+
+        def _capture(**kwargs):
+            seen.update(kwargs)
+            return _StubEngine()
+
+        monkeypatch.setattr(auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture))
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO ethanol\n")
+        options = Auto3DOptions(path=str(smi), k=1, use_gpu=False, **overrides)
+
+        with pytest.raises(RuntimeError, match="stop here"):
+            auto3D_mod.smiles2mols(["CCO"], options)
+
+        assert seen.get("use_parallel_embedding") is expected, (
+            f"smiles2mols with {overrides or 'the default config'} handed the "
+            f"isomer engine use_parallel_embedding="
+            f"{seen.get('use_parallel_embedding')!r}, expected {expected!r}"
+        )
+
     def test_parallel_embedding_is_the_default(self):
         """On by default since 3.2.0, with the worker count left unresolved.
 

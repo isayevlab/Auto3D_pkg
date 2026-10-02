@@ -47,11 +47,16 @@ class RDKitIsomer:
         np: Number of CPU threads for conformer generation.
         flipper: Whether to enumerate R/S and cis/trans isomers.
         use_parallel_embedding: Whether to use parallel conformer embedding.
-        parallel_embedding_threshold: Minimum number of molecules to trigger
-            parallel embedding. Default 10.
+            Off in this signature, which is the constructor default only: the
+            product default (``Auto3DOptions.use_parallel_embedding``) is ON
+            since 3.2.0, and both orchestrators pass it explicitly, so this
+            default is reached by direct callers alone.
+        parallel_embedding_threshold: Fewest species (after stereoisomer
+            enumeration) to trigger parallel embedding. Default 10.
         parallel_workers: Number of worker processes for parallel embedding.
-            None (the default) resolves to min(cores, species,
-            PARALLEL_EMBED_MAX_WORKERS) at dispatch.
+            None (the default) resolves to min(cores // threads per worker,
+            species, PARALLEL_EMBED_MAX_WORKERS) at dispatch, where "threads per
+            worker" is ``np``.
     """
 
     def __init__(
@@ -289,7 +294,9 @@ class RDKitIsomer:
         # because the species count is only known once enumeration has run, and
         # logged resolved rather than as requested -- a line reading "with None
         # workers" told the user nothing about what the run is doing.
-        n_workers = resolve_embedding_workers(self.parallel_workers, len(smi_name_tuples))
+        n_workers = resolve_embedding_workers(
+            self.parallel_workers, len(smi_name_tuples), threads_per_worker=self.np
+        )
         logger.info(
             "Using parallel embedding with %d worker processes for %d species",
             n_workers,

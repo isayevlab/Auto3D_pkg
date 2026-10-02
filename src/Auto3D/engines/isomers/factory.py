@@ -144,10 +144,16 @@ class IsomerEngineFactory:
             enumerate_isomers: Whether to enumerate stereoisomers.
             mode: Omega mode ('classic', 'macrocycle', etc.) for omega engine.
             use_parallel_embedding: Use parallel conformer embedding (rdkit only).
-            parallel_embedding_threshold: Minimum molecules for parallel embedding.
+                Off in this signature, which is the constructor default only: the
+                product default (``Auto3DOptions.use_parallel_embedding``) is ON
+                since 3.2.0, and both orchestrators pass it explicitly, so this
+                default is reached by direct callers alone.
+            parallel_embedding_threshold: Fewest species (after stereoisomer
+                enumeration) worth embedding in parallel.
             parallel_workers: Number of worker processes for parallel embedding.
-                None resolves to min(cores, species, PARALLEL_EMBED_MAX_WORKERS)
-                at dispatch.
+                None resolves to min(cores // threads per worker, species,
+                PARALLEL_EMBED_MAX_WORKERS) at dispatch, where "threads per
+                worker" is ``n_jobs``.
 
         Returns:
             Configured isomer engine, whose ``run()`` builds and drives the

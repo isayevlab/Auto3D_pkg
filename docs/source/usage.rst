@@ -382,13 +382,26 @@ Initial conformers are embedded with ETKDG in parallel worker processes, for
 SMILES input with the RDKit isomer engine: ``use_parallel_embedding`` is on by
 default since 3.2.0 (SDF input and ``omega`` ignore it), and
 ``parallel_workers`` is ``None``, meaning the worker count is resolved per run
-as ``min(cores, species, 32)``. Set ``parallel_workers`` to pin a number, or
-pass ``use_parallel_embedding=False`` (``--no-parallel-embedding``) for the
-serial path, which also remains the path for inputs with fewer molecules than
-``parallel_embedding_threshold`` (10). Each embedding attempt is capped at 60
-seconds and retried once with random initial coordinates when it produces no
-conformer, so a geometrically impossible stereoisomer is reported and skipped
-instead of holding up the run.
+as ``min(cores // threads per worker, species, 32)`` -- threads per worker being
+``mpi_np``, which each worker hands RDKit, so the cores are shared out between
+workers rather than given to each of them. Set ``parallel_workers`` to pin a
+number, or pass ``use_parallel_embedding=False`` (``--no-parallel-embedding``)
+for the serial path, which also remains the path for runs with fewer species
+than ``parallel_embedding_threshold`` (10) -- species counted after
+stereoisomer enumeration, so one input SMILES with three unspecified
+stereocenters can cross the threshold on its own.
+
+``smiles2mols`` is the exception: it runs in your own process, so it stays
+serial unless you pass ``use_parallel_embedding=True`` yourself. Worker
+processes re-import the calling script, which is safe only if that script keeps
+its work behind an ``if __name__ == "__main__":`` guard -- something ``main()``
+has always required and the convenience API does not.
+
+Independently of any of this, every ETKDG call is capped at 60 seconds and
+retried once with random initial coordinates when it produces no conformer --
+parallel or serial, and on the SDF engine as well as the SMILES one -- so a
+geometrically impossible stereoisomer is reported and skipped instead of
+holding up the run.
 
 Wrapper Functions
 -----------------
