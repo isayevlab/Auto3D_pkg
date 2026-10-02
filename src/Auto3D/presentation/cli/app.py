@@ -193,6 +193,13 @@ RunTf32Flag = Annotated[
         "--tf32/--no-tf32", help="Allow TF32 matmul on Ampere+ GPUs (faster, less precise)."
     ),
 ]
+RunParallelEmbeddingFlag = Annotated[
+    bool | None,
+    typer.Option(
+        "--parallel-embedding/--no-parallel-embedding",
+        help="Embed conformers in parallel worker processes (default on; workers scale to cores).",
+    ),
+]
 
 
 def version_callback(value: bool) -> None:
@@ -285,6 +292,7 @@ def run(
         typer.Option("--memory", help="RAM available to Auto3D in GB (default: auto-detect)."),
     ] = None,
     tf32: RunTf32Flag = None,
+    parallel_embedding: RunParallelEmbeddingFlag = None,
     save_intermediate: Annotated[
         bool,
         typer.Option(
@@ -330,6 +338,7 @@ def run(
         batchsize_atoms=batchsize_atoms,
         memory=memory,
         tf32=tf32,
+        parallel_embedding=parallel_embedding,
         save_intermediate=save_intermediate,
         verbose=verbose,
         quiet=quiet,

@@ -154,6 +154,14 @@ Run conformer generation on input molecules.
    * - ``--tf32`` / ``--no-tf32``
      - ``--no-tf32``
      - Allow TF32 matmul on Ampere+ GPUs (faster, less precise)
+   * - ``--parallel-embedding`` / ``--no-``
+     - ``--parallel-embedding``
+     - Embed conformers in parallel worker processes. The worker count comes
+       from ``parallel_workers`` (unset:
+       ``min(cores // threads per worker, species, 32)``, where threads per
+       worker is ``--mpi-np``), and runs with fewer species than
+       ``parallel_embedding_threshold`` -- counted after stereoisomer
+       enumeration, not on the input file -- stay serial either way.
    * - ``--save-intermediate``
      - False
      - Keep all intermediate metadata files. Sets ``Auto3DOptions.verbose``

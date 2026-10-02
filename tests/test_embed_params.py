@@ -63,6 +63,13 @@ def test_a_bare_parameters_object_would_have_been_wrong():
     assert bare.useBasicKnowledge is False
 
 
+def test_embed_params_sets_a_timeout():
+    from Auto3D.domain.embedding import embed_params
+    from Auto3D.foundation.constants import EMBED_TIMEOUT_S
+
+    assert embed_params(n_threads=1, prune_rms_thresh=0.3).timeout == EMBED_TIMEOUT_S
+
+
 @pytest.mark.parametrize("smiles", ["CCO", "OCC(O)CO", "CC(=O)Nc1ccc(O)cc1"])
 def test_geometry_is_unchanged_by_the_switch(smiles):
     """The switch must move no atom. Compares against the keyword form."""

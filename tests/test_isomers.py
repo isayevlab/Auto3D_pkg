@@ -12,6 +12,8 @@ tests below check it the way that actually pins the behavior -- by driving
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from Auto3D.engines.isomers import IsomerEngineFactory
@@ -198,7 +200,10 @@ class TestCreateKwargMapping:
         assert kwargs["flipper"] is True
         assert kwargs["use_parallel_embedding"] is False
         assert kwargs["parallel_embedding_threshold"] == 10
-        assert kwargs["parallel_workers"] == 4
+        # None, not 4: the factory no longer picks a worker count. The engine
+        # resolves it at dispatch, where the core count and the number of
+        # species to embed are both known.
+        assert kwargs["parallel_workers"] is None
 
     def test_rdkit_sdf_mapping(self, spies):
         IsomerEngineFactory.create(
@@ -333,8 +338,14 @@ class TestCreateEngineTypeResolution:
 class TestCreateParallelEmbedding:
     """Parallel-embedding arguments reach ``RDKitIsomer`` through ``create``."""
 
-    def test_rdkit_engine_parallel_embedding_default_off(self, spies):
-        """Test that parallel embedding is off by default."""
+    def test_rdkit_engine_parallel_embedding_constructor_default_off(self, spies):
+        """``create`` leaves the engine's own default alone when not asked.
+
+        This pins the *constructor* default, not the product default: since
+        3.2.0 ``Auto3DOptions.use_parallel_embedding`` is True and both
+        orchestrators pass it explicitly, so this path is reached only by a
+        direct ``create`` call that names no value.
+        """
         IsomerEngineFactory.create(
             "rdkit",
             input_path="/input.smi",
@@ -410,6 +421,118 @@ class TestCreateParallelEmbedding:
         assert calls["n"] == 1, (
             "embed_conformers_parallel was never called: the parallel path "
             "did not run despite use_parallel_embedding=True"
+        )
+
+    def test_rdkit_engine_resolves_the_worker_count_at_dispatch(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """``parallel_workers=None`` must become a concrete count, capped at 32.
+
+        ``embed_conformers_parallel`` takes a number, not a sentinel, so the
+        resolution has to happen in the engine -- and it has to happen at
+        dispatch rather than in the constructor, because the number of species
+        to embed is only known once enumeration has run. 40 species on a
+        128-core box with the factory's default ``n_jobs=4`` threads per worker
+        resolves to ``min(128 // 4, 40, 32) == 32``, which is what distinguishes
+        "resolved" from "passed the core count straight through". 32 is also
+        what an engine that forgot to forward its thread count would produce
+        here, so the sibling test below pins that half separately.
+        """
+        import logging
+
+        import Auto3D.domain.embedding as embedding_mod
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        smi = tmp_path / "in.smi"
+        smi.write_text("".join(f"CCO mol{i}\n" for i in range(40)))
+
+        seen = {}
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs)
+            return iter([])
+
+        monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
+        monkeypatch.setattr(os, "cpu_count", lambda: 128)
+
+        engine = IsomerEngineFactory.create(
+            "rdkit",
+            input_path=str(smi),
+            output_path=str(tmp_path / "output.sdf"),
+            smiles_enumerated=str(tmp_path / "enum.smi"),
+            smiles_reduced=str(tmp_path / "reduced.smi"),
+            smiles_hashed=str(tmp_path / "hashed.smi"),
+            job_dir=str(job_dir),
+            enumerate_isomers=False,
+            use_parallel_embedding=True,
+            parallel_embedding_threshold=1,
+            parallel_workers=None,
+        )
+
+        with caplog.at_level(logging.INFO, logger="Auto3D.engines.isomers.rdkit_smi"):
+            engine.run()
+
+        assert seen.get("n_workers") == 32, (
+            "the engine passed "
+            f"{seen.get('n_workers')!r} instead of the resolved worker count; "
+            "embed_conformers_parallel cannot start a pool from None"
+        )
+        assert any("32 worker processes for 40 species" in r.message for r in caplog.records), (
+            "the log line must name the RESOLVED worker count, not the "
+            f"unresolved request: {[r.message for r in caplog.records]}"
+        )
+
+    def test_rdkit_engine_divides_the_cores_by_its_own_thread_count(self, tmp_path, monkeypatch):
+        """The engine must hand its ``np`` to the resolution as threads per worker.
+
+        Each worker passes ``np_threads=self.np`` to ``EmbedMultipleConfs``, so
+        the cores have to be shared out between workers rather than handed to
+        each of them -- otherwise an 8-core box runs 8 workers x 4 threads.
+        ``n_jobs=8`` with 128 cores gives ``min(128 // 8, 40, 32) == 16``, a
+        value neither the cap nor the species count nor the raw core count can
+        produce, so only a forwarded thread count satisfies it.
+        """
+        import Auto3D.domain.embedding as embedding_mod
+
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        smi = tmp_path / "in.smi"
+        smi.write_text("".join(f"CCO mol{i}\n" for i in range(40)))
+
+        seen = {}
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs)
+            return iter([])
+
+        monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
+        monkeypatch.setattr(os, "cpu_count", lambda: 128)
+
+        IsomerEngineFactory.create(
+            "rdkit",
+            input_path=str(smi),
+            output_path=str(tmp_path / "output.sdf"),
+            smiles_enumerated=str(tmp_path / "enum.smi"),
+            smiles_reduced=str(tmp_path / "reduced.smi"),
+            smiles_hashed=str(tmp_path / "hashed.smi"),
+            job_dir=str(job_dir),
+            n_jobs=8,
+            enumerate_isomers=False,
+            use_parallel_embedding=True,
+            parallel_embedding_threshold=1,
+            parallel_workers=None,
+        ).run()
+
+        assert seen.get("n_workers") == 16, (
+            "the engine resolved "
+            f"{seen.get('n_workers')!r} workers for 128 cores at 8 threads each; "
+            "16 is the only count that shares the cores out instead of "
+            "oversubscribing them"
+        )
+        assert seen.get("np_threads") == 8, (
+            "the thread count the workers actually use and the one the "
+            f"resolution divided by must be the same value: {seen.get('np_threads')!r}"
         )
 
 

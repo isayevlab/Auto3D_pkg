@@ -103,6 +103,119 @@ class TestEmbedSingle:
         assert any("dummy atom" in r.message for r in caplog.records)
 
 
+def test_embed_with_retry_retries_once_with_random_coords(monkeypatch):
+    from rdkit import Chem
+
+    import Auto3D.domain.embedding as emb
+
+    seen = []
+
+    def fake_embed(mol, numConfs, params):
+        seen.append(bool(params.useRandomCoords))
+        return [] if not params.useRandomCoords else [0, 1]
+
+    monkeypatch.setattr(emb.AllChem, "EmbedMultipleConfs", fake_embed)
+    n = emb.embed_with_retry(
+        Chem.AddHs(Chem.MolFromSmiles("CCO")), n_conformers=2, n_threads=1, prune_rms_thresh=0.3
+    )
+    assert seen == [False, True] and n == 2
+
+
+def test_embed_with_retry_gives_up_after_the_retry(monkeypatch):
+    from rdkit import Chem
+
+    import Auto3D.domain.embedding as emb
+
+    monkeypatch.setattr(emb.AllChem, "EmbedMultipleConfs", lambda mol, numConfs, params: [])
+    assert (
+        emb.embed_with_retry(
+            Chem.AddHs(Chem.MolFromSmiles("CCO")),
+            n_conformers=2,
+            n_threads=1,
+            prune_rms_thresh=0.3,
+        )
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "cpus,n_species,requested,threads,expected",
+    [
+        # A full box, more species than the cap: the cap wins.
+        (128, 98, None, 1, 32),
+        # Fewer cores than the cap: the cores win.
+        (4, 98, None, 1, 4),
+        # Fewer species than cores: the species win. Belt-and-braces rather than
+        # a cost saving -- CPython >= 3.9 starts ProcessPoolExecutor workers on
+        # demand, so a pool sized above the task count never spawns the surplus.
+        (128, 3, None, 1, 3),
+        # An explicit request is honored verbatim: cap, cores and thread count
+        # are all bypassed, because a caller who names a number has a reason.
+        (128, 98, 8, 4, 8),
+        # A single-core box still gets one worker, never zero.
+        (1, 98, None, 1, 1),
+        # Each worker threads RDKit's embedding `mpi_np` ways, so the cores have
+        # to be shared out between workers rather than handed to each of them:
+        # 8 cores at 4 threads apiece is 2 workers, not 8 (which would have put
+        # 32 runnable threads on 8 cores).
+        (8, 98, None, 4, 2),
+        # The division happens before the cap, so a big box with threaded
+        # workers still reaches the cap rather than overshooting it.
+        (128, 98, None, 4, 32),
+        # Single-threaded workers are the unshared case: all cores usable.
+        (8, 98, None, 1, 8),
+        # More threads per worker than cores: floor at one worker, never zero.
+        (4, 98, None, 8, 1),
+    ],
+)
+def test_resolve_embedding_workers(monkeypatch, cpus, n_species, requested, threads, expected):
+    """``None`` means "scale to this machine"; an explicit count is obeyed.
+
+    A fixed default of 4 left 124 of 128 cores idle (P-C3), so the resolution
+    has to happen where both the machine and the batch size are known rather
+    than in a constructor default. "The machine" means cores *per worker*: each
+    worker hands ``threads_per_worker`` to ``EmbedMultipleConfs``, so handing
+    every core its own worker would oversubscribe the box by that factor.
+    """
+    from Auto3D.domain.embedding import resolve_embedding_workers
+
+    monkeypatch.setattr(os, "cpu_count", lambda: cpus)
+    assert resolve_embedding_workers(requested, n_species, threads_per_worker=threads) == expected
+
+
+def test_resolve_embedding_workers_defaults_to_one_thread_per_worker(monkeypatch):
+    """``threads_per_worker`` is keyword-only and defaults to 1.
+
+    Pinned so the two-argument call stays valid for any caller that does not
+    thread inside its workers.
+    """
+    from Auto3D.domain.embedding import resolve_embedding_workers
+
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    assert resolve_embedding_workers(None, 98) == 8
+
+
+def test_resolve_embedding_workers_survives_an_unknown_core_count(monkeypatch):
+    """``os.cpu_count()`` returns None when the platform cannot say."""
+    from Auto3D.domain.embedding import resolve_embedding_workers
+
+    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    assert resolve_embedding_workers(None, 98) == 1
+
+
+def test_resolve_embedding_workers_survives_a_zero_thread_count(monkeypatch):
+    """``threads_per_worker=0`` must not divide by zero.
+
+    ``Auto3DOptions`` bounds ``mpi_np`` at >= 1, but the isomer engine's direct
+    callers bypass that validation entirely, and ``self.np`` is whatever they
+    passed.
+    """
+    from Auto3D.domain.embedding import resolve_embedding_workers
+
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    assert resolve_embedding_workers(None, 98, threads_per_worker=0) == 8
+
+
 class TestEmbedConformersParallel:
     """Tests for the parallel embedding function."""
 
@@ -273,7 +386,23 @@ class TestEmbedConformersParallel:
         # Replace the worker with one that kills its process mid-task.
         monkeypatch.setattr(Auto3D.domain.embedding, "_embed_single", _suicide_embed)
 
-        with pytest.raises(BrokenProcessPool):
+        with pytest.raises(BrokenProcessPool) as exc_info:
             list(
                 embed_conformers_parallel([("C", "m1"), ("CC", "m2")], n_conformers=1, n_workers=1)
             )
+
+        # ...and it must arrive with the two ways out attached. By far the most
+        # common cause in practice is not an OOM kill but an unguarded caller
+        # script: the spawn context re-imports `__main__` in every worker, which
+        # raises there and breaks the pool before any molecule is embedded. The
+        # bare exception named neither the guard nor the serial fallback, and the
+        # only clue was a child-process traceback about freeze_support. A note,
+        # rather than a different exception type, so the OOM case still surfaces
+        # as the same error everything upstream already handles.
+        notes = " ".join(getattr(exc_info.value, "__notes__", []))
+        assert 'if __name__ == "__main__":' in notes, (
+            f"BrokenProcessPool carries no actionable note: {notes!r}"
+        )
+        assert "use_parallel_embedding=False" in notes, (
+            f"the note does not mention the serial fallback: {notes!r}"
+        )

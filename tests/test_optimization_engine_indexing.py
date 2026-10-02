@@ -550,8 +550,14 @@ class TestStepForStepIdentity:
     """
 
     @pytest.mark.parametrize("mask_kind", [None, "two-ghosts"])
+    @pytest.mark.slow
     def test_every_prefix_of_the_trajectory_matches(self, mask_kind):
-        """40 prefixes x 5 state tensors, exact equality, on a hermetic potential."""
+        """40 prefixes x 5 state tensors, exact equality, on a hermetic potential.
+
+        Marked slow for its wall-clock cost (14.3 s / 13.1 s on the
+        2026-10-02 durations run, by parametrization), not for GPU or
+        network needs.
+        """
         batch, natoms = 8, 6
         atom_mask = None
         if mask_kind == "two-ghosts":

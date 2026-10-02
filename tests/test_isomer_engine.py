@@ -217,8 +217,13 @@ def test_rd_isomer_with_parallel_embedding(monkeypatch):
         pass
 
 
-def test_rd_isomer_parallel_embedding_default_off(monkeypatch):
-    """Test that parallel embedding is disabled by default.
+def test_rd_isomer_parallel_embedding_constructor_default_off(monkeypatch):
+    """The engine's own constructor default is serial.
+
+    The *product* default is the opposite: ``Auto3DOptions.use_parallel_embedding``
+    is True since 3.2.0, and every production caller passes it explicitly. What
+    this pins is that constructing ``RDKitIsomer`` without the argument embeds
+    serially.
 
     Checking the stored flag alone never drives ``run()``, so it cannot tell
     "the flag is False" apart from "the flag is ignored and the serial path

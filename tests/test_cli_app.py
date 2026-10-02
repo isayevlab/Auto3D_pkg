@@ -487,6 +487,7 @@ def test_run_with_nonexistent_file(runner):
     assert result.exit_code != 0
 
 
+@pytest.mark.slow
 def test_json_output_is_pure_json(auto3d_process):
     """`auto3d run --json` must write the JSON document and nothing else to stdout.
 
@@ -504,6 +505,9 @@ def test_json_output_is_pure_json(auto3d_process):
     document that some future change decided to colorize with ANSI on a
     terminal, so re-serializing and comparing is what actually pins "the
     document, the whole document, and nothing but the document".
+
+    Marked slow for its wall-clock cost (20.1 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     import json
 
@@ -602,12 +606,16 @@ def test_no_nonzero_exit_when_no_molecules_missing(runner, tmp_path_cwd, monkeyp
     assert result.exit_code == 0
 
 
+@pytest.mark.slow
 def test_quiet_suppresses_third_party_stdout(auto3d_process):
     """`--quiet` must silence output Auto3D does not write, too.
 
     Before this, `auto3d run in.smi --k 1 -q` printed the 14-line warp device
     banner it had promised to suppress -- `quiet` only ever gated Auto3D's own
     `console.print` calls, and the banner is not one of them.
+
+    Marked slow for its wall-clock cost (21.3 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     result = auto3d_process("run", "--k", "1", "--quiet")
 
@@ -1147,4 +1155,36 @@ def test_run_forwards_each_new_flag_to_auto3d_options(
     options = m.call_args[0][0]
     assert getattr(options, field) == expected, (
         f"{flag}={value} did not reach Auto3DOptions.{field}"
+    )
+
+
+@pytest.mark.parametrize(
+    "flag,expected",
+    [("--parallel-embedding", True), ("--no-parallel-embedding", False)],
+)
+def test_run_forwards_the_parallel_embedding_flag(runner, tmp_path_cwd, flag, expected):
+    """Both halves of the flag must reach ``use_parallel_embedding``.
+
+    The ``--no-`` half is the one that matters: parallel embedding is on by
+    default since 3.2.0, so this flag is how a user gets the serial path back
+    on a box where spawning workers is unwelcome. ``merge_configs`` drops
+    ``None`` overrides, and ``False`` is not ``None`` -- a mapping that leaked
+    the two together would leave ``--no-parallel-embedding`` silently doing
+    nothing while still exiting 0.
+    """
+    from unittest.mock import patch
+
+    from Auto3D.presentation.cli.app import app
+
+    smi = tmp_path_cwd / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    with patch.object(Auto3D.entry.auto3D, "main", return_value="out.sdf") as m:
+        result = runner.invoke(app, ["run", str(smi), "--k", "1", "--no-gpu", flag])
+
+    assert result.exit_code == 0, result.output
+    assert m.called, f"{flag} prevented the run from starting"
+    options = m.call_args[0][0]
+    assert options.use_parallel_embedding is expected, (
+        f"{flag} did not reach Auto3DOptions.use_parallel_embedding"
     )

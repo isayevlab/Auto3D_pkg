@@ -13,6 +13,7 @@ removes the cycle rather than deferring it.
 from __future__ import annotations
 
 import multiprocessing
+import os
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -44,14 +45,64 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdDistGeom
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED
+from Auto3D.foundation.constants import (
+    CONFORMER_RANDOM_SEED,
+    EMBED_TIMEOUT_S,
+    PARALLEL_EMBED_MAX_WORKERS,
+)
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 
 logger = get_logger(__name__)
 
 
-def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
+def resolve_embedding_workers(
+    requested: int | None, n_species: int, *, threads_per_worker: int = 1
+) -> int:
+    """Worker-process count for parallel conformer embedding.
+
+    ``None`` -- the default -- resolves to
+    ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``.
+    A fixed default of 4 left 124 of 128 cores idle on the 2026-09-21 bench
+    (P-C3), and no class default can do better, because the useful number
+    depends on the box, on how many species this particular run enumerated,
+    and on how many threads each worker will use. So the resolution happens
+    here, called at dispatch by whoever is about to start the pool.
+
+    The division is what keeps the box from being oversubscribed: each worker
+    hands ``threads_per_worker`` to ``EmbedMultipleConfs`` (the isomer engine
+    passes its ``np``/``mpi_np``, default 4), so one worker per core would put
+    ``cores x threads`` runnable threads on ``cores`` cores. ``threads_per_worker``
+    is floored at 1 before dividing: the engine's direct callers bypass
+    ``Auto3DOptions``'s ``mpi_np >= 1`` bound, and a 0 there would be a
+    ``ZeroDivisionError``.
+
+    An explicit ``requested`` is obeyed as given -- cap, cores and thread count
+    all bypassed, since a caller who names a number has a reason -- and only
+    floored at 1, because a pool cannot be started with zero workers.
+    ``Auto3DOptions`` already refuses a ``parallel_workers`` below 1; the floor
+    is here for the engine's direct callers, which go through no such
+    validation.
+
+    Args:
+        requested: Explicit worker count, or None to scale to the machine.
+        n_species: How many species this dispatch has to embed.
+        threads_per_worker: RDKit threads each worker will use for embedding.
+
+    Returns:
+        A worker count of at least 1.
+    """
+    if requested is not None:
+        return max(1, requested)
+    # Through the module, not `from os import cpu_count`, so a test (and a
+    # caller measuring on a different machine shape) can substitute it.
+    usable_cores = max(1, (os.cpu_count() or 1) // max(1, threads_per_worker))
+    return max(1, min(usable_cores, n_species, PARALLEL_EMBED_MAX_WORKERS))
+
+
+def embed_params(
+    *, n_threads: int, prune_rms_thresh: float, timeout_s: int = EMBED_TIMEOUT_S
+) -> Any:
     """The ETKDG settings every Auto3D embedding uses, in one place.
 
     ``EmbedMultipleConfs``'s keyword form cannot express two of these:
@@ -83,7 +134,41 @@ def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
     params.pruneRmsThresh = prune_rms_thresh
     params.onlyHeavyAtomsForRMS = True
     params.useSymmetryForPruning = True
+    if hasattr(params, "timeout"):
+        params.timeout = timeout_s
+    else:
+        logger.warning(
+            "This RDKit has no EmbedParameters.timeout; a species that cannot embed may run long."
+        )
     return params
+
+
+def embed_with_retry(
+    mol: Chem.Mol,
+    *,
+    n_conformers: int,
+    n_threads: int,
+    prune_rms_thresh: float,
+    timeout_s: int = EMBED_TIMEOUT_S,
+) -> int:
+    """Embed up to ``n_conformers`` conformers; retry once with random
+    coordinates if none embed. Returns the number embedded.
+
+    ETKDG's default initial coordinates can fail on strained systems that
+    random initial coordinates still solve; one retry is cheap because the
+    timeout bounds both attempts (N-m2, P-C3).
+    """
+    params = embed_params(
+        n_threads=n_threads, prune_rms_thresh=prune_rms_thresh, timeout_s=timeout_s
+    )
+    ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+    if len(ids) == 0:
+        logger.debug(
+            "First ETKDG attempt embedded nothing; retrying with random initial coordinates."
+        )
+        params.useRandomCoords = True
+        ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+    return len(ids)
 
 
 def _embed_single(
@@ -141,10 +226,8 @@ def _embed_single(
         # hydrogens are explicit (e.g. glycerol 238 vs 52 conformers).
         n_conformers = calculate_conformer_count(mol)
 
-    AllChem.EmbedMultipleConfs(
-        mol,
-        numConfs=n_conformers,
-        params=embed_params(n_threads=np_threads, prune_rms_thresh=threshold),
+    embed_with_retry(
+        mol, n_conformers=n_conformers, n_threads=np_threads, prune_rms_thresh=threshold
     )
 
     results = []
@@ -207,11 +290,25 @@ def embed_conformers_parallel(
             smi, name = futures[future]
             try:
                 conformers = future.result()
-            except BrokenProcessPool:
+            except BrokenProcessPool as exc:
                 # A worker died (e.g. OOM-killed): the pool is broken and EVERY
                 # remaining future will also raise this. Surface it loudly --
                 # the broad except below would otherwise swallow it per-future
                 # and silently drop the whole tail of the batch as warnings.
+                #
+                # The other common cause is not a dead worker at all: under the
+                # spawn context each child re-imports the caller's `__main__`,
+                # and an unguarded script raises there before embedding anything,
+                # breaking the pool. The user's only clue was a child-process
+                # traceback about freeze_support, so attach the two ways out.
+                # A note rather than a new exception type: an OOM kill must keep
+                # surfacing as the BrokenProcessPool everything upstream expects.
+                exc.add_note(
+                    "Parallel embedding spawns worker processes that re-import "
+                    "the calling script. Guard the script's entry point with "
+                    'if __name__ == "__main__":, or pass '
+                    "use_parallel_embedding=False."
+                )
                 raise
             except Exception as e:
                 # Per-molecule boundary: a single molecule's failure (including

@@ -35,6 +35,25 @@ CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
 CONFORMER_MULTIPLIER = 2  # Multiplier for the formula
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
+# Seconds. Wall-clock cap on one EmbedMultipleConfs call (RDKit's
+# EmbedParameters.timeout). Measured on the 2026-09-21 bench set: a
+# geometrically impossible stereoisomer (fused-ring steroid) burned ~67 s
+# per species failing to embed while possible ones took seconds. The cap
+# turns an hour of serial failures into a minute.
+EMBED_TIMEOUT_S = 60
+
+# Upper bound on the worker processes parallel conformer embedding will start
+# when the count is left unset (``Auto3DOptions.parallel_workers = None``, the
+# default; ``Auto3D.domain.embedding.resolve_embedding_workers`` applies it).
+# Embedding is RDKit-bound and each worker is started under the ``spawn``
+# context, so every one of them re-imports rdkit before it does any work;
+# beyond this many the pool startup and the single-writer SDF output dominate
+# whatever the extra processes contribute. It is the last of the three terms in
+# ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``, so
+# on a large box it is usually the one that binds. A caller who wants more
+# passes an explicit ``parallel_workers``.
+PARALLEL_EMBED_MAX_WORKERS = 32
+
 # Process exit codes owned outside the CLI.
 #
 # 143 = 128 + SIGTERM, the shell's convention for "terminated by SIGTERM", so a

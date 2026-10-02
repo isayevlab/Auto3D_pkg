@@ -72,26 +72,29 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
 
 # The subset of FIELD_BOUNDS where None/False mean "not specified" (dynamic/
 # default behavior) rather than an actual value to bounds-check -- k/window
-# are alternative selection strategies that default to "unset", memory/
-# max_confs both have a documented "None means auto-detect/dynamic" meaning
-# (see their Auto3DOptions docstrings and CLIConfig's ``int | None`` typing).
+# are alternative selection strategies that default to "unset", and memory/
+# max_confs/parallel_workers each have a documented "None means auto-detect/
+# dynamic" meaning (see their Auto3DOptions docstrings and the ``int | None``
+# typing that goes with them).
 #
-# The other seven FIELD_BOUNDS entries (mpi_np, opt_steps,
-# convergence_threshold, patience, threshold, batchsize_atoms, capacity) have
-# no such "unset" meaning -- they always have a concrete default already, so
-# there is nothing for None/False to opt out of -- and CLIConfig types them as
-# plain `int`/`float` (not `| None`), so pydantic already rejects None there on
-# construction. Before this constant existed, the loop below skipped None/
-# False for *all eleven* fields, so passing e.g. ``threshold=None`` straight to
-# Auto3DOptions (a dataclass with no type-coercion step) was silently accepted
-# while ``CLIConfig(threshold=None)`` rejected it -- the same
-# entry-point-dependent divergence this phase closed for k/window/memory/
-# max_confs, just left open for the other seven. Scoping the skip to exactly
+# The other eight FIELD_BOUNDS entries (mpi_np, opt_steps,
+# convergence_threshold, patience, threshold, batchsize_atoms,
+# parallel_embedding_threshold, capacity) have no such "unset" meaning -- they
+# always have a concrete default already, so there is nothing for None/False to
+# opt out of -- and they are typed as plain `int`/`float` (not `| None`), so
+# pydantic already rejects None there on construction. Before this constant
+# existed, the loop below skipped None/False for *every* field in the table, so
+# passing e.g. ``threshold=None`` straight to Auto3DOptions (a dataclass with no
+# type-coercion step) was silently accepted while the CLI's schema rejected it
+# -- the same entry-point-dependent divergence this phase closed for k/window/
+# memory/max_confs, just left open for the rest. Scoping the skip to exactly
 # this set, rather than every key in FIELD_BOUNDS, is what closes it: an
-# explicit None/False on any of the seven now falls through to the same
+# explicit None/False on any of the other eight now falls through to the same
 # comparison (and the same ConfigurationError) on both entry points instead of
 # being silently waved through on the Auto3DOptions side only.
-SENTINEL_FIELDS: frozenset[str] = frozenset({"k", "window", "memory", "max_confs"})
+SENTINEL_FIELDS: frozenset[str] = frozenset(
+    {"k", "window", "memory", "max_confs", "parallel_workers"}
+)
 
 # Mutually-exclusive conformer-selection strategies (see
 # check_selectors_mutually_exclusive below). Exposed as a shared tuple --
@@ -167,15 +170,18 @@ def _format_validation_error(exc: PydanticValidationError) -> str:
 def check_field_bounds(values: dict) -> None:
     """Validate ``values`` (field name -> value) against ``FIELD_BOUNDS``.
 
-    Shared by Auto3DOptions.__post_init__ and CLIConfig's model validator so
-    both entry points reject the same out-of-range values with the same
-    message -- this is what closes C10/M27 on every path instead of just one.
+    Called from ``Auto3DOptions``'s ``_normalize_and_validate`` model
+    validator, so every entry point -- the Python API, ``auto3d run``, a ``-c``
+    config file and the legacy YAML form -- rejects the same out-of-range values
+    with the same message. That is what closes C10/M27 on every path instead of
+    just one.
 
     A value of ``None`` or ``False`` means "not specified" (dynamic/default
     behavior) only for the fields in ``SENTINEL_FIELDS`` (k, window,
-    max_confs, memory) and is skipped there, matching both classes' existing
-    sentinel conventions. Every other bounded field has no "unset" meaning and
-    must reject ``None``/``False`` just like any other out-of-range value (see
+    max_confs, memory, parallel_workers) and is skipped there, matching those
+    fields' documented sentinel conventions. Every other bounded field has no
+    "unset" meaning and must reject ``None``/``False`` just like any other
+    out-of-range value (see
     ``SENTINEL_FIELDS``'s docstring). Fields missing from ``values`` are
     skipped too, so callers may pass a partial mapping.
 
@@ -432,26 +438,46 @@ class Auto3DOptions(BaseModel):
     memory: int | None = None
     """RAM size assigned to Auto3D in GB. None for automatic detection."""
 
-    use_parallel_embedding: bool = False
+    use_parallel_embedding: bool = True
     """Embed conformers in parallel worker processes instead of serially.
 
-    Off by default: parallel embedding spawns processes, so enabling it changes
-    a run's resource profile, and that should be the caller's choice rather than
-    something they discover.
+    On by default since 3.2.0; the serial path stays for inputs below
+    ``parallel_embedding_threshold`` and for ``--no-parallel-embedding``. It was
+    off until then, which meant the ordinary run embedded one species at a time
+    however many cores the machine had.
+
+    ``main()`` and ``auto3d run`` honor this default. ``smiles2mols`` does not:
+    it requires an explicit ``use_parallel_embedding=True``. The pool is started
+    under the ``spawn`` context, which re-imports the calling script in every
+    worker, so it is only safe when that script keeps its work behind an
+    ``if __name__ == "__main__":`` guard -- a requirement ``main()`` already
+    carries and the single-process convenience API deliberately does not.
 
     Until 3.0.0 this existed only as a constructor argument on the isomer engine
     with no route from here, so no ``main()``/``smiles2mols`` run could reach it
     and the code behind it was reachable only from tests.
     """
 
-    parallel_workers: int = 4
-    """Worker processes used when ``use_parallel_embedding`` is on."""
+    parallel_workers: int | None = None
+    """Worker processes used when ``use_parallel_embedding`` is on.
+
+    ``None`` resolves to ``min(cores // threads per worker, species, 32)`` at
+    embedding time (see ``Auto3D.domain.embedding.resolve_embedding_workers``),
+    because the useful count depends on the machine, on how many species the run
+    enumerated, and on ``mpi_np`` -- the threads each worker gives RDKit, which
+    the cores have to be shared out between. None of the three is known here. An
+    explicit value is used as given.
+    """
 
     parallel_embedding_threshold: int = 10
-    """Fewest molecules worth embedding in parallel.
+    """Fewest species worth embedding in parallel.
+
+    Counted *after* stereoisomer enumeration, not on the input file: the gate
+    reads the enumerated set, so one input SMILES with three unspecified
+    stereocenters can cross a threshold of 10 on its own.
 
     Below this count a run stays serial even with ``use_parallel_embedding`` on,
-    since spawning processes for a handful of molecules costs more than it saves.
+    since spawning processes for a handful of species costs more than it saves.
     """
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
@@ -510,7 +536,7 @@ class Auto3DOptions(BaseModel):
     @field_validator(*sorted(SENTINEL_FIELDS), mode="before")
     @classmethod
     def _no_bool_sentinels(cls, v: Any) -> Any:
-        """Refuse ``True``/``False`` on the four fields where ``None`` means unset.
+        """Refuse ``True``/``False`` on the fields where ``None`` means unset.
 
         ``bool`` is a subclass of ``int``, so pydantic coerces ``False`` to ``0``
         and ``True`` to ``1`` before any bound is checked. Left alone that turns

@@ -119,6 +119,7 @@ def _children(tmp_path):
         signal.SIGINT,
     ],
 )
+@pytest.mark.slow
 def test_signal_to_parent_alone_stops_every_worker(tmp_path, sig):
     p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
     time.sleep(1.0)
@@ -131,6 +132,7 @@ def test_signal_to_parent_alone_stops_every_worker(tmp_path, sig):
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.slow
 def test_killed_parent_is_noticed_by_workers(tmp_path):
     p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
     time.sleep(1.0)
@@ -141,6 +143,7 @@ def test_killed_parent_is_noticed_by_workers(tmp_path):
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.slow
 def test_a_process_group_interrupt_stops_every_worker_quietly(tmp_path):
     """Ctrl-C at a terminal is delivered to the whole foreground process GROUP.
 
@@ -157,6 +160,9 @@ def test_a_process_group_interrupt_stops_every_worker_quietly(tmp_path):
     ``_launch`` passes ``start_new_session=True``, so the parent's pid IS its
     process-group id: this signals exactly the processes this harness started
     and nothing else on the box.
+
+    Marked slow for its wall-clock cost (9.9 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
     time.sleep(1.0)
