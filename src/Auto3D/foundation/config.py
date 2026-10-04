@@ -446,12 +446,17 @@ class Auto3DOptions(BaseModel):
     off until then, which meant the ordinary run embedded one species at a time
     however many cores the machine had.
 
-    ``main()`` and ``auto3d run`` honor this default. ``smiles2mols`` does not:
-    it requires an explicit ``use_parallel_embedding=True``. The pool is started
-    under the ``spawn`` context, which re-imports the calling script in every
-    worker, so it is only safe when that script keeps its work behind an
-    ``if __name__ == "__main__":`` guard -- a requirement ``main()`` already
-    carries and the single-process convenience API deliberately does not.
+    This field governs ``main()`` and ``auto3d run``. It does **not** reach
+    ``smiles2mols``, which ignores it and takes its own ``parallel_embedding``
+    keyword instead (``smiles2mols(smiles, args, parallel_embedding=True)``).
+    The pool is started under the ``spawn`` context, which re-imports the
+    calling script in every worker, so it is only safe when that script keeps
+    its work behind an ``if __name__ == "__main__":`` guard -- a requirement
+    ``main()`` already carries and the single-process convenience API
+    deliberately does not. A config object cannot tell a field the caller chose
+    from one it is merely carrying, since ``replace()`` and every YAML-built
+    config mark all their fields as explicitly set, so that one entry point
+    asks for the opt-in at the call site.
 
     Until 3.0.0 this existed only as a constructor argument on the isomer engine
     with no route from here, so no ``main()``/``smiles2mols`` run could reach it

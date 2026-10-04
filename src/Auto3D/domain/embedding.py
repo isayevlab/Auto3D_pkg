@@ -12,8 +12,10 @@ removes the cycle rather than deferring it.
 
 from __future__ import annotations
 
+import math
 import multiprocessing
 import os
+import time
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -212,20 +214,52 @@ def embed_with_retry(
     timeout_s: int = EMBED_TIMEOUT_S,
 ) -> int:
     """Embed up to ``n_conformers`` conformers; retry once with random
-    coordinates if none embed. Returns the number embedded.
+    coordinates if none embed, within the time the first attempt left over.
+    Returns the number embedded.
 
     ETKDG's default initial coordinates can fail on strained systems that
-    random initial coordinates still solve; one retry is cheap because the
-    timeout bounds both attempts (N-m2, P-C3).
+    random initial coordinates still solve, which is what the retry recovers
+    (N-m2). That is a statement about the *starting geometry*, not about time:
+    an attempt that produced nothing because it burned the whole cap says the
+    species is slow, and random coordinates would get no more time than the
+    first attempt had.
+
+    So the retry runs on the remainder of the budget -- ``timeout_s`` minus
+    attempt 1's measured wall clock -- and is skipped outright when under a
+    second of it is left. **Both attempts together are bounded by
+    ``timeout_s``** (plus up to a second, since RDKit's ``timeout`` is whole
+    seconds and the remainder is rounded up). Given a full cap each instead,
+    the per-species worst case was ``2 * timeout_s``: 120 s at the shipped
+    default, against the ~67 s one impossible stereoisomer measured serially on
+    the 2026-09-21 bench set -- the number the cap exists to bound (P-C3), and
+    spent twice on exactly the species that triggers the retry.
     """
     params = embed_params(
         n_threads=n_threads, prune_rms_thresh=prune_rms_thresh, timeout_s=timeout_s
     )
+    started = time.monotonic()
     ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
     if len(ids) == 0:
+        remaining = timeout_s - (time.monotonic() - started)
+        if remaining < 1:
+            logger.debug(
+                "First ETKDG attempt embedded nothing and used its whole %d s budget; "
+                "not retrying, since random initial coordinates would have no more "
+                "time than the first attempt had.",
+                timeout_s,
+            )
+            return 0
         logger.debug(
-            "First ETKDG attempt embedded nothing; retrying with random initial coordinates."
+            "First ETKDG attempt embedded nothing; retrying with random initial "
+            "coordinates and the %d s the first attempt left.",
+            math.ceil(remaining),
         )
+        # Guarded like the assignment in `embed_params`, and for the same RDKit:
+        # `params.timeout = ...` on a Boost.Python object without that attribute
+        # raises rather than creating it. On such an RDKit neither attempt was
+        # capped in the first place, so there is no budget to hand on.
+        if hasattr(params, "timeout"):
+            params.timeout = math.ceil(remaining)
         params.useRandomCoords = True
         ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
     return len(ids)

@@ -119,28 +119,42 @@ def main(
     return WorkflowResult(output_path, failures=getattr(orchestrator, "failures", None))
 
 
-def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
+def smiles2mols(
+    smiles: list[str], args: Auto3DOptions, *, parallel_embedding: bool = False
+) -> list[Chem.Mol]:
     """Find low-energy conformers for a list of SMILES.
 
     A convenient single-process function for small batches. For larger batches
     (>150 SMILES), use the ``main()`` function for better performance.
 
     Single-process is a contract, not an accident: this function runs in the
-    caller's own process, so it does **not** follow
-    ``Auto3DOptions.use_parallel_embedding``'s default. Parallel embedding
-    starts worker processes under the ``spawn`` context, which re-imports the
-    calling script in every child -- so it requires that script to be
-    importable without side effects, i.e. to keep its work behind an
-    ``if __name__ == "__main__":`` guard. ``main()`` has always required that
-    guard and every documented ``main()`` example has one; ``smiles2mols``
-    examples deliberately do not, because the function is the convenience API.
-    Pass ``use_parallel_embedding=True`` explicitly to opt in (and add the
-    guard); leaving it unset keeps this function serial whatever the field's
-    default becomes.
+    caller's own process, so parallel embedding here is governed by the
+    ``parallel_embedding`` keyword below and **not** by
+    ``Auto3DOptions.use_parallel_embedding``, which this function ignores (that
+    field governs ``main()``). Parallel embedding starts worker processes under
+    the ``spawn`` context, which re-imports the calling script in every child --
+    so it requires that script to be importable without side effects, i.e. to
+    keep its work behind an ``if __name__ == "__main__":`` guard. ``main()`` has
+    always required that guard and every documented ``main()`` example has one;
+    ``smiles2mols`` examples deliberately do not, because the function is the
+    convenience API.
+
+    The opt-in is a keyword at the call site rather than something read off the
+    config, because the obligation it carries is the *script's*: a config object
+    cannot distinguish a field the caller chose from one it is merely carrying
+    -- ``replace()`` and every YAML-built config mark all their fields as
+    explicitly set -- while a keyword is written by someone who is looking at
+    the entry point they have to guard.
 
     Args:
         smiles: List of SMILES strings to generate conformers for.
         args: Configuration options as an ``Auto3DOptions`` instance.
+        parallel_embedding: Embed conformers in parallel worker processes.
+            Defaults to False, and is the only switch that turns the pool on
+            for this function; ``args.use_parallel_embedding`` is ignored here.
+            Pass True only from a script whose work is behind an
+            ``if __name__ == "__main__":`` guard, since every worker process
+            re-imports that script.
 
     Returns:
         List of RDKit Mol objects representing low-energy conformers.
@@ -160,13 +174,16 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
         OptimizationError: If no input SMILES embedded a usable 3D conformer,
             so nothing reached the optimizer.
     """
-    # Did the caller *ask* for parallel embedding, or are they just carrying the
-    # field's default? This has to be read here, before `replace()`: that method
-    # rebuilds the model through its own constructor, so every field comes out
-    # marked as explicitly set and the distinction is gone. See the engine call
-    # below, and `Auto3DOptions.use_parallel_embedding`'s docstring, for why
-    # smiles2mols does not simply honor the default.
-    explicit_parallel = "use_parallel_embedding" in args.model_fields_set
+    if args.use_parallel_embedding and not parallel_embedding:
+        # One line, and only in this direction: the question a debug log has to
+        # answer is why a run whose config asked for parallel embedding embedded
+        # serially anyway. See the docstring and
+        # `Auto3DOptions.use_parallel_embedding` for why the field is not the
+        # switch here.
+        logger.debug(
+            "smiles2mols embeds serially unless parallel_embedding=True is passed at the "
+            "call; args.use_parallel_embedding=True governs main(), not this function."
+        )
 
     # Copy the caller's config up front: smiles2mols must not mutate the
     # object it was given (M15). Every assignment below (path, input_format)
@@ -241,10 +258,11 @@ def smiles2mols(smiles: list[str], args: Auto3DOptions) -> list[Chem.Mol]:
             threshold=args.threshold,
             n_jobs=args.mpi_np,
             enumerate_isomers=args.enumerate_isomer,
-            # Opt-in only (see `explicit_parallel` above): the spawn pool would
-            # re-import an unguarded caller script in every child, which is why
-            # this one entry point does not inherit the field's default.
-            use_parallel_embedding=args.use_parallel_embedding if explicit_parallel else False,
+            # The call's own keyword, never `args.use_parallel_embedding`: the
+            # spawn pool would re-import an unguarded caller script in every
+            # child, which is why this one entry point takes its opt-in at the
+            # call site instead of inheriting the field's default.
+            use_parallel_embedding=parallel_embedding,
             parallel_workers=args.parallel_workers,
             parallel_embedding_threshold=args.parallel_embedding_threshold,
         )

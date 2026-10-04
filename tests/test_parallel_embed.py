@@ -4,8 +4,12 @@
 import logging
 import multiprocessing as mp
 import os
+import subprocess
+import sys
+import time
 from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool
+from pathlib import Path
 
 import pytest
 from rdkit import Chem
@@ -13,11 +17,65 @@ from rdkit import Chem
 import Auto3D.domain.embedding
 from Auto3D.domain.embedding import SpeciesSkipped, _embed_single, embed_conformers_parallel
 
+ROOT = Path(__file__).resolve().parent.parent
+
 
 def _suicide_embed(smi, name, n_conformers, threshold, np_threads):
     """Module-level worker (picklable) that abruptly kills its process, breaking
     the pool. Used to exercise the BrokenProcessPool path."""
     os._exit(1)
+
+
+@pytest.mark.timeout(180)
+def test_an_unguarded_script_gets_the_actionable_broken_pool_note(tmp_path):
+    """The hint has to reach a real user, not only a monkeypatched pool.
+
+    ``test_parallel_embed_reraises_broken_pool`` breaks the pool by killing a
+    worker, which is the OOM shape. By far the commoner trigger in practice is
+    this one: parallel embedding is on by default, the pool spawns, every child
+    re-imports the caller's ``__main__``, and a script whose work is not behind
+    ``if __name__ == "__main__":`` raises in that re-import before embedding
+    anything. The user's only clue used to be a child-process traceback about
+    ``freeze_support``, which names neither the guard nor the serial fallback.
+
+    Driven through a real subprocess rather than in-process, because the defect
+    is a property of module re-import under ``spawn`` and nothing short of a
+    separate interpreter has a ``__main__`` to re-import.
+    """
+    script = tmp_path / "unguarded.py"
+    script.write_text(
+        "from Auto3D.domain.embedding import embed_conformers_parallel\n"
+        "\n"
+        '# No `if __name__ == "__main__":` -- deliberately, that is the defect.\n'
+        "print(\n"
+        "    list(\n"
+        "        embed_conformers_parallel(\n"
+        '            [("CCO", "a"), ("CCC", "b")], n_conformers=1, n_workers=2\n'
+        "        )\n"
+        "    )\n"
+        ")\n"
+    )
+    done = subprocess.run(
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=dict(os.environ, PYTHONPATH=str(ROOT / "src"), CUDA_VISIBLE_DEVICES=""),
+    )
+
+    assert done.returncode != 0, (
+        "test premise: an unguarded script above the pool threshold must fail, "
+        f"not succeed. stdout: {done.stdout!r}"
+    )
+    assert "BrokenProcessPool" in done.stderr, (
+        f"the failure did not surface as BrokenProcessPool: {done.stderr!r}"
+    )
+    assert 'if __name__ == "__main__":' in done.stderr, (
+        f"the note naming the guard never reached the user: {done.stderr!r}"
+    )
+    assert "use_parallel_embedding=False" in done.stderr, (
+        f"the note naming the serial fallback never reached the user: {done.stderr!r}"
+    )
 
 
 class TestEmbedSingle:
@@ -151,6 +209,83 @@ def test_embed_with_retry_gives_up_after_the_retry(monkeypatch):
             prune_rms_thresh=0.3,
         )
         == 0
+    )
+
+
+def test_embed_with_retry_does_not_retry_after_a_timed_out_attempt(monkeypatch):
+    """A species that ran out of time must not be given the whole cap again.
+
+    The retry exists for strained systems whose default initial coordinates fail
+    *fast* and whose random ones succeed (N-m2). An attempt that produced nothing
+    because it burned its entire budget is a different condition: random initial
+    coordinates would get no more time than the first attempt had, so a second
+    attempt only doubles the wall clock. Unconditional, the per-species worst
+    case was 2 x EMBED_TIMEOUT_S = 120 s -- more than the ~67 s the serial path
+    spent on the species P-C3 was written to bound, and paid in full by the
+    serial path and by the SDF isomer engine, which has no parallel path at all.
+    """
+    import Auto3D.domain.embedding as emb
+
+    calls = []
+
+    def fake_embed(mol, numConfs, params):
+        calls.append(params.timeout)
+        time.sleep(2.2)  # past the 2 s cap handed in below
+        return []
+
+    monkeypatch.setattr(emb.AllChem, "EmbedMultipleConfs", fake_embed)
+    n = emb.embed_with_retry(
+        Chem.AddHs(Chem.MolFromSmiles("CCO")),
+        n_conformers=2,
+        n_threads=1,
+        prune_rms_thresh=0.3,
+        timeout_s=2,
+    )
+
+    assert n == 0
+    assert len(calls) == 1, (
+        "ETKDG was called again after an attempt that used its whole budget, so "
+        f"this species costs two caps instead of one (call timeouts: {calls})"
+    )
+
+
+def test_the_retry_gets_only_the_budget_the_first_attempt_left(monkeypatch):
+    """Both attempts together are bounded by one cap, not one each.
+
+    Skipping the retry outright would forgo N-m2's recovery for any species that
+    fails slowly but not fatally. Giving the second attempt the remainder keeps
+    the recovery and keeps the documented per-species bound honest (to within the
+    one second the ceiling rounding can add).
+    """
+    import Auto3D.domain.embedding as emb
+
+    calls = []
+
+    def fake_embed(mol, numConfs, params):
+        calls.append(params.timeout)
+        if len(calls) == 1:
+            time.sleep(1.5)
+            return []
+        return [0]
+
+    monkeypatch.setattr(emb.AllChem, "EmbedMultipleConfs", fake_embed)
+    n = emb.embed_with_retry(
+        Chem.AddHs(Chem.MolFromSmiles("CCO")),
+        n_conformers=2,
+        n_threads=1,
+        prune_rms_thresh=0.3,
+        timeout_s=4,
+    )
+
+    assert n == 1, "the retry still has to run for a first attempt that failed fast enough"
+    assert len(calls) == 2
+    assert calls[0] == 4, f"the first attempt should get the whole cap, got {calls[0]}"
+    # Not an exact number: the remainder is measured, so it depends on how long
+    # the 1.5 s sleep actually took. What must hold is that the retry got less
+    # than a fresh cap and still had usable time.
+    assert 1 <= calls[1] < 4, (
+        f"the retry was given {calls[1]} s against a {4} s cap: a second full cap "
+        "doubles the per-species bound the cap exists to set"
     )
 
 

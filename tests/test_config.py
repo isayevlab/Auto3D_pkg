@@ -490,11 +490,15 @@ class TestParallelEmbeddingIsReachable:
         )
 
         with pytest.raises(RuntimeError, match="stop here"):
-            auto3D_mod.smiles2mols(["CCO"], options)
+            # `parallel_embedding=True` because `smiles2mols` gates the pool on
+            # its own keyword rather than on `args.use_parallel_embedding`; the
+            # other two fields still come from the config, which is what this
+            # test is about.
+            auto3D_mod.smiles2mols(["CCO"], options, parallel_embedding=True)
 
         assert seen.get("use_parallel_embedding") is True, (
-            "use_parallel_embedding never reached the isomer engine: the field "
-            f"exists on the config but is not plumbed. Factory got: {sorted(seen)}"
+            "parallel embedding never reached the isomer engine: the option "
+            f"exists but is not plumbed. Factory got: {sorted(seen)}"
         )
         assert seen.get("parallel_workers") == 3, (
             "parallel_workers stayed at the constructor default, so enabling "
@@ -506,25 +510,35 @@ class TestParallelEmbeddingIsReachable:
         )
 
     @pytest.mark.parametrize(
-        "overrides,expected",
+        "shape,kwargs,expected",
         [
-            # (i) The default config: smiles2mols keeps its documented
-            # single-process contract even though the field now defaults to True.
-            ({}, False),
-            # (ii) An explicit opt-in is honored.
-            ({"use_parallel_embedding": True}, True),
-            # (iii) An explicit opt-out is honored too, and is not confused with
-            # "never mentioned it" -- both reach the engine as False, but through
-            # different paths, and a future change that only looked at the value
-            # would make these two indistinguishable.
-            ({"use_parallel_embedding": False}, False),
+            # (i) A freshly built default config and no keyword: smiles2mols keeps
+            # its documented single-process contract even though the field now
+            # defaults to True.
+            ("default", {}, False),
+            # (ii) The field says True and the keyword is absent. smiles2mols does
+            # not read the field at all, so this is still serial -- and the
+            # docstrings say so on both sides.
+            ("field_true", {}, False),
+            # (iii) A `replace()`d config. `replace()` rebuilds the model through
+            # its constructor, so every field comes out marked as explicitly set:
+            # an opt-in inferred from `model_fields_set` could not tell this from
+            # a choice, and silently spawned the pool for a caller who never
+            # mentioned the field.
+            ("replaced", {}, False),
+            # (iv) A `model_dump()` round trip -- the shape `load_yaml_config`
+            # produces, so this is also the `parameters.yaml` this repo ships,
+            # which names `use_parallel_embedding` explicitly.
+            ("round_tripped", {}, False),
+            # (v) The keyword is the opt-in, and it is honored.
+            ("default", {"parallel_embedding": True}, True),
         ],
     )
-    def test_smiles2mols_embeds_in_parallel_only_on_an_explicit_opt_in(
-        self, monkeypatch, tmp_path, overrides, expected
+    def test_smiles2mols_embeds_in_parallel_only_on_its_own_keyword(
+        self, monkeypatch, tmp_path, shape, kwargs, expected
     ):
         """``smiles2mols`` runs in the caller's own process, so it may not take
-        the spawn path on a default config.
+        the spawn path unless the caller asked for it *at the call*.
 
         ``main()`` already required the caller's script to be importable without
         side effects -- it has always spawned its workers from an explicit spawn
@@ -535,10 +549,12 @@ class TestParallelEmbeddingIsReachable:
         above ``parallel_embedding_threshold`` die with ``BrokenProcessPool`` from
         a re-imported ``__main__``.
 
-        The opt-in has to be read from ``model_fields_set`` BEFORE
-        ``args.replace()``: ``replace()`` rebuilds the model through its
-        constructor, which marks every field as explicitly set, so a read
-        afterwards can never distinguish a default from a choice.
+        The gate is a keyword-only argument on the function, not an inference from
+        ``args.model_fields_set``: that inference read as "did the caller name this
+        field", which is not a question a config object can answer. ``replace()``
+        and every YAML-built config mark all fields as set, so two documented,
+        ordinary ways of building a config defeated it. A keyword cannot be
+        defeated by how the config was built.
         """
         from Auto3D.entry import auto3D as auto3D_mod
         from Auto3D.foundation.config import Auto3DOptions
@@ -557,14 +573,22 @@ class TestParallelEmbeddingIsReachable:
 
         smi = tmp_path / "in.smi"
         smi.write_text("CCO ethanol\n")
-        options = Auto3DOptions(path=str(smi), k=1, use_gpu=False, **overrides)
+        if shape == "default":
+            options = Auto3DOptions(path=str(smi), k=1, use_gpu=False)
+        elif shape == "field_true":
+            options = Auto3DOptions(path=str(smi), k=1, use_gpu=False, use_parallel_embedding=True)
+        elif shape == "replaced":
+            options = Auto3DOptions(path=str(smi), k=1, use_gpu=False).replace(max_confs=5)
+        else:
+            built = Auto3DOptions(path=str(smi), k=1, use_gpu=False)
+            options = Auto3DOptions(**built.model_dump())
 
         with pytest.raises(RuntimeError, match="stop here"):
-            auto3D_mod.smiles2mols(["CCO"], options)
+            auto3D_mod.smiles2mols(["CCO"], options, **kwargs)
 
         assert seen.get("use_parallel_embedding") is expected, (
-            f"smiles2mols with {overrides or 'the default config'} handed the "
-            f"isomer engine use_parallel_embedding="
+            f"smiles2mols on a {shape!r} config called with {kwargs or 'no keyword'} "
+            f"handed the isomer engine use_parallel_embedding="
             f"{seen.get('use_parallel_embedding')!r}, expected {expected!r}"
         )
 
