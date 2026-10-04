@@ -31,10 +31,12 @@ from Auto3D.foundation.constants import (
 from Auto3D.foundation.exceptions import ConfigurationError
 
 # Single source of truth for the numeric bounds every entry point must
-# enforce (Auto3DOptions.__post_init__ below and CLIConfig's model
-# validator in cli/config_schema.py). Keeping one table -- rather than a
-# hand-maintained bound list in each place -- is the point of this phase:
-# a bound added/changed here takes effect on every path with no second edit.
+# enforce. Both of them reach it through the same validator
+# (Auto3DOptions._normalize_and_validate below), since the CLI builds this very
+# model via cli/config_schema.build_cli_config rather than a schema of its own.
+# Keeping one table -- rather than a hand-maintained bound list in each place --
+# is the point of this phase: a bound added/changed here takes effect on every
+# path with no second edit.
 #
 # name -> (comparison, limit). A field's value must satisfy
 # ``value <comparison> limit``; see _BOUND_OPS for the supported set.
@@ -45,8 +47,9 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
     # 10, not 1. This table declared ("ge", 1) while utils/validation.py
     # hand-wrote `< 10` twice -- in check_input and again in
     # check_valid_configuration -- so one option had two different minimums and
-    # opt_steps=5 was accepted by Auto3DOptions/CLIConfig, printed a banner, and
-    # only then failed at run start. 10 is the surviving number because it is
+    # opt_steps=5 was accepted by the config model on both entry points, printed
+    # a banner, and only then failed at run start. 10 is the surviving number
+    # because it is
     # the one the optimizer is actually built around, not merely the incumbent:
     # batch_opt/optimization_engine.py's n_steps checks "have all structures
     # converged?" only on `istep % 10 == 0`, emits progress events on the same
@@ -114,18 +117,14 @@ SELECTOR_FIELDS: tuple[str, ...] = ("k", "window")
 # The permitted values for the two enumerable engine fields, in one table, for
 # the same reason FIELD_BOUNDS holds the numeric bounds: the alternative is the
 # same whitelist hand-written once per validator, drifting silently. It was
-# written three times before this -- CLIConfig's two ``Literal``s
-# (cli/config_schema.py) and two local ``valid_isomer_engines`` /
-# ``valid_tauto_engines`` sets inside check_valid_configuration
-# (utils/validation.py), the latter now deleted.
+# written three times before this -- the deleted ``CLIConfig``'s two
+# ``Literal``s and two local ``valid_isomer_engines`` / ``valid_tauto_engines``
+# sets inside check_valid_configuration (utils/validation.py). All three are
+# gone, so this table is the only copy left.
 #
-# Checked by Auto3DOptions.__post_init__ below, which already lowercases both
-# fields, so the check belongs there rather than in a downstream validator that
-# can only be reached by some entry points. CLIConfig keeps its ``Literal``s --
-# a Literal is a *type*, visible to mypy and to pydantic's error messages, not
-# a runtime constraint of the kind FIELD_BOUNDS's docstring forbids duplicating
-# -- and tests/test_cli_config_schema.py asserts their arguments equal this
-# table, so the one remaining hand-written copy cannot drift.
+# Checked by Auto3DOptions._normalize_and_validate below, which already
+# lowercases both fields, so both entry points get the check rather than only
+# the ones that reach some downstream validator.
 #
 # ``mode_oe`` is deliberately absent: its documented values are omega modes
 # nothing validates today, and adding a constraint here would be a new
@@ -137,8 +136,9 @@ ENGINE_CHOICES: dict[str, tuple[str, ...]] = {
 
 # Built-in engine names mapped to the exact spelling the model factory compares
 # against, so `--engine ani2x` and `--engine ANI2X` both store "ANI2x". Came
-# from CLIConfig, where it was applied on the way across to Auto3DOptions;
-# with one class it is a normalization like the two engine fields' lowercasing.
+# from the deleted ``CLIConfig``, where it was applied on the way across to
+# Auto3DOptions; with one class it is a normalization both entry points get,
+# like the two engine fields' lowercasing.
 # A pure case table, so it carries no dependency on the model layer -- registry
 # names and custom paths are absent and pass through verbatim.
 ENGINE_CANONICAL_CASE: dict[str, str] = {
@@ -236,9 +236,9 @@ def check_selectors_mutually_exclusive(values: dict) -> None:
     winning.
 
     Called from inside ``check_field_bounds`` (rather than as a second call
-    each caller must remember to make) so both ``Auto3DOptions.__post_init__``
-    and ``CLIConfig``'s model validator inherit it automatically -- neither
-    needed a code change to pick this up.
+    each caller must remember to make) so every entry point inherits it
+    automatically through ``Auto3DOptions._normalize_and_validate`` -- no call
+    site needed a code change to pick this up.
 
     ``select_tautomers`` (Auto3D/tautomer.py) already rejects the equivalent
     combination for tautomer selection, but with a bare ``ValueError`` (one
@@ -268,15 +268,17 @@ def check_engine_choices(values: dict) -> None:
 
     Fields missing from ``values`` are skipped, so callers may pass a partial
     mapping (the same convention ``check_field_bounds`` uses). Values are
-    compared case-insensitively; ``Auto3DOptions.__post_init__`` has already
-    lowercased both fields by the time it calls this, so the fold only matters
-    for a direct caller.
+    compared case-insensitively; ``Auto3DOptions._normalize_and_validate`` has
+    already lowercased both fields by the time it calls this, so the fold only
+    matters for a direct caller.
 
     Unconditional, unlike the check it replaces: ``check_valid_configuration``
     validated ``tauto_engine`` only when ``enumerate_tautomer`` was true, while
-    ``CLIConfig``'s ``Literal["rdkit", "oechem"]`` has always rejected a bad
-    value regardless. That was an entry-point divergence -- ``Auto3DOptions(tauto_engine="bogus")`` was accepted from Python and refused from the CLI --
-    so the stricter of the two is what survives.
+    the CLI -- through the deleted ``CLIConfig``'s ``Literal["rdkit",
+    "oechem"]`` -- had always rejected a bad value regardless. That was an
+    entry-point divergence: ``Auto3DOptions(tauto_engine="bogus")`` was accepted
+    from Python and refused from the CLI, so the stricter of the two is what
+    both entry points now get.
 
     Raises:
         ConfigurationError: naming the field, the received value, and the
@@ -477,9 +479,14 @@ class Auto3DOptions(BaseModel):
     parallel_embedding_threshold: int = 10
     """Fewest species worth embedding in parallel.
 
-    Counted *after* stereoisomer enumeration, not on the input file: the gate
-    reads the enumerated set, so one input SMILES with three unspecified
-    stereocenters can cross a threshold of 10 on its own.
+    Counted *after* stereoisomer enumeration **and enantiomer removal**, not on
+    the input file: the gate reads the reduced, hashed enumerated set, which is
+    what ``RDKitSmiIsomer`` measures. So one input SMILES with three
+    unspecified stereocenters can cross a threshold of 10 on its own, while an
+    input whose enumeration is mostly enantiomeric pairs reaches the gate with
+    half the species the raw enumeration suggests. This docstring is the
+    canonical statement of what is counted; ``cli.rst``, ``usage.rst``, the
+    shipped ``parameters.yaml`` and the changelog repeat the phrase.
 
     Below this count a run stays serial even with ``use_parallel_embedding`` on,
     since spawning processes for a handful of species costs more than it saves.
@@ -516,10 +523,11 @@ class Auto3DOptions(BaseModel):
         """Accept a ``pathlib.Path`` and store it as a string.
 
         The CLI naturally holds a ``Path`` (typer hands one over) while the
-        pipeline stores and pickles a ``str``. ``CLIConfig`` reconciled that by
-        typing the field ``Path | None`` and converting on the way across; with
-        one class the conversion happens here, at the edge, and ``str(None)``
-        cannot leak the literal ``"None"`` as a path that names nothing.
+        pipeline stores and pickles a ``str``. The deleted ``CLIConfig``
+        reconciled that by typing the field ``Path | None`` and converting on
+        the way across; with one class the conversion happens here, at the edge
+        both entry points cross, and ``str(None)`` cannot leak the literal
+        ``"None"`` as a path that names nothing.
         """
         return str(v) if isinstance(v, PurePath) else v
 
@@ -528,9 +536,10 @@ class Auto3DOptions(BaseModel):
     def _parse_gpu_idx(cls, v: Any) -> Any:
         """Accept ``0``, ``"0"``, ``"0,1"`` or ``[0, 1]``.
 
-        Came from ``CLIConfig``. A YAML scalar and a ``--gpu-idx`` argument both
-        arrive as text, and the comma form is the documented way to name several
-        devices, so the parsing has to live on the class both paths build.
+        Came from the deleted ``CLIConfig``. A YAML scalar and a ``--gpu-idx``
+        argument both arrive as text, and the comma form is the documented way
+        to name several devices, so the parsing has to live on the class both
+        entry points build.
         """
         if isinstance(v, str):
             return [int(x.strip()) for x in v.split(",")] if "," in v else int(v)

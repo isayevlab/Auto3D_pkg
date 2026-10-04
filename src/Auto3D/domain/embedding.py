@@ -146,6 +146,12 @@ def resolve_embedding_workers(
     is here for the engine's direct callers, which go through no such
     validation.
 
+    The floor can still overshoot the box: one worker handing RDKit
+    ``threads_per_worker`` threads is ``threads_per_worker`` runnable threads
+    wherever there are fewer cores than that -- 2 cores with ``mpi_np=4``
+    measured 2x oversubscribed. Closing it would mean overriding the caller's
+    own ``mpi_np``, which is their choice to make, so it is named here instead.
+
     Args:
         requested: Explicit worker count, or None to scale to the machine.
         n_species: How many species this dispatch has to embed.

@@ -197,7 +197,10 @@ RunParallelEmbeddingFlag = Annotated[
     bool | None,
     typer.Option(
         "--parallel-embedding/--no-parallel-embedding",
-        help="Embed conformers in parallel worker processes (default on; workers scale to cores).",
+        help=(
+            "Embed conformers in parallel worker processes (default on; workers "
+            "scale to cores, per RDKit thread)."
+        ),
     ),
 ]
 

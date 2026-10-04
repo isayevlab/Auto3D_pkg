@@ -38,9 +38,9 @@ batchsize_atoms: 1024
 # On by default. parallel_workers: None means
 # min(cores // threads per worker, species, 32), where threads per worker is
 # mpi_np -- set a number to pin it instead. Runs stay serial below
-# parallel_embedding_threshold species (counted after stereoisomer enumeration,
-# not on this file's input) even when it is on, since spawning costs more than
-# it saves there.
+# parallel_embedding_threshold species (counted after stereoisomer enumeration
+# and enantiomer removal, not on this file's input) even when it is on, since
+# spawning costs more than it saves there.
 use_parallel_embedding: True
 parallel_workers: None
 parallel_embedding_threshold: 10
