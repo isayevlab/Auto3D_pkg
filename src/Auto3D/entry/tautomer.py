@@ -92,11 +92,12 @@ def select_tautomers(
     output_path = os.path.join(folder, stem + "_top_tautomers.sdf")
     check_output_overwrite(output_path, overwrite)
 
-    # iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the single
-    # owner of the defective-record filter, and `record_skip_reason` is the one
-    # statement of which records those are -- calc_spe and opt_geometry apply
-    # the identical guard for the identical reason (N-C1), through
-    # `entry._run_setup.prepare_single_file_run` rather than through this
+    # iter_conformer_records (Auto3D.foundation.utils.sdf_io) is one of the
+    # two report-and-keep views over `classify_records`, and
+    # `record_skip_reason` is the one statement of which records are
+    # defective -- calc_spe and opt_geometry apply the identical guard for the
+    # identical reason (N-C1), through the other view,
+    # `entry._run_setup.prepare_single_file_run`, rather than through this
     # function. Two of those reasons bite particularly hard here: a record
     # with implicit hydrogens is a heavy-atom skeleton, and one carrying a
     # dummy atom is an R-group placeholder; ranking either against

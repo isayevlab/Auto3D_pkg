@@ -344,13 +344,14 @@ class optimizing:
             logger.warning(f"Input file {self.in_f} is empty. Skipping optimization.")
             return False
 
-        # `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is the
-        # single owner of the defective-record filter -- `record_skip_reason` is
-        # the one statement of which records those are, so no caller keeps its
-        # own copy of the list -- and every other reader of a single SDF
-        # applies the same `classify_records` policy: `tautomer.select_tautomers`
-        # through this same function, and `calc_spe`/`opt_geometry`/`calc_thermo`
-        # through `entry._run_setup.prepare_single_file_run`. It also names
+        # `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is one of
+        # the two report-and-keep views over `classify_records`;
+        # `record_skip_reason` is the one statement of which records are
+        # defective, so no caller keeps its own copy of the list, and every
+        # other reader of a single SDF applies the same policy:
+        # `tautomer.select_tautomers` through this same function, and
+        # `calc_spe`/`opt_geometry`/`calc_thermo` through the other view,
+        # `entry._run_setup.prepare_single_file_run`. It also names
         # every record it skips, not just the all-failed case: a single bad
         # record among a thousand used to leave the output file shorter than
         # the input with nothing said about which one -- for `opt_geometry`
