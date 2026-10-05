@@ -593,14 +593,28 @@ class AIMNet2Adapter(BaseModelAdapter):
             charges: molecular charges (batch,).
             atom_mask: Boolean (batch, n_atoms), True for real atoms, as
                 returned by :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`.
-                Required for a padded batch. ``None`` means every slot is a
-                real atom, which is what the unpadded single-molecule callers
+                Required for a padded batch, and now ENFORCED rather than merely
+                documented -- see ``Raises`` below. ``None`` means every slot is
+                a real atom, which is what the unpadded single-molecule callers
                 (``ASE/thermo.py``'s ASE Calculator, ``auto3d models test``)
                 want.
 
         Returns:
             (energy[batch], forces[batch, n_atoms, 3]) in eV and eV/A. Padded
             atom slots have zero force.
+
+        Raises:
+            ValueError: ``atom_mask`` is ``None`` on a batch of two or more
+                molecules that contains a slot equal to ``species_pad`` (0).
+                Such a slot is either padding or a dummy atom and this adapter
+                cannot tell which, so both readings are refused instead of one
+                being guessed: treating it as padding deletes a real atom
+                (audit C13), and treating it as an atom feeds AIMNet2 a ghost
+                at the origin, which returns NaN. A caller with a padded batch
+                has the mask -- the padder returned it alongside the other three
+                tensors. This is the one place the sentinel VALUE is read, and it
+                is read only to refuse; the mask that drives the arithmetic below
+                is still never derived from it.
 
         The real-atom mask is the caller's explicit ``atom_mask``, NEVER
         ``species != self.species_pad``. This adapter's ``species_pad`` is 0
@@ -612,6 +626,13 @@ class AIMNet2Adapter(BaseModelAdapter):
         exactly zero force and stayed frozen for the whole optimization. That
         is the collision class ``padding.pad_from_mols`` documents (audit C13).
         """
+        if atom_mask is None and species.shape[0] > 1 and bool((species == self.species_pad).any()):
+            raise ValueError(
+                "AIMNet2Adapter needs atom_mask for a padded batch: a slot equal "
+                "to species_pad (0) is either padding or a dummy atom, and this "
+                "adapter cannot tell which without the mask pad_from_mols "
+                "returns. An unpadded batch may omit it."
+            )
         b, n = species.shape[0], species.shape[1]
         if atom_mask is None:
             mask = torch.ones((b, n), dtype=torch.bool, device=species.device)

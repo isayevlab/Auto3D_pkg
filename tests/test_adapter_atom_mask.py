@@ -203,3 +203,39 @@ class TestMaskReachesTheAdapterThroughTheStack:
         wrapper = EnForce_ANI(_CountingAdapter(), 9)
         wrapper.forward_batched(coords, species, charges, atom_mask=atom_mask)
         assert seen == [9, 3]
+
+
+CPU = torch.device("cpu")
+
+
+def _mol(smiles: str) -> Chem.Mol:
+    return _embed(smiles, smiles)
+
+
+def _stubbed_aimnet2() -> AIMNet2Adapter:
+    """A fresh :func:`_stub_adapter` with its own recording calculator."""
+    return _stub_adapter(_RecordingCalculator())
+
+
+# A padded batch handed over WITHOUT its mask is refused, not scored (P-M7). The
+# sentinel is read only to decide whether to raise -- never to build a mask, which
+# is the audit C13 rule the rest of this file pins. `species_pad` is 0 here, so a
+# zero slot is either padding or a dummy `*` atom and this adapter cannot tell
+# which; scoring it silently is wrong under either reading.
+def test_aimnet2_refuses_a_multi_molecule_batch_without_a_mask():
+    adapter = _stubbed_aimnet2()
+    coords, species, charges, _ = pad_from_mols([_mol("CCO"), _mol("C")], adapter, CPU)
+    with pytest.raises(ValueError, match="atom_mask"):
+        adapter.forward(coords, species, charges)
+
+
+def test_aimnet2_accepts_a_single_unpadded_molecule_without_a_mask():
+    adapter = _stubbed_aimnet2()
+    coords, species, charges, _ = pad_from_mols([_mol("CCO")], adapter, CPU)
+    adapter.forward(coords, species, charges)  # B == 1: every slot is a real atom
+
+
+def test_aimnet2_accepts_an_unpadded_equal_size_batch_without_a_mask():
+    adapter = _stubbed_aimnet2()
+    coords, species, charges, _ = pad_from_mols([_mol("C"), _mol("C")], adapter, CPU)
+    adapter.forward(coords, species, charges)  # no slot is 0: nothing to misread

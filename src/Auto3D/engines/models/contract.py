@@ -260,6 +260,16 @@ class ModelAdapter(Protocol):
         Returns:
             Tuple of (energies, forces) where energies has shape (batch,)
             and forces has shape (batch, n_atoms, 3). Units: eV.
+
+        "Required from any caller that passes a padded batch" is a requirement an
+        adapter is allowed to ENFORCE, not merely to assume. ``AIMNet2Adapter``
+        does: it refuses a batch of two or more molecules that arrives without
+        ``atom_mask`` and contains a slot equal to its ``species_pad`` of 0,
+        because that slot is either padding or a real dummy atom and no amount of
+        inspecting the tensors can say which. Adapters whose ``species_pad`` is
+        -1 cannot have the collision and do not need the check. The permission
+        this paragraph grants is narrow: the sentinel may be compared in order to
+        RAISE, never in order to build the mask the arithmetic uses.
         """
         ...
 

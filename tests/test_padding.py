@@ -281,3 +281,47 @@ class TestThePadderCannotDisagreeWithTheAdapter:
 
         parameters = list(inspect.signature(pad_from_mols).parameters)
         assert parameters == ["mols", "adapter", "device"], parameters
+
+
+# The padder's four return values are one object with names (`PaddedBatch`), not
+# four loose tensors. These two are module-level rather than in a class because
+# they pin the RETURN TYPE and its one behavior, not a padding rule: every class
+# above groups assertions about what the tensors CONTAIN.
+def _mols(*smiles: str) -> list:
+    out = []
+    for i, smi in enumerate(smiles):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", f"mol{i}")
+        out.append(mol)
+    return out
+
+
+def _two_small_mols() -> list:
+    """Methane (5 atoms) and water (3): a genuinely padded two-molecule batch."""
+    return _mols("C", "O")
+
+
+def _three_mols() -> list:
+    """Three different sizes, so an index applied to only some fields shows up."""
+    return _mols("C", "O", "CCO")
+
+
+def test_pad_from_mols_returns_a_padded_batch_with_named_fields(device):
+    from Auto3D.engines.batch_opt.padding import PaddedBatch, pad_from_mols
+
+    batch = pad_from_mols(_two_small_mols(), _aimnet_like(), device)
+    assert isinstance(batch, PaddedBatch) and isinstance(batch, tuple)
+    assert batch.coords is batch[0] and batch.atom_mask is batch[3]
+    coords, species, charges, atom_mask = batch  # unpacking is unchanged
+    assert batch.n_mols == 2 and coords.shape[0] == 2
+
+
+def test_sub_indexes_every_field_the_same_way(device):
+    batch = pad_from_mols(_three_mols(), _aimnet_like(), device)
+    part = batch.sub(torch.tensor([0, 2]))
+    assert part.n_mols == 2
+    assert torch.equal(part.species, batch.species[[0, 2]]) and torch.equal(
+        part.atom_mask, batch.atom_mask[[0, 2]]
+    )
+    assert torch.equal(part.charges, batch.charges[[0, 2]])

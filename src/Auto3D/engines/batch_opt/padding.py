@@ -8,7 +8,7 @@ vectorized PyTorch operations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
@@ -18,11 +18,56 @@ if TYPE_CHECKING:
     from Auto3D.engines.models.contract import ModelAdapter
 
 
+class PaddedBatch(NamedTuple):
+    """What :func:`pad_from_mols` returns.
+
+    A ``tuple``, so ``coords, species, charges, atom_mask = pad_from_mols(...)``
+    keeps working and every existing caller is unchanged; the names are for the
+    callers that slice or forward the batch rather than consume it whole. Four
+    loose tensors that must stay aligned on their leading axis is a shape that
+    invites one of them to be indexed differently from the rest -- and the one
+    most easily left behind is ``atom_mask``, the tensor whose whole purpose is
+    to say which slots are real atoms (audit C13). :meth:`sub` indexes all four
+    together so a sub-batch cannot be built half-sliced.
+    """
+
+    coords: torch.Tensor  # (B, N, 3) float32, leaf, requires_grad False
+    species: torch.Tensor  # (B, N) long
+    charges: torch.Tensor  # (B,) float32
+    atom_mask: torch.Tensor  # (B, N) bool, True for real atoms
+
+    @property
+    def n_mols(self) -> int:
+        """``B`` -- the number of molecules, the length of the leading axis."""
+        return self.coords.shape[0]
+
+    def sub(self, index) -> PaddedBatch:
+        """The same batch restricted to ``index`` over the molecule axis.
+
+        Args:
+            index: Anything that indexes a leading axis of length ``n_mols`` --
+                a slice, a bool tensor of that length, or a tensor/list of
+                molecule indices.
+
+        Returns:
+            A :class:`PaddedBatch` whose four fields were all indexed with the
+            SAME ``index``. ``charges`` is one-dimensional and the other three
+            are not, which is exactly why writing the four index expressions out
+            by hand at a call site is worth removing.
+        """
+        return PaddedBatch(
+            self.coords[index],
+            self.species[index],
+            self.charges[index],
+            self.atom_mask[index],
+        )
+
+
 def pad_from_mols(
     mols: list,  # List of RDKit Mol objects
     adapter: ModelAdapter,
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> PaddedBatch:
     """Pad molecular data directly from RDKit Mol objects.
 
     Builds the padded coordinate, species, charge, and atom-mask tensors in a
@@ -46,8 +91,8 @@ def pad_from_mols(
         device: Target device for tensors (CPU or CUDA).
 
     Returns:
-        Tuple of (coords_tensor, species_tensor, charges_tensor, atom_mask)
-        where:
+        A :class:`PaddedBatch` of (coords, species, charges, atom_mask). It is a
+        ``NamedTuple``, so positional unpacking is unchanged; the fields are:
         - coords_tensor: Shape (batch, max_atoms, 3), dtype float32. Leaf, with
           ``requires_grad=False`` -- grad state is the CALLER'S to set, not
           this function's (see the comment at the return statement below).
@@ -122,4 +167,4 @@ def pad_from_mols(
     # ANI2x's 8-model ensemble, activations saved for a backward that
     # `energy_batched` (M39) deliberately never calls -- roughly doubling peak
     # memory for no benefit.
-    return coords_tensor, species_tensor, charges_tensor, atom_mask
+    return PaddedBatch(coords_tensor, species_tensor, charges_tensor, atom_mask)

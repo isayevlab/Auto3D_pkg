@@ -20,6 +20,8 @@ from collections.abc import Sequence
 
 import torch
 
+from Auto3D.engines.batch_opt.padding import PaddedBatch
+
 
 class FakeAdapter:
     """A minimal object that satisfies the whole ``ModelAdapter`` contract.
@@ -135,10 +137,15 @@ class AdapterModuleMixin:
         self.double()
 
 
-def padded_batch(n_mols: int = 2, n_atoms: int = 3):
-    """Tensors shaped like :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`."""
+def padded_batch(n_mols: int = 2, n_atoms: int = 3) -> PaddedBatch:
+    """A :class:`~Auto3D.engines.batch_opt.padding.PaddedBatch` of the right shapes.
+
+    The real :class:`PaddedBatch` rather than a bare 4-tuple, so a caller that
+    reads ``.atom_mask`` or calls ``.sub()`` behaves here as it does in
+    production; unpacking it positionally works identically either way.
+    """
     coords = torch.zeros(n_mols, n_atoms, 3)
     species = torch.ones(n_mols, n_atoms, dtype=torch.long)
     charges = torch.zeros(n_mols)
     atom_mask = torch.ones(n_mols, n_atoms, dtype=torch.bool)
-    return coords, species, charges, atom_mask
+    return PaddedBatch(coords, species, charges, atom_mask)
