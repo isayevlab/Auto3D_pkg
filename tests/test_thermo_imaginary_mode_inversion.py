@@ -409,11 +409,14 @@ class TestTheRecordSaysWhatWasDone:
         assert produced.GetProp("N_inverted_imaginary_modes") == "1"
         assert produced.GetProp("N_raised_modes") == "1"
         assert produced.GetProp("Thermo_vib_modes") == str(len(given)) == str(N_VIB)
-        assert produced.GetProp("Thermo_convention") == "RRHO+quasiharmonic(100cm-1)"
+        assert (
+            produced.GetProp("Thermo_convention")
+            == "RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope masses"
+        )
 
     def test_the_convention_property_follows_the_opt_out(self, monkeypatch):
         produced, _atoms, _given = _run(-20, low_freq_cutoff_cm=0.0, monkeypatch=monkeypatch)
-        assert produced.GetProp("Thermo_convention") == "RRHO"
+        assert produced.GetProp("Thermo_convention") == "RRHO; 1 atm; most-abundant-isotope masses"
         assert produced.GetProp("N_raised_modes") == "0"
 
     def test_the_log_says_the_mode_was_kept_not_dropped(self, monkeypatch, caplog):

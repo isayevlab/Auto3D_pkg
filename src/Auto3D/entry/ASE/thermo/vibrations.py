@@ -25,6 +25,9 @@ from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 from Auto3D.foundation.constants import (
     EV_PER_WAVENUMBER,
     IMAGINARY_MODE_CUTOFF_CM,
+    LINEAR_AXIS_ROTATION_GATE,
+    LINEARITY_MARGINAL_RATIO,
+    LINEARITY_MAX_PERP_ANGSTROM,
     LOW_FREQUENCY_CUTOFF_CM,
     PROJECTION_RESIDUAL_FRACTION,
 )
@@ -179,18 +182,103 @@ def _external_mode_basis(positions: np.ndarray, masses: np.ndarray) -> np.ndarra
     return np.column_stack(columns)
 
 
-def projected_vibrations(
+#: ``Thermo_linearity`` for a molecule the linearity window called linear and
+#: the Hessian overruled, where the classical nonlinear rotor is still valid:
+#: the thermochemistry ran with 3N-6 modes AND the nonlinear rotor.
+BENT_RECLASSIFIED = "bent_reclassified_nonlinear"
+
+#: ``Thermo_linearity`` for the same verdict below the classical-rotor floor:
+#: the phantom is dropped (3N-6 modes) but the LINEAR rotor is kept, because
+#: that is the quantum limit when ``Theta_A >> T``. See
+#: ``_CLASSICAL_ROTOR_FLOOR_AMU_A2_K``.
+BENT_QUASILINEAR = "bent_quasilinear_linear_rotor"
+
+#: Smallest principal moment, in amu A^2 K, at which the classical rigid-rotor
+#: partition function for the near-axis rotation is still valid; divide by the
+#: temperature to get a moment in amu A^2 (0.0259 at 298.15 K). This is
+#: ``h^2 / (8 pi^3 k)``, the moment at which ``pi T = Theta_A`` with
+#: ``Theta_A = h^2 / (8 pi^2 I k)``.
+#:
+#: Why it bounds the reclassification. ASE's nonlinear rotational entropy is the
+#: classical ``R/2 ln(pi T^3 / (Theta_A Theta_B Theta_C))``, which needs
+#: ``Theta_A << T``. Below ``floor / T`` the classical ``q_A = sqrt(pi T /
+#: Theta_A)`` drops under 1, i.e. under the quantum ground state, and
+#: ``dG_rot = -RT/2 ln(pi T / Theta_A)`` grows without bound: for CO2 at 298 K,
+#: +1.0 kcal/mol at 179 degrees and +2.4 at 179.9 -- larger than the phantom
+#: this module removes. At the floor ``dG_rot = 0``, so switching rotors there
+#: leaves G continuous (measured: +0.00007 kcal/mol). H and S are NOT
+#: continuous there, and only their combination is: the linear rotor has one
+#: rotational degree of freedom fewer, so at the switch ``H_hartree`` steps down
+#: by RT/2 (0.296 kcal/mol at 298.15 K) and ``S_hartree_per_K`` by R/2 (0.993
+#: cal/mol/K), which is exactly the cancellation ``dH = T dS`` that leaves G
+#: alone. The quantum limit for ``Theta_A >> T`` is that only
+#: ``K = 0`` is populated and ``q_rot(nonlinear) -> q_rot(linear)``, which is
+#: why the linear rotor is the right answer below the floor.
+_CLASSICAL_ROTOR_FLOOR_AMU_A2_K = ase_units._hplanck**2 / (
+    8 * np.pi**3 * ase_units._k * ase_units._amu * 1e-20
+)
+
+
+@dataclass(frozen=True)
+class Projection:
+    """What ``project_vibrations`` decided and produced.
+
+    Attributes:
+        energies: the ``3N-6`` / ``3N-5`` / ``[]`` complex energies in eV, ascending.
+        geometry: the ROTOR geometry -- what ``IdealGasThermo`` must be given, so
+            that its rotational partition function describes the molecule the
+            energies came from. The input value, except that a bent stationary
+            point inside the linearity window whose smallest principal moment is
+            above the classical-rotor floor comes back as ``"nonlinear"``.
+        mode_geometry: the geometry whose external-mode count was projected out,
+            i.e. what ``len(energies)`` is ``3N - _EXTERNAL_DOF[...]`` of. This is
+            what ``analyze_vibrations`` must be given. It equals ``geometry``
+            except in the quasilinear case, where ``3N-6`` modes are paired with
+            the linear rotor on purpose (see ``BENT_QUASILINEAR``).
+        linearity: the verdict written to ``Thermo_linearity``: ``geometry``
+            itself, or ``BENT_RECLASSIFIED`` / ``BENT_QUASILINEAR`` when the input
+            said linear and the Hessian said bent.
+    """
+
+    energies: list[complex]
+    geometry: str
+    mode_geometry: str
+    linearity: str
+
+
+def _projected_spectrum(
+    mass_weighted: np.ndarray, external: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(kept, discarded)`` eigenvalues of ``P H P`` with ``P = I - V V^T``.
+
+    ``external`` holds ``n_external`` orthonormal columns; the ``n_external``
+    smallest-magnitude eigenvalues are the projected-out null space (machine
+    zero by construction) and come back as ``discarded``; the rest are the
+    vibrations, sorted ascending.
+    """
+    n_external = external.shape[1]
+    projector = np.eye(mass_weighted.shape[0]) - external @ external.T
+    eigenvalues = np.linalg.eigvalsh(projector @ mass_weighted @ projector)
+    by_magnitude = np.argsort(np.abs(eigenvalues))
+    return np.sort(eigenvalues[by_magnitude[n_external:]]), eigenvalues[by_magnitude[:n_external]]
+
+
+def project_vibrations(
     atoms: ase.Atoms,
     hessian,
     geometry: str,
     *,
     name: str = "molecule",
-) -> list[complex]:
+    temperature_k: float = 298.15,
+) -> Projection:
     """Vibrational energies with translation and rotation projected out.
 
-    Returns exactly ``n_vibrational_modes(len(atoms), geometry)`` complex
-    energies in eV, ascending in eigenvalue (ASE's own ordering), with a
-    negative curvature represented as a purely imaginary energy ``0 + b*i``.
+    Returns exactly ``n_vibrational_modes(len(atoms), Projection.mode_geometry)``
+    complex energies in eV, ascending in eigenvalue (ASE's own ordering), with
+    a negative curvature represented as a purely imaginary energy ``0 + b*i``.
+    ``Projection.mode_geometry`` is the ``geometry`` argument except in the one
+    case described below, where the Hessian overrules it; ``Projection.geometry``
+    is the rotor geometry, which can differ from both (see ``Projection``).
 
     **Why this exists.** ``VibrationsData.get_energies()`` diagonalizes the raw
     mass-weighted Hessian and returns all ``3N`` eigenvalues; six of them (five
@@ -226,6 +314,62 @@ def projected_vibrations(
     point: identical to 0.00 cm-1); where it does not, this is the only
     correct answer.
 
+    **A bent stationary point inside the linearity window** (N-M4). ``_detect_geometry``
+    calls a molecule linear while every atom sits within ``LINEARITY_MAX_PERP_ANGSTROM``
+    of the principal axis, because an optimizer leaves a linear molecule a few degrees
+    off axis. But calc_thermo reaches this function only past the stationary-point
+    gate, where any residual bend is the model's minimum, and a bent minimum has SIX
+    null directions, not five: the sixth, the rotation about the near-axis, then
+    survives the five-vector projection as a near-zero "vibration" that the
+    quasi-harmonic floor raises to ``LOW_FREQUENCY_CUTOFF_CM`` while the rotational
+    term stays linear.
+
+    The Hessian tells the two cases apart where the coordinates cannot. Along that
+    sixth direction a linear molecule's curvature is the bend force constant,
+    independent of how far off axis the geometry sits (measured on MMFF CO2 displaced
+    1e-5 to 0.1 A: 484.0 to 486.7 cm-1 equivalent, ratio 1.000 to 1.021). For a bent
+    stationary point the exact identity is
+
+        R_n^T H R_n = sum_i o_perp,i . g_perp,i
+
+    -- perpendicular offsets from the center of mass against the gradient -- so it is
+    zero only at ``g = 0`` exactly, and at the 2e-4 eV/A force gate it is bounded by
+    ``q_max = fmax * sum|o_perp| / I_n``: 9 cm-1 equivalent for CO2 at 170 degrees,
+    28 cm-1 at 179. (The ~0.05 cm-1 figure quoted elsewhere is the synthetic test
+    fixture's exact-stationary-point value, not a gate-level residual.)
+
+    When the geometry says linear, N > 2, and the sixth direction is resolved
+    (``LINEAR_AXIS_ROTATION_GATE``), its Rayleigh quotient is compared with the
+    smallest remaining mode of the would-be nonlinear projection. Both are EIGENVALUES
+    of the mass-weighted Hessian, in eV/(A^2 amu) and proportional to omega^2, so
+    ``PROJECTION_RESIDUAL_FRACTION = 0.05`` is a frequency ratio of
+    ``sqrt(0.05) = 0.2236``, i.e. a 4.47x split. Because the six-vector projection
+    removes exactly the near-axis direction, the comparison is bend partner against
+    bend partner: a molecule is reclassified only when its near-axis (out-of-plane)
+    bend partner is more than 4.47x softer in frequency than the smallest remaining
+    mode at a converged geometry. A genuinely linear molecule's pair is degenerate by
+    symmetry, so its ratio is at or above 1 whatever the geometric residual. Between
+    ``PROJECTION_RESIDUAL_FRACTION`` and ``LINEARITY_MARGINAL_RATIO`` the verdict is
+    linear but a warning says the test was marginal, since that band is where
+    ``q_max`` above can hide a real bent minimum.
+
+    The comparison is against the NONLINEAR projection on purpose: in the bent case the
+    phantom is itself the smallest kept eigenvalue of the linear projection, so a
+    comparison against that set can never fire.
+
+    **The rotor is bounded separately** (R27). Dropping the phantom and switching to
+    the nonlinear rotor are two decisions, and only the first is always right. ASE's
+    nonlinear rotational entropy is the classical
+    ``R/2 ln(pi T^3 / (Theta_A Theta_B Theta_C))``, which needs ``Theta_A << T``; a
+    reclassified molecule's smallest principal moment can be arbitrarily small, which
+    is the ``sqrt(I1 I2 I3)`` divergence ``LINEARITY_MAX_PERP_ANGSTROM`` exists to
+    avoid. So the nonlinear rotor is handed to ``IdealGasThermo`` only when
+    ``I_min >= _CLASSICAL_ROTOR_FLOOR_AMU_A2_K / temperature_k``
+    (``BENT_RECLASSIFIED``); below it the phantom is still dropped but the linear rotor
+    is kept (``BENT_QUASILINEAR``), which is the quantum limit for ``Theta_A >> T``.
+    ``I_min`` is read off the SVD as ``singular[5] ** 2``, which equals
+    ``min(atoms.get_moments_of_inertia())`` to machine precision.
+
     Args:
         atoms: The atoms the Hessian describes. Supplies both the masses (so
             an isotopic label set by ``mol2atoms`` weights the Hessian the same
@@ -237,20 +381,30 @@ def projected_vibrations(
             paths in ``vib_hessian`` produce.
         geometry: 'monatomic', 'linear' or 'nonlinear', from
             ``_detect_geometry``. Fixes how many external degrees of freedom
-            are projected out, and must be the same value passed to
-            ``IdealGasThermo``.
+            are projected out, unless the Hessian check above overrules it.
+            Neither ``analyze_vibrations`` nor ``IdealGasThermo`` should be
+            given this argument afterwards: pass ``Projection.mode_geometry``
+            to the first and ``Projection.geometry`` to the second.
         name: Molecule identifier, for the diagnostic log message only.
+        temperature_k: The temperature the thermochemistry will be evaluated
+            at, in kelvin. Used only for the classical-rotor floor above, whose
+            crossover moment is ``h^2 / (8 pi^3 k T)``; the driver passes its
+            own ``T``.
 
     Returns:
-        A list of ``3N-6`` (or ``3N-5``, or ``[]``) complex energies in eV.
+        A :class:`Projection`: the ``3N-6`` (or ``3N-5``, or ``[]``) complex
+        energies in eV, the rotor geometry, the geometry whose external-mode
+        count was projected out, and the verdict to record in
+        ``Thermo_linearity``.
     """
     n_atoms = len(atoms)
     n_vib = n_vibrational_modes(n_atoms, geometry)
     if n_vib <= 0:
         # A monatomic species has no vibrational degrees of freedom at all;
         # nothing to diagonalize and nothing for IdealGasThermo to sum over.
-        return []
-    n_external = _EXTERNAL_DOF[geometry]
+        return Projection(
+            energies=[], geometry=geometry, mode_geometry=geometry, linearity=geometry
+        )
 
     masses = np.asarray(atoms.get_masses(), dtype=float)
     if not np.all(masses > 0.0):
@@ -268,16 +422,155 @@ def projected_vibrations(
     weights = np.repeat(masses**-0.5, 3)
     mass_weighted = weights[:, np.newaxis] * hessian_2d * weights[np.newaxis, :]
 
-    left_singular, _, _ = np.linalg.svd(
+    left_singular, singular, _ = np.linalg.svd(
         _external_mode_basis(positions, masses), full_matrices=False
     )
-    external = left_singular[:, :n_external]
-    projector = np.eye(3 * n_atoms) - external @ external.T
-    eigenvalues = np.linalg.eigvalsh(projector @ mass_weighted @ projector)
+    n_external = _EXTERNAL_DOF[geometry]
+    mode_geometry = linearity = geometry
+    kept, discarded = _projected_spectrum(mass_weighted, left_singular[:, :n_external])
 
-    by_magnitude = np.argsort(np.abs(eigenvalues))
-    discarded = eigenvalues[by_magnitude[:n_external]]
-    kept = np.sort(eigenvalues[by_magnitude[n_external:]])
+    if (
+        geometry == "linear"
+        # A two-atom molecule has no nonlinear vibrational degrees of freedom at
+        # all, so the six-vector projection's `kept` set is empty and the np.min
+        # below would raise on a zero-size array. The singular-value conjunct
+        # already excludes every diatomic -- the rotation about the internuclear
+        # axis is identically zero for any two points, so `singular[5]` is zero
+        # -- but this guard states the intent instead of relying on that.
+        and n_atoms > 2
+        and singular[5] >= LINEAR_AXIS_ROTATION_GATE * singular[0]
+    ):
+        # The sixth left singular vector is the rotation about the near-axis,
+        # orthonormal to the five the linear basis keeps; it is a unit vector,
+        # so v @ H @ v is the Rayleigh quotient.
+        axis_rotation = left_singular[:, 5]
+        curvature = float(axis_rotation @ mass_weighted @ axis_rotation)
+        kept_nonlinear, discarded_nonlinear = _projected_spectrum(
+            mass_weighted, left_singular[:, :6]
+        )
+        # min(|.|), not min(): a signed minimum would pick a reaction
+        # coordinate's large negative eigenvalue, make the right-hand side of
+        # the comparison negative, and leave a BENT SADDLE POINT inside the
+        # window unreclassifiable at any curvature -- which is the N-M4 case for
+        # a transition state. What the absolute value costs is that a near-zero
+        # mode of either sign within ~4.5x of the phantom in frequency blocks
+        # the test, conservatively: the molecule then stays linear.
+        smallest_nonlinear = float(np.min(np.abs(kept_nonlinear)))
+        ratio = abs(curvature) / smallest_nonlinear if smallest_nonlinear else float("inf")
+        # The Gram matrix of the basis's rotation columns is the inertia tensor
+        # and the translations are orthogonal to them, so the external basis's
+        # singular values are sqrt(M) three times and sqrt(I_a): singular[5]**2
+        # IS the smallest principal moment, in amu A^2, and equals
+        # atoms.get_moments_of_inertia().min() to machine precision.
+        i_min = float(singular[5] ** 2)
+        classical_floor = _CLASSICAL_ROTOR_FLOOR_AMU_A2_K / temperature_k
+        theta_a_over_t = np.pi * _CLASSICAL_ROTOR_FLOOR_AMU_A2_K / (i_min * temperature_k)
+        curvature_cm = _HESSIAN_ENERGY_CONVERSION * abs(curvature) ** 0.5 / EV_PER_WAVENUMBER
+        smallest_cm = _HESSIAN_ENERGY_CONVERSION * smallest_nonlinear**0.5 / EV_PER_WAVENUMBER
+        if abs(curvature) < PROJECTION_RESIDUAL_FRACTION * smallest_nonlinear:
+            # Either way the phantom goes: the spectrum is the 3N-6 one.
+            mode_geometry = "nonlinear"
+            kept, discarded = kept_nonlinear, discarded_nonlinear
+            n_vib = len(kept)
+            if i_min >= classical_floor:
+                geometry, linearity = "nonlinear", BENT_RECLASSIFIED
+                logger.warning(
+                    "%s: classified linear by its geometry (every atom within %.2f A "
+                    "of the principal axis), but its Hessian has a sixth near-zero "
+                    "direction: the curvature along the rotation about the near-axis "
+                    "is %.3e (%.1f cm-1 equivalent) against a smallest nonlinear "
+                    "vibration of %.3e (%.1f cm-1), a mass-weighted-Hessian "
+                    "eigenvalue ratio of %.1e, below %.2f. That is a bent stationary "
+                    "point inside the linearity window, not a thermally bent linear "
+                    "molecule (past the stationary-point gate any residual bend is "
+                    "the model's minimum), so it is treated as nonlinear: 3N-6 modes "
+                    "and the nonlinear rotational partition function, whose classical "
+                    "form is still valid here (smallest principal moment %.3e amu "
+                    "A^2, above the %.3e floor at %.2f K; Theta_A/T = %.2f). "
+                    "Thermo_linearity records the reclassification. RRHO is marginal "
+                    "for a quasi-linear species either way.",
+                    name,
+                    LINEARITY_MAX_PERP_ANGSTROM,
+                    abs(curvature),
+                    curvature_cm,
+                    smallest_nonlinear,
+                    smallest_cm,
+                    ratio,
+                    PROJECTION_RESIDUAL_FRACTION,
+                    i_min,
+                    classical_floor,
+                    temperature_k,
+                    theta_a_over_t,
+                )
+            else:
+                linearity = BENT_QUASILINEAR
+                logger.warning(
+                    "%s: its Hessian says bent (near-axis curvature %.3e, %.1f cm-1 "
+                    "equivalent, against a smallest nonlinear vibration of %.3e, "
+                    "%.1f cm-1, eigenvalue ratio %.1e), but its smallest principal "
+                    "moment is %.3e amu A^2, below the %.3e classical-rotor floor at "
+                    "%.2f K (Theta_A/T = %.2f). The phantom near-axis mode is "
+                    "therefore dropped -- 3N-6 modes -- but the linear rotor is kept: "
+                    "for Theta_A >> T only K = 0 is populated and the nonlinear "
+                    "rotational partition function tends to the linear one, while "
+                    "ASE's classical nonlinear form would put q_A below the quantum "
+                    "ground state and cost spurious -T*S_rot without bound. G is "
+                    "continuous across this switch, but H and S are not: dropping "
+                    "the near-axis rotation lowers H_hartree by RT/2 (0.296 kcal/mol "
+                    "at 298.15 K) and S_hartree_per_K by R/2 (0.993 cal/mol/K), "
+                    "which cancel in G. "
+                    "Thermo_linearity records this as %s. RRHO is marginal for a "
+                    "quasi-linear species either way.",
+                    name,
+                    abs(curvature),
+                    curvature_cm,
+                    smallest_nonlinear,
+                    smallest_cm,
+                    ratio,
+                    i_min,
+                    classical_floor,
+                    temperature_k,
+                    theta_a_over_t,
+                    BENT_QUASILINEAR,
+                )
+        elif ratio < LINEARITY_MARGINAL_RATIO:
+            # Only say the phantom gets raised when it would be: the clause used
+            # to be unconditional, and a 400 cm-1 near-axis curvature is not
+            # "below the quasi-harmonic floor". The DEFAULT floor is the only one
+            # in scope here -- the per-call `low_freq_cutoff_cm` belongs to
+            # `analyze_vibrations`, downstream of this function -- so the clause
+            # says "default" and a caller who passed 0.0 is not misled.
+            floor_clause = (
+                f" -- below the default {LOW_FREQUENCY_CUTOFF_CM:.0f} cm-1 "
+                "quasi-harmonic floor, hence raised to it"
+                if curvature_cm < LOW_FREQUENCY_CUTOFF_CM
+                else ""
+            )
+            logger.warning(
+                "%s: the linearity test ran and did not fire, but only marginally. "
+                "The curvature along the rotation about the near-axis is %.3e (%.1f "
+                "cm-1 equivalent) against a smallest nonlinear vibration of %.3e "
+                "(%.1f cm-1), a mass-weighted-Hessian eigenvalue ratio of %.2f -- "
+                "above the %.2f that would reclassify it, but below %.2f, where a "
+                "genuinely linear molecule's degenerate bend pair puts the ratio at "
+                "or above 1. A bent stationary point does not give exactly zero "
+                "curvature here away from an exact stationary point (the identity is "
+                "R^T H R = sum_i o_perp,i . g_perp,i, bounded by fmax * sum|o_perp| / "
+                "I_n at the force gate), so this molecule is kept linear with 3N-5 "
+                "modes, and a phantom of about %.1f cm-1 may be sitting in that "
+                "list%s. Treat its rotational and low-frequency thermochemistry as "
+                "uncertain.",
+                name,
+                abs(curvature),
+                curvature_cm,
+                smallest_nonlinear,
+                smallest_cm,
+                ratio,
+                PROJECTION_RESIDUAL_FRACTION,
+                LINEARITY_MARGINAL_RATIO,
+                curvature_cm,
+                floor_clause,
+            )
 
     largest_discarded = float(np.max(np.abs(discarded)))
     smallest_kept = float(np.min(np.abs(kept)))
@@ -304,7 +597,36 @@ def projected_vibrations(
         )
 
     energies = _HESSIAN_ENERGY_CONVERSION * kept.astype(complex) ** 0.5
-    return [complex(value) for value in energies]
+    return Projection(
+        energies=[complex(value) for value in energies],
+        geometry=geometry,
+        mode_geometry=mode_geometry,
+        linearity=linearity,
+    )
+
+
+def projected_vibrations(
+    atoms: ase.Atoms,
+    hessian,
+    geometry: str,
+    *,
+    name: str = "molecule",
+    temperature_k: float = 298.15,
+) -> list[complex]:
+    """``project_vibrations(...).energies``: the list alone, length not guaranteed.
+
+    This wrapper returns the energies of whatever geometry the projection
+    decided, not of the ``geometry`` argument: for ``geometry="linear"`` the
+    list may hold ``3N-6`` entries when the Hessian showed a bent stationary
+    point (see ``Projection.mode_geometry``). A caller that needs the
+    effective geometry -- to pass it on to ``analyze_vibrations`` or
+    ``IdealGasThermo``, as the driver does -- must use
+    :func:`project_vibrations` instead and read ``mode_geometry`` and
+    ``geometry`` off the result.
+    """
+    return project_vibrations(
+        atoms, hessian, geometry, name=name, temperature_k=temperature_k
+    ).energies
 
 
 @dataclass
@@ -336,6 +658,9 @@ class VibrationAnalysis:
             reaction coordinate rather than a numerical artifact.
         low_freq_cutoff_cm: The quasi-harmonic floor, in cm^-1; 0.0 means
             plain RRHO with no floor.
+        linearity: what ``Thermo_linearity`` records: the geometry the
+            thermochemistry used, or ``BENT_RECLASSIFIED`` /
+            ``BENT_QUASILINEAR`` when the Hessian overruled the window.
     """
 
     energies: list[complex]
@@ -347,6 +672,7 @@ class VibrationAnalysis:
     n_removed: int
     n_raised: int
     low_freq_cutoff_cm: float
+    linearity: str
 
     @property
     def is_transition_state(self) -> bool:
@@ -357,7 +683,9 @@ class VibrationAnalysis:
     def convention(self) -> str:
         """The thermochemical convention that produced ``corrected_energies``.
 
-        Written to every record's ``Thermo_convention`` SD property, because
+        Written as the first token of every record's ``Thermo_convention`` SD
+        property -- ``do_mol_thermo`` appends the standard state and the mass
+        convention, so the property is a superset of this string -- because
         the quasi-harmonic floor is a modeling choice rather than a bug fix:
         two Auto3D runs with different floors are not comparable, and neither
         is a floored Auto3D number and a plain-RRHO Gaussian/ORCA one.
@@ -374,6 +702,7 @@ def analyze_vibrations(
     *,
     imag_cutoff_cm: float = IMAGINARY_MODE_CUTOFF_CM,
     low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+    linearity: str | None = None,
 ) -> VibrationAnalysis:
     """Classify a vibrational spectrum and build the list ASE is given.
 
@@ -454,6 +783,15 @@ def analyze_vibrations(
             the structure is a saddle point, not a noisy minimum.
         low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1; 0.0 disables
             raising and gives plain RRHO.
+        linearity: The verdict to carry into ``Thermo_linearity``, i.e.
+            ``Projection.linearity`` (one of 'monatomic', 'linear',
+            'nonlinear', ``BENT_RECLASSIFIED`` or ``BENT_QUASILINEAR``).
+            ``None`` means "the geometry itself", which is right for every
+            caller whose geometry the Hessian did not overrule; the driver
+            passes ``projection.linearity``. Note that in the quasilinear case
+            ``geometry`` above is ``Projection.mode_geometry`` ('nonlinear',
+            which the mode count must match) while ``linearity`` records that
+            the rotor stayed linear.
 
     Returns:
         A :class:`VibrationAnalysis`.
@@ -512,6 +850,7 @@ def analyze_vibrations(
         n_removed=n_removed,
         n_raised=n_raised,
         low_freq_cutoff_cm=max(0.0, low_freq_cutoff_cm),
+        linearity=linearity if linearity is not None else geometry,
     )
 
 

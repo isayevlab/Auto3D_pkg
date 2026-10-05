@@ -17,6 +17,8 @@ these Hessians correct, and the projection tests would fail.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from ase import Atoms
 from rdkit import Chem
@@ -183,10 +185,36 @@ def probe_mol(smiles: str = "CCO", name: str = "probe") -> Chem.Mol:
     return mol
 
 
+def co2_atoms(angle_deg: float) -> Atoms:
+    """O=C=O with the given O-C-O angle: C at the origin, 1.16 A bonds, in the xy plane."""
+    half = math.radians(180.0 - angle_deg) / 2.0
+    r = 1.16
+    return Atoms(
+        "OCO",
+        [
+            [-r * math.cos(half), r * math.sin(half), 0.0],
+            [0.0, 0.0, 0.0],
+            [r * math.cos(half), r * math.sin(half), 0.0],
+        ],
+    )
+
+
 def atoms_for(mol: Chem.Mol, potential_energy: float = -1234.5) -> Atoms:
-    """ASE atoms for ``mol`` with a stubbed calculator and potential energy."""
+    """ASE atoms for ``mol`` with a stubbed calculator and potential energy.
+
+    Masses come through the production helper, as in ``mmff_hessian`` below:
+    ``do_mol_thermo`` requires its ``atoms`` to be the ``mol2atoms(mol)`` object
+    (that is what makes the record's mass token, the mass-weighted Hessian and
+    the rotor describe one molecule), and ASE's per-element default is the
+    natural-abundance average, not the most-abundant isotope Auto3D uses. Built
+    without this, every driven fixture put a third mass convention into the
+    partition functions while the record claimed the production one.
+    """
+    from Auto3D.entry.ASE.thermo.calculator import mol2atoms
+
     positions = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
     atoms = Atoms([a.GetSymbol() for a in mol.GetAtoms()], positions)
+    atoms.set_masses(mol2atoms(mol, positions=positions).get_masses())
     atoms.get_calculator = lambda: None
     atoms.get_potential_energy = lambda: potential_energy
     return atoms
@@ -205,6 +233,31 @@ class FakeVib:
 def fake_vib_for(atoms: Atoms, vibrations_cm, external_cm, geometry="nonlinear"):
     """``FakeVib`` whose Hessian has exactly the requested spectrum."""
     return FakeVib(hessian_with_spectrum(atoms, vibrations_cm, external_cm, geometry))
+
+
+def drive_do_mol_thermo(mol, atoms, vib, monkeypatch, *, T=298.15, **do_mol_thermo_kwargs):
+    """``do_mol_thermo`` on a prebuilt Hessian: (produced mol, [IdealGasThermo kwargs]).
+
+    ``vib_hessian`` is replaced by ``vib`` (a ``FakeVib`` or ``VibrationsData``) and
+    ``IdealGasThermo`` is wrapped so every keyword it was built with is captured
+    (``vib_energies``, ``geometry``, ``symmetrynumber``, ...). Exactly one build is
+    asserted. ``tests/test_thermo_imaginary_mode_inversion.py::_run`` is the
+    single-purpose ancestor of this helper and stays as it is.
+    """
+    import Auto3D.entry.ASE.thermo.driver as thermo_mod
+
+    captured: list[dict] = []
+    real_thermo = thermo_mod.IdealGasThermo
+
+    def recording(*args, **kwargs):
+        captured.append(dict(kwargs))
+        return real_thermo(*args, **kwargs)
+
+    monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: vib)
+    monkeypatch.setattr(thermo_mod, "IdealGasThermo", recording)
+    produced = thermo_mod.do_mol_thermo(mol, atoms, adapter=None, T=T, **do_mol_thermo_kwargs)
+    assert len(captured) == 1, "do_mol_thermo built more than one IdealGasThermo"
+    return produced, captured
 
 
 # --- a real force-field Hessian, for the non-synthetic anchor ---------------

@@ -550,6 +550,69 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   ``"implicit_hydrogens"``, ``"no_conformer"``, ``"dummy_atoms"`` (3.2.0+, when
   the record contains a dummy atom of atomic number 0), or the exception type
   name. Filter on ``Thermo_failed == ""`` before reading the absolute energies.
+- **Thermo_convention**: the prescription that produced *G*, as one string --
+  the vibrational treatment, the standard state, and the mass convention, e.g.
+  ``"RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope masses"``.
+  ``RRHO+quasiharmonic(100cm-1)`` is Truhlar's raising (Ribeiro, Marenich,
+  Cramer and Truhlar, *J. Phys. Chem. B* **2011**, *115*, 14556): every real
+  mode below 100 cm-1 is evaluated at 100 cm-1 in the frequency list handed to
+  the partition function, so the zero-point energy, the vibrational enthalpy and
+  the vibrational entropy all move, not the entropy alone.
+  It is *not* Grimme's interpolating quasi-RRHO, which ORCA applies by default
+  with the same 100 cm-1 reference frequency, and not an entropy-only cutoff.
+  ``RRHO`` (with ``low_freq_cutoff_cm=0.0``) is unscaled harmonic frequencies
+  and no floor. ``most-abundant-isotope masses`` is Gaussian's default; ORCA's
+  default is standard atomic weights unless ``!Mass2016`` is set. A record whose
+  atoms carry RDKit isotope labels says ``isotope-labeled masses`` instead: each
+  labeled atom gets its own isotope's mass, every other atom still the most
+  abundant isotope, and which atoms differ is recoverable from the record's atom
+  block. Two files are comparable only when this string, ``T_K``,
+  ``Symmetry_number`` and ``multiplicity`` all agree.
+- **Thermo_standard_state**: ``"1 atm"``, the ideal-gas 1 atm standard state
+  (the Gaussian and ORCA default; ASE's internal 1 bar reference is corrected,
+  which lowers *S* by ``R ln 1.01325`` = 0.026 cal/mol/K and raises *G* by
+  0.0078 kcal/mol). It applies to *S* and *G*; *H* is pressure independent. Add
+  ``RT ln(RT/p0)`` = +1.89 kcal/mol at 298.15 K to convert *G* to the 1 M
+  standard state that solution-phase cycles use.
+- **Symmetry_number**: the rotational symmetry number actually used, see below.
+- **Thermo_linearity**: ``"monatomic"``, ``"linear"`` or ``"nonlinear"``, the
+  geometry class the thermochemistry used; ``"bent_reclassified_nonlinear"``
+  when the coordinates looked linear but the Hessian showed a bent stationary
+  point, which is then treated as nonlinear, or
+  ``"bent_quasilinear_linear_rotor"`` when such a molecule is too close to
+  linear for the classical nonlinear rotor (its smallest moment of inertia is
+  below ``h^2 / (8 pi^3 k T)``, 0.026 amu A^2 at 298 K), so the phantom mode is
+  dropped but the linear rotor is kept. A warning names the molecule in both
+  cases.
+- **multiplicity**: 2S+1, the spin multiplicity used for the electronic entropy
+  ``R ln(2S+1)``; the per-mol ``multiplicity`` property when valid, otherwise
+  derived from the radical-electron count and written back, so the record always
+  carries the value used.
+
+``Thermo_convention``, ``Thermo_standard_state``, ``Symmetry_number`` and
+``Thermo_linearity`` are written by the thermochemistry step itself, so a
+record that never reaches it -- ``Thermo_failed`` of ``"not_converged"``,
+``"implicit_hydrogens"``, ``"no_conformer"`` or ``"dummy_atoms"`` -- does not
+carry them. A record that fails *inside* the step, or one re-read from an
+earlier Auto3D output, may carry them without a matching ``G_hartree``, so
+filter on ``Thermo_failed == ""`` rather than on their presence.
+
+**Symmetry number.** Auto3D does not infer the external rotational symmetry
+number: ``sigma = 1`` is used unless the input record carries an integer
+``symmetry_number`` SD property (2 for water, 6 for ethane, 12 for benzene; 1 to
+60 is accepted, anything else falls back to 1 with a warning). Graph
+automorphisms would overcount it for flexible molecules, so no default is
+derived. With ``sigma = 1`` the Gibbs energy is biased low by ``RT ln sigma``
+(0.41 kcal/mol for water, 1.47 for benzene at 298 K). The bias cancels between
+conformers that share a rotational symmetry number (nearly all conformers of a
+flexible molecule are C1, sigma 1), but not between conformers of different
+symmetry (cyclohexane chair, sigma 6, against twist-boat, sigma 4:
+0.24 kcal/mol), between diastereomers, tautomers or reaction partners, nor
+against Gaussian or ORCA, which infer sigma from the point group. Enantiomers
+always share sigma. Set the property per record when comparing those.
+``Symmetry_number`` on the
+output is the value the calculation used, which equals ``symmetry_number`` only
+when the request was valid.
 
 The Gibbs quantity is opt-in because it is the entry point to the expensive
 path: obtaining a Δ*G* at all costs a Hessian per conformer. Conformer
