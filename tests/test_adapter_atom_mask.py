@@ -89,11 +89,22 @@ def _stub_adapter(calc: _RecordingCalculator) -> AIMNet2Adapter:
     return adapter
 
 
+def _stubbed_aimnet2() -> AIMNet2Adapter:
+    """:func:`_stub_adapter` with a calculator of its own, for the tests that
+    drive the adapter without inspecting what the calculator recorded."""
+    return _stub_adapter(_RecordingCalculator())
+
+
 def _embed(smiles: str, name: str) -> Chem.Mol:
     mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
     AllChem.EmbedMolecule(mol, randomSeed=42)
     mol.SetProp("_Name", name)
     return mol
+
+
+def _mol(smiles: str) -> Chem.Mol:
+    """:func:`_embed` for the molecules whose name carries no extra meaning."""
+    return _embed(smiles, smiles)
 
 
 class TestDummyAtomIsNotTreatedAsPadding:
@@ -205,18 +216,6 @@ class TestMaskReachesTheAdapterThroughTheStack:
         assert seen == [9, 3]
 
 
-CPU = torch.device("cpu")
-
-
-def _mol(smiles: str) -> Chem.Mol:
-    return _embed(smiles, smiles)
-
-
-def _stubbed_aimnet2() -> AIMNet2Adapter:
-    """A fresh :func:`_stub_adapter` with its own recording calculator."""
-    return _stub_adapter(_RecordingCalculator())
-
-
 # A padded batch handed over WITHOUT its mask is refused, not scored (P-M7). The
 # sentinel is read only to decide whether to raise -- never to build a mask, which
 # is the audit C13 rule the rest of this file pins. `species_pad` is 0 here, so a
@@ -224,18 +223,22 @@ def _stubbed_aimnet2() -> AIMNet2Adapter:
 # which; scoring it silently is wrong under either reading.
 def test_aimnet2_refuses_a_multi_molecule_batch_without_a_mask():
     adapter = _stubbed_aimnet2()
-    coords, species, charges, _ = pad_from_mols([_mol("CCO"), _mol("C")], adapter, CPU)
+    coords, species, charges, _ = pad_from_mols(
+        [_mol("CCO"), _mol("C")], adapter, torch.device("cpu")
+    )
     with pytest.raises(ValueError, match="atom_mask"):
         adapter.forward(coords, species, charges)
 
 
 def test_aimnet2_accepts_a_single_unpadded_molecule_without_a_mask():
     adapter = _stubbed_aimnet2()
-    coords, species, charges, _ = pad_from_mols([_mol("CCO")], adapter, CPU)
+    coords, species, charges, _ = pad_from_mols([_mol("CCO")], adapter, torch.device("cpu"))
     adapter.forward(coords, species, charges)  # B == 1: every slot is a real atom
 
 
 def test_aimnet2_accepts_an_unpadded_equal_size_batch_without_a_mask():
     adapter = _stubbed_aimnet2()
-    coords, species, charges, _ = pad_from_mols([_mol("C"), _mol("C")], adapter, CPU)
+    coords, species, charges, _ = pad_from_mols(
+        [_mol("C"), _mol("C")], adapter, torch.device("cpu")
+    )
     adapter.forward(coords, species, charges)  # no slot is 0: nothing to misread

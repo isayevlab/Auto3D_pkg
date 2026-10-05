@@ -616,6 +616,29 @@ class AIMNet2Adapter(BaseModelAdapter):
                 is read only to refuse; the mask that drives the arithmetic below
                 is still never derived from it.
 
+                "Two or more molecules" is a deliberate concession, not an
+                oversight, and dropping the ``> 1`` clause would break working
+                callers. A SINGLE molecule may legitimately contain a species-0
+                dummy ``*`` atom -- that is the whole R-group case audit C13 is
+                about -- and whether such a molecule is scored at all is the
+                engine policy's decision (``models.policy._requires_aimnet``
+                routes it here on purpose), not this method's. Four production
+                paths hand exactly that over unmasked at B == 1
+                (``ASE/thermo/calculator.py``, ``ASE/thermo/driver.py``,
+                ``ASE/thermo/vibrations.py``, ``cli/commands/models.py``), and
+                their coverage is slow-marked, so the fast tier would not report
+                the breakage.
+
+                The check is also value-based, so it is narrower than "a padded
+                batch without a mask is refused" and must not be read as that.
+                It cannot see a hand-built batch padded with any value other than
+                ``species_pad``, nor a padded batch exactly one molecule wide
+                (which ``pad_from_mols`` cannot produce -- it pads to the widest
+                molecule -- but ``PaddedBatch.sub(slice(i, i + 1))`` with the mask
+                dropped by hand can). Nothing stronger is available from the
+                tensors alone without putting a sentinel comparison back into the
+                arithmetic, which is what audit C13 forbids.
+
         The real-atom mask is the caller's explicit ``atom_mask``, NEVER
         ``species != self.species_pad``. This adapter's ``species_pad`` is 0
         and it consumes raw atomic numbers, so the sentinel comparison deleted

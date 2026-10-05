@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import torch
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     # Annotation only, and pointing DOWN the stack: batch_opt depends on
     # models/, never the reverse and never on model_factory.
     from Auto3D.engines.models.contract import ModelAdapter
@@ -41,20 +43,50 @@ class PaddedBatch(NamedTuple):
         """``B`` -- the number of molecules, the length of the leading axis."""
         return self.coords.shape[0]
 
-    def sub(self, index) -> PaddedBatch:
+    def sub(self, index: slice | torch.Tensor | Sequence[int]) -> PaddedBatch:
         """The same batch restricted to ``index`` over the molecule axis.
 
         Args:
-            index: Anything that indexes a leading axis of length ``n_mols`` --
-                a slice, a bool tensor of that length, or a tensor/list of
-                molecule indices.
+            index: Anything that indexes a leading axis of length ``n_mols`` and
+                KEEPS that axis -- a slice, a bool tensor of that length, or a
+                tensor/list of molecule indices. A scalar is refused rather than
+                accepted and reinterpreted; see ``Raises``.
 
         Returns:
             A :class:`PaddedBatch` whose four fields were all indexed with the
             SAME ``index``. ``charges`` is one-dimensional and the other three
             are not, which is exactly why writing the four index expressions out
             by hand at a call site is worth removing.
+
+            A slice returns four VIEWS sharing storage with this batch, while a
+            bool mask or an index tensor copies (that is PyTorch's rule for basic
+            versus advanced indexing, not a choice made here), so an in-place
+            update of a slice-derived sub-batch -- the shape the FIRE loop's
+            coordinate step has -- also writes through to the parent, and to any
+            other sub-batch overlapping it. Uniformity is deliberately not forced:
+            cloning would double the memory of the tensor-indexed form, which
+            already copies.
+
+        Raises:
+            TypeError: ``index`` is a scalar (an ``int``, a ``bool`` or a 0-d
+                tensor) or a tuple. A scalar indexes the molecule axis AWAY
+                instead of restricting it, which would hand back a ``PaddedBatch``
+                of ``(N, 3)``/``(N,)``/``()``/``(N,)`` tensors whose ``n_mols``
+                then reports the atom count -- confidently wrong, and first
+                visible somewhere downstream. A tuple is multi-axis indexing,
+                which this single-axis method never means.
         """
+        if isinstance(index, int | bool) or (torch.is_tensor(index) and index.dim() == 0):
+            raise TypeError(
+                "PaddedBatch.sub needs a slice, a bool tensor, or an index tensor "
+                "over the molecule axis; a scalar would drop it "
+                "(use sub(slice(i, i + 1)))"
+            )
+        if isinstance(index, tuple):
+            raise TypeError(
+                "PaddedBatch.sub takes one index over the molecule axis, not a "
+                "tuple of axes; pass a list or tensor of molecule indices."
+            )
         return PaddedBatch(
             self.coords[index],
             self.species[index],
@@ -93,11 +125,11 @@ def pad_from_mols(
     Returns:
         A :class:`PaddedBatch` of (coords, species, charges, atom_mask). It is a
         ``NamedTuple``, so positional unpacking is unchanged; the fields are:
-        - coords_tensor: Shape (batch, max_atoms, 3), dtype float32. Leaf, with
+        - coords: Shape (batch, max_atoms, 3), dtype float32. Leaf, with
           ``requires_grad=False`` -- grad state is the CALLER'S to set, not
           this function's (see the comment at the return statement below).
-        - species_tensor: Shape (batch, max_atoms), dtype long
-        - charges_tensor: Shape (batch,), dtype float32 (see note below)
+        - species: Shape (batch, max_atoms), dtype long
+        - charges: Shape (batch,), dtype float32 (see note below)
         - atom_mask: Shape (batch, max_atoms), dtype bool, True for real atoms
           and False for padded slots. Callers must use this mask to identify
           padding rather than comparing species against ``species_pad``: a

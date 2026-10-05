@@ -325,3 +325,50 @@ def test_sub_indexes_every_field_the_same_way(device):
         part.atom_mask, batch.atom_mask[[0, 2]]
     )
     assert torch.equal(part.charges, batch.charges[[0, 2]])
+
+
+def test_sub_refuses_a_scalar_index(device):
+    """A scalar index would delete the molecule axis instead of restricting it.
+
+    ``sub(0)`` used to hand back a ``PaddedBatch`` of ``(N, 3)``/``(N,)``/``()``/
+    ``(N,)`` tensors, whose ``n_mols`` then confidently reported the ATOM count
+    and whose ``atom_mask`` had no molecule axis left for ``coords[mask]`` to line
+    up against, so the first symptom appeared far from the cause. A 0-d index
+    tensor is the same mistake spelled differently, and a tuple is multi-axis
+    indexing, which this one-axis method never means (it used to fail on the
+    third field only because ``charges`` happens to be 1-D).
+    """
+    batch = pad_from_mols(_three_mols(), _aimnet_like(), device)
+
+    with pytest.raises(TypeError, match="molecule axis"):
+        batch.sub(0)
+    with pytest.raises(TypeError, match="molecule axis"):
+        batch.sub(torch.tensor(0, device=device))
+    with pytest.raises(TypeError, match="one index over the molecule axis"):
+        batch.sub((0, 2))
+
+
+def test_sub_restricts_every_field_consistently_for_all_three_forms(device):
+    """Slice, bool mask and index tensor -- the three forms the docstring promises."""
+    from Auto3D.engines.batch_opt.padding import PaddedBatch
+
+    batch = pad_from_mols(_three_mols(), _aimnet_like(), device)
+    n_atoms = batch.species.shape[1]
+
+    for index in (
+        slice(0, 2),
+        torch.tensor([True, False, True], device=device),
+        torch.tensor([0, 2], device=device),
+    ):
+        part = batch.sub(index)
+        assert isinstance(part, PaddedBatch), index
+        assert torch.equal(part.coords, batch.coords[index]), index
+        assert torch.equal(part.species, batch.species[index]), index
+        assert torch.equal(part.charges, batch.charges[index]), index
+        assert torch.equal(part.atom_mask, batch.atom_mask[index]), index
+        # Every field kept the molecule axis, and all four agree on its length.
+        assert part.n_mols == 2, index
+        assert part.coords.shape == (2, n_atoms, 3), index
+        assert part.species.shape == (2, n_atoms), index
+        assert part.charges.shape == (2,), index
+        assert part.atom_mask.shape == (2, n_atoms), index
