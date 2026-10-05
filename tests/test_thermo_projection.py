@@ -35,13 +35,19 @@ from ase.vibrations import VibrationsData
 
 from Auto3D.entry.ASE.thermo.properties import _detect_geometry
 from Auto3D.entry.ASE.thermo.vibrations import (
+    _CLASSICAL_ROTOR_FLOOR_AMU_A2_K,
+    BENT_QUASILINEAR,
     BENT_RECLASSIFIED,
     _external_mode_basis,
+    _projected_spectrum,
     n_vibrational_modes,
     project_vibrations,
     projected_vibrations,
 )
-from Auto3D.foundation.constants import PROJECTION_RESIDUAL_FRACTION
+from Auto3D.foundation.constants import (
+    LINEARITY_MARGINAL_RATIO,
+    PROJECTION_RESIDUAL_FRACTION,
+)
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,
@@ -482,3 +488,228 @@ class TestABentStationaryPointInsideTheWindowIsReclassified:
             projected_vibrations(atoms, hessian, "linear")
             == project_vibrations(atoms, hessian, "linear").energies
         )
+
+
+@pytest.mark.parametrize(
+    "vibrations, reclassified",
+    [
+        ([149, 667, 1333, 2349], True),
+        ([300, 667, 1333, 2349], False),
+    ],
+    ids=[
+        "near-axis-partner-4.47x-softer-reclassified",
+        "near-axis-partner-2.2x-softer-stays-linear",
+    ],
+)
+def test_the_stays_linear_boundary_is_a_bend_pair_split(vibrations, reclassified):
+    """The gate's boundary, pinned on the linear side with a NON-degenerate pair.
+
+    ``_projected_spectrum(mass_weighted, left_singular[:, :6])`` removes exactly
+    the near-axis direction, so the comparison is bend partner against bend
+    partner: the gate fires when the near-axis partner is more than
+    ``1/sqrt(0.05)`` = 4.47x softer in frequency than the smallest remaining
+    mode. Every other stays-linear test in this file uses a degenerate pair
+    (ratio 1.0) and so cannot see this boundary at all. Both rows below are
+    built as LINEAR Hessians, i.e. no bent stationary point is involved -- the
+    bend-pair split alone decides.
+    """
+    atoms = co2_atoms(170.0)
+    hessian = hessian_with_spectrum(atoms, vibrations, [0.5, -0.4, 0.3, -0.2, 0.1], "linear")
+    projection = project_vibrations(atoms, hessian, "linear")
+    assert (projection.linearity == BENT_RECLASSIFIED) is reclassified
+    assert len(projection.energies) == (3 if reclassified else 4)
+
+
+class TestAMarginalLinearityTestIsReported:
+    """Chem Major 2: the "bent curvature is zero" claim holds only at ``g = 0``.
+
+    The exact identity is ``R^T H R = sum_i o_perp,i . g_perp,i``, so at Auto3D's
+    2e-4 eV/A stationary-point gate the near-axis curvature of a bent minimum is
+    bounded by ``fmax * sum|o_perp| / I_n`` -- 9 cm-1 equivalent for CO2 at 170
+    degrees, 28 at 179 -- not zero. A bent molecule whose bend is soft enough can
+    therefore land above ``PROJECTION_RESIDUAL_FRACTION`` and keep its phantom in
+    the 3N-5 list, where the quasi-harmonic floor raises it silently. The band
+    ``PROJECTION_RESIDUAL_FRACTION <= ratio < LINEARITY_MARGINAL_RATIO`` is where
+    that is plausible, and it is warned about rather than acted on.
+    """
+
+    def test_a_marginal_ratio_stays_linear_and_is_warned(self, caplog):
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(
+            atoms, [300, 667, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1], "linear"
+        )
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+            projection = project_vibrations(atoms, hessian, "linear", name="marginal")
+        assert (projection.geometry, projection.linearity) == ("linear", "linear")
+        assert len(projection.energies) == 4, "a marginal ratio must not reclassify"
+        messages = _warnings(caplog)
+        assert len(messages) == 1, messages
+        assert "marginal" in messages[0], messages[0]
+
+    def test_a_degenerate_bend_pair_is_silent(self, caplog):
+        """Non-vacuity: ratio 1.0, which is where every genuinely linear molecule sits."""
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(atoms, *LINEAR_CO2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+            project_vibrations(atoms, hessian, "linear", name="degenerate")
+        assert _warnings(caplog) == []
+
+    def test_the_marginal_band_sits_above_the_reclassification_threshold(self):
+        assert PROJECTION_RESIDUAL_FRACTION < LINEARITY_MARGINAL_RATIO
+
+
+class TestTheClassicalRotorFloorKeepsTheLinearRotor:
+    """Chem Critical 1 / R27: a reclassified molecule gets the nonlinear rotor
+    only where the classical rigid-rotor formula is valid.
+
+    ASE's nonlinear rotational entropy is the classical
+    ``R/2 ln(pi T^3 / (Theta_A Theta_B Theta_C))``, which needs
+    ``Theta_A << T``. Inside the linearity window that fails: at 178 degrees CO2
+    has ``Theta_A / T = 22.7``, the classical ``q_A = sqrt(pi T / Theta_A)``
+    drops below 1 -- under the quantum ground state -- and ``dG_rot`` grows
+    without bound (+1.0 kcal/mol at 179 degrees, +2.4 at 179.9). The quantum
+    limit for ``Theta_A >> T`` is that only ``K = 0`` is populated and
+    ``q_rot(nonlinear) -> q_rot(linear)``, so below the floor the phantom is
+    dropped (3N-6 modes) but the LINEAR rotor is kept.
+    """
+
+    def test_the_floor_constant_is_the_quantum_crossover(self):
+        """``h^2 / (8 pi^3 k)`` in amu A^2 K, and the 298.15 K moment it implies."""
+        assert 7.6 < _CLASSICAL_ROTOR_FLOOR_AMU_A2_K < 7.8
+        assert 0.0255 < _CLASSICAL_ROTOR_FLOOR_AMU_A2_K / 298.15 < 0.0263
+
+    def test_i_min_is_the_sixth_singular_value_squared(self):
+        """The guard reads ``singular[5] ** 2``; that IS the smallest moment.
+
+        The Gram matrix of ``_external_mode_basis``'s three rotation columns is
+        the inertia tensor and the translations are orthogonal to them, so the
+        external basis's singular values are ``sqrt(M)`` three times and
+        ``sqrt(I_a)``. Reading the moment off the SVD the gate already computed
+        costs nothing; this pins that it is the same number ASE would report.
+        """
+        atoms = co2_atoms(170.0)
+        basis = _external_mode_basis(
+            np.asarray(atoms.get_positions(), float),
+            np.asarray(atoms.get_masses(), float),
+        )
+        singular = np.linalg.svd(basis, compute_uv=False)
+        assert singular[5] ** 2 == pytest.approx(
+            float(min(atoms.get_moments_of_inertia())), rel=1e-9
+        )
+
+    def test_a_bent_stationary_point_below_the_floor_keeps_the_linear_rotor(self, caplog):
+        """178 degrees: I_min 0.00358 amu A^2, below the 0.0259 floor at 298.15 K."""
+        atoms = co2_atoms(178.0)
+        assert _detect_geometry(atoms) == "linear", "test premise: inside the window"
+        hessian = hessian_with_spectrum(atoms, *BENT_CO2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+            projection = project_vibrations(atoms, hessian, "linear", name="quasilinear")
+        assert (projection.geometry, projection.mode_geometry, projection.linearity) == (
+            "linear",
+            "nonlinear",
+            BENT_QUASILINEAR,
+        )
+        assert len(projection.energies) == 3, "the phantom is still dropped"
+        assert sorted(wavenumbers(projection.energies)) == pytest.approx(
+            [667, 1333, 2349], abs=1e-6
+        )
+        messages = _warnings(caplog)
+        assert len(messages) == 1 and "linear rotor is kept" in messages[0], messages
+
+    @pytest.mark.parametrize(
+        "temperature_k, expected_quasilinear",
+        [(298.15, True), (1000.0, False)],
+        ids=["298K-below-the-floor", "1000K-above-the-floor"],
+    )
+    def test_the_rotor_switch_follows_the_temperature(self, temperature_k, expected_quasilinear):
+        """177 degrees: I_min 0.00805, floor 0.0259 at 298.15 K and 0.00772 at 1000 K.
+
+        The crossover moment is ``h^2 / (8 pi^3 k T)``, so a fixed 298 K constant
+        would switch rotors at the wrong angle at any other temperature. The
+        driver passes its own ``T``.
+        """
+        atoms = co2_atoms(177.0)
+        hessian = hessian_with_spectrum(atoms, *BENT_CO2)
+        projection = project_vibrations(atoms, hessian, "linear", temperature_k=temperature_k)
+        assert projection.linearity == (
+            BENT_QUASILINEAR if expected_quasilinear else BENT_RECLASSIFIED
+        )
+        assert projection.geometry == ("linear" if expected_quasilinear else "nonlinear")
+        assert projection.mode_geometry == "nonlinear", "3N-6 modes either way"
+        assert len(projection.energies) == 3
+
+    def test_above_the_floor_the_nonlinear_rotor_is_used(self):
+        """Non-vacuity: 170 degrees has I_min 0.0893, well above the floor."""
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(atoms, *BENT_CO2)
+        projection = project_vibrations(atoms, hessian, "linear")
+        assert (projection.geometry, projection.mode_geometry, projection.linearity) == (
+            "nonlinear",
+            "nonlinear",
+            BENT_RECLASSIFIED,
+        )
+
+    def test_mode_geometry_equals_geometry_when_the_test_does_not_fire(self):
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(atoms, *LINEAR_CO2)
+        projection = project_vibrations(atoms, hessian, "linear")
+        assert projection.mode_geometry == projection.geometry == projection.linearity == "linear"
+
+
+class TestARealForceFieldHessianOnALinearMolecule:
+    """Chem Minor 5: the synthetic "linear" fixture encodes the answer.
+
+    ``hessian_with_spectrum(..., "linear")`` assigns ``vibrations_cm[0]`` to the
+    sixth singular vector -- the very direction the code tests -- so every
+    synthetic stays-linear case passes because the fixture put the bend there,
+    not because a linear molecule's physics puts it there. An MMFF Hessian does
+    not: it is built from energy second differences with no knowledge of the
+    projection, so where the bend curvature lands is physics.
+    """
+
+    @staticmethod
+    def _near_axis_ratio(atoms, hessian):
+        """``|q| / min|3N-6 eigenvalue|``, the quantity the gate compares."""
+        masses = np.asarray(atoms.get_masses(), float)
+        symmetric = 0.5 * (hessian + hessian.T)
+        weights = np.repeat(masses**-0.5, 3)
+        mass_weighted = weights[:, None] * symmetric * weights[None, :]
+        left, _, _ = np.linalg.svd(
+            _external_mode_basis(np.asarray(atoms.get_positions(), float), masses),
+            full_matrices=False,
+        )
+        axis_rotation = left[:, 5]
+        curvature = float(axis_rotation @ mass_weighted @ axis_rotation)
+        kept, _ = _projected_spectrum(mass_weighted, left[:, :6])
+        return abs(curvature) / float(np.min(np.abs(kept)))
+
+    def test_mmff_co2_at_its_minimum_stays_linear(self):
+        atoms, hessian = mmff_hessian("O=C=O")
+        assert _detect_geometry(atoms) == "linear", "test premise"
+        # The bend curvature really is on the near-axis direction: ratio ~1, not
+        # the ~1e-9 a bent stationary point gives. Measured 1.000.
+        assert self._near_axis_ratio(atoms, hessian) == pytest.approx(1.0, abs=0.05)
+        projection = project_vibrations(atoms, hessian, "linear", name="mmff-co2")
+        assert projection.linearity == "linear"
+        assert len(projection.energies) == 4
+
+    def test_mmff_co2_bent_inside_the_window_stays_linear(self):
+        """The carbon moved 0.05 A off axis -- still inside the 0.25 A window."""
+        reference, _ = mmff_hessian("O=C=O")
+        moments, axes = reference.get_moments_of_inertia(vectors=True)
+        axis = axes[int(np.argmin(moments))]
+        perpendicular = np.cross(axis, [0.0, 0.0, 1.0])
+        perpendicular = perpendicular / np.linalg.norm(perpendicular)
+        displacement = np.zeros(3 * len(reference))
+        displacement[3:6] = 0.05 * perpendicular
+
+        atoms, hessian = mmff_hessian("O=C=O", displacement=displacement)
+        assert _detect_geometry(atoms) == "linear", "test premise: inside the window"
+        # Measured 1.005: the bend partner, not a noise eigenvalue.
+        assert self._near_axis_ratio(atoms, hessian) == pytest.approx(1.0, abs=0.05)
+        projection = project_vibrations(atoms, hessian, "linear", name="mmff-co2-bent")
+        assert projection.linearity == "linear", (
+            "a real bent-but-linear CO2 was reclassified; the Hessian test is "
+            "reading noise rather than the bend on the near-axis direction"
+        )
+        assert len(projection.energies) == 4

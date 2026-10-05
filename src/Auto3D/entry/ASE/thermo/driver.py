@@ -37,6 +37,7 @@ from Auto3D.entry.ASE.thermo.properties import (
 from Auto3D.entry.ASE.thermo.vibrations import (
     _verbatim_mode_kwargs,
     analyze_vibrations,
+    n_vibrational_modes,
     project_vibrations,
     vib_hessian,
 )
@@ -126,18 +127,30 @@ def do_mol_thermo(
     # vibrational and rotational partition functions cannot disagree about the
     # molecule; `vib` supplies only the Hessian matrix, which vib_hessian built
     # from these same coordinates.
-    projection = project_vibrations(atoms, vib.get_hessian_2d(), geometry, name=name)
+    projection = project_vibrations(
+        atoms, vib.get_hessian_2d(), geometry, name=name, temperature_k=T
+    )
     # The projection may overrule the geometry (a bent stationary point inside
-    # the linearity window, N-M4); everything downstream -- the mode-count
-    # check, IdealGasThermo's rotational partition function, the record --
-    # must use the geometry the spectrum was built for.
+    # the linearity window, N-M4), and it reports the answer as TWO geometries
+    # because they can differ. `mode_geometry` is what the mode count is
+    # 3N - external of, so it is what `analyze_vibrations` checks against;
+    # `geometry` is the rotor handed to IdealGasThermo. They split in the
+    # quasilinear case: below the classical-rotor floor the phantom near-axis
+    # mode is dropped (3N-6 modes) but the linear rotor is kept, because for
+    # Theta_A >> T only K = 0 is populated and ASE's classical nonlinear form
+    # would put q_A below the quantum ground state. `T` goes in because that
+    # floor is h^2/(8 pi^3 k T) -- a fixed 298 K constant would switch rotors at
+    # the wrong geometry at any other temperature.
     geometry = projection.geometry
     vib_e = projection.energies
-    n_expected = len(vib_e)
+    # Against the ROTOR geometry on purpose: when the two disagree the count is
+    # deliberately mismatched, and `_verbatim_mode_kwargs` must then disable
+    # ASE's own selection exactly as it does for a 3N-7 saddle point.
+    n_expected = n_vibrational_modes(len(atoms), geometry)
     analysis = analyze_vibrations(
         vib_e,
         n_atoms=len(atoms),
-        geometry=geometry,
+        geometry=projection.mode_geometry,
         low_freq_cutoff_cm=low_freq_cutoff_cm,
         linearity=projection.linearity,
     )
@@ -156,7 +169,10 @@ def do_mol_thermo(
             analysis.max_imag_cm,
             analysis.n_inverted,
             analysis.imag_cutoff_cm,
-            n_expected,
+            # The list that was projected, not `n_expected`: the two differ in
+            # the quasilinear case, where 3N-6 modes are paired with the linear
+            # rotor, and the sentence is about the modes actually kept.
+            len(vib_e),
         )
     elif analysis.n_imag > 0:
         logger.warning(
@@ -483,7 +499,7 @@ def calc_thermo(
         entropy by up to a few kcal/mol in T*S, so set that property when known.
 
         The vibrational spectrum comes from an Eckart/Sayvetz-projected
-        Hessian (``projected_vibrations``), so exactly 3N-6 / 3N-5 modes reach
+        Hessian (``project_vibrations``), so exactly 3N-6 / 3N-5 modes reach
         ``IdealGasThermo`` and ASE's own mode selection is disabled. Since
         3.0.0 only the projected modes are passed; previously the full 3N list
         was passed and ASE chose, and that choice changed in ASE 3.28.0, so the

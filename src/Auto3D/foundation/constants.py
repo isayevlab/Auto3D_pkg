@@ -171,10 +171,15 @@ LINEARITY_MOMENT_RATIO = 1e-2
 # minimum is a thermally bent linear molecule or a genuinely bent one is a
 # question about the Hessian, not the coordinates, and project_vibrations
 # answers it: the curvature along the rotation about the near-axis is the bend
-# force constant for a linear molecule and zero for a bent stationary point
-# (see PROJECTION_RESIDUAL_FRACTION and LINEAR_AXIS_ROTATION_GATE). The window
-# therefore decides the external-mode count only for the molecules the Hessian
-# does not overrule.
+# force constant for a linear molecule, and for a bent stationary point it is
+# sum_i o_perp,i . g_perp,i -- zero at g = 0 and bounded by
+# fmax * sum|o_perp| / I_n at the force gate, which is far below the bend either
+# way (see PROJECTION_RESIDUAL_FRACTION, LINEARITY_MARGINAL_RATIO and
+# LINEAR_AXIS_ROTATION_GATE). The window therefore decides the external-mode
+# count only for the molecules the Hessian does not overrule -- and never
+# decides the ROTOR alone: a reclassified molecule keeps the linear rotor below
+# the classical-rotor floor, which is the same I_min -> 0 divergence this
+# window exists to avoid.
 LINEARITY_MAX_PERP_ANGSTROM = 0.25  # Å, max allowed atom distance from the principal axis
 
 # Imaginary modes below this magnitude (cm^-1) are numerical artifacts of an
@@ -217,12 +222,30 @@ LOW_FREQUENCY_CUTOFF_CM = 100.0
 # DISCARDED eigenvalue stops being negligible -- i.e. at which a genuine
 # vibration has become numerically indistinguishable from the projected null
 # space (a dissociating fragment, a zero-mass atom, a badly conditioned
-# Hessian). projected_vibrations warns rather than raising, since the
+# Hessian). project_vibrations warns rather than raising, since the
 # resulting spectrum is still the best available one. This assumption is
 # exactly what ASE's magnitude-sorting mode selection made silently and never
-# checked. It is also the threshold project_vibrations uses to call the
-# curvature along the near-axis rotation negligible against the smallest
-# nonlinear vibration (N-M4).
+# checked.
+#
+# It is also the threshold project_vibrations uses to call the curvature along
+# the near-axis rotation negligible against the smallest remaining mode of the
+# would-be nonlinear projection (N-M4). Both quantities are EIGENVALUES of the
+# mass-weighted Hessian, in eV/(A^2 amu) and proportional to omega^2, so 0.05
+# here is a frequency ratio of sqrt(0.05) = 0.2236, i.e. a 4.47x split: because
+# the six-vector projection removes exactly the near-axis direction, the
+# comparison is the near-axis bend partner against the other partner, and a
+# molecule is reclassified only when the near-axis partner is more than 4.47x
+# softer in frequency at a converged geometry. A genuinely linear molecule's
+# bend pair is degenerate by symmetry, so its ratio is at or above 1 whatever
+# the geometric residual.
+#
+# The near-axis curvature of a bent stationary point is zero only at g = 0
+# exactly. The identity is R^T H R = sum_i o_perp,i . g_perp,i (perpendicular
+# offsets from the center of mass against the gradient), so at Auto3D's 2e-4
+# eV/A force gate it is bounded by q_max = fmax * sum|o_perp| / I_n: for CO2
+# that is 9 cm-1 equivalent at 170 degrees and 28 cm-1 at 179 degrees. A bent
+# molecule whose bend is softer than ~4.47 x q_max therefore fails the test;
+# LINEARITY_MARGINAL_RATIO is the band where that is reported.
 PROJECTION_RESIDUAL_FRACTION = 0.05
 
 # Dimensionless. `_external_mode_basis` returns six vectors; for a molecule
@@ -233,10 +256,39 @@ PROJECTION_RESIDUAL_FRACTION = 0.05
 # point inside the linearity window, and the direction only exists when its
 # singular value is resolved above floating-point noise. This is the fraction
 # of the largest singular value below which the sixth direction is treated as
-# absent and the molecule as exactly linear. Measured on CO2: 1 degree off
-# linear gives 4.5e-3, 10 degrees 4.5e-2, a 1e-6 A optimizer residual about
-# 1e-6; floating-point noise sits at 1e-16.
+# absent and the molecule as exactly linear.
+#
+# The gate's ONLY job is to avoid evaluating an undefined direction at an
+# exactly collinear geometry; its exact value is immaterial to the verdict,
+# because for a linear molecule both paths return linear (the ratio the test
+# computes is 1.000 even at s6/s1 = 2.7e-8). s6/s1 is essentially the rms
+# perpendicular offset in Angstrom divided by ~1 A, so it tracks the residual
+# directly: measured on CO2, 10 degrees off linear gives 4.5e-2, 1 degree
+# 4.5e-3, a 1e-6 A perpendicular displacement 2.2e-7 to 4.5e-7. Real tight
+# minima sit much closer to the gate than that suggests -- MMFF minima
+# (fmax ~1e-6 eV/A, max perpendicular offset 1e-8 to 8e-8 A) measure 2.7e-8
+# (CO2), 1.6e-8 (HCN), 1.4e-8 (N2O), 3.6e-8 (C3O2), 7.9e-9 (acetylene, gate
+# off), 2.8e-9 (triacetylene, off), 3.0e-9 (CS2, off) -- so the gate does turn
+# the test off for some converged linear molecules, which is harmless.
 LINEAR_AXIS_ROTATION_GATE = 1e-8
+
+# Dimensionless, an eigenvalue ratio like PROJECTION_RESIDUAL_FRACTION. The
+# near-axis curvature of a bent stationary point is not zero away from an exact
+# stationary point: the identity is R^T H R = sum_i o_perp,i . g_perp,i, so at
+# Auto3D's 2e-4 eV/A force gate it is bounded by fmax * sum|o_perp| / I_n --
+# 9 cm-1 equivalent for CO2 at 170 degrees, 28 cm-1 at 179 degrees. A bent
+# molecule with a soft bend can therefore land ABOVE
+# PROJECTION_RESIDUAL_FRACTION and keep its phantom in the 3N-5 list, where the
+# quasi-harmonic floor raises it to LOW_FREQUENCY_CUTOFF_CM with no diagnostic
+# (the residual-separation check cannot fire: the phantom is itself the smallest
+# kept eigenvalue). That failure is in the conservative direction, so it is
+# reported rather than acted on. This is the ratio below which
+# project_vibrations calls a non-firing linearity test marginal and says so.
+# 0.5 in eigenvalues is 0.71 in frequency: every genuinely linear molecule sits
+# at ratio >= 1 by the degeneracy of its bend pair (measured on MMFF CO2, HCN,
+# N2O and CS2: 1.000; acetylene 1.17; diacetylene 1.27; C3O2 1.42; triacetylene
+# 3.14), so the band warns about quasi-linear species only.
+LINEARITY_MARGINAL_RATIO = 0.5
 
 # eV per wavenumber, for reporting vibrational energies in cm^-1.
 EV_PER_WAVENUMBER = 1.0 / 8065.54429
