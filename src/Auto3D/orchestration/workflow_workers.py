@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from logging import LogRecord
     from multiprocessing import Queue
 
-    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.config import Auto3DOptions, OptimizationConfig
 
 # Both logger trees a module warning must reach the run log through.
 #
@@ -236,11 +236,24 @@ def isomer_wrapper(
 
 def optim_rank_wrapper(
     args: Auto3DOptions,
+    opt_config: OptimizationConfig,
     queue: Queue[tuple[str, str, str, int] | str],
     logging_queue: Queue[LogRecord | None],
     gpu_idx: int,
     progress_queue: Queue[ProgressEvent] | None = None,
 ) -> None:
+    """Optimize and rank every chunk this worker takes off ``queue``.
+
+    Two configuration objects, because they carry different things across the
+    spawn boundary. ``args`` is the run's ``Auto3DOptions`` -- ``allow_tf32``,
+    ``use_gpu``, ``optimizing_engine`` and the rest. ``opt_config`` is the
+    optimizer's own settings, including the **absolute** ``batchsize_atoms``
+    the parent computed from the memory it measured. This function used to
+    rebuild the second from the first, once per chunk, which read
+    ``args.batchsize_atoms`` -- a per-gigabyte figure -- as if it were absolute
+    and so undid the scaling the parent had already done (P-M11, R4). Only the
+    parent measures memory; this process optimizes with what it was handed.
+    """
     with _worker_stdout_to_stderr():
         # First, before anything else: never outlive the parent (P-C2).
         _exit_when_parent_dies()
@@ -310,7 +323,6 @@ def optim_rank_wrapper(
                     meta = create_chunk_meta_names(path, dir)
 
                     # Optimizing step
-                    opt_config = args.to_optimization_config()
                     optimized_og = meta["optimized_og"]
                     # When a progress queue is supplied (interactive `auto3d run`), tag
                     # each event with this chunk's job id and forward it to the main

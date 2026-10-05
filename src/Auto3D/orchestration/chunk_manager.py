@@ -37,6 +37,33 @@ logger = get_logger(__name__)
 _MAX_SCALED_BATCHSIZE_ATOMS = 1024 * 16
 
 
+def scaled_batchsize_atoms(batchsize_atoms: int, memory_gb: int) -> int:
+    """The absolute atoms-per-batch for a per-gigabyte setting and a memory budget.
+
+    ``Auto3DOptions.batchsize_atoms`` is a per-gigabyte figure and
+    ``OptimizationConfig.batchsize_atoms`` is an absolute one; this is the rule
+    between them. A module-level function rather than a ``ChunkManager`` method
+    because ``smiles2mols`` needs the same rule and has no chunking step to hang
+    it off -- it read the field absolutely instead, which left the two entry
+    points up to 16x apart on one config (P-M11).
+
+    The product is clamped to ``_MAX_SCALED_BATCHSIZE_ATOMS`` (audit M36) but
+    never to below the caller's own unscaled ``batchsize_atoms``: the cap bounds
+    what memory-scaling can produce, it does not second-guess an explicit,
+    already-large user setting that made no use of scaling at all (e.g. a fixed
+    ``memory=1``).
+
+    Args:
+        batchsize_atoms: Atoms per batch per gigabyte, from the config.
+        memory_gb: The memory budget in GB, as set or measured by
+            ``ChunkManager.calculate_memory_and_chunks``.
+
+    Returns:
+        The absolute number of atoms per optimization batch.
+    """
+    return max(batchsize_atoms, min(batchsize_atoms * memory_gb, _MAX_SCALED_BATCHSIZE_ATOMS))
+
+
 def _gpu_free_memory_gb(gpu_idx: int) -> int | None:
     """Free memory (GB, floor) for one GPU, without initializing a CUDA context.
 
@@ -204,18 +231,10 @@ class ChunkManager:
         # Scale batchsize by available memory. Store on the manager rather than
         # mutating self.config: the config is shared with the caller and the
         # optimization workers, and mutating it in place would compound the
-        # multiplier on repeated main() calls (review findings #35/#36).
-        #
-        # Clamped to _MAX_SCALED_BATCHSIZE_ATOMS (audit M36) but never below
-        # the caller's own unscaled batchsize_atoms: the cap bounds what
-        # memory-scaling can produce, it does not second-guess an explicit,
-        # already-large user setting that made no use of scaling at all
-        # (e.g. a fixed `memory=1`).
-        scaled = self.config.batchsize_atoms * memory_gb
-        self.scaled_batchsize_atoms = max(
-            self.config.batchsize_atoms,
-            min(scaled, _MAX_SCALED_BATCHSIZE_ATOMS),
-        )
+        # multiplier on repeated main() calls (review findings #35/#36). The
+        # rule itself is `scaled_batchsize_atoms` above, which smiles2mols --
+        # which never chunks, so never reaches this method -- calls directly.
+        self.scaled_batchsize_atoms = scaled_batchsize_atoms(self.config.batchsize_atoms, memory_gb)
 
         # Read input data
         if self.input_format == "smi":

@@ -495,16 +495,26 @@ class Auto3DOptions(BaseModel):
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
     """Atoms per optimization batch, **per gigabyte** of available memory.
 
-    ``ChunkManager`` multiplies this by ``memory`` when you set it, otherwise by
-    the *free* GPU memory (or total RAM on CPU), then clamps the product to
+    Both entry points that take an ``Auto3DOptions`` -- ``main()`` and
+    ``smiles2mols`` -- scale this through the one rule in
+    ``Auto3D.orchestration.chunk_manager.scaled_batchsize_atoms``: the value is
+    multiplied by ``memory`` when you set it, otherwise by the *free* GPU memory
+    (or total RAM on CPU), and the product is clamped to
     ``_MAX_SCALED_BATCHSIZE_ATOMS`` (16,384). So the default 1024 means 1024
     atoms per batch on a 1 GB card and 16,384 from 16 GB upward -- an 80 GB card
-    gets the same 16,384 as a 16 GB one.
+    gets the same 16,384 as a 16 GB one. ``smiles2mols`` used to read this field
+    as an absolute count instead, which put the two entry points up to 16x apart
+    on one config (P-M11).
+
+    The scaled product is absolute and it lives on a different class --
+    ``OptimizationConfig.batchsize_atoms``, built in the process that measured
+    the memory. This field keeps its per-gigabyte meaning in every process,
+    including inside the optimizer workers.
 
     ``ASE.geometry.opt_geometry`` takes the same parameter name **absolutely** --
-    1024 means 1024 there whatever the card. The two entry points are up to 16x
-    apart on the same value; each docstring says which it is rather than
-    pointing at the other.
+    1024 means 1024 there whatever the card. It takes no ``Auto3DOptions`` and
+    measures no memory, so there is nothing for it to scale by; its docstring
+    says which it is rather than pointing at this one.
     """
 
     # Performance options
@@ -624,17 +634,33 @@ class Auto3DOptions(BaseModel):
         """
         return type(self)(**{**self.model_dump(), **changes})
 
-    def to_optimization_config(self) -> "OptimizationConfig":
+    def to_optimization_config(self, *, batchsize_atoms: int) -> "OptimizationConfig":
         """Create an OptimizationConfig from these options.
 
+        Args:
+            batchsize_atoms: The **absolute** number of atoms per optimization
+                batch. Required, and deliberately not defaulted to
+                ``self.batchsize_atoms``: this class's field is a *per gigabyte*
+                figure (see its docstring), so copying it across would mean
+                optimizing one gigabyte's worth of atoms on any machine. Both
+                callers measure memory first and scale through
+                ``Auto3D.orchestration.chunk_manager.scaled_batchsize_atoms``:
+                ``WorkflowOrchestrator._run_pipeline``, which passes the value
+                ``ChunkManager`` computed for this run, and
+                ``Auto3D.entry.auto3D.smiles2mols``, which applies the rule
+                itself because it has no chunking step. Forgetting to scale is
+                now a TypeError rather than a quiet 16x-small batch.
+
         Returns:
-            OptimizationConfig with values from this Auto3DOptions instance.
+            OptimizationConfig with the optimizer settings from this
+            Auto3DOptions instance and the absolute ``batchsize_atoms`` given
+            here.
         """
         return OptimizationConfig(
             opt_steps=self.opt_steps,
             convergence_threshold=self.convergence_threshold,
             patience=self.patience,
-            batchsize_atoms=self.batchsize_atoms,
+            batchsize_atoms=batchsize_atoms,
         )
 
 
@@ -662,8 +688,16 @@ class OptimizationConfig:
     as oscillating."""
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
-    """Number of atoms per optimization batch. Larger values use more GPU
-    memory but may be faster."""
+    """**Absolute** number of atoms per optimization batch.
+
+    Not per gigabyte, unlike the same-named field on ``Auto3DOptions``: the
+    parent process measures the memory, scales that field through
+    ``Auto3D.orchestration.chunk_manager.scaled_batchsize_atoms`` and builds
+    this object with the product (``Auto3DOptions.to_optimization_config``).
+    Whoever receives this object -- an optimizer worker in another process, or
+    ``optimizing`` in this one -- batches on the number as given and measures
+    nothing itself. Larger values use more GPU memory but may be faster.
+    """
 
     # There is deliberately no energy_tol/energy_patience here. Both existed
     # until 3.0.0 and reached an optimizer criterion that could never fire

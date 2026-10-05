@@ -45,7 +45,12 @@ def isomer_stub(chunk_info, config, chunk_queue, logging_queue):
                 chunk_queue.put("Done")
 
 
-def optimizer_stub(config, chunk_queue, logging_queue, gpu_idx, progress_queue=None):
+def optimizer_stub(config, opt_config, chunk_queue, logging_queue, gpu_idx, progress_queue=None):
+    # `opt_config` is unused here -- this stub optimizes nothing -- but the
+    # parameter list must match `optim_rank_wrapper` exactly: the real
+    # `_run_pipeline` spawns this function through the same positional
+    # `args=(...)` tuple, so a missing parameter kills the spawned worker with a
+    # TypeError and the lifecycle assertions fail for the wrong reason.
     _exit_when_parent_dies()
     _record(f"opt{gpu_idx}.pid", str(os.getpid()))
     processed = []

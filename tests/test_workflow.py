@@ -332,7 +332,13 @@ class TestWorkersExitQuietlyOnKeyboardInterrupt:
 
         args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False)
         with _restored_worker_globals(), pytest.raises(SystemExit) as excinfo:
-            ww.optim_rank_wrapper(args, _InterruptingQueue(), queue.Queue(), gpu_idx=0)
+            ww.optim_rank_wrapper(
+                args,
+                args.to_optimization_config(batchsize_atoms=args.batchsize_atoms),
+                _InterruptingQueue(),
+                queue.Queue(),
+                gpu_idx=0,
+            )
         assert excinfo.value.code == 130
 
     def test_isomer_wrapper_exits_130_and_still_wakes_every_optimizer(self, tmp_path, monkeypatch):
@@ -598,7 +604,9 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
 
     # Must return normally (not propagate the RuntimeError) ...
-    result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
+    result = ww.optim_rank_wrapper(
+        args, args.to_optimization_config(batchsize_atoms=args.batchsize_atoms), q, logq, gpu_idx=0
+    )
     # ... and BOTH chunks must have been attempted: the loop continued past the
     # first chunk's failure instead of dying on it.
     assert attempted == ["enum1.sdf", "enum2.sdf"]
@@ -650,7 +658,13 @@ def test_model_construction_failure_is_fatal_and_consumes_no_chunk(tmp_path, mon
     args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
 
     with _restored_worker_globals(), pytest.raises(NumericalError):
-        ww.optim_rank_wrapper(args, q, queue_mod.Queue(), gpu_idx=0)
+        ww.optim_rank_wrapper(
+            args,
+            args.to_optimization_config(batchsize_atoms=args.batchsize_atoms),
+            q,
+            queue_mod.Queue(),
+            gpu_idx=0,
+        )
 
     # Nothing was taken off the queue: both chunks and the sentinel are still
     # there. (The parent tops the sentinels up itself; see _ensure_done_sentinels.)
@@ -784,9 +798,27 @@ def test_finalize_output_streams_chunks_in_order(tmp_path):
 
 
 def test_run_pipeline_does_not_mutate_shared_batchsize():
-    """_run_pipeline must apply the memory-scaled batchsize via a per-run config
-    copy and leave the caller's shared config untouched (review #35/#36)."""
-    from Auto3D.foundation.config import Auto3DOptions
+    """The memory-scaled batch size reaches the optimizer as an
+    ``OptimizationConfig``, and no ``Auto3DOptions`` anywhere carries it.
+
+    ``batchsize_atoms`` means two different things on the two classes:
+    per gigabyte of measured memory on ``Auto3DOptions``, absolute on
+    ``OptimizationConfig``. _run_pipeline used to bridge them with
+    ``self.config.replace(batchsize_atoms=self.scaled_batchsize_atoms)`` -- an
+    ``Auto3DOptions`` copy holding an absolute number in a per-gigabyte field,
+    which each worker then multiplied no further only because
+    ``to_optimization_config()`` happened to copy it straight across. Any worker
+    that read the field for its own purpose would have read a 4x figure, and the
+    copy also had to exist solely so the caller's shared config stayed at 1024
+    (review #35/#36). Now the parent builds the absolute ``OptimizationConfig``
+    once and hands it over as its own argument; every ``Auto3DOptions`` in every
+    process keeps the per-gigabyte value.
+    """
+    from Auto3D.foundation.config import (
+        Auto3DOptions,
+        OptimizationConfig,
+        optimizer_worker_indices,
+    )
     from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     config = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)
@@ -796,15 +828,18 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
     orch.logging_queue = MagicMock()
 
     captured_configs = []
+    captured_opt_configs = []
 
     class _FakeProcess:
         def __init__(self, target=None, args=(), **kwargs):
             self._args = args
 
         def start(self):
-            # Record every Auto3DOptions passed to a worker (positions differ
-            # between the isomer and optimization workers).
+            # Record both config objects passed to a worker (positions differ
+            # between the isomer and optimization workers, and only the
+            # optimization workers get an OptimizationConfig at all).
             captured_configs.extend(a for a in self._args if isinstance(a, Auto3DOptions))
+            captured_opt_configs.extend(a for a in self._args if isinstance(a, OptimizationConfig))
 
         def join(self, timeout=None):
             return None
@@ -851,9 +886,20 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
 
     # The shared config the caller passed in must be untouched.
     assert config.batchsize_atoms == 1024
-    # The optimization worker must receive the memory-scaled batchsize.
-    opt_configs = [c for c in captured_configs if c.batchsize_atoms == 1024 * 4]
-    assert opt_configs, "optimizer did not receive the memory-scaled batchsize"
+    # And so must every copy of it that crossed the spawn boundary: the scaled
+    # value has no business in a per-gigabyte field.
+    assert captured_configs, "no worker received an Auto3DOptions at all"
+    assert [c.batchsize_atoms for c in captured_configs] == [1024] * len(captured_configs)
+    # Exactly the optimizer workers -- one per index, and not the isomer worker
+    # -- receive the absolute batch size, as an OptimizationConfig.
+    n_optimizers = len(optimizer_worker_indices(config.use_gpu, config.gpu_idx))
+    assert len(captured_opt_configs) == n_optimizers, (
+        f"{len(captured_opt_configs)} workers got an OptimizationConfig, "
+        f"expected {n_optimizers} (the optimizer workers and no one else)"
+    )
+    assert [c.batchsize_atoms for c in captured_opt_configs] == [1024 * 4] * n_optimizers, (
+        "optimizer did not receive the memory-scaled batchsize"
+    )
 
 
 class TestAbnormalIsomerWorkerExit:
@@ -925,10 +971,18 @@ class TestAbnormalIsomerWorkerExit:
         return -9
 
     @staticmethod
-    def _draining_optimizer(config, chunk_queue, logging_queue, gpu_idx, progress_queue=None):
+    def _draining_optimizer(
+        config, opt_config, chunk_queue, logging_queue, gpu_idx, progress_queue=None
+    ):
         """A stand-in for optim_rank_wrapper's consume loop -- only the part
         under test (blocking on queue.get() until a "Done" sentinel) matters
         here; no model, no isomer/optimization work.
+
+        The parameter list has to match production exactly, ``opt_config``
+        included: _run_pipeline spawns this through the same positional
+        ``args=(...)`` tuple it builds for the real worker, so a stale signature
+        is a TypeError in the stand-in rather than a visible failure of what the
+        test is about.
         """
         while True:
             item = chunk_queue.get()
@@ -1567,7 +1621,13 @@ def test_optim_rank_wrapper_applies_torch_config(tmp_path, monkeypatch):
         args = Auto3DOptions(path=str(tmp_path / "x.smi"), k=1, use_gpu=False, allow_tf32=True)
         q = queue.Queue()
         q.put("Done")
-        ww.optim_rank_wrapper(args, q, queue.Queue(), gpu_idx=0)
+        ww.optim_rank_wrapper(
+            args,
+            args.to_optimization_config(batchsize_atoms=args.batchsize_atoms),
+            q,
+            queue.Queue(),
+            gpu_idx=0,
+        )
         assert torch.backends.cuda.matmul.allow_tf32 is True
 
 

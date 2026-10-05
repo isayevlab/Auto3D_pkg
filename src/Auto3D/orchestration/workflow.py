@@ -238,8 +238,11 @@ class WorkflowOrchestrator:
         self._logger_p: BaseProcess | None = None
         self._logging_manager: SyncManager | None = None
         self._log_handler: _DropOnFullQueueHandler | None = None
-        # Memory-scaled atom batch size for optimization, set in _prepare_chunks.
-        # Defaults to the unscaled config value.
+        # Absolute atom batch size for optimization: the config's per-gigabyte
+        # `batchsize_atoms` scaled by the memory ChunkManager measures, set in
+        # _prepare_chunks and handed to the workers as an OptimizationConfig in
+        # _run_pipeline. Defaults to the unscaled config value, i.e. to what one
+        # gigabyte would buy.
         self.scaled_batchsize_atoms: int = config.batchsize_atoms
 
     def run(self) -> str:
@@ -601,8 +604,8 @@ class WorkflowOrchestrator:
         )
         chunk_info = chunk_manager.prepare_chunks()
         # Capture the memory-scaled batch size for the optimization workers.
-        # prepare_chunks() no longer mutates the shared config, so we thread the
-        # scaled value through to a per-run config copy in _run_pipeline.
+        # prepare_chunks() does not mutate the shared config, so we thread the
+        # scaled value through to the OptimizationConfig built in _run_pipeline.
         self.scaled_batchsize_atoms = chunk_manager.scaled_batchsize_atoms
 
         if not chunk_info:
@@ -629,7 +632,7 @@ class WorkflowOrchestrator:
         """
         # Declared before the `try` -- and mutated only inside it -- so that a
         # failure partway through setup (a Manager server that fails to start,
-        # `config.replace()` raising, `Process(...)` construction itself
+        # `to_optimization_config()` raising, `Process(...)` construction itself
         # raising) still reaches the `finally` with whatever was actually
         # created so far, instead of leaking it (M3). `_terminate_workers`
         # tolerates both being empty.
@@ -661,12 +664,20 @@ class WorkflowOrchestrator:
                 progress_queue = progress_manager.Queue()
                 managers.append(progress_manager)
 
-            # Per-run config carrying the memory-scaled batch size for
-            # optimization. Built with dataclasses.replace so self.config
-            # (itself already a private copy made at the top of run(), see
-            # M16) is left holding the unscaled value -- only the optimizer
-            # workers get the scaled one.
-            opt_config = self.config.replace(batchsize_atoms=self.scaled_batchsize_atoms)
+            # The optimizer's configuration, carrying the ABSOLUTE batch size
+            # for this run: built once, here, in the only process that measured
+            # the memory it was scaled by. The workers used to be handed an
+            # Auto3DOptions copy with the scaled number written back into the
+            # per-gigabyte `batchsize_atoms` field, and each then rebuilt this
+            # object per chunk from that copy -- a field whose documented
+            # meaning no longer held inside a worker, and a measurement no
+            # worker could repeat (P-M11, R4). self.config (itself already a
+            # private copy made at the top of run(), see M16) keeps the
+            # per-gigabyte value, and so does every copy of it that crosses the
+            # spawn boundary below.
+            opt_config = self.config.to_optimization_config(
+                batchsize_atoms=self.scaled_batchsize_atoms
+            )
 
             # Create isomer generation process
             p1 = self.mp_context.Process(
@@ -685,7 +696,14 @@ class WorkflowOrchestrator:
                 p2s.append(
                     self.mp_context.Process(
                         target=optim_rank_wrapper,
-                        args=(opt_config, chunk_queue, self.logging_queue, idx, progress_queue),
+                        args=(
+                            self.config,
+                            opt_config,
+                            chunk_queue,
+                            self.logging_queue,
+                            idx,
+                            progress_queue,
+                        ),
                     )
                 )
 
