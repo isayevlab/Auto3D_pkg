@@ -1,9 +1,11 @@
 """Molecular properties the thermochemistry needs, read off the molecule.
 
-Geometry class, symmetry number, spin multiplicity and the display name -- all
-pure inspection of an RDKit ``Mol`` or an ASE ``Atoms``, with no model, no
-calculator and no ASE thermochemistry involved. They are the inputs
-``IdealGasThermo`` is constructed from.
+Geometry class, symmetry number, spin multiplicity, the display name and the
+mass convention the record was built under -- all pure inspection of an RDKit
+``Mol`` or an ASE ``Atoms``, with no model, no calculator and no ASE
+thermochemistry involved. All but the last are the inputs ``IdealGasThermo`` is
+constructed from; the mass convention annotates the record instead, naming what
+``mol2atoms`` gave the molecule rather than feeding ``IdealGasThermo`` itself.
 """
 
 from __future__ import annotations
@@ -65,8 +67,11 @@ def _is_collinear(atoms: ase.Atoms) -> bool:
     for the measurements that placed each threshold.
 
     This decides the rotational partition function only up to the Hessian
-    check in ``project_vibrations``, which reclassifies a bent stationary point
-    inside the window as nonlinear (N-M4).
+    check in ``project_vibrations``: for a bent stationary point inside the
+    window that check always drops the phantom near-axis mode (3N-6 modes),
+    but it hands ``IdealGasThermo`` the nonlinear rotor only when the smallest
+    principal moment is above the classical-rotor floor -- below it the linear
+    rotor is kept, which is the quantum limit for Theta_A >> T (N-M4, R27).
     """
     if len(atoms) <= 2:
         return True
@@ -122,9 +127,12 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     (e.g. 2 for water, 12 for benzene, 6 for ethane) when known.
 
     Defaulting to sigma=1 warns, whatever the reason -- the property is absent,
-    unparseable, or outside 1..``_MAX_SYMMETRY_NUMBER`` -- since the bias does not
-    cancel between tautomers, isomers or reaction partners the way it does
-    between conformers of one species. The defaulting-from-absence warning fires
+    unparseable, or outside 1..``_MAX_SYMMETRY_NUMBER`` -- since the bias cancels
+    only between species that share a rotational symmetry number, which two
+    conformers of one molecule need not do (chair sigma 6 against twist-boat
+    sigma 4 is 0.24 kcal/mol), and which a diastereomer, tautomer, reaction
+    partner or point-group-derived Gaussian/ORCA number generally does not.
+    The defaulting-from-absence warning fires
     once per calc_thermo run, not once per molecule, since every molecule lacking
     the property triggers the identical message; the two invalid-value warnings
     name the offending value and so fire per molecule.
@@ -170,9 +178,14 @@ def _symmetry_number(mol: Chem.Mol) -> int:
         logger.warning(
             "No 'symmetry_number' property on %s; using sigma=1. Gibbs energy is "
             "biased low by RT*ln(sigma) -- 1.47 kcal/mol for benzene at 298 K. "
-            "This cancels between conformers of one species but NOT between "
-            "tautomers, isomers or reaction partners. Set the 'symmetry_number' "
-            "property (2 for water, 6 for ethane, 12 for benzene) when known. "
+            "The bias cancels between conformers that share a rotational symmetry "
+            "number (nearly all conformers of a flexible molecule are C1, sigma 1), "
+            "but NOT between conformers of different symmetry (cyclohexane chair, "
+            "sigma 6, against twist-boat, sigma 4: 0.24 kcal/mol), between "
+            "diastereomers, tautomers or reaction partners, nor against Gaussian or "
+            "ORCA, which infer sigma from the point group; enantiomers always share "
+            "sigma. Set the 'symmetry_number' property (2 for water, 6 for ethane, "
+            "12 for benzene) per record when comparing those. "
             "(Logged once per run; later molecules defaulting the same way are "
             "silent.)",
             _mol_name(mol),
@@ -193,6 +206,13 @@ def mass_convention(mol: Chem.Mol) -> str:
     therefore per record: a file mixing labeled and unlabeled molecules says
     different things on different records, as it must, because their G are not
     comparable.
+
+    The token follows the LABEL, not the resulting mass: ``[12C]`` says
+    ``isotope-labeled masses`` even though ``GetMass()`` then equals the
+    most-abundant-isotope mass to six decimals. Conservative on purpose -- the
+    token may over-warn that two records are incomparable, never under-warn,
+    because ``mol2atoms`` departs from the default convention exactly when
+    ``GetIsotope()`` is nonzero.
     """
     labeled = any(atom.GetIsotope() for atom in mol.GetAtoms())
     return ISOTOPE_LABELED_MASSES if labeled else MOST_ABUNDANT_MASSES

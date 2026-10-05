@@ -200,9 +200,21 @@ def co2_atoms(angle_deg: float) -> Atoms:
 
 
 def atoms_for(mol: Chem.Mol, potential_energy: float = -1234.5) -> Atoms:
-    """ASE atoms for ``mol`` with a stubbed calculator and potential energy."""
+    """ASE atoms for ``mol`` with a stubbed calculator and potential energy.
+
+    Masses come through the production helper, as in ``mmff_hessian`` below:
+    ``do_mol_thermo`` requires its ``atoms`` to be the ``mol2atoms(mol)`` object
+    (that is what makes the record's mass token, the mass-weighted Hessian and
+    the rotor describe one molecule), and ASE's per-element default is the
+    natural-abundance average, not the most-abundant isotope Auto3D uses. Built
+    without this, every driven fixture put a third mass convention into the
+    partition functions while the record claimed the production one.
+    """
+    from Auto3D.entry.ASE.thermo.calculator import mol2atoms
+
     positions = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
     atoms = Atoms([a.GetSymbol() for a in mol.GetAtoms()], positions)
+    atoms.set_masses(mol2atoms(mol, positions=positions).get_masses())
     atoms.get_calculator = lambda: None
     atoms.get_potential_energy = lambda: potential_energy
     return atoms

@@ -89,7 +89,9 @@ STANDARD_PRESSURE = 101325  # Pa
 # What Thermo_standard_state and Thermo_convention call STANDARD_PRESSURE. ASE's
 # internal reference is 1 bar; do_mol_thermo applies the -kB*T*ln(P/P_ref)
 # correction to report at 1 atm like ORCA and Gaussian (m17), and the record
-# says so because the two differ by R*T*ln(1.01325) = 0.0078 kcal/mol at 298 K.
+# says so because the two differ: against 1 bar, S is lower by R*ln(1.01325) =
+# 0.026 cal/mol/K and G is higher by R*T*ln(1.01325) = 0.0078 kcal/mol at 298 K
+# (H is pressure independent).
 STANDARD_STATE_LABEL = "1 atm"
 
 # Model names

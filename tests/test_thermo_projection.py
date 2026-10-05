@@ -472,6 +472,15 @@ class TestABentStationaryPointInsideTheWindowIsReclassified:
         assert len(projection.energies) == len(vibrations)
 
     def test_a_diatomic_is_never_tested(self):
+        """A diatomic stays linear, and the singular-value gate is why.
+
+        Two points have no sixth external direction at all, so ``s6/s1`` is
+        identically 0 and ``LINEAR_AXIS_ROTATION_GATE`` already excludes every
+        diatomic before the ``n_atoms > 2`` guard is consulted. This test
+        therefore pins the OUTCOME -- 3N-5 = 1 mode and the linear rotor, never
+        a reclassification -- not the guard; what the guard is for is stated at
+        its own site in ``vibrations.py``.
+        """
         atoms = Atoms("NN", [[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]])
         hessian = hessian_with_spectrum(atoms, [2330], [0.5, -0.4, 0.3, -0.2, 0.1], "linear")
         projection = project_vibrations(atoms, hessian, "linear")

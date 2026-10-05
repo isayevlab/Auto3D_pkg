@@ -94,6 +94,13 @@ def do_mol_thermo(
     """For a RDKit mol object, calculate its thermochemistry properties.
 
     Args:
+        atoms: The relaxed geometry, and it must be the ``mol2atoms(mol)``
+            object (``calc_thermo`` builds it that way): its masses are what
+            the mass-weighted Hessian, the moments of inertia and the
+            translational term are built from, while the mass token in
+            ``Thermo_convention`` is read off ``mol``'s isotope labels. Passing
+            an ``Atoms`` built any other way -- ASE's own per-element defaults,
+            say -- leaves the record describing masses it did not use.
         adapter: The Hessian model, satisfying
             :class:`Auto3D.engines.models.contract.ModelAdapter`. Passed straight to
             ``vib_hessian``, which asks it for the species convention and for
@@ -269,8 +276,12 @@ def do_mol_thermo(
     # constant would silently have changed nothing.
     # ASE's internal reference is 1 bar
     # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
-    # 1 atm -- matching ORCA/Gaussian. The translational-entropy difference vs
-    # 1 bar is R*T*ln(1.01325) = ~0.0078 kcal/mol at 298.15 K.
+    # 1 atm -- matching ORCA/Gaussian. Both signs, since "the correction" alone
+    # does not say which way the reported numbers move: ASE subtracts
+    # kB*ln(P/P_ref) from S, so against 1 bar the entropy is LOWER by
+    # R*ln(1.01325) = 0.026 cal/mol/K and G is HIGHER by R*T*ln(1.01325) =
+    # +0.0078 kcal/mol at 298.15 K. get_enthalpy takes no pressure argument at
+    # all: H is pressure independent and identical either way.
     S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
     G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
 
@@ -502,18 +513,40 @@ def calc_thermo(
 
     Notes:
         Every record that reaches the thermochemistry carries its conventions:
-        ``Thermo_convention`` (floor; standard state; mass convention, e.g.
-        ``"RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope masses"``),
-        ``Thermo_standard_state`` (``"1 atm"``, matching ORCA/Gaussian),
+        ``Thermo_convention`` (vibrational treatment; standard state; mass
+        convention, e.g. ``"RRHO+quasiharmonic(100cm-1); 1 atm;
+        most-abundant-isotope masses"``), ``Thermo_standard_state``
+        (``"1 atm"``, the ideal-gas 1 atm standard state of Gaussian and ORCA;
+        it applies to S and G, H being pressure independent),
         ``Symmetry_number`` (the sigma used: the per-mol ``symmetry_number``
         property when valid, else 1) and ``Thermo_linearity`` (``monatomic`` /
         ``linear`` / ``nonlinear`` / ``bent_reclassified_nonlinear`` /
-        ``bent_quasilinear_linear_rotor``). sigma=1 biases G low by RT ln sigma
-        (1.47 kcal/mol for benzene at 298 K), which cancels between conformers
-        but not between tautomers, isomers or reaction partners; set
-        ``symmetry_number`` when known. Records marked ``Thermo_failed`` for a
-        reason other than ``transition_state`` never reach this step and carry
-        none of the four.
+        ``bent_quasilinear_linear_rotor``). Records marked ``Thermo_failed``
+        for a reason other than ``transition_state`` never reach this step,
+        which is what writes the four; a record that fails inside it, and a
+        record re-read from an earlier Auto3D output, carry them without a
+        matching ``G_hartree``, so filter on ``Thermo_failed == ""`` rather
+        than on their presence.
+
+        ``RRHO+quasiharmonic(100cm-1)`` is Truhlar's raising (Ribeiro,
+        Marenich, Cramer and Truhlar, *J. Phys. Chem. B* 2011, 115, 14556):
+        every real mode below the floor is evaluated at the floor in the
+        frequency list handed to the partition function, so the zero-point
+        energy, the vibrational enthalpy and the vibrational entropy all move.
+        It is NOT Grimme's interpolating quasi-RRHO, which ORCA applies by
+        default with the same 100 cm-1 reference frequency, and not an
+        entropy-only cutoff. ``RRHO`` is unscaled harmonic frequencies with no
+        floor.
+
+        sigma=1 biases G low by RT ln sigma (0.41 kcal/mol for water, 1.47 for
+        benzene at 298 K). The bias cancels between conformers that share a
+        rotational symmetry number (nearly all conformers of a flexible
+        molecule are C1, sigma 1), but not between conformers of different
+        symmetry (cyclohexane chair, sigma 6, against twist-boat, sigma 4:
+        0.24 kcal/mol), between diastereomers, tautomers or reaction partners,
+        nor against Gaussian or ORCA, which infer sigma from the point group.
+        Enantiomers always share sigma. Set ``symmetry_number`` per record when
+        comparing those.
 
         The vibrational spectrum comes from an Eckart/Sayvetz-projected
         Hessian (``project_vibrations``), so exactly 3N-6 / 3N-5 modes reach

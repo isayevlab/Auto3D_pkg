@@ -206,7 +206,12 @@ BENT_QUASILINEAR = "bent_quasilinear_linear_rotor"
 #: ``dG_rot = -RT/2 ln(pi T / Theta_A)`` grows without bound: for CO2 at 298 K,
 #: +1.0 kcal/mol at 179 degrees and +2.4 at 179.9 -- larger than the phantom
 #: this module removes. At the floor ``dG_rot = 0``, so switching rotors there
-#: leaves G continuous. The quantum limit for ``Theta_A >> T`` is that only
+#: leaves G continuous (measured: +0.00007 kcal/mol). H and S are NOT
+#: continuous there, and only their combination is: the linear rotor has one
+#: rotational degree of freedom fewer, so at the switch ``H_hartree`` steps down
+#: by RT/2 (0.296 kcal/mol at 298.15 K) and ``S_hartree_per_K`` by R/2 (0.993
+#: cal/mol/K), which is exactly the cancellation ``dH = T dS`` that leaves G
+#: alone. The quantum limit for ``Theta_A >> T`` is that only
 #: ``K = 0`` is populated and ``q_rot(nonlinear) -> q_rot(linear)``, which is
 #: why the linear rotor is the right answer below the floor.
 _CLASSICAL_ROTOR_FLOOR_AMU_A2_K = ase_units._hplanck**2 / (
@@ -509,7 +514,11 @@ def project_vibrations(
                     "for Theta_A >> T only K = 0 is populated and the nonlinear "
                     "rotational partition function tends to the linear one, while "
                     "ASE's classical nonlinear form would put q_A below the quantum "
-                    "ground state and cost spurious -T*S_rot without bound. "
+                    "ground state and cost spurious -T*S_rot without bound. G is "
+                    "continuous across this switch, but H and S are not: dropping "
+                    "the near-axis rotation lowers H_hartree by RT/2 (0.296 kcal/mol "
+                    "at 298.15 K) and S_hartree_per_K by R/2 (0.993 cal/mol/K), "
+                    "which cancel in G. "
                     "Thermo_linearity records this as %s. RRHO is marginal for a "
                     "quasi-linear species either way.",
                     name,
@@ -525,6 +534,18 @@ def project_vibrations(
                     BENT_QUASILINEAR,
                 )
         elif ratio < LINEARITY_MARGINAL_RATIO:
+            # Only say the phantom gets raised when it would be: the clause used
+            # to be unconditional, and a 400 cm-1 near-axis curvature is not
+            # "below the quasi-harmonic floor". The DEFAULT floor is the only one
+            # in scope here -- the per-call `low_freq_cutoff_cm` belongs to
+            # `analyze_vibrations`, downstream of this function -- so the clause
+            # says "default" and a caller who passed 0.0 is not misled.
+            floor_clause = (
+                f" -- below the default {LOW_FREQUENCY_CUTOFF_CM:.0f} cm-1 "
+                "quasi-harmonic floor, hence raised to it"
+                if curvature_cm < LOW_FREQUENCY_CUTOFF_CM
+                else ""
+            )
             logger.warning(
                 "%s: the linearity test ran and did not fire, but only marginally. "
                 "The curvature along the rotation about the near-axis is %.3e (%.1f "
@@ -536,9 +557,9 @@ def project_vibrations(
                 "curvature here away from an exact stationary point (the identity is "
                 "R^T H R = sum_i o_perp,i . g_perp,i, bounded by fmax * sum|o_perp| / "
                 "I_n at the force gate), so this molecule is kept linear with 3N-5 "
-                "modes, and a phantom of about %.1f cm-1 may be sitting in that list "
-                "-- below the quasi-harmonic floor, hence raised to it. Treat its "
-                "rotational and low-frequency thermochemistry as uncertain.",
+                "modes, and a phantom of about %.1f cm-1 may be sitting in that "
+                "list%s. Treat its rotational and low-frequency thermochemistry as "
+                "uncertain.",
                 name,
                 abs(curvature),
                 curvature_cm,
@@ -548,6 +569,7 @@ def project_vibrations(
                 PROJECTION_RESIDUAL_FRACTION,
                 LINEARITY_MARGINAL_RATIO,
                 curvature_cm,
+                floor_clause,
             )
 
     largest_discarded = float(np.max(np.abs(discarded)))
@@ -652,7 +674,9 @@ class VibrationAnalysis:
     def convention(self) -> str:
         """The thermochemical convention that produced ``corrected_energies``.
 
-        Written to every record's ``Thermo_convention`` SD property, because
+        Written as the first token of every record's ``Thermo_convention`` SD
+        property -- ``do_mol_thermo`` appends the standard state and the mass
+        convention, so the property is a superset of this string -- because
         the quasi-harmonic floor is a modeling choice rather than a bug fix:
         two Auto3D runs with different floors are not comparable, and neither
         is a floored Auto3D number and a plain-RRHO Gaussian/ORCA one.

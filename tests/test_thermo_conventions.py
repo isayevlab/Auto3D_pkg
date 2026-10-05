@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 from Auto3D.entry.ASE.thermo.properties import (
     ISOTOPE_LABELED_MASSES,
@@ -85,16 +83,23 @@ def test_the_standard_state_label_matches_the_pressure_constant():
 
 
 def test_usage_rst_documents_the_thermo_conventions():
-    path = Path(__file__).resolve().parents[1] / "docs" / "source" / "usage.rst"
-    if not path.exists():
-        pytest.skip("docs are not part of this checkout")
-    text = path.read_text()
+    """The usage guide must carry a bullet per property, not just the words.
+
+    No skip guard: every CI job checks the repo out and runs pytest from its
+    root, and the conda package's test phase never runs pytest at all, so a
+    missing-docs skip could only ever hide a real deletion. The needles are the
+    bold bullet labels rather than bare substrings for the same reason -- the
+    bare names appear in the sigma paragraph, so a test on those would survive
+    the deletion of the whole output list.
+    """
+    text = (Path(__file__).resolve().parents[1] / "docs" / "source" / "usage.rst").read_text()
     for needle in (
-        "Symmetry_number",
-        "symmetry_number",
-        "Thermo_standard_state",
-        "Thermo_convention",
-        "Thermo_linearity",
-        "sigma",
+        "**Thermo_convention**",
+        "**Thermo_standard_state**",
+        "**Symmetry_number**",
+        "**Thermo_linearity**",
+        "**multiplicity**",
+        "``symmetry_number`` SD property",
+        "RT ln sigma",
     ):
         assert needle in text, needle
