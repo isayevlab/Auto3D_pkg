@@ -550,6 +550,35 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   ``"implicit_hydrogens"``, ``"no_conformer"``, ``"dummy_atoms"`` (3.2.0+, when
   the record contains a dummy atom of atomic number 0), or the exception type
   name. Filter on ``Thermo_failed == ""`` before reading the absolute energies.
+- **Thermo_convention**: the prescription that produced *G*, as one string:
+  the vibrational treatment (``RRHO+quasiharmonic(100cm-1)`` by default,
+  ``RRHO`` with ``low_freq_cutoff_cm=0.0``), the standard state, and the mass
+  convention, e.g. ``"RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope
+  masses"``. Two files are comparable only when this string agrees.
+- **Thermo_standard_state**: ``"1 atm"`` (matching ORCA and Gaussian; ASE's
+  internal 1 bar reference is corrected).
+- **Symmetry_number**: the rotational symmetry number actually used, see below.
+- **Thermo_linearity**: ``"monatomic"``, ``"linear"`` or ``"nonlinear"``, the
+  geometry class the rotational partition function and the ``3N-5`` / ``3N-6``
+  mode count were built with; ``"bent_reclassified_nonlinear"`` when the
+  coordinates looked linear but the Hessian showed a bent stationary point, which
+  is then treated as nonlinear, or ``"bent_quasilinear_linear_rotor"`` when such a
+  molecule is too close to linear for the classical nonlinear rotor (its smallest
+  moment of inertia is below ``h^2 / (8 pi^3 k T)``, 0.026 amu A^2 at 298 K), so the
+  phantom mode is dropped but the linear rotor is kept. A warning names the
+  molecule in both cases.
+
+**Symmetry number.** Auto3D does not infer the external rotational symmetry
+number: ``sigma = 1`` is used unless the input record carries an integer
+``symmetry_number`` SD property (2 for water, 6 for ethane, 12 for benzene; 1 to
+60 is accepted, anything else falls back to 1 with a warning). Graph
+automorphisms would overcount it for flexible molecules, so no default is
+derived. With ``sigma = 1`` the Gibbs energy is biased low by ``RT ln sigma``
+(0.41 kcal/mol for water, 1.47 for benzene at 298 K); the bias cancels between
+conformers of one species but not between tautomers, stereoisomers or reaction
+partners, so set the property when comparing those. ``Symmetry_number`` on the
+output is the value the calculation used, which equals ``symmetry_number`` only
+when the request was valid.
 
 The Gibbs quantity is opt-in because it is the entry point to the expensive
 path: obtaining a Δ*G* at all costs a Hessian per conformer. Conformer

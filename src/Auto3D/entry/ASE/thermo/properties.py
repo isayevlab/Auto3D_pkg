@@ -181,6 +181,23 @@ def _symmetry_number(mol: Chem.Mol) -> int:
     return 1
 
 
+MOST_ABUNDANT_MASSES = "most-abundant-isotope masses"
+ISOTOPE_LABELED_MASSES = "isotope-labeled masses"
+
+
+def mass_convention(mol: Chem.Mol) -> str:
+    """Which masses ``mol2atoms`` gave this molecule, for ``Thermo_convention``.
+
+    ``mol2atoms`` takes the most abundant isotope's mass for every atom except one
+    carrying an RDKit isotope label, which keeps the labeled mass. The token is
+    therefore per record: a file mixing labeled and unlabeled molecules says
+    different things on different records, as it must, because their G are not
+    comparable.
+    """
+    labeled = any(atom.GetIsotope() for atom in mol.GetAtoms())
+    return ISOTOPE_LABELED_MASSES if labeled else MOST_ABUNDANT_MASSES
+
+
 _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
 
 

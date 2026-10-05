@@ -33,6 +33,7 @@ from Auto3D.entry.ASE.thermo.properties import (
     _mol_name,
     _resolve_multiplicity,
     _symmetry_number,
+    mass_convention,
 )
 from Auto3D.entry.ASE.thermo.vibrations import (
     _verbatim_mode_kwargs,
@@ -47,6 +48,7 @@ from Auto3D.foundation.constants import (
     EV_TO_HARTREE,
     LOW_FREQUENCY_CUTOFF_CM,
     STANDARD_PRESSURE,
+    STANDARD_STATE_LABEL,
 )
 from Auto3D.foundation.utils.convergence import THERMO_FAILED_PROP
 from Auto3D.foundation.utils.energy import (
@@ -206,13 +208,20 @@ def do_mol_thermo(
     mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
     mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
     mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
-    # Name the convention and the mode count in the file itself: the
-    # quasi-harmonic floor is a modeling choice, so without these a consumer
-    # cannot tell which prescription produced G_hartree.
+    # Name every convention in the file itself: the quasi-harmonic floor, the
+    # standard state and the mass convention are modeling choices that do not
+    # cancel between species, and sigma is the one input the user can set.
+    # Symmetry_number (capital S) is the value USED; symmetry_number is the
+    # request, which may have been rejected (see _symmetry_number).
     mol.SetProp("N_raised_modes", str(analysis.n_raised))
     mol.SetProp("Thermo_vib_modes", str(len(analysis.corrected_energies)))
-    mol.SetProp("Thermo_convention", analysis.convention)
+    mol.SetProp(
+        "Thermo_convention",
+        f"{analysis.convention}; {STANDARD_STATE_LABEL}; {mass_convention(mol)}",
+    )
     mol.SetProp("Thermo_linearity", analysis.linearity)
+    mol.SetProp("Symmetry_number", str(symmetry))
+    mol.SetProp("Thermo_standard_state", STANDARD_STATE_LABEL)
     # A saddle point is not a minimum, so it must not read as a success. Set
     # here, at the one place that knows, rather than left to the caller: the
     # writer preserves a non-empty marker, so this verdict survives however
@@ -492,11 +501,19 @@ def calc_thermo(
             carries a ``-T*S`` term.
 
     Notes:
-        Gibbs energies are reported at the 1 atm standard state (matching
-        ORCA/Gaussian). Rotational symmetry numbers default to 1 unless a
-        per-mol integer 'symmetry_number' property is set; for symmetric
-        molecules (e.g. benzene, sigma=12) the default over-counts rotational
-        entropy by up to a few kcal/mol in T*S, so set that property when known.
+        Every record that reaches the thermochemistry carries its conventions:
+        ``Thermo_convention`` (floor; standard state; mass convention, e.g.
+        ``"RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope masses"``),
+        ``Thermo_standard_state`` (``"1 atm"``, matching ORCA/Gaussian),
+        ``Symmetry_number`` (the sigma used: the per-mol ``symmetry_number``
+        property when valid, else 1) and ``Thermo_linearity`` (``monatomic`` /
+        ``linear`` / ``nonlinear`` / ``bent_reclassified_nonlinear`` /
+        ``bent_quasilinear_linear_rotor``). sigma=1 biases G low by RT ln sigma
+        (1.47 kcal/mol for benzene at 298 K), which cancels between conformers
+        but not between tautomers, isomers or reaction partners; set
+        ``symmetry_number`` when known. Records marked ``Thermo_failed`` for a
+        reason other than ``transition_state`` never reach this step and carry
+        none of the four.
 
         The vibrational spectrum comes from an Eckart/Sayvetz-projected
         Hessian (``project_vibrations``), so exactly 3N-6 / 3N-5 modes reach
