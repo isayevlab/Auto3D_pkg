@@ -1,7 +1,10 @@
 # tests/test_cli_property_commands.py
 """Fast CLI tests for the new first-class property subcommands and the
 modernization changes (exit codes, enums, path validation, --save-intermediate,
-config init --force). The heavy API functions are mocked, so no NNP runs here.
+config init --force). The heavy API functions are mocked, except in the six
+engine-name/GPU guard pins, which must run them for real to exercise the guard
+at all and instead make reaching a device or a model the failure. No NNP runs
+here either way.
 """
 
 from __future__ import annotations
@@ -31,8 +34,16 @@ runner = CliRunner()
 
 @pytest.fixture
 def sdf(tmp_path):
+    """An SDF that exists and holds nothing, which is all its consumers need.
+
+    Most tests here mock the API function, so its contents are never read. The
+    six engine-name/GPU guard pins below do NOT mock it -- they run the real
+    `calc_spe`/`opt_geometry`/`calc_thermo` -- and the file is still empty on
+    purpose: each of them is refused by the first or second step of the entry
+    prologue, before anything opens the input.
+    """
     p = tmp_path / "mols.sdf"
-    p.write_text("")  # existence is all that matters; calc_* is mocked
+    p.write_text("")
     return p
 
 
@@ -127,8 +138,9 @@ def test_thermo_without_ase_raises_dependency_error(sdf, monkeypatch):
 # a regression here from downloading an NNP.
 
 
+@contextlib.contextmanager
 def _nothing_may_be_built():
-    """Patch every step a refused run must never reach, and return the mocks.
+    """Patch every step a refused run must never reach, and yield the mocks.
 
     ``get_device`` is patched on ``Auto3D.entry._run_setup``, where the three
     entry points' shared prologue calls it, and it is the LAST of that
@@ -137,16 +149,22 @@ def _nothing_may_be_built():
     ``create_model`` is patched on all four of its holders (each entry module
     plus the thermo calculator) so that even a regression cannot load or
     download a potential in this fast-tier test.
+
+    A context manager rather than a function returning an open ``ExitStack``:
+    the patches must not be live outside a ``with``. If the fourth or fifth
+    ``patch.object`` ever raised -- an attribute renamed away -- the earlier
+    ones would otherwise stay installed for the rest of the session with
+    nothing to unwind them, and the damage would surface as unrelated tests
+    mysteriously seeing a ``MagicMock`` ``create_model``.
     """
-    stack = contextlib.ExitStack()
-    sentinels = [
-        stack.enter_context(patch.object(Auto3D.entry._run_setup, "get_device")),
-        stack.enter_context(patch.object(Auto3D.entry.SPE, "create_model")),
-        stack.enter_context(patch.object(Auto3D.entry.ASE.geometry, "create_model")),
-        stack.enter_context(patch.object(Auto3D.entry.ASE.thermo.driver, "create_model")),
-        stack.enter_context(patch.object(Auto3D.entry.ASE.thermo.calculator, "create_model")),
-    ]
-    return stack, sentinels
+    with contextlib.ExitStack() as stack:
+        yield [
+            stack.enter_context(patch.object(Auto3D.entry._run_setup, "get_device")),
+            stack.enter_context(patch.object(Auto3D.entry.SPE, "create_model")),
+            stack.enter_context(patch.object(Auto3D.entry.ASE.geometry, "create_model")),
+            stack.enter_context(patch.object(Auto3D.entry.ASE.thermo.driver, "create_model")),
+            stack.enter_context(patch.object(Auto3D.entry.ASE.thermo.calculator, "create_model")),
+        ]
 
 
 def _assert_refused_before_any_work(sentinels):
@@ -155,8 +173,7 @@ def _assert_refused_before_any_work(sentinels):
 
 
 def test_energy_rejects_unknown_engine_before_doing_any_work(sdf):
-    stack, sentinels = _nothing_may_be_built()
-    with stack:
+    with _nothing_may_be_built() as sentinels:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -164,8 +181,7 @@ def test_energy_rejects_unknown_engine_before_doing_any_work(sdf):
 
 
 def test_optimize_rejects_unknown_engine_before_doing_any_work(sdf):
-    stack, sentinels = _nothing_may_be_built()
-    with stack:
+    with _nothing_may_be_built() as sentinels:
         res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -173,8 +189,7 @@ def test_optimize_rejects_unknown_engine_before_doing_any_work(sdf):
 
 
 def test_thermo_rejects_unknown_engine_before_doing_any_work(sdf):
-    stack, sentinels = _nothing_may_be_built()
-    with stack:
+    with _nothing_may_be_built() as sentinels:
         res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
     assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
@@ -220,8 +235,10 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
 
 
 def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
-    stack, sentinels = _nothing_may_be_built()
-    with stack, patch.object(torch.cuda, "is_available", return_value=False):
+    with (
+        _nothing_may_be_built() as sentinels,
+        patch.object(torch.cuda, "is_available", return_value=False),
+    ):
         res = runner.invoke(app, ["energy", str(sdf)])  # gpu defaults to True
     assert res.exit_code == 4, res.output  # GPUError -> exit 4
     assert "--no-gpu" in res.output
@@ -229,8 +246,10 @@ def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
 
 
 def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
-    stack, sentinels = _nothing_may_be_built()
-    with stack, patch.object(torch.cuda, "is_available", return_value=False):
+    with (
+        _nothing_may_be_built() as sentinels,
+        patch.object(torch.cuda, "is_available", return_value=False),
+    ):
         res = runner.invoke(app, ["optimize", str(sdf)])
     assert res.exit_code == 4, res.output
     assert "--no-gpu" in res.output
@@ -238,8 +257,10 @@ def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
 
 
 def test_thermo_rejects_when_gpu_requested_without_cuda(sdf):
-    stack, sentinels = _nothing_may_be_built()
-    with stack, patch.object(torch.cuda, "is_available", return_value=False):
+    with (
+        _nothing_may_be_built() as sentinels,
+        patch.object(torch.cuda, "is_available", return_value=False),
+    ):
         res = runner.invoke(app, ["thermo", str(sdf)])
     assert res.exit_code == 4, res.output
     assert "--no-gpu" in res.output

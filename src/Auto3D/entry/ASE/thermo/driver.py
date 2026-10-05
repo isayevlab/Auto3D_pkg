@@ -482,9 +482,10 @@ def calc_thermo(
         same input gave different Gibbs energies on different ASE versions.
 
     Raises:
-        InputValidationError: if no record of ``path`` is usable (unparseable,
-            conformerless, implicit hydrogens, or dummy atoms); see the
-            warnings logged for each record.
+        InputValidationError: if no record of ``path`` could be parsed at all. A
+            record that parses but is defective (conformerless, implicit
+            hydrogens, dummy atoms) is kept and written marked
+            ``Thermo_failed`` instead; see the warnings logged for each record.
     """
     # Every guard, the output name and the record read, in one call shared with
     # calc_spe and opt_geometry -- see Auto3D.entry._run_setup for the step

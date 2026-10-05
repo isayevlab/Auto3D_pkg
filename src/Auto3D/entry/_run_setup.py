@@ -80,6 +80,12 @@ if TYPE_CHECKING:
 class RunSetup:
     """Everything a single-file run needs before it builds a model.
 
+    ``frozen=True`` fixes the five fields, not what they point at: ``records``
+    and ``skipped`` are the lists the file read produced, holding the same
+    ``Mol`` objects, and ``calc_thermo`` marks the skipped ones in place
+    (``Thermo_failed``) before writing them -- as the inline code this replaced
+    also did.
+
     Attributes:
         device: What ``get_device`` resolved for ``gpu_idx``/``use_gpu``.
         out_path: The resolved output path -- the caller's ``out_path`` when it

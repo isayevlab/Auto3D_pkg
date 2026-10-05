@@ -274,10 +274,13 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose
 
         from Auto3D.engines.model_factory import create_model, get_device
 
-        # `energy`/`optimize`/`thermo` (cli/commands/properties.py) already call
-        # this before doing any work; `models test` reached
-        # model_factory.get_device directly and silently fell back to CPU on a
-        # CPU-only box instead of failing the same way -- the last M23 gap.
+        # `energy`/`optimize`/`thermo` get this for free: their API functions
+        # run it as the second step of the shared prologue
+        # (Auto3D.entry._run_setup.prepare_single_file_run) before doing any
+        # work. `models test` calls no API function, so it keeps its own call --
+        # it reached model_factory.get_device directly and silently fell back to
+        # CPU on a CPU-only box instead of failing the same way, the last M23
+        # gap.
         check_gpu_requested(gpu)
         device = get_device(gpu_idx, use_gpu=gpu)
         with console.status(f"[bold]Loading {engine} on {device}..."):

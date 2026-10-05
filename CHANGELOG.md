@@ -87,8 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one record filter (`iter_conformer_records` / `record_skip_reason`) that
   skips them with a warning. `calc_thermo` keeps such records in its output
   marked `Thermo_failed="implicit_hydrogens"` (a record without any conformer
-  is marked `"no_conformer"`); `opt_geometry` raises `OptimizationError`
-  (exit 7) when every record is skipped. The batch optimizer's
+  is marked `"no_conformer"`); `opt_geometry` raises `InputValidationError`
+  (exit 2) when every record is skipped. The batch optimizer's
   unparseable-record warning now says `record N` instead of `index N`.
 - `auto3d ... -v` rendered the verbose traceback at the ambient console
   width, so under a pipe, a log file or test capture long file paths wrapped
