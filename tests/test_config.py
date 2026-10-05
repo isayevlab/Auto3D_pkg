@@ -67,6 +67,29 @@ def test_to_optimization_config_requires_the_absolute_batchsize():
     assert o.batchsize_atoms == 1024
 
 
+@pytest.mark.parametrize("bad", [0, -1, 1024.5, "4096", None, True])
+def test_to_optimization_config_validates_the_batchsize_it_is_handed(bad):
+    """The keyword passes the same bounds check the field itself passes.
+
+    Until the scaled value became an argument it reached the optimizer inside an
+    ``Auto3DOptions`` copy built by ``replace()``, which re-ran the model's
+    validation on it. ``OptimizationConfig`` is a plain dataclass that validates
+    nothing, so without a check here a zero, a negative, a string or a
+    fractional count would travel all the way to the optimizer -- and on
+    ``main()``'s path, across a spawn boundary first, surfacing inside a worker
+    rather than at the call that chose the number. The seam every scaled value
+    now passes through is this method, so the check lives here and raises the
+    same ``ConfigurationError`` an out-of-range field on the options object
+    raises (exit 2, with the ``auto3d config init`` hint) rather than a bare
+    TypeError or ValueError.
+    """
+    from Auto3D.foundation.config import Auto3DOptions
+
+    o = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)
+    with pytest.raises(ConfigurationError):
+        o.to_optimization_config(batchsize_atoms=bad)
+
+
 class TestAuto3DOptions:
     """Tests for Auto3DOptions dataclass."""
 

@@ -632,10 +632,10 @@ class WorkflowOrchestrator:
         """
         # Declared before the `try` -- and mutated only inside it -- so that a
         # failure partway through setup (a Manager server that fails to start,
-        # `to_optimization_config()` raising, `Process(...)` construction itself
-        # raising) still reaches the `finally` with whatever was actually
-        # created so far, instead of leaking it (M3). `_terminate_workers`
-        # tolerates both being empty.
+        # `to_optimization_config()` refusing the scaled batch size,
+        # `Process(...)` construction itself raising) still reaches the
+        # `finally` with whatever was actually created so far, instead of
+        # leaking it (M3). `_terminate_workers` tolerates both being empty.
         managers: list[SyncManager] = []
         # Every process that actually started, so the `finally` below only ever
         # touches processes it can legally join: Process.join() asserts on one

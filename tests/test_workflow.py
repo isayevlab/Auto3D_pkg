@@ -575,10 +575,17 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     from tests.helpers_adapter import FakeAdapter
 
     attempted = []
+    batchsizes = []
 
     class _BoomOptimizing:
         def __init__(self, in_f, out_f, *, adapter, device, config, progress_cb=None):
             self._enumerated = in_f
+            # The second half of R4: the worker optimizes with the
+            # OptimizationConfig the parent handed it, and never rebuilds one
+            # from `args`. The two are deliberately different numbers below, so
+            # a reintroduced per-chunk `args.to_optimization_config(...)` reads
+            # the per-gigabyte 1024 here instead of the 4096 the parent chose.
+            batchsizes.append(config.batchsize_atoms)
 
         def run(self):
             attempted.append(self._enumerated)
@@ -605,11 +612,19 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
 
     # Must return normally (not propagate the RuntimeError) ...
     result = ww.optim_rank_wrapper(
-        args, args.to_optimization_config(batchsize_atoms=args.batchsize_atoms), q, logq, gpu_idx=0
+        args, args.to_optimization_config(batchsize_atoms=4096), q, logq, gpu_idx=0
     )
     # ... and BOTH chunks must have been attempted: the loop continued past the
     # first chunk's failure instead of dying on it.
     assert attempted == ["enum1.sdf", "enum2.sdf"]
+    # Every chunk was optimized with the batch size the caller passed in, not
+    # one the worker computed from `args` (whose batchsize_atoms is the
+    # per-gigabyte 1024 here).
+    assert batchsizes == [4096, 4096], (
+        "the worker did not optimize with the OptimizationConfig it was handed; "
+        f"saw {batchsizes}, expected the caller's 4096 for both chunks"
+    )
+    assert args.batchsize_atoms == 1024, "test premise: args must carry a different number"
     # No return value, by design: this function only ever runs as an
     # `mp.Process` target (workflow.py), so anything returned is discarded.
     # It used to accumulate every chunk's ranked mols into a list it then
@@ -971,21 +986,22 @@ class TestAbnormalIsomerWorkerExit:
         return -9
 
     @staticmethod
-    def _draining_optimizer(
-        config, opt_config, chunk_queue, logging_queue, gpu_idx, progress_queue=None
-    ):
+    def _draining_optimizer(args, opt_config, queue, logging_queue, gpu_idx, progress_queue=None):
         """A stand-in for optim_rank_wrapper's consume loop -- only the part
         under test (blocking on queue.get() until a "Done" sentinel) matters
         here; no model, no isomer/optimization work.
 
-        The parameter list has to match production exactly, ``opt_config``
-        included: _run_pipeline spawns this through the same positional
-        ``args=(...)`` tuple it builds for the real worker, so a stale signature
-        is a TypeError in the stand-in rather than a visible failure of what the
-        test is about.
+        The parameter list has to match production exactly, ``opt_config`` and
+        the names included: _run_pipeline spawns this through the same
+        positional ``args=(...)`` tuple it builds for the real worker, so a
+        stale signature is a TypeError in the stand-in rather than a visible
+        failure of what the test is about.
+        ``test_the_optimizer_stand_ins_mirror_the_real_signature`` holds both
+        stand-ins to that correspondence. ``queue`` shadows the module's
+        ``queue`` import inside this function, which needs neither.
         """
         while True:
-            item = chunk_queue.get()
+            item = queue.get()
             if item == "Done":
                 return 0
 
@@ -1068,6 +1084,31 @@ class TestAbnormalIsomerWorkerExit:
         orch._run_pipeline([("chunk.smi", "job1")])
 
         assert chunk_q.empty()
+
+
+def test_the_optimizer_stand_ins_mirror_the_real_signature():
+    """Both optimizer stand-ins are spawned through production's own positional
+    ``args=(...)`` tuple, so a parameter list that has fallen behind
+    ``optim_rank_wrapper`` kills the spawned worker with a TypeError instead of
+    failing the assertion the test was written for.
+
+    One of the two (``helpers_lifecycle.optimizer_stub``) only ever runs under
+    ``-m slow``, which is why the signature change in this task had to be
+    checked with a hand-run slow tier. This check is in the fast tier, so the
+    next change to the worker's parameters cannot hide there: it compares the
+    names as well as the count, since the stand-ins exist precisely to mirror
+    production and a renamed parameter is drift worth seeing.
+    """
+    import inspect
+
+    from Auto3D.orchestration.workflow_workers import optim_rank_wrapper
+    from tests.helpers_lifecycle import optimizer_stub
+
+    expected = list(inspect.signature(optim_rank_wrapper).parameters)
+    for stand_in in (optimizer_stub, TestAbnormalIsomerWorkerExit._draining_optimizer):
+        assert list(inspect.signature(stand_in).parameters) == expected, (
+            f"{stand_in.__qualname__} no longer mirrors optim_rank_wrapper's parameters"
+        )
 
 
 def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch, stub_torchani_importable):

@@ -172,10 +172,14 @@ class ChunkManager:
         self.input_format = input_format
         self.job_dir = job_dir
         self.workflow_logger = workflow_logger
-        # Memory-scaled atom batch size, computed in prepare_chunks(). Kept on
-        # the manager (not written back to the shared config) so that calling
-        # main() twice with the same Auto3DOptions does not compound the
-        # multiplier (OOM risk). Defaults to the unscaled config value.
+        # Memory-scaled atom batch size, computed in prepare_chunks() by the
+        # module-level `scaled_batchsize_atoms` function above -- which shares
+        # this attribute's name, so `self.scaled_batchsize_atoms =
+        # scaled_batchsize_atoms(...)` there is an assignment from the function,
+        # not a recursive one. Kept on the manager (not written back to the
+        # shared config) so that calling main() twice with the same
+        # Auto3DOptions does not compound the multiplier (OOM risk). Defaults to
+        # the unscaled config value.
         self.scaled_batchsize_atoms: int = config.batchsize_atoms
 
     def calculate_memory_and_chunks(self) -> tuple[int, int, int]:
@@ -206,8 +210,9 @@ class ChunkManager:
                 # would do.
                 self._log_info(
                     "nvidia-smi unavailable; could not detect GPU memory. "
-                    "Using unscaled batchsize_atoms/chunk_size. Pass "
-                    "`memory=<GB>` to size chunks explicitly."
+                    "Falling back to a 1 GB budget, so `batchsize_atoms` (and "
+                    "chunk sizing, where it applies) stays unscaled. Pass "
+                    "`memory=<GB>` to set the budget explicitly."
                 )
                 memory_gb = 1
             else:

@@ -157,7 +157,7 @@ class TestColdCacheDiagnosis:
             logq,
             gpu_idx=0,
         )
-        assert result == []
+        assert result is None
 
         orchestrator.job_dir = job_root
         orchestrator.input_path = Path(chunk_path)
@@ -230,7 +230,7 @@ class TestColdCacheDiagnosis:
             logq,
             gpu_idx=0,
         )
-        assert result == []
+        assert result is None
 
         orchestrator.job_dir = job_root
         orchestrator.input_path = Path(chunk_path)
