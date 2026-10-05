@@ -14,16 +14,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from Auto3D.engines.models.policy import check_gpu_requested
-from Auto3D.engines.models.preflight import resolve_engine_name
 from Auto3D.foundation.exceptions import ConfigurationError, DependencyError
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.presentation.cli.console import emit_json, print_success
 from Auto3D.presentation.cli.errors import handle_error
 
 # Engine names offered for shell completion. Free-form registry names and custom
-# model paths are also accepted -- each command below validates them with
-# ``resolve_engine_name`` before doing any work; this list only seeds tab
+# model paths are also accepted -- the API function each command calls resolves
+# the name through ``resolve_engine_name`` before doing any work, inside
+# ``Auto3D.entry._run_setup.prepare_single_file_run``; this list only seeds tab
 # completion and discoverability.
 KNOWN_ENGINES = [
     "AIMNET",
@@ -75,17 +74,11 @@ def execute_energy(
     ``-o precious.sdf`` typo is unrecoverable.
     """
     try:
-        # Validate before doing any work: calc_spe passes `engine` straight to
-        # create_model with no CLIConfig/resolve_engine_name gate of its own,
-        # so a typo like 'aimnet2-2025x' would otherwise only fail deep inside
-        # model construction (C11-shaped gap: a guard present in `main()` via
-        # WorkflowOrchestrator._validate_input, absent here).
-        resolve_engine_name(engine)
-        # calc_spe never goes through check_input/check_valid_configuration,
-        # so without this it would silently fall back to CPU through
-        # model_factory.get_device instead of failing the same way `auto3d
-        # run`/smiles2mols do (M23).
-        check_gpu_requested(gpu)
+        # Engine-name resolution and the GPU policy are the first two things
+        # `calc_spe`/`opt_geometry`/`calc_thermo` do, inside
+        # `Auto3D.entry._run_setup.prepare_single_file_run`, before any file is
+        # read and any model is constructed -- so this wrapper no longer carries
+        # its own copy of either (M21/C11, M23).
         from Auto3D.entry.SPE import calc_spe
 
         out = calc_spe(
@@ -123,9 +116,8 @@ def execute_optimize(
     ``overwrite`` defaults to True in the API.
     """
     try:
-        # Validate before doing any work -- see execute_energy's comment.
-        resolve_engine_name(engine)
-        check_gpu_requested(gpu)
+        # The engine name and the GPU policy are validated inside opt_geometry --
+        # see execute_energy's comment.
         from Auto3D.entry.ASE.geometry import opt_geometry
 
         out = opt_geometry(
@@ -167,9 +159,8 @@ def execute_thermo(
     ``overwrite`` defaults to True in the API.
     """
     try:
-        # Validate before doing any work -- see execute_energy's comment.
-        resolve_engine_name(engine)
-        check_gpu_requested(gpu)
+        # The engine name and the GPU policy are validated inside calc_thermo --
+        # see execute_energy's comment.
         try:
             from Auto3D.entry.ASE.thermo import calc_thermo
         except ImportError as e:
