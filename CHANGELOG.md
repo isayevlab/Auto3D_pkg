@@ -43,9 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of exit 3 at preflight, like ANI2x already did.
 - `opt_geometry` and `smiles2mols` could return a stale previous output file
   (or crash naming the wrong path) when the input contained no usable
-  molecules; both now raise `OptimizationError` (exit 7) instead —
-  `opt_geometry` before any model is loaded, `smiles2mols` when the optimizer
-  reports that nothing was written.
+  molecules; both now raise instead — `opt_geometry` an `InputValidationError`
+  (exit 2) before any model is loaded, naming how many records were
+  unparseable or defective, and `smiles2mols` an `OptimizationError` (exit 7)
+  when the optimizer reports that nothing was written.
+- `calc_spe` wrote a 0-byte output SDF and exited 0 when no record of its input
+  was usable, which a pipeline reading that file could not tell from an input
+  that genuinely held no molecules; it now raises `InputValidationError`
+  (exit 2) naming the per-reason counts, and writes nothing. `calc_thermo`
+  raises the same error when its input yielded no record at all — a file whose
+  records are merely defective still produces output there, each record marked
+  `Thermo_failed`.
 - Molecule IDs containing a bare `@` were truncated by the run summary and
   reconciliation, producing false "produced no output" failures (exit 6) on
   successful runs; the `@tautN` parse now has a single owner
@@ -79,8 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one record filter (`iter_conformer_records` / `record_skip_reason`) that
   skips them with a warning. `calc_thermo` keeps such records in its output
   marked `Thermo_failed="implicit_hydrogens"` (a record without any conformer
-  is marked `"no_conformer"`); `opt_geometry` raises `OptimizationError`
-  (exit 7) when every record is skipped. The batch optimizer's
+  is marked `"no_conformer"`); `opt_geometry` raises `InputValidationError`
+  (exit 2) when every record is skipped. The batch optimizer's
   unparseable-record warning now says `record N` instead of `index N`.
 - `auto3d ... -v` rendered the verbose traceback at the ambient console
   width, so under a pipe, a log file or test capture long file paths wrapped
@@ -120,6 +128,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coordinates — which recovers strained systems the default initial coordinates
   cannot solve — on whatever the first attempt left of those 60 s, so the two
   attempts together stay inside one cap.
+- `calc_spe`, `opt_geometry` and `calc_thermo` each hand-copied the same
+  nine-step input setup, and the copies had already drifted: `opt_geometry`
+  resolved the GPU device before reading the input file, while the other two
+  read the file first, so a bad file there was not refused until after the
+  device lookup. The three now share one prologue, in one order, before any
+  model is built.
+- `check_sdf_format` parsed the input with its own loop and reported an
+  unreadable record in wording no other reader used; it now reads through
+  the shared record classifier (`classify_records`), reporting a documented
+  subset of what it finds.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -175,6 +193,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engines, serial and parallel) is capped at `EMBED_TIMEOUT_S` (60 s), and the
   random-coordinates retry runs on what the first attempt left of that cap
   rather than on a fresh copy of it, so the two attempts together honor it.
+- `pad_from_mols` returns a `PaddedBatch` named tuple; tuple unpacking is
+  unchanged, and the four fields are also reachable as `.coords`, `.species`,
+  `.charges` and `.atom_mask`, alongside `.n_mols` and a `.sub()` method for
+  taking a sub-batch. `.sub()` accepts a slice, a bool tensor or an index
+  tensor over the molecule axis, and raises `TypeError` for a scalar index.
+  `AIMNet2Adapter.forward` now raises `ValueError` for a batch of two or more
+  molecules passed without `atom_mask` when a species slot equals the padding
+  value, instead of scoring that slot as a real atom; an unpadded batch may
+  still omit the mask.
+- `optim_rank_wrapper` now takes the absolute `OptimizationConfig` as its own
+  argument instead of rebuilding it from `Auto3DOptions` once per chunk
+  (internal signature, not part of the public API).
+  `Auto3DOptions.to_optimization_config()` now requires the keyword
+  `batchsize_atoms` as an absolute atom count; the options field of the same
+  name stays a per-gigabyte figure. A caller building its own
+  `OptimizationConfig` this way restores the previous behavior with
+  `options.to_optimization_config(batchsize_atoms=options.batchsize_atoms)`;
+  passing a memory-scaled count instead matches what `main()` does. A
+  non-positive or non-integer value raises `ConfigurationError`.
+- `smiles2mols` now scales `batchsize_atoms` per gigabyte of memory the way
+  `main()` does, instead of reading it as an absolute atom count; on a GPU
+  run with no explicit `memory` it therefore queries the device memory once
+  (the same `nvidia-smi` call `main()` always made) and logs the scaled batch
+  size at INFO. `opt_geometry` remains the only entry point that reads
+  `batchsize_atoms` as an absolute count.
+- The `auto3d energy`, `optimize` and `thermo` commands no longer run their
+  own engine-name and GPU checks; the shared setup in `calc_spe`,
+  `opt_geometry` and `calc_thermo` does, with the same exit codes (2 for a
+  bad engine name, 4 for a GPU request without CUDA). One precedence
+  changes: on a machine without `ase`, `auto3d thermo` now reports the
+  missing dependency (exit 3) before a bad engine name or a GPU request
+  without CUDA.
 
 ## [3.1.1] - 2026-08-27
 

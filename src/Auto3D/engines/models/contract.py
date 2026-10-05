@@ -260,6 +260,28 @@ class ModelAdapter(Protocol):
         Returns:
             Tuple of (energies, forces) where energies has shape (batch,)
             and forces has shape (batch, n_atoms, 3). Units: eV.
+
+        "Required from any caller that passes a padded batch" is a requirement an
+        adapter is allowed to ENFORCE, not merely to assume. ``AIMNet2Adapter``
+        does: it refuses a batch of two or more molecules that arrives without
+        ``atom_mask`` and contains a slot equal to its ``species_pad`` of 0,
+        because that slot is either padding or a real dummy atom and no amount of
+        inspecting the tensors can say which. The obligation follows the colliding
+        value, not the class: ANY adapter whose ``species_pad`` can also be a real
+        species -- a custom NNP declaring ``species_pad = 0`` alongside 0-based
+        indices has the identical collision and no check -- carries it, and only
+        the ``species_pad = -1`` adapters are genuinely exempt, because -1 is
+        neither an atomic number nor a 0-based index.
+
+        Two limits of that enforcement are part of the contract, so neither is
+        read as more than it is. It applies at two or more molecules only, because
+        a single molecule may legitimately hold a species-0 dummy atom and whether
+        to score it is the engine policy's decision, not the adapter's; several
+        unpadded B == 1 callers depend on that. And it is value-based, so a batch
+        padded by hand with anything other than ``species_pad`` passes unchecked.
+        The permission this paragraph grants is narrow for the same reason: the
+        sentinel may be compared in order to RAISE, never in order to build the
+        mask the arithmetic uses.
         """
         ...
 

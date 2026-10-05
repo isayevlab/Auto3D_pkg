@@ -49,18 +49,25 @@ def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     assert any("implicit hydrogen" in r.message for r in caplog.records)
 
 
-def test_opt_geometry_raises_when_every_record_has_implicit_hydrogens(tmp_path):
+def test_opt_geometry_refuses_an_input_where_every_record_has_implicit_hydrogens(tmp_path):
     """The all-skipped case must fail fast, not silently return a bogus path.
 
     Before this record-policy fix, this exact input produced a 1-record
     output scoring the bare {C, C, O} skeleton instead of ethanol.
+
+    `InputValidationError`, not `OptimizationError` (R3): nothing was optimized
+    because the INPUT holds no record anything could be computed from, which is
+    a mistake the user can fix in the file -- and exit code 2, like every other
+    bad-input verdict, rather than 7, which says a computation did not converge.
+    The message names the counts per reason, so "every record is a heavy-atom
+    skeleton" is distinguishable from "RDKit could not parse any of them".
     """
     pytest.importorskip("torchani")
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
     from Auto3D.entry.ASE.geometry import opt_geometry
-    from Auto3D.foundation.exceptions import OptimizationError
+    from Auto3D.foundation.exceptions import InputValidationError
 
     no_h = Chem.MolFromSmiles("CCO")
     AllChem.EmbedMolecule(no_h, randomSeed=1)
@@ -69,7 +76,7 @@ def test_opt_geometry_raises_when_every_record_has_implicit_hydrogens(tmp_path):
     with Chem.SDWriter(str(p)) as w:
         w.write(no_h)
 
-    with pytest.raises(OptimizationError, match="in.sdf"):
+    with pytest.raises(InputValidationError, match="in.sdf.*1 implicit_hydrogens"):
         opt_geometry(str(p), "ANI2xt", use_gpu=False)
 
 
@@ -83,6 +90,7 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
+    import Auto3D.entry._run_setup as run_setup
     import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
@@ -108,8 +116,8 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [mol])
     import torch
 
-    monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+    monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
 
     # use_gpu=False: this test is about the output filename, not GPU
     # availability. The default use_gpu=True would make check_gpu_requested
@@ -125,6 +133,7 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
+    import Auto3D.entry._run_setup as run_setup
     import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
@@ -151,8 +160,8 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [None, no_etot, good])
     import torch
 
-    monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
-    monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+    monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
 
     # use_gpu=False: this test is about the None/missing-E_tot skip logic, not
     # GPU availability -- see the sibling test above for why the default
@@ -172,38 +181,42 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
     """Issue 8: opt_geometry must not treat "nothing to optimize" as success.
 
     Two different guards can fire, and the two tests below exercise the one
-    that actually fires for an unparseable-input file: `input_mols =
-    list(iter_conformer_records(path))` comes back empty (the record is
-    logged and skipped by `iter_conformer_records` itself), which trips
-    `opt_geometry`'s own empty-filter fail-fast check -- BEFORE
-    `create_model`/`optimizing` are ever reached. That is why neither test
-    below stubs `create_model`: doing so would silently pass even if the
-    fail-fast check were deleted, since the stub would never be called
-    either way.
+    that actually fires for an unparseable-input file: the shared prologue
+    (`Auto3D.entry._run_setup`) comes back with no usable record -- the record
+    is logged and skipped by the classifier itself -- and
+    `setup.require_records(path)` refuses the file with an
+    `InputValidationError` BEFORE `create_model`/`optimizing` are ever
+    reached. That is why neither test below stubs `create_model`: doing so
+    would silently pass even if that check were deleted, since the stub would
+    never be called either way.
 
     `test_raises_optimization_error_when_optimizing_reports_no_write` below
-    pins the OTHER guard -- `optimizing.run()` returning `False` -- which
-    needs a non-empty `input_mols` to reach at all, so it stubs `optimizing`
-    itself (the real `optimizing` class is not used anywhere in this class;
-    `get_device`/`configure_torch` are stubbed throughout just to avoid a
+    pins the OTHER guard -- `optimizing.run()` returning `False`, which stays
+    an `OptimizationError` because by then the input WAS usable and the
+    optimizer is the half that produced nothing. It needs a non-empty
+    `input_mols` to reach at all, so it stubs `optimizing` itself (the real
+    `optimizing` class is not used anywhere in this class;
+    `get_device`/`configure_torch` are stubbed throughout -- on
+    `Auto3D.entry._run_setup`, which owns both calls now -- just to avoid a
     real device lookup or global torch config changes under test).
     """
 
     _UNPARSEABLE_SDF = "not a real record\n$$$$\n"
 
-    def test_raises_optimization_error_on_unparseable_input(self, tmp_path, monkeypatch):
+    def test_raises_input_validation_error_on_unparseable_input(self, tmp_path, monkeypatch):
         import torch
 
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.ASE.geometry as geo
-        from Auto3D.foundation.exceptions import OptimizationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         bad = tmp_path / "bad.sdf"
         bad.write_text(self._UNPARSEABLE_SDF)
 
-        monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
-        monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
 
-        with pytest.raises(OptimizationError, match="bad.sdf"):
+        with pytest.raises(InputValidationError, match="bad.sdf"):
             geo.opt_geometry(str(bad), "AIMNET", use_gpu=False)
 
     def test_does_not_silently_return_a_stale_previous_output(self, tmp_path, monkeypatch):
@@ -216,18 +229,19 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
         """
         import torch
 
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.ASE.geometry as geo
-        from Auto3D.foundation.exceptions import OptimizationError
+        from Auto3D.foundation.exceptions import InputValidationError
 
         bad = tmp_path / "bad.sdf"
         bad.write_text(self._UNPARSEABLE_SDF)
         stale_out = tmp_path / "bad_AIMNET_opt.sdf"
         stale_out.write_text("STALE PREVIOUS RESULT\n")
 
-        monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
-        monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
 
-        with pytest.raises(OptimizationError):
+        with pytest.raises(InputValidationError):
             geo.opt_geometry(str(bad), "AIMNET", use_gpu=False)  # overwrite=True default
 
         assert stale_out.read_text() == "STALE PREVIOUS RESULT\n", (
@@ -254,6 +268,7 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.ASE.geometry as geo
         from Auto3D.foundation.exceptions import OptimizationError
         from tests.helpers_adapter import FakeAdapter
@@ -272,8 +287,8 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
             def run(self):
                 return False  # matches optimizing.run()'s real False-on-skip contract
 
-        monkeypatch.setattr(geo, "get_device", lambda *a, **k: torch.device("cpu"))
-        monkeypatch.setattr(geo, "configure_torch", lambda *a, **k: None)
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
         monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
         monkeypatch.setattr(geo, "optimizing", _StubReportsNoWrite)
 

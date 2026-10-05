@@ -9,13 +9,19 @@ the model package, and made a property calculator import a module named for
 validating command-line input in order to ask whether a GPU exists.
 
 Layering: ``torch`` and ``rdkit`` are NOT imported at module scope here, even
-though every function below eventually needs one or the other. This module
-sits on the CLI's ``--help`` path (``Auto3D.presentation.cli.app`` ->
-``commands/properties.py`` -> here), and both third-party packages are the
-expensive ones: a bare ``import Auto3D.presentation.cli.app`` cost ~1.9s and
-pulled in both before this was fixed (issue #14), for a command that may do
-nothing more than print usage. Each function defers its own import, with a
-comment saying why -- see ``check_gpu_requested`` and ``_requires_aimnet`` /
+though every function below eventually needs one or the other. Both third-party
+packages are the expensive ones: this module used to sit on the CLI's ``--help``
+path (``Auto3D.presentation.cli.app`` -> ``commands/properties.py`` -> here), a
+bare ``import Auto3D.presentation.cli.app`` cost ~1.9s and pulled in both
+(issue #14), for a command that may do nothing more than print usage. That path
+is gone -- ``commands/properties.py`` no longer imports this module at all,
+since the guards it ran moved into the entry points' shared prologue
+(``Auto3D.entry._run_setup.prepare_single_file_run``) -- so the deferrals no
+longer pay for a cost anyone is measuring today. They stay regardless: they are
+what keeps a future module-scope import of this module from L5 cheap, and
+removing them would make that cost reappear silently, in whichever command
+imported it. Each function defers its own import, with a comment saying why --
+see ``check_gpu_requested`` and ``_requires_aimnet`` /
 ``check_engine_supports_molecules`` below. The ``Chem.Mol`` annotations still
 type-check without a runtime rdkit import because ``from __future__ import
 annotations`` (PEP 563) makes every annotation a string that is never
@@ -78,13 +84,14 @@ def check_gpu_requested(use_gpu: bool) -> None:
     to know their "GPU" results were actually computed on CPU -- possibly
     orders of magnitude slower than they assumed, with no signal anything
     was wrong. This function is called as the *first* check everywhere GPU
-    use is decided (``check_input``, ``check_valid_configuration``, and the
-    ``auto3d energy``/``optimize``/``thermo`` CLI commands in
-    ``cli/commands/properties.py``, which call the API functions directly
-    and never go through ``check_input``/``check_valid_configuration``), so
-    it fails fast -- before any worker is forked and before any compute is
-    spent -- with the same exception type and the same "--no-gpu" hint
-    regardless of entry point.
+    use is decided -- ``check_input`` and ``check_valid_configuration`` for
+    ``main()``/``smiles2mols``, the shared prologue
+    ``Auto3D.entry._run_setup.prepare_single_file_run`` (its second step) for
+    ``calc_spe``/``opt_geometry``/``calc_thermo``, which take an SDF path
+    directly and never go through ``check_input``, and ``models test``
+    itself -- so it fails fast, before any worker is forked and before any
+    compute is spent, with the same exception type and the same "--no-gpu"
+    hint regardless of entry point.
 
     Args:
         use_gpu: The ``use_gpu`` option requested by the caller.
@@ -93,10 +100,13 @@ def check_gpu_requested(use_gpu: bool) -> None:
         GPUError: `use_gpu` is True and `torch.cuda.is_available()` is False.
     """
     # Deferred: this is the ONLY torch user in the module (verified -- every
-    # other function below needs rdkit, not torch), and it is reached on
-    # every CLI invocation via commands/properties.py, `--help` included.
-    # Importing torch at module scope charged that cost unconditionally,
-    # regardless of whether use_gpu was even True (issue #14).
+    # other function below needs rdkit, not torch), and it is reached on every
+    # run that decides anything about a GPU. Importing torch at module scope
+    # charged that cost unconditionally, regardless of whether use_gpu was even
+    # True (issue #14) -- and charged it to `auto3d --help` too, back when
+    # commands/properties.py imported this module at module scope. It no longer
+    # does, so the deferral now protects any future L5 importer rather than a
+    # path that exists today.
     #
     # Genuinely conditional on `use_gpu`, not merely relocated: this function
     # is called FIRST inside `check_input` for every run, `use_gpu=False`

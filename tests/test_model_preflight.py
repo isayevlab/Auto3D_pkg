@@ -150,8 +150,14 @@ class TestColdCacheDiagnosis:
 
         # optim_rank_wrapper's blanket except would swallow the ConnectionError
         # here -- this must not raise, and no *_3d.sdf is ever written for job1.
-        result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
-        assert result == []
+        result = ww.optim_rank_wrapper(
+            args,
+            args.to_optimization_config(batchsize_atoms=args.batchsize_atoms),
+            q,
+            logq,
+            gpu_idx=0,
+        )
+        assert result is None
 
         orchestrator.job_dir = job_root
         orchestrator.input_path = Path(chunk_path)
@@ -217,8 +223,14 @@ class TestColdCacheDiagnosis:
         q.put("Done")
         logq: queue_mod.Queue = queue_mod.Queue()
 
-        result = ww.optim_rank_wrapper(args, q, logq, gpu_idx=0)
-        assert result == []
+        result = ww.optim_rank_wrapper(
+            args,
+            args.to_optimization_config(batchsize_atoms=args.batchsize_atoms),
+            q,
+            logq,
+            gpu_idx=0,
+        )
+        assert result is None
 
         orchestrator.job_dir = job_root
         orchestrator.input_path = Path(chunk_path)

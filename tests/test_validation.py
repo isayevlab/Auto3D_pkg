@@ -426,6 +426,43 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
         assert ANI is True
         assert only_aimnet_ids == []
 
+    def test_a_flat_dummy_record_is_still_announced_up_front(self, tmp_path, caplog):
+        """A 2D R-group fragment carries BOTH defects and must still be named.
+
+        ``record_skip_reason`` checks implicit hydrogens before dummy atoms, so
+        a flat ``*CCO`` -- the ordinary shape of a fragment exported from a
+        drawing program: no explicit H, 2D coordinates -- is classified
+        ``"implicit_hydrogens"``. Reading the announcement off that
+        classification instead of off the record itself would leave the one
+        input most likely to be an R-group file with no up-front warning at
+        all, and the user would first learn of it at the engine step.
+        """
+        import logging
+
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
+
+        p = tmp_path / "flat.sdf"
+        with Chem.SDWriter(str(p)) as w:
+            mol = Chem.MolFromSmiles("*CCO")  # no AddHs: implicit hydrogens too
+            AllChem.Compute2DCoords(mol)
+            mol.SetProp("_Name", "frag")
+            w.write(mol)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            ANI, only_aimnet_ids = check_sdf_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        assert "frag" in warnings_seen[0].getMessage()
+        # The same predicate decides the announcement and the engine question,
+        # so the flat record must be kept out of the latter too: atomic number
+        # 0 is outside ANI_ELEMENTS, and counting it would make an ANI run
+        # raise "Only AIMNET can handle: [...]" instead of warning and skipping.
+        assert ANI is True and only_aimnet_ids == []
+
     def test_a_clean_file_produces_no_dummy_warning(self, tmp_path, caplog):
         """Without this, both tests above would pass on a check that warns
         unconditionally."""

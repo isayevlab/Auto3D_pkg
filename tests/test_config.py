@@ -43,6 +43,53 @@ def test_replace_revalidates_rather_than_copying_blindly():
     assert cfg.model_copy(update={"batchsize_atoms": 0}).batchsize_atoms == 0
 
 
+def test_to_optimization_config_requires_the_absolute_batchsize():
+    """The absolute batch size is the caller's to supply, and there is no default.
+
+    ``Auto3DOptions.batchsize_atoms`` is a *per gigabyte* figure: both entry
+    points multiply it by the memory they measured (through
+    ``chunk_manager.scaled_batchsize_atoms``) before any optimizer sees it,
+    while ``OptimizationConfig.batchsize_atoms`` is the absolute count the
+    optimizer actually batches on. A no-argument ``to_optimization_config()``
+    silently copied the per-gigabyte number into the absolute field, which is
+    how ``smiles2mols`` came to run at 1024 atoms where ``main()`` ran at
+    16,384 on the same config. The keyword is required so that reading the
+    field without scaling it is a TypeError rather than a quiet 16x.
+    """
+    from Auto3D.foundation.config import Auto3DOptions
+
+    o = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)
+    with pytest.raises(TypeError):
+        o.to_optimization_config()
+    assert o.to_optimization_config(batchsize_atoms=4096).batchsize_atoms == 4096
+    # The options object keeps the per-gigabyte value: the scaling happens on
+    # the way out, never in place (review findings #35/#36).
+    assert o.batchsize_atoms == 1024
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1024.5, "4096", None, True])
+def test_to_optimization_config_validates_the_batchsize_it_is_handed(bad):
+    """The keyword passes the same bounds check the field itself passes.
+
+    Until the scaled value became an argument it reached the optimizer inside an
+    ``Auto3DOptions`` copy built by ``replace()``, which re-ran the model's
+    validation on it. ``OptimizationConfig`` is a plain dataclass that validates
+    nothing, so without a check here a zero, a negative, a string or a
+    fractional count would travel all the way to the optimizer -- and on
+    ``main()``'s path, across a spawn boundary first, surfacing inside a worker
+    rather than at the call that chose the number. The seam every scaled value
+    now passes through is this method, so the check lives here and raises the
+    same ``ConfigurationError`` an out-of-range field on the options object
+    raises (exit 2, with the ``auto3d config init`` hint) rather than a bare
+    TypeError or ValueError.
+    """
+    from Auto3D.foundation.config import Auto3DOptions
+
+    o = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)
+    with pytest.raises(ConfigurationError):
+        o.to_optimization_config(batchsize_atoms=bad)
+
+
 class TestAuto3DOptions:
     """Tests for Auto3DOptions dataclass."""
 
@@ -630,3 +677,63 @@ class TestParallelEmbeddingIsReachable:
         from Auto3D.foundation.config import Auto3DOptions
 
         assert Auto3DOptions(path="in.smi", k=1, parallel_workers=None).parallel_workers is None
+
+
+def test_smiles2mols_scales_batchsize_atoms_like_main(monkeypatch, tmp_path):
+    """``smiles2mols`` must scale ``batchsize_atoms`` by memory exactly as ``main()`` does.
+
+    ``main()`` routes the per-gigabyte field through ``ChunkManager`` and hands
+    the optimizer the scaled product; ``smiles2mols`` read the field as an
+    absolute count, so the same ``Auto3DOptions`` optimized in batches up to
+    16x smaller through this entry point than through the other one -- a
+    difference nothing in either signature or docstring announced.
+
+    The stubs are the ones the sibling spy tests in this file use, plus the two
+    this one needs to reach the optimizer at all: ``preflight_model`` (the
+    default AIMNET engine would otherwise be resolved against the model
+    registry/cache) and ``create_model``. ``optimizing`` is the assertion
+    point, so it records the config and stops the run there.
+    """
+    from Auto3D.entry import auto3D as auto3D_mod
+    from Auto3D.foundation.config import Auto3DOptions
+    from tests.helpers_adapter import FakeAdapter
+
+    class _StubIsomerEngine:
+        def run(self):
+            return None
+
+    captured = {}
+
+    def _capture_optimizing(*args, **kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("stop here: the optimizer config is what is asserted")
+
+    monkeypatch.setattr(
+        auto3D_mod.IsomerEngineFactory, "create", staticmethod(lambda **kw: _StubIsomerEngine())
+    )
+    monkeypatch.setattr(auto3D_mod, "preflight_model", lambda *a, **k: None)
+    monkeypatch.setattr(auto3D_mod, "create_model", lambda *a, **k: FakeAdapter())
+    monkeypatch.setattr(auto3D_mod, "optimizing", _capture_optimizing)
+
+    options = Auto3DOptions(
+        path=str(tmp_path / "unused.smi"),
+        k=1,
+        use_gpu=False,
+        # memory=4 fixes the multiplier: ChunkManager reads the explicit budget
+        # and never asks psutil or nvidia-smi, so this asserts a number rather
+        # than whatever this machine happens to have free.
+        memory=4,
+        batchsize_atoms=1024,
+    )
+
+    with pytest.raises(RuntimeError, match="stop here"):
+        auto3D_mod.smiles2mols(["CCO"], options)
+
+    assert captured["config"].batchsize_atoms == 1024 * 4, (
+        "smiles2mols handed the optimizer an unscaled batchsize_atoms: "
+        f"{captured['config'].batchsize_atoms}, expected the per-GB 1024 scaled "
+        "by the 4 GB memory budget"
+    )
+    # The caller's config is untouched -- smiles2mols copies it (M15) and the
+    # field stays per-gigabyte everywhere.
+    assert options.batchsize_atoms == 1024

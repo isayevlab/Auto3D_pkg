@@ -29,6 +29,12 @@ class EnForce_ANI(nn.Module):
     Takes in a model adapter and provides batched forward functionality
     for calculating energies and forces.
 
+    The four tensors every method here takes -- ``coord``, ``numbers``,
+    ``charges``, ``atom_mask`` -- are the fields of
+    :class:`Auto3D.engines.batch_opt.padding.PaddedBatch` in that order, so a
+    caller holding one may splat it (``model.forward_batched(*batch)``) and the
+    mask cannot then be lost by forgetting a fourth argument.
+
     Args:
         model_adapter: A model adapter implementing the
             forward(coords, species, charges) interface.
@@ -41,8 +47,9 @@ class EnForce_ANI(nn.Module):
         >>> model = EnForce_ANI(adapter)
         >>> energy, forces = model.forward(coords, species, charges)
 
-        >>> # Batched computation for large systems
-        >>> energy, forces = model.forward_batched(coords, species, charges)
+        >>> # Batched computation for large systems, straight from the padder
+        >>> batch = pad_from_mols(mols, adapter, device)  # a PaddedBatch
+        >>> energy, forces = model.forward_batched(*batch)
     """
 
     def __init__(
@@ -131,11 +138,13 @@ class EnForce_ANI(nn.Module):
             numbers: The periodic numbers for all atoms. Shape (B, N).
             charges: Molecular charges. Shape (B,).
             atom_mask: Boolean (B, N), True for real atoms and False for padded
-                slots, as returned by
-                :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`. Forwarded to
-                the adapter so it never has to re-derive padding from a
-                species sentinel (audit C13). ``None`` means the batch is
-                unpadded.
+                slots -- the ``atom_mask`` field of the
+                :class:`Auto3D.engines.batch_opt.padding.PaddedBatch` that
+                :func:`Auto3D.engines.batch_opt.padding.pad_from_mols` returns.
+                Forwarded to the adapter so it never has to re-derive padding
+                from a species sentinel (audit C13). ``None`` means the batch is
+                unpadded, and an adapter that cannot verify that claim from the
+                tensors alone may refuse it (``AIMNet2Adapter`` does).
 
         Returns:
             Tuple of (energies, forces) where energies has shape (B,) and
@@ -266,10 +275,13 @@ class EnForce_ANI(nn.Module):
                   each structure, 3 represents xyz dimensions.
             numbers: The periodic numbers for all atoms. Shape (B, N).
             charges: Molecular charges. Shape (B,).
-            atom_mask: Boolean (B, N), True for real atoms. Sliced with the
-                same molecule indices as ``coord``/``numbers``/``charges`` so
-                each sub-batch's adapter call receives the mask for exactly
-                its own molecules. ``None`` means the batch is unpadded.
+            atom_mask: Boolean (B, N), True for real atoms -- the ``atom_mask``
+                field of a :class:`Auto3D.engines.batch_opt.padding.PaddedBatch`.
+                Sliced with the same molecule indices as
+                ``coord``/``numbers``/``charges`` so each sub-batch's adapter
+                call receives the mask for exactly its own molecules, which is
+                what :meth:`PaddedBatch.sub` does for a caller slicing by hand.
+                ``None`` means the batch is unpadded.
 
         Returns:
             Tuple of (energies, forces) concatenated across batches.
@@ -323,8 +335,10 @@ class EnForce_ANI(nn.Module):
             coord: Coordinates, shape (B, N, 3).
             numbers: Species in the adapter's own convention, shape (B, N).
             charges: Molecular charges, shape (B,).
-            atom_mask: Boolean (B, N), True for real atoms, sliced per sub-batch
-                exactly as in :meth:`forward_batched`. ``None`` means unpadded.
+            atom_mask: Boolean (B, N), True for real atoms -- a
+                :class:`Auto3D.engines.batch_opt.padding.PaddedBatch`'s
+                ``atom_mask`` field, sliced per sub-batch exactly as in
+                :meth:`forward_batched`. ``None`` means unpadded.
 
         Returns:
             Energies, shape (B,), in eV, **detached**. Unlike

@@ -495,16 +495,24 @@ class Auto3DOptions(BaseModel):
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
     """Atoms per optimization batch, **per gigabyte** of available memory.
 
-    ``ChunkManager`` multiplies this by ``memory`` when you set it, otherwise by
-    the *free* GPU memory (or total RAM on CPU), then clamps the product to
-    ``_MAX_SCALED_BATCHSIZE_ATOMS`` (16,384). So the default 1024 means 1024
-    atoms per batch on a 1 GB card and 16,384 from 16 GB upward -- an 80 GB card
-    gets the same 16,384 as a 16 GB one.
+    Both entry points that take an ``Auto3DOptions`` -- ``main()`` and
+    ``smiles2mols`` -- apply the same rule to it: the value is multiplied by
+    ``memory`` when you set it, otherwise by the *free* GPU memory (or total RAM
+    on CPU), and the product is clamped at 16,384. So the default 1024 means
+    1024 atoms per batch on a 1 GB card and 16,384 from 16 GB upward -- an 80 GB
+    card gets the same 16,384 as a 16 GB one. ``smiles2mols`` used to read this
+    field as an absolute count instead, which put the two entry points up to 16x
+    apart on one config (P-M11).
+
+    The scaled product is absolute and it lives on a different class --
+    ``OptimizationConfig.batchsize_atoms``, built by the caller that measured
+    the memory. This field keeps its per-gigabyte meaning everywhere, including
+    inside the optimizer workers.
 
     ``ASE.geometry.opt_geometry`` takes the same parameter name **absolutely** --
-    1024 means 1024 there whatever the card. The two entry points are up to 16x
-    apart on the same value; each docstring says which it is rather than
-    pointing at the other.
+    1024 means 1024 there whatever the card. It takes no ``Auto3DOptions`` and
+    measures no memory, so there is nothing for it to scale by; its docstring
+    says which it is rather than pointing at this one.
     """
 
     # Performance options
@@ -624,17 +632,53 @@ class Auto3DOptions(BaseModel):
         """
         return type(self)(**{**self.model_dump(), **changes})
 
-    def to_optimization_config(self) -> "OptimizationConfig":
+    def to_optimization_config(self, *, batchsize_atoms: int) -> "OptimizationConfig":
         """Create an OptimizationConfig from these options.
 
+        Args:
+            batchsize_atoms: The **absolute** number of atoms per optimization
+                batch. Required, and deliberately not defaulted to
+                ``self.batchsize_atoms``: this class's field is a *per gigabyte*
+                figure (see its docstring), so copying it across would mean
+                optimizing one gigabyte's worth of atoms on any machine. Both
+                entry points that build one of these -- ``main()`` and
+                ``smiles2mols`` -- measure the available memory first and pass
+                the product, by the one shared rule the field's docstring
+                describes; a caller building an ``OptimizationConfig`` for
+                itself reproduces ``main()``'s sizing by doing the same.
+                Forgetting to scale is now a TypeError rather than a quiet
+                16x-small batch.
+
         Returns:
-            OptimizationConfig with values from this Auto3DOptions instance.
+            OptimizationConfig with the optimizer settings from this
+            Auto3DOptions instance and the absolute ``batchsize_atoms`` given
+            here.
+
+        Raises:
+            ConfigurationError: if ``batchsize_atoms`` is not a whole number of
+                atoms, or is below the bound this class's own field is held to.
+                ``OptimizationConfig`` is a plain dataclass and validates
+                nothing, so this method is the only gate the absolute value
+                passes through -- and on ``main()``'s path it passes through
+                here *before* a spawn boundary, which is the difference between
+                naming the bad number at the call that chose it and discovering
+                it inside a worker. The same check the options object applies to
+                the per-gigabyte field, so both readings of ``batchsize_atoms``
+                are refused on the same terms with the same exception.
         """
+        if not isinstance(batchsize_atoms, int):
+            raise ConfigurationError(
+                f"batchsize_atoms must be a whole number of atoms, got {batchsize_atoms!r}"
+            )
+        # `check_field_bounds` rather than an inline `< 1`: one declaration of
+        # the bound (FIELD_BOUNDS) for the field and for the argument, and it
+        # also rejects `True`, which `isinstance(True, int)` lets past above.
+        check_field_bounds({"batchsize_atoms": batchsize_atoms})
         return OptimizationConfig(
             opt_steps=self.opt_steps,
             convergence_threshold=self.convergence_threshold,
             patience=self.patience,
-            batchsize_atoms=self.batchsize_atoms,
+            batchsize_atoms=batchsize_atoms,
         )
 
 
@@ -662,8 +706,15 @@ class OptimizationConfig:
     as oscillating."""
 
     batchsize_atoms: int = DEFAULT_BATCHSIZE_ATOMS
-    """Number of atoms per optimization batch. Larger values use more GPU
-    memory but may be faster."""
+    """**Absolute** number of atoms per optimization batch.
+
+    Not per gigabyte, unlike the same-named field on ``Auto3DOptions``: the
+    process that measures the memory scales that field by it and builds this
+    object with the product (``Auto3DOptions.to_optimization_config``). Whoever
+    receives this object -- an optimizer worker in another process, or
+    ``optimizing`` in this one -- batches on the number as given and measures
+    nothing itself. Larger values use more GPU memory but may be faster.
+    """
 
     # There is deliberately no energy_tol/energy_patience here. Both existed
     # until 3.0.0 and reached an optimizer criterion that could never fire

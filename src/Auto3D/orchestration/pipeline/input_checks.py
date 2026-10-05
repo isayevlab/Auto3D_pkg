@@ -38,6 +38,7 @@ from Auto3D.foundation.exceptions import (
     ModelLoadError,
 )
 from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.sdf_io import classify_records, skip_message
 from Auto3D.foundation.utils.smi_io import iter_smi_records
 from Auto3D.foundation.utils.stereochemistry import count_unspecified_stereo
 
@@ -321,6 +322,15 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     This function validates the format of the input SDF file, checking the properties
     for each molecule in the input file.
 
+    Reads through :func:`Auto3D.foundation.utils.sdf_io.classify_records`, the
+    one record policy, but reports a deliberate *subset* of what it finds: an
+    unparseable record is named (in the shared wording) and a dummy-atom
+    record is announced, while a record with implicit hydrogens is counted and
+    passed over in silence, because ``main()``'s SDF isomer engine adds
+    hydrogens and re-embeds every record it keeps. That divergence is pinned
+    in ``tests/test_record_policy_agreement.py``, in
+    ``test_check_sdf_format_reads_through_the_record_policy``.
+
     Args:
         args: Arguments object containing Auto3D configuration options.
             Expected attributes:
@@ -335,39 +345,61 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     Raises:
         InputValidationError: If molecule ID is empty (_Name property is empty).
     """
-    ANI = True
+    # `classify_records` (Auto3D.foundation.utils.sdf_io) owns the one read and
+    # the one partition, so this check and every per-record reader judge a
+    # record by the same predicate (N-C1) instead of each hand-rolling a None
+    # test of its own -- this one used to report an unreadable record in
+    # wording no other reader used.
+    classified = classify_records(args.path)
 
-    supp = Chem.SDMolSupplier(args.path, removeHs=False)
-    mols, only_aimnet_ids = [], []
-    dummy_atom_ids: list[str] = []
-    for i, mol in enumerate(supp):
-        if mol is None:
-            logger.warning(f"Skipping invalid molecule at index {i} in SDF")
-            continue
-        id = mol.GetProp("_Name")
-        if len(id) == 0:
+    # Only the unparseable records are reported here, deliberately -- NOT
+    # `classified.log_skipped()`, which would also warn about a record with
+    # implicit hydrogens. For `main()`'s SDF route that record is legitimate
+    # input: the isomer engine calls AddHs and re-embeds every record it
+    # keeps, so a heavy-atom skeleton reaches the optimizer H-complete.
+    # Warning "skipping" about a record that is in fact processed would be
+    # false. A dummy-atom record IS skipped there (adding hydrogens cannot
+    # turn an R-group placeholder into a species), and is announced once below
+    # through the shared `_warn_about_dummy_atom_records`.
+    for position in classified.unparseable:
+        logger.warning(skip_message("unparseable"), position)
+
+    for mol in classified.parsed:
+        if len(mol.GetProp("_Name")) == 0:
             # Same defect as check_smi_format's missing-ID check above --
             # both must raise the same Auto3DError subclass so the CLI shows
             # the same hint and exit code regardless of input format.
             raise InputValidationError("Empty molecule ID (empty _Name property)")
-        # Appended before the dummy-atom skip below: `mols` only feeds the
-        # record count logged for the *input* file, and a record that is in the
-        # file has to be counted whether or not it will survive the pipeline.
-        mols.append(mol)
 
+    dummy_atom_ids: list[str] = []
+    only_aimnet_ids: list[str] = []
+    ANI = True
+    for mol in classified.parsed:
+        mol_id = mol.GetProp("_Name")
         if has_dummy_atoms(mol):
             # Same reasoning as check_smi_format's branch: collected for the
             # one up-front warning, excluded from the engine question (N-M3).
-            dummy_atom_ids.append(id)
+            #
+            # Asked of the record, NOT read off `classified.skipped` filtered
+            # to "dummy_atoms". `record_skip_reason` checks implicit hydrogens
+            # first, so a flat `*CCO` -- the ordinary shape of a fragment
+            # exported from a drawing program, and the input most likely to be
+            # an R-group file -- is classified "implicit_hydrogens" even though
+            # it also carries a dummy atom. Keying the announcement off the
+            # classification would leave exactly that file unannounced.
+            dummy_atom_ids.append(mol_id)
             continue
 
         if _requires_aimnet(mol):
             ANI = False
-            only_aimnet_ids.append(id)
+            only_aimnet_ids.append(mol_id)
 
     _warn_about_dummy_atom_records(dummy_atom_ids)
 
-    logger.info(f"\tThere are {len(mols)} conformers in the input file {args.path}.")
+    # `parsed`, not `kept`: this count is of the *input* file, and a record
+    # that is in the file has to be counted whether or not it will survive the
+    # pipeline.
+    logger.info(f"\tThere are {len(classified.parsed)} conformers in the input file {args.path}.")
     logger.info("\tAll conformers and IDs are valid.")
 
     if args.enumerate_isomer:

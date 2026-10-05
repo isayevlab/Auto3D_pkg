@@ -344,6 +344,23 @@ class TestCalculateMemoryNeverTouchesCuda:
         assert memory_gb == 1  # conservative fallback, not a crash
 
 
+@pytest.mark.parametrize(
+    "per_gb,memory_gb,expected",
+    [(1024, 1, 1024), (1024, 4, 4096), (1024, 32, 16384), (20000, 1, 20000)],
+)
+def test_scaled_batchsize_atoms(per_gb, memory_gb, expected):
+    """The scaling rule is a module-level function, not a ChunkManager detail.
+
+    ``main()`` reaches it through ``prepare_chunks``, which is also where it
+    used to be written inline; ``smiles2mols`` has no chunking step at all and
+    so has to call the rule itself. One function, so the two entry points
+    cannot drift apart again (the 16x they had drifted is what P-M11 named).
+    """
+    from Auto3D.orchestration.chunk_manager import scaled_batchsize_atoms
+
+    assert scaled_batchsize_atoms(per_gb, memory_gb) == expected
+
+
 class TestScaledBatchsizeAtomsClamp:
     """M36: the memory multiplier must not scale batchsize_atoms without
     bound (a bare `batchsize_atoms * memory_gb` reaches 81,920 atoms/call on

@@ -45,13 +45,21 @@ def isomer_stub(chunk_info, config, chunk_queue, logging_queue):
                 chunk_queue.put("Done")
 
 
-def optimizer_stub(config, chunk_queue, logging_queue, gpu_idx, progress_queue=None):
+def optimizer_stub(args, opt_config, queue, logging_queue, gpu_idx, progress_queue=None):
+    # `args` and `opt_config` are unused here -- this stub optimizes nothing --
+    # but the parameter list must match `optim_rank_wrapper` exactly, names
+    # included: the real `_run_pipeline` spawns this function through the same
+    # positional `args=(...)` tuple, so a missing parameter kills the spawned
+    # worker with a TypeError and the lifecycle assertions fail for the wrong
+    # reason. `test_workflow.py::test_the_optimizer_stand_ins_mirror_the_real_signature`
+    # checks that correspondence in the fast tier, which is why the names track
+    # production's rather than reading more descriptively here.
     _exit_when_parent_dies()
     _record(f"opt{gpu_idx}.pid", str(os.getpid()))
     processed = []
     try:
         while True:
-            item = chunk_queue.get()
+            item = queue.get()
             if item == "Done":
                 break
             time.sleep(float(os.environ.get("LIFECYCLE_OPT_SECONDS", "3")))

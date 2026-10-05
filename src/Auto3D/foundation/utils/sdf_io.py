@@ -10,18 +10,27 @@ policy (``Auto3D.domain.id_mapping``).
 per-record consumer cannot process (N-C1): unparseable, conformerless,
 carrying implicit hydrogens (a heavy-atom skeleton -- every Auto3D writer
 emits explicit H), or carrying a dummy atom (an R-group placeholder is not a
-species, N-M3). :func:`iter_conformer_records` is built on it and is the
-single-file read path's single owner of "skip these silently" -- used by
-``SPE.calc_spe``, ``ASE.thermo.driver.calc_thermo`` (for the None/
-conformerless skip only; implicit-H and dummy-atom records are instead marked
-``Thermo_failed`` rather than dropped, via :func:`record_skip_reason` applied
-to its own already-read ``mols`` list), ``ASE.geometry.opt_geometry``,
-``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``.
+species, N-M3). :func:`classify_records` applies it to one read of a file and
+returns the partition (:class:`ClassifiedRecords`) without logging anything.
+Two views report-and-keep over that one partition: :func:`iter_conformer_records`
+(callers: ``tautomer.select_tautomers`` and ``batch_opt.batchopt.optimizing.run``)
+and ``entry._run_setup.prepare_single_file_run`` (callers: ``SPE.calc_spe``,
+``ASE.geometry.opt_geometry``, and ``ASE.thermo.driver.calc_thermo``, the last
+passing its own partial ``skip_messages`` table so a defective record is
+marked ``Thermo_failed`` rather than dropped). ``check_sdf_format`` is a
+third, deliberate subset reporter: its SDF engine adds hydrogens and
+re-embeds every record, so an implicit-H record is legitimate input there,
+and it reports only the unparseable and dummy-atom defects while reading
+through the same :func:`classify_records` partition as the other two. The
+invariant a future change must preserve: grepping ``src/`` for
+``iter_conformer_records`` and for ``classify_records`` must turn up exactly
+the callers named above, or this paragraph has drifted from them again.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,7 +42,7 @@ from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import iter_smi_records, strip_taut_suffix
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
 logger = get_logger(__name__)
 
@@ -104,13 +113,16 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     return chunks
 
 
-# iter_conformer_records' own wording for each reason record_skip_reason can
-# return. Every reason other than "unparseable" names the record (`_Name`)
-# rather than its index, which is all an unparseable record has.
-# `ASE.thermo.driver.calc_thermo` does NOT use any reason but "unparseable": it
-# logs its own thermo-specific phrasing ("...; no thermochemistry computed")
-# for the reasons it marks `Thermo_failed` rather than drops, since those
-# messages explain a different outcome than "skipped".
+# `ClassifiedRecords.log_skipped`'s default wording for each reason
+# record_skip_reason can return. Every reason other than "unparseable" names
+# the record (`_Name`) rather than its index, which is all an unparseable
+# record has. `ASE.thermo.driver.calc_thermo` does NOT use any reason but
+# "unparseable": it logs its own thermo-specific phrasing ("...; no
+# thermochemistry computed") for the reasons it marks `Thermo_failed` rather
+# than drops, since those messages explain a different outcome than "skipped".
+# It passes that partial table to `log_skipped`, which merges it over this one
+# -- so a reason it does not word itself still gets reported, in the shared
+# sentence, rather than raising a KeyError.
 _SKIP_MESSAGES = {
     "unparseable": "Skipping record %d: RDKit could not parse it.",
     "no_conformer": "Skipping %s: no conformer.",
@@ -123,10 +135,12 @@ _SKIP_MESSAGES = {
 
 
 def skip_message(reason: str) -> str:
-    """The logging template :func:`iter_conformer_records` uses for ``reason``.
+    """The logging template :meth:`ClassifiedRecords.log_skipped` uses for ``reason``.
 
-    Exposed so other readers that log the same outcome (``calc_thermo`` for
-    unparseable records) do not keep a second copy of the wording.
+    Exposed so other readers that log the same outcome without going through
+    :meth:`ClassifiedRecords.log_skipped` -- ``check_sdf_format`` for an
+    unparseable record, and the SDF isomer engine for a dummy-atom record --
+    do not keep a second copy of the wording.
     """
     return _SKIP_MESSAGES[reason]
 
@@ -135,12 +149,14 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
     """Classify why a parsed SDF record cannot be processed, or ``None`` if it can.
 
     The single definition of "what is wrong with this record" (N-C1), so every
-    caller judges a record the same way instead of carrying its own copy of
-    the checks. :func:`iter_conformer_records` uses this to decide what to
-    skip (and log); ``ASE.thermo.driver.calc_thermo`` uses it directly against
-    its own already-read record list, because unlike every other caller it
-    must not let a defective record vanish silently -- it marks the record
-    ``Thermo_failed`` with this same reason string instead of dropping it.
+    reader judges a record the same way instead of carrying its own copy of
+    the checks. :func:`classify_records` applies this to every record it
+    reads and partitions on the result; ``ASE.thermo.driver.calc_thermo`` is
+    the one reader the POLICY differs for, not the mechanism -- its records
+    reach it through the same :func:`classify_records` call as every other
+    reader, but it marks a defective record ``Thermo_failed`` with this same
+    reason string instead of letting it be dropped, because unlike every
+    other reader it must not let a defective record vanish silently.
 
     Args:
         mol: A parsed record, or ``None`` for one ``SDMolSupplier`` could not
@@ -177,17 +193,147 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class ClassifiedRecords:
+    """One SDF read, partitioned by `record_skip_reason`. File order is kept in every list."""
+
+    kept: list[Chem.Mol]  # record_skip_reason(mol) is None
+    skipped: list[tuple[Chem.Mol, str]]  # parseable but defective: (mol, reason)
+    unparseable: list[int]  # positions SDMolSupplier yielded None for
+    parsed: list[Chem.Mol]  # kept + skipped, in file order (what check_sdf_format counts)
+
+    def __post_init__(self) -> None:
+        """Refuse a partition that does not add up, naming what is wrong.
+
+        `classify_records` cannot produce one, but a caller assembling this
+        type by hand can -- and the positions :meth:`_parsed_positions`
+        derives are only meaningful while ``parsed`` holds exactly ``kept``
+        plus ``skipped``. Left unchecked, the first symptom is a ``zip()``
+        length error raised inside a private method, which names neither this
+        type nor the invariant it broke.
+        """
+        if len(self.parsed) != len(self.kept) + len(self.skipped):
+            raise ValueError(
+                "ClassifiedRecords: `parsed` must hold `kept` + `skipped` in file order, "
+                f"but it has {len(self.parsed)} record(s) for {len(self.kept)} kept "
+                f"+ {len(self.skipped)} skipped"
+            )
+
+    def _parsed_positions(self) -> list[int]:
+        """The file position of each record in :attr:`parsed`, in order.
+
+        Derived rather than stored: the parsed positions are exactly the ones
+        :attr:`unparseable` does not hold, so a fifth field would be a second
+        statement of the same fact -- and one more thing that could fall out
+        of step with the rest.
+        """
+        missing = set(self.unparseable)
+        total = len(self.parsed) + len(self.unparseable)
+        return [position for position in range(total) if position not in missing]
+
+    @staticmethod
+    def _display_name(mol: Chem.Mol, position: int) -> str:
+        """How one parsed record is referred to: its ``_Name``, else its position.
+
+        ``SDMolSupplier`` sets ``_Name`` on every record it parses, but an SDF
+        whose first line is blank sets it to the empty string -- which names
+        nothing, so the position is used instead.
+        """
+        name = mol.GetProp("_Name") if mol.HasProp("_Name") else ""
+        return name or f"record {position}"
+
+    def _named_parsed(self) -> list[tuple[Chem.Mol, str]]:
+        """Every parsed record paired with the name to report it under."""
+        return [
+            (mol, self._display_name(mol, position))
+            for mol, position in zip(self.parsed, self._parsed_positions(), strict=True)
+        ]
+
+    def names(self) -> list[str]:
+        """``_Name`` of each kept record, ``"record N"`` when a record has none."""
+        # `kept` holds the same objects `parsed` does, so identity is what ties
+        # a kept record back to the position its name may have to fall back to.
+        kept = {id(mol) for mol in self.kept}
+        return [name for mol, name in self._named_parsed() if id(mol) in kept]
+
+    def log_skipped(self, messages: Mapping[str, str] | None = None) -> None:
+        """One WARNING per unparseable position and per skipped record.
+
+        Worded from ``messages`` **merged over** :data:`_SKIP_MESSAGES`, so a
+        caller may hand over a partial table and every reason it does not
+        override keeps the shared sentence. ``calc_thermo`` passes its own
+        table, which words the three defects it marks ``Thermo_failed`` and
+        deliberately leaves "unparseable" to the shared wording.
+
+        Args:
+            messages: Reason -> ``logging``-style template. ``"unparseable"``
+                is formatted with the record's position (``%d``); every other
+                reason with the record's name (``%s``).
+        """
+        table = {**_SKIP_MESSAGES, **(messages or {})}
+        # Unparseable positions first, then the parseable-but-defective
+        # records in file order. Two passes rather than one interleaved walk
+        # because only the second needs the records themselves.
+        for position in self.unparseable:
+            logger.warning(table["unparseable"], position)
+        reasons = {id(mol): reason for mol, reason in self.skipped}
+        for mol, name in self._named_parsed():
+            reason = reasons.get(id(mol))
+            if reason is not None:
+                logger.warning(table[reason], name)
+
+
+def classify_records(path: str) -> ClassifiedRecords:
+    """Read ``path`` once and partition its records. Logs nothing; see ``log_skipped``.
+
+    The one place a reader of an SDF file turns records into "these I can
+    process and these I cannot". Separating the partition from the reporting
+    is what lets ``check_sdf_format`` -- which must warn about a dummy-atom
+    record but *not* about an implicit-hydrogen one, since its engine adds
+    hydrogens and re-embeds every record -- read through the same policy as
+    the readers that drop every defect.
+
+    Args:
+        path: Path to the SDF file to read.
+
+    Returns:
+        The file's records as a :class:`ClassifiedRecords`.
+    """
+    kept: list[Chem.Mol] = []
+    skipped: list[tuple[Chem.Mol, str]] = []
+    unparseable: list[int] = []
+    parsed: list[Chem.Mol] = []
+    for position, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
+        reason = record_skip_reason(mol)
+        if reason == "unparseable":
+            # Nothing to keep: the position is all an unreadable record has.
+            unparseable.append(position)
+            continue
+        parsed.append(mol)
+        if reason is None:
+            kept.append(mol)
+        else:
+            skipped.append((mol, reason))
+    return ClassifiedRecords(kept=kept, skipped=skipped, unparseable=unparseable, parsed=parsed)
+
+
 def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     """Yield the SDF records at ``path`` a per-record consumer can process.
 
-    ``SPE.calc_spe``, ``ASE.geometry.opt_geometry``,
-    ``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``
+    ``tautomer.select_tautomers`` and ``batch_opt.batchopt.optimizing.run``
     each used to inline their own copy of this filter by hand -- some only the
     None/conformerless half, with nothing pinning them in agreement, and none
     of them skipping an implicit-hydrogens or dummy-atom record. This is the
-    one implementation all four now call. ``ASE.thermo.driver.calc_thermo`` is
-    the one caller that does NOT use this function for those two reasons: see
-    :func:`record_skip_reason`.
+    one implementation both now call, and it is itself only
+    :func:`classify_records` plus :meth:`ClassifiedRecords.log_skipped`: the
+    "report everything and keep the rest" view of the one partition.
+    ``SPE.calc_spe``, ``ASE.geometry.opt_geometry``, and
+    ``ASE.thermo.driver.calc_thermo`` get the same "report everything and keep
+    the rest" view through a second caller of that same pair,
+    ``entry._run_setup.prepare_single_file_run`` (``calc_thermo`` supplying
+    its own partial ``skip_messages`` table). ``check_sdf_format`` is the one
+    reader that reports a deliberate subset of the defects instead, going
+    through :func:`classify_records` directly.
 
     Args:
         path: Path to the SDF file to read.
@@ -195,18 +341,12 @@ def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     Yields:
         Each record :func:`record_skip_reason` passes (reason ``None``), in
         file order. Every other record is logged at WARNING -- naming its
-        reason -- and skipped.
+        reason -- and skipped. The whole file is read and reported before the
+        first record is yielded; every caller consumes this into a list.
     """
-    for position, mol in enumerate(Chem.SDMolSupplier(path, removeHs=False)):
-        reason = record_skip_reason(mol)
-        if reason is None:
-            yield mol
-            continue
-        if reason == "unparseable":
-            logger.warning(_SKIP_MESSAGES[reason], position)
-        else:
-            name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
-            logger.warning(_SKIP_MESSAGES[reason], name)
+    classified = classify_records(path)
+    classified.log_skipped()
+    yield from classified.kept
 
 
 def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:

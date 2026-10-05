@@ -19,13 +19,9 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
-from Auto3D.engines.model_factory import create_model, get_device
+from Auto3D.engines.model_factory import create_model
 from Auto3D.engines.models.contract import ModelAdapter
-from Auto3D.engines.models.policy import (
-    check_engine_supports_molecules,
-    check_gpu_requested,
-)
-from Auto3D.engines.models.preflight import resolve_engine_name
+from Auto3D.entry._run_setup import prepare_single_file_run
 from Auto3D.entry.ASE.thermo import properties as _properties
 from Auto3D.entry.ASE.thermo.calculator import (
     model_name2model_calculator,
@@ -51,7 +47,6 @@ from Auto3D.foundation.constants import (
     LOW_FREQUENCY_CUTOFF_CM,
     STANDARD_PRESSURE,
 )
-from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.convergence import THERMO_FAILED_PROP
 from Auto3D.foundation.utils.energy import (
     E_REL_KCAL_PROP,
@@ -64,9 +59,6 @@ from Auto3D.foundation.utils.energy import (
     set_relative_gibbs_energies,
 )
 from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
-from Auto3D.foundation.utils.output_names import default_output_path
-from Auto3D.foundation.utils.sdf_io import record_skip_reason, skip_message
 
 logger = get_logger(__name__)
 
@@ -488,30 +480,53 @@ def calc_thermo(
         3.0.0 only the projected modes are passed; previously the full 3N list
         was passed and ASE chose, and that choice changed in ASE 3.28.0, so the
         same input gave different Gibbs energies on different ASE versions.
+
+    Raises:
+        InputValidationError: if no record of ``path`` could be parsed at all. A
+            record that parses but is defective (conformerless, implicit
+            hydrogens, dummy atoms) is kept and written marked
+            ``Thermo_failed`` instead; see the warnings logged for each record.
     """
-    # Fail fast on an unrecognized engine name -- the same guard the CLI's
-    # `thermo` command already runs before calling this function
-    # (cli/commands/properties.py), now also enforced for direct Python-API
-    # callers. Pure offline registry lookup: no network, no model load.
-    resolve_engine_name(model_name)
-
-    # calc_thermo never goes through check_input/check_valid_configuration, so
-    # without this it would reach model_factory.get_device below and silently
-    # fall back to CPU instead of failing the same way `auto3d thermo`
-    # already does at its CLI wrapper (cli/commands/properties.py) -- and the
-    # same way `auto3d run`/smiles2mols do via check_input /
-    # check_valid_configuration. check_gpu_requested is the single source of
-    # truth for this policy; called here, before get_device/_load_hessian_model/
-    # model_name2model_calculator below, so no compute (and no model
-    # construction) happens first.
-    check_gpu_requested(use_gpu)
-
-    # Refuse `-o` pointing at the input: calc_thermo would otherwise open the
-    # user's input file for writing and destroy it (C14). Shared guard, so
-    # calc_spe/opt_geometry/calc_thermo cannot drift apart on this policy.
-    # Needs only the two paths, so it runs before get_device/
-    # _load_hessian_model/model_name2model_calculator.
-    check_output_not_input(path, out_path)
+    # Every guard, the output name and the record read, in one call shared with
+    # calc_spe and opt_geometry -- see Auto3D.entry._run_setup for the step
+    # list, the order, and why each step sits where it does. All of it happens
+    # before _load_hessian_model/model_name2model_calculator construct anything.
+    #
+    # `skip_messages` is this function's one divergence from the other two: the
+    # shared wording says "Skipping ...", which is not what happens here. A
+    # defect in the INPUT is not a computation that failed, and a caller
+    # filtering on `Thermo_failed` needs to see the record marked rather than
+    # silently missing -- so the three reasons below are reported as "no
+    # thermochemistry computed" and the records are kept. The table is partial
+    # on purpose: an unparseable record has no `Mol` to mark, so it is dropped
+    # and reported in sdf_io's own words, like everywhere else.
+    setup = prepare_single_file_run(
+        path,
+        model_name,
+        gpu_idx=gpu_idx,
+        use_gpu=use_gpu,
+        allow_tf32=allow_tf32,
+        out_path=out_path,
+        overwrite=overwrite,
+        tag="G",
+        skip_messages=_THERMO_SKIP_MESSAGES,
+    )
+    # `require_any`, not `require_records` (the other two entry points' check):
+    # a file of nothing but defective records still has output to produce here,
+    # since each of those records is written carrying its reason. Only a file
+    # that yielded no `Mol` at all leaves this function with nothing to write.
+    setup.require_any(path)
+    outpath = Path(setup.out_path)
+    device = setup.device
+    # `survivors` (file order preserved) is what the per-record loop below
+    # iterates; the defective records skip it and go straight to the output,
+    # each marked with the reason the prologue classified it under.
+    survivors = setup.records
+    out_mols = []
+    mols_failed = []
+    for mol, reason in setup.skipped:
+        mol.SetProp(THERMO_FAILED_PROP, reason)
+        mols_failed.append(mol)
 
     # Surface the symmetry-number caveat once per run (not per molecule) so it is
     # visible without spamming the log.
@@ -522,7 +537,8 @@ def calc_thermo(
     )
     # Reset _symmetry_number's own per-run de-dup flag for its defaulting
     # WARNING, using the same "once per run, not per molecule" mechanism as
-    # the INFO log just above (module state reset at the top of each run).
+    # the INFO log just above (module state reset once per run, before the
+    # per-record loop that reads it).
     #
     # Assigned through the module object, NOT with `global`. The flag lives in
     # `properties` now, and `global _symmetry_default_warned` here would bind a
@@ -531,87 +547,6 @@ def calc_thermo(
     # instead of once per run. That failure is invisible: the run still succeeds
     # and the only symptom is a missing warning on the second call.
     _properties._symmetry_default_warned = False
-    # Apply the shared torch configuration so allow_tf32 is honored here too
-    # (this path previously ignored it).
-    configure_torch(TorchConfig(allow_tf32=allow_tf32))
-
-    # Prepare output name (unless overridden). default_output_path is the
-    # single owner of this naming convention (Auto3D.foundation.utils.
-    # output_names) -- it used to be re-derived here, in SPE.py and in
-    # ASE/geometry.py, each with its own Path(model_name).exists() check for
-    # the custom-NNP case.
-    out_mols, mols_failed = [], []
-    if out_path is not None:
-        outpath = Path(out_path)
-    else:
-        outpath = Path(default_output_path(path, model_name, "G"))
-
-    # Refuse to truncate a file that already exists. `_write_thermo_output`
-    # opens `Chem.SDWriter(outpath)`, which truncates on open, so without this
-    # `-o precious.sdf` destroyed precious.sdf. The destruction happened at
-    # the very END of the run: nothing is written until every Hessian is done
-    # (`_write_thermo_output` is called after the loop), so a failure anywhere
-    # in between left precious.sdf UNTOUCHED, and only a run that got all the
-    # way through replaced it. Checked on the RESOLVED path, so the derived
-    # default name is covered too, and before get_device/_load_hessian_model/
-    # model_name2model_calculator so nothing is loaded first.
-    check_output_overwrite(outpath, overwrite)
-
-    # Read `path` once. `record_skip_reason` (Auto3D.foundation.utils.sdf_io)
-    # is the single definition of which records are defective (N-C1) -- see
-    # that function for the set of reasons; this module deliberately does not
-    # restate it, because a copy of the list here is exactly what went stale
-    # each time a reason was added.
-    # `iter_conformer_records`'s other callers (`SPE.calc_spe`,
-    # `ASE.geometry.opt_geometry`, `tautomer.select_tautomers`,
-    # `batch_opt.batchopt.optimizing.run`) simply drop such a record from
-    # their output. `calc_thermo` must not: a defect in the INPUT is not a
-    # computation that failed, and a caller filtering on `Thermo_failed`
-    # needs to see it marked rather than silently missing. So this applies
-    # the same predicate directly against the one read of `path` below,
-    # marking every record it can rather than dropping it -- except an
-    # unparseable (`None`) record, which has no `Mol` to set a property on
-    # and is still logged and dropped, matching every other caller.
-    #
-    # Parsing `mols` needs only `path`, not a device or model, so it -- and the
-    # C11 engine gate after the filter below, which needs only the surviving
-    # records and `model_name` -- both happen before get_device/
-    # _load_hessian_model/model_name2model_calculator, matching
-    # check_gpu_requested's already-first placement: every guard that can fail
-    # fast, does, before any device/model construction.
-    mols = list(Chem.SDMolSupplier(path, removeHs=False))
-
-    # One pass, not a second read of `path`: a record pulled out here (and
-    # marked `Thermo_failed`) must not also be re-skipped-and-logged by a
-    # separate `iter_conformer_records(path)` call feeding the loop below --
-    # that produced a contradictory "Skipping ..." line for a record this
-    # function was simultaneously keeping. `survivors` (file order preserved)
-    # is what the per-record loop below iterates.
-    survivors = []
-    for position, mol in enumerate(mols):
-        reason = record_skip_reason(mol)
-        if reason is None:
-            survivors.append(mol)
-            continue
-        if reason == "unparseable":
-            logger.warning(skip_message("unparseable"), position)
-            continue
-        name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"record {position}"
-        logger.warning(_THERMO_SKIP_MESSAGES[reason], name)
-        mol.SetProp(THERMO_FAILED_PROP, reason)
-        mols_failed.append(mol)
-
-    # The C11 gate runs on `survivors`, NOT on the raw `mols` -- the order
-    # `calc_spe` and `opt_geometry` have always used, and the one D2 requires: a
-    # defective record is warned about and marked, never a reason to refuse the
-    # file. `_requires_aimnet` is True for a dummy atom (0 is outside
-    # ANI_ELEMENTS), so gating the raw list made ONE R-group placeholder raise
-    # "Only AIMNET can handle: [...]" for an ANI run and take every healthy
-    # record in the file down with it. A record this function is dropping or
-    # marking must not get a vote on whether the engine can do the rest.
-    check_engine_supports_molecules(survivors, model_name)
-
-    device = get_device(gpu_idx, use_gpu=use_gpu)
 
     # Two adapters, deliberately: `hessian_adapter`'s module is fp64 for the
     # autograd Hessian (see _load_hessian_model), `opt_adapter`'s is the fp32 one

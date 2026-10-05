@@ -11,6 +11,7 @@ import logging
 import os
 import uuid
 
+import pytest
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -423,6 +424,7 @@ class TestSpeFiltersAndAligns:
         energy per filtered row. The output SDF must contain exactly A and B
         with the right energies.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
 
         def make(name):
@@ -441,7 +443,7 @@ class TestSpeFiltersAndAligns:
                 return iter(self._mols)
 
         monkeypatch.setattr(spe_mod.Chem, "SDMolSupplier", FakeSupplier)
-        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
 
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
 
@@ -489,13 +491,21 @@ class TestSpeFiltersAndAligns:
         assert float(written[0].GetProp("E_hartree")) == 10.0 * EV_TO_HARTREE
         assert float(written[1].GetProp("E_hartree")) == 20.0 * EV_TO_HARTREE
 
-    def test_calc_spe_all_filtered_does_not_crash(self, tmp_path, monkeypatch):
+    def test_calc_spe_all_filtered_is_refused_as_an_input_error(self, tmp_path, monkeypatch):
         """FIX B: an SDF whose only record is None must not raise the cryptic
         'max() arg is an empty sequence' from pad_from_mols([]).
 
-        calc_spe should warn and return its output path (an empty SDF) instead.
+        It no longer warns and returns an empty SDF either (R3): a 0-byte
+        output file at exit code 0 is indistinguishable, to the pipeline that
+        reads it, from a run whose input genuinely held no molecules -- so the
+        verdict is an `InputValidationError` naming the counts, and no output
+        file is created at all. `fail_pad` below still pins the original fix:
+        whatever the verdict, `pad_from_mols` must never be handed an empty
+        list.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
+        from Auto3D.foundation.exceptions import InputValidationError
 
         class FakeSupplier:
             def __init__(self, *a, **k):
@@ -505,7 +515,7 @@ class TestSpeFiltersAndAligns:
                 return iter(self._mols)
 
         monkeypatch.setattr(spe_mod.Chem, "SDMolSupplier", FakeSupplier)
-        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
 
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
         monkeypatch.setattr(spe_mod, "EnForce_ANI", lambda adapter: object())
@@ -518,13 +528,14 @@ class TestSpeFiltersAndAligns:
         inpath = tmp_path / "in.sdf"
         inpath.write_text("")  # contents irrelevant; supplier is faked
 
-        # Must not raise (no cryptic max() error); returns the output path.
         # use_gpu=False for the same reason as the sibling test above: this is
         # about the all-filtered empty-input path, not GPU availability.
-        out = spe_mod.calc_spe(str(inpath), "AIMNET", use_gpu=False)
-        assert out is not None
-        # An output file is produced (empty SDF -> no molecule records).
-        assert os.path.exists(out)
+        with pytest.raises(InputValidationError, match="1 unparseable"):
+            spe_mod.calc_spe(str(inpath), "AIMNET", use_gpu=False)
+
+        assert not os.path.exists(tmp_path / "in_AIMNET_E.sdf"), (
+            "calc_spe created its output file for a run that computed nothing"
+        )
 
 
 class TestConformerNameShapeIsModeIndependent:

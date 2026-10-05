@@ -1,11 +1,15 @@
 # tests/test_cli_property_commands.py
 """Fast CLI tests for the new first-class property subcommands and the
 modernization changes (exit codes, enums, path validation, --save-intermediate,
-config init --force). The heavy API functions are mocked, so no NNP runs here.
+config init --force). The heavy API functions are mocked, except in the six
+engine-name/GPU guard pins, which must run them for real to exercise the guard
+at all and instead make reaching a device or a model the failure. No NNP runs
+here either way.
 """
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from unittest.mock import patch
 
@@ -14,8 +18,11 @@ import torch
 from typer.testing import CliRunner
 
 import Auto3D.engines.model_factory
+import Auto3D.entry._run_setup
 import Auto3D.entry.ASE.geometry
 import Auto3D.entry.ASE.thermo
+import Auto3D.entry.ASE.thermo.calculator
+import Auto3D.entry.ASE.thermo.driver
 import Auto3D.entry.auto3D
 import Auto3D.entry.SPE
 import Auto3D.entry.tautomer
@@ -27,8 +34,16 @@ runner = CliRunner()
 
 @pytest.fixture
 def sdf(tmp_path):
+    """An SDF that exists and holds nothing, which is all its consumers need.
+
+    Most tests here mock the API function, so its contents are never read. The
+    six engine-name/GPU guard pins below do NOT mock it -- they run the real
+    `calc_spe`/`opt_geometry`/`calc_thermo` -- and the file is still empty on
+    purpose: each of them is refused by the first or second step of the entry
+    prologue, before anything opens the input.
+    """
     p = tmp_path / "mols.sdf"
-    p.write_text("")  # existence is all that matters; calc_* is mocked
+    p.write_text("")
     return p
 
 
@@ -107,38 +122,78 @@ def test_thermo_without_ase_raises_dependency_error(sdf, monkeypatch):
 
 # --- engine-name validation (M21 / C11) --------------------------------------
 #
-# calc_spe/opt_geometry/calc_thermo pass `engine` straight to create_model with
-# no CLIConfig/resolve_engine_name gate of their own; the docstring comment
-# above KNOWN_ENGINES used to claim this was "validated downstream" without
-# that ever being verified. It was not: before this fix, none of these three
-# commands rejected a typo'd registry name (e.g. 'aimnet2-2025x') until it
-# failed deep inside model construction. Each API function is mocked here so
-# a real NNP is never constructed; `m.assert_not_called()` confirms the
-# rejection happens before the mocked call, i.e. before any work is done.
+# Before this fix, none of these three commands rejected a typo'd registry name
+# (e.g. 'aimnet2-2025x') until it failed deep inside model construction: the
+# docstring comment above KNOWN_ENGINES claimed it was "validated downstream"
+# without that ever being verified, and it was not.
+#
+# The guard now lives in exactly one place -- `resolve_engine_name` is the first
+# of the nine steps of `Auto3D.entry._run_setup.prepare_single_file_run`, which
+# `calc_spe`/`opt_geometry`/`calc_thermo` all open with -- so the wrapper in
+# cli/commands/properties.py no longer carries its own copy. That is why these
+# three tests do NOT mock the API function: mocking it would remove the only
+# thing that validates anything, and the test would pass for whatever reason the
+# mock made up. They run the real entry point and make reaching the device or a
+# model the failure instead (`_nothing_may_be_built`), which is also what keeps
+# a regression here from downloading an NNP.
+
+
+@contextlib.contextmanager
+def _nothing_may_be_built():
+    """Patch every step a refused run must never reach, and yield the mocks.
+
+    ``get_device`` is patched on ``Auto3D.entry._run_setup``, where the three
+    entry points' shared prologue calls it, and it is the LAST of that
+    prologue's nine steps -- so a mock that records no call is proof that one of
+    the earlier guards refused the run before any device was resolved.
+    ``create_model`` is patched on all four of its holders (each entry module
+    plus the thermo calculator) so that even a regression cannot load or
+    download a potential in this fast-tier test.
+
+    A context manager rather than a function returning an open ``ExitStack``:
+    the patches must not be live outside a ``with``. If the fourth or fifth
+    ``patch.object`` ever raised -- an attribute renamed away -- the earlier
+    ones would otherwise stay installed for the rest of the session with
+    nothing to unwind them, and the damage would surface as unrelated tests
+    mysteriously seeing a ``MagicMock`` ``create_model``.
+    """
+    with contextlib.ExitStack() as stack:
+        yield [
+            stack.enter_context(patch.object(Auto3D.entry._run_setup, "get_device")),
+            stack.enter_context(patch.object(Auto3D.entry.SPE, "create_model")),
+            stack.enter_context(patch.object(Auto3D.entry.ASE.geometry, "create_model")),
+            stack.enter_context(patch.object(Auto3D.entry.ASE.thermo.driver, "create_model")),
+            stack.enter_context(patch.object(Auto3D.entry.ASE.thermo.calculator, "create_model")),
+        ]
+
+
+def _assert_refused_before_any_work(sentinels):
+    for sentinel in sentinels:
+        sentinel.assert_not_called()
 
 
 def test_energy_rejects_unknown_engine_before_doing_any_work(sdf):
-    with patch.object(Auto3D.entry.SPE, "calc_spe") as m:
+    with _nothing_may_be_built() as sentinels:
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
-    assert res.exit_code == 2  # ConfigurationError -> exit 2
+    assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
-    m.assert_not_called()
+    _assert_refused_before_any_work(sentinels)
 
 
 def test_optimize_rejects_unknown_engine_before_doing_any_work(sdf):
-    with patch.object(Auto3D.entry.ASE.geometry, "opt_geometry") as m:
+    with _nothing_may_be_built() as sentinels:
         res = runner.invoke(app, ["optimize", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
-    assert res.exit_code == 2  # ConfigurationError -> exit 2
+    assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
-    m.assert_not_called()
+    _assert_refused_before_any_work(sentinels)
 
 
 def test_thermo_rejects_unknown_engine_before_doing_any_work(sdf):
-    with patch.object(Auto3D.entry.ASE.thermo, "calc_thermo") as m:
+    with _nothing_may_be_built() as sentinels:
         res = runner.invoke(app, ["thermo", str(sdf), "--no-gpu", "--engine", "aimnet2-2025x"])
-    assert res.exit_code == 2  # ConfigurationError -> exit 2
+    assert res.exit_code == 2, res.output  # ConfigurationError -> exit 2
     assert "aimnet2-2025x" in res.output
-    m.assert_not_called()
+    _assert_refused_before_any_work(sentinels)
 
 
 def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
@@ -163,48 +218,53 @@ def test_tautomers_rejects_unknown_engine_before_doing_any_work(smi):
 
 # --- GPU policy: fatal, not a silent CPU fallback (M23) ---------------------
 #
-# calc_spe/opt_geometry/calc_thermo call model_factory.get_device directly and
-# never went through check_input/check_valid_configuration, so a CPU-only box
-# used to fall back to CPU silently -- no error, no warning -- while `auto3d
+# calc_spe/opt_geometry/calc_thermo reach `get_device` directly and never went
+# through check_input/check_valid_configuration, so a CPU-only box used to fall
+# back to CPU silently -- no error, no warning -- while `auto3d
 # run`/smiles2mols raised (a ConfigurationError with an unrelated "config
 # init" hint, or GPUError, depending on entry point). This dev box has 8 CUDA
 # devices (see task-7 brief), so the no-CUDA case is simulated by patching
 # torch.cuda.is_available where check_gpu_requested (the single source of
-# truth for this check, Auto3D.engines.models.policy) reads it. The mocked API
-# function must never be called: the check must happen before any real work.
+# truth for this check, Auto3D.engines.models.policy) reads it.
+#
+# `check_gpu_requested` is the SECOND of the prologue's nine steps, so these
+# three run the real entry point for the same reason the engine-name tests above
+# do -- the wrapper has no copy of the check left to exercise -- and the
+# sentinels prove the refusal lands before the device is resolved and before any
+# model is built.
 
 
 def test_energy_rejects_when_gpu_requested_without_cuda(sdf):
     with (
+        _nothing_may_be_built() as sentinels,
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch.object(Auto3D.entry.SPE, "calc_spe") as m,
     ):
         res = runner.invoke(app, ["energy", str(sdf)])  # gpu defaults to True
-    assert res.exit_code == 4  # GPUError -> exit 4
+    assert res.exit_code == 4, res.output  # GPUError -> exit 4
     assert "--no-gpu" in res.output
-    m.assert_not_called()
+    _assert_refused_before_any_work(sentinels)
 
 
 def test_optimize_rejects_when_gpu_requested_without_cuda(sdf):
     with (
+        _nothing_may_be_built() as sentinels,
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch.object(Auto3D.entry.ASE.geometry, "opt_geometry") as m,
     ):
         res = runner.invoke(app, ["optimize", str(sdf)])
-    assert res.exit_code == 4
+    assert res.exit_code == 4, res.output
     assert "--no-gpu" in res.output
-    m.assert_not_called()
+    _assert_refused_before_any_work(sentinels)
 
 
 def test_thermo_rejects_when_gpu_requested_without_cuda(sdf):
     with (
+        _nothing_may_be_built() as sentinels,
         patch.object(torch.cuda, "is_available", return_value=False),
-        patch.object(Auto3D.entry.ASE.thermo, "calc_thermo") as m,
     ):
         res = runner.invoke(app, ["thermo", str(sdf)])
-    assert res.exit_code == 4
+    assert res.exit_code == 4, res.output
     assert "--no-gpu" in res.output
-    m.assert_not_called()
+    _assert_refused_before_any_work(sentinels)
 
 
 def test_energy_no_gpu_still_works_without_cuda(sdf):
@@ -595,7 +655,7 @@ def test_energy_refuses_to_overwrite_an_existing_output(sdf, tmp_path):
         raise AssertionError("calc_spe built a model before checking --force")
 
     with (
-        patch.object(Auto3D.entry.SPE, "get_device", never),
+        patch.object(Auto3D.entry._run_setup, "get_device", never),
         patch.object(Auto3D.entry.SPE, "create_model", never),
     ):
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "-o", str(precious)])

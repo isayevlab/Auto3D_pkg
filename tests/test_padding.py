@@ -281,3 +281,94 @@ class TestThePadderCannotDisagreeWithTheAdapter:
 
         parameters = list(inspect.signature(pad_from_mols).parameters)
         assert parameters == ["mols", "adapter", "device"], parameters
+
+
+# The padder's four return values are one object with names (`PaddedBatch`), not
+# four loose tensors. These two are module-level rather than in a class because
+# they pin the RETURN TYPE and its one behavior, not a padding rule: every class
+# above groups assertions about what the tensors CONTAIN.
+def _mols(*smiles: str) -> list:
+    out = []
+    for i, smi in enumerate(smiles):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smi))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        mol.SetProp("_Name", f"mol{i}")
+        out.append(mol)
+    return out
+
+
+def _two_small_mols() -> list:
+    """Methane (5 atoms) and water (3): a genuinely padded two-molecule batch."""
+    return _mols("C", "O")
+
+
+def _three_mols() -> list:
+    """Three different sizes, so an index applied to only some fields shows up."""
+    return _mols("C", "O", "CCO")
+
+
+def test_pad_from_mols_returns_a_padded_batch_with_named_fields(device):
+    from Auto3D.engines.batch_opt.padding import PaddedBatch, pad_from_mols
+
+    batch = pad_from_mols(_two_small_mols(), _aimnet_like(), device)
+    assert isinstance(batch, PaddedBatch) and isinstance(batch, tuple)
+    assert batch.coords is batch[0] and batch.atom_mask is batch[3]
+    coords, species, charges, atom_mask = batch  # unpacking is unchanged
+    assert batch.n_mols == 2 and coords.shape[0] == 2
+
+
+def test_sub_indexes_every_field_the_same_way(device):
+    batch = pad_from_mols(_three_mols(), _aimnet_like(), device)
+    part = batch.sub(torch.tensor([0, 2]))
+    assert part.n_mols == 2
+    assert torch.equal(part.species, batch.species[[0, 2]]) and torch.equal(
+        part.atom_mask, batch.atom_mask[[0, 2]]
+    )
+    assert torch.equal(part.charges, batch.charges[[0, 2]])
+
+
+def test_sub_refuses_a_scalar_index(device):
+    """A scalar index would delete the molecule axis instead of restricting it.
+
+    ``sub(0)`` used to hand back a ``PaddedBatch`` of ``(N, 3)``/``(N,)``/``()``/
+    ``(N,)`` tensors, whose ``n_mols`` then confidently reported the ATOM count
+    and whose ``atom_mask`` had no molecule axis left for ``coords[mask]`` to line
+    up against, so the first symptom appeared far from the cause. A 0-d index
+    tensor is the same mistake spelled differently, and a tuple is multi-axis
+    indexing, which this one-axis method never means (it used to fail on the
+    third field only because ``charges`` happens to be 1-D).
+    """
+    batch = pad_from_mols(_three_mols(), _aimnet_like(), device)
+
+    with pytest.raises(TypeError, match="molecule axis"):
+        batch.sub(0)
+    with pytest.raises(TypeError, match="molecule axis"):
+        batch.sub(torch.tensor(0, device=device))
+    with pytest.raises(TypeError, match="one index over the molecule axis"):
+        batch.sub((0, 2))
+
+
+def test_sub_restricts_every_field_consistently_for_all_three_forms(device):
+    """Slice, bool mask and index tensor -- the three forms the docstring promises."""
+    from Auto3D.engines.batch_opt.padding import PaddedBatch
+
+    batch = pad_from_mols(_three_mols(), _aimnet_like(), device)
+    n_atoms = batch.species.shape[1]
+
+    for index in (
+        slice(0, 2),
+        torch.tensor([True, False, True], device=device),
+        torch.tensor([0, 2], device=device),
+    ):
+        part = batch.sub(index)
+        assert isinstance(part, PaddedBatch), index
+        assert torch.equal(part.coords, batch.coords[index]), index
+        assert torch.equal(part.species, batch.species[index]), index
+        assert torch.equal(part.charges, batch.charges[index]), index
+        assert torch.equal(part.atom_mask, batch.atom_mask[index]), index
+        # Every field kept the molecule axis, and all four agree on its length.
+        assert part.n_mols == 2, index
+        assert part.coords.shape == (2, n_atoms, 3), index
+        assert part.species.shape == (2, n_atoms), index
+        assert part.charges.shape == (2,), index
+        assert part.atom_mask.shape == (2, n_atoms), index

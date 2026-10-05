@@ -28,6 +28,7 @@ from Auto3D.foundation.utils.logging_config import configure_logging, get_logger
 from Auto3D.foundation.utils.reconciliation import find_smiles_not_in_sdf
 from Auto3D.foundation.utils.sdf_io import reorder_sdf
 from Auto3D.foundation.utils.smi_io import smiles2smi
+from Auto3D.orchestration.chunk_manager import ChunkManager, scaled_batchsize_atoms
 from Auto3D.orchestration.job_layout import create_chunk_meta_names
 from Auto3D.orchestration.pipeline.input_checks import check_input, check_valid_configuration
 from Auto3D.orchestration.workflow import WorkflowOrchestrator
@@ -280,7 +281,22 @@ def smiles2mols(
         # that check).
         idx = args.gpu_idx if isinstance(args.gpu_idx, int) else args.gpu_idx[0]
         device = get_device(idx, use_gpu=args.use_gpu)
-        opt_config = args.to_optimization_config()
+        # `batchsize_atoms` on the config is a per-gigabyte figure, so this
+        # entry point measures memory and scales it exactly as main() does --
+        # through the same ChunkManager measurement and the same rule. It used
+        # to read the field as an absolute count, which made the identical
+        # config optimize in batches up to 16x smaller here than through main()
+        # (P-M11). There is no chunking to do (one process, one input file), so
+        # only the memory figure is taken from the manager.
+        memory_gb, _, _ = ChunkManager(
+            args, Path(path0), "smi", Path(tmpdirname)
+        ).calculate_memory_and_chunks()
+        batchsize_atoms = scaled_batchsize_atoms(args.batchsize_atoms, memory_gb)
+        logger.info(
+            f"The available memory is {memory_gb} GB; optimizing in batches of "
+            f"{batchsize_atoms} atoms."
+        )
+        opt_config = args.to_optimization_config(batchsize_atoms=batchsize_atoms)
         # Built in this process, which is also the one that runs the
         # optimization -- `smiles2mols` is single-process, so there is no spawn
         # boundary here, but see `Auto3D.orchestration.workflow_workers.optim_rank_wrapper`
