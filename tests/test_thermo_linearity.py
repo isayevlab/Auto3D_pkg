@@ -139,7 +139,9 @@ def test_a_real_model_calls_co2_and_hcn_linear(tmp_path):
     at a converged near-linear geometry put noise rather than bend curvature on
     the near-axis direction, the ratio would collapse and a genuinely linear
     molecule would be handed the nonlinear rotor. Nothing else in either tier
-    drives a real NNP Hessian through a linear molecule.
+    drives a real NNP Hessian through a linear molecule. ``opt_tol`` is left
+    at its default, Auto3D's 2e-4 eV/A force gate, so the real-model run
+    converges on the same stationary-point criterion production uses.
     """
     for smiles, name in (("O=C=O", "co2"), ("C#N", "hcn")):
         mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
@@ -150,7 +152,7 @@ def test_a_real_model_calls_co2_and_hcn_linear(tmp_path):
         with Chem.SDWriter(path) as writer:
             writer.write(mol)
 
-        out = calc_thermo(path, "AIMNET", opt_tol=0.003, use_gpu=False)
+        out = calc_thermo(path, "AIMNET", use_gpu=False)
         produced = next(Chem.SDMolSupplier(out, removeHs=False))
         assert produced.GetProp("Thermo_linearity") == "linear", (
             f"{name} was not treated as linear; the Hessian test is reading "

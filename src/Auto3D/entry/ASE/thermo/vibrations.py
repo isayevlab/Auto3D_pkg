@@ -611,13 +611,22 @@ def projected_vibrations(
     geometry: str,
     *,
     name: str = "molecule",
+    temperature_k: float = 298.15,
 ) -> list[complex]:
-    """``project_vibrations(...).energies``: the list alone, for callers whose geometry is settled.
+    """``project_vibrations(...).energies``: the list alone, length not guaranteed.
 
-    The driver uses :func:`project_vibrations` because the effective geometry
-    must reach ``analyze_vibrations`` and ``IdealGasThermo`` too.
+    This wrapper returns the energies of whatever geometry the projection
+    decided, not of the ``geometry`` argument: for ``geometry="linear"`` the
+    list may hold ``3N-6`` entries when the Hessian showed a bent stationary
+    point (see ``Projection.mode_geometry``). A caller that needs the
+    effective geometry -- to pass it on to ``analyze_vibrations`` or
+    ``IdealGasThermo``, as the driver does -- must use
+    :func:`project_vibrations` instead and read ``mode_geometry`` and
+    ``geometry`` off the result.
     """
-    return project_vibrations(atoms, hessian, geometry, name=name).energies
+    return project_vibrations(
+        atoms, hessian, geometry, name=name, temperature_k=temperature_k
+    ).energies
 
 
 @dataclass

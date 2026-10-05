@@ -504,12 +504,18 @@ carries:
 - ``Thermo_convention`` -- ``"RRHO+quasiharmonic(100cm-1); 1 atm;
   most-abundant-isotope masses"`` (3.2.0+; ``"RRHO; ..."`` when the floor is
   disabled; the first token alone before 3.2.0).
-- ``Thermo_linearity`` -- the geometry class the partition functions were built
-  with (3.2.0+): ``"monatomic"``, ``"linear"``, ``"nonlinear"``,
+- ``Thermo_standard_state`` -- ``"1 atm"``, the ideal-gas 1 atm standard
+  state used for *S* and *G* (3.2.0+).
+- ``Symmetry_number`` -- the rotational symmetry number actually used: the
+  record's ``symmetry_number`` property when it is a valid integer in 1-60,
+  else 1 (3.2.0+).
+- ``Thermo_linearity`` -- the geometry class the thermochemistry used
+  (3.2.0+): ``"monatomic"``, ``"linear"``, ``"nonlinear"``,
   ``"bent_reclassified_nonlinear"`` or ``"bent_quasilinear_linear_rotor"``.
 - ``N_raised_modes`` -- how many modes were evaluated at the floor.
-- ``Thermo_vib_modes`` -- how many modes the partition function actually used
-  (``3N-6`` for a minimum, ``3N-7`` for a confirmed saddle point).
+- ``Thermo_vib_modes`` -- how many modes the partition function actually used:
+  ``3N-6`` for a nonlinear minimum, ``3N-5`` for a linear one, ``0`` for a
+  monatomic species, or ``3N-7`` for a confirmed saddle point.
 
 **Opt out** with ``low_freq_cutoff_cm=0.0``:
 

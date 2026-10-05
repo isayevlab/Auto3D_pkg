@@ -576,18 +576,26 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   standard state that solution-phase cycles use.
 - **Symmetry_number**: the rotational symmetry number actually used, see below.
 - **Thermo_linearity**: ``"monatomic"``, ``"linear"`` or ``"nonlinear"``, the
-  geometry class the rotational partition function and the ``3N-5`` / ``3N-6``
-  mode count were built with; ``"bent_reclassified_nonlinear"`` when the
-  coordinates looked linear but the Hessian showed a bent stationary point, which
-  is then treated as nonlinear, or ``"bent_quasilinear_linear_rotor"`` when such a
-  molecule is too close to linear for the classical nonlinear rotor (its smallest
-  moment of inertia is below ``h^2 / (8 pi^3 k T)``, 0.026 amu A^2 at 298 K), so the
-  phantom mode is dropped but the linear rotor is kept. A warning names the
-  molecule in both cases.
+  geometry class the thermochemistry used; ``"bent_reclassified_nonlinear"``
+  when the coordinates looked linear but the Hessian showed a bent stationary
+  point, which is then treated as nonlinear, or
+  ``"bent_quasilinear_linear_rotor"`` when such a molecule is too close to
+  linear for the classical nonlinear rotor (its smallest moment of inertia is
+  below ``h^2 / (8 pi^3 k T)``, 0.026 amu A^2 at 298 K), so the phantom mode is
+  dropped but the linear rotor is kept. A warning names the molecule in both
+  cases.
 - **multiplicity**: 2S+1, the spin multiplicity used for the electronic entropy
   ``R ln(2S+1)``; the per-mol ``multiplicity`` property when valid, otherwise
   derived from the radical-electron count and written back, so the record always
   carries the value used.
+
+``Thermo_convention``, ``Thermo_standard_state``, ``Symmetry_number`` and
+``Thermo_linearity`` are written by the thermochemistry step itself, so a
+record that never reaches it -- ``Thermo_failed`` of ``"not_converged"``,
+``"implicit_hydrogens"``, ``"no_conformer"`` or ``"dummy_atoms"`` -- does not
+carry them. A record that fails *inside* the step, or one re-read from an
+earlier Auto3D output, may carry them without a matching ``G_hartree``, so
+filter on ``Thermo_failed == ""`` rather than on their presence.
 
 **Symmetry number.** Auto3D does not infer the external rotational symmetry
 number: ``sigma = 1`` is used unless the input record carries an integer

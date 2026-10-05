@@ -141,26 +141,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A bent stationary point whose coordinates sat inside the linearity window
   (O-C-O at 160-175 degrees, every atom within 0.25 A of the principal axis)
   was projected as linear: the sixth external direction survived as a
-  ~0.05 cm-1 phantom vibration that the quasi-harmonic floor raised to
-  100 cm-1 (`N_raised_modes=1`, no warning) while the rotational term stayed
-  linear, moving *G* by 0.06-0.47 kcal/mol against the nonlinear treatment
-  for quasi-linear species an NNP renders bent. The Hessian is now
+  near-zero phantom vibration (below a few tens of cm-1 at the force gate;
+  0.05 cm-1 on an exact stationary point) that the quasi-harmonic floor
+  raised to 100 cm-1 (`N_raised_modes=1`, no warning) while the rotational
+  term stayed linear, moving *G* by 0.06-0.47 kcal/mol against the nonlinear
+  treatment for quasi-linear species an NNP renders bent. The Hessian is now
   consulted: when the curvature along the rotation about the near-axis is
   negligible against the smallest nonlinear vibration (below 5 percent in
   eigenvalue space), the phantom is dropped and the molecule gets `3N-6`
-  modes; it also gets the nonlinear rotor when its smallest moment of
-  inertia is above the classical floor `h^2 / (8 pi^3 k T)`
+  modes; it also gets the nonlinear rotor when its smallest moment of inertia
+  is above the classical floor `h^2 / (8 pi^3 k T)`
   (`Thermo_linearity="bent_reclassified_nonlinear"`) and keeps the linear
-  rotor below it, where the classical nonlinear formula would overshoot by
-  1 to 2 kcal/mol (`"bent_quasilinear_linear_rotor"`). *H* and *S* step by
-  RT/2 and R/2 at that same floor while *G* stays continuous, so an
-  `H_hartree` jump across a set of records straddling it is the convention,
-  not a bug. A warning names the molecule either way, and a second warning
-  flags the marginal band where the test did not fire but the near-axis
-  curvature was within a factor of two of the softest vibration. With the
-  floor off the phantom was worth about 5 kcal/mol; with it on, up to 0.5.
-  A truly linear molecule left a few degrees off axis by the optimizer is
-  unaffected.
+  rotor below it, where the classical nonlinear formula's overshoot is zero
+  at the floor by construction and grows without bound below it -- +1.0
+  kcal/mol at 179 degrees, +2.4 at 179.9 for CO2 at 298 K
+  (`"bent_quasilinear_linear_rotor"`). *H* and *S* step by RT/2 and R/2 at
+  that same floor while *G* stays continuous, so an `H_hartree` jump across a
+  set of records straddling it is the convention, not a bug. A warning names
+  the molecule either way, and a second warning flags the marginal band where
+  the test did not fire but the near-axis curvature was within a factor of
+  two in eigenvalue space (1.4 in frequency) of the softest vibration. With
+  the floor off the phantom was worth about 5 kcal/mol; with it on, up to
+  0.5. A truly linear molecule left a few degrees off axis by the optimizer
+  is unaffected.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
