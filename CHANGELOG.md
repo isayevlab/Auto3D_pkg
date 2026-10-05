@@ -142,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (O-C-O at 160-175 degrees, every atom within 0.25 A of the principal axis)
   was projected as linear: the sixth external direction survived as a
   near-zero phantom vibration (below a few tens of cm-1 at the force gate;
-  0.05 cm-1 on an exact stationary point) that the quasi-harmonic floor
+  0.05 cm-1 in the exact synthetic fixtures) that the quasi-harmonic floor
   raised to 100 cm-1 (`N_raised_modes=1`, no warning) while the rotational
   term stayed linear, moving *G* by 0.06-0.47 kcal/mol against the nonlinear
   treatment for quasi-linear species an NNP renders bent. The Hessian is now
