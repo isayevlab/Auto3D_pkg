@@ -466,5 +466,94 @@ class TestRecordSkipReason:
         assert record_skip_reason(mol) is None
 
 
+def test_classify_records_partitions_the_mixed_fixture(tmp_path):
+    """One read of the shared fixture, split four ways with file order kept."""
+    from Auto3D.foundation.utils.sdf_io import classify_records
+    from tests.helpers_records import write_mixed_sdf
+
+    c = classify_records(str(write_mixed_sdf(tmp_path / "mixed.sdf")))
+    assert c.names() == ["ethanol", "ethane"]
+    assert [(m.GetProp("_Name"), r) for m, r in c.skipped] == [
+        ("skeleton", "implicit_hydrogens"),
+        ("frag", "dummy_atoms"),
+    ]
+    assert c.unparseable == [1]
+    assert [m.GetProp("_Name") for m in c.parsed] == ["ethanol", "skeleton", "frag", "ethane"]
+
+
+def test_classify_records_logs_nothing_until_asked(tmp_path, caplog):
+    """Classifying is silent; reporting is a separate call.
+
+    ``check_sdf_format`` reports a *subset* of the defects (an implicit-H
+    record is legitimate input for ``main()``'s SDF engine, which adds
+    hydrogens and re-embeds every record), so the classifier cannot log on
+    the caller's behalf.
+    """
+    import logging
+
+    from Auto3D.foundation.utils.sdf_io import classify_records
+    from tests.helpers_records import write_mixed_sdf
+
+    path = str(write_mixed_sdf(tmp_path / "mixed.sdf"))
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        c = classify_records(path)
+        assert caplog.records == []
+        c.log_skipped()
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages == [
+        "Skipping record 1: RDKit could not parse it.",
+        "Skipping skeleton: it has implicit hydrogens; add explicit H first.",
+        "Skipping frag: it contains a dummy atom (atomic number 0); "
+        "an R-group placeholder is not a species.",
+    ]
+
+
+def test_iter_conformer_records_is_the_logging_view_of_classify(tmp_path, caplog):
+    """The iterator is `classify_records` + `log_skipped`, nothing else."""
+    import logging
+
+    from Auto3D.foundation.utils.sdf_io import classify_records, iter_conformer_records
+    from tests.helpers_records import write_mixed_sdf
+
+    path = str(write_mixed_sdf(tmp_path / "mixed.sdf"))
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        names = [m.GetProp("_Name") for m in iter_conformer_records(path)]
+    assert names == classify_records(path).names()
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 3
+
+
+def test_log_skipped_uses_the_table_it_is_given(tmp_path, caplog):
+    """`calc_thermo` reports the same defects in its own words."""
+    import logging
+
+    from Auto3D.foundation.utils.sdf_io import classify_records
+    from tests.helpers_records import write_mixed_sdf
+
+    table = {
+        "unparseable": "U %d",
+        "implicit_hydrogens": "H %s",
+        "dummy_atoms": "D %s",
+        "no_conformer": "C %s",
+    }
+    path = str(write_mixed_sdf(tmp_path / "mixed.sdf"))
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        classify_records(path).log_skipped(table)
+    assert [r.getMessage() for r in caplog.records] == ["U 1", "H skeleton", "D frag"]
+
+    # A partial table overrides only the reasons it names: `calc_thermo`'s
+    # table has no "unparseable" key -- it reports that case with the shared
+    # sentence, since an unreadable record is not a thermochemistry outcome --
+    # so a plain lookup would raise KeyError on this fixture's record 1.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        classify_records(path).log_skipped({"implicit_hydrogens": "H %s"})
+    assert [r.getMessage() for r in caplog.records] == [
+        "Skipping record 1: RDKit could not parse it.",
+        "H skeleton",
+        "Skipping frag: it contains a dummy atom (atomic number 0); "
+        "an R-group placeholder is not a species.",
+    ]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

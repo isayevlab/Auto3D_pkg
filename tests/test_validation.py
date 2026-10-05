@@ -426,6 +426,57 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
         assert ANI is True
         assert only_aimnet_ids == []
 
+    def test_check_sdf_format_reads_through_the_record_policy(self, tmp_path, caplog):
+        """The unparseable record is reported with the shared wording; the dummy record is
+        warned about once; the implicit-H record is counted and NOT warned about, because
+        main()'s SDF engine adds hydrogens and re-embeds every record."""
+        import logging
+
+        from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
+        from tests.helpers_records import write_mixed_sdf
+
+        path = write_mixed_sdf(tmp_path / "mixed.sdf")
+        with caplog.at_level(logging.INFO, logger="Auto3D"):
+            ani, only_aimnet = check_sdf_format(self._args(path))
+        messages = [r.getMessage() for r in caplog.records]
+        assert "Skipping record 1: RDKit could not parse it." in messages
+        assert sum("dummy atom" in m for m in messages) == 1 and any("frag" in m for m in messages)
+        assert not any("skeleton" in m for m in messages)
+        assert any("There are 4 conformers" in m for m in messages)
+        assert ani is True and only_aimnet == []
+
+    def test_a_flat_dummy_record_is_still_announced_up_front(self, tmp_path, caplog):
+        """A 2D R-group fragment carries BOTH defects and must still be named.
+
+        ``record_skip_reason`` checks implicit hydrogens before dummy atoms, so
+        a flat ``*CCO`` -- the ordinary shape of a fragment exported from a
+        drawing program: no explicit H, 2D coordinates -- is classified
+        ``"implicit_hydrogens"``. Reading the announcement off that
+        classification instead of off the record itself would leave the one
+        input most likely to be an R-group file with no up-front warning at
+        all, and the user would first learn of it at the engine step.
+        """
+        import logging
+
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
+
+        p = tmp_path / "flat.sdf"
+        with Chem.SDWriter(str(p)) as w:
+            mol = Chem.MolFromSmiles("*CCO")  # no AddHs: implicit hydrogens too
+            AllChem.Compute2DCoords(mol)
+            mol.SetProp("_Name", "frag")
+            w.write(mol)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            check_sdf_format(self._args(p))
+
+        warnings_seen = self._dummy_warnings(caplog)
+        assert len(warnings_seen) == 1, [r.message for r in caplog.records]
+        assert "frag" in warnings_seen[0].getMessage()
+
     def test_a_clean_file_produces_no_dummy_warning(self, tmp_path, caplog):
         """Without this, both tests above would pass on a check that warns
         unconditionally."""
