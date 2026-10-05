@@ -138,6 +138,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreadable record in wording no other reader used; it now reads through
   the shared record classifier (`classify_records`), reporting a documented
   subset of what it finds.
+- A bent stationary point whose coordinates sat inside the linearity window
+  (O-C-O at 160-175 degrees, every atom within 0.25 A of the principal axis)
+  was projected as linear: the sixth external direction survived as a
+  ~0.05 cm-1 phantom vibration that the quasi-harmonic floor raised to
+  100 cm-1 (`N_raised_modes=1`, no warning) while the rotational term stayed
+  linear, moving *G* by 0.06-0.47 kcal/mol against the nonlinear treatment
+  for quasi-linear species an NNP renders bent. The Hessian is now
+  consulted: when the curvature along the rotation about the near-axis is
+  negligible against the smallest nonlinear vibration (below 5 percent in
+  eigenvalue space), the phantom is dropped and the molecule gets `3N-6`
+  modes; it also gets the nonlinear rotor when its smallest moment of
+  inertia is above the classical floor `h^2 / (8 pi^3 k T)`
+  (`Thermo_linearity="bent_reclassified_nonlinear"`) and keeps the linear
+  rotor below it, where the classical nonlinear formula would overshoot by
+  1 to 2 kcal/mol (`"bent_quasilinear_linear_rotor"`). *H* and *S* step by
+  RT/2 and R/2 at that same floor while *G* stays continuous, so an
+  `H_hartree` jump across a set of records straddling it is the convention,
+  not a bug. A warning names the molecule either way, and a second warning
+  flags the marginal band where the test did not fire but the near-axis
+  curvature was within a factor of two of the softest vibration. With the
+  floor off the phantom was worth about 5 kcal/mol; with it on, up to 0.5.
+  A truly linear molecule left a few degrees off axis by the optimizer is
+  unaffected.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -225,6 +248,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes: on a machine without `ase`, `auto3d thermo` now reports the
   missing dependency (exit 3) before a bad engine name or a GPU request
   without CUDA.
+- `Thermo_convention` now names the standard state and the mass convention
+  alongside the vibrational treatment:
+  `"RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope masses"`
+  (`"RRHO; ..."` with the floor off; `"...; isotope-labeled masses"` when a
+  record's atoms carry an RDKit isotope label). The first token is
+  unchanged, so a consumer testing `startswith("RRHO")` is unaffected; one
+  comparing the whole string must update.
+- Every record that reaches the thermochemistry also carries
+  `Symmetry_number` (the rotational symmetry number actually used: the
+  record's `symmetry_number` property when it is a valid integer in 1-60,
+  else 1), `Thermo_standard_state` (`"1 atm"`), and `Thermo_linearity`
+  (`"monatomic"`, `"linear"`, `"nonlinear"`,
+  `"bent_reclassified_nonlinear"`, or `"bent_quasilinear_linear_rotor"`).
+  The sigma=1 default and the `symmetry_number` input property are now
+  documented in the usage guide next to the thermo properties.
 
 ## [3.1.1] - 2026-08-27
 
