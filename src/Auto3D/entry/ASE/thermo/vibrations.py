@@ -25,6 +25,8 @@ from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 from Auto3D.foundation.constants import (
     EV_PER_WAVENUMBER,
     IMAGINARY_MODE_CUTOFF_CM,
+    LINEAR_AXIS_ROTATION_GATE,
+    LINEARITY_MAX_PERP_ANGSTROM,
     LOW_FREQUENCY_CUTOFF_CM,
     PROJECTION_RESIDUAL_FRACTION,
 )
@@ -179,18 +181,60 @@ def _external_mode_basis(positions: np.ndarray, masses: np.ndarray) -> np.ndarra
     return np.column_stack(columns)
 
 
-def projected_vibrations(
+#: ``Thermo_linearity`` for a molecule the linearity window called linear and
+#: the Hessian overruled: the thermochemistry ran as nonlinear.
+BENT_RECLASSIFIED = "bent_reclassified_nonlinear"
+
+
+@dataclass(frozen=True)
+class Projection:
+    """What ``project_vibrations`` decided and produced.
+
+    Attributes:
+        energies: the ``3N-6`` / ``3N-5`` / ``[]`` complex energies in eV, ascending.
+        geometry: the geometry the projection actually used: the input value, except
+            that a bent stationary point inside the linearity window comes back as
+            ``"nonlinear"``. Pass THIS to ``analyze_vibrations`` and ``IdealGasThermo``.
+        linearity: the verdict written to ``Thermo_linearity``: ``geometry`` itself,
+            or ``BENT_RECLASSIFIED`` when the input said linear and the Hessian said bent.
+    """
+
+    energies: list[complex]
+    geometry: str
+    linearity: str
+
+
+def _projected_spectrum(
+    mass_weighted: np.ndarray, external: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(kept, discarded)`` eigenvalues of ``P H P`` with ``P = I - V V^T``.
+
+    ``external`` holds ``n_external`` orthonormal columns; the ``n_external``
+    smallest-magnitude eigenvalues are the projected-out null space (machine
+    zero by construction) and come back as ``discarded``; the rest are the
+    vibrations, sorted ascending.
+    """
+    n_external = external.shape[1]
+    projector = np.eye(mass_weighted.shape[0]) - external @ external.T
+    eigenvalues = np.linalg.eigvalsh(projector @ mass_weighted @ projector)
+    by_magnitude = np.argsort(np.abs(eigenvalues))
+    return np.sort(eigenvalues[by_magnitude[n_external:]]), eigenvalues[by_magnitude[:n_external]]
+
+
+def project_vibrations(
     atoms: ase.Atoms,
     hessian,
     geometry: str,
     *,
     name: str = "molecule",
-) -> list[complex]:
+) -> Projection:
     """Vibrational energies with translation and rotation projected out.
 
-    Returns exactly ``n_vibrational_modes(len(atoms), geometry)`` complex
-    energies in eV, ascending in eigenvalue (ASE's own ordering), with a
-    negative curvature represented as a purely imaginary energy ``0 + b*i``.
+    Returns exactly ``n_vibrational_modes(len(atoms), Projection.geometry)``
+    complex energies in eV, ascending in eigenvalue (ASE's own ordering), with
+    a negative curvature represented as a purely imaginary energy ``0 + b*i``.
+    ``Projection.geometry`` is the ``geometry`` argument except in the one case
+    described below, where the Hessian overrules it.
 
     **Why this exists.** ``VibrationsData.get_energies()`` diagonalizes the raw
     mass-weighted Hessian and returns all ``3N`` eigenvalues; six of them (five
@@ -226,6 +270,24 @@ def projected_vibrations(
     point: identical to 0.00 cm-1); where it does not, this is the only
     correct answer.
 
+    **A bent stationary point inside the linearity window** (N-M4). ``_detect_geometry``
+    calls a molecule linear while every atom sits within ``LINEARITY_MAX_PERP_ANGSTROM``
+    of the principal axis, because an optimizer leaves a linear molecule a few degrees
+    off axis. But calc_thermo reaches this function only past the stationary-point
+    gate, where any residual bend is the model's minimum, and a bent minimum has SIX
+    null directions, not five: the sixth, the rotation about the near-axis, then
+    survives the five-vector projection as a ~0.05 cm-1 "vibration" that the
+    quasi-harmonic floor raises to 100 cm-1 while the rotational term stays linear.
+    The Hessian tells the two cases apart where the coordinates cannot: along that
+    sixth direction a linear molecule's curvature is the bend force constant and a
+    bent minimum's is zero. When the geometry says linear, N > 2, and the sixth
+    direction is resolved (``LINEAR_AXIS_ROTATION_GATE``), its Rayleigh quotient is
+    compared with the smallest vibration of the would-be nonlinear projection; below
+    ``PROJECTION_RESIDUAL_FRACTION`` of it the molecule is projected as nonlinear and
+    the ``Projection`` says so. The comparison is against the NONLINEAR projection on
+    purpose: in the bent case the phantom is itself the smallest kept eigenvalue of the
+    linear projection, so a comparison against that set can never fire.
+
     Args:
         atoms: The atoms the Hessian describes. Supplies both the masses (so
             an isotopic label set by ``mol2atoms`` weights the Hessian the same
@@ -237,20 +299,22 @@ def projected_vibrations(
             paths in ``vib_hessian`` produce.
         geometry: 'monatomic', 'linear' or 'nonlinear', from
             ``_detect_geometry``. Fixes how many external degrees of freedom
-            are projected out, and must be the same value passed to
-            ``IdealGasThermo``.
+            are projected out, unless the Hessian check above overrules it. It
+            is ``Projection.geometry``, not this argument, that must be passed
+            to ``analyze_vibrations`` and ``IdealGasThermo``.
         name: Molecule identifier, for the diagnostic log message only.
 
     Returns:
-        A list of ``3N-6`` (or ``3N-5``, or ``[]``) complex energies in eV.
+        A :class:`Projection`: the ``3N-6`` (or ``3N-5``, or ``[]``) complex
+        energies in eV, the geometry they were built for, and the verdict to
+        record in ``Thermo_linearity``.
     """
     n_atoms = len(atoms)
     n_vib = n_vibrational_modes(n_atoms, geometry)
     if n_vib <= 0:
         # A monatomic species has no vibrational degrees of freedom at all;
         # nothing to diagonalize and nothing for IdealGasThermo to sum over.
-        return []
-    n_external = _EXTERNAL_DOF[geometry]
+        return Projection([], geometry, geometry)
 
     masses = np.asarray(atoms.get_masses(), dtype=float)
     if not np.all(masses > 0.0):
@@ -268,16 +332,49 @@ def projected_vibrations(
     weights = np.repeat(masses**-0.5, 3)
     mass_weighted = weights[:, np.newaxis] * hessian_2d * weights[np.newaxis, :]
 
-    left_singular, _, _ = np.linalg.svd(
+    left_singular, singular, _ = np.linalg.svd(
         _external_mode_basis(positions, masses), full_matrices=False
     )
-    external = left_singular[:, :n_external]
-    projector = np.eye(3 * n_atoms) - external @ external.T
-    eigenvalues = np.linalg.eigvalsh(projector @ mass_weighted @ projector)
+    n_external = _EXTERNAL_DOF[geometry]
+    linearity = geometry
+    kept, discarded = _projected_spectrum(mass_weighted, left_singular[:, :n_external])
 
-    by_magnitude = np.argsort(np.abs(eigenvalues))
-    discarded = eigenvalues[by_magnitude[:n_external]]
-    kept = np.sort(eigenvalues[by_magnitude[n_external:]])
+    if (
+        geometry == "linear"
+        and n_atoms > 2
+        and singular[5] >= LINEAR_AXIS_ROTATION_GATE * singular[0]
+    ):
+        # The sixth left singular vector is the rotation about the near-axis,
+        # orthonormal to the five the linear basis keeps; it is a unit vector,
+        # so v @ H @ v is the Rayleigh quotient.
+        axis_rotation = left_singular[:, 5]
+        curvature = float(axis_rotation @ mass_weighted @ axis_rotation)
+        kept_nonlinear, discarded_nonlinear = _projected_spectrum(
+            mass_weighted, left_singular[:, :6]
+        )
+        smallest_nonlinear = float(np.min(np.abs(kept_nonlinear)))
+        if abs(curvature) < PROJECTION_RESIDUAL_FRACTION * smallest_nonlinear:
+            logger.warning(
+                "%s: classified linear by its geometry (every atom within %.2f A of "
+                "the principal axis), but its Hessian has a sixth near-zero "
+                "direction: the curvature along the rotation about the near-axis is "
+                "%.3e against a smallest nonlinear vibration of %.3e (ratio %.1e, "
+                "below %.2f). That is a bent stationary point inside the linearity "
+                "window, not a thermally bent linear molecule (past the "
+                "stationary-point gate any residual bend is the model's minimum), so "
+                "it is treated as nonlinear: 3N-6 modes and the nonlinear rotational "
+                "partition function. Thermo_linearity records the reclassification. "
+                "RRHO is marginal for a quasi-linear species either way.",
+                name,
+                LINEARITY_MAX_PERP_ANGSTROM,
+                abs(curvature),
+                smallest_nonlinear,
+                abs(curvature) / smallest_nonlinear if smallest_nonlinear else float("inf"),
+                PROJECTION_RESIDUAL_FRACTION,
+            )
+            geometry, linearity = "nonlinear", BENT_RECLASSIFIED
+            kept, discarded = kept_nonlinear, discarded_nonlinear
+            n_vib = len(kept)
 
     largest_discarded = float(np.max(np.abs(discarded)))
     smallest_kept = float(np.min(np.abs(kept)))
@@ -304,7 +401,22 @@ def projected_vibrations(
         )
 
     energies = _HESSIAN_ENERGY_CONVERSION * kept.astype(complex) ** 0.5
-    return [complex(value) for value in energies]
+    return Projection([complex(value) for value in energies], geometry, linearity)
+
+
+def projected_vibrations(
+    atoms: ase.Atoms,
+    hessian,
+    geometry: str,
+    *,
+    name: str = "molecule",
+) -> list[complex]:
+    """``project_vibrations(...).energies``: the list alone, for callers whose geometry is settled.
+
+    The driver uses :func:`project_vibrations` because the effective geometry
+    must reach ``analyze_vibrations`` and ``IdealGasThermo`` too.
+    """
+    return project_vibrations(atoms, hessian, geometry, name=name).energies
 
 
 @dataclass
@@ -336,6 +448,8 @@ class VibrationAnalysis:
             reaction coordinate rather than a numerical artifact.
         low_freq_cutoff_cm: The quasi-harmonic floor, in cm^-1; 0.0 means
             plain RRHO with no floor.
+        linearity: what ``Thermo_linearity`` records: the geometry the
+            thermochemistry used, or ``BENT_RECLASSIFIED``.
     """
 
     energies: list[complex]
@@ -347,6 +461,7 @@ class VibrationAnalysis:
     n_removed: int
     n_raised: int
     low_freq_cutoff_cm: float
+    linearity: str
 
     @property
     def is_transition_state(self) -> bool:
@@ -374,6 +489,7 @@ def analyze_vibrations(
     *,
     imag_cutoff_cm: float = IMAGINARY_MODE_CUTOFF_CM,
     low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+    linearity: str | None = None,
 ) -> VibrationAnalysis:
     """Classify a vibrational spectrum and build the list ASE is given.
 
@@ -454,6 +570,10 @@ def analyze_vibrations(
             the structure is a saddle point, not a noisy minimum.
         low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1; 0.0 disables
             raising and gives plain RRHO.
+        linearity: The verdict to carry into ``Thermo_linearity``, i.e.
+            ``Projection.linearity``. ``None`` means "the geometry itself",
+            which is right for every caller whose geometry the Hessian did not
+            overrule; the driver passes ``projection.linearity``.
 
     Returns:
         A :class:`VibrationAnalysis`.
@@ -512,6 +632,7 @@ def analyze_vibrations(
         n_removed=n_removed,
         n_raised=n_raised,
         low_freq_cutoff_cm=max(0.0, low_freq_cutoff_cm),
+        linearity=linearity if linearity is not None else geometry,
     )
 
 

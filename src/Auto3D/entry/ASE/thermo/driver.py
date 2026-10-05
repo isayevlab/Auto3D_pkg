@@ -37,7 +37,7 @@ from Auto3D.entry.ASE.thermo.properties import (
 from Auto3D.entry.ASE.thermo.vibrations import (
     _verbatim_mode_kwargs,
     analyze_vibrations,
-    projected_vibrations,
+    project_vibrations,
     vib_hessian,
 )
 from Auto3D.foundation.constants import (
@@ -126,13 +126,20 @@ def do_mol_thermo(
     # vibrational and rotational partition functions cannot disagree about the
     # molecule; `vib` supplies only the Hessian matrix, which vib_hessian built
     # from these same coordinates.
-    vib_e = projected_vibrations(atoms, vib.get_hessian_2d(), geometry, name=name)
+    projection = project_vibrations(atoms, vib.get_hessian_2d(), geometry, name=name)
+    # The projection may overrule the geometry (a bent stationary point inside
+    # the linearity window, N-M4); everything downstream -- the mode-count
+    # check, IdealGasThermo's rotational partition function, the record --
+    # must use the geometry the spectrum was built for.
+    geometry = projection.geometry
+    vib_e = projection.energies
     n_expected = len(vib_e)
     analysis = analyze_vibrations(
         vib_e,
         n_atoms=len(atoms),
         geometry=geometry,
         low_freq_cutoff_cm=low_freq_cutoff_cm,
+        linearity=projection.linearity,
     )
     if analysis.n_inverted > 0:
         logger.warning(
@@ -189,6 +196,7 @@ def do_mol_thermo(
     mol.SetProp("N_raised_modes", str(analysis.n_raised))
     mol.SetProp("Thermo_vib_modes", str(len(analysis.corrected_energies)))
     mol.SetProp("Thermo_convention", analysis.convention)
+    mol.SetProp("Thermo_linearity", analysis.linearity)
     # A saddle point is not a minimum, so it must not read as a success. Set
     # here, at the one place that knows, rather than left to the caller: the
     # writer preserves a non-empty marker, so this verdict survives however

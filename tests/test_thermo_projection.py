@@ -35,14 +35,17 @@ from ase.vibrations import VibrationsData
 
 from Auto3D.entry.ASE.thermo.properties import _detect_geometry
 from Auto3D.entry.ASE.thermo.vibrations import (
+    BENT_RECLASSIFIED,
     _external_mode_basis,
     n_vibrational_modes,
+    project_vibrations,
     projected_vibrations,
 )
 from Auto3D.foundation.constants import PROJECTION_RESIDUAL_FRACTION
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,
+    co2_atoms,
     hessian_with_spectrum,
     mmff_hessian,
     n_vib_expected,
@@ -389,4 +392,93 @@ class TestHessianShapeAndMasses:
         assert max(heavy) < max(light) * 0.85, (
             "deuterating every hydrogen did not lower the highest stretch; the "
             "masses are not reaching the mass weighting"
+        )
+
+
+#: A bent stationary point: three vibrations and six external noise modes. At
+#: 170 degrees it sits inside the linearity window, which is the N-M4 case.
+BENT_CO2 = ([667, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1, 0.05], "nonlinear")
+#: A linear molecule: the degenerate bend pair, two stretches, five external noise modes.
+LINEAR_CO2 = ([667, 667, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1], "linear")
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+class TestABentStationaryPointInsideTheWindowIsReclassified:
+    """N-M4: the linearity window cannot tell a thermally bent linear molecule
+    from a bent minimum, but the Hessian can. A bent minimum annihilates the
+    rotation about its near-axis; a linear molecule's Hessian puts the bend's
+    curvature there. ``project_vibrations`` asks, and the mode count follows
+    the answer rather than the window."""
+
+    def test_a_bent_stationary_point_is_projected_as_nonlinear_and_warned(self, caplog):
+        atoms = co2_atoms(170.0)
+        assert _detect_geometry(atoms) == "linear", "test premise: 170 deg is inside the window"
+        hessian = hessian_with_spectrum(atoms, *BENT_CO2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+            projection = project_vibrations(atoms, hessian, "linear", name="bent")
+        assert projection.geometry == "nonlinear"
+        assert projection.linearity == BENT_RECLASSIFIED
+        assert sorted(wavenumbers(projection.energies)) == pytest.approx(
+            [667, 1333, 2349], abs=1e-6
+        )
+        messages = _warnings(caplog)
+        assert len(messages) == 1 and "bent stationary point" in messages[0], messages
+
+    def test_an_exactly_linear_molecule_keeps_3n_minus_5_and_is_silent(self, caplog):
+        atoms = co2_atoms(180.0)
+        hessian = hessian_with_spectrum(atoms, *LINEAR_CO2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+            projection = project_vibrations(atoms, hessian, "linear", name="linear")
+        assert (projection.geometry, projection.linearity) == ("linear", "linear")
+        assert sorted(wavenumbers(projection.energies)) == pytest.approx(
+            [667, 667, 1333, 2349], abs=1e-6
+        )
+        assert _warnings(caplog) == []
+
+    def test_a_thermally_bent_linear_molecule_is_not_reclassified(self, caplog):
+        """Same 170-degree geometry as the bent case; only the Hessian differs."""
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(atoms, *LINEAR_CO2)
+        with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+            projection = project_vibrations(atoms, hessian, "linear", name="thermal")
+        assert (projection.geometry, projection.linearity) == ("linear", "linear")
+        assert len(projection.energies) == 4
+        assert _warnings(caplog) == []
+
+    @pytest.mark.parametrize(
+        "vibrations, external, built_as, reclassified",
+        [
+            ([40, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1, 0.05], "nonlinear", True),
+            ([40, 40, 1333, 2349], [0.5, -0.4, 0.3, -0.2, 0.1], "linear", False),
+        ],
+        ids=["soft-bend-of-a-bent-minimum", "soft-degenerate-bend-of-a-linear-molecule"],
+    )
+    def test_a_soft_real_mode_is_not_mistaken_for_the_phantom(
+        self, vibrations, external, built_as, reclassified
+    ):
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(atoms, vibrations, external, built_as)
+        projection = project_vibrations(atoms, hessian, "linear")
+        assert (projection.linearity == BENT_RECLASSIFIED) is reclassified
+        assert len(projection.energies) == len(vibrations)
+
+    def test_a_diatomic_is_never_tested(self):
+        atoms = Atoms("NN", [[0.0, 0.0, 0.0], [1.1, 0.0, 0.0]])
+        hessian = hessian_with_spectrum(atoms, [2330], [0.5, -0.4, 0.3, -0.2, 0.1], "linear")
+        projection = project_vibrations(atoms, hessian, "linear")
+        assert (projection.geometry, projection.linearity, len(projection.energies)) == (
+            "linear",
+            "linear",
+            1,
+        )
+
+    def test_projected_vibrations_is_the_energies_of_project_vibrations(self):
+        atoms = co2_atoms(170.0)
+        hessian = hessian_with_spectrum(atoms, *BENT_CO2)
+        assert (
+            projected_vibrations(atoms, hessian, "linear")
+            == project_vibrations(atoms, hessian, "linear").energies
         )

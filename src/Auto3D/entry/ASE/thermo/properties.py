@@ -63,6 +63,10 @@ def _is_collinear(atoms: ase.Atoms) -> bool:
     from the center of mass. A molecule is linear only when both tests agree;
     see LINEARITY_MOMENT_RATIO and LINEARITY_MAX_PERP_ANGSTROM in constants.py
     for the measurements that placed each threshold.
+
+    This decides the rotational partition function only up to the Hessian
+    check in ``project_vibrations``, which reclassifies a bent stationary point
+    inside the window as nonlinear (N-M4).
     """
     if len(atoms) <= 2:
         return True

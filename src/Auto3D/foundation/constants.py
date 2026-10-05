@@ -160,6 +160,21 @@ LINEARITY_MOMENT_RATIO = 1e-2
 # truly linear molecule nonlinear from residual optimizer noise, and ASE's
 # nonlinear rotational entropy divides by sqrt(I1*I2*I3), which blows up as
 # I_min -> 0.
+#
+# The window's job is narrower than it reads. "CO2's bend is thermally
+# populated" explains why an optimizer may leave a linear molecule a few
+# degrees off axis, and why that residual must not flip it to nonlinear (ASE's
+# nonlinear rotational entropy divides by sqrt(I1*I2*I3), which blows up as
+# I_min -> 0). It does not say the molecule IS linear: calc_thermo only
+# computes thermochemistry after the 2e-4 eV/A stationary-point gate, and at a
+# converged geometry any residual bend is the model's own minimum. Whether that
+# minimum is a thermally bent linear molecule or a genuinely bent one is a
+# question about the Hessian, not the coordinates, and project_vibrations
+# answers it: the curvature along the rotation about the near-axis is the bend
+# force constant for a linear molecule and zero for a bent stationary point
+# (see PROJECTION_RESIDUAL_FRACTION and LINEAR_AXIS_ROTATION_GATE). The window
+# therefore decides the external-mode count only for the molecules the Hessian
+# does not overrule.
 LINEARITY_MAX_PERP_ANGSTROM = 0.25  # Å, max allowed atom distance from the principal axis
 
 # Imaginary modes below this magnitude (cm^-1) are numerical artifacts of an
@@ -205,8 +220,23 @@ LOW_FREQUENCY_CUTOFF_CM = 100.0
 # Hessian). projected_vibrations warns rather than raising, since the
 # resulting spectrum is still the best available one. This assumption is
 # exactly what ASE's magnitude-sorting mode selection made silently and never
-# checked.
+# checked. It is also the threshold project_vibrations uses to call the
+# curvature along the near-axis rotation negligible against the smallest
+# nonlinear vibration (N-M4).
 PROJECTION_RESIDUAL_FRACTION = 0.05
+
+# Dimensionless. `_external_mode_basis` returns six vectors; for a molecule
+# classified linear the sixth (the rotation about the molecular axis) is
+# identically zero at an exactly linear geometry and small but well defined at
+# a nearly linear one. project_vibrations tests the curvature along that sixth
+# direction to tell a thermally bent linear molecule from a bent stationary
+# point inside the linearity window, and the direction only exists when its
+# singular value is resolved above floating-point noise. This is the fraction
+# of the largest singular value below which the sixth direction is treated as
+# absent and the molecule as exactly linear. Measured on CO2: 1 degree off
+# linear gives 4.5e-3, 10 degrees 4.5e-2, a 1e-6 A optimizer residual about
+# 1e-6; floating-point noise sits at 1e-16.
+LINEAR_AXIS_ROTATION_GATE = 1e-8
 
 # eV per wavenumber, for reporting vibrational energies in cm^-1.
 EV_PER_WAVENUMBER = 1.0 / 8065.54429
