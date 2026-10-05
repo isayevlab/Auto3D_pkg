@@ -13,8 +13,6 @@ from typing import TYPE_CHECKING, NamedTuple
 import torch
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     # Annotation only, and pointing DOWN the stack: batch_opt depends on
     # models/, never the reverse and never on model_factory.
     from Auto3D.engines.models.contract import ModelAdapter
@@ -30,7 +28,13 @@ class PaddedBatch(NamedTuple):
     invites one of them to be indexed differently from the rest -- and the one
     most easily left behind is ``atom_mask``, the tensor whose whole purpose is
     to say which slots are real atoms (audit C13). :meth:`sub` indexes all four
-    together so a sub-batch cannot be built half-sliced.
+    together so a sub-batch cannot be built half-sliced. Today ``sub`` serves
+    callers that already hold a ``PaddedBatch`` and slice it themselves; the two
+    sites that hand-index four aligned tensors the way ``sub`` would --
+    ``optimization_engine.py``'s FIRE state dict and
+    ``model_wrapper.py``'s per-sub-batch forward -- hold those tensors some
+    other way today and would be the ones to adopt it if their state were
+    reshaped to carry a ``PaddedBatch`` instead.
     """
 
     coords: torch.Tensor  # (B, N, 3) float32, leaf, requires_grad False
@@ -43,7 +47,7 @@ class PaddedBatch(NamedTuple):
         """``B`` -- the number of molecules, the length of the leading axis."""
         return self.coords.shape[0]
 
-    def sub(self, index: slice | torch.Tensor | Sequence[int]) -> PaddedBatch:
+    def sub(self, index: slice | torch.Tensor | list[int]) -> PaddedBatch:
         """The same batch restricted to ``index`` over the molecule axis.
 
         Args:

@@ -3,12 +3,15 @@
 The fixture has one unparseable, one implicit-hydrogen, one dummy-atom, and two good
 records. The single-file entry points skip the defective ones (calc_thermo keeps and
 marks them); main()'s SDF engine adds hydrogens and re-embeds, so for it only the
-dummy-atom record is defective. That divergence is deliberate and pinned here.
+dummy-atom record is defective; `check_sdf_format` reports only the unparseable and
+dummy-atom records, passing the implicit-hydrogen one over in silence for the same
+reason. Both divergences are deliberate and pinned here.
 
 `calc_spe` and `opt_geometry` are covered through the one prologue they now share
 (`prepare_single_file_run`), which is where their read of the file happens; `calc_thermo`
 has its own row because its verdict on a defective record differs. The classifier, the
-tautomer selector and the SDF isomer engine are the other readers here.
+tautomer selector, the SDF isomer engine, and `check_sdf_format` are the other readers
+here.
 """
 
 from __future__ import annotations
@@ -91,6 +94,39 @@ def test_the_sdf_isomer_engine_re_embeds_implicit_h_and_skips_only_the_dummy(tmp
     # Wording-agnostic: this engine reports the unparseable record in its own
     # words today, and what is pinned here is that it reports it exactly once.
     assert sum("parse" in m for m in messages) == 1, messages
+
+
+def test_check_sdf_format_reads_through_the_record_policy(tmp_path, caplog):
+    """The unparseable record is reported with the shared wording; the dummy record is
+    warned about once; the implicit-H record is counted and NOT warned about, because
+    main()'s SDF engine adds hydrogens and re-embeds every record."""
+    import logging
+    from unittest.mock import MagicMock
+
+    from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
+
+    path = write_mixed_sdf(tmp_path / "mixed.sdf")
+    args = MagicMock()
+    args.path = str(path)
+    args.enumerate_isomer = False
+    with caplog.at_level(logging.INFO, logger="Auto3D"):
+        ani, only_aimnet = check_sdf_format(args)
+    messages = [r.getMessage() for r in caplog.records]
+    assert "Skipping record 1: RDKit could not parse it." in messages
+    assert sum("dummy atom" in m for m in messages) == 1 and any("frag" in m for m in messages)
+    assert not any("skeleton" in m for m in messages)
+    assert any("There are 4 conformers" in m for m in messages)
+    assert ani is True and only_aimnet == []
+    # The WS2 order rule for this path too (the sibling test in
+    # tests/test_validation.py covers only check_smi_format): the reassurance
+    # must not land before its contradiction. This function has always
+    # sequenced the two lines this way.
+    order = [
+        "dummy" if "dummy atom" in m else "valid"
+        for m in messages
+        if "dummy atom" in m or "are valid" in m
+    ]
+    assert order == ["dummy", "valid"], messages
 
 
 def test_prepare_single_file_run_keeps_exactly_the_kept_records(tmp_path):

@@ -136,7 +136,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model is built.
 - `check_sdf_format` parsed the input with its own loop and reported an
   unreadable record in wording no other reader used; it now reads through
-  the same record classifier (`classify_records`) every other reader uses.
+  the shared record classifier (`classify_records`), reporting a documented
+  subset of what it finds.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);

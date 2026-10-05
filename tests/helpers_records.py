@@ -4,8 +4,10 @@ Each reader used to build its own throwaway fixture, so "what is a record"
 could be answered differently by the record classifier, by
 ``check_sdf_format``, by ``select_tautomers`` and by the SDF isomer engine
 without any test noticing. ``write_mixed_sdf`` is the single file all of them
-are driven over (see ``tests/test_record_policy_agreement.py``), which is what
-makes their answers comparable.
+are driven over (see ``tests/test_record_policy_agreement.py``, whose rows
+include ``test_check_sdf_format_reads_through_the_record_policy`` for the
+``check_sdf_format`` divergence), which is what makes their answers
+comparable.
 
 Its five records cover every reason
 :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` can give for an SDF

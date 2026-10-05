@@ -38,9 +38,13 @@ Why this order, and not another:
   is guarded too -- a second ``auto3d energy mols.sdf`` would otherwise
   overwrite the first run's results with no ``-o`` in sight.
 * ``classify_records`` + ``log_skipped`` before the engine gate and the device:
-  reading the file needs neither, and every defective record is reported once,
-  by the one classifier (N-C1). ``calc_thermo`` passes its own wording for the
-  reasons it marks rather than drops.
+  reading the file needs neither, and every defective record is reported here,
+  by the one classifier (N-C1) -- ``opt_geometry`` additionally hands the same
+  path to ``optimizing``, which reports it a second time through
+  ``iter_conformer_records``; de-duplicating that would mean the prologue
+  passing its records on, which ``geometry.py`` deliberately does not do.
+  ``calc_thermo`` passes its own wording for the reasons it marks rather than
+  drops.
 * ``check_engine_supports_molecules`` on the KEPT records only: ANI2x/ANI2xt
   silently evaluate a charged or out-of-set species as a different, neutral one
   (C11), and a record this run is dropping or marking must not get a vote on

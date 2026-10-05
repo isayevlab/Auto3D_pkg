@@ -328,7 +328,8 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     record is announced, while a record with implicit hydrogens is counted and
     passed over in silence, because ``main()``'s SDF isomer engine adds
     hydrogens and re-embeds every record it keeps. That divergence is pinned
-    in ``tests/test_record_policy_agreement.py``.
+    in ``tests/test_record_policy_agreement.py``, in
+    ``test_check_sdf_format_reads_through_the_record_policy``.
 
     Args:
         args: Arguments object containing Auto3D configuration options.

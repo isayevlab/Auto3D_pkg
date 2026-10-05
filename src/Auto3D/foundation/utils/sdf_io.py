@@ -11,19 +11,20 @@ per-record consumer cannot process (N-C1): unparseable, conformerless,
 carrying implicit hydrogens (a heavy-atom skeleton -- every Auto3D writer
 emits explicit H), or carrying a dummy atom (an R-group placeholder is not a
 species, N-M3). :func:`classify_records` applies it to one read of a file and
-returns the partition (:class:`ClassifiedRecords`) without logging anything,
-so a caller that reports only *some* of the defects -- ``check_sdf_format``,
-whose SDF engine adds hydrogens and re-embeds every record, so an implicit-H
-record is legitimate input there -- reads through the same policy as one that
-drops them all. :func:`iter_conformer_records` is that classifier's
-logging-and-keep view, and is the single-file read path's single owner of
-"skip these silently" -- its four callers are ``SPE.calc_spe``,
-``ASE.geometry.opt_geometry``, ``tautomer.select_tautomers``, and
-``batch_opt.batchopt.optimizing.run``. ``ASE.thermo.driver.calc_thermo`` is
-not one of them: it reads its own records and applies
-:func:`record_skip_reason` to that list directly, because it must not let a
-defective record vanish -- implicit-H and dummy-atom records are marked
-``Thermo_failed`` rather than dropped.
+returns the partition (:class:`ClassifiedRecords`) without logging anything.
+Two views report-and-keep over that one partition: :func:`iter_conformer_records`
+(callers: ``tautomer.select_tautomers`` and ``batch_opt.batchopt.optimizing.run``)
+and ``entry._run_setup.prepare_single_file_run`` (callers: ``SPE.calc_spe``,
+``ASE.geometry.opt_geometry``, and ``ASE.thermo.driver.calc_thermo``, the last
+passing its own partial ``skip_messages`` table so a defective record is
+marked ``Thermo_failed`` rather than dropped). ``check_sdf_format`` is a
+third, deliberate subset reporter: its SDF engine adds hydrogens and
+re-embeds every record, so an implicit-H record is legitimate input there,
+and it reports only the unparseable and dummy-atom defects while reading
+through the same :func:`classify_records` partition as the other two. The
+invariant a future change must preserve: grepping ``src/`` for
+``iter_conformer_records`` and for ``classify_records`` must turn up exactly
+the callers named above, or this paragraph has drifted from them again.
 """
 
 from __future__ import annotations
@@ -136,9 +137,10 @@ _SKIP_MESSAGES = {
 def skip_message(reason: str) -> str:
     """The logging template :meth:`ClassifiedRecords.log_skipped` uses for ``reason``.
 
-    Exposed so other readers that log the same outcome (``calc_thermo`` for
-    unparseable records, ``check_sdf_format`` for the same, and the SDF isomer
-    engine for dummy-atom records) do not keep a second copy of the wording.
+    Exposed so other readers that log the same outcome without going through
+    :meth:`ClassifiedRecords.log_skipped` -- ``check_sdf_format`` for an
+    unparseable record, and the SDF isomer engine for a dummy-atom record --
+    do not keep a second copy of the wording.
     """
     return _SKIP_MESSAGES[reason]
 
@@ -147,12 +149,14 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
     """Classify why a parsed SDF record cannot be processed, or ``None`` if it can.
 
     The single definition of "what is wrong with this record" (N-C1), so every
-    caller judges a record the same way instead of carrying its own copy of
-    the checks. :func:`iter_conformer_records` uses this to decide what to
-    skip (and log); ``ASE.thermo.driver.calc_thermo`` uses it directly against
-    its own already-read record list, because unlike every other caller it
-    must not let a defective record vanish silently -- it marks the record
-    ``Thermo_failed`` with this same reason string instead of dropping it.
+    reader judges a record the same way instead of carrying its own copy of
+    the checks. :func:`classify_records` applies this to every record it
+    reads and partitions on the result; ``ASE.thermo.driver.calc_thermo`` is
+    the one reader the POLICY differs for, not the mechanism -- its records
+    reach it through the same :func:`classify_records` call as every other
+    reader, but it marks a defective record ``Thermo_failed`` with this same
+    reason string instead of letting it be dropped, because unlike every
+    other reader it must not let a defective record vanish silently.
 
     Args:
         mol: A parsed record, or ``None`` for one ``SDMolSupplier`` could not
@@ -316,18 +320,20 @@ def classify_records(path: str) -> ClassifiedRecords:
 def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     """Yield the SDF records at ``path`` a per-record consumer can process.
 
-    ``SPE.calc_spe``, ``ASE.geometry.opt_geometry``,
-    ``tautomer.select_tautomers``, and ``batch_opt.batchopt.optimizing.run``
+    ``tautomer.select_tautomers`` and ``batch_opt.batchopt.optimizing.run``
     each used to inline their own copy of this filter by hand -- some only the
     None/conformerless half, with nothing pinning them in agreement, and none
     of them skipping an implicit-hydrogens or dummy-atom record. This is the
-    one implementation all four now call, and it is itself only
+    one implementation both now call, and it is itself only
     :func:`classify_records` plus :meth:`ClassifiedRecords.log_skipped`: the
     "report everything and keep the rest" view of the one partition.
-    ``ASE.thermo.driver.calc_thermo`` and ``check_sdf_format`` are the two
-    callers that do NOT use this function, because each reports a different
-    subset of the defects; both go through :func:`classify_records` or
-    :func:`record_skip_reason` instead.
+    ``SPE.calc_spe``, ``ASE.geometry.opt_geometry``, and
+    ``ASE.thermo.driver.calc_thermo`` get the same "report everything and keep
+    the rest" view through a second caller of that same pair,
+    ``entry._run_setup.prepare_single_file_run`` (``calc_thermo`` supplying
+    its own partial ``skip_messages`` table). ``check_sdf_format`` is the one
+    reader that reports a deliberate subset of the defects instead, going
+    through :func:`classify_records` directly.
 
     Args:
         path: Path to the SDF file to read.

@@ -426,35 +426,6 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
         assert ANI is True
         assert only_aimnet_ids == []
 
-    def test_check_sdf_format_reads_through_the_record_policy(self, tmp_path, caplog):
-        """The unparseable record is reported with the shared wording; the dummy record is
-        warned about once; the implicit-H record is counted and NOT warned about, because
-        main()'s SDF engine adds hydrogens and re-embeds every record."""
-        import logging
-
-        from Auto3D.orchestration.pipeline.input_checks import check_sdf_format
-        from tests.helpers_records import write_mixed_sdf
-
-        path = write_mixed_sdf(tmp_path / "mixed.sdf")
-        with caplog.at_level(logging.INFO, logger="Auto3D"):
-            ani, only_aimnet = check_sdf_format(self._args(path))
-        messages = [r.getMessage() for r in caplog.records]
-        assert "Skipping record 1: RDKit could not parse it." in messages
-        assert sum("dummy atom" in m for m in messages) == 1 and any("frag" in m for m in messages)
-        assert not any("skeleton" in m for m in messages)
-        assert any("There are 4 conformers" in m for m in messages)
-        assert ani is True and only_aimnet == []
-        # The WS2 order rule for this path too (the sibling test below covers
-        # only check_smi_format): the reassurance must not land before its
-        # contradiction. This function has always sequenced the two lines this
-        # way, and this task rewrote the code that produces them.
-        order = [
-            "dummy" if "dummy atom" in m else "valid"
-            for m in messages
-            if "dummy atom" in m or "are valid" in m
-        ]
-        assert order == ["dummy", "valid"], messages
-
     def test_a_flat_dummy_record_is_still_announced_up_front(self, tmp_path, caplog):
         """A 2D R-group fragment carries BOTH defects and must still be named.
 
