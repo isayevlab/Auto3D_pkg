@@ -17,12 +17,13 @@ whose SDF engine adds hydrogens and re-embeds every record, so an implicit-H
 record is legitimate input there -- reads through the same policy as one that
 drops them all. :func:`iter_conformer_records` is that classifier's
 logging-and-keep view, and is the single-file read path's single owner of
-"skip these silently" -- used by ``SPE.calc_spe``,
-``ASE.thermo.driver.calc_thermo`` (for the None/conformerless skip only;
-implicit-H and dummy-atom records are instead marked ``Thermo_failed`` rather
-than dropped, via :func:`record_skip_reason` applied to its own already-read
-``mols`` list), ``ASE.geometry.opt_geometry``, ``tautomer.select_tautomers``,
-and ``batch_opt.batchopt.optimizing.run``.
+"skip these silently" -- its four callers are ``SPE.calc_spe``,
+``ASE.geometry.opt_geometry``, ``tautomer.select_tautomers``, and
+``batch_opt.batchopt.optimizing.run``. ``ASE.thermo.driver.calc_thermo`` is
+not one of them: it reads its own records and applies
+:func:`record_skip_reason` to that list directly, because it must not let a
+defective record vanish -- implicit-H and dummy-atom records are marked
+``Thermo_failed`` rather than dropped.
 """
 
 from __future__ import annotations
@@ -196,6 +197,23 @@ class ClassifiedRecords:
     skipped: list[tuple[Chem.Mol, str]]  # parseable but defective: (mol, reason)
     unparseable: list[int]  # positions SDMolSupplier yielded None for
     parsed: list[Chem.Mol]  # kept + skipped, in file order (what check_sdf_format counts)
+
+    def __post_init__(self) -> None:
+        """Refuse a partition that does not add up, naming what is wrong.
+
+        `classify_records` cannot produce one, but a caller assembling this
+        type by hand can -- and the positions :meth:`_parsed_positions`
+        derives are only meaningful while ``parsed`` holds exactly ``kept``
+        plus ``skipped``. Left unchecked, the first symptom is a ``zip()``
+        length error raised inside a private method, which names neither this
+        type nor the invariant it broke.
+        """
+        if len(self.parsed) != len(self.kept) + len(self.skipped):
+            raise ValueError(
+                "ClassifiedRecords: `parsed` must hold `kept` + `skipped` in file order, "
+                f"but it has {len(self.parsed)} record(s) for {len(self.kept)} kept "
+                f"+ {len(self.skipped)} skipped"
+            )
 
     def _parsed_positions(self) -> list[int]:
         """The file position of each record in :attr:`parsed`, in order.

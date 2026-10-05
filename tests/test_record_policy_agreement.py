@@ -4,6 +4,10 @@ The fixture has one unparseable, one implicit-hydrogen, one dummy-atom, and two 
 records. The single-file entry points skip the defective ones (calc_thermo keeps and
 marks them); main()'s SDF engine adds hydrogens and re-embeds, so for it only the
 dummy-atom record is defective. That divergence is deliberate and pinned here.
+
+The `calc_spe` / `opt_geometry` / `calc_thermo` rows arrive with the single-file entry
+points' own task; until then this module holds the classifier, the tautomer selector and
+the SDF isomer engine.
 """
 
 from __future__ import annotations
@@ -35,7 +39,11 @@ def test_select_tautomers_keeps_exactly_the_kept_records(tmp_path):
 
     names = [m.GetProp("_Name") for m in Chem.SDMolSupplier(out, removeHs=False) if m is not None]
     kept = classify_records(str(path)).names()
-    assert set(names) <= set(kept), f"a record the classifier rejected survived: {names}"
+    # Equality, not inclusion: ethanol and ethane have different formulas, so
+    # they can never share a tautomer partition, and `k=1` keeps one winner
+    # from each. A subset assertion would also pass on an empty output or one
+    # that silently lost a good record -- the half most likely to break.
+    assert set(names) == set(kept), f"the reader and the classifier disagree: {names} vs {kept}"
     assert "skeleton" not in names, "a heavy-atom skeleton was ranked by electronic energy"
     assert "frag" not in names, "an R-group placeholder was ranked as a species"
 

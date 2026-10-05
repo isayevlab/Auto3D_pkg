@@ -444,6 +444,16 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
         assert not any("skeleton" in m for m in messages)
         assert any("There are 4 conformers" in m for m in messages)
         assert ani is True and only_aimnet == []
+        # The WS2 order rule for this path too (the sibling test below covers
+        # only check_smi_format): the reassurance must not land before its
+        # contradiction. This function has always sequenced the two lines this
+        # way, and this task rewrote the code that produces them.
+        order = [
+            "dummy" if "dummy atom" in m else "valid"
+            for m in messages
+            if "dummy atom" in m or "are valid" in m
+        ]
+        assert order == ["dummy", "valid"], messages
 
     def test_a_flat_dummy_record_is_still_announced_up_front(self, tmp_path, caplog):
         """A 2D R-group fragment carries BOTH defects and must still be named.
@@ -471,11 +481,16 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
             w.write(mol)
 
         with caplog.at_level(logging.WARNING, logger="Auto3D"):
-            check_sdf_format(self._args(p))
+            ANI, only_aimnet_ids = check_sdf_format(self._args(p))
 
         warnings_seen = self._dummy_warnings(caplog)
         assert len(warnings_seen) == 1, [r.message for r in caplog.records]
         assert "frag" in warnings_seen[0].getMessage()
+        # The same predicate decides the announcement and the engine question,
+        # so the flat record must be kept out of the latter too: atomic number
+        # 0 is outside ANI_ELEMENTS, and counting it would make an ANI run
+        # raise "Only AIMNET can handle: [...]" instead of warning and skipping.
+        assert ANI is True and only_aimnet_ids == []
 
     def test_a_clean_file_produces_no_dummy_warning(self, tmp_path, caplog):
         """Without this, both tests above would pass on a check that warns

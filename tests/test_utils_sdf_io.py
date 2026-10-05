@@ -555,5 +555,22 @@ def test_log_skipped_uses_the_table_it_is_given(tmp_path, caplog):
     ]
 
 
+def test_classified_records_rejects_a_partition_that_does_not_add_up():
+    """An inconsistent instance must name the broken invariant, not fail in a helper.
+
+    `classify_records` cannot build one, but a caller assembling a
+    `ClassifiedRecords` by hand can: `parsed` is `kept` + `skipped` in file
+    order, and when it is not, the positions `names()` and `log_skipped()`
+    derive no longer line up with it. Without this check the first symptom is
+    a `zip() argument 2 is longer than argument 1` from a private method,
+    which names neither the type nor what is actually wrong.
+    """
+    from Auto3D.foundation.utils.sdf_io import ClassifiedRecords
+
+    mol = _make_mol("lonely")
+    with pytest.raises(ValueError, match="ClassifiedRecords"):
+        ClassifiedRecords(kept=[mol], skipped=[], unparseable=[], parsed=[])
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
