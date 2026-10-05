@@ -128,6 +128,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coordinates — which recovers strained systems the default initial coordinates
   cannot solve — on whatever the first attempt left of those 60 s, so the two
   attempts together stay inside one cap.
+- `calc_spe`, `opt_geometry` and `calc_thermo` each hand-copied the same
+  nine-step input setup, and the copies had already drifted: `opt_geometry`
+  resolved the GPU device before reading the input file, while the other two
+  read the file first, so a bad file there was not refused until after the
+  device lookup. The three now share one prologue, in one order, before any
+  model is built.
+- `check_sdf_format` parsed the input with its own loop and reported an
+  unreadable record in wording no other reader used; it now reads through
+  the same record classifier (`classify_records`) every other reader uses.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -183,6 +192,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engines, serial and parallel) is capped at `EMBED_TIMEOUT_S` (60 s), and the
   random-coordinates retry runs on what the first attempt left of that cap
   rather than on a fresh copy of it, so the two attempts together honor it.
+- `pad_from_mols` returns a `PaddedBatch` named tuple; tuple unpacking is
+  unchanged, and the four fields are also reachable as `.coords`, `.species`,
+  `.charges` and `.atom_mask`, alongside `.n_mols` and a `.sub()` method for
+  taking a sub-batch. `.sub()` accepts a slice, a bool tensor or an index
+  tensor over the molecule axis, and raises `TypeError` for a scalar index.
+  `AIMNet2Adapter.forward` now raises `ValueError` for a batch of two or more
+  molecules passed without `atom_mask` when a species slot equals the padding
+  value, instead of scoring that slot as a real atom; an unpadded batch may
+  still omit the mask.
+- `optim_rank_wrapper` now takes the absolute `OptimizationConfig` as its own
+  argument instead of rebuilding it from `Auto3DOptions` once per chunk
+  (internal signature, not part of the public API).
+  `Auto3DOptions.to_optimization_config()` now requires the keyword
+  `batchsize_atoms` as an absolute atom count; the options field of the same
+  name stays a per-gigabyte figure. A caller building its own
+  `OptimizationConfig` this way restores the previous behavior with
+  `options.to_optimization_config(batchsize_atoms=options.batchsize_atoms)`;
+  passing a memory-scaled count instead matches what `main()` does. A
+  non-positive or non-integer value raises `ConfigurationError`.
+- `smiles2mols` now scales `batchsize_atoms` per gigabyte of memory the way
+  `main()` does, instead of reading it as an absolute atom count; on a GPU
+  run with no explicit `memory` it therefore queries the device memory once
+  (the same `nvidia-smi` call `main()` always made) and logs the scaled batch
+  size at INFO. `opt_geometry` remains the only entry point that reads
+  `batchsize_atoms` as an absolute count.
+- The `auto3d energy`, `optimize` and `thermo` commands no longer run their
+  own engine-name and GPU checks; the shared setup in `calc_spe`,
+  `opt_geometry` and `calc_thermo` does, with the same exit codes (2 for a
+  bad engine name, 4 for a GPU request without CUDA). One precedence
+  changes: on a machine without `ase`, `auto3d thermo` now reports the
+  missing dependency (exit 3) before a bad engine name or a GPU request
+  without CUDA.
 
 ## [3.1.1] - 2026-08-27
 
