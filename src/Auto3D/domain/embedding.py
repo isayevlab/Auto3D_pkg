@@ -412,8 +412,9 @@ def embed_conformers_parallel(
                 exc.add_note(
                     "Parallel embedding spawns worker processes that re-import "
                     "the calling script. Guard the script's entry point with "
-                    'if __name__ == "__main__":, or pass '
-                    "use_parallel_embedding=False."
+                    'if __name__ == "__main__":, or embed serially '
+                    "(use_parallel_embedding=False for main(); smiles2mols is "
+                    "serial unless called with parallel_embedding=True)."
                 )
                 raise
             except SpeciesSkipped as skipped:
