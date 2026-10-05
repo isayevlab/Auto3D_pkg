@@ -9,20 +9,9 @@ from rdkit import Chem
 
 from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.engines.batch_opt.padding import pad_from_mols
-from Auto3D.engines.model_factory import create_model, get_device
-from Auto3D.engines.models.policy import (
-    check_engine_supports_molecules,
-    check_gpu_requested,
-)
-from Auto3D.engines.models.preflight import resolve_engine_name
-from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+from Auto3D.engines.model_factory import create_model
+from Auto3D.entry._run_setup import prepare_single_file_run
 from Auto3D.foundation.utils.energy import set_e_hartree_from_ev
-from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
-from Auto3D.foundation.utils.output_names import default_output_path
-from Auto3D.foundation.utils.sdf_io import iter_conformer_records
-
-logger = get_logger(__name__)
 
 __all__ = ["calc_spe"]
 
@@ -55,83 +44,34 @@ def calc_spe(
 
     Returns:
         Path to output SDF file with energies.
+
+    Raises:
+        InputValidationError: if no record of ``path`` is usable (unparseable,
+            conformerless, implicit hydrogens, or dummy atoms); see the
+            warnings logged for each record.
     """
-    # Fail fast on an unrecognized engine name -- the same guard the CLI's
-    # `energy` command already runs before calling this function
-    # (cli/commands/properties.py), now also enforced for direct Python-API
-    # callers. Pure offline registry lookup: no network, no model load.
-    resolve_engine_name(model_name)
-
-    # calc_spe never goes through check_input/check_valid_configuration, so
-    # without this it would reach model_factory.get_device below and silently
-    # fall back to CPU instead of failing the same way `auto3d energy`
-    # already does at its CLI wrapper (cli/commands/properties.py) -- and the
-    # same way `auto3d run`/smiles2mols do via check_input /
-    # check_valid_configuration. check_gpu_requested is the single source of
-    # truth for this policy; called here, before get_device/create_model
-    # below, so no compute (and no model construction) happens first.
-    check_gpu_requested(use_gpu)
-
-    # Refuse `-o` pointing at the input: calc_spe would otherwise open the
-    # user's input file for writing and destroy it (C14). Shared guard, so
-    # calc_spe/opt_geometry/calc_thermo cannot drift apart on this policy.
-    # Needs only the two paths, so it runs before get_device/create_model.
-    check_output_not_input(path, out_path)
-
-    # Apply the shared torch configuration so allow_tf32 is honored here too
-    # (this path previously ignored it).
-    configure_torch(TorchConfig(allow_tf32=allow_tf32))
-
-    # Create output path in the same directory as the input (unless
-    # overridden). default_output_path is the single owner of this naming
-    # convention (Auto3D.foundation.utils.output_names) -- it used to be
-    # re-derived here, in ASE/geometry.py and in thermo/driver.py, each with
-    # its own Path(model_name).exists() check for the custom-NNP case.
-    if out_path is not None:
-        outpath = Path(out_path)
-    else:
-        outpath = Path(default_output_path(path, model_name, "E"))
-
-    # Refuse to truncate a file that already exists. `Chem.SDWriter(outpath)`
-    # below truncates on open, so without this `-o precious.sdf` destroyed
-    # precious.sdf before the first record was written -- and a run whose
-    # every record failed to parse then left it at 0 bytes and exited 0.
-    # Checked on the RESOLVED path, so the derived default name is covered
-    # too, and before get_device/create_model so nothing is loaded first.
-    check_output_overwrite(outpath, overwrite)
-
-    # Filter once up front: drop every defective record -- see
-    # `record_skip_reason`, the one statement of which records those are, rather
-    # than a copy of its list here -- so pad_from_mols never dereferences a bad
-    # record, and so the writer loop below stays index-aligned with the energies
-    # tensor. iter_conformer_records (Auto3D.foundation.utils.sdf_io) is the
-    # single owner of this filter -- calc_thermo applies the identical guard for
-    # the identical reason. Parsing `mols` needs only `path`, not a device or
-    # model, so it -- and the C11 guard right below, which needs only
-    # `mols`/`model_name` -- both happen before get_device/create_model,
-    # matching check_gpu_requested's already-first placement: every guard
-    # that can fail fast, does, before any device/model construction.
-    mols = list(iter_conformer_records(path))
-
-    # If every record was dropped (all None / conformerless), pad_from_mols([])
-    # would raise a cryptic "max() arg is an empty sequence". Write an empty
-    # output SDF and return its path so callers get a clear signal instead.
-    if not mols:
-        logger.warning(f"No valid molecules with conformers in {path}; nothing to compute.")
-        with Chem.SDWriter(str(outpath)):
-            pass
-        return str(outpath)
-
-    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
-    # charged or out-of-set species handed to either would otherwise be
-    # silently evaluated as a different, neutral species by the forward pass
-    # below -- tens of kcal/mol wrong, with wrong forces. Checked before
-    # get_device/create_model (below) so a bad molecule fails fast, without
-    # constructing a (possibly GPU-resident) model first.
-    check_engine_supports_molecules(mols, model_name)
-
-    # Use get_device from model_factory (honors use_gpu)
-    device = get_device(gpu_idx, use_gpu=use_gpu)
+    # Every guard, the output name and the record read, in one call shared with
+    # opt_geometry and calc_thermo -- see Auto3D.entry._run_setup for the step
+    # list, the order, and why each step sits where it does. All of it happens
+    # before create_model below: nothing is downloaded or loaded for a run that
+    # is about to be refused.
+    setup = prepare_single_file_run(
+        path,
+        model_name,
+        gpu_idx=gpu_idx,
+        use_gpu=use_gpu,
+        allow_tf32=allow_tf32,
+        out_path=out_path,
+        overwrite=overwrite,
+        tag="E",
+    )
+    # calc_spe computes over the whole set at once (one padded batch), so a file
+    # with no usable record is an input error, not an empty output file: this
+    # used to write a 0-byte SDF and return its path with exit code 0.
+    setup.require_records(path)
+    mols = setup.records
+    outpath = Path(setup.out_path)
+    device = setup.device
 
     # Use ModelFactory to create model adapter
     model_adapter = create_model(model_name, device)

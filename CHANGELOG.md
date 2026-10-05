@@ -43,9 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of exit 3 at preflight, like ANI2x already did.
 - `opt_geometry` and `smiles2mols` could return a stale previous output file
   (or crash naming the wrong path) when the input contained no usable
-  molecules; both now raise `OptimizationError` (exit 7) instead —
-  `opt_geometry` before any model is loaded, `smiles2mols` when the optimizer
-  reports that nothing was written.
+  molecules; both now raise instead — `opt_geometry` an `InputValidationError`
+  (exit 2) before any model is loaded, naming how many records were
+  unparseable or defective, and `smiles2mols` an `OptimizationError` (exit 7)
+  when the optimizer reports that nothing was written.
+- `calc_spe` wrote a 0-byte output SDF and exited 0 when no record of its input
+  was usable, which a pipeline reading that file could not tell from an input
+  that genuinely held no molecules; it now raises `InputValidationError`
+  (exit 2) naming the per-reason counts, and writes nothing. `calc_thermo`
+  raises the same error when its input yielded no record at all — a file whose
+  records are merely defective still produces output there, each record marked
+  `Thermo_failed`.
 - Molecule IDs containing a bare `@` were truncated by the run summary and
   reconciliation, producing false "produced no output" failures (exit 6) on
   successful runs; the `@tautN` parse now has a single owner

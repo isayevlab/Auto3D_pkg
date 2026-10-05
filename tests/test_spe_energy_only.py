@@ -391,6 +391,7 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
@@ -410,7 +411,7 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
             def energy_batched(self, coords, numbers, charges, atom_mask=None):
                 return torch.full((coords.shape[0],), -1.0, dtype=torch.double)
 
-        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
         monkeypatch.setattr(spe_mod, "EnForce_ANI", _EnergyOnlyEnForce)
 

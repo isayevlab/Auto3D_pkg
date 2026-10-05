@@ -595,7 +595,7 @@ def test_energy_refuses_to_overwrite_an_existing_output(sdf, tmp_path):
         raise AssertionError("calc_spe built a model before checking --force")
 
     with (
-        patch.object(Auto3D.entry.SPE, "get_device", never),
+        patch.object(Auto3D.entry._run_setup, "get_device", never),
         patch.object(Auto3D.entry.SPE, "create_model", never),
     ):
         res = runner.invoke(app, ["energy", str(sdf), "--no-gpu", "-o", str(precious)])

@@ -66,6 +66,7 @@ class TestAuxiliaryEntryPointGuards:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
         from Auto3D.entry.SPE import calc_spe
 
@@ -77,7 +78,7 @@ class TestAuxiliaryEntryPointGuards:
         with Chem.SDWriter(str(sdf)) as w:
             w.write(mol)
 
-        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
 
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
 

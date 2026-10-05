@@ -242,6 +242,39 @@ def test_calc_spe_userNNP2():
     assert abs(e_out - e_ref) <= 0.01
 
 
+def test_calc_spe_refuses_an_input_with_no_usable_record(tmp_path):
+    """An input nothing can be computed from is an error, not an empty file.
+
+    `calc_spe` used to log a warning, write a 0-byte SDF and return its path --
+    exit code 0, an output file a pipeline would happily read, and no record in
+    it. The caller cannot distinguish that from "the input really was empty",
+    so it is now an `InputValidationError` (exit 2) naming the counts per
+    reason, and nothing is written at all.
+
+    No model is stubbed: the refusal is specified to happen before
+    `create_model` is reached, so the real engine name resolves offline (a
+    registry lookup) and an NNP would only be constructed if the guard were
+    gone -- which this test's missing output file would then also show.
+    """
+    from rdkit.Chem import AllChem
+
+    from Auto3D.foundation.exceptions import InputValidationError
+
+    skeleton = Chem.MolFromSmiles("CCO")  # implicit hydrogens: defective
+    AllChem.EmbedMolecule(skeleton, randomSeed=1)
+    skeleton.SetProp("_Name", "skeleton")
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        w.write(skeleton)
+
+    with pytest.raises(InputValidationError, match=r"in\.sdf.*1 implicit_hydrogens"):
+        calc_spe(str(sdf), "AIMNET", use_gpu=False)
+
+    assert not (tmp_path / "in_AIMNET_E.sdf").exists(), (
+        "calc_spe created its output file for a run that computed nothing"
+    )
+
+
 def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
     """calc_spe must build its model through Auto3D.engines.model_factory.create_model,
     and must use the adapter that factory returns.
@@ -272,6 +305,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
     """
     from rdkit.Chem import AllChem
 
+    import Auto3D.entry._run_setup as run_setup
     import Auto3D.entry.SPE as spe_mod
 
     mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
@@ -288,7 +322,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
         factory_calls.append((model_name, device))
         return adapter
 
-    monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
     monkeypatch.setattr(spe_mod, "create_model", fake_create_model)
 
     enforce_args = []

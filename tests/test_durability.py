@@ -353,6 +353,7 @@ class TestSameFileGuard:
         removed, those stubs would let the run complete and overwrite `sdf`
         without raising, failing this test.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
         from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -360,7 +361,7 @@ class TestSameFileGuard:
         _write_sdf(sdf, ["m1"])
         original = sdf.read_bytes()
 
-        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
 
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
 
@@ -415,6 +416,7 @@ class TestSameFileGuard:
         destroyed -- which is what makes this test go red if the
         check_output_not_input call in opt_geometry is removed.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.ASE.geometry as geometry
         from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -446,7 +448,7 @@ class TestSameFileGuard:
                 "must refuse out_path == path before any model is built"
             )
 
-        monkeypatch.setattr(geometry, "get_device", _never)
+        monkeypatch.setattr(run_setup, "get_device", _never)
 
         with pytest.raises(ConfigurationError, match="same file"):
             geometry.opt_geometry(str(sdf), "AIMNET", out_path=str(sdf), use_gpu=False)
@@ -786,6 +788,7 @@ class TestOutputOverwriteGuard:
     """
 
     def test_calc_spe_refuses_an_existing_output(self, job_dir, monkeypatch):
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
         from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -804,7 +807,7 @@ class TestOutputOverwriteGuard:
                 "must refuse an existing output before any model is built"
             )
 
-        monkeypatch.setattr(spe_mod, "get_device", _never)
+        monkeypatch.setattr(run_setup, "get_device", _never)
         monkeypatch.setattr(spe_mod, "create_model", _never)
 
         with pytest.raises(ConfigurationError, match="already exists"):
@@ -826,6 +829,7 @@ class TestOutputOverwriteGuard:
         Without this, a guard that refused unconditionally would satisfy every
         other test in this class.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
 
         sdf = job_dir / "mols.sdf"
@@ -852,7 +856,7 @@ class TestOutputOverwriteGuard:
                 torch.ones(n, 1, dtype=torch.bool),
             )
 
-        monkeypatch.setattr(spe_mod, "get_device", lambda *a, **k: torch.device("cpu"))
+        monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
         monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
@@ -877,6 +881,7 @@ class TestOutputOverwriteGuard:
         first run's results -- with no `-o` anywhere in sight. Checking only
         the explicit `-o` would leave that case silently destructive.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
         from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -888,7 +893,7 @@ class TestOutputOverwriteGuard:
         def _never(*args, **kwargs):
             raise AssertionError("model construction reached")
 
-        monkeypatch.setattr(spe_mod, "get_device", _never)
+        monkeypatch.setattr(run_setup, "get_device", _never)
         monkeypatch.setattr(spe_mod, "create_model", _never)
 
         with pytest.raises(ConfigurationError, match="already exists"):
@@ -897,6 +902,7 @@ class TestOutputOverwriteGuard:
         assert earlier.read_bytes() == b"FIRST RUN RESULTS\n"
 
     def test_opt_geometry_refuses_an_existing_output(self, job_dir, monkeypatch):
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.ASE.geometry as geometry
         from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -912,7 +918,7 @@ class TestOutputOverwriteGuard:
                 "must refuse an existing output before any model is built"
             )
 
-        monkeypatch.setattr(geometry, "get_device", _never)
+        monkeypatch.setattr(run_setup, "get_device", _never)
         monkeypatch.setattr(geometry, "optimizing", _never)
 
         with pytest.raises(ConfigurationError, match="already exists"):
@@ -1017,6 +1023,7 @@ class TestOutputOverwriteGuard:
         the filtered result over the input it was computed from is not, so
         `check_output_not_input` must keep refusing regardless.
         """
+        import Auto3D.entry._run_setup as run_setup
         import Auto3D.entry.SPE as spe_mod
         from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -1027,7 +1034,7 @@ class TestOutputOverwriteGuard:
         def _never(*args, **kwargs):
             raise AssertionError("model construction reached")
 
-        monkeypatch.setattr(spe_mod, "get_device", _never)
+        monkeypatch.setattr(run_setup, "get_device", _never)
         monkeypatch.setattr(spe_mod, "create_model", _never)
 
         with pytest.raises(ConfigurationError, match="same file"):

@@ -8,12 +8,8 @@ from __future__ import annotations
 from rdkit import Chem
 
 from Auto3D.engines.batch_opt.batchopt import optimizing
-from Auto3D.engines.model_factory import create_model, get_device
-from Auto3D.engines.models.policy import (
-    check_engine_supports_molecules,
-    check_gpu_requested,
-)
-from Auto3D.engines.models.preflight import resolve_engine_name
+from Auto3D.engines.model_factory import create_model
+from Auto3D.entry._run_setup import prepare_single_file_run
 from Auto3D.foundation.config import OptimizationConfig
 from Auto3D.foundation.constants import (
     DEFAULT_BATCHSIZE_ATOMS,
@@ -21,12 +17,8 @@ from Auto3D.foundation.constants import (
     DEFAULT_OPT_STEPS,
 )
 from Auto3D.foundation.exceptions import OptimizationError
-from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
-from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
-from Auto3D.foundation.utils.output_names import default_output_path
-from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
 __all__ = ["opt_geometry"]
 
@@ -143,10 +135,12 @@ def opt_geometry(
         Path to output SDF file with optimized geometries.
 
     Raises:
-        OptimizationError: `path` is missing, empty, or contains no
-            parseable record, or every record was skipped as defective -- see
-            :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` for what
-            counts as defective -- so nothing was optimized.
+        InputValidationError: if no record of ``path`` is usable (unparseable,
+            conformerless, implicit hydrogens, or dummy atoms); see the
+            warnings logged for each record.
+        OptimizationError: the optimizer reported that it wrote nothing even
+            though ``path`` held usable records, so no optimized structure was
+            produced.
 
     Example:
         >>> from Auto3D.entry.ASE.geometry import opt_geometry
@@ -158,84 +152,30 @@ def opt_geometry(
         ...     batchsize_atoms=2048,
         ... )
     """
-    # Fail fast on an unrecognized engine name -- the same guard the CLI's
-    # `optimize` command already runs before calling this function
-    # (cli/commands/properties.py), now also enforced for direct Python-API
-    # callers. Pure offline registry lookup: no network, no model load.
-    resolve_engine_name(model_name)
-
-    # opt_geometry never goes through check_input/check_valid_configuration,
-    # so without this it would reach model_factory.get_device below and
-    # silently fall back to CPU instead of failing the same way `auto3d
-    # optimize` already does at its CLI wrapper (cli/commands/properties.py)
-    # -- and the same way `auto3d run`/smiles2mols do via check_input /
-    # check_valid_configuration. check_gpu_requested is the single source of
-    # truth for this policy; called here, before get_device/optimizing below,
-    # so no compute (and no model construction) happens first.
-    check_gpu_requested(use_gpu)
-
-    # Refuse `-o` pointing at the input: opt_geometry would otherwise stage a
-    # rewrite of the very file it is reading and destroy the user's input
-    # (C14). Shared guard, so calc_spe/opt_geometry/calc_thermo cannot drift
-    # apart on this policy. Needs only the two paths, so it runs before
-    # get_device/optimizing.
-    check_output_not_input(path, out_path)
-
-    # Apply the shared torch configuration so allow_tf32 is honored here too
-    # (this path previously ignored it).
-    configure_torch(TorchConfig(allow_tf32=allow_tf32))
-
-    # Create output path in the same directory as the input file (unless
-    # overridden). default_output_path is the single owner of this naming
-    # convention (Auto3D.foundation.utils.output_names) -- it used to be
-    # re-derived here, in SPE.py and in thermo/driver.py, each with its own
-    # Path(model_name).exists() check for the custom-NNP case.
-    if out_path is not None:
-        outpath = out_path
-    else:
-        outpath = default_output_path(path, model_name, "opt")
-
-    # Refuse to truncate a file that already exists. `optimizing.run()` opens
-    # `Chem.SDWriter(outpath)`, which truncates on open, so without this
-    # `-o precious.sdf` destroyed precious.sdf. Not at the start: that writer
-    # is opened inside `optimizing.run()`, AFTER every bucket has been
-    # optimized, so precious.sdf survived the whole optimization and was
-    # replaced by the final write -- a completed run, no error, no warning.
-    # Checked on the RESOLVED path, so the derived default name is covered
-    # too, and before get_device/optimizing so nothing is loaded first.
-    check_output_overwrite(outpath, overwrite)
-
-    device = get_device(gpu_idx, use_gpu=use_gpu)
-
-    # ANI2x/ANI2xt can only represent uncharged, in-set molecules (C11): a
-    # charged or out-of-set species handed to either would otherwise be
-    # silently optimized as a different, neutral species -- wrong energy,
-    # wrong forces, wrong geometry. `iter_conformer_records` (Auto3D.foundation
-    # .utils.sdf_io) is the single owner of the defective-record filter, and
-    # `record_skip_reason` is the one statement of which records those are --
-    # `calc_spe` applies the identical guard for the identical reason (N-C1):
-    # a record with implicit hydrogens is a heavy-atom skeleton, and one
-    # carrying a dummy atom is an R-group placeholder; optimizing either
-    # silently substitutes a different molecule for the one the engine was
-    # told to optimize.
-    input_mols = list(iter_conformer_records(path))
-    check_engine_supports_molecules(input_mols, model_name)
-
-    # Fail fast, before create_model/optimizing load anything, exactly like
-    # check_gpu_requested above (`get_device` itself has already run -- it
-    # only resolves a torch.device, it does not load a model). If every
-    # record of `path` was skipped as defective (`record_skip_reason` is the
-    # one statement of what that means), there is nothing to optimize. Checked
-    # here rather than relying on `optimizing.run()`'s own "input file is
-    # empty"/"no valid molecules" early returns, which would load the model
-    # for nothing.
-    if not input_mols:
-        raise OptimizationError(
-            f"No optimized structures were produced from {path!r}: the input "
-            "file is missing, empty, contains no parseable record, or every "
-            "record in it was skipped as defective -- no conformer, implicit "
-            "hydrogens, or a dummy atom (atomic number 0)."
-        )
+    # Every guard, the output name and the record read, in one call shared with
+    # calc_spe and calc_thermo -- see Auto3D.entry._run_setup for the step list,
+    # the order, and why each step sits where it does. All of it happens before
+    # create_model/optimizing load anything: nothing is downloaded or loaded for
+    # a run that is about to be refused.
+    setup = prepare_single_file_run(
+        path,
+        model_name,
+        gpu_idx=gpu_idx,
+        use_gpu=use_gpu,
+        allow_tf32=allow_tf32,
+        out_path=out_path,
+        overwrite=overwrite,
+        tag="opt",
+    )
+    # If every record of `path` was skipped as defective there is nothing to
+    # optimize, and that is a defect in the INPUT -- an InputValidationError
+    # (exit 2), not the OptimizationError (exit 7) this used to raise, which
+    # names the optimizer for a file the optimizer never saw. Checked here
+    # rather than relying on `optimizing.run()`'s own "input file is empty"/"no
+    # valid molecules" early returns, which would load the model for nothing.
+    setup.require_records(path)
+    outpath = setup.out_path
+    device = setup.device
 
     opt_config = OptimizationConfig(
         opt_steps=opt_steps,
@@ -249,9 +189,11 @@ def opt_geometry(
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
     # `optimizing` (Auto3D.engines.batch_opt.batchopt) reads `path` itself
-    # through the same `iter_conformer_records` filter as `input_mols` above
-    # (N-C1), so the two agree on what counts as a record without this
-    # function having to re-derive or re-write anything for it.
+    # through `iter_conformer_records`, which is the same `classify_records`
+    # policy the prologue above applied (N-C1), so the two agree on what counts
+    # as a record without this function having to re-derive or re-write anything
+    # for it -- which is why `setup.records` is only counted here, never passed
+    # on.
     opt_engine = optimizing(path, outpath, adapter=adapter, device=device, config=opt_config)
     wrote_output = opt_engine.run()
 
@@ -263,10 +205,11 @@ def opt_geometry(
     # place by a skipped run, so an existence check alone would let
     # `_annotate_and_rewrite` below silently re-annotate and return THAT file
     # as if it were produced by this call. In practice this should not fire:
-    # `input_mols` being non-empty (checked above) already implies
+    # `setup.records` being non-empty (`require_records` above) already implies
     # `optimizing.run()` will find at least one record through its own,
     # identical filter -- this is defense against that invariant ever
-    # drifting, not the primary guard.
+    # drifting, not the primary guard, which is why it stays an
+    # OptimizationError while the input check above is an InputValidationError.
     if not wrote_output:
         raise OptimizationError(
             f"No optimized structures were produced from {path!r}: the input "
