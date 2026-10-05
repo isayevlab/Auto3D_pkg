@@ -21,6 +21,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 CONFTEST = Path(__file__).with_name("conftest.py")
 
 # Each leaking test below *passes*; the guard reports at teardown, which pytest
@@ -79,6 +81,7 @@ _GUILTY = (
 )
 
 
+@pytest.mark.slow
 def test_the_guard_names_every_test_that_leaves_state_behind(tmp_path):
     """Three leak shapes are each reported against the test that caused it, and
     each is repaired so the test after it sees clean state.
@@ -87,6 +90,9 @@ def test_the_guard_names_every_test_that_leaves_state_behind(tmp_path):
     repair, turns specific lines below red -- removing the repair makes the
     observers (``test_b``/``test_e``) fail, and removing a detection branch
     drops its name from the error list.
+
+    Marked slow for its wall-clock cost (6.4 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     (tmp_path / "conftest.py").write_text(CONFTEST.read_text())
     (tmp_path / "test_misbehaving.py").write_text(_MISBEHAVING_TESTS)

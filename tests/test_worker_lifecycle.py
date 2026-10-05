@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(
 
 ROOT = Path(__file__).resolve().parent.parent
 PARENT = ROOT / "tests" / "helpers_lifecycle_parent.py"
+EMBEDDING_PARENT = ROOT / "tests" / "helpers_lifecycle_embedding_parent.py"
 
 # Every (Popen, stderr file) this module started, so the fixture below can tear
 # the whole session down again. `_run_pipeline` starts a THIRD child besides the
@@ -95,6 +96,42 @@ def _launch(tmp_path, **env_extra):
     return p
 
 
+def _launch_embedding_pool(tmp_path, n_workers=2):
+    """Start a subprocess that owns a real embedding pool, and collect its pids.
+
+    Each worker writes its own pid down from inside the task body, so the test
+    reads only pids this harness caused to exist -- no process-table scan.
+    """
+    env = dict(
+        os.environ,
+        PYTHONPATH=f"{ROOT}:{ROOT / 'src'}",
+        LIFECYCLE_DIR=str(tmp_path),
+        CUDA_VISIBLE_DEVICES="",
+        # Long enough that a worker which has NOT noticed its parent is gone is
+        # still sleeping when the assertion runs, and short enough that one
+        # which never gets signaled cannot outlive the test's own timeout.
+        LIFECYCLE_EMBED_SECONDS="60",
+    )
+    err = open(tmp_path / "stderr.txt", "w")
+    p = subprocess.Popen(
+        [sys.executable, "-u", str(EMBEDDING_PARENT)],
+        env=env,
+        stderr=err,
+        stdout=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _LAUNCHED.append((p, err))
+    deadline = time.time() + 60
+    while time.time() < deadline and len(list(tmp_path.glob("pool-*.pid"))) < n_workers:
+        time.sleep(0.2)
+    pids = sorted(int(f.read_text()) for f in tmp_path.glob("pool-*.pid"))
+    assert len(pids) == n_workers, (
+        f"the embedding pool never started {n_workers} workers (saw {pids}); "
+        f"stderr: {(tmp_path / 'stderr.txt').read_text()!r}"
+    )
+    return p, pids
+
+
 def _children(tmp_path):
     """Every process the parent started: both workers and the Manager server."""
     return [
@@ -119,6 +156,7 @@ def _children(tmp_path):
         signal.SIGINT,
     ],
 )
+@pytest.mark.slow
 def test_signal_to_parent_alone_stops_every_worker(tmp_path, sig):
     p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
     time.sleep(1.0)
@@ -131,6 +169,7 @@ def test_signal_to_parent_alone_stops_every_worker(tmp_path, sig):
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.slow
 def test_killed_parent_is_noticed_by_workers(tmp_path):
     p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
     time.sleep(1.0)
@@ -140,7 +179,44 @@ def test_killed_parent_is_noticed_by_workers(tmp_path):
     assert not any(_alive(c) for c in _children(tmp_path)), "orphaned workers after SIGKILL"
 
 
+@pytest.mark.timeout(120)
+@pytest.mark.slow
+def test_a_killed_parent_leaves_no_embedding_pool_workers(tmp_path):
+    """The same rule as the optimizer workers, for the conformer-embedding pool.
+
+    Parallel embedding is on by default, so an ordinary run now starts a
+    ``ProcessPoolExecutor``. Under ``spawn`` each of its children holds a dup of
+    the call queue's *write* end as well as its read end, so the parent's death
+    never produces EOF and nothing wakes an idle worker; a busy one keeps
+    burning a core on ETKDG. SIGKILL runs no Python cleanup in the parent, so the
+    ``with`` block's shutdown sentinels are never sent either -- the workers are
+    left to notice on their own, which is what the pool initializer is for.
+
+    A terminal Ctrl-C is not the gap: that is a process-*group* SIGINT and the
+    pool children share their parent's group. What leaked was every parent-only
+    signal -- the orchestrator's own ``p1.terminate()``, an OOM kill, a plain
+    ``kill <pid>`` -- which is the shape measured here.
+    """
+    p, pool_pids = _launch_embedding_pool(tmp_path)
+    os.kill(p.pid, signal.SIGKILL)  # the parent pid ONLY, not the process group
+    p.wait(timeout=20)
+
+    # Poll rather than sleep a fixed slack: PR_SET_PDEATHSIG is immediate and the
+    # sentinel watchdog needs no polling of its own, so a correct pool is gone in
+    # well under a second and only a broken one uses the whole window.
+    deadline = time.time() + 15
+    while time.time() < deadline and any(_alive(pid) for pid in pool_pids):
+        time.sleep(0.2)
+
+    survivors = [pid for pid in pool_pids if _alive(pid)]
+    assert not survivors, (
+        f"embedding pool workers {survivors} outlived their SIGKILLed parent "
+        "(reparented to init, still holding a core each)"
+    )
+
+
 @pytest.mark.timeout(60)
+@pytest.mark.slow
 def test_a_process_group_interrupt_stops_every_worker_quietly(tmp_path):
     """Ctrl-C at a terminal is delivered to the whole foreground process GROUP.
 
@@ -157,6 +233,9 @@ def test_a_process_group_interrupt_stops_every_worker_quietly(tmp_path):
     ``_launch`` passes ``start_new_session=True``, so the parent's pid IS its
     process-group id: this signals exactly the processes this harness started
     and nothing else on the box.
+
+    Marked slow for its wall-clock cost (9.9 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
     """
     p = _launch(tmp_path, LIFECYCLE_OPT_SECONDS="5")
     time.sleep(1.0)

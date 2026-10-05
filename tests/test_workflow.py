@@ -1080,9 +1080,14 @@ def test_two_runs_do_not_reuse_job_name(tmp_path, monkeypatch, stub_torchani_imp
     assert shared_config.job_name == ""
 
 
+@pytest.mark.slow
 def test_smiles2mols_uses_args_threshold(monkeypatch):
     """smiles2mols must pass args.threshold (not a hardcoded value) to the
-    isomer engine, matching main()'s candidate-pool behavior (review #35/#36)."""
+    isomer engine, matching main()'s candidate-pool behavior (review #35/#36).
+
+    Marked slow for its wall-clock cost (5.3 s on the 2026-10-02 durations
+    run), not for GPU or network needs.
+    """
     import Auto3D.entry.auto3D as auto3D_mod
     from Auto3D.foundation.config import Auto3DOptions
 

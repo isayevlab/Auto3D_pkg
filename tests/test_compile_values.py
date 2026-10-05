@@ -75,6 +75,7 @@ def _saved_eager_nnp(tmp_path):
     return str(path)
 
 
+@pytest.mark.slow
 def test_ani2xt_compiled_matches_eager_on_cpu():
     pytest.importorskip("torchani")
     mols = _mols()

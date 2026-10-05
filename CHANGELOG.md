@@ -112,6 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relative Gibbs energies for that title are withheld with a warning (the
   existing "not all the same compound" guard) rather than subtracted across
   two compounds.
+- A stereoisomer that ETKDG cannot embed (for example a geometrically
+  impossible fused-ring configuration) used to run unbounded, roughly a minute
+  per species serially on the 2026-09-21 bench set, before failing. Every ETKDG
+  call now carries a 60 s `EmbedParameters.timeout` (`EMBED_TIMEOUT_S`), and a
+  species that embeds nothing gets a single retry with random initial
+  coordinates — which recovers strained systems the default initial coordinates
+  cannot solve — on whatever the first attempt left of those 60 s, so the two
+  attempts together stay inside one cap.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -144,6 +152,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The connectivity check now logs an element with no reference radius once
   per element instead of silently skipping its pairs. Once per element per
   worker process, so a chunked run can name the same element more than once.
+- Conformer embedding runs in parallel worker processes by default
+  (`use_parallel_embedding=True`); `parallel_workers=None` resolves to
+  min(cores // threads per worker, species after stereoisomer enumeration and
+  enantiomer removal, 32), dividing by the per-worker RDKit thread count so one
+  worker per core does not oversubscribe the box, while an explicit integer is
+  honored as given. Pass `--no-parallel-embedding` /
+  `use_parallel_embedding=False` for the serial path, which also remains the
+  path for inputs below `parallel_embedding_threshold`. The pool's workers die
+  with their parent, so a killed or OOM-reaped run no longer leaves processes
+  burning cores on ETKDG; a species a worker refuses (an unparseable SMILES, a
+  dummy atom) now reports its reason once in the run log, instead of twice on
+  raw stderr and never in the log; and serial and parallel embedding produce
+  byte-identical output, so the switch is a performance choice only.
+  `smiles2mols` is the exception, and now says so in its signature: it ignores
+  `use_parallel_embedding` and takes `smiles2mols(..., parallel_embedding=True)`
+  as its opt-in, because parallel embedding spawns worker processes that
+  re-import the calling script and only the caller knows whether theirs keeps
+  its work behind an `if __name__ == "__main__":` guard. A broken worker pool
+  carries a note telling the user to add that guard or pass
+  `use_parallel_embedding=False`. Every ETKDG call (SMILES and SDF isomer
+  engines, serial and parallel) is capped at `EMBED_TIMEOUT_S` (60 s), and the
+  random-coordinates retry runs on what the first attempt left of that cap
+  rather than on a fresh copy of it, so the two attempts together honor it.
 
 ## [3.1.1] - 2026-08-27
 

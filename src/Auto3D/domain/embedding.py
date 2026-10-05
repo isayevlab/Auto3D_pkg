@@ -12,7 +12,10 @@ removes the cycle rather than deferring it.
 
 from __future__ import annotations
 
+import math
 import multiprocessing
+import os
+import time
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -44,14 +47,130 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdDistGeom
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED
+from Auto3D.foundation.constants import (
+    CONFORMER_RANDOM_SEED,
+    EMBED_TIMEOUT_S,
+    PARALLEL_EMBED_MAX_WORKERS,
+)
+from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 
 logger = get_logger(__name__)
 
 
-def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
+class SpeciesSkipped(Exception):  # noqa: N818 - a skip signal, not a failure
+    """A species the embedding worker refused before embedding anything.
+
+    No ``Error`` suffix, unlike ``Auto3D.foundation.exceptions``'s members: this
+    is not a failure the run has to recover from but the worker's way of saying
+    "not this one" across a process boundary. The batch continues, the species is
+    reported, and nothing upstream treats it as an error -- naming it
+    ``SpeciesSkippedError`` would describe the mechanism and misdescribe the
+    meaning.
+
+    Carries the reason back to the parent instead of logging it in the worker.
+    Under ``spawn`` the pool children have no run-log handler of their own
+    (``workflow_workers._attach_run_log_handlers`` wires up the optimizer
+    workers, not this pool), so a warning emitted in a worker fell through to
+    ``logging.lastResort``: raw on stderr, carrying no level or logger prefix,
+    ungoverned by Auto3D's logging configuration -- and absent from the run log,
+    which recorded only that the species had vanished. The parent is already
+    wired into that configuration, so it logs the single line.
+
+    One argument, always a plain string, and no custom ``__init__``: the
+    instance is pickled across the pool boundary, and a signature that differs
+    from ``Exception``'s does not survive the round trip.
+    """
+
+
+def _embedding_worker_init() -> None:
+    """Prepare one pool worker. Passed as the executor's ``initializer``.
+
+    Two jobs, both of which only make sense inside a worker:
+
+    * ``_exit_when_parent_dies`` -- the same arming every other process Auto3D
+      starts gets (the isomer worker, the optimizers, the logger process, the
+      Manager servers). Without it this pool was the one that outlived a
+      parent-only signal: under ``spawn`` each child holds a dup of the call
+      queue's *write* end as well as its read end, so the parent's death never
+      produces EOF, and SIGTERM/SIGKILL to the parent runs none of the ``with``
+      block's shutdown sentinels either. An idle worker then blocks on
+      ``get()`` forever and a busy one keeps burning a core on ETKDG (P-C2).
+      A no-op when there is no parent process, and every failure path inside it
+      is caught and logged at DEBUG, so it cannot break the pool.
+    * ``CoordsAsDouble`` -- RDKit pickles conformer coordinates as float32
+      unless asked otherwise, and the worker's result travels back by pickle. At
+      SDF write precision that flipped the last digit of one coordinate of one
+      species in a 28-species comparison, which made toggling
+      ``--parallel-embedding`` change the bytes of the output.
+
+    Set here rather than at module import, deliberately: the pickle properties
+    are process-global, this is the process where the pickling happens, and
+    every spawned worker runs the initializer. Importing
+    ``Auto3D.domain.embedding`` must not reconfigure RDKit for a caller that
+    never starts a pool -- the same stance the module takes on
+    ``set_start_method`` (see ``EMBEDDING_MP_CONTEXT``).
+    """
+    _exit_when_parent_dies()
+    Chem.SetDefaultPickleProperties(
+        Chem.GetDefaultPickleProperties() | Chem.PropertyPickleOptions.CoordsAsDouble
+    )
+
+
+def resolve_embedding_workers(
+    requested: int | None, n_species: int, *, threads_per_worker: int = 1
+) -> int:
+    """Worker-process count for parallel conformer embedding.
+
+    ``None`` -- the default -- resolves to
+    ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``.
+    A fixed default of 4 left 124 of 128 cores idle on the 2026-09-21 bench
+    (P-C3), and no class default can do better, because the useful number
+    depends on the box, on how many species this particular run enumerated,
+    and on how many threads each worker will use. So the resolution happens
+    here, called at dispatch by whoever is about to start the pool.
+
+    The division is what keeps the box from being oversubscribed: each worker
+    hands ``threads_per_worker`` to ``EmbedMultipleConfs`` (the isomer engine
+    passes its ``np``/``mpi_np``, default 4), so one worker per core would put
+    ``cores x threads`` runnable threads on ``cores`` cores. ``threads_per_worker``
+    is floored at 1 before dividing: the engine's direct callers bypass
+    ``Auto3DOptions``'s ``mpi_np >= 1`` bound, and a 0 there would be a
+    ``ZeroDivisionError``.
+
+    An explicit ``requested`` is obeyed as given -- cap, cores and thread count
+    all bypassed, since a caller who names a number has a reason -- and only
+    floored at 1, because a pool cannot be started with zero workers.
+    ``Auto3DOptions`` already refuses a ``parallel_workers`` below 1; the floor
+    is here for the engine's direct callers, which go through no such
+    validation.
+
+    The floor can still overshoot the box: one worker handing RDKit
+    ``threads_per_worker`` threads is ``threads_per_worker`` runnable threads
+    wherever there are fewer cores than that -- 2 cores with ``mpi_np=4``
+    measured 2x oversubscribed. Closing it would mean overriding the caller's
+    own ``mpi_np``, which is their choice to make, so it is named here instead.
+
+    Args:
+        requested: Explicit worker count, or None to scale to the machine.
+        n_species: How many species this dispatch has to embed.
+        threads_per_worker: RDKit threads each worker will use for embedding.
+
+    Returns:
+        A worker count of at least 1.
+    """
+    if requested is not None:
+        return max(1, requested)
+    # Through the module, not `from os import cpu_count`, so a test (and a
+    # caller measuring on a different machine shape) can substitute it.
+    usable_cores = max(1, (os.cpu_count() or 1) // max(1, threads_per_worker))
+    return max(1, min(usable_cores, n_species, PARALLEL_EMBED_MAX_WORKERS))
+
+
+def embed_params(
+    *, n_threads: int, prune_rms_thresh: float, timeout_s: int = EMBED_TIMEOUT_S
+) -> Any:
     """The ETKDG settings every Auto3D embedding uses, in one place.
 
     ``EmbedMultipleConfs``'s keyword form cannot express two of these:
@@ -83,7 +202,73 @@ def embed_params(*, n_threads: int, prune_rms_thresh: float) -> Any:
     params.pruneRmsThresh = prune_rms_thresh
     params.onlyHeavyAtomsForRMS = True
     params.useSymmetryForPruning = True
+    if hasattr(params, "timeout"):
+        params.timeout = timeout_s
+    else:
+        logger.warning(
+            "This RDKit has no EmbedParameters.timeout; a species that cannot embed may run long."
+        )
     return params
+
+
+def embed_with_retry(
+    mol: Chem.Mol,
+    *,
+    n_conformers: int,
+    n_threads: int,
+    prune_rms_thresh: float,
+    timeout_s: int = EMBED_TIMEOUT_S,
+) -> int:
+    """Embed up to ``n_conformers`` conformers; retry once with random
+    coordinates if none embed, within the time the first attempt left over.
+    Returns the number embedded.
+
+    ETKDG's default initial coordinates can fail on strained systems that
+    random initial coordinates still solve, which is what the retry recovers
+    (N-m2). That is a statement about the *starting geometry*, not about time:
+    an attempt that produced nothing because it burned the whole cap says the
+    species is slow, and random coordinates would get no more time than the
+    first attempt had.
+
+    So the retry runs on the remainder of the budget -- ``timeout_s`` minus
+    attempt 1's measured wall clock -- and is skipped outright when under a
+    second of it is left. **Both attempts together are bounded by
+    ``timeout_s``** (plus up to a second, since RDKit's ``timeout`` is whole
+    seconds and the remainder is rounded up). Given a full cap each instead,
+    the per-species worst case was ``2 * timeout_s``: 120 s at the shipped
+    default, against the ~67 s one impossible stereoisomer measured serially on
+    the 2026-09-21 bench set -- the number the cap exists to bound (P-C3), and
+    spent twice on exactly the species that triggers the retry.
+    """
+    params = embed_params(
+        n_threads=n_threads, prune_rms_thresh=prune_rms_thresh, timeout_s=timeout_s
+    )
+    started = time.monotonic()
+    ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+    if len(ids) == 0:
+        remaining = timeout_s - (time.monotonic() - started)
+        if remaining < 1:
+            logger.debug(
+                "First ETKDG attempt embedded nothing and used its whole %d s budget; "
+                "not retrying, since random initial coordinates would have no more "
+                "time than the first attempt had.",
+                timeout_s,
+            )
+            return 0
+        logger.debug(
+            "First ETKDG attempt embedded nothing; retrying with random initial "
+            "coordinates and the %d s the first attempt left.",
+            math.ceil(remaining),
+        )
+        # Guarded like the assignment in `embed_params`, and for the same RDKit:
+        # `params.timeout = ...` on a Boost.Python object without that attribute
+        # raises rather than creating it. On such an RDKit neither attempt was
+        # capped in the first place, so there is no budget to hand on.
+        if hasattr(params, "timeout"):
+            params.timeout = math.ceil(remaining)
+        params.useRandomCoords = True
+        ids = AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+    return len(ids)
 
 
 def _embed_single(
@@ -112,26 +297,28 @@ def _embed_single(
             - mol: RDKit Mol object with conformers
             - conf_idx: Index of the conformer in the molecule
             - conf_id: Unique identifier string (name_idx format)
+
+    Raises:
+        SpeciesSkipped: The SMILES cannot be parsed, or carries a dummy atom.
+            Raised rather than logged here: see ``SpeciesSkipped`` for why a
+            warning from a pool worker is the wrong place for the reason.
     """
     # Validate SMILES first to avoid unpicklable Boost.Python errors
     mol_noh = Chem.MolFromSmiles(smi)
     if mol_noh is None:
-        # Same message the serial path emits (isomer_engine._run_serial_embedding).
+        # Same reason the serial path reports (isomer_engine._run_serial_embedding).
         # This branch returned [] in silence, so a molecule dropped for an
         # unparseable SMILES was reported by the parallel path and not by the
         # serial one -- a switch documented as a performance option decided how
-        # much the user was told. The parent also warns on an empty result, which
-        # is the guaranteed signal; this one adds the reason.
-        logger.warning(f"Skipping molecule {name!r}: failed to parse {smi!r}")
-        return []
+        # much the user was told.
+        raise SpeciesSkipped(f"failed to parse {smi!r}")
     if has_dummy_atoms(mol_noh):
         # N-M3: an R-group placeholder is not a species. Clash relief happens
         # to reject every conformer of such a molecule today (neither MMFF nor
         # UFF can type atom `*`), so it already disappeared -- but silently and
         # for an unrelated reason. Named and skipped here instead, before any
         # embedding work, so the same rule holds whatever the force fields do.
-        logger.warning(f"Skipping molecule {name!r}: it contains a dummy atom (atomic number 0).")
-        return []
+        raise SpeciesSkipped("it contains a dummy atom (atomic number 0)")
     mol = Chem.AddHs(mol_noh)
 
     if n_conformers is None:
@@ -141,10 +328,8 @@ def _embed_single(
         # hydrogens are explicit (e.g. glycerol 238 vs 52 conformers).
         n_conformers = calculate_conformer_count(mol)
 
-    AllChem.EmbedMultipleConfs(
-        mol,
-        numConfs=n_conformers,
-        params=embed_params(n_threads=np_threads, prune_rms_thresh=threshold),
+    embed_with_retry(
+        mol, n_conformers=n_conformers, n_threads=np_threads, prune_rms_thresh=threshold
     )
 
     results = []
@@ -191,7 +376,11 @@ def embed_conformers_parallel(
     if not smiles_names:
         return
 
-    with ProcessPoolExecutor(max_workers=n_workers, mp_context=EMBEDDING_MP_CONTEXT) as executor:
+    with ProcessPoolExecutor(
+        max_workers=n_workers,
+        mp_context=EMBEDDING_MP_CONTEXT,
+        initializer=_embedding_worker_init,
+    ) as executor:
         futures = {
             executor.submit(_embed_single, smi, name, n_conformers, threshold, np_threads): (
                 smi,
@@ -207,12 +396,35 @@ def embed_conformers_parallel(
             smi, name = futures[future]
             try:
                 conformers = future.result()
-            except BrokenProcessPool:
+            except BrokenProcessPool as exc:
                 # A worker died (e.g. OOM-killed): the pool is broken and EVERY
                 # remaining future will also raise this. Surface it loudly --
                 # the broad except below would otherwise swallow it per-future
                 # and silently drop the whole tail of the batch as warnings.
+                #
+                # The other common cause is not a dead worker at all: under the
+                # spawn context each child re-imports the caller's `__main__`,
+                # and an unguarded script raises there before embedding anything,
+                # breaking the pool. The user's only clue was a child-process
+                # traceback about freeze_support, so attach the two ways out.
+                # A note rather than a new exception type: an OOM kill must keep
+                # surfacing as the BrokenProcessPool everything upstream expects.
+                exc.add_note(
+                    "Parallel embedding spawns worker processes that re-import "
+                    "the calling script. Guard the script's entry point with "
+                    'if __name__ == "__main__":, or embed serially '
+                    "(use_parallel_embedding=False for main(); smiles2mols is "
+                    "serial unless called with parallel_embedding=True)."
+                )
                 raise
+            except SpeciesSkipped as skipped:
+                # The worker refused this species and said why. One warning, from
+                # here -- the process that owns the run log -- and no second line:
+                # the `continue` is also what keeps the generic "produced no
+                # conformers" branch below from firing for a species whose reason
+                # is already on the record.
+                logger.warning("Skipping molecule %r: %s", name, skipped)
+                continue
             except Exception as e:
                 # Per-molecule boundary: a single molecule's failure (including
                 # RDKit's Boost.Python.ArgumentError, which is a TypeError and so

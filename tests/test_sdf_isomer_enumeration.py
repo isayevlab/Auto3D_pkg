@@ -200,3 +200,55 @@ class TestEnumerationDisabled:
             "no warning naming the unspecified stereo element: "
             f"{[r.message for r in caplog.records]}"
         )
+
+
+class TestEmbeddingGoesThroughEmbedWithRetry:
+    def test_embed_with_retry_called_once_per_stereoisomer_with_engine_settings(
+        self, job_dir, monkeypatch, caplog
+    ):
+        """Every stereoisomer must route through embed_with_retry, not a bare
+        AllChem.EmbedMultipleConfs, carrying this run's own np/threshold.
+
+        Threonine's two independent stereocenters enumerate to two
+        diastereomers after enantiomer dedup (pinned by
+        ``test_species_names_have_three_components`` above), so a correct
+        call count here is exactly two -- one per stereoisomer, not one per
+        input record. Non-default n_jobs/threshold values catch a call site
+        that hardcodes its arguments instead of forwarding ``self.np`` /
+        ``self.threshold``.
+        """
+        import logging
+
+        import Auto3D.engines.isomers.rdkit_sdf as rdkit_sdf_mod
+
+        calls = []
+
+        def fake_embed_with_retry(mol, *, n_conformers, n_threads, prune_rms_thresh):
+            calls.append((n_threads, prune_rms_thresh))
+            # Mirror embed_params' clearConfs=True (see test_embed_params.py):
+            # a real failed embedding leaves the mol with zero conformers, not
+            # whatever flat 2D conformer it carried in.
+            mol.RemoveAllConformers()
+            return 0  # nothing embedded
+
+        monkeypatch.setattr(rdkit_sdf_mod, "embed_with_retry", fake_embed_with_retry)
+
+        input_sdf = job_dir / "threonine_ewr_in.sdf"
+        output_sdf = job_dir / "threonine_ewr_out.sdf"
+        _write_sdf(input_sdf, "CC(O)C(N)C(=O)O", "threonine_ewr", three_d=False)
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.engines.isomers.rdkit_sdf"):
+            IsomerEngineFactory.create(
+                "rdkit_sdf",
+                input_path=str(input_sdf),
+                output_path=str(output_sdf),
+                max_confs=6,
+                threshold=0.45,
+                n_jobs=3,
+            ).run()
+
+        assert len(calls) == 2, f"expected one call per stereoisomer, got {calls}"
+        assert calls == [(3, 0.45), (3, 0.45)]
+        # The engine's own "produced no conformers" warning must still fire --
+        # routing through embed_with_retry must not swallow it.
+        assert sum("produced no conformers" in r.message for r in caplog.records) == 2

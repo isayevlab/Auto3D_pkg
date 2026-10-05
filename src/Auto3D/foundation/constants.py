@@ -35,6 +35,30 @@ CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
 CONFORMER_MULTIPLIER = 2  # Multiplier for the formula
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
+# Seconds. Wall-clock cap on embedding one species (RDKit's
+# EmbedParameters.timeout, set by Auto3D.domain.embedding.embed_params). The
+# random-coordinates retry runs on whatever the first attempt leaves of this
+# number rather than on a fresh copy of it, so the two attempts together stay
+# inside one cap -- see embed_with_retry. Measured on the 2026-09-21 bench set:
+# a geometrically impossible stereoisomer (fused-ring steroid) burned ~67 s per
+# species failing to embed, while possible ones took seconds.
+EMBED_TIMEOUT_S = 60
+
+# Upper bound on the worker processes parallel conformer embedding will start
+# when the count is left unset (``Auto3DOptions.parallel_workers = None``, the
+# default; ``Auto3D.domain.embedding.resolve_embedding_workers`` applies it).
+# Embedding is RDKit-bound and each worker is started under the ``spawn``
+# context, so every one of them re-imports rdkit before it does any work;
+# beyond this many the pool startup and the single-writer SDF output dominate
+# whatever the extra processes contribute. It is the last of the three terms in
+# ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``, so
+# on a large box it is usually the one that binds. It is also, for that reason,
+# roughly a memory ceiling: a warm spawned embedding worker measured ~85 MiB RSS
+# on the 2026-10-02 box, so 32 of them is about 2.5 GiB, held at the same time
+# as the optimizer workers' own torch/CUDA footprint. A caller who wants more
+# passes an explicit ``parallel_workers``.
+PARALLEL_EMBED_MAX_WORKERS = 32
+
 # Process exit codes owned outside the CLI.
 #
 # 143 = 128 + SIGTERM, the shell's convention for "terminated by SIGTERM", so a

@@ -83,6 +83,7 @@ def execute_run(
     batchsize_atoms: int | None = None,
     memory: int | None = None,
     tf32: bool | None = None,
+    parallel_embedding: bool | None = None,
     save_intermediate: bool = False,
     verbose: int = 0,
     quiet: bool = False,
@@ -121,6 +122,9 @@ def execute_run(
         batchsize_atoms: Atoms per optimization batch per GB.
         memory: RAM available to Auto3D in GB.
         tf32: Allow TF32 matmul on Ampere+ GPUs (Auto3DOptions.allow_tf32).
+        parallel_embedding: Embed conformers in parallel worker processes
+            (``Auto3DOptions.use_parallel_embedding``, on by default). The
+            ``--no-`` half is the way back to the serial path.
         save_intermediate: Keep all intermediate metadata (Auto3DOptions.verbose).
         verbose: Logging verbosity level (0-2).
         quiet: Suppress non-error output.
@@ -184,6 +188,7 @@ def execute_run(
                 "batchsize_atoms": batchsize_atoms,
                 "memory": memory,
                 "allow_tf32": tf32,
+                "use_parallel_embedding": parallel_embedding,
                 # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
                 # Only override when set, so a config-file `verbose: true` is preserved.
                 "verbose": True if save_intermediate else None,

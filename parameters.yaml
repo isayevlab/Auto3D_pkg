@@ -35,11 +35,14 @@ patience: 250
 batchsize_atoms: 1024
 
 # Parallel conformer embedding
-# Off by default: enabling it spawns worker processes, which changes a run's
-# resource profile. Runs stay serial below parallel_embedding_threshold
-# molecules even when it is on, since spawning costs more than it saves there.
-use_parallel_embedding: False
-parallel_workers: 4
+# On by default. parallel_workers: None means
+# min(cores // threads per worker, species, 32), where threads per worker is
+# mpi_np -- set a number to pin it instead. Runs stay serial below
+# parallel_embedding_threshold species (counted after stereoisomer enumeration
+# and enantiomer removal, not on this file's input) even when it is on, since
+# spawning costs more than it saves there.
+use_parallel_embedding: True
+parallel_workers: None
 parallel_embedding_threshold: 10
 
 # Performance settings

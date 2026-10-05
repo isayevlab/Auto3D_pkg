@@ -375,6 +375,46 @@ Configuration Options
        )
        output_path = main(config)
 
+Conformer Embedding
+~~~~~~~~~~~~~~~~~~~
+
+Initial conformers are embedded with ETKDG in parallel worker processes, for
+SMILES input with the RDKit isomer engine: ``use_parallel_embedding`` is on by
+default since 3.2.0 (SDF input and ``omega`` ignore it), and
+``parallel_workers`` is ``None``, meaning the worker count is resolved per run
+as ``min(cores // threads per worker, species, 32)`` -- threads per worker being
+``mpi_np``, which each worker hands RDKit, so the cores are shared out between
+workers rather than given to each of them. Set ``parallel_workers`` to pin a
+number, or pass ``use_parallel_embedding=False`` (``--no-parallel-embedding``)
+for the serial path, which also remains the path for runs with fewer species
+than ``parallel_embedding_threshold`` (10) -- species counted after
+stereoisomer enumeration and enantiomer removal, so one input SMILES with three
+unspecified stereocenters can cross the threshold on its own.
+
+``smiles2mols`` is the exception: it runs in your own process and ignores
+``use_parallel_embedding`` altogether, taking its own keyword instead --
+``smiles2mols(smiles, config, parallel_embedding=True)``. Worker processes
+re-import the calling script, which is safe only if that script keeps its work
+behind an ``if __name__ == "__main__":`` guard -- something ``main()`` has
+always required and the convenience API does not -- so the opt-in is asked for
+at the call, where you are looking at the entry point you have to guard.
+
+Independently of any of this, embedding one species is capped at 60 seconds --
+parallel or serial, and on the SDF engine as well as the SMILES one -- so a
+geometrically impossible stereoisomer is reported and skipped instead of holding
+up the run. Within that cap, an attempt that produces no conformer is retried
+once with random initial coordinates, on whatever is left of the 60 seconds; an
+attempt that used the whole cap is not retried, since the second one would have
+no time to work in. The two attempts together stay inside one cap.
+
+A species near the cap is the one case where the conformer set is not a property
+of the code alone. ETKDG returns whatever it managed to embed before the clock
+ran out, so such a species keeps a *partial* set whose size depends on machine
+load and on ``mpi_np`` and is therefore not reproducible run to run -- every
+other species is pinned by ``CONFORMER_RANDOM_SEED``. Raise
+``EMBED_TIMEOUT_S`` in ``Auto3D.foundation.constants`` if reproducibility
+matters more to you than the bound.
+
 Wrapper Functions
 -----------------
 

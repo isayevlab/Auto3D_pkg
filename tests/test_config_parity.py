@@ -394,6 +394,7 @@ class TestDuplicateInchikeyInputs:
     finding it claims to.
     """
 
+    @pytest.mark.slow
     def test_duplicate_smiles_both_survive(self, isolated_input, monkeypatch):
         """Two identical SMILES (same InChIKey) must each yield a structure
         in the output -- not collapse into a single winner.
@@ -403,6 +404,9 @@ class TestDuplicateInchikeyInputs:
         defect lives downstream of it, in the real grouping/ranking code);
         ranking and reorder_sdf run for real since they are what is under
         test.
+
+        Marked slow for its wall-clock cost (16.3 s on the 2026-10-02
+        durations run), not for GPU or network needs.
         """
         from rdkit import Chem
 

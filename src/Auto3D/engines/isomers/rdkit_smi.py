@@ -12,7 +12,6 @@ from rdkit import Chem
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -20,7 +19,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from tqdm import tqdm
 
 from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.domain.embedding import embed_params
+from Auto3D.domain.embedding import embed_with_retry, resolve_embedding_workers
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import (
@@ -48,10 +47,16 @@ class RDKitIsomer:
         np: Number of CPU threads for conformer generation.
         flipper: Whether to enumerate R/S and cis/trans isomers.
         use_parallel_embedding: Whether to use parallel conformer embedding.
-        parallel_embedding_threshold: Minimum number of molecules to trigger
-            parallel embedding. Default 10.
+            Off in this signature, which is the constructor default only: the
+            product default (``Auto3DOptions.use_parallel_embedding``) is ON
+            since 3.2.0, and both orchestrators pass it explicitly, so this
+            default is reached by direct callers alone.
+        parallel_embedding_threshold: Fewest species (after stereoisomer
+            enumeration) to trigger parallel embedding. Default 10.
         parallel_workers: Number of worker processes for parallel embedding.
-            Default 4.
+            None (the default) resolves to min(cores // threads per worker,
+            species, PARALLEL_EMBED_MAX_WORKERS) at dispatch, where "threads per
+            worker" is ``np``.
     """
 
     def __init__(
@@ -68,7 +73,7 @@ class RDKitIsomer:
         flipper: bool = True,
         use_parallel_embedding: bool = False,
         parallel_embedding_threshold: int = 10,
-        parallel_workers: int = 4,
+        parallel_workers: int | None = None,
     ) -> None:
         self.input_f = smi
         self.n_conformers = max_confs
@@ -154,9 +159,13 @@ class RDKitIsomer:
     def embed_conformer(self, smi: str) -> Chem.Mol | None:
         """Embed multiple 3D conformers for a SMILES string.
 
-        Returns None if the SMILES cannot be parsed, mirroring the parallel
-        worker (_embed_single) so a single unparseable SMILES is skipped rather
-        than crashing the whole serial embedding loop on AddHs(None).
+        Returns None if the SMILES cannot be parsed, so a single unparseable
+        SMILES is skipped rather than crashing the whole serial embedding loop on
+        AddHs(None). The parallel worker (``_embed_single``) skips the same two
+        cases but raises ``SpeciesSkipped`` instead, because the reason has to
+        cross a process boundary to be logged where the run log is; here the
+        caller is already ``_run_serial_embedding``, two frames away, so a
+        sentinel return is enough.
 
         Also returns None for a SMILES carrying a dummy atom (atomic number 0):
         an R-group placeholder is not a species, and AIMNet2 would score it
@@ -174,18 +183,10 @@ class RDKitIsomer:
             # CalcNumRotatableBonds only counts O-H / N-H torsions when hydrogens
             # are explicit, so the with-H count samples hydroxyl/amine rotors
             # that the no-H count drops (e.g. glycerol 238 vs 52 conformers).
-            n_conformers = calculate_conformer_count(mol)
-            AllChem.EmbedMultipleConfs(
-                mol,
-                numConfs=n_conformers,
-                params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
-            )
+            n = calculate_conformer_count(mol)
         else:
-            AllChem.EmbedMultipleConfs(
-                mol,
-                numConfs=self.n_conformers,
-                params=embed_params(n_threads=self.np, prune_rms_thresh=self.threshold),
-            )
+            n = self.n_conformers
+        embed_with_retry(mol, n_conformers=n, n_threads=self.np, prune_rms_thresh=self.threshold)
         return mol
 
     def run(self) -> str:
@@ -292,7 +293,19 @@ class RDKitIsomer:
         # ``Auto3D.domain.embedding`` and rely on this lookup re-reading it.
         from Auto3D.domain.embedding import embed_conformers_parallel
 
-        logger.info(f"Using parallel embedding with {self.parallel_workers} workers...")
+        # ``self.parallel_workers`` may be None ("scale to this machine"), and
+        # the pool needs a number. Resolved here rather than in __init__
+        # because the species count is only known once enumeration has run, and
+        # logged resolved rather than as requested -- a line reading "with None
+        # workers" told the user nothing about what the run is doing.
+        n_workers = resolve_embedding_workers(
+            self.parallel_workers, len(smi_name_tuples), threads_per_worker=self.np
+        )
+        logger.info(
+            "Using parallel embedding with %d worker processes for %d species",
+            n_workers,
+            len(smi_name_tuples),
+        )
 
         with Chem.SDWriter(self.enumerated_sdf) as writer:
             for mol, conf_idx, conf_id in embed_conformers_parallel(
@@ -300,7 +313,7 @@ class RDKitIsomer:
                 n_conformers=self.n_conformers,
                 threshold=self.threshold,
                 np_threads=self.np,
-                n_workers=self.parallel_workers,
+                n_workers=n_workers,
             ):
                 mol.SetProp("ID", conf_id)
                 mol.SetProp("_Name", conf_id)

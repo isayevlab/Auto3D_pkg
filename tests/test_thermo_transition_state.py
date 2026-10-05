@@ -152,6 +152,7 @@ class TestCalcThermoRoutesASaddlePointToTheFailures:
 
         return _StubNNP()
 
+    @pytest.mark.slow
     def test_the_documented_filter_selects_the_minimum_and_not_the_saddle(
         self, monkeypatch, tmp_path
     ):

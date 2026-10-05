@@ -142,6 +142,7 @@ class TestReorderSdfDurability:
 class TestOptGeometryDurability:
     """opt_geometry must not truncate the file it is rewriting."""
 
+    @pytest.mark.slow
     def test_input_survives_a_failed_rewrite(self, job_dir, monkeypatch):
         """A write failure partway through the unit-conversion rewrite pass must
         not lose the completed optimization.
@@ -152,14 +153,16 @@ class TestOptGeometryDurability:
         tripwire it carried was removed with that fix). It drives the real
         `opt_geometry` with the batch optimizer
         (Auto3D.engines.batch_opt.batchopt.optimizing) monkeypatched so no NNP loads,
-        keeping the test hermetic and in the fast tier while the real rewrite
-        pass runs unmodified.
+        keeping the test hermetic while the real rewrite pass runs unmodified.
 
         Opening Chem.SDWriter on an existing path truncates it immediately (see
         `_real_sdwriter` note above), so FlakyWriter below wraps the *real*
         writer -- letting that real truncation happen exactly as it would in
         production -- and only injects the write() failure after one record,
         reproducing an interrupted rewrite against an already-truncated file.
+
+        Marked slow for its wall-clock cost (5.3 s on the 2026-10-02 durations
+        run), not for GPU or network needs.
         """
         import Auto3D.entry.ASE.geometry as geometry
 
