@@ -266,6 +266,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"bent_reclassified_nonlinear"`, or `"bent_quasilinear_linear_rotor"`).
   The sigma=1 default and the `symmetry_number` input property are now
   documented in the usage guide next to the thermo properties.
+- `calculate_conformer_count` now counts rotatable bonds on the heavy-atom
+  graph (`Chem.RemoveHs`) instead of whatever hydrogen state its input
+  happened to carry. With explicit hydrogens, RDKit's
+  `CalcNumRotatableBonds` also counts C-O-H / C-N-H torsions, which heavy-atom
+  symmetry pruning collapses to one orientation per skeleton anyway (see
+  `Auto3D.domain.embedding.embed_params`), so the larger with-H request
+  bought more ETKDG attempts, not more rotamers. Molecules with hydroxyl or
+  amine groups now request a smaller conformer pool: glycerol
+  (`OCC(O)CO`) requests 52 conformers instead of 238, and keeps the same 9
+  after pruning either way; beta-D-glucopyranose
+  (`C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O`) requests 16 instead
+  of 321 and keeps 12 instead of 69 after pruning (both measured with
+  `CONFORMER_RANDOM_SEED`, `pruneRmsThresh=0.3`, `useSymmetryForPruning=True`).
+  Pass `max_confs` for a larger pool.
 
 ## [3.1.1] - 2026-08-27
 

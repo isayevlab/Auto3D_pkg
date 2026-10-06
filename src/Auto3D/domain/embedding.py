@@ -330,15 +330,11 @@ def _embed_single(
     mol = Chem.AddHs(mol_noh)
 
     if n_conformers is None:
-        # Compute the conformer budget on the H-complete (AddHs) mol so the
-        # parallel path agrees with the serial/SDF paths. The with-H count is
-        # the larger one (CalcNumRotatableBonds counts C-O-H / C-N-H torsions
-        # only when the hydrogens are explicit: glycerol 238 vs 52), and what
-        # the larger budget buys is more ETKDG attempts, hence more distinct
-        # heavy-atom skeletons surviving pruning (glucose 101 vs 13 kept at
-        # pruneRmsThresh 0.3). It does NOT sample O-H / N-H rotamers: pruning
-        # compares heavy atoms only (see `embed_params`), so at most one
-        # hydroxyl orientation per skeleton enters the pool (N-M1).
+        # calculate_conformer_count counts rotatable bonds on the heavy-atom
+        # graph (Chem.RemoveHs internally), so it returns the same budget
+        # whether it is handed this H-complete (AddHs) mol or the serial/SDF
+        # paths' own representation -- the parallel path agrees with them
+        # regardless of which hydrogen state each one happens to pass in.
         n_conformers = calculate_conformer_count(mol)
 
     embed_with_retry(

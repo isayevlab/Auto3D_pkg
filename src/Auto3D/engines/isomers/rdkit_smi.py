@@ -178,11 +178,9 @@ class RDKitIsomer:
             return None
         mol = Chem.AddHs(mol_noh)
         if self.n_conformers is None:
-            # Compute the conformer budget on the H-complete (AddHs) mol so the
-            # SMILES and SDF paths agree, and on the larger with-H count. The
-            # larger budget buys more distinct heavy-atom skeletons after
-            # pruning, not O-H / N-H rotamers (pruning compares heavy atoms
-            # only); see `_embed_single` in Auto3D.domain.embedding.
+            # calculate_conformer_count counts on the heavy-atom graph, so the
+            # SMILES and SDF paths agree whatever hydrogen state each one
+            # passes in; see `_embed_single` in Auto3D.domain.embedding.
             n = calculate_conformer_count(mol)
         else:
             n = self.n_conformers
