@@ -120,14 +120,17 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # molecule of 24, measured as a same-start lower bound on a shared card; a
 # pair of different starts in one basin is bounded by the same gate. ANI2x's
 # float32 total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV: every
-# nonzero spread this measurement saw was 1 or 5 of those ULPs, and a
-# heavy-atom RMSD check of the largest-spread molecule's three final
-# geometries confirms the spread is basin position seen through quantization,
-# not a different rotamer (all below 0.02 A;
-# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json). Its
-# measured maximum reached 2.0e-2 eV, above this tolerance: with that engine
-# two copies of one minimum can survive dedup for large molecules
-# (docs/source/usage.rst, "Reproducibility across reruns").
+# nonzero spread this measurement saw was 1 or 5 of those ULPs. A second
+# sample's heavy-atom RMSD check (all below 0.02 A;
+# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json) confirms
+# basin position, not a different rotamer, for a 1-ULP ANI2x spread
+# (3.9e-3 eV) -- but the measured maximum, 2.0e-2 eV, is a 5-ULP event that
+# did NOT recur in that second sample, so whether IT is basin position or two
+# rotamers is not established (benchmarks/results-notes/2026-10-05-batch-noise.md,
+# "Same minimum?"). Above this tolerance either way: with that engine two
+# copies of a conformer -- of one minimum, or of two that happen to agree in
+# energy -- can survive dedup for large molecules (docs/source/usage.rst,
+# "Reproducibility across reruns").
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by

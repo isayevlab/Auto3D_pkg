@@ -528,8 +528,12 @@ and 2.0e-3 eV for ANI2xt -- 5.8x and 4.96x below the 0.01 eV
 ``DEFAULT_DUPLICATE_ENERGY_TOL`` mentioned below, respectively; and up to
 about 2e-2 eV for ANI2x, whose total energy is a float32 quantity. A
 duplicate-conformer decision sitting at ``DEFAULT_DUPLICATE_ENERGY_TOL``
-(0.01 eV) can therefore flip between reruns, and with ANI2x two copies of one
-minimum can both survive for large molecules. Pass ``memory=<GB>`` (``--memory``
+(0.01 eV) can therefore flip between reruns; for ANI2x specifically, one
+observed event above the tolerance (2e-2 eV) would let two copies of a
+conformer survive for a large molecule -- whether that event is the same
+minimum landed on twice or two different, near-degenerate rotamers is not
+established (``benchmarks/results-notes/2026-10-05-batch-noise.md``, "Same
+minimum?"); either way the duplicate survives. Pass ``memory=<GB>`` (``--memory``
 on the command line) to pin the batch composition; the remaining rerun-to-rerun
 difference at a fixed composition measured 3.8e-6 eV on the same box.
 

@@ -111,18 +111,37 @@ of the three arrangements' final geometries.
 | ANI2x | `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1` | 42 | 3.91e-03 eV | 0.003 A | 0.015 A | 0.017 A |
 
 (Full detail: `benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json`.
-The worst molecule in this second sample is not always the same one that was
-worst in the main GPU run on 2026-10-05 -- a shared card's noise picks a
-different outlier from run to run -- so this checks the mechanism in general
-rather than re-measuring the exact 2026-10-05 outlier.)
+The worst molecule per engine differs between the two GPU samples -- a
+shared card's noise picks a different outlier from run to run -- and all
+three worst molecules above converged in every arrangement, so each RMSD
+compares a meaningful pair of final geometries, not an unconverged one.)
 
 Every RMSD above is at least an order of magnitude below
-`DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines, including ANI2x. The
-"two optimizations of one minimum" wording in `constants.py` and this note
-therefore stands as written: the largest-spread molecule checked here lands
-in the same heavy-atom geometry regardless of arrangement, for every engine,
-so the spread is basin position (seen through float32 quantization for
-ANI2x), not two different rotamers passing the force gate.
+`DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines: each checked
+molecule's three final geometries agree, so its own spread is basin position,
+not a different rotamer passing the force gate. But this does NOT establish
+the mechanism behind section 3's headline ANI2x figure (1.95e-2 eV,
+`CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O`, a 5-ULP spread): that specific
+molecule's ANI2x spread in this second sample is 0.0 eV (bit-identical --
+the 5-ULP event did not recur), so its geometries were never captured and
+its mechanism is NOT checked here. The one largest-spread ANI2x case this
+sample DID verify as one minimum, `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1`, is
+a 1-ULP spread (3.91e-3 eV) -- below `DEFAULT_DUPLICATE_ENERGY_TOL`, so it was
+never the figure of concern. Suggestively, the SAME molecule named in R40
+turned up as ANI2xt's worst in this sample (2.39e-3 eV, fp64, RMSD <= 0.054 A)
+and landed in one basin there -- but that is a different potential energy
+surface, not a measurement of ANI2x's 5-ULP event, so it is evidence, not a
+substitute check. Whether the 1.95e-2 eV event is basin position or two
+rotamers therefore remains OPEN; re-running `--save-geometries` enough times
+to catch a recurrence is possible but stochastic, and was not done here.
+
+This second sample is also a reminder that the 0.01 eV tolerance's margin
+over AIMNet2 and ANI2xt is itself a same-start lower bound measured once on a
+shared card, not a fixed property of the engines: here AIMNet2's maximum was
+4.05e-3 eV (2.5x below 0.01) and ANI2xt's was 2.39e-3 eV (4.2x below it) --
+both LOWER margins than the 2026-10-05 sample's 5.8x / 4.96x. The budgets and
+the quoted maxima stay the 2026-10-05 figures (section 7); this sample only
+adds that a repeat measurement can land on either side of "about 5x."
 
 ## 5. Reading
 
@@ -173,6 +192,8 @@ No timing was measured (energies only); the GPU card was shared with another
 user's job throughout the run, so nothing here is a performance claim, and no
 engine is compared against another in this note. The budgets and the quoted
 maxima come from the 2026-10-05 GPU and CPU runs only; the 2026-10-06
-geometry sample (section 4) is a second, independent measurement used solely
-to check the one-minimum-vs-two-rotamers question, not a replacement source
-for any figure elsewhere in this note.
+geometry sample (section 4) is a second, independent measurement, not a
+replacement source for any figure elsewhere in this note -- and it did not
+reproduce the specific 5-ULP ANI2x event section 3 names, so it checks the
+one-minimum-vs-two-rotamers question only for the molecules it happened to
+land on, not for that event.
