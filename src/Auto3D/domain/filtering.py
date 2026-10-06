@@ -324,7 +324,9 @@ def _filter_within_cluster(
             ``rmsd_threshold`` AND the energies agree within this tolerance. The
             energy term preserves conformers that differ only in an O-H / N-H
             rotor orientation (RMSD~=0 on heavy atoms but distinct minima with
-            different energies); the compound term preserves distinct
+            different energies), which arise when the optimizer settles the hydrogens
+            differently on one skeleton (the embedding stage does not sample them;
+            see ``Auto3D.domain.embedding.embed_params``); the compound term preserves distinct
             stereoisomers, which arrive here in one group and whose heavy-atom
             RMSD can fall below the default threshold
             (:func:`Auto3D.foundation.utils.stereo_check.species_key`).

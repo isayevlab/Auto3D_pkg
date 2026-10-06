@@ -155,10 +155,11 @@ class RDKitSdfIsomer:
                     if self.n_conformers is None:
                         # Compute the conformer budget on the H-complete (AddHs)
                         # mol so the SDF path agrees with the SMILES path on the
-                        # RICHER with-H count. AddHs is idempotent for a mol that
-                        # already carries explicit Hs (3D SDFs read with
-                        # removeHs=False), so this yields the same count
-                        # regardless of input format.
+                        # larger with-H count (more skeletons after pruning, not
+                        # O-H / N-H rotamers; see `_embed_single` in
+                        # Auto3D.domain.embedding). AddHs is idempotent for a
+                        # mol that already carries explicit Hs (3D SDFs read with
+                        # removeHs=False), so the count is format independent.
                         n_conformers = calculate_conformer_count(mol2)
                     else:
                         n_conformers = self.n_conformers

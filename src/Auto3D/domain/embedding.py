@@ -182,6 +182,14 @@ def embed_params(
     conformer pool a property of this code, in the same way
     ``CONFORMER_RANDOM_SEED`` does.
 
+    With ``useSymmetryForPruning=True`` RDKit prunes on heavy atoms whatever
+    ``onlyHeavyAtomsForRMS`` says (measured: glycerol keeps 9 conformers with
+    either RMS flag, 206 with symmetry pruning off and all-atom RMS), so the
+    pool holds one hydroxyl / amine orientation per heavy-atom skeleton; the
+    optimizer, not the embedding, decides where those hydrogens end up.
+    ``onlyHeavyAtomsForRMS`` is still stated so the intent survives a future
+    ``useSymmetryForPruning=False``.
+
     ``ETKDGv3()`` rather than a bare ``EmbedParameters()``: it is exactly the
     parameterization the keyword form applied. Verified field by field --
     ``useExpTorsionAnglePrefs``, ``useBasicKnowledge``, ``useMacrocycleTorsions``
@@ -323,9 +331,14 @@ def _embed_single(
 
     if n_conformers is None:
         # Compute the conformer budget on the H-complete (AddHs) mol so the
-        # parallel path agrees with the serial/SDF paths on the RICHER with-H
-        # count: CalcNumRotatableBonds only counts O-H / N-H torsions when
-        # hydrogens are explicit (e.g. glycerol 238 vs 52 conformers).
+        # parallel path agrees with the serial/SDF paths. The with-H count is
+        # the larger one (CalcNumRotatableBonds counts C-O-H / C-N-H torsions
+        # only when the hydrogens are explicit: glycerol 238 vs 52), and what
+        # the larger budget buys is more ETKDG attempts, hence more distinct
+        # heavy-atom skeletons surviving pruning (glucose 101 vs 13 kept at
+        # pruneRmsThresh 0.3). It does NOT sample O-H / N-H rotamers: pruning
+        # compares heavy atoms only (see `embed_params`), so at most one
+        # hydroxyl orientation per skeleton enters the pool (N-M1).
         n_conformers = calculate_conformer_count(mol)
 
     embed_with_retry(
