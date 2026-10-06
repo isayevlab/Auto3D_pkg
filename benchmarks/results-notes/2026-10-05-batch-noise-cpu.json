@@ -1,11 +1,11 @@
 {
  "env": {
-  "gpu": "NVIDIA L40S",
+  "gpu": "CPU-ONLY",
   "torch": "2.9.1+cu128",
   "cuda": "12.8",
   "capability": "8.9",
   "python": "3.13.12",
-  "commit": "34d5461",
+  "commit": "8038c09",
   "ref": "worktree-fix-dedup-tolerance",
   "auto3d_path": "/home/olexandr/auto3d/.claude/worktrees/fix-dedup-tolerance/src/Auto3D"
  },
@@ -197,7 +197,7 @@
     "p90": 0.0,
     "max": 0.0
    },
-   "seconds": 75.77489939238876
+   "seconds": 176.6437761518173
   },
   "ANI2xt": {
    "single_point": [
@@ -382,7 +382,7 @@
     "p90": 0.0,
     "max": 0.0
    },
-   "seconds": 56.66378042893484
+   "seconds": 55.9824377708137
   },
   "ANI2x": {
    "single_point": [
@@ -567,7 +567,7 @@
     "p90": 0.0,
     "max": 0.0
    },
-   "seconds": 248.4178944262676
+   "seconds": 256.27792830811813
   }
  }
 }

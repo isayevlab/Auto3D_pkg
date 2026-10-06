@@ -67,7 +67,7 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     to one per skeleton (see ``Auto3D.domain.embedding.embed_params``) -- the
     larger with-H request bought nothing for those orientations, only more
     ETKDG attempts, which did leave more distinct skeletons for polyols after
-    pruning (measured with ``Auto3D.domain.embedding.embed_params`` at
+    pruning (measured with those same embedding settings at
     ``CONFORMER_RANDOM_SEED``, ``pruneRmsThresh=0.3``,
     ``useSymmetryForPruning=True``: glycerol, ``OCC(O)CO``, keeps 9 conformers
     whether 52 or 238 are requested; beta-D-glucopyranose,

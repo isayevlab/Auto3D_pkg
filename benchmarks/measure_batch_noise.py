@@ -73,27 +73,68 @@ def single_point_rows(model, groups, device) -> tuple[list[dict], list[float]]:
     return rows, rerun
 
 
-def _optimize(model, batch, device) -> tuple[list[float], list[bool]]:
+def _optimize(
+    model, batch, device, return_coords: bool = False
+) -> tuple[list[float], list[bool]] | tuple[list[float], list[bool], list]:
     from Auto3D.engines.batch_opt.optimization_engine import n_steps
 
     state, mask, _ = make_state(batch, len(batch), device, model)
     n_steps(state, n=MAX_STEPS, opttol=OPTTOL, patience=PATIENCE, atom_mask=mask)
-    return (
-        [float(x) for x in state["energy"].tolist()],
-        [bool(x) for x in state["converged_mask"].tolist()],
-    )
+    energies = [float(x) for x in state["energy"].tolist()]
+    converged = [bool(x) for x in state["converged_mask"].tolist()]
+    if not return_coords:
+        return energies, converged
+    coords = [
+        state["coord"][i, : mol.GetNumAtoms()].detach().cpu().numpy() for i, mol in enumerate(batch)
+    ]
+    return energies, converged, coords
 
 
-def post_opt_rows(model, groups, device) -> tuple[list[dict], dict]:
+def _mol_at(mol, coords):
+    """A copy of ``mol`` with its conformer positions replaced by ``coords``."""
+    from rdkit import Chem
+
+    out = Chem.Mol(mol)
+    conf = out.GetConformer()
+    for i in range(out.GetNumAtoms()):
+        conf.SetAtomPosition(i, [float(x) for x in coords[i]])
+    return out
+
+
+def _heavy_atom_rmsd(mol_a, mol_b) -> float:
+    """Heavy-atom best RMSD, the same comparison domain/filtering.py uses."""
+    from rdkit import Chem
+    from rdkit.Chem import rdMolAlign
+
+    return float(rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_a), Chem.RemoveHs(mol_b)))
+
+
+def post_opt_rows(
+    model, groups, device, save_geometries: bool = False
+) -> tuple[list[dict], dict, dict | None]:
     everything = [m for g in groups.values() for m in g]
-    e_all, c_all = _optimize(model, everything, device)
+    if save_geometries:
+        e_all, c_all, coords_all = _optimize(model, everything, device, return_coords=True)
+    else:
+        e_all, c_all = _optimize(model, everything, device)
+        coords_all = None
     e_grp: list[float] = []
     c_grp: list[bool] = []
+    coords_grp = [] if save_geometries else None
     for g in groups.values():
-        e, c = _optimize(model, g, device)
+        if save_geometries:
+            e, c, cg = _optimize(model, g, device, return_coords=True)
+            coords_grp += cg
+        else:
+            e, c = _optimize(model, g, device)
         e_grp += e
         c_grp += c
-    e_rev, c_rev = _optimize(model, everything[::-1], device)
+    if save_geometries:
+        e_rev, c_rev, coords_rev = _optimize(model, everything[::-1], device, return_coords=True)
+        coords_rev = coords_rev[::-1]
+    else:
+        e_rev, c_rev = _optimize(model, everything[::-1], device)
+        coords_rev = None
     e_rev, c_rev = e_rev[::-1], c_rev[::-1]
     rows = []
     for i, mol in enumerate(everything):
@@ -106,7 +147,28 @@ def post_opt_rows(model, groups, device) -> tuple[list[dict], dict]:
                 "spread": max(values) - min(values),
             }
         )
-    return rows, {"all": sum(c_all), "groups": sum(c_grp), "reversed": sum(c_rev)}
+    worst_geometry_check = None
+    if save_geometries:
+        worst_idx = max(range(len(everything)), key=lambda i: rows[i]["spread"])
+        mol = everything[worst_idx]
+        m_all = _mol_at(mol, coords_all[worst_idx])
+        m_grp = _mol_at(mol, coords_grp[worst_idx])
+        m_rev = _mol_at(mol, coords_rev[worst_idx])
+        worst_geometry_check = {
+            "name": mol.GetProp("_Name"),
+            "atoms": mol.GetNumAtoms(),
+            "spread": rows[worst_idx]["spread"],
+            "rmsd": {
+                "all-groups": _heavy_atom_rmsd(m_all, m_grp),
+                "all-reversed": _heavy_atom_rmsd(m_all, m_rev),
+                "groups-reversed": _heavy_atom_rmsd(m_grp, m_rev),
+            },
+        }
+    return (
+        rows,
+        {"all": sum(c_all), "groups": sum(c_grp), "reversed": sum(c_rev)},
+        worst_geometry_check,
+    )
 
 
 def summarize(spreads) -> dict:
@@ -132,6 +194,15 @@ def main() -> None:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--engines", default=",".join(ENGINES))
     parser.add_argument("--skip-post-opt", action="store_true")
+    parser.add_argument(
+        "--save-geometries",
+        action="store_true",
+        help=(
+            "For each engine's largest-spread post-optimization molecule, also "
+            "keep the final geometry of each arrangement and the pairwise "
+            "heavy-atom RMSD between them."
+        ),
+    )
     parser.add_argument("--out", required=True, help="JSON file to write")
     args = parser.parse_args()
 
@@ -139,8 +210,13 @@ def main() -> None:
 
     device = torch.device(args.device)
     groups = build_mols()
+    env = env_block()
+    if device.type == "cpu":
+        # env_block() checks torch.cuda.is_available(), not --device: on a box
+        # with GPUs it reports the GPU's name even for a CPU run.
+        env["gpu"] = "CPU-ONLY"
     record = {
-        "env": env_block(),
+        "env": env,
         "device": str(device),
         "opttol": OPTTOL,
         "patience": PATIENCE,
@@ -161,12 +237,16 @@ def main() -> None:
             "same_composition_rerun_summary": summarize(rerun),
         }
         if not args.skip_post_opt:
-            po_rows, counts = post_opt_rows(model, groups, device)
+            po_rows, counts, worst_geometry_check = post_opt_rows(
+                model, groups, device, save_geometries=args.save_geometries
+            )
             entry["post_opt"] = po_rows
             entry["post_opt_converged"] = counts
             entry["post_opt_summary"] = summarize(
                 r["spread"] for r in po_rows if r["converged_everywhere"]
             )
+            if worst_geometry_check is not None:
+                entry["worst_geometry_check"] = worst_geometry_check
         entry["seconds"] = time.perf_counter() - started
         record["engines"][engine] = entry
         del model

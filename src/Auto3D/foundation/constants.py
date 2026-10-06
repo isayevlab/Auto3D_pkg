@@ -114,12 +114,20 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # optimizations of the SAME minimum can land apart at the 0.01 eV/A force gate,
 # not float32 kernel noise: on the 24-molecule bench set the same start optimized
 # in three batch arrangements ended up to 1.7e-3 eV (AIMNet2) and 2.0e-3 eV
-# (ANI2xt) apart (benchmarks/results-notes/2026-10-05-batch-noise.md), so 0.01 is
-# about five times that spread, and a pair of different starts in one basin is
-# bounded by the same gate. ANI2x's float32 total energy is quantized at 2-4e-3 eV
-# above |E| ~ 2e4 eV and its measured spread reached 2.0e-2 eV, above this
-# tolerance: with that engine two copies of one minimum can survive dedup for
-# large molecules (docs/source/usage.rst, "Reproducibility across reruns").
+# (ANI2xt) apart (benchmarks/results-notes/2026-10-05-batch-noise.md). 0.01 is
+# 5.8x AIMNet2's measured maximum and 4.96x ANI2xt's -- the >=5x decision gate
+# is met for AIMNet2 and missed by about one percent for ANI2xt, on one
+# molecule of 24, measured as a same-start lower bound on a shared card; a
+# pair of different starts in one basin is bounded by the same gate. ANI2x's
+# float32 total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV: every
+# nonzero spread this measurement saw was 1 or 5 of those ULPs, and a
+# heavy-atom RMSD check of the largest-spread molecule's three final
+# geometries confirms the spread is basin position seen through quantization,
+# not a different rotamer (all below 0.02 A;
+# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json). Its
+# measured maximum reached 2.0e-2 eV, above this tolerance: with that engine
+# two copies of one minimum can survive dedup for large molecules
+# (docs/source/usage.rst, "Reproducibility across reruns").
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by

@@ -93,7 +93,38 @@ Three worst molecules per engine (name is the bench SMILES, as recorded by
   - `Clc1ccccc1` (12 atoms): 1.95e-03 eV
   - `CC(C)Cc1ccc(cc1)C(C)C(=O)O` (33 atoms): 1.95e-03 eV
 
-## 4. Reading
+## 4. Same minimum?
+
+R40 asks whether the post-optimization spread reflects basin position (the
+same minimum, reached by slightly different optimizer paths) or two distinct
+rotamers that both happen to pass the 0.01 eV/A force gate. Checked with a
+second, independent GPU sample (`--save-geometries`, same card and settings
+as the main GPU run, 2026-10-06): for each engine's largest-spread molecule
+in THIS sample, the heavy-atom RMSD (`rdMolAlign.GetBestRMS` on the no-H
+forms, the same comparison `_filter_within_cluster` uses) between each pair
+of the three arrangements' final geometries.
+
+| engine | worst molecule (this sample) | atoms | spread (this sample) | RMSD all-groups | RMSD all-reversed | RMSD groups-reversed |
+|---|---|---|---|---|---|---|
+| AIMNET | `c1ccc2[nH]ccc2c1C(=O)NCC` | 26 | 4.05e-03 eV | 0.035 A | 0.036 A | 0.001 A |
+| ANI2xt | `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O` | 41 | 2.39e-03 eV | 0.054 A | 0.0001 A | 0.054 A |
+| ANI2x | `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1` | 42 | 3.91e-03 eV | 0.003 A | 0.015 A | 0.017 A |
+
+(Full detail: `benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json`.
+The worst molecule in this second sample is not always the same one that was
+worst in the main GPU run on 2026-10-05 -- a shared card's noise picks a
+different outlier from run to run -- so this checks the mechanism in general
+rather than re-measuring the exact 2026-10-05 outlier.)
+
+Every RMSD above is at least an order of magnitude below
+`DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines, including ANI2x. The
+"two optimizations of one minimum" wording in `constants.py` and this note
+therefore stands as written: the largest-spread molecule checked here lands
+in the same heavy-atom geometry regardless of arrangement, for every engine,
+so the spread is basin position (seen through float32 quantization for
+ANI2x), not two different rotamers passing the force gate.
+
+## 5. Reading
 
 1. The rewritten padding-invariance budgets, 1e-4 eV (AIMNet2) and 5e-5 eV
    (ANI2xt) -- ten times the larger of each engine's GPU and CPU single-point
@@ -106,13 +137,15 @@ Three worst molecules per engine (name is the bench SMILES, as recorded by
    it needs the per-molecule float32-ULP rule rather than a fixed number.
 2. After optimization the spread is set by where the optimizer stops inside
    the basin at the 0.01 eV/A gate, not by kernel noise: 1.71e-3 eV (AIMNet2)
-   and 2.02e-3 eV (ANI2xt), so `DEFAULT_DUPLICATE_ENERGY_TOL = 0.01` eV
-   satisfies the spec's 5x rule for both of them (5x the measured spread,
-   quoted to two significant figures, is 8.5e-3 / 1.0e-2 eV). ANI2x's spread,
-   1.95e-2 eV, is itself almost twice the 0.01 eV tolerance, so ANI2x does
-   NOT satisfy the spec's 5x rule -- a 5x margin for it would need a 0.098 eV
-   tolerance, which the plan author has already rejected as far too loose for
-   dedup (R36 option c).
+   and 2.02e-3 eV (ANI2xt). `DEFAULT_DUPLICATE_ENERGY_TOL = 0.01` eV is 5.8x
+   AIMNet2's measured maximum and 4.96x ANI2xt's -- the spec's literal >=5x
+   decision gate is met for AIMNet2 and missed by about one percent for
+   ANI2xt, on one molecule of 24, measured as a same-start lower bound on a
+   shared card; the owner kept 0.01 (D11) with these ratios in front of them.
+   ANI2x's spread, 1.95e-2 eV, is itself almost twice the 0.01 eV tolerance,
+   so ANI2x does NOT satisfy the spec's 5x rule -- a 5x margin for it would
+   need a 0.098 eV tolerance, which the plan author has already rejected as
+   far too loose for dedup (R36 option c).
 3. WS7's planned single 5e-3 eV bench outcome gate would pass AIMNet2 /
    ANI2xt A/B comparisons (post-optimization maxima 1.71e-3 / 2.02e-3 eV, both
    under the gate) and would abort every ANI2x A/B comparison (post-optimization
@@ -124,7 +157,7 @@ Three worst molecules per engine (name is the bench SMILES, as recorded by
    measured fp32 ULP range (4.9e-4..3.9e-3 eV) for these molecules' |E|,
    because ANI2x's total energy is itself a float32 quantity.
 
-## 5. Recommendation for D11
+## 6. Recommendation for D11
 
 Keep `DEFAULT_DUPLICATE_ENERGY_TOL` at 0.01 eV and document the ANI2x limit
 (`usage.rst`, the ANI2x adapter docstring) rather than the two alternatives
@@ -134,8 +167,12 @@ which engine produced an energy) or raising the tolerance for every engine
 (R36 option c, rejected by the plan author because 0.02 eV / 0.46 kcal/mol
 starts merging distinct low-energy rotamers).
 
-## 6. What this note is not
+## 7. What this note is not
 
 No timing was measured (energies only); the GPU card was shared with another
 user's job throughout the run, so nothing here is a performance claim, and no
-engine is compared against another in this note.
+engine is compared against another in this note. The budgets and the quoted
+maxima come from the 2026-10-05 GPU and CPU runs only; the 2026-10-06
+geometry sample (section 4) is a second, independent measurement used solely
+to check the one-minimum-vs-two-rotamers question, not a replacement source
+for any figure elsewhere in this note.
