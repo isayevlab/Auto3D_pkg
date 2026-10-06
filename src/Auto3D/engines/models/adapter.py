@@ -907,7 +907,10 @@ class ANI2xAdapter(BaseModelAdapter):
             Tuple of (energies, forces) in eV units. ``forces`` is cast to
             ``coords``' input dtype; ``energies`` is returned at whatever
             dtype the model produced it, NOT downcast to match (see the
-            comment at the return statement -- issue #5).
+            comment at the return statement -- issue #5). That dtype is
+            torchani 2.8.4's float32 self-energy buffer, so the total is
+            quantized at ~2-4e-3 eV above |E| ~ 2e4 eV (see the comment at
+            the return statement).
         """
         # Convert to float32 for ANI2x (it uses float32 internally)
         input_dtype = coords.dtype

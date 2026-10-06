@@ -515,7 +515,7 @@ syntax, Python uses ``param_name`` in ``Auto3DOptions``.
      - Output folder name
 
 Reproducibility across reruns
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 With ``memory`` unset on a GPU, Auto3D reads the card's free memory from
 ``nvidia-smi`` once per run and scales ``batchsize_atoms`` by it, so on a shared
@@ -524,7 +524,7 @@ Energies then differ at the batch-composition noise level, measured on one box
 in ``benchmarks/results-notes/2026-10-05-batch-noise.md``: below 1e-5 eV for a
 single-point AIMNet2 or ANI2xt energy, up to about 2e-3 eV for the same conformer
 after optimization (the optimizer stops at a slightly different point of the
-same basin), and up to about 1e-2 eV for ANI2x, whose total energy is a float32
+same basin), and up to about 2e-2 eV for ANI2x, whose total energy is a float32
 quantity. A duplicate-conformer decision sitting at ``DEFAULT_DUPLICATE_ENERGY_TOL``
 (0.01 eV) can therefore flip between reruns, and with ANI2x two copies of one
 minimum can both survive for large molecules. Pass ``memory=<GB>`` (``--memory``

@@ -25,8 +25,8 @@ PYTHONPATH=src python benchmarks/measure_batch_noise.py --device cpu \
     --skip-post-opt --out benchmarks/results-notes/2026-10-05-batch-noise-cpu.json
 ```
 
-Both engines ran to completion for all three engines on both the GPU and the
-CPU; no `create_model` failure and no engine needed to be dropped.
+Both runs completed for all three engines on both the GPU and the CPU; no
+`create_model` failure and no engine needed to be dropped.
 
 ## 2. Single-point composition noise
 
