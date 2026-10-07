@@ -267,7 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The sigma=1 default and the `symmetry_number` input property are now
   documented in the usage guide next to the thermo properties.
 - `calculate_conformer_count` now counts rotatable bonds on the heavy-atom
-  graph (`Chem.RemoveHs`) instead of whatever hydrogen state its input
+  graph (`Chem.RemoveAllHs`) instead of whatever hydrogen state its input
   happened to carry. With explicit hydrogens, RDKit's
   `CalcNumRotatableBonds` also counts C-O-H / C-N-H torsions, which heavy-atom
   symmetry pruning collapses to one orientation per skeleton anyway (see

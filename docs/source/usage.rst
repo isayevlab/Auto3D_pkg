@@ -522,9 +522,9 @@ With ``memory`` unset on a GPU, Auto3D reads the card's free memory from
 card the sub-batch composition can differ between two runs of the same input.
 Energies then differ at the batch-composition noise level, measured on one box
 in ``benchmarks/results-notes/2026-10-05-batch-noise.md``: below 1e-5 eV for a
-single-point AIMNet2 or ANI2xt energy; after optimization (the optimizer stops
-at a slightly different point of the same basin), up to 1.7e-3 eV for AIMNet2
-and 2.0e-3 eV for ANI2xt -- 5.8x and 4.96x below the 0.01 eV
+single-point AIMNet2 or ANI2xt energy; after optimization, up to 1.7e-3 eV
+for AIMNet2 and 2.0e-3 eV for ANI2xt -- where the optimizer stopped at a
+slightly different point of the same basin, 5.8x and 4.96x below the 0.01 eV
 ``DEFAULT_DUPLICATE_ENERGY_TOL`` mentioned below, respectively; and up to
 about 2e-2 eV for ANI2x, whose total energy is a float32 quantity. A
 duplicate-conformer decision sitting at ``DEFAULT_DUPLICATE_ENERGY_TOL``

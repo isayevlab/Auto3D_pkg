@@ -9,7 +9,10 @@
 - **CPU:** AMD EPYC 7H12 64-Core Processor (`lscpu`).
 - **Versions:** torch 2.9.1+cu128, CUDA 12.8, aimnet 0.2.0.post1.dev34+g8092749f9.d20260617,
   torchani 2.8.4, RDKit 2025.09.6.
-- **Commit:** `34d5461` (branch `worktree-fix-dedup-tolerance`).
+- **Commit:** GPU run `34d5461`; CPU run rerun at `8038c09` (F7 regenerated it
+  after the `env.gpu` fix); the 2026-10-06 geometry sample (section 4) also
+  at `8038c09` (branch `worktree-fix-dedup-tolerance`; each JSON's own `env`
+  block is the source of record).
 - **Bench set:** the 24 fixed SMILES (8 small / 8 medium / 8 large) in
   `benchmarks/bench_optimization_perf.py::SMILES`, embedded with ETKDGv3,
   `randomSeed=0xA173D`.
@@ -40,7 +43,7 @@ GPU (NVIDIA L40S, shared):
 | engine | SP median | SP p90 | SP max | same-composition rerun max | fp32 ULP range |
 |---|---|---|---|---|---|
 | AIMNET | 2.87e-06 | 4.78e-06 | 5.08e-06 | 3.85e-06 | 4.9e-4..3.9e-3 |
-| ANI2xt | 1.12e-06 | 2.14e-06 | 3.32e-06 | 1.24e-06 | 4.9e-4..3.9e-3 |
+| ANI2xt | 1.12e-06 | 2.14e-06 | 3.32e-06 | 1.24e-06 | n/a (fp64 total) |
 | ANI2x | 0.00e+00 | 9.77e-04 | 1.95e-03 | 0.00e+00 | 4.9e-4..3.9e-3 |
 
 CPU (AMD EPYC 7H12):
@@ -48,7 +51,7 @@ CPU (AMD EPYC 7H12):
 | engine | SP median | SP p90 | SP max | same-composition rerun max | fp32 ULP range |
 |---|---|---|---|---|---|
 | AIMNET | 5.81e-07 | 1.55e-06 | 2.85e-06 | 0.00e+00 | 4.9e-4..3.9e-3 |
-| ANI2xt | 1.22e-06 | 2.51e-06 | 3.03e-06 | 0.00e+00 | 4.9e-4..3.9e-3 |
+| ANI2xt | 1.22e-06 | 2.51e-06 | 3.03e-06 | 0.00e+00 | n/a (fp64 total) |
 | ANI2x | 0.00e+00 | 1.66e-03 | 3.91e-03 | 0.00e+00 | 4.9e-4..3.9e-3 |
 
 The fp32 ULP range is identical on both boxes (it depends only on the
@@ -107,7 +110,7 @@ of the three arrangements' final geometries.
 | engine | worst molecule (this sample) | atoms | spread (this sample) | RMSD all-groups | RMSD all-reversed | RMSD groups-reversed |
 |---|---|---|---|---|---|---|
 | AIMNET | `c1ccc2[nH]ccc2c1C(=O)NCC` | 26 | 4.05e-03 eV | 0.035 A | 0.036 A | 0.001 A |
-| ANI2xt | `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O` | 41 | 2.39e-03 eV | 0.054 A | 0.0001 A | 0.054 A |
+| ANI2xt | `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O` | 41 | 2.39e-03 eV | 0.054 A | 6.5e-05 A | 0.054 A |
 | ANI2x | `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1` | 42 | 3.91e-03 eV | 0.003 A | 0.015 A | 0.017 A |
 
 (Full detail: `benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json`.
@@ -119,7 +122,7 @@ compares a meaningful pair of final geometries, not an unconverged one;
 before a molecule can be chosen for this check, rather than relying on luck,
 and records `null` with no rerun when no row qualifies.)
 
-Every RMSD above lies between 0.0001 and 0.054 A, well below
+Every RMSD above lies between 6.5e-05 and 0.054 A, well below
 `DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines: each checked
 molecule's three final geometries agree, so its own spread is basin position,
 not a different rotamer passing the force gate. But this does NOT establish
@@ -168,10 +171,15 @@ adds that a repeat measurement can land on either side of "about 5x."
    so ANI2x does NOT satisfy the spec's 5x rule -- a 5x margin for it would
    need a 0.098 eV tolerance, which the plan author has already rejected as
    far too loose for dedup (R36 option c).
-3. WS7's planned single 5e-3 eV bench outcome gate would pass AIMNet2 /
-   ANI2xt A/B comparisons (post-optimization maxima 1.71e-3 / 2.02e-3 eV, both
-   under the gate) and would abort every ANI2x A/B comparison (post-optimization
-   max 1.95e-2 eV, about four times the gate).
+3. This work moved into WS6 as Task 30, which shipped a per-engine outcome
+   gate (`benchmarks/bench_optimization_perf.py::ENERGY_TOLERANCE_EV`,
+   `{"aimnet2": 2e-2, "ani2xt": 1e-2, "ani2x": 5e-2}`) instead of WS7's
+   originally planned single 5e-3 eV gate. That rejected single-5e-3
+   alternative would have passed AIMNet2 / ANI2xt A/B comparisons
+   (post-optimization maxima 1.71e-3 / 2.02e-3 eV, both under the gate) and
+   would have aborted every ANI2x A/B comparison (post-optimization max
+   1.95e-2 eV, about four times the gate) -- which is why a single gate was
+   rejected in favor of one per engine.
 4. N-m11 confirmed on this box: ANI2xt's single-point composition noise
    measured 3.32e-6 eV (GPU) / 3.03e-6 eV (CPU), not the ~4e-3 eV float32-ULP
    figure its docstring used to quote. That figure belongs to ANI2x: its

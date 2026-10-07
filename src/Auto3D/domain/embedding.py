@@ -331,7 +331,7 @@ def _embed_single(
 
     if n_conformers is None:
         # calculate_conformer_count counts rotatable bonds on the heavy-atom
-        # graph (Chem.RemoveHs internally), so it returns the same budget
+        # graph (Chem.RemoveAllHs internally), so it returns the same budget
         # whether it is handed this H-complete (AddHs) mol or the serial/SDF
         # paths' own representation -- the parallel path agrees with them
         # regardless of which hydrogen state each one happens to pass in.
