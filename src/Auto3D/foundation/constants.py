@@ -121,7 +121,8 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # pair of different starts in one basin is bounded by the same gate. ANI2x's
 # float32 total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV: every
 # nonzero spread this measurement saw was 1 or 5 of those ULPs. A second
-# sample's heavy-atom RMSD check (all below 0.02 A;
+# sample's heavy-atom RMSD check (0.0001-0.054 A, all well below the 0.3 A
+# duplicate threshold;
 # benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json) confirms
 # basin position, not a different rotamer, for a 1-ULP ANI2x spread
 # (3.9e-3 eV) -- but the measured maximum, 2.0e-2 eV, is a 5-ULP event that

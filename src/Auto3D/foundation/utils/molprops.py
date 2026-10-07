@@ -59,8 +59,9 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     a molecule never gets 0 conformers (which would silently drop tiny species
     such as ``[H+]`` or a lone atom from the pipeline).
 
-    Rotatable bonds are counted on the heavy-atom graph (``Chem.RemoveHs``),
-    not on whatever hydrogen state ``mol`` happens to carry: with explicit
+    Rotatable bonds are counted on the heavy-atom graph (``Chem.RemoveAllHs``,
+    which also drops isotope-labeled hydrogens), not on whatever hydrogen state
+    ``mol`` happens to carry: with explicit
     hydrogens, RDKit's ``CalcNumRotatableBonds`` also counts C-O-H / C-N-H
     torsions (glycerol requests 238 conformers with explicit Hs, 52 without),
     for hydroxyl/amine orientations that heavy-atom symmetry pruning collapses
@@ -94,7 +95,10 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
         >>> 1 <= count <= 1000
         True
     """
-    num_rotatable = rdMolDescriptors.CalcNumRotatableBonds(Chem.RemoveHs(mol))
+    # RemoveAllHs, not RemoveHs: the latter keeps isotope-labeled hydrogens
+    # (D, T), so a deuterated hydroxyl would still count its C-O-H torsion and
+    # a labeled analog would get a larger budget than its protium parent.
+    num_rotatable = rdMolDescriptors.CalcNumRotatableBonds(Chem.RemoveAllHs(mol))
     num_heavy = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
 
     formula_count = int(

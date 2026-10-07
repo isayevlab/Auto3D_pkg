@@ -116,7 +116,7 @@ shared card's noise picks a different outlier from run to run -- and all
 three worst molecules above converged in every arrangement, so each RMSD
 compares a meaningful pair of final geometries, not an unconverged one.)
 
-Every RMSD above is at least an order of magnitude below
+Every RMSD above lies between 0.0001 and 0.054 A, well below
 `DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines: each checked
 molecule's three final geometries agree, so its own spread is basin position,
 not a different rotamer passing the force gate. But this does NOT establish

@@ -418,6 +418,11 @@ class TestConformerCount:
             * (rdMolDescriptors.CalcNumRotatableBonds(noh) ** CONFORMER_ROTATABLE_EXP)
         )
         assert n_noh == n_withh == expected == 52
+        # Isotope-labeled hydrogens survive Chem.RemoveHs; the count must not
+        # depend on them either (a KIE workflow runs the deuterated analog
+        # beside its parent and expects the same pool).
+        deuterated = Chem.MolFromSmiles("[2H]OCC(O)CO")
+        assert calculate_conformer_count(deuterated) == 52
 
 
 # ---------------------------------------------------------------------------
