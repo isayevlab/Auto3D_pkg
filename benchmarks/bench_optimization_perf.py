@@ -38,8 +38,9 @@ number you can trust:
 * **Warmup then 7 reps, median and IQR.** A row whose IQR exceeds 10% of its
   median is flagged noisy and excluded from the summary.
 * **Outcome gate.** A realism pass runs production settings and records converged
-  counts and energies. If those move, ``--compare`` aborts rather than reporting
-  a speedup, because a faster loop that computes something else is not faster.
+  counts and energies. If those move by more than a per-engine gate set from
+  the measured run-to-run spread, ``--compare`` aborts rather than reporting a
+  speedup, because a faster loop that computes something else is not faster.
 """
 
 from __future__ import annotations
@@ -100,7 +101,30 @@ N_WARMUP_CALLS, N_WARMUP_STEPS = 3, 20
 N_REPS = 7
 SEED = 0xA173D
 NOISE_FRACTION = 0.10
-ENERGY_TOLERANCE_EV = 1e-4
+# eV. Outcome gate for `--compare`: the realism pass's per-molecule energies must
+# agree within this much between the two runs, or no ratio is printed. One value
+# per engine, because the engines' run-to-run spread differs by an order of
+# magnitude: measured on the 24-molecule set in three batch arrangements, two
+# independent GPU samples (benchmarks/results-notes/2026-10-05-batch-noise.md),
+# the same conformer's converged energy moved up to 1.71e-3 eV then 4.05e-3 eV
+# (AIMNet2), 2.02e-3 eV then 2.39e-3 eV (ANI2xt), and 1.95e-2 eV then 3.91e-3 eV
+# (ANI2x, float32 total energy). Each gate is about 2.5x the larger of the two,
+# rounded up; the converged-count equality check stays as it was. The old single
+# 1e-4 was below every engine's noise, so `--compare` could not pass on two runs
+# of identical code.
+ENERGY_TOLERANCE_EV = {"aimnet2": 1e-2, "ani2xt": 1e-2, "ani2x": 5e-2}
+
+
+def energy_tolerance_ev(realism_key: str) -> float:
+    """The gate for a ``realism.<engine>`` key; ``+compile`` variants share the engine's."""
+    engine = realism_key.split(".", 1)[1].split("+", 1)[0].lower()
+    try:
+        return ENERGY_TOLERANCE_EV[engine]
+    except KeyError:
+        raise SystemExit(
+            f"no outcome gate for engine {engine!r}; add it to ENERGY_TOLERANCE_EV "
+            "from a measurement, not a guess"
+        ) from None
 
 
 def build_mols() -> dict[str, list]:
@@ -422,10 +446,11 @@ def compare(before_label: str, after_label: str) -> None:
             abs(x - y)
             for x, y in zip(before_extra["energies"], after_extra["energies"], strict=True)
         )
-        if worst > ENERGY_TOLERANCE_EV:
+        tolerance = energy_tolerance_ev(key)
+        if worst > tolerance:
             sys.exit(
                 f"ABORT: OUTCOMES CHANGED for {key}: max |dE| = {worst:.3e} eV "
-                f"> {ENERGY_TOLERANCE_EV:.0e}. Do not report a speedup."
+                f"> {tolerance:.0e}. Do not report a speedup."
             )
 
     env = after["env"]
