@@ -164,6 +164,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the floor off the phantom was worth about 5 kcal/mol; with it on, up to
   0.5. A truly linear molecule left a few degrees off axis by the optimizer
   is unaffected.
+- The optimizer benchmark's `--compare` outcome gate was a single 1e-4 eV,
+  below every engine's measured run-to-run spread, so two runs of identical
+  code could not pass it. The gate is now one value per engine, set from the
+  converged-energy spread measured across batch arrangements on one card
+  (`benchmarks/results-notes/2026-10-05-batch-noise.md`): 2e-2 eV for
+  AIMNet2, 1e-2 eV for ANI2xt, 5e-2 eV for ANI2x. Engine names are validated
+  before any benchmark run is spent.
+- The padding-invariance test budgets and the comment justifying
+  `DEFAULT_DUPLICATE_ENERGY_TOL` rested on asserted float32 figures that
+  disagreed with each other by 10x; both now rest on a measurement
+  (`benchmarks/measure_batch_noise.py`, with the note and raw results beside
+  it). The tolerance stays 0.01 eV; the note states the measured margins,
+  including that ANI2x's float32 total energy can leave two copies of one
+  minimum both surviving dedup for large molecules. `usage.rst` documents
+  `memory` as the reproducibility knob: with it unset on a GPU the free
+  memory is sampled once per run, so the sub-batch composition, and energies
+  at the measured noise level, can differ between runs on a shared card. The
+  ANI2xt docstring no longer quotes a ~4e-3 eV float32 precision cap that
+  belongs to ANI2x.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);

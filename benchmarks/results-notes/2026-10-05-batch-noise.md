@@ -120,7 +120,7 @@ three worst molecules above converged in every arrangement, so each RMSD
 compares a meaningful pair of final geometries, not an unconverged one;
 `measure_batch_noise.py`'s selection now requires `converged_everywhere`
 before a molecule can be chosen for this check, rather than relying on luck,
-and records `null` with no rerun when no row qualifies.)
+and records `null` when no row qualifies; the committed geometry JSON needed no rerun, since its three worst molecules all converged.)
 
 Every RMSD above lies between 6.5e-05 and 0.054 A, well below
 `DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines: each checked
@@ -171,7 +171,7 @@ adds that a repeat measurement can land on either side of "about 5x."
    so ANI2x does NOT satisfy the spec's 5x rule -- a 5x margin for it would
    need a 0.098 eV tolerance, which the plan author has already rejected as
    far too loose for dedup (R36 option c).
-3. This work moved into WS6 as Task 30, which shipped a per-engine outcome
+3. The bench outcome gate (the P-M1 fix WS7 had planned) moved into WS6 as Task 30, which shipped a per-engine outcome
    gate (`benchmarks/bench_optimization_perf.py::ENERGY_TOLERANCE_EV`,
    `{"aimnet2": 2e-2, "ani2xt": 1e-2, "ani2x": 5e-2}`) instead of WS7's
    originally planned single 5e-3 eV gate. That rejected single-5e-3
