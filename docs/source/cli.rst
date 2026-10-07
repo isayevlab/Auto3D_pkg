@@ -150,7 +150,9 @@ Run conformer generation on input molecules.
        ``ChunkManager``, clamped at 16,384) -- not an absolute count
    * - ``--memory``
      - auto-detect
-     - RAM available to Auto3D, in GB
+     - Memory budget in GB (GPU free memory, or RAM on CPU); also pins the
+       batch composition between reruns (usage: *Reproducibility across
+       reruns*)
    * - ``--tf32`` / ``--no-tf32``
      - ``--no-tf32``
      - Allow TF32 matmul on Ampere+ GPUs (faster, less precise)

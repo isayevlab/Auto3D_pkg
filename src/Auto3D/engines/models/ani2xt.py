@@ -331,8 +331,13 @@ class ANI2xt(nn.Module):
             float64 ``energy_shifts`` buffer is not silently truncated. This only
             cleans up absolute energies -- self-atomic shifts cancel in conformer
             energy differences (same atom counts), so ranking is unaffected, and
-            the float32 network output still caps usable precision at ~float32
-            ULP (~4e-3 eV) at typical total-energy magnitudes. Energy is returned
+            the float32 network output enters that sum as an O(1 eV)
+            per-atom residual, so the returned total's batch-composition noise
+            is ~1e-6 eV (measured maximum 3.3e-6 eV over 24 molecules,
+            benchmarks/results-notes/2026-10-05-batch-noise.md), not the
+            ~4e-3 eV float32 ULP of a ~1e4 eV total. That figure belongs to
+            ANI2x, whose torchani self energies are a float32 buffer (see
+            ``ANI2xAdapter.forward``). Energy is returned
             as float64 and forces as float32 (the autograd grad w.r.t. the
             float32 coords), matching the AIMNet2 adapter's output contract.
         """

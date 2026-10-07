@@ -153,12 +153,12 @@ class RDKitSdfIsomer:
                 for isomer_idx, isomer in enumerate(self.stereoisomers(mol, name)):
                     mol2 = Chem.AddHs(isomer)
                     if self.n_conformers is None:
-                        # Compute the conformer budget on the H-complete (AddHs)
-                        # mol so the SDF path agrees with the SMILES path on the
-                        # RICHER with-H count. AddHs is idempotent for a mol that
-                        # already carries explicit Hs (3D SDFs read with
-                        # removeHs=False), so this yields the same count
-                        # regardless of input format.
+                        # calculate_conformer_count counts on the heavy-atom
+                        # graph, so the SDF path agrees with the SMILES path
+                        # whatever hydrogen state each one passes in; see
+                        # `_embed_single` in Auto3D.domain.embedding. AddHs is
+                        # idempotent for a mol that already carries explicit Hs
+                        # (3D SDFs read with removeHs=False).
                         n_conformers = calculate_conformer_count(mol2)
                     else:
                         n_conformers = self.n_conformers

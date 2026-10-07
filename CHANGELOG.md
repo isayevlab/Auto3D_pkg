@@ -164,6 +164,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the floor off the phantom was worth about 5 kcal/mol; with it on, up to
   0.5. A truly linear molecule left a few degrees off axis by the optimizer
   is unaffected.
+- The optimizer benchmark's `--compare` outcome gate was a single 1e-4 eV,
+  below every engine's measured run-to-run spread, so two runs of identical
+  code could not pass it. The gate is now one value per engine, set from the
+  converged-energy spread measured across batch arrangements on one card
+  (`benchmarks/results-notes/2026-10-05-batch-noise.md`): 2e-2 eV for
+  AIMNet2, 1e-2 eV for ANI2xt, 5e-2 eV for ANI2x. Engine names are validated
+  before any benchmark run is spent.
+- The padding-invariance test budgets and the comment justifying
+  `DEFAULT_DUPLICATE_ENERGY_TOL` rested on asserted float32 figures that
+  disagreed with each other by 10x; both now rest on a measurement
+  (`benchmarks/measure_batch_noise.py`, with the note and raw results beside
+  it). The tolerance stays 0.01 eV; the note states the measured margins,
+  including that ANI2x's float32 total energy can leave two copies of one
+  minimum both surviving dedup for large molecules. `usage.rst` documents
+  `memory` as the reproducibility knob: with it unset on a GPU the free
+  memory is sampled once per run, so the sub-batch composition, and energies
+  at the measured noise level, can differ between runs on a shared card. The
+  ANI2xt docstring no longer quotes a ~4e-3 eV float32 precision cap that
+  belongs to ANI2x.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -266,6 +285,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"bent_reclassified_nonlinear"`, or `"bent_quasilinear_linear_rotor"`).
   The sigma=1 default and the `symmetry_number` input property are now
   documented in the usage guide next to the thermo properties.
+- `calculate_conformer_count` now counts rotatable bonds on the heavy-atom
+  graph (`Chem.RemoveAllHs`) instead of whatever hydrogen state its input
+  happened to carry. With explicit hydrogens, RDKit's
+  `CalcNumRotatableBonds` also counts C-O-H / C-N-H torsions, which heavy-atom
+  symmetry pruning collapses to one orientation per skeleton anyway (see
+  `Auto3D.domain.embedding.embed_params`), so the larger with-H request
+  bought more ETKDG attempts, not more rotamers. Molecules with hydroxyl or
+  amine groups now request a smaller conformer pool: glycerol
+  (`OCC(O)CO`) requests 52 conformers instead of 238, and keeps the same 9
+  after pruning either way; beta-D-glucopyranose
+  (`C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O`) requests 16 instead
+  of 321 and keeps 12 instead of 69 after pruning (both measured with
+  `CONFORMER_RANDOM_SEED`, `pruneRmsThresh=0.3`, `useSymmetryForPruning=True`).
+  Pass `max_confs` for a larger pool.
 
 ## [3.1.1] - 2026-08-27
 

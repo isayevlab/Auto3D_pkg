@@ -14,12 +14,17 @@ import uuid
 import pytest
 import torch
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolDescriptors
 
 from Auto3D.engines.isomers.rdkit_sdf import RDKitSdfIsomer
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
 from Auto3D.engines.isomers.tautomers import RDKitOrOEChemTautomerEngine
-from Auto3D.foundation.constants import EV_TO_HARTREE
+from Auto3D.foundation.constants import (
+    CONFORMER_MULTIPLIER,
+    CONFORMER_ROTATABLE_COEFF,
+    CONFORMER_ROTATABLE_EXP,
+    EV_TO_HARTREE,
+)
 from Auto3D.foundation.utils.molprops import calculate_conformer_count
 from tests.helpers_adapter import FakeAdapter
 
@@ -394,20 +399,30 @@ class TestConformerCount:
 
         assert smiles_path_count == sdf_path_count
 
-    def test_conformer_count_uses_with_h_and_paths_agree(self):
-        """The unified budget must use the H-complete representation.
+    def test_conformer_count_is_the_heavy_atom_graph_count(self):
+        """The budget is computed on the heavy-atom graph, whatever the input's H state.
 
-        RDKit's CalcNumRotatableBonds only counts O-H / N-H torsions when
-        hydrogens are explicit, so the with-H count richly samples hydroxyl /
-        amine rotors that the no-H count drops (glycerol ~4.6x). Both embed
-        paths now compute on the with-H mol, so they agree on this larger value.
+        RDKit's CalcNumRotatableBonds counts O-H / N-H torsions only when
+        hydrogens are explicit, which would inflate the request for anything
+        with hydroxyl/amine groups. ``calculate_conformer_count`` strips
+        explicit hydrogens before counting, so the SMILES path (no-H) and the
+        SDF/parallel paths (with-H) agree on the same, smaller number.
         """
         noh = Chem.MolFromSmiles("OCC(O)CO")  # glycerol
         withh = Chem.AddHs(noh)
         n_noh = calculate_conformer_count(noh)
         n_withh = calculate_conformer_count(withh)
-        # with-H samples more (O-H torsions) -> richer polyol sampling restored
-        assert n_withh > n_noh
+        expected = int(
+            CONFORMER_MULTIPLIER
+            * CONFORMER_ROTATABLE_COEFF
+            * (rdMolDescriptors.CalcNumRotatableBonds(noh) ** CONFORMER_ROTATABLE_EXP)
+        )
+        assert n_noh == n_withh == expected == 52
+        # Isotope-labeled hydrogens survive Chem.RemoveHs; the count must not
+        # depend on them either (a KIE workflow runs the deuterated analog
+        # beside its parent and expects the same pool).
+        deuterated = Chem.MolFromSmiles("[2H]OCC(O)CO")
+        assert calculate_conformer_count(deuterated) == 52
 
 
 # ---------------------------------------------------------------------------
@@ -614,19 +629,26 @@ def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
     `calculate_conformer_count` is
     `min(max(1, num_heavy, 2*8.481*num_rotatable**1.642), 1000)`, and the
     rotatable-bond term dominates for anything flexible. Glycerol has 6 heavy
-    atoms, so the old docstring implied 5; the real budget is 238 -- a user sizing
-    a run off it underestimated by nearly two orders of magnitude. Asserted on the
-    H-complete molecule, which is what both embed paths pass (O-H torsions only
-    count as rotatable once hydrogens are explicit).
+    atoms, so the old docstring implied 5; the real budget is 52 -- a user sizing
+    a run off it underestimated by an order of magnitude. The count is taken on
+    the heavy-atom graph (explicit hydrogens are stripped before counting
+    rotatable bonds), so both the AddHs and the no-H molecule give the same
+    answer -- which is what makes the SMILES and SDF/parallel embed paths
+    agree regardless of which hydrogen state each one happens to pass in.
     """
     from rdkit import Chem
 
-    glycerol = Chem.AddHs(Chem.MolFromSmiles("OCC(O)CO"))
-    num_heavy = sum(1 for a in glycerol.GetAtoms() if a.GetAtomicNum() > 1)
-    count = calculate_conformer_count(glycerol)
+    noh = Chem.MolFromSmiles("OCC(O)CO")
+    withh = Chem.AddHs(noh)
+    num_heavy = sum(1 for a in withh.GetAtoms() if a.GetAtomicNum() > 1)
+    count_withh = calculate_conformer_count(withh)
+    count_noh = calculate_conformer_count(noh)
 
     assert num_heavy == 6, "test premise: glycerol has 6 heavy atoms"
-    assert count == 238, f"the documented conformer budget for glycerol is 238, got {count}"
-    assert count > num_heavy - 1, (
+    assert count_withh == count_noh == 52, (
+        f"the documented conformer budget for glycerol is 52 on the heavy-atom "
+        f"graph, got {count_withh} (with H) and {count_noh} (no H)"
+    )
+    assert count_withh > num_heavy - 1, (
         "the retired 'num_heavy_atoms - 1' claim would still be defensible"
     )
