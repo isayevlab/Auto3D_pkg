@@ -114,7 +114,10 @@ of the three arrangements' final geometries.
 The worst molecule per engine differs between the two GPU samples -- a
 shared card's noise picks a different outlier from run to run -- and all
 three worst molecules above converged in every arrangement, so each RMSD
-compares a meaningful pair of final geometries, not an unconverged one.)
+compares a meaningful pair of final geometries, not an unconverged one;
+`measure_batch_noise.py`'s selection now requires `converged_everywhere`
+before a molecule can be chosen for this check, rather than relying on luck,
+and records `null` with no rerun when no row qualifies.)
 
 Every RMSD above lies between 0.0001 and 0.054 A, well below
 `DEFAULT_RMSD_THRESHOLD` (0.3 A), for all three engines: each checked

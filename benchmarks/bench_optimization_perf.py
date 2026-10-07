@@ -108,16 +108,27 @@ NOISE_FRACTION = 0.10
 # independent GPU samples (benchmarks/results-notes/2026-10-05-batch-noise.md),
 # the same conformer's converged energy moved up to 1.71e-3 eV then 4.05e-3 eV
 # (AIMNet2), 2.02e-3 eV then 2.39e-3 eV (ANI2xt), and 1.95e-2 eV then 3.91e-3 eV
-# (ANI2x, float32 total energy). Each gate is about 2.5x the larger of the two,
-# rounded up; the converged-count equality check stays as it was. The old single
-# 1e-4 was below every engine's noise, so `--compare` could not pass on two runs
-# of identical code.
-ENERGY_TOLERANCE_EV = {"aimnet2": 1e-2, "ani2xt": 1e-2, "ani2x": 5e-2}
+# (ANI2x, float32 total energy). Each gate is the 1, 2 or 5 x 10^k step at or
+# above 2.5x the larger of its two samples: 2e-2 for AIMNet2 (4.9x the larger
+# sample; the 1e-2 step would have been 2.47x, thinner than the 2.4x by which
+# that engine's own maximum moved between the two samples), 1e-2 for ANI2xt
+# (4.2x), 5e-2 for ANI2x (2.6x). A gate that is too tight costs a false
+# "OUTCOMES CHANGED" abort on identical code; one that is too loose still sits
+# three orders of magnitude below any real change, so the gates err loose. The
+# converged-count equality check stays as it was. The old single 1e-4 was below
+# every engine's noise, so `--compare` could not pass on two runs of identical
+# code.
+ENERGY_TOLERANCE_EV = {"aimnet2": 2e-2, "ani2xt": 1e-2, "ani2x": 5e-2}
+# Maps an engine token (lower-cased, `+compile` stripped) onto the ENERGY_TOLERANCE_EV
+# key that applies to it. `aimnet` is this repository's canonical name
+# (`Auto3D.foundation.constants.MODEL_AIMNET`); the rest map to themselves.
+ENGINE_ALIASES = {"aimnet": "aimnet2", "aimnet2": "aimnet2", "ani2xt": "ani2xt", "ani2x": "ani2x"}
 
 
 def energy_tolerance_ev(realism_key: str) -> float:
     """The gate for a ``realism.<engine>`` key; ``+compile`` variants share the engine's."""
-    engine = realism_key.split(".", 1)[1].split("+", 1)[0].lower()
+    token = realism_key.split(".", 1)[1].split("+", 1)[0].lower()
+    engine = ENGINE_ALIASES.get(token, token)
     try:
         return ENERGY_TOLERANCE_EV[engine]
     except KeyError:
@@ -334,6 +345,11 @@ def realism_pass(mols, device, model) -> dict:
 def run(label: str, engines: list[str], device_str: str, steps: int, reps: int) -> None:
     """Benchmark every engine x size x batch combination and write a JSON record."""
     from Auto3D.engines.model_factory import create_model
+
+    # Validate every engine has an outcome gate before any model is built, so an
+    # unknown engine aborts before a run is spent instead of after `--compare`.
+    for engine in engines:
+        energy_tolerance_ev(f"realism.{engine}")
 
     device = torch.device(device_str if torch.cuda.is_available() else "cpu")
     mols = build_mols()

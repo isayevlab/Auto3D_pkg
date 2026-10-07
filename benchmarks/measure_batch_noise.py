@@ -149,21 +149,30 @@ def post_opt_rows(
         )
     worst_geometry_check = None
     if save_geometries:
-        worst_idx = max(range(len(everything)), key=lambda i: rows[i]["spread"])
-        mol = everything[worst_idx]
-        m_all = _mol_at(mol, coords_all[worst_idx])
-        m_grp = _mol_at(mol, coords_grp[worst_idx])
-        m_rev = _mol_at(mol, coords_rev[worst_idx])
-        worst_geometry_check = {
-            "name": mol.GetProp("_Name"),
-            "atoms": mol.GetNumAtoms(),
-            "spread": rows[worst_idx]["spread"],
-            "rmsd": {
-                "all-groups": _heavy_atom_rmsd(m_all, m_grp),
-                "all-reversed": _heavy_atom_rmsd(m_all, m_rev),
-                "groups-reversed": _heavy_atom_rmsd(m_grp, m_rev),
-            },
-        }
+        # Only a row that converged in all three arrangements can be chosen: an
+        # RMSD between an unconverged geometry and a converged one would not be
+        # a meaningful pair. `None` (with no qualifying row) is a real result,
+        # not an omission -- see the caller, which always writes this key.
+        worst_idx = max(
+            (i for i in range(len(everything)) if rows[i]["converged_everywhere"]),
+            key=lambda i: rows[i]["spread"],
+            default=None,
+        )
+        if worst_idx is not None:
+            mol = everything[worst_idx]
+            m_all = _mol_at(mol, coords_all[worst_idx])
+            m_grp = _mol_at(mol, coords_grp[worst_idx])
+            m_rev = _mol_at(mol, coords_rev[worst_idx])
+            worst_geometry_check = {
+                "name": mol.GetProp("_Name"),
+                "atoms": mol.GetNumAtoms(),
+                "spread": rows[worst_idx]["spread"],
+                "rmsd": {
+                    "all-groups": _heavy_atom_rmsd(m_all, m_grp),
+                    "all-reversed": _heavy_atom_rmsd(m_all, m_rev),
+                    "groups-reversed": _heavy_atom_rmsd(m_grp, m_rev),
+                },
+            }
     return (
         rows,
         {"all": sum(c_all), "groups": sum(c_grp), "reversed": sum(c_rev)},
@@ -205,6 +214,8 @@ def main() -> None:
     )
     parser.add_argument("--out", required=True, help="JSON file to write")
     args = parser.parse_args()
+    if args.save_geometries and args.skip_post_opt:
+        parser.error("--save-geometries needs the post-optimization pass; drop --skip-post-opt")
 
     from Auto3D.engines.model_factory import create_model
 
@@ -245,7 +256,7 @@ def main() -> None:
             entry["post_opt_summary"] = summarize(
                 r["spread"] for r in po_rows if r["converged_everywhere"]
             )
-            if worst_geometry_check is not None:
+            if args.save_geometries:
                 entry["worst_geometry_check"] = worst_geometry_check
         entry["seconds"] = time.perf_counter() - started
         record["engines"][engine] = entry
