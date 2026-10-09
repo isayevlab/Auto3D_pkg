@@ -27,6 +27,7 @@ import warnings
 from collections import Counter
 from pathlib import Path
 
+import rdkit
 from rdkit import Chem
 
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
@@ -38,6 +39,21 @@ TRANS_2_BUTENE = "C/C=C/C"
 CIS_2_BUTENE = "C/C=C\\C"
 FUMARIC_ACID = "O=C(O)/C=C/C(=O)O"
 MALEIC_ACID = "O=C(O)/C=C\\C(=O)O"
+
+
+def _rdkit_version() -> tuple[int, ...]:
+    """``rdkit.__version__`` ("2026.09.1") as a comparable tuple."""
+    return tuple(int(part) for part in rdkit.__version__.split(".")[:3])
+
+
+# RDKit 2026.09 reworked the conformer generator (a new strategy for the initial
+# coordinates, ETKDGv4 beta). Measured on CC=CC with Auto3D's embedding settings
+# (seed 42, pruneRmsThresh 0.3, heavy-atom symmetry pruning): 2025.09.6 embeds the
+# cis geometry only; 2026.09.1 embeds one cis and one trans conformer. The warning
+# this file guards is owed in both regimes -- an unspecified double bond is
+# sampled by chance, not enumerated and labeled -- but the "trans is silently
+# dropped" premise holds only before 2026.09.
+RDKIT_SAMPLES_UNSPECIFIED_DOUBLE_BONDS = _rdkit_version() >= (2026, 9)
 
 
 def _configuration_from_3d(mol: Chem.Mol) -> str:
@@ -129,12 +145,16 @@ class TestUnspecifiedDoubleBondOnTheSmilesPath:
         assert "OC(=O)C=CC(=O)O" in stereo_warnings[0]
         assert "1 unspecified stereo element" in stereo_warnings[0]
 
-    def test_2_butene_emits_only_the_cis_isomer_and_the_input_is_warned_about(self, tmp_path):
-        """``CC=CC`` loses trans-2-butene entirely, with no warning before the fix.
+    def test_2_butene_unspecified_geometry_is_warned_about(self, tmp_path):
+        """``CC=CC`` without enumeration gets whatever geometry ETKDG samples, and a warning.
 
-        The enumerated run is the non-vacuity guard: it shows both geometries
-        are reachable for this molecule, so the single-entry result below is a
-        genuinely missing isomer rather than an artifact of the comparison.
+        Before RDKit 2026.09 that was cis-2-butene alone: trans was lost
+        entirely, with no warning before the fix. From 2026.09 the conformer
+        generator samples both geometries, so the user gets an unlabeled
+        mixture under one name instead; the warning is owed either way. The
+        enumerated run is the non-vacuity guard: it shows both geometries are
+        reachable for this molecule, so whatever the embedding alone produced
+        is a sampling outcome rather than an artifact of the comparison.
         """
         both = _configurations_emitted(tmp_path / "enumerated", "CC=CC", enumerate_isomers=True)
         assert set(both) == {TRANS_2_BUTENE, CIS_2_BUTENE}, (
@@ -142,8 +162,15 @@ class TestUnspecifiedDoubleBondOnTheSmilesPath:
         )
 
         emitted = _configurations_emitted(tmp_path / "embed", "CC=CC", enumerate_isomers=False)
-        assert set(emitted) == {CIS_2_BUTENE}, f"expected cis-2-butene alone, got {dict(emitted)}"
-        assert TRANS_2_BUTENE not in emitted
+        if RDKIT_SAMPLES_UNSPECIFIED_DOUBLE_BONDS:
+            assert set(emitted) <= {TRANS_2_BUTENE, CIS_2_BUTENE}, (
+                f"unexpected 2-butene geometry: {dict(emitted)}"
+            )
+        else:
+            assert set(emitted) == {CIS_2_BUTENE}, (
+                f"expected cis-2-butene alone, got {dict(emitted)}"
+            )
+            assert TRANS_2_BUTENE not in emitted
 
         messages = _warnings_for(tmp_path / "warn", "CC=CC")
         stereo_warnings = [m for m in messages if "unspecified stereo element" in m]
