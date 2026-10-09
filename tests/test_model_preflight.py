@@ -453,7 +453,7 @@ class TestUnwritableCacheDirectory:
 
     ``preflight_model`` names the cache directory in each of its three error
     messages. The directory string is resolved once, before the ``try``
-    (``Auto3D.engines.models.preflight._cache_dir_for_message``), specifically so
+    (``Auto3D.engines.models.preflight._model_cache_dir``), specifically so
     that naming it never re-invokes anything that can fail. The bug this
     guards against: naming the directory by calling the real
     ``aimnet.calculators.model_registry.get_cache_dir()`` from *inside* an
@@ -508,3 +508,39 @@ class TestUnwritableCacheDirectory:
         message = str(excinfo.value)
         assert "AIMNET_CACHE_DIR" in message, f"no cache-dir hint in: {message}"
         assert str(cache_dir) in message, f"the directory itself is not named: {message}"
+
+
+class TestWarmCacheContractAgainstInstalledAimnet:
+    """Pins the two facts the warm-cache check duplicates from the installed aimnet.
+
+    ``_cached_model_is_valid`` re-implements, in this repository, that a
+    registry artifact lives at ``<cache_dir>/<cfg['file']>`` and that SHA-256
+    against ``cfg['sha256']`` is the whole of the validation aimnet's
+    ``get_registry_model_path`` performs before returning a cached path.
+    Nothing else here tests the installed aimnet directly, so an upstream
+    change to either fact would silently turn the warm path's "valid" verdict
+    into a pre-flight that passes and a worker that fails -- the exact failure
+    class this module exists to prevent, and the one case the fallback cannot
+    catch, because the warm check short-circuits before reaching aimnet at all.
+    """
+
+    def test_get_registry_model_path_returns_cache_dir_slash_file(self, tmp_path, monkeypatch):
+        """Seed a tmp cache with the real cached artifact and check aimnet's own contract."""
+        import shutil
+
+        from aimnet.calculators.model_registry import get_registry_model_path, load_model_registry
+
+        registry = load_model_registry()
+        cfg = registry["models"]["aimnet2-wb97m-d3_0"]
+        default_cached = Path.home() / ".cache" / "aimnet" / cfg["file"]
+        if not default_cached.is_file():
+            pytest.skip("no cached aimnet2-wb97m-d3_0 artifact in the default cache to copy")
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        shutil.copyfile(default_cached, cache_dir / cfg["file"])
+        monkeypatch.setenv("AIMNET_CACHE_DIR", str(cache_dir))
+
+        path = get_registry_model_path("aimnet2-wb97m-d3_0")
+
+        assert path == str(cache_dir / cfg["file"])

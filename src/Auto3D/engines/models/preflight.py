@@ -34,8 +34,8 @@ from Auto3D.foundation.constants import (
 from Auto3D.foundation.exceptions import ConfigurationError, ModelLoadError
 
 
-def _cache_dir_for_message() -> str:
-    """Return the model cache directory path as a string, for error messages only.
+def _model_cache_dir() -> str:
+    """Return the model cache directory the way aimnet resolves it, without creating it.
 
     Mirrors the path resolution in
     ``aimnet.calculators.model_registry.get_cache_dir`` (``AIMNET_CACHE_DIR``
@@ -111,9 +111,17 @@ def _cached_model_is_valid(cfg: dict[str, Any], cache_dir: str) -> bool:
     doubt -- missing file, unreadable directory, entry without a digest --
     returns False and the caller takes aimnet's path, which downloads, repairs
     or raises with its own diagnosis.
+
+    A falsy ``cache_dir`` (a set-but-empty ``AIMNET_CACHE_DIR``) also returns
+    False rather than being treated as a path. Folding it to the default
+    ``~/.cache/aimnet`` would validate a different directory than the one
+    aimnet's own ``os.makedirs("")`` fails on, which would let this check pass
+    while aimnet still raises -- moving the gap instead of closing it. Leaving
+    it False sends this case to the fallback below, which reaches aimnet and
+    raises its own ``ModelLoadError``, same as before this function existed.
     """
     file, expected = cfg.get("file"), cfg.get("sha256")
-    if not isinstance(file, str) or not isinstance(expected, str):
+    if not cache_dir or not isinstance(file, str) or not isinstance(expected, str):
         return False
     path = Path(cache_dir) / file
     try:
@@ -278,7 +286,7 @@ def preflight_model(engine: str) -> None:
     registry = _load_registry()
     if registry is not None:
         cfg = registry["models"].get(resolved)
-        if isinstance(cfg, dict) and _cached_model_is_valid(cfg, _cache_dir_for_message()):
+        if isinstance(cfg, dict) and _cached_model_is_valid(cfg, _model_cache_dir()):
             return
 
     # Deferred: only needed on this call path, and keeps the module's other
@@ -304,8 +312,8 @@ def preflight_model(engine: str) -> None:
 
     # Resolved as a plain string before the try, and reused in every handler
     # below -- never call the real get_cache_dir() from inside a handler (see
-    # _cache_dir_for_message's docstring for why that double-faults).
-    cache_dir = _cache_dir_for_message()
+    # _model_cache_dir's docstring for why that double-faults).
+    cache_dir = _model_cache_dir()
 
     try:
         get_registry_model_path(resolved)
