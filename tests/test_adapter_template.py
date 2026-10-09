@@ -57,10 +57,12 @@ def test_forces_come_back_at_the_input_dtype_and_energy_at_the_models():
 
 def test_energy_is_dtype_preserving_and_does_not_touch_requires_grad():
     coords, species, charges = _batch(torch.float64)
+    coords.requires_grad_(True)
     non_leaf = coords * 1.0
+    assert not non_leaf.is_leaf, "test premise: non_leaf must actually be non-leaf"
     energy = _Quadratic(downcast=True).energy(non_leaf, species, charges)
     assert energy.dtype == torch.float64
-    assert non_leaf.requires_grad is False
+    assert non_leaf.requires_grad is True
 
 
 def test_a_non_finite_energy_is_refused_by_the_shared_tail():
@@ -75,24 +77,52 @@ def test_a_non_finite_energy_is_refused_by_the_shared_tail():
         _Nan().forward(coords, species, charges)
 
 
-def test_a_forward_only_subclass_keeps_energy_as_forwards_first_output():
+def test_a_forward_only_subclass_must_add_an_energy_graph_for_energy():
+    """The hooks are one-directional: ``_energy_graph``'s base body never falls
+    back to ``forward``. A subclass that overrides only ``forward`` gets a
+    working ``forward``, but ``energy()`` -- which goes straight to
+    ``_energy_graph`` -- raises until the subclass adds that hook too."""
+
     class _ForwardOnly(BaseModelAdapter):
         def forward(self, coords, species, charges, atom_mask=None):
             return coords.sum(dim=(1, 2)), torch.zeros_like(coords)
 
     adapter = _ForwardOnly(nn.Linear(1, 1), torch.device("cpu"))
     coords, species, charges = _batch(torch.float32)
-    torch.testing.assert_close(adapter.energy(coords, species, charges), coords.sum(dim=(1, 2)))
+    # forward works fine: it is the method this subclass actually overrode.
+    energy, _ = adapter.forward(coords, species, charges)
+    torch.testing.assert_close(energy, coords.sum(dim=(1, 2)))
+    # energy() does not fall back to forward(); it names the missing hook.
+    with pytest.raises(NotImplementedError, match="_energy_graph"):
+        adapter.energy(coords, species, charges)
 
 
-def test_a_subclass_that_overrides_nothing_is_told_what_to_implement():
-    class _Bare(BaseModelAdapter):
-        pass
+def test_a_forward_override_that_delegates_to_super_forward_raises_not_recurses():
+    """A forward override written as ``return super().forward(...)`` without
+    also defining ``_energy_graph`` must fail with the same diagnosis a bare
+    subclass gets -- not recurse into ``NotImplementedError``'s former fallback
+    (that shape previously produced a bare ``RecursionError``, since the old
+    conditional default routed ``_energy_graph`` back into ``forward``, which
+    called ``_energy_graph`` again)."""
 
-    adapter = _Bare(nn.Linear(1, 1), torch.device("cpu"))
+    class _Delegating(BaseModelAdapter):
+        def forward(self, coords, species, charges, atom_mask=None):
+            return super().forward(coords, species, charges, atom_mask)
+
+    adapter = _Delegating(nn.Linear(1, 1), torch.device("cpu"))
     coords, species, charges = _batch(torch.float32)
     with pytest.raises(NotImplementedError, match="_energy_graph"):
         adapter.forward(coords, species, charges)
+
+
+def test_a_subclass_that_overrides_nothing_is_told_what_to_implement():
+    """``__init_subclass__`` enforces this at class-definition time, strictly
+    earlier than the old behavior (a ``NotImplementedError`` from the first
+    ``.forward(...)``/``.energy(...)`` call on an instance)."""
+    with pytest.raises(TypeError, match="must define forward or _energy_graph"):
+
+        class _Bare(BaseModelAdapter):
+            pass
 
 
 @pytest.mark.parametrize("cls", [ANI2xtAdapter, ANI2xAdapter, CustomModelAdapter])
@@ -104,3 +134,6 @@ def test_the_three_backends_own_no_forward_or_energy(cls):
 def test_aimnet2_keeps_its_own_forward_and_no_energy_override():
     assert "forward" in AIMNet2Adapter.__dict__
     assert "energy" not in AIMNet2Adapter.__dict__
+    # One-directional hooks (R76): AIMNet2Adapter supplies its own
+    # _energy_graph rather than relying on a base-class fallback.
+    assert "_energy_graph" in AIMNet2Adapter.__dict__

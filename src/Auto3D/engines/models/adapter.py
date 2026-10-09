@@ -185,12 +185,15 @@ class BaseModelAdapter(ABC, nn.Module):
     - Gradient disabling for model parameters (weights are frozen)
     - Optional torch.compile() for performance optimization
     - Concrete ``to_species`` (identity), ``energy`` and ``forward`` -- nothing
-      here is abstract. A subclass supplies only its energy graph by
-      overriding :meth:`_energy_graph` (and :meth:`_model_inputs` if its
-      backend computes in float32); ``energy`` and ``forward`` are the one
-      shared tail built on top of that hook. A subclass that instead needs to
-      compute forces itself (``AIMNet2Adapter``) overrides ``forward`` wholesale,
-      and the default ``_energy_graph`` falls back to ``forward(...)[0]`` for it.
+      here is abstract. Two supported shapes: (1) override :meth:`_energy_graph`
+      only (and :meth:`_model_inputs` if the backend computes in float32);
+      ``energy`` and ``forward`` are the one shared tail built on top of that
+      hook. (2) override :meth:`forward` wholesale -- for a subclass that needs
+      to compute forces itself (``AIMNet2Adapter``) -- and also
+      :meth:`_energy_graph`, returning ``forward``'s first output, if
+      :meth:`energy` is needed too; the hooks are one-directional, so nothing
+      here falls back from one to the other. A subclass that defines neither is
+      refused at class definition (see :meth:`__init_subclass__`).
 
     Note on torch.inference_mode():
         This class CANNOT use torch.inference_mode() or torch.no_grad() in forward
@@ -200,6 +203,22 @@ class BaseModelAdapter(ABC, nn.Module):
         requires_grad=True for force computation. All autograd.grad() calls use
         create_graph=False to avoid building second-order gradient graphs.
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Refuse a subclass that defines neither hook, at class-definition time.
+
+        Before this check, a half-implemented subclass (forgot both
+        :meth:`_energy_graph` and :meth:`forward`) would construct cleanly --
+        ``forward`` is no longer ``@abstractmethod`` -- and only fail on its
+        first real ``forward()``/``energy()`` call, deep inside the FIRE loop
+        or the single-point-energy path. Checking ``cls.__dict__`` directly
+        (not ``hasattr``) is what makes this a check on THIS class's own body
+        rather than on inheritance: every subclass inherits both names from
+        here, so ``hasattr`` would always be true and this would never fire.
+        """
+        super().__init_subclass__(**kwargs)
+        if "forward" not in cls.__dict__ and "_energy_graph" not in cls.__dict__:
+            raise TypeError(f"{cls.__name__} must define forward or _energy_graph")
 
     def __init__(
         self,
@@ -299,11 +318,13 @@ class BaseModelAdapter(ABC, nn.Module):
         process-global: without the delta, one adapter's stale fallback would
         get blamed on the next compiled adapter's unrelated first forward.
 
-        Called from each compilable adapter's ``forward`` (``ANI2xtAdapter``,
-        ``ANI2xAdapter``, ``CustomModelAdapter`` -- ``AIMNet2Adapter`` never
-        reaches ``_try_compile`` at all; its ``compile_model`` goes to
-        ``AIMNet2Calculator`` instead) on EVERY forward, and it logs once per
-        *increase* in the suppressed count (``_compile_suppressed_seen``).
+        Called on every forward for each compilable adapter (``ANI2xtAdapter``,
+        ``ANI2xAdapter``, ``CustomModelAdapter`` -- inherited from
+        :meth:`BaseModelAdapter.forward` since each backend collapsed to
+        overriding only ``_energy_graph``; ``AIMNet2Adapter`` never reaches
+        ``_try_compile`` at all, since it keeps its own ``forward`` and its
+        ``compile_model`` goes to ``AIMNet2Calculator`` instead), and it logs
+        once per *increase* in the suppressed count (``_compile_suppressed_seen``).
 
         This used to be gated to a single check, on the premise that whether a
         compiled frame falls back "cannot change after the first observation".
@@ -390,18 +411,22 @@ class BaseModelAdapter(ABC, nn.Module):
     ) -> torch.Tensor:
         """The backend's energies, graph-connected to ``coords``, at the dtype it produces.
 
-        Every in-tree adapter but AIMNet2 overrides this with its one backend
-        call; :meth:`forward` and :meth:`energy` are built on it. A subclass
-        that instead overrides :meth:`forward` wholesale (AIMNet2, whose
-        calculator computes forces itself) gets ``forward``'s first output
-        here, which is exactly what its ``energy`` used to be.
+        One-directional hook: this base body never calls :meth:`forward`, so
+        there is no path back into the template from here. Every in-tree
+        adapter but AIMNet2 overrides this with its one backend call;
+        :meth:`forward` and :meth:`energy` are built on top of it.
+        :class:`AIMNet2Adapter`, whose calculator computes forces itself,
+        overrides :meth:`forward` wholesale instead and supplies its own
+        one-line ``_energy_graph`` returning ``forward``'s first output --
+        the same shape its ``energy`` used to be, just stated here instead of
+        as a conditional default.
         """
-        if type(self).forward is BaseModelAdapter.forward:
-            raise NotImplementedError(
-                f"{type(self).__name__} must override _energy_graph (the backend's "
-                "energy, graph-connected to coords) or override forward."
-            )
-        return self.forward(coords, species, charges, atom_mask)[0]
+        raise NotImplementedError(
+            f"{type(self).__name__} must override _energy_graph (the backend's "
+            "energy, graph-connected to coords); an override of forward must "
+            "compute the energy itself and must not call super().forward(), "
+            "which re-enters this hook."
+        )
 
     def energy(
         self,
@@ -410,14 +435,25 @@ class BaseModelAdapter(ABC, nn.Module):
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Energies only, graph-connected, at the dtype of ``coords``.
+        """Energies only, graph-connected; never narrower than ``coords``' dtype.
 
-        The caller's tensors go to the backend untouched: no ``requires_grad_``
-        (an autograd-Hessian caller hands in a NON-LEAF tensor, on which it
-        raises) and no float32 cast (a float64 request must get a float64
-        answer, or the caller computes an fp32 Hessian believing otherwise).
-        No ``no_grad`` either: a Hessian caller needs the graph; a caller that
-        does not wraps its own call site.
+        No silent downcast: a backend whose ``_model_inputs`` casts to float32
+        for :meth:`forward` is bypassed here, so a float64 request gets a
+        float64 answer rather than an fp32 one with no error. A backend that
+        computes wider may still return wider -- :class:`AIMNet2Adapter`
+        returns float64 energies whatever dtype it was handed, since its
+        ``_energy_graph`` routes through its own ``forward``.
+
+        This bypasses :meth:`forward` for two reasons, not because
+        ``requires_grad_`` would raise on a non-leaf tensor (it would not: a
+        non-leaf tensor's ``requires_grad`` already reads ``True``, so
+        ``requires_grad_(True)`` on one is a no-op). First, routing through
+        :meth:`forward` would run ``coords`` through :meth:`_model_inputs`,
+        whose float32 cast is exactly the silent downcast the previous
+        paragraph refuses. Second, :meth:`forward` always pays for one
+        ``torch.autograd.grad`` call to compute forces that a pure energy
+        request never asked for. No ``no_grad`` either: a Hessian caller
+        needs the graph; a caller that does not wraps its own call site.
         """
         return self._energy_graph(coords, species, charges, atom_mask)
 
@@ -518,12 +554,13 @@ class AIMNet2Adapter(BaseModelAdapter):
 
     Defines no ``energy`` override: ``forward`` returns float64 energies
     whatever it was fed -- an UPCAST, so there is no silent precision loss to
-    guard against (the hazard ``ANI2xAdapter.energy`` and
-    ``CustomModelAdapter.energy`` exist to prevent), and whole-graph fp64
-    through AIMNet2 would be false precision regardless. ``BaseModelAdapter``'s
-    default ``energy`` therefore routes through ``forward`` here (hence the
-    calculator's ``forces=True`` path), which is the route the calculator
-    guarantees stays connected to ``coord`` in the autograd graph.
+    guard against. The hazard the other backends' ``_model_inputs`` float32
+    casts would create for ``energy`` -- an fp64 request answered in fp32
+    with no error -- does not arise for AIMNet2, whose energy is an fp64
+    upcast, and whole-graph fp64 through AIMNet2 would be false precision
+    regardless. Its own ``_energy_graph`` returns ``forward``'s first output
+    (hence the calculator's ``forces=True`` path), which is the route the
+    calculator guarantees stays connected to ``coord`` in the autograd graph.
     """
 
     def __init__(
@@ -725,6 +762,23 @@ class AIMNet2Adapter(BaseModelAdapter):
         forces[mask] = forces_flat
         _validate_outputs(energy, forces)
         return energy, forces
+
+    def _energy_graph(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """``forward``'s first output: the only way to reach AIMNet2's energy.
+
+        This does not recurse: ``forward`` above is self-contained (it never
+        calls ``_energy_graph``), so this one-line hook just states, on the
+        subclass that needs it, the fallback the base class's default used to
+        apply conditionally. The energy it returns is an fp64 upcast (see the
+        class docstring), not a dtype-preserving pass-through.
+        """
+        return self.forward(coords, species, charges, atom_mask)[0]
 
 
 class ANI2xtAdapter(BaseModelAdapter):

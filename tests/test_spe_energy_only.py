@@ -372,19 +372,22 @@ class TestEveryShippedAdapterEnergyIsBackwardFree:
         assert sum(calls) == 0
 
     def test_aimnet2_energy_is_deliberately_the_forward_route(self):
-        """AIMNet2Adapter defines no ``energy`` or ``_energy_graph`` override (P-M5),
-        so ``BaseModelAdapter.energy`` -> ``_energy_graph`` -> ``forward(...)[0]`` is
-        what routes it; the check below has moved one level down with the logic."""
+        """AIMNet2Adapter defines no ``energy`` override (P-M5); its own
+        ``_energy_graph`` (the hooks are one-directional, so the base class's
+        ``_energy_graph`` never falls back to ``forward`` for it) is what
+        routes ``BaseModelAdapter.energy`` -> ``_energy_graph`` ->
+        ``forward(...)[0]``."""
         import inspect
 
-        from Auto3D.engines.models.adapter import AIMNet2Adapter, BaseModelAdapter
+        from Auto3D.engines.models.adapter import AIMNet2Adapter
 
+        assert "forward" in AIMNet2Adapter.__dict__
+        assert "_energy_graph" in AIMNet2Adapter.__dict__
         assert "energy" not in AIMNet2Adapter.__dict__
-        assert "_energy_graph" not in AIMNet2Adapter.__dict__
 
-        source = inspect.getsource(BaseModelAdapter._energy_graph)
+        source = inspect.getsource(AIMNet2Adapter._energy_graph)
         assert "self.forward(" in source, (
-            "BaseModelAdapter._energy_graph stopped routing a forward-only "
+            "AIMNet2Adapter._energy_graph stopped routing a forward-only "
             "subclass's energy through forward; that moves AIMNet2's default "
             "engine energy onto the calculator's forces=False path, which "
             "needs a real-model equality check to justify"

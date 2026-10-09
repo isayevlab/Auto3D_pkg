@@ -201,20 +201,22 @@ class TestANI2xtAdapter:
         assert adapter.coord_pad == 0.0
 
     def test_ani2xt_adapter_force_sign_with_toy_model(self):
-        """``forces = -grad`` is duplicated once per adapter in adapter.py:
-        ``ANI2xtAdapter.forward`` has its own copy, distinct from (and
-        untested by) ``CustomModelAdapter``'s copy that
-        ``test_custom_model_adapter_runs`` already checks (audit M32). A sign
-        bug introduced independently in THIS copy would not be caught by that
-        test, and ``test_ani2xt_adapter_creates_model`` above never calls
+        """``forces = -grad`` is one shared tail in ``BaseModelAdapter.forward``,
+        reached through each backend's own ``_energy_graph`` (audit M32); this
+        test exercises it through ``ANI2xtAdapter._energy_graph`` specifically,
+        and is kept as a per-backend smoke test alongside
+        ``test_custom_model_adapter_runs``'s and
+        ``test_ani2x_adapter_force_sign_with_toy_model``'s coverage of the
+        other two. ``test_ani2xt_adapter_creates_model`` above never calls
         ``.forward`` at all.
 
         ``BaseModelAdapter.__init__`` is called directly on a bypassed
         instance (skipping ``ANI2xtAdapter.__init__``, which imports the real
         bundled ANI2xt weights) and handed a toy quadratic model instead --
         same technique ``TestBaseModelAdapter`` already uses for a mock
-        model, applied here so the REAL ``ANI2xtAdapter.forward`` runs.
-        Hermetic: no NNP loaded, no torchani import.
+        model, applied here so the REAL ``ANI2xtAdapter._energy_graph`` runs
+        through ``BaseModelAdapter.forward``. Hermetic: no NNP loaded, no
+        torchani import.
         """
         from Auto3D.engines.models.adapter import ANI2xtAdapter, BaseModelAdapter
 
@@ -256,19 +258,23 @@ class TestANI2xAdapter:
         assert adapter.coord_pad == 0.0
 
     def test_ani2x_adapter_force_sign_with_toy_model(self):
-        """``forces = -grad`` is duplicated again in ``ANI2xAdapter.forward``
-        -- a third, separate copy from ``ANI2xtAdapter``'s and
-        ``CustomModelAdapter``'s (audit M32), also untested by
-        ``test_custom_model_adapter_runs``.
+        """``forces = -grad`` is one shared tail in ``BaseModelAdapter.forward``,
+        reached through each backend's own ``_energy_graph`` (audit M32); this
+        test exercises it through ``ANI2xAdapter._energy_graph`` specifically,
+        kept as a per-backend smoke test alongside
+        ``test_ani2xt_adapter_force_sign_with_toy_model``'s and
+        ``test_custom_model_adapter_runs``'s coverage of the other two,
+        untested by either.
 
         The toy model mimics torchani's ``SpeciesEnergies`` return shape (an
         object with a ``.energies`` attribute) rather than
-        ``ANI2xtAdapter``'s plain-tensor return, since ``ANI2xAdapter.forward``
-        calls ``self.model((species, coords)).energies`` and multiplies by
+        ``ANI2xtAdapter``'s plain-tensor return, since
+        ``ANI2xAdapter._energy_graph`` calls
+        ``self.model((species, coords)).energies`` and multiplies by
         ``HARTREE_TO_EV`` -- the toy divides by the same constant first so the
         expected force in eV is still the clean ``-2*coords``. Coordinates are
-        float32 from the start (matching what ``ANI2xAdapter.forward`` casts
-        to internally) so the adapter's own ``coords.float()`` cast is a
+        float32 from the start (matching what ``ANI2xAdapter._model_inputs``
+        casts to internally) so the adapter's own ``coords.float()`` cast is a
         no-op here and cannot be blamed for any looseness in the comparison
         (the brainstorm's dtype-cast risk flag for this specific test).
         Hermetic: no NNP loaded, no torchani import.
@@ -655,8 +661,9 @@ class TestEnergyIsDtypePreserving:
 
     This is the single most likely silent numerical regression in the whole
     contract change, and it produces no error of any kind.
-    ``ANI2xAdapter.forward`` and ``CustomModelAdapter.forward`` both call
-    ``coords.float()`` -- correct for them, because they front float32 weights.
+    ``ANI2xAdapter`` and ``CustomModelAdapter`` both override ``_model_inputs``
+    to call ``coords.float()`` -- correct for them, because they front float32
+    weights.
     But ``energy()`` exists so a caller can DIFFERENTIATE it (an fp64 Hessian,
     which ``ASE/thermo.py`` builds by promoting the wrapped module with
     ``.double()``). If ``energy`` were the inherited ``forward(...)[0]`` for those
@@ -801,9 +808,11 @@ class TestEnergyIsDtypePreserving:
         assert forces.dtype is torch.float32  # forces still follow input_dtype
 
     def test_ani2xt_energy_accepts_a_non_leaf_tensor(self):
-        """``ANI2xtAdapter.forward`` calls ``coords.requires_grad_(True)``, which
-        raises on the non-leaf tensor an autograd Hessian hands in. Its own
-        ``energy`` must not touch ``requires_grad`` at all."""
+        """``BaseModelAdapter.forward`` (inherited by ``ANI2xtAdapter``) calls
+        ``coords.requires_grad_(True)``, which an autograd-Hessian caller's
+        non-leaf tensor already satisfies (its ``requires_grad`` already reads
+        ``True``, so the call is a no-op, not a raise). ``energy`` must not
+        touch ``requires_grad`` at all."""
         from Auto3D.engines.models.adapter import ANI2xtAdapter
 
         class _Toy(torch.nn.Module):
