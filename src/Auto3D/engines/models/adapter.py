@@ -192,8 +192,10 @@ class BaseModelAdapter(ABC, nn.Module):
       to compute forces itself (``AIMNet2Adapter``) -- and also
       :meth:`_energy_graph`, returning ``forward``'s first output, if
       :meth:`energy` is needed too; the hooks are one-directional, so nothing
-      here falls back from one to the other. A subclass that defines neither is
-      refused at class definition (see :meth:`__init_subclass__`).
+      here falls back from one to the other. A subclass that supplies neither,
+      itself or through a parent, is refused at class definition (see
+      :meth:`__init_subclass__`); the full rule, including what the overrides
+      must not call, is stated once in :meth:`_energy_graph`.
 
     Note on torch.inference_mode():
         This class CANNOT use torch.inference_mode() or torch.no_grad() in forward

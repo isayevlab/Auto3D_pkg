@@ -62,6 +62,15 @@ def test_calc_thermo_marks_a_non_positive_mol_info_func_temperature_as_failed(
     monkeypatch.setattr(_calculator, "create_model", lambda *a, **k: stub)
     monkeypatch.setattr(thermo_mod, "_load_hessian_model", lambda *a, **k: object())
 
+    # The pre-check must mark the record before do_mol_thermo is reached; if the
+    # pre-check were removed, do_mol_thermo's own ConfigurationError would be
+    # caught by the per-record handler and the output would look the same, so
+    # this spy is what makes the test tell the two paths apart.
+    def _never_called(*args, **kwargs):
+        raise AssertionError("do_mol_thermo must not run for a non-positive T")
+
+    monkeypatch.setattr(thermo_mod, "do_mol_thermo", _never_called)
+
     mol = Chem.MolFromSmiles("O")
     mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, randomSeed=1)

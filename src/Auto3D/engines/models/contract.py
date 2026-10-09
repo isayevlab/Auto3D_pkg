@@ -196,7 +196,8 @@ class ModelAdapter(Protocol):
     :mod:`Auto3D.engines.models.adapter`; :class:`~Auto3D.engines.models.adapter.BaseModelAdapter`
     supplies working defaults for every member, including ``forward``, so an
     in-tree adapter satisfies this by inheritance -- it need only override
-    ``_energy_graph`` (or ``forward`` wholesale).
+    ``_energy_graph`` (or ``forward`` wholesale; the rule is stated once in
+    :meth:`Auto3D.engines.models.adapter.BaseModelAdapter._energy_graph`).
 
     Note the argument order is the REVERSE of :class:`CustomNNP`
     (``species`` first there, ``coords`` first here) and that this one returns

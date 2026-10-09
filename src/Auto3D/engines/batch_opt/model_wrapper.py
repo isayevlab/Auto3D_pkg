@@ -453,7 +453,8 @@ class EnForce_ANI(nn.Module):
         ``calc_spe`` used to pay for a full backward pass per sub-batch and then
         discard the result (audit M39). This routes through
         :meth:`Auto3D.engines.models.contract.ModelAdapter.energy` instead, which is
-        energy-only and dtype-preserving.
+        energy-only and never answers narrower than the dtype of ``coords`` (a
+        backend that computes wider, such as AIMNet2, may return wider).
 
         How much that saves depends on the engine, and the honest answer is
         engine-specific: ``ANI2xtAdapter``, ``ANI2xAdapter`` and

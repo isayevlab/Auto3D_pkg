@@ -206,11 +206,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   affinity API is unavailable) instead of the machine's total core count, so
   a run confined to a cgroup/cpuset cap no longer oversubscribes the cores it
   was actually given.
-- The optimization and bucket-policy benchmarks' environment record now
-  names a CPU-only run explicitly (`"CPU-ONLY"`) instead of reporting the
-  identity and capability of GPU 0 on a box with no requested device; the
-  bucket-policy script's own benchmark run passes its device through the
-  same helper.
+- The benchmarks' environment record names a CPU-only run explicitly
+  (`"CPU-ONLY"`): a run that asked for the CPU on a box that also has a GPU
+  used to be recorded with GPU 0's identity and capability, because the
+  record checked only whether CUDA was available. The noise-measurement and
+  optimizer benchmarks pass their device through; the bucket-policy benchmark
+  refuses a non-CUDA device and now records the card it actually used.
 - The 3.0.0 and 3.1.0 sections of this file were corrected in place: the ORCA
   mass-convention default (standard atomic weights, not most-abundant-isotope,
   unless `!Mass2016` is requested) and the "4.0" wording for releases that

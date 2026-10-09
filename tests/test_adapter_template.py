@@ -99,8 +99,9 @@ def test_a_forward_only_subclass_must_add_an_energy_graph_for_energy():
 
 def test_a_forward_override_that_delegates_to_super_forward_raises_not_recurses():
     """A forward override written as ``return super().forward(...)`` without
-    also defining ``_energy_graph`` must fail with the same diagnosis a bare
-    subclass gets -- not recurse into ``NotImplementedError``'s former fallback
+    also defining ``_energy_graph`` passes the class-definition check (it does
+    define ``forward``) and must then fail at the first call with the base
+    hook's ``NotImplementedError`` naming ``_energy_graph`` -- not recurse
     (that shape previously produced a bare ``RecursionError``, since the old
     conditional default routed ``_energy_graph`` back into ``forward``, which
     called ``_energy_graph`` again)."""
