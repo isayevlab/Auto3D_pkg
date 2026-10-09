@@ -307,10 +307,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bought more ETKDG attempts, not more rotamers. Molecules with hydroxyl or
   amine groups now request a smaller conformer pool: glycerol
   (`OCC(O)CO`) requests 52 conformers instead of 238, and keeps the same 9
-  after pruning either way; beta-D-glucopyranose
-  (`C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O`) requests 16 instead
-  of 321 and keeps 12 instead of 69 after pruning (both measured with
-  `CONFORMER_RANDOM_SEED`, `pruneRmsThresh=0.3`, `useSymmetryForPruning=True`).
+  after pruning either way — under both RDKit 2025.09.6 and 2026.9.1;
+  beta-D-glucopyranose (`C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O`)
+  requests 16 instead of 321 and keeps 12 of 16 / 69 of 321 under RDKit
+  2025.09.6, 14 of 16 / 83 of 321 under 2026.9.1 — the installed RDKit moves
+  how many survive pruning, not which request is smaller (both measured with
+  `CONFORMER_RANDOM_SEED`, `pruneRmsThresh=0.3`, `useSymmetryForPruning=True`;
+  see `benchmarks/results-notes/2026-10-09-rdkit-2026-09-kept-counts.md`).
   Pass `max_confs` for a larger pool.
 - The optimizer's size buckets are wider: `BUCKET_SIZE_FACTOR` (the atom-count
   spread within one bucket) is now 4.0, not 1.25 — the 3.1.x value assumed
@@ -860,16 +863,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
-- **Thermochemistry now uses most-abundant-isotope masses, matching Gaussian and
-  ORCA. Every reported `H_hartree`, `S_hartree_per_K` and `G_hartree` changes.**
+- **Thermochemistry now uses most-abundant-isotope masses, matching Gaussian
+  (and ORCA with `!Mass2016`). Every reported `H_hartree`, `S_hartree_per_K` and
+  `G_hartree` changes.**
 
   `mol2atoms` left ASE's per-element default in place for any atom without an
   explicit isotope label, and that default is the IUPAC standard atomic weight —
-  the natural-abundance average (C 12.011, Cl 35.45, Br 79.904). The QM programs
-  Auto3D's numbers get compared against build thermochemistry on the most
-  abundant isotope instead (12.000, 34.96885, 78.91834), and `ASE/thermo.py`
-  already stated that it reports G at the same standard state they do. The mass
-  convention was an undeclared difference from that claim.
+  the natural-abundance average (C 12.011, Cl 35.45, Br 79.904). Gaussian builds
+  thermochemistry on the most abundant isotope instead (12.000, 34.96885,
+  78.91834); ORCA's default is standard atomic weights — the same convention
+  `mol2atoms` is replacing — unless `!Mass2016` is requested, which switches it
+  to the most abundant isotope too. `ASE/thermo.py` already stated that it
+  reports G at the same standard state these programs do. The mass convention
+  was an undeclared difference from that claim, against Gaussian's default and
+  ORCA's `!Mass2016`.
 
   Mass enters three places at once: the moments of inertia (rotational partition
   function), the mass-weighted Hessian (every frequency, so ZPE and *S*<sub>vib</sub>
@@ -1048,7 +1055,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   these. **What to do instead:** branch on the class of failure rather than
   on 1 -- 2 for "your configuration or input is wrong", 3 for "install
   something", 4 for "GPU problem", 5 for "model problem", 6 for "the run
-  finished but lost molecules", 130 for "you pressed Ctrl-C" (new in 4.0).
+  finished but lost molecules", 130 for "you pressed Ctrl-C" (new in 3.0.0).
   `docs/source/cli.rst` now carries exactly one
   exit-code table (it used to carry two, which disagreed with each other and
   neither of which listed 6), every row of which is provoked and asserted by
@@ -1387,7 +1394,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   -0.59 to -1.53 kcal/mol against a 3.27 spread of +0.85 to +1.80 -- a
   **2.4-2.9 kcal/mol difference between two ASE versions on identical input**.
 
-  4.0 removes translation and rotation by Eckart/Sayvetz projection instead
+  3.0.0 removes translation and rotation by Eckart/Sayvetz projection instead
   (`projected_vibrations`): mass-weight the Hessian, build the three
   translation and three (or two) infinitesimal-rotation vectors,
   orthonormalize them to `V`, and diagonalize `P H P` with `P = I - V V'`. The
@@ -1441,7 +1448,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vibrational degrees of freedom, so deleting an artifact gives a species with
   one artifact a 3N-7-mode partition function and a species with none a
   3N-6-mode one, and those two free energies are not the same thermodynamic
-  quantity. 4.0 substitutes `|nu|` -- the Gaussian/ORCA convention -- and keeps
+  quantity. 3.0.0 substitutes `|nu|` -- the Gaussian/ORCA convention -- and keeps
   the mode. A mode at or above the cutoff is a reaction coordinate; Auto3D now
   removes it itself and passes 3N-7 deliberately, rather than leaving the count
   to `ignore_imag_modes` (which, on ASE >= 3.28, never saw it -- the selection
@@ -1476,8 +1483,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mode, because a sub-floor mode's `ZPE + dH_vib` is nearly independent of
   `nu` (0.594 kcal/mol at 30 cm-1, 0.604 at 100).
 
-  **Do not mix pre-4.0 and 4.0 Gibbs energies in one comparison**, and check
-  `Thermo_convention` before comparing two 4.0 files.
+  **Do not mix pre-3.0.0 and 3.0.0 Gibbs energies in one comparison**, and check
+  `Thermo_convention` before comparing two 3.0.0 files.
 
 - **The `ase` extra now requires `ase>=3.23.0` (was `>=3.22.1`).** 3.22.1's
   `IdealGasThermo` has no `ignore_imag_modes` parameter at all, so
@@ -1670,7 +1677,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `E_rel` 0.037 kcal/mol where the truth is 1.000, and wrote an
   `E_tot(Hartree)` that had been divided by 27.211 **twice**.
 
-  | Producer | `E_tot` in 3.x / 4.0-pre | `E_tot` now |
+  | Producer | `E_tot` in 2.x / 3.0.0-pre | `E_tot` now |
   | --- | --- | --- |
   | `optimizing.run()` (`*_3d.sdf` in the job dir, `--verbose` output) | eV | **Hartree** |
   | `opt_geometry` / `auto3d optimize` | Hartree | Hartree (unchanged) |
@@ -1679,7 +1686,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Which unit is my file in?** Only the intermediate optimizer output
   changed. If a file has both `E_tot` and `E_tot(Hartree)` it is Hartree by
-  construction. If it has `E_tot` alone and came from a 3.x/4.0-pre
+  construction. If it has `E_tot` alone and came from a 2.x/3.0.0-pre
   `optimizing.run()` (an unranked, un-annotated SDF straight out of the
   optimization step), it is in eV -- divide by 27.211386245988 to migrate it,
   or simply re-run. Every finished Auto3D output (`main()`, `smiles2mols`,
@@ -1812,7 +1819,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`benchmarks/bench_optimization_perf.py` and `benchmarks/run_perf_ab.sh`.**
-  One command -- `bash benchmarks/run_perf_ab.sh v4.0.0` -- creates a read-only
+  One command -- `bash benchmarks/run_perf_ab.sh <base-ref>` -- creates a read-only
   git worktree of the base ref, benchmarks it and the current tree on the same
   GPU with identical instrumentation, and prints a CHANGELOG-ready block. Fixed
   work (`opttol=0`, `patience=1e9`) so both sides execute the same number of

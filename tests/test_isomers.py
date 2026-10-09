@@ -454,7 +454,7 @@ class TestCreateParallelEmbedding:
             return iter([])
 
         monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
-        monkeypatch.setattr(os, "cpu_count", lambda: 128)
+        monkeypatch.setattr(embedding_mod, "available_cpu_count", lambda: 128)
 
         engine = IsomerEngineFactory.create(
             "rdkit",
@@ -507,7 +507,7 @@ class TestCreateParallelEmbedding:
             return iter([])
 
         monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
-        monkeypatch.setattr(os, "cpu_count", lambda: 128)
+        monkeypatch.setattr(embedding_mod, "available_cpu_count", lambda: 128)
 
         IsomerEngineFactory.create(
             "rdkit",

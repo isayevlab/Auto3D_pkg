@@ -129,6 +129,15 @@ By default, Auto3D enumerates stereoisomers for unspecified stereocenters:
    # Use OpenEye Omega for isomer generation (requires license)
    auto3d run molecules.smi --k=1 --isomer-engine=omega --gpu
 
+This enumeration is for unspecified *stereocenters* only. An unspecified double
+bond (e.g. ``CC=CC`` with no ``/`` or ``\`` in the SMILES) is not enumerated and
+labeled the same way: the conformer generator samples a geometry for it, and
+which geometry (or geometries) come out of a given embedding is an artifact of
+the installed RDKit release, not something Auto3D enumerates or guarantees
+(measured on ``CC=CC``: RDKit 2025.09.6 kept only the *Z* geometry, RDKit
+2026.9.1 kept both *E* and *Z*, from the same request; see
+``benchmarks/results-notes/2026-10-09-rdkit-2026-09-kept-counts.md``).
+
 Configuration Files
 ~~~~~~~~~~~~~~~~~~~
 

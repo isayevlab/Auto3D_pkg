@@ -310,10 +310,12 @@ def mol2atoms(mol: Chem.Mol, positions=None) -> Atoms:
     # Masses are always set, never left to ASE's per-element default.
     #
     # That default is the IUPAC standard atomic weight -- the natural-abundance
-    # average (C 12.011, Cl 35.45, Br 79.904). Gaussian and ORCA build their
-    # thermochemistry on the MOST ABUNDANT ISOTOPE instead (12.000, 34.96885,
-    # 78.91834), and this module states elsewhere that it reports G at the same
-    # standard state they do. Mass enters the moments of inertia (rotational
+    # average (C 12.011, Cl 35.45, Br 79.904). Gaussian builds its
+    # thermochemistry on the most abundant isotope instead (12.000, 34.96885,
+    # 78.91834); ORCA defaults to standard atomic weights unless ``!Mass2016``
+    # is requested, so Auto3D's masses match Gaussian's default and ORCA's
+    # ``!Mass2016``. This module states elsewhere that it reports G at the same
+    # standard state both programs do. Mass enters the moments of inertia (rotational
     # partition function), the mass-weighted Hessian (every frequency, hence
     # ZPE and S_vib), and the molecular mass in the translational term, so the
     # convention was an undeclared difference from the programs Auto3D's numbers

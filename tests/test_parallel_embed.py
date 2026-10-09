@@ -330,7 +330,7 @@ def test_resolve_embedding_workers(monkeypatch, cpus, n_species, requested, thre
     """
     from Auto3D.domain.embedding import resolve_embedding_workers
 
-    monkeypatch.setattr(os, "cpu_count", lambda: cpus)
+    monkeypatch.setattr(Auto3D.domain.embedding, "available_cpu_count", lambda: cpus)
     assert resolve_embedding_workers(requested, n_species, threads_per_worker=threads) == expected
 
 
@@ -342,15 +342,18 @@ def test_resolve_embedding_workers_defaults_to_one_thread_per_worker(monkeypatch
     """
     from Auto3D.domain.embedding import resolve_embedding_workers
 
-    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(Auto3D.domain.embedding, "available_cpu_count", lambda: 8)
     assert resolve_embedding_workers(None, 98) == 8
 
 
 def test_resolve_embedding_workers_survives_an_unknown_core_count(monkeypatch):
-    """``os.cpu_count()`` returns None when the platform cannot say."""
+    """``available_cpu_count()`` is floored at 1 (it absorbs ``os.cpu_count()``
+    returning None itself; see ``tests/test_available_cpu_count.py``), and
+    ``resolve_embedding_workers`` must still return a usable worker count at
+    that floor."""
     from Auto3D.domain.embedding import resolve_embedding_workers
 
-    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    monkeypatch.setattr(Auto3D.domain.embedding, "available_cpu_count", lambda: 1)
     assert resolve_embedding_workers(None, 98) == 1
 
 
@@ -363,7 +366,7 @@ def test_resolve_embedding_workers_survives_a_zero_thread_count(monkeypatch):
     """
     from Auto3D.domain.embedding import resolve_embedding_workers
 
-    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(Auto3D.domain.embedding, "available_cpu_count", lambda: 8)
     assert resolve_embedding_workers(None, 98, threads_per_worker=0) == 8
 
 

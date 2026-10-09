@@ -221,11 +221,7 @@ def main() -> None:
 
     device = torch.device(args.device)
     groups = build_mols()
-    env = env_block()
-    if device.type == "cpu":
-        # env_block() checks torch.cuda.is_available(), not --device: on a box
-        # with GPUs it reports the GPU's name even for a CPU run.
-        env["gpu"] = "CPU-ONLY"
+    env = env_block(device)
     record = {
         "env": env,
         "device": str(device),

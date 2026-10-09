@@ -71,10 +71,15 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     pruning (measured with those same embedding settings at
     ``CONFORMER_RANDOM_SEED``, ``pruneRmsThresh=0.3``,
     ``useSymmetryForPruning=True``: glycerol, ``OCC(O)CO``, keeps 9 conformers
-    whether 52 or 238 are requested; beta-D-glucopyranose,
+    whether 52 or 238 are requested, under RDKit 2025.09.6 and under 2026.9.1
+    alike; beta-D-glucopyranose,
     ``C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O``, keeps 12 of 16
     requested at the new heavy-atom budget vs. 69 of 321 requested at the old
-    with-H budget). Computing the budget on the heavy-atom
+    with-H budget under RDKit 2025.09.6, and 14 of 16 vs. 83 of 321 under
+    2026.9.1 -- the installed RDKit changes how many of the requested pool
+    survive pruning, not which budget is smaller; see
+    ``benchmarks/results-notes/2026-10-09-rdkit-2026-09-kept-counts.md``).
+    Computing the budget on the heavy-atom
     graph makes the SMILES path (no-H) and the SDF/parallel paths (with-H)
     agree on the same request; a caller that wants the larger pool back asks
     for it explicitly with ``max_confs``.
