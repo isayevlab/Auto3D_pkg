@@ -80,6 +80,7 @@ def _stub_model_boundary(monkeypatch, energies_ev):
             numbers=numbers.tolist(),
             converged_mask=[True] * n,
             oscillating_count=[0] * n,
+            non_finite=[False] * n,
         )
 
     adapter = FakeAdapter()

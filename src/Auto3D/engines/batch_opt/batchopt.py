@@ -37,7 +37,7 @@ from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SE
 # is the numerical layer; the factory sits above it, and importing upward made
 # `optimizing` construct its own dependency. Callers inject a ready adapter --
 # see `optimizing.__init__`.
-from Auto3D.foundation.utils.convergence import set_converged
+from Auto3D.foundation.utils.convergence import OPTIMIZATION_FAILED_PROP, set_converged
 from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 from Auto3D.foundation.utils.stereo_check import apply_optimized_coords
@@ -87,8 +87,16 @@ def ensemble_opt(
             - close: Close contact structures
             - timing: Timing information
             - numbers: Atomic numbers
-            - converged_mask: Boolean convergence status per structure
+            - converged_mask: Boolean convergence status per structure. False
+              for a structure still active at the step budget, dropped for
+              oscillating, OR whose energy went non-finite (see
+              ``non_finite`` below -- such a structure is never True here).
             - oscillating_count: Oscillation counter per structure
+            - non_finite: Boolean, True for a structure whose energy came
+              back non-finite mid-optimization (R38) and therefore left the
+              active set without converging; ``batchopt.run`` writes such a
+              record ``Converged=False`` with ``Optimization_failed`` set,
+              no ``E_tot``/``fmax``, instead of the normal result.
     """
     # Handle both tensor and list inputs for backward compatibility
     # Ensure coords are leaf tensors (detach from any computation graph)
@@ -167,6 +175,7 @@ def ensemble_opt(
         numbers=state["numbers"].tolist(),
         converged_mask=state["converged_mask"].tolist(),
         oscillating_count=state["oscillating_count"].tolist(),
+        non_finite=state["non_finite"].tolist(),
     )
 
 
@@ -236,9 +245,28 @@ class optimizing:
     # huge homogeneous chunk is still split into manageable pieces.
     BUCKET_MAX_COUNT = 1024
     # A molecule joins the current bucket only while its atom count stays within
-    # this factor of the bucket's smallest molecule, bounding within-bucket
-    # padding waste to <= 25%.
-    BUCKET_SIZE_FACTOR = 1.25
+    # this factor of the bucket's smallest molecule.
+    #
+    # 1.25 (the 3.1.x default) assumed serial size buckets saved wall clock by
+    # avoiding padded-atom compute; the production path is launch-bound at
+    # every batch size it reaches instead (perf review 2026-09-21, M2/M4), so
+    # splitting cost wall clock rather than saving it -- measured end to end
+    # on the production path (Task 29, WS6/R37-R38):
+    # ``benchmarks/results-notes/2026-10-09-bucket-policy.md`` found merging
+    # seven size buckets into one cut AIMNet2 240-conformer wall clock from
+    # 33.9 s to 8.1 s and ANI2xt's from 21.0 s to 5.1 s (one NVIDIA L40S),
+    # with per-molecule minimum energies and converged counts unchanged
+    # within each engine's gate. 4.0 is that note's "What this measurement
+    # supports": the bench set spans 14-53 atoms (a 3.8x spread), so 4.0 is
+    # the smallest round figure that still folds every chunk the measurement
+    # covered into one bucket, while a chunk whose largest molecule exceeds
+    # four times its smallest still splits -- AIMNet2 flattens the batch and
+    # skips padded slots, but ANI2xt computes its descriptors ON padded
+    # slots, so an unmeasured, much wider spread is not assumed free. The
+    # sub-batch clamp (``batchsize_atoms``, with the OOM halving in
+    # ``EnForce_ANI``) bounds memory per forward either way, not that
+    # descriptor compute.
+    BUCKET_SIZE_FACTOR = 4.0
 
     def _make_buckets(self, mols):
         """Group molecule indices into size-homogeneous buckets.
@@ -249,9 +277,10 @@ class optimizing:
         ``BUCKET_MAX_COUNT`` molecules or when the next molecule's atom count
         exceeds ``BUCKET_SIZE_FACTOR`` times the bucket's SMALLEST molecule's
         atom count (``cur_min``, the first/smallest member since the input is
-        sorted ascending). With ``BUCKET_SIZE_FACTOR`` = 1.25 this bounds the
-        largest member to at most 1.25x the smallest, so padding the smallest
-        molecule up to the bucket's local max wastes at most ~25% of its atoms.
+        sorted ascending) -- the bound on within-bucket padding waste is set
+        by ``BUCKET_SIZE_FACTOR`` (see its comment for the measurement behind
+        the current value). A NaN molecule no longer takes its bucket down
+        (``EnForce_ANI.forward_batched``'s ``tolerate_non_finite``, R38).
 
         Args:
             mols: List of RDKit Mol objects.
@@ -282,7 +311,7 @@ class optimizing:
         Args:
             bucket_mols: List of RDKit Mol objects forming one size-homogeneous
                 bucket. They are padded to this bucket's LOCAL max atom count,
-                not the global max, which is the source of the speedup.
+                not the global max.
             model: The shared :class:`EnForce_ANI` wrapper, constructed once in
                 :meth:`run` and reused across buckets (it is a thin wrapper over
                 ``self.model`` with no per-bucket state).
@@ -373,6 +402,7 @@ class optimizing:
         converged_flags = [None] * len(mols)
         osc_counts = [None] * len(mols)
         coords_out = [None] * len(mols)
+        non_finite_flags = [None] * len(mols)
         patience = self._config_dict["patience"]
 
         # Split into size-homogeneous buckets. Padding each bucket to its LOCAL
@@ -397,6 +427,7 @@ class optimizing:
                 converged_flags[orig_i] = optdict["converged_mask"][local_i]
                 osc_counts[orig_i] = optdict["oscillating_count"][local_i]
                 coords_out[orig_i] = optdict["coord"][local_i]
+                non_finite_flags[orig_i] = optdict["non_finite"][local_i]
 
             # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
             # or fragment across many buckets. The final empty_cache() below still
@@ -405,34 +436,49 @@ class optimizing:
                 torch.cuda.empty_cache()
 
         n_stereo_changed = 0
+        non_finite_ids: list[str] = []
         with Chem.SDWriter(self.out_f) as f:
             for i in range(len(mols)):
                 mol = mols[i]
                 idx = mol.GetProp("_Name")
-                # Determine true convergence status:
-                # - Converged: converged AND not oscillating (osc_count < patience)
-                # - Dropped: converged AND oscillating (osc_count >= patience)
-                # - Not converged: converged=False
-                converged_i = converged_flags[i]
-                osc_count_i = osc_counts[i]
-                convergence_i = converged_i and osc_count_i < patience
-                # The model returns eV; `E_tot` is a Hartree property at
-                # every Auto3D writer, so the conversion happens HERE, on the
-                # way to disk, and the unit-labeled sibling is written next to
-                # it. Writing eV under this name is what made the same tag mean
-                # two different things depending on entry point (see
-                # Auto3D.foundation.utils.energy).
-                set_e_tot_from_ev(mol, energies[i])
-                # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
-                # an energy, and no consumer converts it.
-                mol.SetProp("fmax", str(fmaxs[i]))
-                # Routed through the single owner of this property so the
-                # writer and the three filters that read it cannot drift
-                # (Auto3D.foundation.utils.convergence).
-                set_converged(mol, convergence_i)
-                # Mark structures dropped due to oscillation for diagnostics
-                is_oscillating = converged_i and osc_count_i >= patience
-                mol.SetProp("Dropped_Oscillating", str(is_oscillating))
+                if non_finite_flags[i]:
+                    # The energy never stabilized to a finite value (R38):
+                    # written Converged=False with the reason, and neither
+                    # `E_tot` nor `fmax` (both are NaN at this row -- see
+                    # `EnForce_ANI._non_finite_placeholder` and
+                    # `_recompute_final_energy_and_fmax`). No filter change
+                    # was needed for this: `Converged=False` is already
+                    # dropped downstream by
+                    # `Auto3D.foundation.utils.convergence.converged_or_unfiltered`,
+                    # the same path an oscillation-dropped record takes.
+                    set_converged(mol, False)
+                    mol.SetProp(OPTIMIZATION_FAILED_PROP, "non_finite_energy")
+                    non_finite_ids.append(idx)
+                else:
+                    # Determine true convergence status:
+                    # - Converged: converged AND not oscillating (osc_count < patience)
+                    # - Dropped: converged AND oscillating (osc_count >= patience)
+                    # - Not converged: converged=False
+                    converged_i = converged_flags[i]
+                    osc_count_i = osc_counts[i]
+                    convergence_i = converged_i and osc_count_i < patience
+                    # The model returns eV; `E_tot` is a Hartree property at
+                    # every Auto3D writer, so the conversion happens HERE, on the
+                    # way to disk, and the unit-labeled sibling is written next to
+                    # it. Writing eV under this name is what made the same tag mean
+                    # two different things depending on entry point (see
+                    # Auto3D.foundation.utils.energy).
+                    set_e_tot_from_ev(mol, energies[i])
+                    # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
+                    # an energy, and no consumer converts it.
+                    mol.SetProp("fmax", str(fmaxs[i]))
+                    # Routed through the single owner of this property so the
+                    # writer and the three filters that read it cannot drift
+                    # (Auto3D.foundation.utils.convergence).
+                    set_converged(mol, convergence_i)
+                    # Mark structures dropped due to oscillation for diagnostics
+                    is_oscillating = converged_i and osc_count_i >= patience
+                    mol.SetProp("Dropped_Oscillating", str(is_oscillating))
                 mol.SetProp("ID", idx)
                 # Reads the configuration from the pre-optimization coordinates,
                 # writes the optimized ones, reads again, and records the
@@ -457,6 +503,15 @@ class optimizing:
             logging.getLogger("auto3d").warning(
                 f"{n_stereo_changed} conformer(s) changed stereochemistry during "
                 "optimization and will be excluded from the results."
+            )
+        if non_finite_ids:
+            # Same reasoning as n_stereo_changed above: the module logger is
+            # not an ancestor of "auto3d" and this warning must reach the run
+            # log (R38 names the molecule ids and the count explicitly).
+            logging.getLogger("auto3d").warning(
+                f"{len(non_finite_ids)} conformer(s) had a non-finite energy and are "
+                f"written Converged=False (Optimization_failed=non_finite_energy) "
+                f"instead of aborting their bucket: {non_finite_ids}."
             )
 
         # Clean up GPU memory after optimization

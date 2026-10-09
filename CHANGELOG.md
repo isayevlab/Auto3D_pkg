@@ -190,6 +190,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at the measured noise level, can differ between runs on a shared card. The
   ANI2xt docstring no longer quotes a ~4e-3 eV float32 precision cap that
   belongs to ANI2x.
+- A molecule whose energy became non-finite mid-optimization aborted its
+  whole bucket with exit 5; such a molecule is now written `Converged=False`
+  with a new `Optimization_failed="non_finite_energy"` SD property and a
+  warning naming it, while the rest of its bucket finishes normally (WS6,
+  R38). `calc_spe` (the `auto3d energy` / exit-5 path) is unchanged — it
+  still raises on a non-finite energy.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -306,6 +312,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of 321 and keeps 12 instead of 69 after pruning (both measured with
   `CONFORMER_RANDOM_SEED`, `pruneRmsThresh=0.3`, `useSymmetryForPruning=True`).
   Pass `max_confs` for a larger pool.
+- The optimizer's size buckets are wider: `BUCKET_SIZE_FACTOR` (the atom-count
+  spread within one bucket) is now 4.0, not 1.25 — the 3.1.x value assumed
+  serial size buckets saved wall clock by skipping padded-atom compute, but
+  the production path is launch-bound at every batch size it reaches instead
+  (perf review 2026-09-21, M2/M4), so splitting cost wall clock rather than
+  saving it. Measured end to end on the production path, one NVIDIA L40S
+  (`benchmarks/results-notes/2026-10-09-bucket-policy.md`): the
+  production-path optimization of 240 conformers took 33.9 s in seven size
+  buckets and 8.1 s as one bucket for AIMNet2, 21.0 s and 5.1 s for ANI2xt;
+  converged counts and per-molecule minima unchanged within the per-engine
+  gate; 3 and 4 conformers of 240 settled in a neighboring minimum under the
+  other policy. `BUCKET_MAX_COUNT` (1024) is unchanged.
 
 ## [3.1.1] - 2026-08-27
 
