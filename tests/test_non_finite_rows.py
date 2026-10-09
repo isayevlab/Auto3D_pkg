@@ -7,7 +7,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
-from Auto3D.engines.batch_opt.optimization_engine import n_steps
+from Auto3D.engines.batch_opt.optimization_engine import n_steps, optimization_counts
 from Auto3D.foundation.exceptions import NumericalError
 from tests.helpers_adapter import FakeAdapter
 
@@ -79,6 +79,14 @@ def test_non_finite_row_is_dropped_and_the_rest_converge():
     assert torch.isnan(state["energy"][1])
     assert bool(state["converged_mask"][[0, 2, 3]].all())
     assert torch.isfinite(state["energy"][[0, 2, 3]]).all()
+    # R70: a non-finite row left the active set for good, not merely
+    # "not yet converged" -- optimization_counts (and therefore print_stats
+    # and the live-progress callback) must not keep reporting it active for
+    # the rest of the run.
+    _, num_converged, num_dropped, num_active = optimization_counts(state, patience=250)
+    assert num_converged == 3
+    assert num_dropped == 0
+    assert num_active == 0
 
 
 def test_energy_batched_still_raises_on_non_finite():

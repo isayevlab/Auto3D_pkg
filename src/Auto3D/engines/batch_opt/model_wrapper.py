@@ -188,6 +188,19 @@ class EnForce_ANI(nn.Module):
         # Ensure at least 1 molecule per batch to avoid empty batches
         remaining = torch.arange(B, device=coord.device)
         bsize = self._bsize_by_n.get(N, max(1, self.batchsize_atoms // N))
+        # Caps the slice size ONLY while actively bisecting one failing
+        # sub-batch; `None` means "no cap, slice at `bsize`". Kept as its OWN
+        # local variable -- never written into `bsize` or `self._bsize_by_n`,
+        # which stay the OOM policy's alone (R68/GPU review F2): without this
+        # separation, a NaN bisection earlier in this same call could leave a
+        # later, unrelated CUDA OOM halving from an already-shrunk `bsize`
+        # instead of from the size that actually exhausted memory, silently
+        # under-sizing `self._bsize_by_n[N]` for every later call too. Reset
+        # to `None` as soon as the row(s) that triggered it are isolated and
+        # placeholdered, so an untouched remainder of the queue is still
+        # offered to `compute` at the full, OOM-policy `bsize` rather than
+        # staying permanently shrunk by an already-resolved failure.
+        nan_cap: int | None = None
         # Rows whose energy came back non-finite even at size 1 (R38); logged
         # once, after the loop, rather than once per bisection level.
         failed_rows: list[int] = []
@@ -206,7 +219,8 @@ class EnForce_ANI(nn.Module):
         # default for everything that has not run yet -- and, since the P-M3
         # fix, for every later call on this instance too, via `_bsize_by_n`.
         while remaining.numel() > 0:
-            sub, remaining = remaining[:bsize], remaining[bsize:]
+            step = bsize if nan_cap is None else min(bsize, nan_cap)
+            sub, remaining = remaining[:step], remaining[step:]
             oom = False
             try:
                 out = compute(sub)
@@ -219,25 +233,24 @@ class EnForce_ANI(nn.Module):
                     # Bisect: the rows that are fine run again in halves; the
                     # offender is isolated at size 1 below.
                     #
-                    # `bsize` must also shrink to at most `half` HERE (a
-                    # deviation from the OOM branch above, which re-requeues
+                    # `nan_cap` must shrink to at most `half` HERE (a
+                    # deviation from the OOM branch below, which re-requeues
                     # the whole failing `sub` unchanged at a smaller `bsize`):
-                    # without it, whenever `bsize` already covers the whole
-                    # remaining batch -- the common case, since
-                    # `batchsize_atoms // N` routinely exceeds a bucket's
-                    # count once a few molecules have converged and left --
-                    # the next iteration's `remaining[:bsize]` would simply
+                    # without some cap, whenever the slice this iteration
+                    # used already covered the whole remaining batch -- the
+                    # common case, since `batchsize_atoms // N` routinely
+                    # exceeds a bucket's count once a few molecules have
+                    # converged and left -- the next iteration would simply
                     # re-assemble the identical `sub` and fail identically
-                    # forever. Not persisted to `self._bsize_by_n`: a single
-                    # bad geometry should not shrink every later call's batch
-                    # size, only the rest of THIS one (and every row sliced
-                    # after bisection starts runs one-per-forward for the
-                    # remainder of this call -- logarithmic in the number of
-                    # bisection levels, linear in whatever is left to process
-                    # after the last one; NaN is rare enough that this is an
-                    # acceptable cost, not a design goal).
+                    # forever. It is `nan_cap`, not `bsize` itself, that
+                    # shrinks here: every row sliced for the rest of THIS
+                    # bisection episode runs one-per-forward (logarithmic in
+                    # the number of levels needed to isolate the offender),
+                    # but once isolated, `nan_cap` resets to `None` below so
+                    # the episode's cost does not outlive it.
                     half = sub.numel() // 2
-                    bsize = max(1, min(bsize, half))
+                    nan_cap = half if nan_cap is None else min(nan_cap, half)
+                    nan_cap = max(1, nan_cap)
                     # The two halves are requeued ahead of whatever was
                     # already pending, in ascending order, so `results` below
                     # is still appended in molecule order -- `forward_batched`
@@ -246,6 +259,11 @@ class EnForce_ANI(nn.Module):
                     continue
                 failed_rows.append(int(sub.item()))
                 out = self._non_finite_placeholder(coord, sub)
+                # This bisection episode is resolved: lift the cap so the
+                # rest of the queue is offered to `compute` at the OOM
+                # policy's own `bsize`, not at whatever size isolated this
+                # one row.
+                nan_cap = None
             if oom:
                 # empty_cache() and the retry run AFTER the except block,
                 # not inside it: while an `except` clause is executing, the
@@ -307,23 +325,29 @@ class EnForce_ANI(nn.Module):
 
         if failed_rows:
             # Once per `_run_in_sub_batches` call, not once per bisection
-            # level. Through the module logger AND through
-            # `logging.getLogger("auto3d")` directly -- this module's logger
-            # is not an ancestor of "auto3d", the name the worker's
-            # QueueHandler is attached to (see the identical reasoning at the
-            # stereo-changed warning in `Auto3D.engines.batch_opt.batchopt`),
-            # so only the second call reaches the run log.
+            # level. A count only, not the row indices (R67): `failed_rows`
+            # is local to whichever subset was handed to THIS call --
+            # positions within the active subset during the step loop, or
+            # within the whole bucket during
+            # `_recompute_final_energy_and_fmax` -- so it names no stable
+            # molecule identity a reader could act on.
+            # `Auto3D.engines.batch_opt.batchopt.optimizing.run`'s warning is
+            # the one that names real molecule ids (SDF ``_Name``). Through
+            # the module logger AND through `logging.getLogger("auto3d")`
+            # directly -- this module's logger is not an ancestor of
+            # "auto3d", the name the worker's QueueHandler is attached to
+            # (see the identical reasoning at the stereo-changed warning in
+            # `Auto3D.engines.batch_opt.batchopt`), so only the second call
+            # reaches the run log.
             logger.warning(
-                "%d molecule(s) returned a non-finite energy and leave the "
-                "optimization as not converged (rows %s).",
+                "%d molecule(s) in this forward returned a non-finite energy "
+                "and leave the optimization as not converged.",
                 len(failed_rows),
-                failed_rows,
             )
             logging.getLogger("auto3d").warning(
-                "%d molecule(s) returned a non-finite energy and leave the "
-                "optimization as not converged (rows %s).",
+                "%d molecule(s) in this forward returned a non-finite energy "
+                "and leave the optimization as not converged.",
                 len(failed_rows),
-                failed_rows,
             )
 
         return results

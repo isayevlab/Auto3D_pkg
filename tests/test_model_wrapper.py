@@ -520,3 +520,50 @@ def test_an_oom_far_below_the_sub_batch_size_does_not_walk_bsize_down_by_halves(
     assert wrapper._bsize_by_n[N] == 2, (
         f"undershot the batch's real capacity; slices attempted were {sizes}"
     )
+
+
+def test_nan_bisection_does_not_contaminate_bsize_for_a_later_oom():
+    """R68/GPU-review F2: the NaN bisection's own cap must not feed the OOM halving.
+
+    A NaN bisection shrinks a LOCAL cap to isolate the offending row and lifts
+    it again once that row is placeholdered; it must never touch ``bsize`` or
+    ``self._bsize_by_n``, which belong to the OOM policy alone. Here row 0
+    (tagged by species) goes non-finite first, forcing several bisection
+    levels; once it is isolated, a later, unrelated slice of the still-healthy
+    remainder (7 molecules) OOMs exactly once. ``_bsize_by_n[N]`` must land at
+    what the OOM policy alone would set from THAT slice's real size (8 -> 4),
+    not at some smaller value contaminated by the NaN episode's cap.
+    """
+    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.foundation.exceptions import NumericalError
+    from tests.helpers_adapter import FakeAdapter
+
+    class _NanThenOOMAdapter(FakeAdapter):
+        def __init__(self):
+            super().__init__()
+            self.oom_fired = False
+
+        def forward(self, coord, numbers, charges, atom_mask=None):
+            if bool((numbers == 2).any()):
+                raise NumericalError("simulated non-finite energy")
+            if not self.oom_fired and coord.shape[0] > 4:
+                self.oom_fired = True
+                raise torch.cuda.OutOfMemoryError("simulated OOM")
+            return super().forward(coord, numbers, charges, atom_mask)
+
+    B, N = 8, 3
+    wrapper = EnForce_ANI(_NanThenOOMAdapter(), batchsize_atoms=B * N)  # bsize = 8
+    coord = torch.randn(B, N, 3)
+    numbers = torch.ones(B, N, dtype=torch.long)
+    numbers[0] = 2  # tags row 0 so the poison follows it through any slice
+    charges = torch.zeros(B)
+
+    e, f = wrapper.forward_batched(coord, numbers, charges)
+
+    assert e.shape == (B,) and f.shape == coord.shape
+    assert torch.isnan(e[0]), "the tagged row must still carry the NaN placeholder"
+    assert torch.isfinite(e[1:]).all()
+    assert wrapper._bsize_by_n[N] == 4, (
+        "an OOM after a resolved NaN bisection must halve from bsize (8 -> 4), "
+        f"not from a cap the bisection left behind; got {wrapper._bsize_by_n}"
+    )

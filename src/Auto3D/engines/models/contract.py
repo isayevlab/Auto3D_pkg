@@ -282,6 +282,14 @@ class ModelAdapter(Protocol):
         The permission this paragraph grants is narrow for the same reason: the
         sentinel may be compared in order to RAISE, never in order to build the
         mask the arithmetic uses.
+
+        A conforming adapter must reject a non-finite result itself (raise, as
+        every in-tree adapter's ``forward`` does via ``_validate_outputs``),
+        not return it quietly: ``EnForce_ANI._step_active_subset`` derives its
+        own non-finite flag from BOTH ``energies`` and ``forces`` as a second
+        line of defense (R38/R69), not as the only gate -- a finite energy
+        paired with non-finite forces that reaches it undetected is scored as
+        a real, converged structure.
         """
         ...
 

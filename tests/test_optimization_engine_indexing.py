@@ -843,19 +843,39 @@ class TestHotLoopDoesNotSync:
         boolean-mask indexing syncs in the first place. The win is that one
         ``nonzero`` result is reused twelve times instead of each gather and
         scatter computing its own, i.e. 18 -> 2, never 18 -> 0.
+
+        Two end-of-function additions (R67/R70, outside the hot per-step
+        loop this cluster otherwise polices) raised both fixed costs below by
+        exactly one each, and are accounted for rather than silently
+        tolerated by a loosened bound:
+
+        - ``print_stats``'s one call to ``optimization_counts`` now reads
+          THREE scalars, not two: ``converged_mask``'s sum,
+          ``oscillating_count``'s threshold sum, and (R70) ``non_finite``'s
+          sum, so a row retired as non-finite is never double-reported as
+          still "active".
+        - ``_recompute_final_energy_and_fmax`` now does ONE extra
+          ``torch.nonzero`` (R67) to select only the finite rows before its
+          one ``forward_batched`` call, so a row already flagged
+          ``non_finite`` is not re-bisected and re-placeholdered for no new
+          information.
+
+        Neither is inside the per-step gather/scatter path: this fixture's
+        force field never produces a non-finite energy, so both additions
+        fire exactly once per ``n_steps`` call, independent of ``steps``.
         """
         counter = _loop_body_syncs(9)
         non_nonzero = {
             label: count for label, count in counter.counts.items() if label != NONZERO and count
         }
-        # print_stats runs once at the end of n_steps and reads two scalars.
         readbacks = sum(non_nonzero.values())
-        assert readbacks <= 2, (
+        assert readbacks <= 3, (
             "unexpected sync-forcing ops beyond the two nonzero calls and the "
             f"final print_stats: {non_nonzero}\n{counter.report()}"
         )
-        assert counter.counts[NONZERO] == 2 * 9, (
-            f"expected 2 nonzero calls per step over 9 steps, got "
+        assert counter.counts[NONZERO] == 2 * 9 + 1, (
+            f"expected 2 nonzero calls per step over 9 steps plus the one fixed "
+            f"end-of-function cost in _recompute_final_energy_and_fmax, got "
             f"{counter.counts[NONZERO]}\n{counter.report()}"
         )
 
