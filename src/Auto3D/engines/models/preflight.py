@@ -4,13 +4,25 @@ Everything here runs in the process that parses the configuration, before any
 worker is spawned. A name resolved here produces an error the user sees with a
 traceback and a suggestion; the same failure inside a worker is swallowed by
 ``optim_rank_wrapper``'s per-chunk handler and surfaces, if at all, as a run
-that quietly produced nothing.
+that quietly produced nothing. Resolving a name and checking a cached model
+are both done by reading aimnet's registry YAML and hashing a file directly
+(``_registry_path``, ``_load_registry``, ``_cached_model_is_valid``), without
+importing ``aimnet.calculators`` or ``aimnet.models`` -- that import builds
+the calculator stack, which loads torch, warp and the CUDA runtime, in the
+parent process, before any worker exists, for what is otherwise a dictionary
+lookup (P-M8). ``aimnet.calculators`` is imported only as a fallback: a cold
+cache, a checksum mismatch, or a registry file that is missing or not in the
+expected shape.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from Auto3D.engines.models.availability import require_aimnet
 from Auto3D.foundation.constants import (
@@ -22,8 +34,8 @@ from Auto3D.foundation.constants import (
 from Auto3D.foundation.exceptions import ConfigurationError, ModelLoadError
 
 
-def _cache_dir_for_message() -> str:
-    """Return the model cache directory path as a string, for error messages only.
+def _model_cache_dir() -> str:
+    """Return the model cache directory the way aimnet resolves it, without creating it.
 
     Mirrors the path resolution in
     ``aimnet.calculators.model_registry.get_cache_dir`` (``AIMNET_CACHE_DIR``
@@ -46,6 +58,82 @@ def _cache_dir_for_message() -> str:
     if cache_dir is None:
         cache_dir = os.path.join(str(Path.home()), ".cache", "aimnet")
     return cache_dir
+
+
+def _registry_path() -> Path:
+    """Where the installed aimnet keeps its model registry.
+
+    ``import aimnet`` is cheap (the package ``__init__`` imports nothing heavy;
+    0.07 s measured) and is all this needs. ``aimnet.calculators`` is NOT
+    imported: its ``__init__`` builds the calculator module, which loads torch,
+    warp and the CUDA runtime -- 17 s on the 2026-10-09 box, 7.7 s in the
+    2026-09-21 review -- in the parent process, before any worker exists, for
+    what is a dictionary lookup (P-M8).
+    """
+    import aimnet
+
+    return Path(aimnet.__file__).resolve().parent / "calculators" / "model_registry.yaml"
+
+
+def _load_registry(path: Path | None = None) -> dict[str, Any] | None:
+    """The registry mapping, or ``None`` when the file is missing or not in the expected shape.
+
+    The expected shape is aimnet's own: top-level ``models`` (name -> entry
+    with ``file`` and ``sha256``) and ``aliases`` (alias -> name). Anything
+    else -- the file gone, the keys renamed in a future aimnet -- returns
+    ``None`` so the caller falls back to aimnet's own resolver and is slow
+    rather than wrong.
+    """
+    try:
+        with open(path or _registry_path()) as handle:
+            registry = yaml.safe_load(handle)
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(registry, dict):
+        return None
+    models, aliases = registry.get("models"), registry.get("aliases")
+    if not isinstance(models, dict) or not isinstance(aliases, dict):
+        return None
+    return registry
+
+
+def _resolve_locally(candidate: str, registry: dict[str, Any]) -> str | None:
+    """aimnet's ``try_resolve_registry_model_name``, on an already-loaded mapping."""
+    name = registry["aliases"].get(candidate, candidate)
+    return name if name in registry["models"] else None
+
+
+def _cached_model_is_valid(cfg: dict[str, Any], cache_dir: str) -> bool:
+    """True when ``<cache_dir>/<cfg['file']>`` exists and hashes to ``cfg['sha256']``.
+
+    The same check aimnet's ``get_registry_model_path`` makes before returning a
+    cached path, done here so a warm cache never needs the heavy import. Any
+    doubt -- missing file, unreadable directory, entry without a digest --
+    returns False and the caller takes aimnet's path, which downloads, repairs
+    or raises with its own diagnosis.
+
+    A falsy ``cache_dir`` (a set-but-empty ``AIMNET_CACHE_DIR``) also returns
+    False rather than being treated as a path. Folding it to the default
+    ``~/.cache/aimnet`` would validate a different directory than the one
+    aimnet's own ``os.makedirs("")`` fails on, which would let this check pass
+    while aimnet still raises -- moving the gap instead of closing it. Leaving
+    it False sends this case to the fallback below, which reaches aimnet and
+    raises its own ``ModelLoadError``, same as before this function existed.
+    """
+    file, expected = cfg.get("file"), cfg.get("sha256")
+    if not cache_dir or not isinstance(file, str) or not isinstance(expected, str):
+        return False
+    path = Path(cache_dir) / file
+    try:
+        if not path.is_file():
+            return False
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return False
+    return digest.hexdigest() == expected
 
 
 def resolve_engine_name(name: str) -> str:
@@ -99,23 +187,35 @@ def resolve_engine_name(name: str) -> str:
         return name
 
     require_aimnet()
+    candidate = DEFAULT_AIMNET_MODEL if is_aimnet_literal else name.lower()
 
+    registry = _load_registry()
+    if registry is not None:
+        resolved = _resolve_locally(candidate, registry)
+        if resolved is not None:
+            return resolved
+        aliases = sorted(registry["aliases"])
+        raise ConfigurationError(
+            f"Unknown optimizing_engine {name!r}. Use {MODEL_ANI2X!r}, "
+            f"{MODEL_ANI2XT!r}, {MODEL_AIMNET!r}, a path to a custom NNP file, "
+            f"or an aimnet registry name. Registry aliases: {', '.join(aliases)}."
+        )
+
+    # Fallback: the registry file is missing or not in the expected shape, so
+    # ask aimnet itself. Slow (it imports the calculator stack) but never wrong.
     from aimnet.calculators.model_registry import (
         load_model_registry,
         resolve_registry_model_name,
     )
 
-    candidate = DEFAULT_AIMNET_MODEL if is_aimnet_literal else name.lower()
     try:
         return resolve_registry_model_name(candidate)
     except ValueError as exc:
-        registry = load_model_registry()
-        aliases = sorted(registry.get("aliases", {}))
+        aliases = sorted(load_model_registry().get("aliases", {}))
         raise ConfigurationError(
             f"Unknown optimizing_engine {name!r}. Use {MODEL_ANI2X!r}, "
             f"{MODEL_ANI2XT!r}, {MODEL_AIMNET!r}, a path to a custom NNP file, "
-            f"or an aimnet registry name. Registry aliases: "
-            f"{', '.join(aliases)}."
+            f"or an aimnet registry name. Registry aliases: {', '.join(aliases)}."
         ) from exc
 
 
@@ -132,7 +232,11 @@ def preflight_model(engine: str) -> None:
     cannot be written -- are all raised by obtaining the model's on-disk path
     (``aimnet.calculators.model_registry.get_registry_model_path``, which
     downloads on a cache miss, verifies the checksum, and returns the path),
-    without ever loading the checkpoint into a model. Measured warm: ~28ms.
+    without ever loading the checkpoint into a model. The warm case -- the
+    artifact already on disk with the digest the registry expects -- is now
+    checked with a local file hash (``_cached_model_is_valid``), so a warm
+    cache never imports ``aimnet.calculators``; that import, and this
+    function's call into it, happen only on a cold cache or a mismatch.
     Inside a worker each of these is caught by ``optim_rank_wrapper``'s
     per-chunk handler and reported as "no 3D structure converged", which names
     none of them -- this function's job is to catch them here instead, in the
@@ -174,6 +278,17 @@ def preflight_model(engine: str) -> None:
     if resolved in (MODEL_ANI2X, MODEL_ANI2XT) or Path(resolved).exists():
         return
 
+    # Warm cache: the artifact is on disk with the digest the registry
+    # expects, so there is nothing aimnet's own path would do except import
+    # the calculator stack to find that out (P-M8). Cold cache, a mismatch or
+    # an unreadable directory fall through to aimnet, which downloads, repairs
+    # or raises, and the handlers below translate what it raises.
+    registry = _load_registry()
+    if registry is not None:
+        cfg = registry["models"].get(resolved)
+        if isinstance(cfg, dict) and _cached_model_is_valid(cfg, _model_cache_dir()):
+            return
+
     # Deferred: only needed on this call path, and keeps the module's other
     # (pure, offline) functions importable without pulling in the model stack.
     # `requests` is now also declared directly in pyproject.toml (previously
@@ -197,8 +312,8 @@ def preflight_model(engine: str) -> None:
 
     # Resolved as a plain string before the try, and reused in every handler
     # below -- never call the real get_cache_dir() from inside a handler (see
-    # _cache_dir_for_message's docstring for why that double-faults).
-    cache_dir = _cache_dir_for_message()
+    # _model_cache_dir's docstring for why that double-faults).
+    cache_dir = _model_cache_dir()
 
     try:
         get_registry_model_path(resolved)

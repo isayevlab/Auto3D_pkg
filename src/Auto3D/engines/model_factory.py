@@ -192,6 +192,8 @@ class ModelFactory:
             device: Target device for the model.
             compile_model: Whether to use torch.compile() for optimization.
                 If None, checks AUTO3D_COMPILE_MODEL environment variable.
+                Measured cost and gain, single box: see *torch.compile()
+                Optimization* in ``docs/source/advanced_usage.rst``.
             use_cache: Whether to cache and reuse model instances. Default True.
                 Set False to force creating a new model instance. Has no
                 effect for a custom-model path, which is always rebuilt.
@@ -333,6 +335,8 @@ def create_model(
         device: Target device (default: CPU).
         compile_model: Whether to use torch.compile() for optimization.
             If None, checks AUTO3D_COMPILE_MODEL environment variable.
+            Measured cost and gain, single box: see *torch.compile()
+            Optimization* in ``docs/source/advanced_usage.rst``.
         use_cache: Whether to cache and reuse model instances. Default True.
             Has no effect for a custom-model path, which is always rebuilt.
 

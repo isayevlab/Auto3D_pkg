@@ -261,13 +261,6 @@ cli()
 '''
 
 
-def _warp_is_installed() -> bool:
-    """Whether the library whose banner motivated all of this is present."""
-    import importlib.util
-
-    return importlib.util.find_spec("warp") is not None
-
-
 def _write_single_conformer_sdf(path) -> None:
     """Write a one-molecule SDF for the stubbed run to report on."""
     from rdkit import Chem
@@ -492,13 +485,16 @@ def test_json_output_is_pure_json(auto3d_process):
     """`auto3d run --json` must write the JSON document and nothing else to stdout.
 
     Run as a real subprocess, not through ``CliRunner``, because the bytes on
-    stdout *are* the contract and the write that broke it was not ours: the
-    engine-name check imports ``aimnet`` -> ``warp``, which prints a 734-byte
-    device banner to stdout at import time. The version of this test that this
-    one replaces asserted the same guarantee in-process and did not provide
-    it -- it failed when run alone and passed in the full suite only because
-    some earlier test had already paid for that import, so the banner was
-    spent by the time it ran. A broken `--json` therefore shipped green.
+    stdout *are* the contract and the write that broke it was not ours: until
+    3.2.0 the engine-name check imported ``aimnet`` -> ``warp``, which printed a
+    734-byte device banner to stdout at import time. The version of this test
+    that this one replaces asserted the same guarantee in-process and did not
+    provide it -- it failed when run alone and passed in the full suite only
+    because some earlier test had already paid for that import, so the banner
+    was spent by the time it ran. A broken `--json` therefore shipped green.
+    The parent no longer performs that import (P-M8, 3.2.0), so the stubbed run
+    injects its own foreign stdout write (``FOREIGN_STDOUT_MARKER``) to keep
+    the containment exercised rather than relying on a library's banner.
 
     The assertion is on the exact bytes rather than "json.loads succeeded":
     ``json.loads`` accepts trailing whitespace and would also accept a
@@ -506,8 +502,9 @@ def test_json_output_is_pure_json(auto3d_process):
     terminal, so re-serializing and comparing is what actually pins "the
     document, the whole document, and nothing but the document".
 
-    Marked slow for its wall-clock cost (20.1 s on the 2026-10-02 durations
-    run), not for GPU or network needs.
+    Marked slow because it is a real subprocess run of the CLI (about 3 s
+    after P-M8 removed the warp import from the parent; 20.1 s before), not
+    for GPU or network needs.
     """
     import json
 
@@ -521,12 +518,10 @@ def test_json_output_is_pure_json(auto3d_process):
     assert document["success"] is True
     assert document["molecules"] == 1
 
-    # Contained, not silenced: both third-party writes are still readable,
-    # they are just on the stream diagnostics belong on. A fix that dropped
-    # them would also drop a library's genuine failure message.
+    # Contained, not silenced: the foreign write is still readable, it is just
+    # on the stream diagnostics belong on. A fix that dropped it would also
+    # drop a library's genuine failure message.
     assert FOREIGN_STDOUT_MARKER in result.stderr
-    if _warp_is_installed():
-        assert "Warp" in result.stderr
 
 
 def test_json_output_is_written_before_nonzero_exit_when_molecules_missing(
