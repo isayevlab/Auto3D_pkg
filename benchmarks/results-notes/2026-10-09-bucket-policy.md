@@ -6,9 +6,9 @@
   `5d665d4` ("bench: bucket policy A/B on the production path with a per-molecule outcome
   gate"), branch `worktree-perf-aimnet-import-and-compile`.
 - Card: **GPU 3** (`CUDA_VISIBLE_DEVICES=3`) for every run in this note, A/B and compile alike.
-  GPU 4 (the brief's only allowed fallback) was never needed. GPU 1 and 7 (another user's jobs,
-  consistently ~98-100% util all day) and GPUs 5/6 (the owner's own jobs) were observed in
-  passing on `nvidia-smi` but never targeted.
+  GPU 4 (the brief's only allowed fallback) was never needed. GPU 1 and 7 (another user's jobs)
+  and GPUs 5/6 (the owner's own jobs) were busy throughout this dispatch on every `nvidia-smi`
+  spot check but never targeted.
 - Idle confirmation (`nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader`,
   GPU 3 line only, all times EDT 2026-10-09):
 
@@ -49,7 +49,7 @@
 - `N_CONFS = 10` (script constant), 24 bench molecules (8 small / 8 medium / 8 large SMILES) x
   10 conformers = 240 conformers, matching the printed "Total 3D conformers: 240".
 - The first attempt at this measurement (same Task 29, 2026-10-09, GPU 6) was aborted: GPU 6
-  took repeated intrusions from an unrelated `rxnforge/.venv-thermo` job (one lasting ~82 s
+  took repeated intrusions from a `rxnforge/.venv-thermo` job on this box (one lasting ~82 s
   continuously, idle gaps as short as ~11-20 s) and the 1-minute CPU load crossed the 110 gate
   (113.15) right at launch without being caught in time. No bucket-policy JSON/MD or compile
   JSON was produced on that attempt; see `task-29a-report.md`. This note is the second attempt,
@@ -120,11 +120,16 @@ not on the engine.
 
 None. GPU 3's `nvidia-smi --query-compute-apps` list was checked continuously (background monitor
 polling every 5-10 s plus manual spot checks) through both the full A/B run (12:34-12:38) and the
-full compile run (12:40-12:58); at every check the only PID present was our own benchmark process
-(1956812 for the A/B run; 1979096/1979566 for the compile run). No other process ever appeared on
-GPU 3, and no process we did not start was ever signaled or touched.
+full compile run (12:40-12:58). In every check, exactly one PID ever appeared on GPU 3 at a time:
+1956812 for the A/B run, 1979096 for the compile run (a second PID, 1979566, matched the same
+command line via `pgrep -f` -- a forked child of the same process -- and was whitelisted in the
+monitor as a precaution, but `nvidia-smi` never listed it separately). No other process ever
+appeared on GPU 3, and no process we did not start was ever signaled or touched.
 
 ## Compiled AIMNet2 on the same card
+
+Hardware/load, for a reader of this section alone: NVIDIA L40S (sm_89, driver 595.71.05, torch
+2.9.1+cu128), GPU 3, 1-minute load 18.83 at launch and 19.13 at completion.
 
 Ran on the same card (GPU 3), after the A/B, idle-confirmed immediately before launch (see
 Setup). `CUDA_VISIBLE_DEVICES=3 PYTHONPATH=<worktree>/src python benchmarks/bench_optimization_perf.py --label compile-gpu3 --engines aimnet2,aimnet2+compile --device cuda:0`
@@ -178,18 +183,22 @@ therefore about 18.7 s (20.278 - 1.623 s), and the **cold total** (create + firs
 recompile sweep; no per-shape figure is claimed.
 
 This box's on-disk `torch.compile` cache (`/tmp/torchinductor_olexandr`) already held entries
-from earlier dates on this same box, including from 2026-09-21 (the run that produced the 21.8 s
-figure in `docs/source/advanced_usage.rst`) and from this dispatch's own compile-bench run just
-before -- all on the same sm_89 architecture, so a plain "fresh process" compiled run would risk
-a cache hit and under-report the true cold cost. To keep this a genuine cold measurement, the
-compiled run above used `TORCHINDUCTOR_FORCE_DISABLE_CACHES=1` plus fresh, verified-empty
-`TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR` pointed outside that shared cache. Proof it
-compiled from scratch: the fresh inductor cache directory held 20 MB across 1417 files
-immediately after the run (the fresh Triton cache directory was empty -- this torch/triton build
-did not route a persistent artifact there under force-disabled caching, inductor's own FX-graph
-cache dir is the one that filled). This cache-busting is not spelled out in the brief's item 6;
-it is added here because without it the measurement would not actually be cold on this shared
-box, and is called out as a deviation below.
+from earlier dates on this same box, including one dated 2026-09-21 -- the date
+`docs/source/advanced_usage.rst` attributes its 21.8 s cold-compile figure to (directory mtime
+only; the exact script behind that original figure was not found in this worktree, so this is an
+inference, not a confirmed match) -- and fresh entries from this dispatch's own compile-bench run
+just before, all on the same sm_89 architecture. A plain "fresh process" compiled run would
+therefore risk a cache hit and under-report the true cold cost. To keep this a genuine cold
+measurement, the compiled run above used `TORCHINDUCTOR_FORCE_DISABLE_CACHES=1` plus fresh,
+verified-empty `TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR` pointed outside that shared cache.
+Proof it compiled from scratch: the fresh inductor cache directory held 20 MB across 1417 files
+immediately after the run -- including per-compile `triton/` subdirectories under it (up to 11 MB
+each) holding the generated kernels and their compiled artifacts, which is where Triton's cache
+actually landed; the separate `TRITON_CACHE_DIR` we pointed elsewhere stayed empty, because
+inductor redirects Triton's cache under its own cache directory rather than honoring that
+variable directly. This cache-busting is not spelled out in the brief's item 6; it is added here
+because without it the measurement would not actually be cold on this shared box, and is called
+out as a deviation below.
 
 **Realism-pass outcome check** (`extra["realism.aimnet2"]` / `extra["realism.aimnet2+compile"]`
 in the compile JSON, production settings, 24 molecules, one conformer each): converged 24/24
@@ -214,9 +223,11 @@ was moved into `results-notes/`, per the brief's allowed-files list. No file und
 1. The cold-compile measurement added `TORCHINDUCTOR_FORCE_DISABLE_CACHES=1` and fresh
    `TORCHINDUCTOR_CACHE_DIR`/`TRITON_CACHE_DIR` for the `compile_model=True` process, beyond the
    brief's literal "in a fresh process each" instruction, because this box's persisted on-disk
-   compile cache (shared across all sm_89 GPUs on this host) already had entries from the
-   2026-09-21 measurement and from this dispatch's own compile-gpu3 run; without busting it, a
-   plain fresh process would likely have hit that cache and reported an artificially small
+   compile cache (shared across all sm_89 GPUs on this host) already had an entry dated
+   2026-09-21 -- the date the docs attribute the 21.8 s figure to, though the exact script behind
+   that figure was not found to confirm the match -- plus fresh entries from this dispatch's own
+   compile-gpu3 run; without busting it, a plain fresh process would likely have hit a cache and
+   reported an artificially small
    "cold" number. Explained in full in the Compiled AIMNet2 section above.
 2. `create_model(..., use_cache=False)` was passed explicitly in the cold-compile script (the
    brief's item 6 call does not mention `use_cache`); harmless in a fresh, single-use process,
