@@ -70,24 +70,36 @@ Factory functions and classes for creating neural network potential models:
    Auto3D.engines.model_factory.create_model
    Auto3D.engines.model_factory.get_device
 
-Custom NNP Contract
--------------------
+Model contracts
+---------------
 
-The interface a user-supplied neural network potential must implement. It is
-enforced when the model file is loaded, so a model that does not match is
-rejected before any conformer work starts:
+Two interfaces meet at the model boundary. The first is what a user-supplied
+neural network potential must implement; it is enforced when the model file is
+loaded, so a model that does not match is rejected before any conformer work
+starts:
 
 .. autosummary::
    :toctree: generated
 
    Auto3D.engines.models.contract.CustomNNP
 
-This is the only public name in the ``Auto3D.engines.models`` package, and the path above
-is the only way to import it. ``from Auto3D.engines.models import CustomNNP`` worked
-through a package barrel until 3.0 and no longer resolves. The barrel also placed
-the *internal* adapter interface (``Auto3D.engines.models.contract.ModelAdapter``, which
-only Auto3D's own adapters implement) at a shallower path than this one; both now
-sit in ``contract``, and neither is reachable from ``Auto3D.engines.models`` itself.
+The second is what :func:`~Auto3D.engines.model_factory.create_model` returns.
+Its **consumer half** is public and frozen: ``forward(coords, species, charges,
+atom_mask=None)`` returning ``(energies, forces)`` in eV, ``energy(coords,
+species, charges, atom_mask=None)`` returning graph-connected energies at the
+dtype of ``coords``, and ``to_species(atomic_numbers)``. Code that calls a model
+Auto3D built may rely on those three. Every other member (``analytic_hessian``,
+``to_double``, the two padding attributes) is supplied by
+``Auto3D.engines.models.adapter.BaseModelAdapter`` and may change between
+releases; only Auto3D's own adapters implement the interface.
+
+.. autosummary::
+   :toctree: generated
+
+   Auto3D.engines.models.contract.ModelAdapter
+
+Both live in ``Auto3D.engines.models.contract``; neither is reachable from
+``Auto3D.engines.models`` itself (the package barrel was removed in 3.0).
 
 Isomer Generation
 -----------------

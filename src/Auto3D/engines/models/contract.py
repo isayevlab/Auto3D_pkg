@@ -182,6 +182,11 @@ REQUIRED_ATTRIBUTES = _protocol_data_members(CustomNNP)
 class ModelAdapter(Protocol):
     """Contract B: the interface Auto3D's own model adapters present.
 
+    Public surface (decision D4, 3.2.0): ``forward``, ``energy`` and
+    ``to_species`` are public and frozen for callers of ``create_model``; any
+    member added later is supplied by ``BaseModelAdapter`` and never required
+    of an implementer. See ``docs/source/api.rst``.
+
     Every consumer inside Auto3D -- the optimizer, the single-point-energy path,
     the ASE calculator, the CLI health check -- talks to a model through exactly
     these members, and this is the type they annotate. Implementations live in
