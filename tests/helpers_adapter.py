@@ -111,6 +111,9 @@ class AdapterModuleMixin:
     The values match ``BaseModelAdapter``'s own defaults. ``species_pad = -1``
     specifically: it can be neither a real atomic number nor a 0-based species
     index, so it cannot collide the way ``0`` did (audit C13).
+
+    A mixed-in double overrides ``forward``, so ``energy`` is ``forward(...)[0]``
+    exactly as ``BaseModelAdapter`` behaves for a forward-only subclass.
     """
 
     coord_pad: float = 0.0

@@ -136,7 +136,7 @@ class TestBaseModelAdapter:
 
         device = torch.device("cpu")
 
-        # We can't instantiate abstract class directly, so we need a concrete subclass
+        # a concrete subclass, as production adapters are
         class ConcreteAdapter(BaseModelAdapter):
             def forward(self, coords, species, charges):
                 return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
