@@ -150,7 +150,7 @@ Python API:
    reports eager and compiled ANI2xt side by side.
 
 Measured, on one box
-~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^
 
 Whether compiling pays depends on how long the optimization runs, because the
 compile is paid once per process and once more per new padded-batch shape.
@@ -162,12 +162,18 @@ Measured for AIMNet2 on an NVIDIA L40S (sm_89, driver 595.71.05, torch
 - cold compile 21.8 s, plus about 2.8 s for each new bucket shape;
 - break-even near 100 s of optimization in one process.
 
-A second run on 2026-10-09 (another L40S on the same box, idle, CPU load about 10 of
-128 cores, torch 2.9.1+cu128) gave, for the bench's largest molecules, 16.2 ms eager
-and 11.8 ms compiled per step at 64 molecules and 27.7 and 22.0 ms at 256; the cold
-cost measured as model construction plus the first forward pass was 34.0 s compiled
-against 17.2 s eager, of which about 18.7 s is the compilation itself
-(``benchmarks/results-notes/2026-10-09-bucket-policy.md``).
+The review did not record the molecule size; the 2026-10-09 run's 38-atom
+group below reproduces these figures within 0.6 ms.
+
+A second run on 2026-10-09 (an L40S on the same box, idle, CPU load about 19 of
+128 cores for the per-step rows and 20 to 30 for the cold-compile timings, torch
+2.9.1+cu128) gave, for the bench's 38-atom molecule group, 16.1 ms eager and
+11.7 ms compiled per step at 64 molecules and 18.2 and 15.1 ms at 256; its
+53-atom group, the upper end, gave 16.2 and 11.8 ms at 64 and 27.7 and 22.0 ms
+at 256. The cold cost, measured once per arm as model construction plus the
+first forward pass with the inductor caches disabled, was 34.0 s compiled
+against 17.2 s eager, the compiled first forward taking about 18.7 s longer than
+the eager one (``benchmarks/results-notes/2026-10-09-bucket-policy.md``).
 
 Below the break-even the compile costs more than it saves; above it the saving
 grows with the run. The flag therefore stays off by default. ``ANI2xt``

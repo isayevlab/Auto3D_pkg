@@ -116,6 +116,21 @@ count, so none is reported here. The buckets-before/after columns above are per 
 7 -> 1, ANI2xt 7 -> 1 -- identical, since bucket count depends on molecule geometry (atom counts),
 not on the engine.
 
+## What this measurement supports
+
+The 24 bench molecules span 14 to 53 atoms, a 3.8x spread, so the one-bucket policy padded
+every conformer to at most 3.8x its own atom count and the AIMNet2 and ANI2xt gains above
+were measured inside that envelope. A chunk with a much wider spread (one 200-atom molecule
+among 10-atom ones) would pad every small molecule to the outlier's size; AIMNet2 flattens
+the batch and skips padded slots, but ANI2xt computes its descriptors on padded slots, so
+its cost there is unmeasured, and the sub-batch clamp (`batchsize_atoms`, with the OOM
+halving in `EnForce_ANI`) bounds memory per forward but not that compute. The production
+change should therefore keep a bounded `BUCKET_SIZE_FACTOR` that covers this envelope (4.0:
+every chunk this measurement covered becomes one bucket; a chunk whose largest molecule has
+more than four times the atoms of its smallest still splits) rather than remove the factor,
+and `BUCKET_MAX_COUNT` stays. Measuring the policy on a deliberately wide-spread set is the
+follow-up that would justify a larger factor.
+
 ## Intrusions
 
 None. GPU 3's `nvidia-smi --query-compute-apps` list was checked continuously (background monitor
@@ -177,10 +192,12 @@ new shapes. Actual compilation is deferred to the first `_compiled_forward(data)
 up in the table above: `create_model` costs about the same either way (15.5 s vs 13.8 s, both
 dominated by loading the AIMNet2 checkpoint and CUDA/Warp initialization), while `first forward`
 is 1.6 s eager vs 20.3 s compiled -- the compiled run's first forward carries both the actual
-compile and one evaluation. The incremental cost attributable to compiling this one shape is
-therefore about 18.7 s (20.278 - 1.623 s), and the **cold total** (create + first forward) is
-34.0 s compiled against 17.2 s eager. This is a single measurement of one shape, not a per-shape
-recompile sweep; no per-shape figure is claimed.
+compile and one evaluation. The compiled run's first forward call therefore took about
+18.7 s longer than the eager run's (20.278 - 1.623 s), and the **cold total** (create + first
+forward) is 34.0 s compiled against 17.2 s eager. The difference bundles the compilation
+with whatever else differs on a first call and is not an isolated compile time. This is a
+single measurement per arm of one shape, not a repeated or per-shape sweep; a repeat with the
+arms alternated would give its spread.
 
 This box's on-disk `torch.compile` cache (`/tmp/torchinductor_olexandr`) already held entries
 from earlier dates on this same box, including one dated 2026-09-21 -- the date
