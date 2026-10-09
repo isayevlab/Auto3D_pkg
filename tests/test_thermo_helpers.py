@@ -1569,7 +1569,7 @@ class TestTheHessianPathBoundaryCasesAfterUnification:
     * species conversion happens ONCE, in ``vib_hessian``, over a Python list of
       atomic numbers taken from the mol -- no tensor to collapse, and the shape
       is checked below for a lone atom;
-    * the charge cast lives in ``CustomModelAdapter.energy``
+    * the charge cast lives in ``CustomModelAdapter._energy_graph``
       (``charges.to(coords.dtype)``), which is the same code the optimization
       path uses, so the two cannot drift apart. Pinned in
       ``tests/test_model_adapter.py::TestEnergyIsDtypePreserving``; asserted here
@@ -1624,7 +1624,7 @@ class TestTheHessianPathBoundaryCasesAfterUnification:
         ``vib_hessian`` builds the charge from a Python int (int64), so a custom
         NNP that does arithmetic on it, or that is dtype-sensitive, used to get
         two different answers within one ``calc_thermo`` call. The cast now lives
-        in ``CustomModelAdapter.energy``, i.e. in the same object the
+        in ``CustomModelAdapter._energy_graph``, i.e. in the same object the
         optimization path calls.
         """
         import torch

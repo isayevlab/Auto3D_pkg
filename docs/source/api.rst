@@ -86,12 +86,21 @@ starts:
 The second is what :func:`~Auto3D.engines.model_factory.create_model` returns.
 Its **consumer half** is public and frozen: ``forward(coords, species, charges,
 atom_mask=None)`` returning ``(energies, forces)`` in eV, ``energy(coords,
-species, charges, atom_mask=None)`` returning graph-connected energies at the
-dtype of ``coords``, and ``to_species(atomic_numbers)``. Code that calls a model
-Auto3D built may rely on those three. Every other member (``analytic_hessian``,
-``to_double``, the two padding attributes) is supplied by
+species, charges, atom_mask=None)`` returning graph-connected energies never
+narrower than the dtype of ``coords`` (no silent downcast -- a backend that
+computes wider may still return wider; AIMNet2 returns float64 energies
+whatever dtype it is handed), and ``to_species(atomic_numbers)``. Code that
+calls a model Auto3D built may rely on those three. Every other member
+(``analytic_hessian``, ``to_double``, the two padding attributes) is supplied by
 ``Auto3D.engines.models.adapter.BaseModelAdapter`` and may change between
 releases; only Auto3D's own adapters implement the interface.
+
+The pin test (``tests/test_public_api.py``) freezes parameter names and
+defaults for all four adapter classes; it does not call any of them or assert
+on a return value. The dtype and graph-connectivity rules above are pinned
+per adapter instead, in ``tests/test_model_adapter.py`` (``TestEnergyIsDtypePreserving``,
+for ANI2x, ANI2xt and the custom-NNP adapter) and ``tests/test_spe_energy_only.py``
+(the structural check that AIMNet2's energy stays on its own ``forward``).
 
 .. autosummary::
    :toctree: generated

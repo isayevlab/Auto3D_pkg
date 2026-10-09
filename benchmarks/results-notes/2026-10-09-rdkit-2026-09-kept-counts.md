@@ -69,10 +69,12 @@ given the fixed seed, not a one-off.
   releases for this molecule.
 - **Unspecified double bond (`CC=CC`)**: under RDKit 2025.09.6 the heavy-atom-budget embed
   (4 requested) kept only 1 conformer, and its C=C bond came out `Z`. Under RDKit 2026.9.1
-  the same request kept 2 conformers, one `E` and one `Z`. Auto3D does not enumerate or
-  label the double-bond geometry of an unspecified double bond unless `enumerate_isomers`
-  is asked to do so (it enumerates unspecified *stereocenters*, not double bonds); absent
-  that, which geometry (or geometries) the conformer generator happens to sample for an
-  unspecified double bond is an artifact of the installed RDKit release, not a property
-  Auto3D controls or guarantees. This is the basis for the new sentence in
-  `docs/source/usage.rst`'s isomer/tautomer enumeration section.
+  the same request kept 2 conformers, one `E` and one `Z`. This measurement embedded
+  `CC=CC` directly (`Chem.MolFromSmiles` straight into `EmbedMultipleConfs`), bypassing
+  isomer enumeration entirely — it is not a measurement of Auto3D's default run. With
+  `enumerate_isomers` on (the default), Auto3D enumerates and labels both geometries of an
+  unspecified double bond through `EnumerateStereoisomers`, same as it does for
+  stereocenters. The single-geometry, RDKit-release-dependent outcome measured here applies
+  only when isomer enumeration is disabled (`--no-enumerate-isomer`), or when a double bond
+  reaches the embedder still unspecified despite enumeration being on. This is the basis for
+  the new paragraph in `docs/source/usage.rst`'s isomer/tautomer enumeration section.

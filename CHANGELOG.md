@@ -196,6 +196,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning naming it, while the rest of its bucket finishes normally (WS6,
   R38). `calc_spe` (the `auto3d energy` / exit-5 path) is unchanged — it
   still raises on a non-finite energy.
+- `calc_thermo` now refuses a non-positive temperature with a clear
+  `ConfigurationError` (`do_mol_thermo` and `project_vibrations` raise it
+  directly; a per-record `mol_info_func` returning one is caught before the
+  relaxation and marks the record `Thermo_failed` instead of dividing by zero
+  or an ill-defined classical entropy deep inside the calculation).
+- Conformer embedding's worker count now reads the process's CPU affinity
+  mask (`os.sched_getaffinity`, falling back to `os.cpu_count()` where the
+  affinity API is unavailable) instead of the machine's total core count, so
+  a run confined to a cgroup/cpuset cap no longer oversubscribes the cores it
+  was actually given.
+- The optimization and bucket-policy benchmarks' environment record now
+  names a CPU-only run explicitly (`"CPU-ONLY"`) instead of reporting the
+  identity and capability of GPU 0 on a box with no requested device; the
+  bucket-policy script's own benchmark run passes its device through the
+  same helper.
+- The 3.0.0 and 3.1.0 sections of this file were corrected in place: the ORCA
+  mass-convention default (standard atomic weights, not most-abundant-isotope,
+  unless `!Mass2016` is requested) and the "4.0" wording for releases that
+  shipped as 3.0.0 and 3.1.0.
 
 ### Changed
 - `auto3d --help` no longer imports torch/rdkit (measured ~2.4 s → ~0.1 s);
@@ -327,6 +346,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   converged counts and per-molecule minima unchanged within the per-engine
   gate; 3 and 4 conformers of 240 settled in a neighboring minimum under the
   other policy. `BUCKET_MAX_COUNT` (1024) is unchanged.
+- The model adapter's consumer half -- `forward`, `energy` and `to_species` --
+  is now documented in `docs/source/api.rst` as public and frozen for callers
+  of `create_model` (decision D4), and a new `ModelAdapter` member is always
+  supplied by `BaseModelAdapter`, never required of an implementer. The four
+  in-tree adapters' `forward` tails collapsed into one shared template on
+  `BaseModelAdapter`; each backend now supplies only its own energy graph
+  (`_energy_graph`, plus `_model_inputs` for a float32 backend), except
+  `AIMNet2Adapter`, which still overrides `forward` wholesale (it computes
+  forces itself) and supplies its own one-line `_energy_graph`. A subclass
+  that defines neither `forward` nor `_energy_graph` is now refused with a
+  `TypeError` at class definition, rather than constructing successfully and
+  failing later on its first real call. Energies and forces are unchanged.
 
 ## [3.1.1] - 2026-08-27
 

@@ -152,7 +152,7 @@ the second one ``<KEY>_2`` *specifically so it is not dropped*.
 With SMILES input and ``enumerate_isomer=False``, pre-3.0 releases named conformers
 ``<species>_<conformer>`` -- one trailing component, where every other mode
 appends two (``<species>_<isomer>_<conformer>``).
-:func:`Auto3D.ranking.species_id` strips two, so ``KEY_0`` and ``KEY_2_0``
+``Auto3D.ranking.species_id`` strips two, so ``KEY_0`` and ``KEY_2_0``
 both reduced to ``KEY``: the two molecules landed in one ranking group,
 ``k=1`` returned a **single** conformer for the pair, and because selection is
 by energy across the merged group, the survivor could be the *other*

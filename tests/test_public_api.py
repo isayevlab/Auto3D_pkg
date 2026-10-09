@@ -80,6 +80,9 @@ CONSUMER_HALF = {
 
 
 def _adapter_classes():
+    # Hand-listed, not derived from ModelFactory: a fifth in-tree backend
+    # adapter must be added to this list by hand, or this pin silently
+    # stops covering it.
     from Auto3D.engines.models.adapter import (
         AIMNet2Adapter,
         ANI2xAdapter,
@@ -107,21 +110,15 @@ def test_every_other_contract_member_is_supplied_by_the_base_class():
     """D4: a new ``ModelAdapter`` member is always supplied by ``BaseModelAdapter``,
     never required of an implementer."""
     from Auto3D.engines.models.adapter import BaseModelAdapter
-    from Auto3D.engines.models.contract import ModelAdapter
+    from Auto3D.engines.models.contract import ModelAdapter, _protocol_members
 
-    members = {
-        name
-        for name in getattr(ModelAdapter, "__protocol_attrs__", set())
-        if not name.startswith("_")
-    } or {
-        "coord_pad",
-        "species_pad",
-        "to_species",
-        "energy",
-        "forward",
-        "analytic_hessian",
-        "to_double",
-    }
+    # _protocol_members is hand-written specifically to avoid
+    # typing.Protocol.__protocol_attrs__, a CPython implementation detail
+    # that is unavailable on Python 3.11 (part of this repo's supported
+    # matrix) -- see contract.py's own docstring on _protocol_data_members.
+    # Using the same version-independent oracle production code already
+    # relies on means this pin does not silently degrade on half the CI matrix.
+    members = {name for name in _protocol_members(ModelAdapter) if not name.startswith("_")}
     data = {"coord_pad", "species_pad"}
     init_params = set(inspect.signature(BaseModelAdapter.__init__).parameters)
     for name in members - set(CONSUMER_HALF):
