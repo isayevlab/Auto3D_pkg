@@ -205,19 +205,25 @@ class BaseModelAdapter(ABC, nn.Module):
     """
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Refuse a subclass that defines neither hook, at class-definition time.
+        """Refuse a subclass that supplies neither hook, at class-definition time.
 
         Before this check, a half-implemented subclass (forgot both
         :meth:`_energy_graph` and :meth:`forward`) would construct cleanly --
         ``forward`` is no longer ``@abstractmethod`` -- and only fail on its
         first real ``forward()``/``energy()`` call, deep inside the FIRE loop
-        or the single-point-energy path. Checking ``cls.__dict__`` directly
-        (not ``hasattr``) is what makes this a check on THIS class's own body
-        rather than on inheritance: every subclass inherits both names from
-        here, so ``hasattr`` would always be true and this would never fire.
+        or the single-point-energy path. The test is identity against this
+        class's own two functions, resolved through the subclass's MRO: a
+        class anywhere in the chain that overrode either hook makes the
+        subclass valid, so a grandchild of a working adapter that adds only
+        unrelated methods passes, while a class whose ``forward`` AND
+        ``_energy_graph`` are still exactly the base bodies is refused. A
+        ``cls.__dict__`` check would wrongly reject that grandchild.
         """
         super().__init_subclass__(**kwargs)
-        if "forward" not in cls.__dict__ and "_energy_graph" not in cls.__dict__:
+        if (
+            cls.forward is BaseModelAdapter.forward
+            and cls._energy_graph is BaseModelAdapter._energy_graph
+        ):
             raise TypeError(f"{cls.__name__} must define forward or _energy_graph")
 
     def __init__(
@@ -420,6 +426,14 @@ class BaseModelAdapter(ABC, nn.Module):
         one-line ``_energy_graph`` returning ``forward``'s first output --
         the same shape its ``energy`` used to be, just stated here instead of
         as a conditional default.
+
+        The rule for subclasses, stated once here: override this hook, or
+        override :meth:`forward` wholesale (and also this hook if ``energy``
+        is needed). Neither override may call the other through the template:
+        a ``forward`` override must not call ``super().forward()``, and a
+        ``_energy_graph`` override must not call ``self.forward()`` unless
+        ``forward`` is also overridden, because the base ``forward`` calls this
+        hook and the cycle recurses with no diagnosis.
         """
         raise NotImplementedError(
             f"{type(self).__name__} must override _energy_graph (the backend's "

@@ -125,6 +125,25 @@ def test_a_subclass_that_overrides_nothing_is_told_what_to_implement():
             pass
 
 
+def test_a_grandchild_that_inherits_a_hook_is_a_valid_subclass():
+    """The check resolves the hooks through the MRO, so a subclass of a working
+    adapter that adds only unrelated methods is not refused."""
+
+    class _Grandchild(ANI2xtAdapter):
+        def describe(self) -> str:
+            return "inherits _energy_graph from ANI2xtAdapter"
+
+    class _ForwardOnlyParent(BaseModelAdapter):
+        def forward(self, coords, species, charges, atom_mask=None):
+            return coords.sum(dim=(1, 2)), torch.zeros_like(coords)
+
+    class _GrandchildOfForwardOnly(_ForwardOnlyParent):
+        pass
+
+    assert _Grandchild._energy_graph is ANI2xtAdapter._energy_graph
+    assert _GrandchildOfForwardOnly.forward is _ForwardOnlyParent.forward
+
+
 @pytest.mark.parametrize("cls", [ANI2xtAdapter, ANI2xAdapter, CustomModelAdapter])
 def test_the_three_backends_own_no_forward_or_energy(cls):
     assert "forward" not in cls.__dict__ and "energy" not in cls.__dict__

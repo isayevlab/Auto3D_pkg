@@ -65,7 +65,11 @@ def _alive(pid: int) -> bool:
         return False
     try:
         return open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
+        # The process can exit between the signal check above and this read;
+        # procfs then reports ESRCH (ProcessLookupError) or the entry is gone
+        # (FileNotFoundError). Either way the process is not alive, which is
+        # the outcome the callers are polling for.
         return False
 
 
