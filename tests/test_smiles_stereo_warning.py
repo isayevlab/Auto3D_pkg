@@ -13,8 +13,10 @@ did -- measured below, by structure:
 * ``OC(=O)C=CC(=O)O`` embeds as **fumaric and maleic acid together**, two
   species ~5 kcal/mol apart, under a single species id. They then compete on
   energy in ranking, so ``k=1`` returns whichever happens to be lower.
-* ``CC=CC`` embeds as **cis-2-butene alone**; the trans isomer is absent from
-  the output entirely.
+* ``CC=CC`` embeds as cis-2-butene alone under RDKit 2025.09.6 (the trans
+  isomer is absent entirely); from 2026.09 the generator samples both
+  geometries under one unlabeled name. Either way the user gets a species
+  they did not specify.
 
 Every assertion here is on the emitted *structures*, not on a count: a count of
 2 is satisfied by two copies of one isomer. Nothing in this module loads a

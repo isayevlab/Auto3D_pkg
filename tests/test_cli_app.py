@@ -502,8 +502,9 @@ def test_json_output_is_pure_json(auto3d_process):
     terminal, so re-serializing and comparing is what actually pins "the
     document, the whole document, and nothing but the document".
 
-    Marked slow for its wall-clock cost (20.1 s on the 2026-10-02 durations
-    run), not for GPU or network needs.
+    Marked slow because it is a real subprocess run of the CLI (about 3 s
+    after P-M8 removed the warp import from the parent; 20.1 s before), not
+    for GPU or network needs.
     """
     import json
 

@@ -7,10 +7,13 @@ every conformer padded to the chunk's largest molecule and sub-batched by
 
 Drives ``Auto3D.engines.batch_opt.batchopt.optimizing`` end to end on an SDF of the
 bench's 24 molecules x N_CONFS conformers, REPS times per policy per engine,
-alternating policies so drift hits both equally. Wall clock is the whole
-``optimizing.run()``; outcomes (converged count, per-conformer energies) are compared
-under the per-engine gate of ``bench_optimization_perf``. The number this prints is
-a time: it needs an idle card, and the note must say which card and when.
+alternating policies so drift hits both equally. The first run per engine is an
+unrecorded warm-up, in the same policy order as rep 0, so first-call CUDA
+context/allocator/kernel-selection cost lands there rather than in a timed rep.
+Wall clock is the whole ``optimizing.run()``; outcomes (converged count,
+per-conformer energies) are compared under the per-engine gate of
+``bench_optimization_perf``. The number this prints is a time: it needs an idle
+card, and the note must say which card and when.
 
     CUDA_VISIBLE_DEVICES=<idle> PYTHONPATH=src python benchmarks/bench_bucket_policy.py \
         --engines AIMNET,ANI2xt --reps 3 --out benchmarks/results-notes/<date>-bucket-policy.json
@@ -75,11 +78,11 @@ def run_once(engine: str, policy: str, in_f: Path, out_f: Path, device) -> dict:
             engine_obj._make_buckets([m for m in Chem.SDMolSupplier(str(in_f), removeHs=False)])
         )
         if device.type == "cuda":
-            torch.cuda.synchronize()
+            torch.cuda.synchronize(device)
         start = time.perf_counter()
         engine_obj.run()
         if device.type == "cuda":
-            torch.cuda.synchronize()
+            torch.cuda.synchronize(device)
         wall = time.perf_counter() - start
     finally:
         optimizing.BUCKET_SIZE_FACTOR = old_factor
@@ -180,6 +183,11 @@ def main() -> None:
         in_f = Path(tmp) / "in.sdf"
         n_confs = write_input(in_f)
         for engine in engines:
+            # Discarded warm-up, same policy order as rep 0 ("size" first), so
+            # the one-time CUDA context/allocator/kernel-selection cost of this
+            # engine's first call lands here instead of in a timed rep.
+            warmup_out = Path(tmp) / f"{engine}-warmup.sdf"
+            run_once(engine, "size", in_f, warmup_out, device)
             for rep in range(args.reps):
                 for policy in ("size", "merged") if rep % 2 == 0 else ("merged", "size"):
                     out_f = Path(tmp) / f"{engine}-{policy}-{rep}.sdf"
