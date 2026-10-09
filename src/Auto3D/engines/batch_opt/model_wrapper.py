@@ -453,21 +453,25 @@ class EnForce_ANI(nn.Module):
         ``calc_spe`` used to pay for a full backward pass per sub-batch and then
         discard the result (audit M39). This routes through
         :meth:`Auto3D.engines.models.contract.ModelAdapter.energy` instead, which is
-        energy-only and dtype-preserving.
+        energy-only and never answers narrower than the dtype of ``coords`` (a
+        backend that computes wider, such as AIMNet2, may return wider).
 
         How much that saves depends on the engine, and the honest answer is
         engine-specific: ``ANI2xtAdapter``, ``ANI2xAdapter`` and
-        ``CustomModelAdapter`` each skip a ``torch.autograd.grad`` call, whereas
-        ``AIMNet2Adapter.energy`` is deliberately still ``forward(...)[0]`` --
-        its calculator's ``forces=True`` route is the one documented to keep the
-        energy connected to ``coord`` for a Hessian caller, and moving the
-        default engine onto the ``forces=False`` route would change which
-        external-module code path computes its energy. That is a numerical
-        equality claim requiring a real model to verify, so it is not made here.
+        ``CustomModelAdapter`` each override only ``_energy_graph``, so
+        ``energy`` skips a ``torch.autograd.grad`` call for them, whereas
+        ``AIMNet2Adapter``'s own ``_energy_graph`` is deliberately still
+        ``forward(...)[0]`` -- its calculator's ``forces=True`` route is the
+        one documented to keep the energy connected to ``coord`` for a
+        Hessian caller, and moving the default engine onto the
+        ``forces=False`` route would change which external-module code path
+        computes its energy. That is a numerical equality claim requiring a
+        real model to verify, so it is not made here.
 
         No ``no_grad`` wrapper, for the same reason ``ModelAdapter.energy`` has
-        none: ``AIMNet2Adapter.energy`` computes forces internally via autograd,
-        so disabling grad here would break the default engine outright.
+        none: for the default engine, ``energy`` routes through
+        ``AIMNet2Adapter``'s own ``forward``, which computes forces internally
+        via autograd, so disabling grad here would break it outright.
 
         Args:
             coord: Coordinates, shape (B, N, 3).
@@ -501,14 +505,15 @@ class EnForce_ANI(nn.Module):
         # release still-referenced blocks.
         #
         # How much that held depends on the engine, so no single claim covers
-        # all four. `ANI2xtAdapter.energy`, `ANI2xAdapter.energy` and
-        # `CustomModelAdapter.energy` are pure forwards with no
-        # `autograd.grad`, so their saved activations stayed alive and peak
-        # memory tracked the whole input rather than `batchsize_atoms`.
-        # `AIMNet2Adapter.energy` routes through `forward`, whose calculator
-        # differentiates with `create_graph=False` and frees its buffers before
-        # returning -- so for the default engine what accumulated was grad_fn
-        # nodes and the energy tensors, a real but smaller effect.
+        # all four. `ANI2xtAdapter`, `ANI2xAdapter` and `CustomModelAdapter`
+        # each reach `energy` through their own `_energy_graph`, a pure
+        # forward with no `autograd.grad`, so their saved activations stayed
+        # alive and peak memory tracked the whole input rather than
+        # `batchsize_atoms`. `AIMNet2Adapter`'s `_energy_graph` routes through
+        # its own `forward`, whose calculator differentiates with
+        # `create_graph=False` and frees its buffers before returning -- so
+        # for the default engine what accumulated was grad_fn nodes and the
+        # energy tensors, a real but smaller effect.
         #
         # A single-point energy has no backward pass, so nothing downstream
         # wants the graph either way.

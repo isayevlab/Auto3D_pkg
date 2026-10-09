@@ -8,16 +8,19 @@ cannot be read separately.
 * **Contract A -- the custom-NNP contract** (:class:`CustomNNP`). What a *user*
   implements and hands to Auto3D as ``optimizing_engine=/path/to/model.pt``.
   Auto3D calls it as ``model(species, coords, charges) -> energies`` and
-  differentiates the returned energy with respect to ``coords`` to obtain forces
-  (:meth:`Auto3D.engines.models.adapter.CustomModelAdapter.forward`). The model returns
+  differentiates the returned energy with respect to ``coords`` to obtain
+  forces, through ``CustomModelAdapter``'s ``_energy_graph`` hook and the
+  shared autograd tail in ``BaseModelAdapter.forward``. The model returns
   energies only; it must not return forces. Enforced by
   :func:`validate_custom_nnp` at load time.
 
-* **Contract B -- the adapter interface** (:class:`ModelAdapter`). Internal to
-  Auto3D: ``forward(coords, species, charges, atom_mask=None) -> (energies,
-  forces)``. Only Auto3D's own adapters implement it (via
-  :class:`Auto3D.engines.models.adapter.BaseModelAdapter`, which supplies working
-  defaults for everything but ``forward``). Users never do. Enforced by
+* **Contract B -- the adapter interface** (:class:`ModelAdapter`). Its
+  consumer half -- ``forward(coords, species, charges, atom_mask=None) ->
+  (energies, forces)``, ``energy`` and ``to_species`` -- is public and frozen
+  for callers of ``create_model`` (decision D4, 3.2.0). Only Auto3D's own
+  adapters implement it (via
+  :class:`Auto3D.engines.models.adapter.BaseModelAdapter`, which supplies
+  working defaults for every member). Users never do. Enforced by
   :func:`missing_adapter_members`, which
   :class:`Auto3D.engines.batch_opt.model_wrapper.EnForce_ANI` consults on construction.
 
@@ -182,12 +185,19 @@ REQUIRED_ATTRIBUTES = _protocol_data_members(CustomNNP)
 class ModelAdapter(Protocol):
     """Contract B: the interface Auto3D's own model adapters present.
 
+    Public surface (decision D4, 3.2.0): ``forward``, ``energy`` and
+    ``to_species`` are public and frozen for callers of ``create_model``; any
+    member added later is supplied by ``BaseModelAdapter`` and never required
+    of an implementer. See ``docs/source/api.rst``.
+
     Every consumer inside Auto3D -- the optimizer, the single-point-energy path,
     the ASE calculator, the CLI health check -- talks to a model through exactly
     these members, and this is the type they annotate. Implementations live in
     :mod:`Auto3D.engines.models.adapter`; :class:`~Auto3D.engines.models.adapter.BaseModelAdapter`
-    supplies working defaults for everything except ``forward``, so an in-tree
-    adapter satisfies this by inheritance.
+    supplies working defaults for every member, including ``forward``, so an
+    in-tree adapter satisfies this by inheritance -- it need only override
+    ``_energy_graph`` (or ``forward`` wholesale; the rule is stated once in
+    :meth:`Auto3D.engines.models.adapter.BaseModelAdapter._energy_graph`).
 
     Note the argument order is the REVERSE of :class:`CustomNNP`
     (``species`` first there, ``coords`` first here) and that this one returns
@@ -300,17 +310,19 @@ class ModelAdapter(Protocol):
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Compute energies only, graph-connected and at the caller's dtype.
+        """Compute energies only, graph-connected and never narrower than ``coords``' dtype.
 
         Two properties are part of the contract and neither is optional:
 
         * **No internal ``no_grad``/``inference_mode``.** The result must stay
           connected to ``coords`` so a caller can differentiate it (a Hessian).
           A caller that wants no graph wraps its own call site.
-        * **Dtype-preserving.** ``forward`` downcasts to float32 in two adapters
-          for compatibility with float32 NNP weights. ``energy`` must not: an
-          fp64 caller that silently receives an fp32 result gets no error and no
-          warning, only a wrong number.
+        * **No silent downcast.** ``forward`` downcasts to float32 in two
+          adapters for compatibility with float32 NNP weights. ``energy`` must
+          not: an fp64 caller that silently receives an fp32 result gets no
+          error and no warning, only a wrong number. An adapter whose backend
+          computes wider than the caller's dtype may still return wider --
+          AIMNet2 returns float64 energies whatever dtype it is handed.
 
         Args:
             coords: Atomic coordinates (batch, n_atoms, 3).

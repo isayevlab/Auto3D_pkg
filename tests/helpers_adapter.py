@@ -111,6 +111,14 @@ class AdapterModuleMixin:
     The values match ``BaseModelAdapter``'s own defaults. ``species_pad = -1``
     specifically: it can be neither a real atomic number nor a 0-based species
     index, so it cannot collide the way ``0`` did (audit C13).
+
+    A mixed-in double overrides ``forward``, so this mixin's own ``energy``
+    method is ``forward(...)[0]`` -- the same shape ``AIMNet2Adapter``'s own
+    ``_energy_graph`` uses for the one in-tree adapter that overrides
+    ``forward`` wholesale. ``BaseModelAdapter`` itself no longer falls back
+    this way: its ``_energy_graph`` default raises unconditionally, so a
+    forward-only subclass that relied on inheriting ``energy`` (rather than
+    defining it, as this mixin does) would get that raise instead.
     """
 
     coord_pad: float = 0.0

@@ -16,7 +16,7 @@ see the comment there before moving it.
 from __future__ import annotations
 
 import warnings
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -184,8 +184,18 @@ class BaseModelAdapter(ABC, nn.Module):
     - Padding value configuration
     - Gradient disabling for model parameters (weights are frozen)
     - Optional torch.compile() for performance optimization
-    - Concrete ``to_species`` (identity) and ``energy`` defaults, so a subclass
-      satisfies the contract by implementing ``forward`` alone
+    - Concrete ``to_species`` (identity), ``energy`` and ``forward`` -- nothing
+      here is abstract. Two supported shapes: (1) override :meth:`_energy_graph`
+      only (and :meth:`_model_inputs` if the backend computes in float32);
+      ``energy`` and ``forward`` are the one shared tail built on top of that
+      hook. (2) override :meth:`forward` wholesale -- for a subclass that needs
+      to compute forces itself (``AIMNet2Adapter``) -- and also
+      :meth:`_energy_graph`, returning ``forward``'s first output, if
+      :meth:`energy` is needed too; the hooks are one-directional, so nothing
+      here falls back from one to the other. A subclass that supplies neither,
+      itself or through a parent, is refused at class definition (see
+      :meth:`__init_subclass__`); the full rule, including what the overrides
+      must not call, is stated once in :meth:`_energy_graph`.
 
     Note on torch.inference_mode():
         This class CANNOT use torch.inference_mode() or torch.no_grad() in forward
@@ -195,6 +205,28 @@ class BaseModelAdapter(ABC, nn.Module):
         requires_grad=True for force computation. All autograd.grad() calls use
         create_graph=False to avoid building second-order gradient graphs.
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Refuse a subclass that supplies neither hook, at class-definition time.
+
+        Before this check, a half-implemented subclass (forgot both
+        :meth:`_energy_graph` and :meth:`forward`) would construct cleanly --
+        ``forward`` is no longer ``@abstractmethod`` -- and only fail on its
+        first real ``forward()``/``energy()`` call, deep inside the FIRE loop
+        or the single-point-energy path. The test is identity against this
+        class's own two functions, resolved through the subclass's MRO: a
+        class anywhere in the chain that overrode either hook makes the
+        subclass valid, so a grandchild of a working adapter that adds only
+        unrelated methods passes, while a class whose ``forward`` AND
+        ``_energy_graph`` are still exactly the base bodies is refused. A
+        ``cls.__dict__`` check would wrongly reject that grandchild.
+        """
+        super().__init_subclass__(**kwargs)
+        if (
+            cls.forward is BaseModelAdapter.forward
+            and cls._energy_graph is BaseModelAdapter._energy_graph
+        ):
+            raise TypeError(f"{cls.__name__} must define forward or _energy_graph")
 
     def __init__(
         self,
@@ -294,11 +326,13 @@ class BaseModelAdapter(ABC, nn.Module):
         process-global: without the delta, one adapter's stale fallback would
         get blamed on the next compiled adapter's unrelated first forward.
 
-        Called from each compilable adapter's ``forward`` (``ANI2xtAdapter``,
-        ``ANI2xAdapter``, ``CustomModelAdapter`` -- ``AIMNet2Adapter`` never
-        reaches ``_try_compile`` at all; its ``compile_model`` goes to
-        ``AIMNet2Calculator`` instead) on EVERY forward, and it logs once per
-        *increase* in the suppressed count (``_compile_suppressed_seen``).
+        Called on every forward for each compilable adapter (``ANI2xtAdapter``,
+        ``ANI2xAdapter``, ``CustomModelAdapter`` -- inherited from
+        :meth:`BaseModelAdapter.forward` since each backend collapsed to
+        overriding only ``_energy_graph``; ``AIMNet2Adapter`` never reaches
+        ``_try_compile`` at all, since it keeps its own ``forward`` and its
+        ``compile_model`` goes to ``AIMNet2Calculator`` instead), and it logs
+        once per *increase* in the suppressed count (``_compile_suppressed_seen``).
 
         This used to be gated to a single check, on the premise that whether a
         compiled frame falls back "cannot change after the first observation".
@@ -362,6 +396,54 @@ class BaseModelAdapter(ABC, nn.Module):
         """
         return list(atomic_numbers)
 
+    def _model_inputs(
+        self, coords: torch.Tensor, charges: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """What the backend is fed in :meth:`forward`; identity unless the backend is float32.
+
+        A float32 backend (torchani's ANI2x, a custom NNP) overrides this to
+        ``coords.float(), charges.float()``. The cast lives HERE and not in
+        :meth:`energy` on purpose: ``energy`` must answer at the caller's dtype
+        (a Hessian caller hands in float64), so it feeds the backend the
+        tensors it was given. Only :meth:`forward`, whose caller is the FIRE
+        loop with float32 coordinates, goes through this hook.
+        """
+        return coords, charges
+
+    def _energy_graph(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """The backend's energies, graph-connected to ``coords``, at the dtype it produces.
+
+        One-directional hook: this base body never calls :meth:`forward`, so
+        there is no path back into the template from here. Every in-tree
+        adapter but AIMNet2 overrides this with its one backend call;
+        :meth:`forward` and :meth:`energy` are built on top of it.
+        :class:`AIMNet2Adapter`, whose calculator computes forces itself,
+        overrides :meth:`forward` wholesale instead and supplies its own
+        one-line ``_energy_graph`` returning ``forward``'s first output --
+        the same shape its ``energy`` used to be, just stated here instead of
+        as a conditional default.
+
+        The rule for subclasses, stated once here: override this hook, or
+        override :meth:`forward` wholesale (and also this hook if ``energy``
+        is needed). Neither override may call the other through the template:
+        a ``forward`` override must not call ``super().forward()``, and a
+        ``_energy_graph`` override must not call ``self.forward()`` unless
+        ``forward`` is also overridden, because the base ``forward`` calls this
+        hook and the cycle recurses with no diagnosis.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must override _energy_graph (the backend's "
+            "energy, graph-connected to coords); an override of forward must "
+            "compute the energy itself and must not call super().forward(), "
+            "which re-enters this hook."
+        )
+
     def energy(
         self,
         coords: torch.Tensor,
@@ -369,20 +451,73 @@ class BaseModelAdapter(ABC, nn.Module):
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Energies only, graph-connected, at the dtype of ``coords``.
+        """Energies only, graph-connected; never narrower than ``coords``' dtype.
 
-        The default takes ``forward``'s first output. That is safe only for
-        adapters whose ``forward`` is already dtype-preserving and does not
-        mutate ``coords.requires_grad``; ``ANI2xtAdapter``, ``ANI2xAdapter`` and
-        ``CustomModelAdapter`` each override it for exactly that reason (the
-        latter two call ``coords.float()``, which would turn an fp64 caller's
-        request into an fp32 answer with no error).
+        No silent downcast: a backend whose ``_model_inputs`` casts to float32
+        for :meth:`forward` is bypassed here, so a float64 request gets a
+        float64 answer rather than an fp32 one with no error. A backend that
+        computes wider may still return wider -- :class:`AIMNet2Adapter`
+        returns float64 energies whatever dtype it was handed, since its
+        ``_energy_graph`` routes through its own ``forward``.
 
-        No ``no_grad`` here, deliberately: a caller differentiating this (a
-        Hessian) needs the graph, and a caller that does not want it wraps its
-        own call site.
+        This bypasses :meth:`forward` for two reasons, not because
+        ``requires_grad_`` would raise on a non-leaf tensor (it would not: a
+        non-leaf tensor's ``requires_grad`` already reads ``True``, so
+        ``requires_grad_(True)`` on one is a no-op). First, routing through
+        :meth:`forward` would run ``coords`` through :meth:`_model_inputs`,
+        whose float32 cast is exactly the silent downcast the previous
+        paragraph refuses. Second, :meth:`forward` always pays for one
+        ``torch.autograd.grad`` call to compute forces that a pure energy
+        request never asked for. No ``no_grad`` either: a Hessian caller
+        needs the graph; a caller that does not wraps its own call site.
         """
-        return self.forward(coords, species, charges, atom_mask)[0]
+        return self._energy_graph(coords, species, charges, atom_mask)
+
+    def forward(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Energies and forces: the one tail every backend shares.
+
+        Inputs pass through :meth:`_model_inputs` (a float32 backend casts
+        there), ``coords`` is marked for autograd, :meth:`_energy_graph` is
+        evaluated, forces are the negative gradient, :func:`_validate_outputs`
+        refuses NaN or Inf, and the compile fallback check runs. Only the
+        FORCES are cast back to the input dtype. The energy is returned at the
+        dtype the backend produced (issue #5): ``forward``'s caller is the FIRE
+        loop, which stores it as ``E_tot``, and casting a float64 backend's
+        energy to float32 there quantized conformer energies at ~0.002 eV --
+        enough to reorder two conformers 0.02 kcal/mol apart and to make
+        ``auto3d energy`` (which goes through :meth:`energy`) disagree with the
+        pipeline on the same geometry. Forces are consumed once, by the
+        optimizer step, so rounding them costs nothing analogous.
+
+        Args:
+            coords: Atomic coordinates (batch, n_atoms, 3).
+            species: Atomic numbers or indexed species (batch, n_atoms).
+            charges: Molecular charges (batch,).
+            atom_mask: Boolean (batch, n_atoms), True for real atoms, threaded
+                through from :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`
+                to the backend; most backends ignore it because their padding
+                index is their own dummy-atom sentinel (audit C13).
+
+        Returns:
+            Tuple of (energies, forces); energies (batch,), forces
+            (batch, n_atoms, 3), both in eV units.
+        """
+        input_dtype = coords.dtype
+        coords_in, charges_in = self._model_inputs(coords, charges)
+        coords_in = coords_in.requires_grad_(True)
+        energy = self._energy_graph(coords_in, species, charges_in, atom_mask)
+        # create_graph=False (default): no second-order graph.
+        grad = torch.autograd.grad([energy.sum()], [coords_in], create_graph=False)[0]
+        forces = -grad
+        _validate_outputs(energy, forces)
+        self._warn_if_compile_fell_back_to_eager()
+        return energy, forces.to(input_dtype)
 
     def analytic_hessian(
         self,
@@ -418,34 +553,6 @@ class BaseModelAdapter(ABC, nn.Module):
         """
         self.model.double()
 
-    @abstractmethod
-    def forward(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute energies and forces.
-
-        Args:
-            coords: Atomic coordinates (batch, n_atoms, 3).
-            species: Atomic numbers (batch, n_atoms).
-            charges: Molecular charges (batch,).
-            atom_mask: Boolean (batch, n_atoms), True for real atoms and False
-                for padded slots, threaded through from
-                :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`. ``None`` means
-                "every slot is a real atom" and is correct only for an
-                unpadded batch. Subclasses that need to know which slots are
-                padding must use THIS mask, never a comparison against
-                ``self.species_pad`` (audit C13).
-
-        Returns:
-            Tuple of (energies, forces) where energies has shape (batch,)
-            and forces has shape (batch, n_atoms, 3). Units: eV.
-        """
-        ...
-
 
 class AIMNet2Adapter(BaseModelAdapter):
     """Adapter for AIMNet2 models served by the `aimnet` package.
@@ -460,6 +567,16 @@ class AIMNet2Adapter(BaseModelAdapter):
     flattens real atoms and uses the calculator's ragged `mol_idx` batching,
     then scatters forces back into the padded (B, N, 3) layout (padded slots
     receive zero force).
+
+    Defines no ``energy`` override: ``forward`` returns float64 energies
+    whatever it was fed -- an UPCAST, so there is no silent precision loss to
+    guard against. The hazard the other backends' ``_model_inputs`` float32
+    casts would create for ``energy`` -- an fp64 request answered in fp32
+    with no error -- does not arise for AIMNet2, whose energy is an fp64
+    upcast, and whole-graph fp64 through AIMNet2 would be false precision
+    regardless. Its own ``_energy_graph`` returns ``forward``'s first output
+    (hence the calculator's ``forces=True`` path), which is the route the
+    calculator guarantees stays connected to ``coord`` in the autograd graph.
     """
 
     def __init__(
@@ -556,26 +673,6 @@ class AIMNet2Adapter(BaseModelAdapter):
             "and its Hessian is analytic, so it is never differentiated by "
             "autograd and never needs the upcast. Use analytic_hessian instead."
         )
-
-    def energy(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Energies (eV) via ``forward``; the base default, made explicit.
-
-        Written out rather than inherited so the dtype reasoning is on the record
-        for the one adapter where it differs. ``forward`` returns float64
-        energies whatever it was fed -- an UPCAST, so there is no silent
-        precision loss to guard against (the hazard the other two overrides
-        exist for), and whole-graph fp64 through AIMNet2 would be false
-        precision regardless. Routed through ``forward`` (hence the calculator's
-        ``forces=True`` path) because that is the route the calculator
-        guarantees stays connected to ``coord`` in the autograd graph.
-        """
-        return self.forward(coords, species, charges, atom_mask)[0]
 
     def forward(
         self,
@@ -682,6 +779,23 @@ class AIMNet2Adapter(BaseModelAdapter):
         _validate_outputs(energy, forces)
         return energy, forces
 
+    def _energy_graph(
+        self,
+        coords: torch.Tensor,
+        species: torch.Tensor,
+        charges: torch.Tensor,
+        atom_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """``forward``'s first output: the only way to reach AIMNet2's energy.
+
+        This does not recurse: ``forward`` above is self-contained (it never
+        calls ``_energy_graph``), so this one-line hook just states, on the
+        subclass that needs it, the fallback the base class's default used to
+        apply conditionally. The energy it returns is an fp64 upcast (see the
+        class docstring), not a dtype-preserving pass-through.
+        """
+        return self.forward(coords, species, charges, atom_mask)[0]
+
 
 class ANI2xtAdapter(BaseModelAdapter):
     """Adapter for ANI2xt model.
@@ -751,21 +865,8 @@ class ANI2xtAdapter(BaseModelAdapter):
         """
         return to_ani2xt_species(atomic_numbers)
 
-    def energy(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Energies (eV) with no ``requires_grad_`` mutation of ``coords``.
-
-        ``forward`` calls ``coords.requires_grad_(True)`` because it must
-        differentiate to get forces. ``energy`` cannot: an autograd-Hessian
-        caller hands in a NON-LEAF tensor, and ``requires_grad_`` on a non-leaf
-        raises. Energies come out float64 (see ``ANI2xt.forward``); coords are
-        consumed at whatever dtype they arrive in.
-        """
+    def _energy_graph(self, coords, species, charges, atom_mask=None):
+        """ANI2xt's float64 totals; ``charges`` and ``atom_mask`` are unused (its padding index is -1)."""
         return self._call_model(species, coords)
 
     def _call_model(self, species: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
@@ -797,37 +898,6 @@ class ANI2xtAdapter(BaseModelAdapter):
         elem_index = helper(species, self._num_elements)
         self_energies = self._self_atomic_energies(species, self._energy_shifts, self._num_elements)
         return self.model(species, coords, elem_index=elem_index, self_energies=self_energies)
-
-    def forward(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute energies and forces using ANI2xt.
-
-        Args:
-            coords: Atomic coordinates (batch, n_atoms, 3).
-            species: Indexed atomic species (batch, n_atoms).
-            charges: Molecular charges (batch,) - not used by ANI2xt.
-            atom_mask: Accepted for interface uniformity and deliberately
-                unused: ANI consumes ``species_pad = -1`` as its own dummy-atom
-                index, so the model itself skips padded slots. -1 is not a
-                sentinel this adapter compares against, and it can never
-                collide with a real 0-based species index.
-
-        Returns:
-            Tuple of (energies, forces) in eV units.
-        """
-        coords = coords.requires_grad_(True)
-        energy = self._call_model(species, coords)
-        # create_graph=False (default) avoids building second-order gradient graph
-        grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
-        forces = -grad
-        _validate_outputs(energy, forces)
-        self._warn_if_compile_fell_back_to_eager()
-        return energy, forces
 
 
 class ANI2xAdapter(BaseModelAdapter):
@@ -864,79 +934,15 @@ class ANI2xAdapter(BaseModelAdapter):
         self._compiled = False
         return model
 
-    def energy(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Energies (eV) at the dtype of ``coords`` -- NO float32 downcast.
+    def _model_inputs(self, coords, charges):
+        # torchani's weights are float32; the cast is in forward's hook only, so
+        # energy() still answers a float64 request in float64 (issue #5).
+        return coords.float(), charges.float()
 
-        This override exists solely to keep that promise. ``forward`` calls
-        ``coords.float()`` for compatibility with torchani's float32 weights;
-        inheriting ``BaseModelAdapter.energy`` (which is ``forward(...)[0]``)
-        would therefore turn an fp64 caller's request into an fp32 answer with no
-        error, no warning, and no way to notice -- the caller that wants fp64 is
-        computing a Hessian, and it would silently get an fp32 one. Feeding the
-        model the dtype it was handed pushes that choice back to the caller,
-        which is the layer that also has to promote the model's weights
-        (``.double()``) for it to be meaningful.
-        """
+    def _energy_graph(self, coords, species, charges, atom_mask=None):
+        """torchani's energies in eV at the dtype it produces: its float32 self-energy
+        buffer, so a total above |E| ~ 2e4 eV is quantized at 2-4e-3 eV (torchani 2.8.4)."""
         return self.model((species, coords)).energies * HARTREE_TO_EV
-
-    def forward(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute energies and forces using ANI2x.
-
-        Args:
-            coords: Atomic coordinates (batch, n_atoms, 3).
-            species: Atomic numbers (batch, n_atoms).
-            charges: Molecular charges (batch,) - not used by ANI2x.
-            atom_mask: Accepted for interface uniformity and deliberately
-                unused: torchani consumes ``species_pad = -1`` as its own
-                dummy-atom index, which can never collide with a real atomic
-                number.
-
-        Returns:
-            Tuple of (energies, forces) in eV units. ``forces`` is cast to
-            ``coords``' input dtype; ``energies`` is returned at whatever
-            dtype the model produced it, NOT downcast to match (see the
-            comment at the return statement -- issue #5). That dtype is
-            torchani 2.8.4's float32 self-energy buffer, so the total is
-            quantized at ~2-4e-3 eV above |E| ~ 2e4 eV (see the comment at
-            the return statement).
-        """
-        # Convert to float32 for ANI2x (it uses float32 internally)
-        input_dtype = coords.dtype
-        coords_f32 = coords.float().requires_grad_(True)
-
-        energy = self.model((species, coords_f32)).energies * HARTREE_TO_EV
-        # create_graph=False (default) avoids building second-order gradient graph
-        grad = torch.autograd.grad([energy.sum()], [coords_f32], create_graph=False)[0]
-        forces = -grad
-
-        _validate_outputs(energy, forces)
-        # Only FORCES are cast back to input_dtype. Energy is left at whatever
-        # dtype the model produced (float32 for torchani 2.8.4's SelfEnergy
-        # today, but not guaranteed by the model's contract) -- `forward`'s
-        # caller is the FIRE step loop, which stores this energy as E_tot
-        # (batchopt.py) and coords always arrive float32, so `energy.to(f32)`
-        # here used to be a silent no-op-that-isn't: at NNP total-energy scale
-        # (tens of thousands of eV) float32 ULP is ~0.002 eV, enough to
-        # quantize or reorder two conformers 0.02 kcal/mol apart, and it made
-        # `auto3d energy` (which goes through `energy()` above, never
-        # downcast) disagree with the pipeline on the identical geometry
-        # (issue #5). Rounding forces costs nothing analogous: they are
-        # consumed once, by the optimizer step, not accumulated into a stored
-        # ranking key.
-        self._warn_if_compile_fell_back_to_eager()
-        return energy, forces.to(input_dtype)
 
 
 class CustomModelAdapter(BaseModelAdapter):
@@ -1008,79 +1014,12 @@ class CustomModelAdapter(BaseModelAdapter):
             model, device, model.coord_pad, model.species_pad, compile_model=compile_custom
         )
 
-    def energy(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Energies (eV) at the dtype of ``coords`` -- NO float32 downcast.
+    def _model_inputs(self, coords, charges):
+        # Documented downcast for float32 custom models; an fp64 model upcasts
+        # internally (class docstring). energy() does not pass through here.
+        return coords.float(), charges.float()
 
-        Same reason as :meth:`ANI2xAdapter.energy`: ``forward`` casts coords and
-        charges to float32 (documented in the class docstring), so inheriting the
-        ``forward(...)[0]`` default would silently answer an fp64 request in fp32.
-        ``charges`` follows ``coords``' dtype so a model that indexes or
-        concatenates the two does not hit a mismatch.
-
-        The published contract is ``forward(species, coords, charges)`` -- species
-        FIRST -- and that order is the user's, not this adapter's; see
-        :class:`Auto3D.engines.models.contract.CustomNNP`.
-        """
+    def _energy_graph(self, coords, species, charges, atom_mask=None):
+        """The published contract is ``forward(species, coords, charges)`` -- species FIRST;
+        ``charges`` follows ``coords``' dtype so a model that concatenates them does not mismatch."""
         return self.model(species, coords, charges.to(coords.dtype))
-
-    def forward(
-        self,
-        coords: torch.Tensor,
-        species: torch.Tensor,
-        charges: torch.Tensor,
-        atom_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute energies and forces using custom model.
-
-        Args:
-            coords: Atomic coordinates (batch, n_atoms, 3).
-            species: Atomic numbers or indexed species (batch, n_atoms).
-            charges: Molecular charges (batch,).
-            atom_mask: Accepted for interface uniformity and NOT forwarded:
-                the published custom-NNP contract
-                (:class:`Auto3D.engines.models.contract.CustomNNP`) is
-                ``forward(species, coords, charges)``, so a user model
-                identifies its own padding from the ``species_pad`` value it
-                declared. Choose a ``species_pad`` that cannot collide with a
-                real species index (-1 is always safe); see the class
-                docstring.
-
-        Returns:
-            Tuple of (energies, forces) in eV units. ``forces`` is cast to
-            ``coords``' input dtype; ``energies`` is returned exactly as the
-            wrapped model produced it, NOT downcast to match (see the comment
-            at the return statement -- issue #5).
-        """
-        # Intentional downcast to float32 for compatibility with most NNP
-        # models (e.g., ANI2x). This silently loses precision for fp64 models;
-        # such models should upcast internally (see class docstring).
-        input_dtype = coords.dtype
-        coords_f32 = coords.float().requires_grad_(True)
-        charges_f32 = charges.float()
-
-        energy = self.model(species, coords_f32, charges_f32)
-
-        # create_graph=False (default) avoids building second-order gradient graph
-        grad = torch.autograd.grad([energy.sum()], [coords_f32], create_graph=False)[0]
-        forces = -grad
-
-        _validate_outputs(energy, forces)
-        # Only FORCES are cast back to input_dtype. `forward`'s caller is the
-        # FIRE step loop (coords always float32 there), which stores this
-        # energy verbatim as E_tot (batchopt.py) -- so `energy.to(f32)` here
-        # rounded a fp64-returning custom model's energy to float32 on the
-        # ranking path while `energy()` above (M39) already preserved it,
-        # making `auto3d energy` and the pipeline disagree on the identical
-        # geometry: NNP total energies run ~tens of thousands of eV, where a
-        # float32 ULP (~0.002 eV, ~0.05 kcal/mol) can quantize or reorder two
-        # conformers 0.02 kcal/mol apart (issue #5). Forces have no such
-        # accumulate-into-a-stored-key exposure -- they are consumed once, by
-        # the optimizer step -- so rounding them costs nothing analogous.
-        self._warn_if_compile_fell_back_to_eager()
-        return energy, forces.to(input_dtype)

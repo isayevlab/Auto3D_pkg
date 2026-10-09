@@ -249,9 +249,10 @@ class TestAnalyticVersusAutograd:
 class TestTheHessianPathStaysFloat64:
     """The silent-fp32-revert guard (B1 risk 10).
 
-    ``ANI2xAdapter.forward`` and ``CustomModelAdapter.forward`` call
-    ``coords.float()``. Routing the Hessian through ``forward`` would answer an
-    fp64 request in fp32 with no error and no warning -- only a wrong number.
+    ``ANI2xAdapter`` and ``CustomModelAdapter`` both override ``_model_inputs``
+    to call ``coords.float()``. Routing the Hessian through ``forward`` (which
+    calls ``_model_inputs``) would answer an fp64 request in fp32 with no
+    error and no warning -- only a wrong number.
     """
 
     def test_energy_receives_the_dtype_the_hessian_was_built_at(self):

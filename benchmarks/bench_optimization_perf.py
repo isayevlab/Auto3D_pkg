@@ -158,8 +158,15 @@ def build_mols() -> dict[str, list]:
     return out
 
 
-def env_block() -> dict:
-    """Capture everything needed to tell two runs apart, and to reproduce one."""
+def env_block(device: torch.device | None = None) -> dict:
+    """Capture everything needed to tell two runs apart, and to reproduce one.
+
+    ``device`` is the device the run under measurement actually used.
+    Checking only ``torch.cuda.is_available()`` (as this used to) reports the
+    GPU's name even for a deliberate CPU run on a box that also has GPUs; a
+    ``device`` of ``None`` keeps that old (GPU-or-nothing) behavior for a
+    caller that has none to pass.
+    """
 
     def git(*args: str) -> str:
         try:
@@ -171,13 +178,14 @@ def env_block() -> dict:
 
     import Auto3D
 
-    on_gpu = torch.cuda.is_available()
+    on_gpu = torch.cuda.is_available() and (device is None or device.type == "cuda")
+    gpu_index = (device.index or 0) if device is not None else 0
     return {
-        "gpu": torch.cuda.get_device_name(0) if on_gpu else "CPU-ONLY",
+        "gpu": torch.cuda.get_device_name(gpu_index) if on_gpu else "CPU-ONLY",
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "capability": (
-            ".".join(map(str, torch.cuda.get_device_capability(0))) if on_gpu else "n/a"
+            ".".join(map(str, torch.cuda.get_device_capability(gpu_index))) if on_gpu else "n/a"
         ),
         "python": platform.python_version(),
         "commit": git("rev-parse", "--short", "HEAD"),
@@ -355,7 +363,7 @@ def run(label: str, engines: list[str], device_str: str, steps: int, reps: int) 
     mols = build_mols()
     record = {
         "label": label,
-        "env": env_block(),
+        "env": env_block(device),
         "steps": steps,
         "reps": reps,
         "rows": [],

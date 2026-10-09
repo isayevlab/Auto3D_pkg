@@ -118,18 +118,41 @@ def _embedding_worker_init() -> None:
     )
 
 
+def available_cpu_count() -> int:
+    """CPUs this process may run on: the affinity mask where the platform has one, else ``os.cpu_count()``.
+
+    ``os.cpu_count()`` is the machine's count; a 2-CPU cgroup on a 128-core host
+    reports 128 and ``resolve_embedding_workers`` would start 32 workers for two
+    cores. The affinity mask is what the scheduler will actually give this
+    process (taskset, slurm, Kubernetes with cpuset). A cgroup CPU quota
+    (``cpu.max``) without a cpuset is still invisible here; pass
+    ``parallel_workers`` explicitly in that case.
+    """
+    getter = getattr(os, "sched_getaffinity", None)
+    if getter is not None:
+        try:
+            return max(1, len(getter(0)))
+        except OSError:
+            pass
+    return os.cpu_count() or 1
+
+
 def resolve_embedding_workers(
     requested: int | None, n_species: int, *, threads_per_worker: int = 1
 ) -> int:
     """Worker-process count for parallel conformer embedding.
 
     ``None`` -- the default -- resolves to
-    ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``.
-    A fixed default of 4 left 124 of 128 cores idle on the 2026-09-21 bench
-    (P-C3), and no class default can do better, because the useful number
-    depends on the box, on how many species this particular run enumerated,
-    and on how many threads each worker will use. So the resolution happens
-    here, called at dispatch by whoever is about to start the pool.
+    ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``,
+    where ``cores`` is :func:`available_cpu_count` -- the process's CPU
+    affinity mask (``os.sched_getaffinity``), not the machine's raw core
+    count, so a run confined to a cgroup/cpuset cap does not oversubscribe
+    the cores it was actually given. A fixed default of 4 left 124 of 128
+    cores idle on the 2026-09-21 bench (P-C3), and no class default can do
+    better, because the useful number depends on the box, on how many
+    species this particular run enumerated, and on how many threads each
+    worker will use. So the resolution happens here, called at dispatch by
+    whoever is about to start the pool.
 
     The division is what keeps the box from being oversubscribed: each worker
     hands ``threads_per_worker`` to ``EmbedMultipleConfs`` (the isomer engine
@@ -162,9 +185,10 @@ def resolve_embedding_workers(
     """
     if requested is not None:
         return max(1, requested)
-    # Through the module, not `from os import cpu_count`, so a test (and a
-    # caller measuring on a different machine shape) can substitute it.
-    usable_cores = max(1, (os.cpu_count() or 1) // max(1, threads_per_worker))
+    # Called unqualified so a test (and a caller measuring on a different
+    # machine shape) can substitute `available_cpu_count` via
+    # `monkeypatch.setattr(embedding_module, "available_cpu_count", ...)`.
+    usable_cores = max(1, available_cpu_count() // max(1, threads_per_worker))
     return max(1, min(usable_cores, n_species, PARALLEL_EMBED_MAX_WORKERS))
 
 

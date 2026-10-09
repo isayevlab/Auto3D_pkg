@@ -3,12 +3,12 @@ Migrating to Auto3D 3.0
 
 .. note::
 
-   The module paths in this guide are **3.0-era paths**. Auto3D 4.0 regrouped
+   The module paths in this guide are **3.0-era paths**. Auto3D 3.1.0 regrouped
    every module into a layer directory, so ``Auto3D.config`` is now
    ``Auto3D.foundation.config``, ``Auto3D.SPE`` is ``Auto3D.entry.SPE``, and so
    on. This document is left at the paths that were correct when the change it
    describes was made -- rewriting them would make it describe a layout that did
-   not exist at the time. See ``CHANGELOG.md`` for the full 4.0 path table.
+   not exist at the time. See ``CHANGELOG.md`` for the full 3.1.0 path table.
 
 
 
@@ -152,7 +152,7 @@ the second one ``<KEY>_2`` *specifically so it is not dropped*.
 With SMILES input and ``enumerate_isomer=False``, pre-3.0 releases named conformers
 ``<species>_<conformer>`` -- one trailing component, where every other mode
 appends two (``<species>_<isomer>_<conformer>``).
-:func:`Auto3D.ranking.species_id` strips two, so ``KEY_0`` and ``KEY_2_0``
+``Auto3D.ranking.species_id`` strips two, so ``KEY_0`` and ``KEY_2_0``
 both reduced to ``KEY``: the two molecules landed in one ranking group,
 ``k=1`` returned a **single** conformer for the pair, and because selection is
 by energy across the merged group, the survivor could be the *other*
@@ -826,7 +826,7 @@ error. ``model_name`` is now a required keyword-only argument on both.
 .. note::
 
    **Changed again after 3.0.** ``model_name`` is gone from both; they take a
-   :class:`~Auto3D.models.contract.ModelAdapter` instead, which carries the
+   ``Auto3D.models.contract.ModelAdapter`` instead, which carries the
    species convention as a member rather than as a name to dispatch on. If you
    are moving straight from 2.x to a release later than 3.0, write the second
    form below and skip the one above:

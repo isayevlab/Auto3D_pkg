@@ -50,6 +50,7 @@ from Auto3D.foundation.constants import (
     STANDARD_PRESSURE,
     STANDARD_STATE_LABEL,
 )
+from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.convergence import THERMO_FAILED_PROP
 from Auto3D.foundation.utils.energy import (
     E_REL_KCAL_PROP,
@@ -107,11 +108,23 @@ def do_mol_thermo(
             either a native or an autograd Hessian. The engine-name argument
             this used to carry alongside is gone: the adapter answers both
             questions, so there was nothing left for a name to select.
+        T: Temperature in kelvin. Must be positive: it is a denominator in
+            the classical-rotor floor ``project_vibrations`` applies, where a
+            non-positive value is a ``ZeroDivisionError`` or a silently wrong
+            (negative) floor rather than a clear refusal.
         low_freq_cutoff_cm: Quasi-harmonic floor in cm^-1 (see
             ``analyze_vibrations``). 0.0 disables it and gives plain RRHO.
             Whichever value is used is recorded in the record's
             ``Thermo_convention`` property.
+
+    Raises:
+        ConfigurationError: if ``T`` is not positive.
     """
+    if not T > 0:
+        raise ConfigurationError(
+            f"temperature must be positive, got T={T!r} K for record "
+            f"{mol.GetProp('_Name') if mol.HasProp('_Name') else '?'}"
+        )
     # atoms already holds the relaxed (post-BFGS) geometry; everything below --
     # the Hessian, the energy, the geometry classification and the moments of
     # inertia -- is computed from these coordinates directly (vib_hessian takes
@@ -483,7 +496,11 @@ def calc_thermo(
             to a userNNP model file.
         mol_info_func: A function that returns the name and temperature (idx, T)
             from a rdkit mol object. If not provided, the thermodynamic properties
-            will be calculated at 298.15 K.
+            will be calculated at 298.15 K. ``T`` must be positive; a
+            ``mol_info_func`` that returns a non-positive temperature is a bug
+            in the caller, and the affected record is marked
+            ``Thermo_failed="ConfigurationError"`` (checked before the
+            relaxation is spent, not raised) rather than stopping the run.
         gpu_idx: GPU cuda index. Defaults to 0.
         opt_tol: Convergence threshold for geometry optimization. Defaults to 0.0002.
         opt_steps: Maximum geometry optimization steps. Defaults to 2000.
@@ -647,6 +664,23 @@ def calc_thermo(
         else:
             idx, T = mol_info_func(mol)
 
+        if not T > 0:
+            # Checked here, before the forward pass and the (up to opt_steps)
+            # relaxation below are spent on a record that do_mol_thermo would
+            # refuse anyway: mol_info_func is caller-supplied, so a
+            # non-positive T is the caller's bug, not something this run
+            # should pay a full relaxation to discover.
+            logger.warning(
+                "%s: mol_info_func returned a non-positive temperature T=%r K; "
+                "no thermochemistry computed (a bad mol_info_func is the "
+                "caller's bug).",
+                idx,
+                T,
+            )
+            mol.SetProp(THERMO_FAILED_PROP, "ConfigurationError")
+            mols_failed.append(mol)
+            continue
+
         try:
             EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
             _, f_ = opt_adapter.forward(
@@ -700,6 +734,7 @@ def calc_thermo(
             ValueError,
             np.linalg.LinAlgError,
             ZeroDivisionError,
+            ConfigurationError,
         ) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")

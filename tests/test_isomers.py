@@ -12,8 +12,6 @@ tests below check it the way that actually pins the behavior -- by driving
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from Auto3D.engines.isomers import IsomerEngineFactory
@@ -454,7 +452,7 @@ class TestCreateParallelEmbedding:
             return iter([])
 
         monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
-        monkeypatch.setattr(os, "cpu_count", lambda: 128)
+        monkeypatch.setattr(embedding_mod, "available_cpu_count", lambda: 128)
 
         engine = IsomerEngineFactory.create(
             "rdkit",
@@ -507,7 +505,7 @@ class TestCreateParallelEmbedding:
             return iter([])
 
         monkeypatch.setattr(embedding_mod, "embed_conformers_parallel", spy)
-        monkeypatch.setattr(os, "cpu_count", lambda: 128)
+        monkeypatch.setattr(embedding_mod, "available_cpu_count", lambda: 128)
 
         IsomerEngineFactory.create(
             "rdkit",

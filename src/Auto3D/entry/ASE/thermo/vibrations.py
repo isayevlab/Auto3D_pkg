@@ -31,6 +31,7 @@ from Auto3D.foundation.constants import (
     LOW_FREQUENCY_CUTOFF_CM,
     PROJECTION_RESIDUAL_FRACTION,
 )
+from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -387,16 +388,29 @@ def project_vibrations(
             to the first and ``Projection.geometry`` to the second.
         name: Molecule identifier, for the diagnostic log message only.
         temperature_k: The temperature the thermochemistry will be evaluated
-            at, in kelvin. Used only for the classical-rotor floor above, whose
-            crossover moment is ``h^2 / (8 pi^3 k T)``; the driver passes its
-            own ``T``.
+            at, in kelvin. Must be positive. Used only for the classical-rotor
+            floor above, whose crossover moment is ``h^2 / (8 pi^3 k T)``; the
+            driver passes its own ``T``.
 
     Returns:
         A :class:`Projection`: the ``3N-6`` (or ``3N-5``, or ``[]``) complex
         energies in eV, the rotor geometry, the geometry whose external-mode
         count was projected out, and the verdict to record in
         ``Thermo_linearity``.
+
+    Raises:
+        ConfigurationError: if ``temperature_k`` is not positive.
     """
+    if not temperature_k > 0:
+        # Checked before the floor is used (and before the monatomic
+        # short-circuit below, so a bad temperature is refused uniformly
+        # rather than only on the molecules large enough to reach it):
+        # dividing `_CLASSICAL_ROTOR_FLOOR_AMU_A2_K` by a non-positive
+        # temperature is a ZeroDivisionError or a silently wrong floor, not a
+        # clear refusal.
+        raise ConfigurationError(
+            f"temperature must be positive, got temperature_k={temperature_k!r} K for {name}"
+        )
     n_atoms = len(atoms)
     n_vib = n_vibrational_modes(n_atoms, geometry)
     if n_vib <= 0:

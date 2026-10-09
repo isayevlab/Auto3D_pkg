@@ -608,9 +608,13 @@ For custom workflows, create models directly:
    model = create_model("AIMNET", device=device)
 
    # Use for calculations. ``create_model`` returns a ModelAdapter, whose
-   # contract is forward(coords, species, charges) -> (energies, forces):
-   # coords first, and a 2-tuple out. This is the reverse of the custom-NNP
-   # contract -- see :doc:`howto/custom_nnp`.
+   # contract is forward(coords, species, charges, atom_mask=None) ->
+   # (energies, forces): coords first, and a 2-tuple out. This is the
+   # reverse of the custom-NNP contract -- see :doc:`howto/custom_nnp`.
+   # atom_mask=None is correct only for an unpadded batch (as below, a
+   # single molecule); a padded batch of two or more molecules must pass
+   # the mask that Auto3D.engines.batch_opt.padding.pad_from_mols returns --
+   # AIMNet2Adapter refuses a padded batch without one.
    energies, forces = model(coords, species, charges)
 
    # List available models
