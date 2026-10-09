@@ -138,15 +138,36 @@ Python API:
    disagree); a TorchScript archive is already a compiled graph and is not
    recompiled.
 
-   No speedup figure is documented here because none has been measured on this
-   codebase. Earlier versions of these docs quoted "~1.25x"; that number had no
-   measurement behind it, and for ANI2xt it could not have come from the model
-   at all -- ``ANI2xt.forward`` used to contain a data-dependent branch
-   inside its per-element loop, which made Dynamo skip the entire frame and
-   compile **zero** subgraphs. That loop is now compilable (one subgraph), so a
-   gain is at least possible; whether there is one, and how large, is a GPU
-   measurement. Run ``benchmarks/run_perf_ab.sh`` to get a number for your
-   hardware -- it reports eager and compiled ANI2xt side by side.
+   No speedup figure is documented here for ``ANI2xt`` because none has been
+   measured on this codebase. Earlier versions of these docs quoted "~1.25x";
+   that number had no measurement behind it, and for ANI2xt it could not have
+   come from the model at all -- ``ANI2xt.forward`` used to contain a
+   data-dependent branch inside its per-element loop, which made Dynamo skip
+   the entire frame and compile **zero** subgraphs. That loop is now
+   compilable (one subgraph), so a gain is at least possible; whether there
+   is one, and how large, is a GPU measurement. Run
+   ``benchmarks/run_perf_ab.sh`` to get a number for your hardware -- it
+   reports eager and compiled ANI2xt side by side.
+
+Measured, on one box
+~~~~~~~~~~~~~~~~~~~~
+
+Whether compiling pays depends on how long the optimization runs, because the
+compile is paid once per process and once more per new padded-batch shape.
+Measured for AIMNet2 on an NVIDIA L40S (sm_89, driver 595.71.05, torch
+2.9.1+cu128), 200 fixed-work optimizer steps, median per step:
+
+- 64 molecules: 16.7 ms eager, 12.1 ms compiled;
+- 256 molecules: 18.7 ms eager, 15.5 ms compiled;
+- cold compile 21.8 s, plus about 2.8 s for each new bucket shape;
+- break-even near 100 s of optimization in one process.
+
+Measured on one card only; the figures above come from the 2026-09-21 review's run.
+
+Below the break-even the compile costs more than it saves; above it the saving
+grows with the run. The flag therefore stays off by default. ``ANI2xt``
+compiles only its per-element networks and no figure is claimed for it;
+``ANI2x`` ignores the flag.
 
 Batch Size Tuning
 ~~~~~~~~~~~~~~~~~
