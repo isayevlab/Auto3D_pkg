@@ -154,16 +154,23 @@ class _StepResult(NamedTuple):
     """Per-molecule results for one step, ordered by position in the active subset.
 
     Every field has leading dimension ``active_idx.numel()``, so
-    ``_scatter_back`` can write all six with the same index.
+    ``_scatter_back`` can write all seven with the same index.
 
     Attributes:
         coord: Post-step coordinates, ``(active, n_atoms, 3)``.
         energy: Energy at the *pre*-step geometry, ``(active,)``.
         fmax: Maximum force at the pre-step geometry, ``(active,)``.
         still_active: True for molecules that remain in the active set, i.e.
-            neither force-converged nor dropped as oscillating, ``(active,)``.
+            neither force-converged, dropped as oscillating, nor non-finite,
+            ``(active,)``.
         smallest_fmax: Running per-molecule force minimum, ``(active, 1)``.
         oscillating_count: Steps since that minimum last improved, ``(active,)``.
+        non_finite: True for a molecule whose energy came back non-finite this
+            step (R38/R65), ``(active,)``. Such a molecule is also False in
+            ``still_active`` (it takes no further step), but needs its own
+            flag because ``_scatter_back`` must NOT report it ``converged_mask
+            = True`` the way every other row leaving ``still_active`` is --
+            see ``_scatter_back``.
     """
 
     coord: torch.Tensor
@@ -172,6 +179,7 @@ class _StepResult(NamedTuple):
     still_active: torch.Tensor
     smallest_fmax: torch.Tensor
     oscillating_count: torch.Tensor
+    non_finite: torch.Tensor
 
 
 def _step_active_subset(
@@ -242,8 +250,26 @@ def _step_active_subset(
     # per-molecule convergence measure.
     fmax = f.norm(dim=-1).max(dim=-1)[0]
 
+    # A molecule whose energy came back non-finite (R38) is finished: it took
+    # no FIRE step (folded into `not_converged_post1` below, so `coord` stays
+    # at the pre-step geometry) and is retired from the active set, but it is
+    # NOT "converged" -- `_scatter_back` reads `non_finite` separately to keep
+    # that distinction, because `~still_active` alone means converged there
+    # for every other reason a row leaves the active set (oscillation
+    # included).
+    #
+    # `forward_batched`'s `tolerate_non_finite=True` already turns a
+    # non-finite row into a NaN-energy, zero-force placeholder before this
+    # point (`EnForce_ANI._non_finite_placeholder`), so `fmax` above is
+    # already 0 for such a row and `fmax > opttol` would already be False --
+    # the explicit `& finite` term below is not load-bearing for THAT
+    # placeholder, but makes the exclusion a property of the energy itself
+    # rather than an accident of what the placeholder's forces happen to be.
+    finite = torch.isfinite(e.detach())
+    non_finite = ~finite
+
     # The force-convergence test runs BEFORE the FIRE step, and must stay there.
-    not_converged_post1 = fmax > opttol
+    not_converged_post1 = (fmax > opttol) & finite
     # Detach the optimizer's own OUTPUT (the stepped geometry) so the next
     # step starts from a leaf tensor -- `coord`'s graph history from THIS
     # step's `forward_batched`/FIRE-step call must not carry into the next
@@ -317,6 +343,7 @@ def _step_active_subset(
         still_active=still_active,
         smallest_fmax=smallest_fmax,
         oscillating_count=oscillating_count,
+        non_finite=non_finite,
     )
 
 
@@ -340,9 +367,18 @@ def _scatter_back(
         smallest_fmax0: Full-batch running force minimum, mutated in place.
         result: The values returned by ``_step_active_subset``.
     """
-    # Converged structures are excluded from every subsequent step.
+    # Converged structures are excluded from every subsequent step. A row
+    # leaving `still_active` is normally reported converged (`~still_active`)
+    # -- that is also how an oscillation-dropped row is marked, with
+    # `batchopt` distinguishing the two downstream via `oscillating_count`.
+    # A non-finite row must NOT take that path: `& ~result.non_finite` is
+    # what keeps `converged_mask` False for it (R38/R65), rather than True
+    # with the failure visible only in a separate flag nobody who reads
+    # `converged_mask` alone would see.
     state["converged_mask"].index_copy_(
-        0, active_idx, (~result.still_active).to(state["converged_mask"].dtype)
+        0,
+        active_idx,
+        ((~result.still_active) & (~result.non_finite)).to(state["converged_mask"].dtype),
     )
     state["fmax"].index_copy_(0, active_idx, result.fmax.to(state["fmax"].dtype))
     state["energy"].index_copy_(0, active_idx, result.energy.to(state["energy"].dtype))
@@ -351,6 +387,10 @@ def _scatter_back(
     state["oscillating_count"].index_copy_(
         0, active_idx, result.oscillating_count.to(state["oscillating_count"].dtype)
     )
+    # Persisted so `n_steps` can exclude this row from every later
+    # `active_idx` (via `~state["non_finite"]`) without relying on
+    # `converged_mask`, which is deliberately NOT set True for it above.
+    state["non_finite"].index_copy_(0, active_idx, result.non_finite.to(state["non_finite"].dtype))
 
 
 def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
@@ -461,6 +501,10 @@ def n_steps(
     # so use torch.long rather than float for a quantity that is conceptually
     # an integer count.
     state["oscillating_count"] = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
+    # True once a row's energy has come back non-finite (R38/R65); see
+    # `_scatter_back`. Allocated here, beside `oscillating_count`, for the
+    # same reason: nothing before the loop can produce one.
+    state["non_finite"] = torch.zeros(len(coord), dtype=torch.bool, device=coord.device)
 
     istep = 0  # Initialize in case loop doesn't execute (n=0)
     # Plain range, not tqdm. A bar over `range(1, n+1)` measures the *step
@@ -473,7 +517,15 @@ def n_steps(
     # by the `progress_cb` events below, both of which carry converged/active/
     # dropped counts rather than a step ratio.
     for istep in range(1, n + 1):
-        not_converged = ~state["converged_mask"]  # Essential tracker handle, size fixed
+        # `~state["non_finite"]` is required here, not merely defensive:
+        # `_scatter_back` deliberately leaves `converged_mask` False for a
+        # non-finite row (R38/R65), so without this term `not_converged`
+        # would stay True for it forever and `active_idx` would reselect it
+        # every remaining step -- re-running the model on an unchanged,
+        # already-failed geometry for the rest of the budget.
+        not_converged = (
+            ~state["converged_mask"] & ~state["non_finite"]
+        )  # Essential tracker handle, size fixed
         # Stop optimization if all structures converged. The all-converged check
         # `not not_converged.any()` forces a GPU->CPU sync, so throttle it to
         # every 10 steps. `not_converged` itself is still recomputed every step

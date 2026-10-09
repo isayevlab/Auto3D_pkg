@@ -243,6 +243,7 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
             numbers=numbers.tolist(),
             converged_mask=[True] * n,
             oscillating_count=[0] * n,
+            non_finite=[False] * n,
         )
 
     monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)

@@ -33,6 +33,7 @@ from rdkit import Chem
 __all__ = [
     "CONVERGED_PROP",
     "THERMO_FAILED_PROP",
+    "OPTIMIZATION_FAILED_PROP",
     "thermo_succeeded_or_unfiltered",
     "set_converged",
     "has_convergence_flag",
@@ -47,6 +48,15 @@ CONVERGED_PROP = "Converged"
 #: without importing ase and torch, the same reason ``CONVERGED_PROP`` lives
 #: here rather than in ``batch_opt``.
 THERMO_FAILED_PROP = "Thermo_failed"
+#: Written by ``Auto3D.engines.batch_opt.batchopt.optimizing.run`` for a record
+#: whose energy went non-finite mid-optimization (R38): ``"non_finite_energy"``,
+#: the only reason today. No setter, same as ``THERMO_FAILED_PROP`` above --
+#: that property has none either, and its callers (``ASE/thermo``) just
+#: ``mol.SetProp`` directly. A record carrying this always also carries an
+#: explicit ``Converged=False``, which ``converged_or_unfiltered`` already
+#: drops, so no filter needs to know this property exists; it is written
+#: purely for a reader asking why a record is missing from the ranked output.
+OPTIMIZATION_FAILED_PROP = "Optimization_failed"
 
 
 def set_converged(mol: Chem.Mol, converged: bool) -> None:

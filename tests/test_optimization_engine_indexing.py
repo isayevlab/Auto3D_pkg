@@ -615,6 +615,7 @@ class TestDecomposedHelpers:
         state = _make_state(_AnisotropicHarmonic(_STAGGERED_K), 4, 5, seed=0)
         state["atom_mask"] = torch.ones_like(state["numbers"], dtype=torch.bool)
         state["oscillating_count"] = torch.zeros(4, dtype=torch.long)
+        state["non_finite"] = torch.zeros(4, dtype=torch.bool)
         return state
 
     def test_step_active_subset_returns_rows_aligned_with_the_index(self):
@@ -629,7 +630,13 @@ class TestDecomposedHelpers:
         result = _step_active_subset(state, optimizer, active, smallest, opttol=0.01, patience=100)
 
         assert result.coord.shape == (2, 5, 3)
-        for field in (result.energy, result.fmax, result.still_active, result.oscillating_count):
+        for field in (
+            result.energy,
+            result.fmax,
+            result.still_active,
+            result.oscillating_count,
+            result.non_finite,
+        ):
             assert field.shape[0] == 2
         assert result.smallest_fmax.shape == (2, 1)
         # And it left the full-batch state alone: writing is _scatter_back's job.
@@ -661,6 +668,7 @@ class TestDecomposedHelpers:
                 still_active=torch.tensor([True, False]),
                 smallest_fmax=torch.full((2, 1), 0.5),
                 oscillating_count=torch.tensor([0, 4]),
+                non_finite=torch.tensor([False, False]),
             ),
         )
 
@@ -671,6 +679,11 @@ class TestDecomposedHelpers:
         assert torch.equal(state["coord"][1], torch.ones(5, 3))
         assert smallest.reshape(-1).tolist() == [999.0, 0.5, 999.0, 0.5]
         assert state["oscillating_count"].tolist() == [0, 0, 0, 4]
+        # Neither row this step was non-finite, so the persisted mask stays
+        # all-False (the field that WOULD have kept row 3 from reading
+        # Converged=True had its energy gone non-finite instead of merely
+        # oscillating -- see test_non_finite_rows.py for that case).
+        assert state["non_finite"].tolist() == [False, False, False, False]
 
     def test_scatter_back_casts_to_the_destination_dtype(self):
         """float64 sources land in float32 destinations without raising.
@@ -694,6 +707,7 @@ class TestDecomposedHelpers:
                 still_active=torch.tensor([True]),
                 smallest_fmax=torch.full((1, 1), 0.25, dtype=torch.float64),
                 oscillating_count=torch.tensor([2], dtype=torch.int32),
+                non_finite=torch.tensor([False]),
             ),
         )
         assert state["coord"].dtype is torch.float32

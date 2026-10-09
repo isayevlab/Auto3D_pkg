@@ -6,6 +6,8 @@ and provides batched forward functionality for calculating energies and forces.
 
 from __future__ import annotations
 
+import logging
+
 import torch
 import torch.nn as nn
 
@@ -17,7 +19,7 @@ import torch.nn as nn
 # nothing beyond torch, which this module already imports.
 from Auto3D.engines.models.adapter import validate_energies
 from Auto3D.engines.models.contract import ModelAdapter, missing_adapter_members
-from Auto3D.foundation.exceptions import OptimizationError
+from Auto3D.foundation.exceptions import NumericalError, OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -152,7 +154,9 @@ class EnForce_ANI(nn.Module):
         """
         return self.model.forward(coord, numbers, charges, atom_mask=atom_mask)
 
-    def _run_in_sub_batches(self, coord: torch.Tensor, compute) -> list:
+    def _run_in_sub_batches(
+        self, coord: torch.Tensor, compute, *, tolerate_non_finite: bool = False
+    ) -> list:
         """Split the batch by molecule count and call ``compute`` on each slice.
 
         Shared by :meth:`forward_batched` and :meth:`energy_batched` so the
@@ -163,18 +167,30 @@ class EnForce_ANI(nn.Module):
             coord: The full padded batch, only for its ``(B, N)`` shape and
                 device. Slicing is the caller's job, inside ``compute``.
             compute: ``(sub_indices) -> result``, called once per sub-batch.
+            tolerate_non_finite: If True, a ``NumericalError`` from ``compute``
+                bisects the failing sub-batch instead of propagating, isolating
+                the offending row(s) at size 1 and substituting
+                :meth:`_non_finite_placeholder` for just that row (R38).
+                :meth:`forward_batched` passes True; :meth:`energy_batched`
+                does not, so the ``calc_spe`` path keeps raising (its exit-5
+                diagnosis must survive).
 
         Returns:
             One entry per successful sub-batch, in molecule order.
 
         Raises:
             OptimizationError: A single molecule exhausted GPU memory.
+            NumericalError: A molecule's energy was non-finite and
+                ``tolerate_non_finite`` is False.
         """
         B, N = coord.shape[:2]
         results: list = []
         # Ensure at least 1 molecule per batch to avoid empty batches
         remaining = torch.arange(B, device=coord.device)
         bsize = self._bsize_by_n.get(N, max(1, self.batchsize_atoms // N))
+        # Rows whose energy came back non-finite even at size 1 (R38); logged
+        # once, after the loop, rather than once per bisection level.
+        failed_rows: list[int] = []
 
         # Process slices of molecules; on CUDA OOM, free the cache and retry
         # the failing slice with a halved batch. A single molecule that still
@@ -196,6 +212,40 @@ class EnForce_ANI(nn.Module):
                 out = compute(sub)
             except torch.cuda.OutOfMemoryError:
                 oom = True
+            except NumericalError:
+                if not tolerate_non_finite:
+                    raise
+                if sub.numel() > 1:
+                    # Bisect: the rows that are fine run again in halves; the
+                    # offender is isolated at size 1 below.
+                    #
+                    # `bsize` must also shrink to at most `half` HERE (a
+                    # deviation from the OOM branch above, which re-requeues
+                    # the whole failing `sub` unchanged at a smaller `bsize`):
+                    # without it, whenever `bsize` already covers the whole
+                    # remaining batch -- the common case, since
+                    # `batchsize_atoms // N` routinely exceeds a bucket's
+                    # count once a few molecules have converged and left --
+                    # the next iteration's `remaining[:bsize]` would simply
+                    # re-assemble the identical `sub` and fail identically
+                    # forever. Not persisted to `self._bsize_by_n`: a single
+                    # bad geometry should not shrink every later call's batch
+                    # size, only the rest of THIS one (and every row sliced
+                    # after bisection starts runs one-per-forward for the
+                    # remainder of this call -- logarithmic in the number of
+                    # bisection levels, linear in whatever is left to process
+                    # after the last one; NaN is rare enough that this is an
+                    # acceptable cost, not a design goal).
+                    half = sub.numel() // 2
+                    bsize = max(1, min(bsize, half))
+                    # The two halves are requeued ahead of whatever was
+                    # already pending, in ascending order, so `results` below
+                    # is still appended in molecule order -- `forward_batched`
+                    # relies on that for its final `torch.cat`.
+                    remaining = torch.cat([sub[:half], sub[half:], remaining])
+                    continue
+                failed_rows.append(int(sub.item()))
+                out = self._non_finite_placeholder(coord, sub)
             if oom:
                 # empty_cache() and the retry run AFTER the except block,
                 # not inside it: while an `except` clause is executing, the
@@ -255,7 +305,54 @@ class EnForce_ANI(nn.Module):
                 continue
             results.append(out)
 
+        if failed_rows:
+            # Once per `_run_in_sub_batches` call, not once per bisection
+            # level. Through the module logger AND through
+            # `logging.getLogger("auto3d")` directly -- this module's logger
+            # is not an ancestor of "auto3d", the name the worker's
+            # QueueHandler is attached to (see the identical reasoning at the
+            # stereo-changed warning in `Auto3D.engines.batch_opt.batchopt`),
+            # so only the second call reaches the run log.
+            logger.warning(
+                "%d molecule(s) returned a non-finite energy and leave the "
+                "optimization as not converged (rows %s).",
+                len(failed_rows),
+                failed_rows,
+            )
+            logging.getLogger("auto3d").warning(
+                "%d molecule(s) returned a non-finite energy and leave the "
+                "optimization as not converged (rows %s).",
+                len(failed_rows),
+                failed_rows,
+            )
+
         return results
+
+    def _non_finite_placeholder(self, coord: torch.Tensor, sub: torch.Tensor):
+        """What a row that raised ``NumericalError`` contributes: NaN energy, zero forces.
+
+        ``forward_batched``'s final ``torch.cat`` needs every sub-batch's
+        energy dtype to be compatible; ``torch.double`` here promotes cleanly
+        against any adapter's float32 or float64 output (``torch.cat``
+        upcasts), and every downstream write (``_scatter_back``,
+        ``ensemble_opt``) already casts explicitly to its own destination
+        dtype, so no caller depends on this matching any one adapter's dtype
+        exactly.
+
+        Args:
+            coord: The full padded batch, for its device.
+            sub: The size-1 (or larger, for :meth:`energy_batched`-style
+                callers that never reach here today) index tensor this
+                placeholder stands in for.
+
+        Returns:
+            ``(energy, forces)`` with ``energy`` all-NaN, shape ``(n,)``, and
+            ``forces`` all-zero, shape ``(n, *coord.shape[1:])``.
+        """
+        n = sub.numel()
+        energy = torch.full((n,), float("nan"), dtype=torch.double, device=coord.device)
+        forces = torch.zeros((n, *coord.shape[1:]), dtype=coord.dtype, device=coord.device)
+        return energy, forces
 
     def forward_batched(
         self,
@@ -286,7 +383,23 @@ class EnForce_ANI(nn.Module):
         Returns:
             Tuple of (energies, forces) concatenated across batches.
             Energies has shape (B,), forces has shape (B, N, 3).
+
+        Raises:
+            NumericalError: Never for a non-finite energy -- that is exactly
+                what ``tolerate_non_finite=True`` below absorbs (R38: a NaN
+                molecule leaves the bucket rather than aborting it). Can still
+                raise for other reasons ``_run_in_sub_batches`` does not
+                catch.
         """
+        # `tolerate_non_finite=True`: the production optimization loop
+        # (`EnForce_ANI` is used here, not in `energy_batched`'s `calc_spe`
+        # path, which must keep raising) retires a non-finite molecule from
+        # the active set instead of aborting every molecule sharing its
+        # bucket. `_run_in_sub_batches` requeues a bisected sub-batch's halves
+        # in ascending order ahead of whatever was already pending, so
+        # `results` below is always in molecule order regardless of how many
+        # times a bucket needed bisecting -- this `torch.cat` does not need
+        # to re-sort anything.
         results = self._run_in_sub_batches(
             coord,
             lambda sub: self(
@@ -295,6 +408,7 @@ class EnForce_ANI(nn.Module):
                 charges[sub],
                 atom_mask=None if atom_mask is None else atom_mask[sub],
             ),
+            tolerate_non_finite=True,
         )
         return (
             torch.cat([e for e, _f in results], dim=0),
