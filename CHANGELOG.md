@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `auto3d run` and `main()` resolved the AIMNet2 model name and checked the
+  cached model through `aimnet.calculators`, which loads torch, warp and the
+  CUDA runtime in the parent process before any worker starts (about 17 s on
+  the development box under load, 7.7 s in the 2026-09-21 review's
+  measurement, paid again by each worker); the parent now reads aimnet's
+  registry file directly and verifies a cached model by its checksum, and
+  imports `aimnet.calculators` only for a cold cache or a corrupt file.
 - `AUTO3D_COMPILE_MODEL=1` compiled torchani's AEV computer, which returned
   energies off by hundreds of eV without raising; ANI2xt now compiles only its
   per-element networks, ANI2x ignores the option with a warning, and

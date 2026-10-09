@@ -104,6 +104,11 @@ class TestColdCacheDiagnosis:
         still tries the parent-side path first and falls through to the
         worker chain only if that passes through harmlessly, so it stays
         falsifiable if a future change bypasses the parent-side pre-flight.
+
+        ``AIMNET_CACHE_DIR`` is pointed at an empty directory: ``preflight_model``
+        now checks a warm cache locally, by file hash, before ever reaching
+        the patched ``get_registry_model_path``; the cache must be cold (no
+        file present) for that patched call to be reached at all (P-M8).
         """
         import aimnet.calculators.model_registry as model_registry
 
@@ -117,6 +122,11 @@ class TestColdCacheDiagnosis:
         monkeypatch.setattr(model_registry, "get_registry_model_path", no_network)
 
         chunk_path = isolated_input("smiles2.smi")
+
+        empty_cache = Path(chunk_path).parent / "empty-cache"
+        empty_cache.mkdir()
+        monkeypatch.setenv("AIMNET_CACHE_DIR", str(empty_cache))
+
         args = Auto3DOptions(path=chunk_path, k=1, use_gpu=False)
         orchestrator = WorkflowOrchestrator(args)
 
@@ -182,6 +192,12 @@ class TestColdCacheDiagnosis:
         ``get_registry_model_path``) is patched and expected to catch this,
         with the worker-chain code below kept only as a fallback for a future
         change that bypasses the parent-side pre-flight.
+
+        ``AIMNET_CACHE_DIR`` is pointed at an empty directory for the same
+        reason as in ``test_network_failure_names_the_network``: the cache
+        must be cold so the local, pre-``aimnet`` warm-cache check does not
+        return early and the patched ``get_registry_model_path`` is actually
+        reached (P-M8).
         """
         import aimnet.calculators.model_registry as model_registry
 
@@ -195,6 +211,11 @@ class TestColdCacheDiagnosis:
         monkeypatch.setattr(model_registry, "get_registry_model_path", bad_checksum)
 
         chunk_path = isolated_input("smiles2.smi")
+
+        empty_cache = Path(chunk_path).parent / "empty-cache"
+        empty_cache.mkdir()
+        monkeypatch.setenv("AIMNET_CACHE_DIR", str(empty_cache))
+
         args = Auto3DOptions(path=chunk_path, k=1, use_gpu=False)
         orchestrator = WorkflowOrchestrator(args)
 
