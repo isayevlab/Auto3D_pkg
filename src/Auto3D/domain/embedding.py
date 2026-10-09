@@ -143,12 +143,16 @@ def resolve_embedding_workers(
     """Worker-process count for parallel conformer embedding.
 
     ``None`` -- the default -- resolves to
-    ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``.
-    A fixed default of 4 left 124 of 128 cores idle on the 2026-09-21 bench
-    (P-C3), and no class default can do better, because the useful number
-    depends on the box, on how many species this particular run enumerated,
-    and on how many threads each worker will use. So the resolution happens
-    here, called at dispatch by whoever is about to start the pool.
+    ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``,
+    where ``cores`` is :func:`available_cpu_count` -- the process's CPU
+    affinity mask (``os.sched_getaffinity``), not the machine's raw core
+    count, so a run confined to a cgroup/cpuset cap does not oversubscribe
+    the cores it was actually given. A fixed default of 4 left 124 of 128
+    cores idle on the 2026-09-21 bench (P-C3), and no class default can do
+    better, because the useful number depends on the box, on how many
+    species this particular run enumerated, and on how many threads each
+    worker will use. So the resolution happens here, called at dispatch by
+    whoever is about to start the pool.
 
     The division is what keeps the box from being oversubscribed: each worker
     hands ``threads_per_worker`` to ``EmbedMultipleConfs`` (the isomer engine

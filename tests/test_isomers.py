@@ -12,8 +12,6 @@ tests below check it the way that actually pins the behavior -- by driving
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from Auto3D.engines.isomers import IsomerEngineFactory

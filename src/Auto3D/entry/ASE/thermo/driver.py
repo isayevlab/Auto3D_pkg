@@ -734,6 +734,7 @@ def calc_thermo(
             ValueError,
             np.linalg.LinAlgError,
             ZeroDivisionError,
+            ConfigurationError,
         ) as e:
             logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
             logger.warning(f"Failed: {idx}")

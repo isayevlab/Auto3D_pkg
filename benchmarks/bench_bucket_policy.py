@@ -204,7 +204,7 @@ def main() -> None:
                     )
     decision, lines = verdict(results, engines)
     record = {
-        "env": env_block(),
+        "env": env_block(device),
         "n_conformers": n_confs,
         "reps": args.reps,
         "results": results,
