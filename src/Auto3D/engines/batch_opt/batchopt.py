@@ -245,9 +245,28 @@ class optimizing:
     # huge homogeneous chunk is still split into manageable pieces.
     BUCKET_MAX_COUNT = 1024
     # A molecule joins the current bucket only while its atom count stays within
-    # this factor of the bucket's smallest molecule, bounding within-bucket
-    # padding waste to <= 25%.
-    BUCKET_SIZE_FACTOR = 1.25
+    # this factor of the bucket's smallest molecule.
+    #
+    # 1.25 (the 3.1.x default) assumed serial size buckets saved wall clock by
+    # avoiding padded-atom compute; the production path is launch-bound at
+    # every batch size it reaches instead (perf review 2026-09-21, M2/M4), so
+    # splitting cost wall clock rather than saving it -- measured end to end
+    # on the production path (Task 29, WS6/R37-R38):
+    # ``benchmarks/results-notes/2026-10-09-bucket-policy.md`` found merging
+    # seven size buckets into one cut AIMNet2 240-conformer wall clock from
+    # 33.9 s to 8.1 s and ANI2xt's from 21.0 s to 5.1 s (one NVIDIA L40S),
+    # with per-molecule minimum energies and converged counts unchanged
+    # within each engine's gate. 4.0 is that note's "What this measurement
+    # supports": the bench set spans 14-53 atoms (a 3.8x spread), so 4.0 is
+    # the smallest round figure that still folds every chunk the measurement
+    # covered into one bucket, while a chunk whose largest molecule exceeds
+    # four times its smallest still splits -- AIMNet2 flattens the batch and
+    # skips padded slots, but ANI2xt computes its descriptors ON padded
+    # slots, so an unmeasured, much wider spread is not assumed free. The
+    # sub-batch clamp (``batchsize_atoms``, with the OOM halving in
+    # ``EnForce_ANI``) bounds memory per forward either way, not that
+    # descriptor compute.
+    BUCKET_SIZE_FACTOR = 4.0
 
     def _make_buckets(self, mols):
         """Group molecule indices into size-homogeneous buckets.
@@ -258,9 +277,10 @@ class optimizing:
         ``BUCKET_MAX_COUNT`` molecules or when the next molecule's atom count
         exceeds ``BUCKET_SIZE_FACTOR`` times the bucket's SMALLEST molecule's
         atom count (``cur_min``, the first/smallest member since the input is
-        sorted ascending). With ``BUCKET_SIZE_FACTOR`` = 1.25 this bounds the
-        largest member to at most 1.25x the smallest, so padding the smallest
-        molecule up to the bucket's local max wastes at most ~25% of its atoms.
+        sorted ascending) -- the bound on within-bucket padding waste is set
+        by ``BUCKET_SIZE_FACTOR`` (see its comment for the measurement behind
+        the current value). A NaN molecule no longer takes its bucket down
+        (``EnForce_ANI.forward_batched``'s ``tolerate_non_finite``, R38).
 
         Args:
             mols: List of RDKit Mol objects.
@@ -291,7 +311,7 @@ class optimizing:
         Args:
             bucket_mols: List of RDKit Mol objects forming one size-homogeneous
                 bucket. They are padded to this bucket's LOCAL max atom count,
-                not the global max, which is the source of the speedup.
+                not the global max.
             model: The shared :class:`EnForce_ANI` wrapper, constructed once in
                 :meth:`run` and reused across buckets (it is a thin wrapper over
                 ``self.model`` with no per-bucket state).

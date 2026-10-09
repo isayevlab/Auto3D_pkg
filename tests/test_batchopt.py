@@ -175,17 +175,20 @@ class TestConvergenceFlagDerivation:
         )
 
 
-def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
-    """Buckets must be size-homogeneous; a size outlier splits into its own bucket."""
+def _optimizing_for_buckets(tmp_path, sizes):
+    """An ``optimizing`` instance built only to call ``_make_buckets``.
+
+    ``_make_buckets`` is pure-Python, so a conforming double is enough and no
+    model is loaded. ``optimizing`` no longer builds its own adapter, so there
+    is no ``create_model`` seam left to patch.
+    """
     import torch
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
     from Auto3D.engines.batch_opt.batchopt import optimizing
 
-    # Build an optimizing instance without running (just to call _make_buckets)
     inp = tmp_path / "in.sdf"
-    sizes = ["C", "CC", "CCC", "C1CCCCCCCCCCCCCCCCCCC1"]  # tiny ... and one big ring
     mols = []
     with Chem.SDWriter(str(inp)) as w:
         for i, s in enumerate(sizes):
@@ -194,9 +197,6 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
             m.SetProp("_Name", str(i))
             w.write(m)
             mols.append(m)
-    # _make_buckets is pure-Python, so a conforming double is enough and no
-    # model is loaded. `optimizing` no longer builds its own adapter, so there is
-    # no create_model seam left to patch.
     eng = optimizing(
         str(inp),
         str(tmp_path / "o.sdf"),
@@ -204,11 +204,38 @@ def test_make_buckets_groups_by_size(tmp_path, monkeypatch):
         device=torch.device("cpu"),
         config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
     )
+    return eng, mols
+
+
+def test_make_buckets_groups_by_size(tmp_path):
+    """R60: a 4x atom-count spread shares one bucket; past it starts a new one.
+
+    methane (5 atoms), ethane (8), propane (11) span 11/5 = 2.2x -- inside
+    ``BUCKET_SIZE_FACTOR`` (4.0) -- so all three must land in ONE bucket, each
+    index appearing exactly once. The 20-carbon ring (~60 atoms, ~12x methane,
+    well past 4x) must start its own bucket rather than share theirs.
+    """
+    sizes = ["C", "CC", "CCC", "C1CCCCCCCCCCCCCCCCCCC1"]
+    eng, mols = _optimizing_for_buckets(tmp_path, sizes)
     buckets = eng._make_buckets(mols)
-    # the big 20-carbon ring must not share a bucket with methane
-    big_idx = 3
-    big_bucket = [b for b in buckets if big_idx in b][0]
-    assert all(mols[i].GetNumAtoms() > 0.8 * mols[big_idx].GetNumAtoms() for i in big_bucket)
+
+    assert len(buckets) == 2
+    ring_bucket = [b for b in buckets if 3 in b][0]
+    small_bucket = [b for b in buckets if 3 not in b][0]
+    assert ring_bucket == [3]
+    assert sorted(small_bucket) == [0, 1, 2]
+
+
+def test_make_buckets_splits_at_max_count(tmp_path):
+    """``BUCKET_MAX_COUNT + 1`` same-size molecules form two buckets, not one."""
+    from Auto3D.engines.batch_opt.batchopt import optimizing
+
+    sizes = ["C"] * (optimizing.BUCKET_MAX_COUNT + 1)
+    eng, mols = _optimizing_for_buckets(tmp_path, sizes)
+    buckets = eng._make_buckets(mols)
+
+    assert len(buckets) == 2
+    assert sorted(i for b in buckets for i in b) == list(range(len(mols)))
 
 
 def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
