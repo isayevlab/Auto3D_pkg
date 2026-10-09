@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-10-09
+
 ### Fixed
 - `auto3d run` and `main()` resolved the AIMNet2 model name and checked the
   cached model through `aimnet.calculators`, which loads torch, warp and the
@@ -356,9 +358,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`_energy_graph`, plus `_model_inputs` for a float32 backend), except
   `AIMNet2Adapter`, which still overrides `forward` wholesale (it computes
   forces itself) and supplies its own one-line `_energy_graph`. A subclass
-  that defines neither `forward` nor `_energy_graph` is now refused with a
-  `TypeError` at class definition, rather than constructing successfully and
-  failing later on its first real call. Energies and forces are unchanged.
+  that supplies neither `forward` nor `_energy_graph`, itself or through a
+  parent, is now refused with a `TypeError` at class definition, rather than
+  constructing successfully and failing later on its first real call.
+  Energies and forces are unchanged.
 
 ## [3.1.1] - 2026-08-27
 
