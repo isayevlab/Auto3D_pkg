@@ -162,7 +162,12 @@ Measured for AIMNet2 on an NVIDIA L40S (sm_89, driver 595.71.05, torch
 - cold compile 21.8 s, plus about 2.8 s for each new bucket shape;
 - break-even near 100 s of optimization in one process.
 
-Measured on one card only; the figures above come from the 2026-09-21 review's run.
+A second run on 2026-10-09 (another L40S on the same box, idle, CPU load about 10 of
+128 cores, torch 2.9.1+cu128) gave, for the bench's largest molecules, 16.2 ms eager
+and 11.8 ms compiled per step at 64 molecules and 27.7 and 22.0 ms at 256; the cold
+cost measured as model construction plus the first forward pass was 34.0 s compiled
+against 17.2 s eager, of which about 18.7 s is the compilation itself
+(``benchmarks/results-notes/2026-10-09-bucket-policy.md``).
 
 Below the break-even the compile costs more than it saves; above it the saving
 grows with the run. The flag therefore stays off by default. ``ANI2xt``
