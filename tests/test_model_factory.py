@@ -421,7 +421,6 @@ def test_the_compile_probes_own_frames_are_excluded_from_later_warnings(
     import collections
     import logging
 
-    import Auto3D.engines.models.adapter as adapter_mod
     from tests.helpers_custom_nnp import ScriptableNNP
 
     path = tmp_path / "eager_nnp.pt"
@@ -445,9 +444,7 @@ def test_the_compile_probes_own_frames_are_excluded_from_later_warnings(
                 frames["total"] += 1  # ... and deliberately no "ok"
             return self._orig_mod(*args, **kwargs)
 
-    monkeypatch.setattr(
-        adapter_mod.torch, "compile", lambda obj, **kw: _SuppressedOnFirstForward(obj)
-    )
+    monkeypatch.setattr(torch, "compile", lambda obj, **kw: _SuppressedOnFirstForward(obj))
 
     with caplog.at_level(logging.WARNING, logger="Auto3D"):
         adapter = create_model(str(path), torch.device("cpu"), compile_model=True, use_cache=False)

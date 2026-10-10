@@ -12,7 +12,7 @@ name-keyed converter until 4.0.1 -- and that function is now deleted. The tests
 below guard against either regressing.
 
 The decisive asymmetry: ANI2x gets periodic_table_index=True at both of its
-sites (thermo.py:338, models/adapter.py:346), so it was always correct and
+sites (thermo.py:338, models/adapter/ani.py), so it was always correct and
 needs no conversion.
 """
 

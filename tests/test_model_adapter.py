@@ -367,7 +367,7 @@ def test_try_compile_uses_dynamic_default_mode(monkeypatch):
         captured.update(kwargs)
         return model
 
-    monkeypatch.setattr(adapter.torch, "compile", fake_compile)
+    monkeypatch.setattr(torch, "compile", fake_compile)
     import torch.nn as nn
 
     m = nn.Linear(2, 2)

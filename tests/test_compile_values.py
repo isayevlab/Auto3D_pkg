@@ -113,9 +113,8 @@ def test_ani2x_compile_request_warns_and_runs_eager(caplog):
 def test_create_model_refuses_a_compiled_adapter_that_disagrees_with_eager(monkeypatch):
     """A compile that silently changes the numbers must not reach the optimizer."""
     pytest.importorskip("torchani")
-    import Auto3D.engines.models.adapter as adapter_mod
 
-    monkeypatch.setattr(adapter_mod.torch, "compile", _bad_compile)
+    monkeypatch.setattr(torch, "compile", _bad_compile)
     with pytest.raises(NumericalError, match="compiled"):
         create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)
 
@@ -147,9 +146,7 @@ class TestCustomNnpProbeSeam:
     def test_a_compiled_custom_nnp_that_disagrees_with_eager_is_refused(
         self, tmp_path, monkeypatch
     ):
-        import Auto3D.engines.models.adapter as adapter_mod
-
         path = _saved_eager_nnp(tmp_path)
-        monkeypatch.setattr(adapter_mod.torch, "compile", _bad_compile)
+        monkeypatch.setattr(torch, "compile", _bad_compile)
         with pytest.raises(NumericalError, match="compiled"):
             create_model(path, torch.device("cpu"), compile_model=True, use_cache=False)
