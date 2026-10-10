@@ -6,6 +6,7 @@ import pandas as pd
 from rdkit import Chem
 
 from Auto3D.domain.energy import e_tot_hartree, hartree2kcalpermol
+from Auto3D.domain.stereo_check import formula_key
 from Auto3D.entry.auto3D import main
 from Auto3D.foundation.config import Auto3DOptions
 from Auto3D.foundation.exceptions import ConfigurationError
@@ -13,7 +14,6 @@ from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 from Auto3D.foundation.utils.smi_io import strip_taut_suffix
-from Auto3D.foundation.utils.stereo_check import formula_key
 
 logger = get_logger(__name__)
 
@@ -132,7 +132,7 @@ def select_tautomers(
         # selection step exists to respect.
         #
         # The key is (element composition, formal charge) -- deliberately
-        # `formula_key`, not `Auto3D.foundation.utils.stereo_check.species_key`
+        # `formula_key`, not `Auto3D.domain.stereo_check.species_key`
         # (a canonical SMILES). Tautomers are constitutional isomers of each
         # other *by definition* -- keto and enol differ in exactly where a
         # proton and a double bond sit -- so a connectivity-sensitive key

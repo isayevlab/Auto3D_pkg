@@ -846,7 +846,7 @@ class TestNothingSelectedSaysWhy:
 
     @staticmethod
     def _stereo_changed(energy: float, name: str) -> Chem.Mol:
-        from Auto3D.foundation.utils.stereo_check import STEREO_CHANGED_PROP
+        from Auto3D.domain.stereo_check import STEREO_CHANGED_PROP
 
         mol = _create_mol_with_energy("C/C=C/CCO", energy, name)
         mol.SetProp(STEREO_CHANGED_PROP, "true")

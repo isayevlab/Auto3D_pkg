@@ -25,6 +25,7 @@ from rdkit import Chem
 # see `optimizing.__init__`.
 from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
 from Auto3D.domain.energy import set_e_tot_from_ev
+from Auto3D.domain.stereo_check import apply_optimized_coords
 
 # Note: TF32 settings are now configured via Auto3D.foundation.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
@@ -40,7 +41,6 @@ from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.engines.batch_opt.optimization_engine import n_steps
 from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
-from Auto3D.foundation.utils.stereo_check import apply_optimized_coords
 
 from .padding import pad_from_mols
 

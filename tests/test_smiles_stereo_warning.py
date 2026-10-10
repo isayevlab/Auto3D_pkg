@@ -66,7 +66,7 @@ def _configuration_from_3d(mol: Chem.Mol) -> str:
     which comes back as ``Chem.BondStereo.STEREOANY``, and
     ``AssignStereochemistryFrom3D`` deliberately leaves an existing STEREOANY
     flag untouched rather than deriving E/Z from the coordinates (see
-    ``Auto3D.foundation.utils.stereo_check``). Clearing the flag first is what makes the
+    ``Auto3D.domain.stereo_check``). Clearing the flag first is what makes the
     geometry ETKDG actually built visible, and therefore what makes an
     assertion on the emitted structures possible at all.
     """

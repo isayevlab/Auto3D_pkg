@@ -23,12 +23,12 @@ from Auto3D.domain.energy import (
     try_gibbs_ev,
 )
 from Auto3D.domain.filtering import FilterResult, filter_conformers
+from Auto3D.domain.stereo_check import stereo_preserved
 from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
 from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
-from Auto3D.foundation.utils.stereo_check import stereo_preserved
 
 logger = get_logger(__name__)
 

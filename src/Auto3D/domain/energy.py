@@ -198,7 +198,7 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
     * an untitled group (``_Name`` empty or absent), which would otherwise
       collect every such record into one bucket;
     * a group whose members are not the same compound, judged by
-      ``utils.stereo_check.species_key`` and formal charge. Reusing a title
+      ``stereo_check.species_key`` and formal charge. Reusing a title
       across different molecules is ordinary in a hand-built file, and the
       difference between two compounds' energies looks exactly like a
       conformational preference.
@@ -314,7 +314,7 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
     """
     # Local import: `stereo_check` pulls rdkit stereo perception, which this
     # module's readers (`filtering`, `ranking`) do not otherwise need.
-    from Auto3D.foundation.utils.stereo_check import species_key
+    from Auto3D.domain.stereo_check import species_key
 
     groups: dict[str, list[Chem.Mol]] = {}
     for mol in mols:

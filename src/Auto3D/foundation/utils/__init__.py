@@ -34,7 +34,4 @@ What each module owns:
     SDF reading, writing, chunking and reordering.
 ``smi_io``
     ``.smi`` reading and writing, and the ID-hashing that goes with it.
-``stereo_check``
-    Species keys and the stereochemistry-preserved check applied after
-    optimization.
 """

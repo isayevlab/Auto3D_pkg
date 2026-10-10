@@ -31,12 +31,12 @@ from Auto3D.domain.convergence import (
     thermo_succeeded_or_unfiltered,
 )
 from Auto3D.domain.energy import try_e_tot_ev
+from Auto3D.domain.stereo_check import species_key, stereo_preserved
 from Auto3D.foundation.constants import (
     DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     DEFAULT_RMSD_THRESHOLD,
 )
-from Auto3D.foundation.utils.stereo_check import species_key, stereo_preserved
 
 __all__ = [
     "DROP_REASONS",
@@ -157,7 +157,7 @@ def filter_conformers(
     that holds; it did not hold before 3.0.0.
 
     A pair counts as a duplicate only when all three of these agree: the two are
-    the same compound (:func:`Auto3D.foundation.utils.stereo_check.species_key`), their
+    the same compound (:func:`Auto3D.domain.stereo_check.species_key`), their
     heavy-atom RMSD is under ``rmsd_threshold``, and their energies agree within
     ``DEFAULT_DUPLICATE_ENERGY_TOL`` (or at least one of them has no usable
     energy, in which case that term cannot apply and RMSD alone decides).
@@ -329,7 +329,7 @@ def _filter_within_cluster(
             see ``Auto3D.domain.embedding.embed_params``); the compound term preserves distinct
             stereoisomers, which arrive here in one group and whose heavy-atom
             RMSD can fall below the default threshold
-            (:func:`Auto3D.foundation.utils.stereo_check.species_key`).
+            (:func:`Auto3D.domain.stereo_check.species_key`).
 
     Returns:
         List of unique molecules within the cluster.
