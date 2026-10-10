@@ -65,6 +65,37 @@ class TestCreateChunkMetaNames:
         assert result["path"] == "/data/input/chunk1.smi"
 
 
+class TestOptimizerWorkerIndices:
+    """One optimizer process per GPU on GPU; a single worker otherwise.
+
+    A CPU run with a list of gpu_idx must collapse to ONE worker (the index is
+    unused on CPU) so N processes do not contend for the same cores / load the
+    model N times. The spawn site and the isomer worker's sentinel count both
+    derive from this, so they cannot drift.
+    """
+
+    def test_single_int_index(self):
+        from Auto3D.orchestration.job_layout import optimizer_worker_indices
+
+        assert optimizer_worker_indices(True, 0) == [0]
+        assert optimizer_worker_indices(False, 2) == [2]
+
+    def test_gpu_list_fans_out(self):
+        from Auto3D.orchestration.job_layout import optimizer_worker_indices
+
+        assert optimizer_worker_indices(True, [0, 1, 2]) == [0, 1, 2]
+
+    def test_cpu_list_collapses_to_one(self):
+        from Auto3D.orchestration.job_layout import optimizer_worker_indices
+
+        assert optimizer_worker_indices(False, [0, 1]) == [0]
+
+    def test_cpu_empty_list_is_safe(self):
+        from Auto3D.orchestration.job_layout import optimizer_worker_indices
+
+        assert optimizer_worker_indices(False, []) == [0]
+
+
 class TestFileOpsIntegration:
     """Integration tests for the job-layout helpers."""
 

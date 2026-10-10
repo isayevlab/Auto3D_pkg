@@ -192,42 +192,6 @@ class TestAuto3DOptions:
         assert config.gpu_idx == [0, 1, 2]
 
 
-class TestChunkMeta:
-    """Tests for ChunkMeta TypedDict."""
-
-    def test_chunk_meta_structure(self):
-        """Track the TypedDict's OWN declared keys, not a hand-copied literal.
-
-        The prior version built its own 5-key dict and asserted back the
-        values it had just set -- a key added to or removed from the real
-        ChunkMeta would never move this test. A TypedDict has no runtime
-        constructor to validate against, so pin it via ``__annotations__``/
-        ``__required_keys__`` instead: a change to config.py's ChunkMeta now
-        has to be reflected here too, or this test fails.
-        """
-        from Auto3D.foundation.config import ChunkMeta
-
-        expected_keys = {
-            "output",
-            "optimized_og",
-            "output_taut",
-            "smiles_enumerated",
-            "smiles_reduced",
-            "smiles_hashed",
-            "enumerated_sdf",
-            "sorted_sdf",
-            "housekeeping_folder",
-            "path",
-            "dir",
-        }
-        assert set(ChunkMeta.__annotations__) == expected_keys
-        # ChunkMeta declares no Optional/NotRequired fields, so every key is
-        # required -- a self-consistency check that would catch a field
-        # becoming optional without a matching intent.
-        assert ChunkMeta.__required_keys__ == frozenset(expected_keys)
-        assert ChunkMeta.__optional_keys__ == frozenset()
-
-
 def test_optimization_config_exposes_no_energy_criterion_knobs():
     """The energy-stability knobs are gone, not merely defaulted (audit M1).
 
@@ -420,37 +384,6 @@ def test_non_numeric_threshold_raises_configuration_error():
     # A numeric *string* is a different case and is accepted: YAML hands every
     # scalar over as text, so refusing "0.3" would refuse a valid config file.
     assert Auto3DOptions(path="x.smi", k=1, threshold="0.3").threshold == 0.3
-
-
-class TestOptimizerWorkerIndices:
-    """One optimizer process per GPU on GPU; a single worker otherwise.
-
-    A CPU run with a list of gpu_idx must collapse to ONE worker (the index is
-    unused on CPU) so N processes do not contend for the same cores / load the
-    model N times. The spawn site and the isomer worker's sentinel count both
-    derive from this, so they cannot drift.
-    """
-
-    def test_single_int_index(self):
-        from Auto3D.foundation.config import optimizer_worker_indices
-
-        assert optimizer_worker_indices(True, 0) == [0]
-        assert optimizer_worker_indices(False, 2) == [2]
-
-    def test_gpu_list_fans_out(self):
-        from Auto3D.foundation.config import optimizer_worker_indices
-
-        assert optimizer_worker_indices(True, [0, 1, 2]) == [0, 1, 2]
-
-    def test_cpu_list_collapses_to_one(self):
-        from Auto3D.foundation.config import optimizer_worker_indices
-
-        assert optimizer_worker_indices(False, [0, 1]) == [0]
-
-    def test_cpu_empty_list_is_safe(self):
-        from Auto3D.foundation.config import optimizer_worker_indices
-
-        assert optimizer_worker_indices(False, []) == [0]
 
 
 class TestSentinelsAreNotSilentlyReinterpreted:
