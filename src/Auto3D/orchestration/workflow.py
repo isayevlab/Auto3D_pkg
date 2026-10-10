@@ -7,10 +7,17 @@ the queue-backed log handler, the version lookup and the start/shutdown/
 banner methods (``RunLoggingMixin``). ``supervisor.py`` holds the worker
 join, exit-check and progress-drain methods (``SupervisorMixin``).
 ``finalize.py`` holds the output combination, reorder/decode and
-reconciliation methods (``FinalizeMixin``). ``_setup_logging``,
-``_start_manager`` and the worker-construction loop inside ``_run_pipeline``
-stay here because they resolve module-global names (``logger_process``,
-``isomer_wrapper``, ``optim_rank_wrapper``) that tests patch on this module.
+reconciliation methods (``FinalizeMixin``). Three different reasons keep the
+rest of the implementation here rather than in a mixin: ``_validate_input``,
+``_encode_input`` and the worker-construction half of ``_run_pipeline``
+resolve bare module-global names (``check_valid_configuration``,
+``check_input``, ``preflight_model``, ``encode_ids``, ``isomer_wrapper``,
+``optim_rank_wrapper``) that tests patch on this module; ``_setup_logging``
+constructs ``Process(target=logger_process, ...)``, and ``logger_process``
+must not be imported into ``run_logging.py`` (that would risk a cycle once a
+later change makes ``workflow_workers.py`` import ``run_logging``);
+``_start_manager`` is shared by both ``_setup_logging`` and ``_run_pipeline``
+and stays here by ruling, not because anything patches it.
 """
 
 from __future__ import annotations
