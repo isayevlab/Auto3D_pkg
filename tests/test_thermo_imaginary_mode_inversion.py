@@ -37,6 +37,7 @@ from ase.thermochemistry import IdealGasThermo
 from ase.vibrations import VibrationsData
 
 import Auto3D.entry.ASE.thermo.driver as thermo_mod
+from Auto3D.domain.energy import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
 from Auto3D.entry.ASE.thermo import vibrations as _vibrations
 from Auto3D.entry.ASE.thermo.vibrations import analyze_vibrations, projected_vibrations
 from Auto3D.foundation.constants import (
@@ -45,7 +46,6 @@ from Auto3D.foundation.constants import (
     IMAGINARY_MODE_CUTOFF_CM,
     LOW_FREQUENCY_CUTOFF_CM,
 )
-from Auto3D.foundation.utils.energy import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,

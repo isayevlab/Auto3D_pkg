@@ -21,8 +21,8 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.domain.energy import set_e_tot_from_ev
 from Auto3D.domain.filtering import DROP_REASONS, filter_conformers
-from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 
 
 def _rec(e_ev, thermo_failed=None, seed=42):

@@ -411,7 +411,7 @@ def _submodules(package: str) -> frozenset[str]:
     )
 
 
-# ``from Auto3D.foundation.utils import energy`` -- naming a submodule -- stays legal;
+# ``from Auto3D.foundation.utils import atomic_io`` -- naming a submodule -- stays legal;
 # it is a module reference, not a re-export. ``from Auto3D.foundation.utils import
 # hartree2ev`` does not.
 UTILS_SUBMODULES = _submodules("foundation.utils")
@@ -553,15 +553,15 @@ def test_utils_package_exposes_no_names():
 
 
 def test_utils_submodule_imports_still_work():
-    """Emptying the barrel must not break ``from Auto3D.foundation.utils import energy``.
+    """Emptying the barrel must not break ``from Auto3D.foundation.utils import atomic_io``.
 
     A submodule reference is not a re-export, several tests use this form, and
     ``__init__.py`` importing nothing is exactly the condition under which it is
     easy to assume otherwise.
     """
-    from Auto3D.foundation.utils import energy, output_guard
+    from Auto3D.foundation.utils import atomic_io, output_guard
 
-    assert energy.hartree2ev > 0  # a float constant, not a function
+    assert callable(atomic_io.atomic_write_path)
     assert callable(output_guard.check_output_overwrite)
 
 

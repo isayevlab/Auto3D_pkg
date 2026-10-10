@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Tests for the unit-conversion factors and legacy aliases in Auto3D.foundation.utils.energy."""
+"""Tests for the unit-conversion factors and legacy aliases in Auto3D.domain.energy."""
 
 from __future__ import annotations
 
-from Auto3D.foundation.utils.energy import (
+from Auto3D.domain.energy import (
     EV_TO_KCAL_PER_MOL,
     HARTREE_TO_EV,
     HARTREE_TO_KCAL_PER_MOL,
@@ -56,8 +56,8 @@ class TestModuleImports:
     def test_import_from_defining_modules(self):
         """Each name resolves at the module that now defines it."""
         from Auto3D.domain.connectivity import check_connectivity
+        from Auto3D.domain.energy import HARTREE_TO_EV, hartree2ev
         from Auto3D.domain.geometry import min_pairwise_distance
-        from Auto3D.foundation.utils.energy import HARTREE_TO_EV, hartree2ev
 
         assert HARTREE_TO_EV == hartree2ev
         assert callable(min_pairwise_distance)

@@ -126,8 +126,8 @@ def test_select_tautomers_skips_implicit_hydrogen_records(tmp_path, caplog):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
+    from Auto3D.domain.energy import set_e_tot_from_ev
     from Auto3D.entry.tautomer import select_tautomers
-    from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 
     sdf = tmp_path / "in.sdf"
     with Chem.SDWriter(str(sdf)) as w:

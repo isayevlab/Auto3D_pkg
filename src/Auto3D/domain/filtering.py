@@ -30,12 +30,12 @@ from Auto3D.domain.convergence import (
     converged_or_unfiltered,
     thermo_succeeded_or_unfiltered,
 )
+from Auto3D.domain.energy import try_e_tot_ev
 from Auto3D.foundation.constants import (
     DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     DEFAULT_RMSD_THRESHOLD,
 )
-from Auto3D.foundation.utils.energy import try_e_tot_ev
 from Auto3D.foundation.utils.stereo_check import species_key, stereo_preserved
 
 __all__ = [
@@ -176,7 +176,7 @@ def filter_conformers(
             duplicate energy tolerance cannot shrink the comparison set, because
             that tolerance is the floor at which a pair can still be a duplicate.
             The stored Hartree energies are converted to eV on read
-            (``Auto3D.foundation.utils.energy``), so the unit is as documented.
+            (``Auto3D.domain.energy``), so the unit is as documented.
 
     Returns:
         A :class:`FilterResult` whose ``kept`` list is sorted by energy (lowest
@@ -386,7 +386,7 @@ def _mol_energy(mol: Chem.Mol) -> float | None:
     """Return a mol's optimized energy in eV, or None.
 
     ``E_tot`` is stored in Hartree; the conversion lives in
-    ``Auto3D.foundation.utils.energy`` so this module and ``ranking`` cannot drift apart on
+    ``Auto3D.domain.energy`` so this module and ``ranking`` cannot drift apart on
     it. ``None`` signals "no usable energy" so callers fall back to RMSD-only
     comparison.
     """

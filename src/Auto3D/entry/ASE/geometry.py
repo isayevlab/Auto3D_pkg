@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from rdkit import Chem
 
+from Auto3D.domain.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 from Auto3D.engines.batch_opt.batchopt import optimizing
 from Auto3D.engines.model_factory import create_model
 from Auto3D.entry._run_setup import prepare_single_file_run
@@ -18,7 +19,6 @@ from Auto3D.foundation.constants import (
 )
 from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
-from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
 
 __all__ = ["opt_geometry"]
 
@@ -29,7 +29,7 @@ def _annotate_and_rewrite(outpath: str) -> None:
     This function used to CONVERT ``E_tot`` from eV to Hartree, because
     ``optimizing.run()`` wrote eV. It no longer does: ``optimizing.run()``
     writes ``E_tot`` in Hartree like every other Auto3D writer (see
-    ``Auto3D.foundation.utils.energy``), so converting again here would divide by 27.211
+    ``Auto3D.domain.energy``), so converting again here would divide by 27.211
     a second time. Two jobs remain, and neither is a no-op: this pass DROPS
     records that failed to re-parse or carry no ``E_tot`` (so ``opt_geometry``
     output contains only usable energies), and it guarantees the unit-labeled

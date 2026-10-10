@@ -10,7 +10,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.foundation.utils.energy import e_tot_ev, set_e_tot_from_ev
+from Auto3D.domain.energy import e_tot_ev, set_e_tot_from_ev
 
 
 def _create_mol_with_energy(

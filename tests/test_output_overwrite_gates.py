@@ -25,10 +25,10 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.domain.energy import set_e_tot_from_ev
 from Auto3D.domain.id_mapping import decode_ids, encode_ids
 from Auto3D.entry.tautomer import select_tautomers
 from Auto3D.foundation.exceptions import ConfigurationError
-from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 from Auto3D.foundation.utils.smi_io import smiles2smi
 
 PRECIOUS = b"IRREPLACEABLE USER DATA\n"

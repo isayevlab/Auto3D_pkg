@@ -9,6 +9,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.domain.energy import set_e_tot_from_ev
 from Auto3D.domain.filtering import (
     DROP_REASONS,
     FilterResult,
@@ -16,7 +17,6 @@ from Auto3D.domain.filtering import (
     filter_conformers,
     filter_unique_optimized,
 )
-from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 
 
 def _create_mol_with_energy(smiles: str, energy_ev: float, converged: bool = True) -> Chem.Mol:
@@ -268,7 +268,7 @@ class TestFilterUniqueOptimized:
 
         result = filter_unique_optimized([mol_high, mol_low, mol_mid], rmsd_threshold=0.5)
 
-        from Auto3D.foundation.utils.energy import e_tot_ev
+        from Auto3D.domain.energy import e_tot_ev
 
         energies = [e_tot_ev(mol) for mol in result]
         assert energies == sorted(energies)
@@ -353,7 +353,7 @@ class TestMissingEnergyPropertyMustNotCrash:
     """The one conformer filter must tolerate a record with no 'E_tot'.
 
     ``filtering.py`` used to sort the valid-mols list by
-    ``Auto3D.foundation.utils.energy.e_tot_ev``, which RAISES (KeyError/ValueError) for a
+    ``Auto3D.domain.energy.e_tot_ev``, which RAISES (KeyError/ValueError) for a
     molecule with no usable 'E_tot'. ``_filter_within_cluster``'s own energy
     guard, two dozen lines later in the same module, instead used the tolerant
     ``try_e_tot_ev`` and treated a missing energy as "fall back to RMSD only",
@@ -628,7 +628,7 @@ def test_filter_within_cluster_removehs_is_linear_and_nondestructive(monkeypatch
     mols = []
     base = Chem.AddHs(Chem.MolFromSmiles("CCCCO"))
     cids = AllChem.EmbedMultipleConfs(base, numConfs=5, randomSeed=1)
-    from Auto3D.foundation.utils.energy import set_e_tot_from_ev as _set_e
+    from Auto3D.domain.energy import set_e_tot_from_ev as _set_e
 
     for cid in cids:
         m = Chem.Mol(base, confId=int(cid))

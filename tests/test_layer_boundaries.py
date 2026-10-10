@@ -131,7 +131,7 @@ def _internal_edges(*, module_scope_only: bool) -> dict[str, set[str]]:
             for target in targets:
                 if target != "Auto3D" and not target.startswith("Auto3D."):
                     continue
-                # `from Auto3D.foundation.utils.energy import x` may name a module or an
+                # `from Auto3D.domain.energy import x` may name a module or an
                 # attribute of one; walk up to the nearest real module.
                 while target and target not in modules:
                     target = target.rsplit(".", 1)[0] if "." in target else ""

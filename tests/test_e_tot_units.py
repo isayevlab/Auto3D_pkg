@@ -30,8 +30,8 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.domain.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
 from Auto3D.foundation.constants import EV_TO_KCAL_PER_MOL, HARTREE_TO_EV
-from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_ev
 
 #: Three conformers of one species, 0 / 1 / 3 kcal/mol apart. A 2 kcal/mol
 #: window must admit the first two and refuse the third.

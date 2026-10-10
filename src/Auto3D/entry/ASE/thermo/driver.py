@@ -20,6 +20,16 @@ from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
 from Auto3D.domain.convergence import THERMO_FAILED_PROP
+from Auto3D.domain.energy import (
+    E_REL_KCAL_PROP,
+    G_HARTREE_PROP,
+    T_K_PROP,
+    clear_relative_energies,
+    set_e_hartree_from_ev,
+    set_e_tot_from_ev,
+    set_relative_energies,
+    set_relative_gibbs_energies,
+)
 from Auto3D.engines.model_factory import create_model
 from Auto3D.engines.models.contract import ModelAdapter
 from Auto3D.entry._run_setup import prepare_single_file_run
@@ -52,16 +62,6 @@ from Auto3D.foundation.constants import (
     STANDARD_STATE_LABEL,
 )
 from Auto3D.foundation.exceptions import ConfigurationError
-from Auto3D.foundation.utils.energy import (
-    E_REL_KCAL_PROP,
-    G_HARTREE_PROP,
-    T_K_PROP,
-    clear_relative_energies,
-    set_e_hartree_from_ev,
-    set_e_tot_from_ev,
-    set_relative_energies,
-    set_relative_gibbs_energies,
-)
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)

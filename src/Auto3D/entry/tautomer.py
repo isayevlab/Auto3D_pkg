@@ -5,10 +5,10 @@ import os
 import pandas as pd
 from rdkit import Chem
 
+from Auto3D.domain.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.entry.auto3D import main
 from Auto3D.foundation.config import Auto3DOptions
 from Auto3D.foundation.exceptions import ConfigurationError
-from Auto3D.foundation.utils.energy import e_tot_hartree, hartree2kcalpermol
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records

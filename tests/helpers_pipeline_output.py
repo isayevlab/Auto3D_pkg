@@ -13,7 +13,7 @@ Why bounds and invariants, not expected numbers
 -----------------------------------------------
 These checks are derived from the code paths they guard -- ``ranking``,
 ``batch_opt.batchopt``, ``ASE.geometry``, ``utils.sdf_io`` and
-``utils.energy`` -- not from observed output. Pinning an NNP's numerics to
+``domain.energy`` -- not from observed output. Pinning an NNP's numerics to
 several decimals would make the tier fail on a model-version bump or a
 different BLAS, and a slow tier that fails on correct code is one people learn
 to ignore. So every energy check here is an *order-of-magnitude* bound and
@@ -31,7 +31,7 @@ of passing quietly.
 Units
 -----
 ``E_tot`` is in **Hartree**, written by every Auto3D writer, and
-:mod:`Auto3D.foundation.utils.energy` owns that fact. This module reads it through that
+:mod:`Auto3D.domain.energy` owns that fact. This module reads it through that
 module rather than re-deriving the unit, so a future unit change has one place
 to update, not two.
 """
@@ -46,7 +46,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
-from Auto3D.foundation.utils.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_hartree
+from Auto3D.domain.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_hartree
 
 __all__ = [
     "ATOMIC_ENERGY_HARTREE",
@@ -233,7 +233,7 @@ def assert_energy_is_plausible_hartree(
 ) -> float:
     """Assert ``E_tot`` is a finite, negative total energy of the right size.
 
-    ``E_tot`` is Hartree (``Auto3D.foundation.utils.energy`` owns that), and every writer
+    ``E_tot`` is Hartree (``Auto3D.domain.energy`` owns that), and every writer
     also emits the unit-labeled ``E_tot(Hartree)`` sibling carrying the
     identical value; both are checked, because their agreement is the only
     on-disk evidence that the single-conversion-boundary rule held.

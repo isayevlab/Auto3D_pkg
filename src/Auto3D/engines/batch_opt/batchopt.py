@@ -24,6 +24,7 @@ from rdkit import Chem
 # `optimizing` construct its own dependency. Callers inject a ready adapter --
 # see `optimizing.__init__`.
 from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
+from Auto3D.domain.energy import set_e_tot_from_ev
 
 # Note: TF32 settings are now configured via Auto3D.foundation.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
@@ -38,7 +39,6 @@ from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
 from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.engines.batch_opt.optimization_engine import n_steps
 from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
-from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 from Auto3D.foundation.utils.stereo_check import apply_optimized_coords
 
@@ -467,7 +467,7 @@ class optimizing:
                     # way to disk, and the unit-labeled sibling is written next to
                     # it. Writing eV under this name is what made the same tag mean
                     # two different things depending on entry point (see
-                    # Auto3D.foundation.utils.energy).
+                    # Auto3D.domain.energy).
                     set_e_tot_from_ev(mol, energies[i])
                     # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
                     # an energy, and no consumer converts it.
