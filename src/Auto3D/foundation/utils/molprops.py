@@ -8,8 +8,8 @@ it is domain policy, so it moved to ``Auto3D.domain.conformer_budget``.
 
 :func:`has_dummy_atoms` lives here rather than beside the other model
 precondition in ``engines/models/policy.py`` because ``utils/sdf_io.py`` needs
-it too, and ``foundation`` may not import ``engines``. ``policy`` re-exports
-it, so both layers read one definition.
+it too, and ``foundation`` may not import ``engines``. ``policy`` delegates
+to it, so both layers read one definition.
 """
 
 from __future__ import annotations

@@ -11,10 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Six `Auto3D.foundation.utils` modules (`connectivity`, `geometry`,
   `convergence`, `stereochemistry`, `energy`, `stereo_check`) moved to
   `Auto3D.domain`, `torch_config` moved from `Auto3D.foundation` to
-  `Auto3D.engines`, and the worker-index helper moved from
-  `Auto3D.foundation.config` to `Auto3D.orchestration.job_layout`. None of
-  these paths was ever documented public API. `ChunkMeta` and the
-  `OptionsDict` alias are gone.
+  `Auto3D.engines`, the worker-index helper moved from
+  `Auto3D.foundation.config` to `Auto3D.orchestration.job_layout`, and
+  `calculate_conformer_count` moved from `Auto3D.foundation.utils.molprops`
+  to `Auto3D.domain.conformer_budget` (`has_dummy_atoms` stayed in
+  `Auto3D.foundation.utils.molprops`). None of these paths was ever
+  documented public API. `ChunkMeta` and the `OptionsDict` alias are gone.
 
 ## [3.2.0] - 2026-10-09
 
@@ -339,7 +341,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   amine groups now request a smaller conformer pool: glycerol
   (`OCC(O)CO`) requests 52 conformers instead of 238, and keeps the same 9
   after pruning either way — under both RDKit 2025.09.6 and 2026.9.1;
-  beta-D-glucopyranose (`C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O`)
+  alpha-D-glucopyranose (`C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O`)
   requests 16 instead of 321 and keeps 12 of 16 / 69 of 321 under RDKit
   2025.09.6, 14 of 16 / 83 of 321 under 2026.9.1 — the installed RDKit moves
   how many survive pruning, not which request is smaller (both measured with

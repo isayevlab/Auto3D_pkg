@@ -140,10 +140,10 @@ class TestHasDummyAtoms:
     AIMNet2 uses embedding index 0 as its padding slot, so a dummy atom is
     scored as a zero-feature ghost rather than rejected; ANI refuses it as
     out-of-set. The predicate is what lets every record seam skip such a
-    record with a warning instead of handing it to a model. Re-exported from
-    ``policy`` (defined in ``foundation.utils.molprops``, which ``sdf_io`` can
-    reach without the ``foundation -> engines`` import a shared definition in
-    this module would need).
+    record with a warning instead of handing it to a model. Reached through a
+    delegate in ``policy`` (defined in ``foundation.utils.molprops``, which
+    ``sdf_io`` can reach without the ``foundation -> engines`` import a
+    shared definition in this module would need).
     """
 
     @pytest.mark.parametrize(

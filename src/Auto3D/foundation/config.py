@@ -385,7 +385,9 @@ class Auto3DOptions(BaseModel):
     ``None`` derives the count per molecule via
     :func:`Auto3D.domain.conformer_budget.calculate_conformer_count`, which is
     ``min(max(1, num_heavy, 2 * 8.481 * num_rotatable ** 1.642), 1000)``
-    (https://doi.org/10.1021/acs.jctc.0c01213), with ``num_rotatable`` counted
+    (Auto3D's own rule: the rotatable-bond coefficient and exponent are cited
+    to https://doi.org/10.1021/acs.jctc.0c01213, the factor of 2 and the
+    heavy-atom floor are Auto3D's choices), with ``num_rotatable`` counted
     on the heavy-atom graph. The rotatable-bond term dominates for anything
     flexible: glycerol gets **52**, not 5. This docstring used to say
     ``num_heavy_atoms - 1``, which is neither the formula nor the right order

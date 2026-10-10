@@ -30,8 +30,9 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     such as ``[H+]`` or a lone atom from the pipeline).
 
     Rotatable bonds are counted on the heavy-atom graph (``Chem.RemoveAllHs``,
-    which also drops isotope-labeled hydrogens), not on whatever hydrogen state
-    ``mol`` happens to carry: with explicit
+    which also drops isotope-labeled hydrogens) using RDKit's default
+    (strict) definition, which does not count amide C-N rotors -- not on
+    whatever hydrogen state ``mol`` happens to carry: with explicit
     hydrogens, RDKit's ``CalcNumRotatableBonds`` also counts C-O-H / C-N-H
     torsions (glycerol requests 238 conformers with explicit Hs, 52 without),
     for hydroxyl/amine orientations that heavy-atom symmetry pruning collapses
@@ -42,7 +43,7 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     ``CONFORMER_RANDOM_SEED``, ``pruneRmsThresh=0.3``,
     ``useSymmetryForPruning=True``: glycerol, ``OCC(O)CO``, keeps 9 conformers
     whether 52 or 238 are requested, under RDKit 2025.09.6 and under 2026.9.1
-    alike; beta-D-glucopyranose,
+    alike; alpha-D-glucopyranose,
     ``C([C@@H]1[C@H]([C@@H]([C@H]([C@H](O1)O)O)O)O)O``, keeps 12 of 16
     requested at the new heavy-atom budget vs. 69 of 321 requested at the old
     with-H budget under RDKit 2025.09.6, and 14 of 16 vs. 83 of 321 under
@@ -55,11 +56,13 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     for it explicitly with ``max_confs``.
 
     Formula: min(max(1, num_heavy, 2 * 8.481 * (num_rotatable ** 1.642)), 1000)
-    The formula is Auto3D's own rule, adapted from Chan, Hutchison and Morris
-    (J. Chem. Theory Comput. 2021): the rotatable-bond term follows that work;
-    the x2 multiplier and the heavy-atom floor are Auto3D's choices and have
-    not been checked against the paper's text.
-    https://doi.org/10.1021/acs.jctc.0c01213
+    The formula is Auto3D's own rule, adapted from Chan, Morris and Hutchison
+    (J. Chem. Theory Comput. 2021, 17, 2099-2106): the rotatable-bond
+    coefficient and exponent are cited to that work, the factor of 2 and the
+    heavy-atom floor are Auto3D's choices. None of the three has been checked
+    against the paper's text (a conformational-entropy study).
+
+    Reference: https://doi.org/10.1021/acs.jctc.0c01213
 
     Args:
         mol: RDKit molecule object (with or without hydrogens).
