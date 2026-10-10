@@ -1,17 +1,17 @@
 {% set name = "auto3d" %}
-{% set version = "3.1.1" %}
+{% set version = "3.2.0" %}
 
 package:
   name: {{ name|lower }}
   version: {{ version }}
 
 source:
-  # PyPI sdist for 3.1.1, published 2026-08-27. Verified against the PyPI JSON
+  # PyPI sdist for 3.2.0, published 2026-10-10. Verified against the PyPI JSON
   # API rather than a local build: a locally built sdist is not guaranteed
   # byte-identical to the one the release workflow uploaded, and conda-forge
   # checks this hash against what it downloads.
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/auto3d-{{ version }}.tar.gz
-  sha256: b6627db22ec55b60936daf5bf9cbf2abf83595e240bb9cef655d002d99a48be8
+  sha256: 2624cbc81f8a3b064e4ddfa70b147267686279d22e86fd512abc6ba08ec0ea6b
 
 build:
   # Auto3D is pure Python -- its own wheel is py3-none-any -- so this is
