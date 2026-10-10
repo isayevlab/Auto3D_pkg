@@ -24,7 +24,7 @@ Verified against production (not assumed from the plan):
   called from ``workflow_workers.optim_rank_wrapper``.
 - ``AIMNet2Adapter.__init__`` imports the calculator lazily, INSIDE the
   method (``from aimnet.calculators import AIMNet2Calculator``,
-  models/adapter.py:226) -- not at ``Auto3D.engines.models.adapter`` module scope.
+  models/adapter/aimnet2.py:57) -- not at ``Auto3D.engines.models.adapter`` module scope.
   Patching ``Auto3D.engines.models.adapter.AIMNet2Calculator`` (a name that does not
   even exist there) never intercepts construction; the fresh
   ``from ... import ...`` re-resolves the attribute on ``aimnet.calculators``

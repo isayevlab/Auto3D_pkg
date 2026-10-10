@@ -187,8 +187,8 @@ class TestOnlyAni2xtRemaps:
         construction loads ``models/ani2xt_no_repulsion.pt`` and needs torchani
         for the AEV computer, neither of which belongs in the fast tier.
         """
-        from Auto3D.engines.models import adapter as adapter_mod
         from Auto3D.engines.models.adapter import ANI2xtAdapter
+        from Auto3D.engines.models.adapter import ani as adapter_mod
 
         seen: list = []
 

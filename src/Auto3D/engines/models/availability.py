@@ -9,8 +9,8 @@ conda-forge). Every ``import aimnet`` site in Auto3D calls
 consistent, actionable ``DependencyError`` (CLI exit 3, same convention as
 missing torchani) instead of a raw ``ModuleNotFoundError`` traceback.
 
-A sibling of ``preflight.py`` and ``adapter.py`` rather than part of either,
-so both can use it without importing each other.
+A sibling of ``preflight.py`` and the ``adapter`` package rather than part of
+either, so both can use it without importing each other.
 """
 
 from __future__ import annotations

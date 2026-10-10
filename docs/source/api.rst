@@ -17,9 +17,11 @@ listed here must resolve, and nothing may be exported from ``Auto3D.__all__``
 without appearing here (``__version__`` excepted -- a version string, not an
 API object).
 
-No package ``__init__.py`` re-exports a name, and that is enforced too. The one
-exception is ``Auto3D.engines.isomers.IsomerEngineFactory`` below, whose documented
-dotted path *is* the package path -- so the re-export is the public surface
+No package ``__init__.py`` re-exports a name, and that is enforced too, with
+three exceptions below: ``Auto3D.engines.isomers.IsomerEngineFactory``,
+``Auto3D.entry.ASE.thermo.calc_thermo``, and the backend adapter classes
+documented at ``Auto3D.engines.models.adapter`` itself. Each one's documented
+dotted path *is* the package path -- so each re-export is the public surface
 rather than a convenience alias for it. ``Auto3D.presentation.cli`` (six names) and
 ``Auto3D.engines.models`` (seven) were the last two package barrels; both are empty as of
 3.0, and none of their thirteen names was documented here. Import from the module

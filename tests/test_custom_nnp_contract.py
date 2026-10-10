@@ -455,7 +455,7 @@ def test_adapter_keeps_no_padding_fallback_of_its_own(monkeypatch, tmp_path):
     adapter to fail loudly instead, by handing it a model the loader did not
     vet.
     """
-    import Auto3D.engines.models.adapter as adapter_mod
+    import Auto3D.engines.models.adapter.custom as adapter_mod
     from Auto3D.engines.models.adapter import CustomModelAdapter
 
     class Unvetted(torch.nn.Module):
