@@ -289,7 +289,7 @@ class TestConformerRankerTopK:
         mol_valid = _create_mol_with_energy("CC", -9.0, "mol")
 
         # Sanity: the broken one fails check_connectivity, the valid one passes.
-        from Auto3D.foundation.utils.connectivity import check_connectivity
+        from Auto3D.domain.connectivity import check_connectivity
 
         assert check_connectivity(mol_broken) is False
         assert check_connectivity(mol_valid) is True
@@ -326,7 +326,7 @@ class TestConformerRankerTopK:
         pos = conf.GetAtomPosition(0)
         conf.SetAtomPosition(0, (pos.x + 5.0, pos.y, pos.z))
 
-        from Auto3D.foundation.utils.connectivity import check_connectivity
+        from Auto3D.domain.connectivity import check_connectivity
 
         assert check_connectivity(mol_broken) is False
 
@@ -892,7 +892,7 @@ class TestNothingSelectedSaysWhy:
     def test_a_connectivity_dropped_species_names_connectivity(self, tmp_path, caplog):
         import logging
 
-        from Auto3D.foundation.utils.connectivity import check_connectivity
+        from Auto3D.domain.connectivity import check_connectivity
 
         def broken(energy: float, name: str) -> Chem.Mol:
             mol = _create_mol_with_energy("CC", energy, name)

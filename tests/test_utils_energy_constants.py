@@ -55,7 +55,7 @@ class TestModuleImports:
 
     def test_import_from_defining_modules(self):
         """Each name resolves at the module that now defines it."""
-        from Auto3D.foundation.utils.connectivity import check_connectivity
+        from Auto3D.domain.connectivity import check_connectivity
         from Auto3D.foundation.utils.energy import HARTREE_TO_EV, hartree2ev
         from Auto3D.foundation.utils.geometry import min_pairwise_distance
 

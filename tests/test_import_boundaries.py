@@ -479,7 +479,7 @@ def test_no_src_module_imports_through_the_utils_barrel():
     (``energy``, ``convergence``, ``stereo_check``) had no presence in it at all
     -- and ``check_connectivity`` was reached through the barrel in
     ``filtering.py`` and through ``utils.chemistry`` in ``ranking.py`` (both now
-    name ``utils.connectivity``), two
+    name ``domain.connectivity``), two
     sibling modules disagreeing about the same function with nothing saying
     which was right.
     """

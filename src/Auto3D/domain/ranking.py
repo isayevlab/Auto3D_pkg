@@ -6,11 +6,11 @@ from __future__ import annotations
 import pandas as pd
 from rdkit import Chem
 
+from Auto3D.domain.connectivity import check_connectivity
 from Auto3D.domain.filtering import FilterResult, filter_conformers
 from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
 from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
-from Auto3D.foundation.utils.connectivity import check_connectivity
 from Auto3D.foundation.utils.convergence import (
     converged_or_unfiltered,
     has_convergence_flag,

@@ -4,8 +4,8 @@ import warnings
 from rdkit import Chem
 
 import Auto3D
+from Auto3D.domain.connectivity import check_connectivity
 from Auto3D.foundation.config import Auto3DOptions
-from Auto3D.foundation.utils.connectivity import check_connectivity
 from Auto3D.foundation.utils.reconciliation import find_smiles_not_in_sdf
 from Auto3D.orchestration.pipeline.input_checks import check_input
 

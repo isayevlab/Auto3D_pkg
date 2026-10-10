@@ -25,12 +25,12 @@ from dataclasses import dataclass
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 
+from Auto3D.domain.connectivity import check_connectivity
 from Auto3D.foundation.constants import (
     DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     DEFAULT_RMSD_THRESHOLD,
 )
-from Auto3D.foundation.utils.connectivity import check_connectivity
 from Auto3D.foundation.utils.convergence import (
     converged_or_unfiltered,
     thermo_succeeded_or_unfiltered,

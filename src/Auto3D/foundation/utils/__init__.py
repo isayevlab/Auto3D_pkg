@@ -19,8 +19,6 @@ What each module owns:
     The one way this package replaces a file in place: stage a sibling
     temporary, copy the target's mode onto it, ``os.replace``. Used wherever a
     file is rewritten, so no call site invents its own temp naming again.
-``connectivity``
-    Bond-graph comparison -- whether optimization preserved connectivity.
 ``convergence``
     The single owner of the ``Converged`` SDF property -- reading it, writing
     it, and deciding what counts as converged.

@@ -435,6 +435,6 @@ def _forget_which_untabulated_elements_were_already_reported(monkeypatch):
     in ``tests/test_utils_connectivity.py`` stay harmless: they replace a set
     this fixture has already replaced.
     """
-    from Auto3D.foundation.utils import connectivity
+    from Auto3D.domain import connectivity
 
     monkeypatch.setattr(connectivity, "_REPORTED_UNTABULATED_ELEMENTS", set())
