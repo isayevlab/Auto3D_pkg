@@ -2,10 +2,9 @@
 """The dummy-atom predicate, read straight off a molecular graph.
 
 A function of the graph alone (no coordinates, no force field, no energy),
-which is what separates it from ``utils/geometry.py`` and
-``utils/connectivity.py``. The conformer budget used to live here too; it is
-domain policy, not a graph-reading scalar, so it moved to
-``Auto3D.domain.conformer_budget``.
+which is what separates it from ``Auto3D.domain.geometry`` and
+``Auto3D.domain.connectivity``. The conformer budget used to live here too;
+it is domain policy, so it moved to ``Auto3D.domain.conformer_budget``.
 
 :func:`has_dummy_atoms` lives here rather than beside the other model
 precondition in ``engines/models/policy.py`` because ``utils/sdf_io.py`` needs

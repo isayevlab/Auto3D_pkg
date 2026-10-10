@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""The conformer budget: how many conformers to embed for one molecule.
+"""The conformer budget: how many conformers to embed per molecule.
 
-Deciding that count is policy, not file I/O or a scalar reading straight off
-the molecular graph -- it is domain logic, so it lives here rather than
-beside the file-I/O helpers in ``foundation.utils.molprops``.
+The conformer budget is the policy that decides how many conformers to embed
+per molecule; it is domain logic, so it lives here and not beside the file
+I/O helpers in ``Auto3D.foundation.utils``.
 """
 
 from __future__ import annotations
