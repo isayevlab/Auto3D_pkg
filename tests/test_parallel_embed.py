@@ -111,7 +111,7 @@ class TestEmbedSingle:
         molecule, where embedding + RMSD pruning collapses to 1 regardless of
         the requested count and could hide a formula regression).
         """
-        from Auto3D.foundation.utils.molprops import calculate_conformer_count
+        from Auto3D.domain.conformer_budget import calculate_conformer_count
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCC"))  # hexane: flexible
         expected_upper_bound = calculate_conformer_count(mol)

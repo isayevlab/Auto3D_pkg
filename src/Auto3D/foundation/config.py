@@ -383,7 +383,7 @@ class Auto3DOptions(BaseModel):
     """Maximum conformers per SMILES.
 
     ``None`` derives the count per molecule via
-    :func:`Auto3D.foundation.utils.molprops.calculate_conformer_count`, which is
+    :func:`Auto3D.domain.conformer_budget.calculate_conformer_count`, which is
     ``min(max(1, num_heavy, 2 * 8.481 * num_rotatable ** 1.642), 1000)``
     (https://doi.org/10.1021/acs.jctc.0c01213), with ``num_rotatable`` counted
     on the heavy-atom graph. The rotatable-bond term dominates for anything

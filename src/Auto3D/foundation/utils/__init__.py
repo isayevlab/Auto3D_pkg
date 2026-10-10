@@ -22,7 +22,9 @@ What each module owns:
 ``logging_config``
     Logging setup and the logger factory every module calls.
 ``molprops``
-    The conformer-count heuristic, read off an RDKit mol's graph.
+    The dummy-atom predicate, read off an RDKit mol's graph. (The
+    conformer-count heuristic that used to live here moved to
+    ``Auto3D.domain.conformer_budget``.)
 ``output_guard``
     Output-path gates (overwrite, and output-is-not-input). Split out of
     ``validation`` so a ``.smi`` writer does not pull in torch and the whole

@@ -16,6 +16,7 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolDescriptors
 
+from Auto3D.domain.conformer_budget import calculate_conformer_count
 from Auto3D.engines.isomers.rdkit_sdf import RDKitSdfIsomer
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
 from Auto3D.engines.isomers.tautomers import RDKitOrOEChemTautomerEngine
@@ -25,7 +26,6 @@ from Auto3D.foundation.constants import (
     CONFORMER_ROTATABLE_EXP,
     EV_TO_HARTREE,
 )
-from Auto3D.foundation.utils.molprops import calculate_conformer_count
 from tests.helpers_adapter import FakeAdapter
 
 

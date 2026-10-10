@@ -47,6 +47,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdDistGeom
 
 from Auto3D.domain.clash_relief import relieve_clash
+from Auto3D.domain.conformer_budget import calculate_conformer_count
 from Auto3D.foundation.constants import (
     CONFORMER_RANDOM_SEED,
     EMBED_TIMEOUT_S,
@@ -54,7 +55,7 @@ from Auto3D.foundation.constants import (
 )
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
+from Auto3D.foundation.utils.molprops import has_dummy_atoms
 
 logger = get_logger(__name__)
 
