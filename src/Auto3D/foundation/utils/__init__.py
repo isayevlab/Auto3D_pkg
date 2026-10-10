@@ -19,9 +19,6 @@ What each module owns:
     The one way this package replaces a file in place: stage a sibling
     temporary, copy the target's mode onto it, ``os.replace``. Used wherever a
     file is rewritten, so no call site invents its own temp naming again.
-``convergence``
-    The single owner of the ``Converged`` SDF property -- reading it, writing
-    it, and deciding what counts as converged.
 ``energy``
     The single owner of the ``E_tot`` SDF properties, in both eV and hartree,
     and of the energy-unit constants.

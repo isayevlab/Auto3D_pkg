@@ -7,15 +7,15 @@ import pandas as pd
 from rdkit import Chem
 
 from Auto3D.domain.connectivity import check_connectivity
-from Auto3D.domain.filtering import FilterResult, filter_conformers
-from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
-from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
-from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
-from Auto3D.foundation.utils.convergence import (
+from Auto3D.domain.convergence import (
     converged_or_unfiltered,
     has_convergence_flag,
     thermo_succeeded_or_unfiltered,
 )
+from Auto3D.domain.filtering import FilterResult, filter_conformers
+from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
+from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
+from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
 from Auto3D.foundation.utils.energy import (
     E_REL_KCAL_PROP,
     E_TOT_HARTREE_PROP,
@@ -476,7 +476,7 @@ class ConformerRanker:
                 # any SDF batchopt did not write (opt_geometry output, an
                 # ORCA/Gaussian export, a hand-built conformer set) carries
                 # none -- and dropping those returned [], wrote a 0-byte file
-                # and exited 0. See Auto3D.foundation.utils.convergence.
+                # and exited 0. See Auto3D.domain.convergence.
                 if not converged_or_unfiltered(mol):
                     n_unconverged += 1
                     continue

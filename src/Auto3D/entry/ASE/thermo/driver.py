@@ -19,6 +19,7 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 from tqdm import tqdm
 
+from Auto3D.domain.convergence import THERMO_FAILED_PROP
 from Auto3D.engines.model_factory import create_model
 from Auto3D.engines.models.contract import ModelAdapter
 from Auto3D.entry._run_setup import prepare_single_file_run
@@ -51,7 +52,6 @@ from Auto3D.foundation.constants import (
     STANDARD_STATE_LABEL,
 )
 from Auto3D.foundation.exceptions import ConfigurationError
-from Auto3D.foundation.utils.convergence import THERMO_FAILED_PROP
 from Auto3D.foundation.utils.energy import (
     E_REL_KCAL_PROP,
     G_HARTREE_PROP,
@@ -67,7 +67,7 @@ from Auto3D.foundation.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-# THERMO_FAILED_PROP is imported from Auto3D.foundation.utils.convergence, its
+# THERMO_FAILED_PROP is imported from Auto3D.domain.convergence, its
 # single declared owner (used by the three ranking/filtering readers as well
 # as every write site in this module) -- it must not be redefined here.
 TRANSITION_STATE_FAILURE = "transition_state"

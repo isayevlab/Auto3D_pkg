@@ -107,8 +107,8 @@ def test_optimizing_run_writes_non_finite_row_not_converged(tmp_path):
     `batchopt.run` must honor regardless of which bucket(s) the two records
     land in.
     """
+    from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP
     from Auto3D.engines.batch_opt.batchopt import optimizing
-    from Auto3D.foundation.utils.convergence import OPTIMIZATION_FAILED_PROP
 
     methane = Chem.AddHs(Chem.MolFromSmiles("C"))
     AllChem.EmbedMolecule(methane, randomSeed=1)

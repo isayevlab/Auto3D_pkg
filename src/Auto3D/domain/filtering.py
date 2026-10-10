@@ -26,14 +26,14 @@ from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 
 from Auto3D.domain.connectivity import check_connectivity
+from Auto3D.domain.convergence import (
+    converged_or_unfiltered,
+    thermo_succeeded_or_unfiltered,
+)
 from Auto3D.foundation.constants import (
     DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     DEFAULT_RMSD_THRESHOLD,
-)
-from Auto3D.foundation.utils.convergence import (
-    converged_or_unfiltered,
-    thermo_succeeded_or_unfiltered,
 )
 from Auto3D.foundation.utils.energy import try_e_tot_ev
 from Auto3D.foundation.utils.stereo_check import species_key, stereo_preserved
@@ -189,7 +189,7 @@ def filter_conformers(
 
     # Filter converged structures with valid connectivity. A record with no
     # 'Converged' property is not filtered on convergence (see
-    # Auto3D.foundation.utils.convergence): treating its absence as failure deleted every
+    # Auto3D.domain.convergence): treating its absence as failure deleted every
     # record of any SDF batchopt did not write.
     #
     # Checked in this order, one reason attributed per record, so a structure
