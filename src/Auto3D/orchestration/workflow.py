@@ -30,7 +30,7 @@ from Auto3D.foundation.exceptions import (
     OptimizationError,
 )
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
-from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+from Auto3D.engines.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
 from Auto3D.foundation.utils.sdf_io import reorder_sdf

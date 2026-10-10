@@ -27,7 +27,7 @@ from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.policy import check_gpu_requested
 from Auto3D.foundation.config import optimizer_worker_indices
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
-from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+from Auto3D.engines.torch_config import TorchConfig, configure_torch
 from Auto3D.orchestration.job_layout import create_chunk_meta_names, housekeeping
 from Auto3D.orchestration.processors import TautomerProcessor
 

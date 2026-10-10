@@ -726,6 +726,32 @@ def test_importing_any_utils_module_does_not_load_models():
     assert not loaded, f"importing Auto3D.foundation.utils.* pulled in the models package: {loaded}"
 
 
+_FOUNDATION_TORCH_PROBE_SOURCE = """
+import importlib, json, pkgutil, sys
+import Auto3D.foundation
+
+for info in pkgutil.walk_packages(Auto3D.foundation.__path__, prefix="Auto3D.foundation."):
+    importlib.import_module(info.name)
+
+print(json.dumps(sorted(m for m in sys.modules if m == "torch" or m.startswith("torch."))[:3]))
+"""
+
+
+def test_the_foundation_layer_imports_no_torch():
+    """L0 is Auto3D-leaf and torch-free: importing every module under
+    ``Auto3D.foundation`` must not load torch at module scope. The walk is the
+    invariant; ``test_file_io_modules_do_not_load_torch_or_the_model_tree``
+    names six modules and is a snapshot."""
+    proc = subprocess.run(
+        [sys.executable, "-c", _FOUNDATION_TORCH_PROBE_SOURCE],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
+    loaded = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert not loaded, f"importing Auto3D.foundation.** loaded torch: {loaded}"
+
+
 # Subprocess probe: what the split-out file-I/O modules cost to import.
 _FILE_IO_PROBE_SOURCE = """
 import json, sys

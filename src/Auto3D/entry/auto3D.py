@@ -44,7 +44,7 @@ from Auto3D.orchestration.workflow_workers import (  # noqa: F401
 
 logger = get_logger(__name__)
 
-# Note: TF32 settings are now configured via Auto3D.foundation.torch_config.configure_torch()
+# Note: TF32 settings are now configured via Auto3D.engines.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. Configuration is applied at pipeline start.
 
 
@@ -210,7 +210,7 @@ def smiles2mols(
         )
 
     # Configure PyTorch settings (TF32, cuDNN benchmark)
-    from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+    from Auto3D.engines.torch_config import TorchConfig, configure_torch
 
     torch_config = TorchConfig(allow_tf32=args.allow_tf32)
     configure_torch(torch_config)
