@@ -29,10 +29,11 @@ MAX_STEREOISOMERS = 2**16  # 65536
 DEFAULT_CAPACITY = 42  # molecules per GB of GPU/CPU memory for chunk sizing
 
 # Conformer generation formula coefficients
-# Based on: https://doi.org/10.1021/acs.jctc.0c01213
+# Coefficient and exponent cited to https://doi.org/10.1021/acs.jctc.0c01213
+# (unverified; see Auto3D.domain.conformer_budget).
 CONFORMER_ROTATABLE_COEFF = 8.481  # Coefficient for rotatable bond count
 CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
-CONFORMER_MULTIPLIER = 2  # Multiplier for the formula
+CONFORMER_MULTIPLIER = 2  # Auto3D's own oversampling factor, not from that work
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
 # Seconds. Wall-clock cap on embedding one species (RDKit's

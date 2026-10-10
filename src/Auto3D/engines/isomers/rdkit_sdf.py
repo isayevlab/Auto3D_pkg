@@ -17,6 +17,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
 )
 from tqdm import tqdm
 
+from Auto3D.domain.conformer_budget import calculate_conformer_count
 from Auto3D.domain.embedding import embed_with_retry
 from Auto3D.domain.stereochemistry import (
     count_unspecified_stereo as _count_unspecified_stereo,
@@ -25,7 +26,7 @@ from Auto3D.domain.stereochemistry import (
     enantiomer_key,
 )
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
-from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
+from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.sdf_io import skip_message
 
 

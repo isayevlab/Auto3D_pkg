@@ -145,8 +145,8 @@ def has_dummy_atoms(mol: Chem.Mol) -> bool:
 
     A delegating call, not ``from ... import has_dummy_atoms``: a module-scope
     import of ``molprops`` would pull rdkit in at *this* module's import time
-    (``molprops`` imports ``rdkit`` and ``rdMolDescriptors`` at module scope),
-    and this module sits on the CLI's ``--help`` path -- the exact cost issue
+    (``molprops`` imports ``rdkit`` at module scope), and this module sits on
+    the CLI's ``--help`` path -- the exact cost issue
     #14 removed and ``tests/test_import_boundaries.py::
     test_cli_app_import_does_not_load_torch_or_rdkit`` now forbids. Deferring
     the import into the function body is the same pattern every other function

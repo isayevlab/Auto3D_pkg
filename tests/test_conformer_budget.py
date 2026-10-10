@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Tests for Auto3D.foundation.utils.molprops module."""
+"""Tests for Auto3D.domain.conformer_budget module."""
 
 from __future__ import annotations
 
 from rdkit import Chem
 
+from Auto3D.domain.conformer_budget import calculate_conformer_count
 from Auto3D.foundation.constants import MAX_CONFORMERS_CAP
-from Auto3D.foundation.utils.molprops import calculate_conformer_count
 
 
 class TestCalculateConformerCount:
