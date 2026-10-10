@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Tests for Auto3D.domain.connectivity module."""
+"""Tests for Auto3D.domain.connectivity module (formerly Auto3D.foundation.utils.connectivity)."""
 
 from __future__ import annotations
 

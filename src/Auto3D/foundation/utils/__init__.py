@@ -27,6 +27,10 @@ What each module owns:
     Output-path gates (overwrite, and output-is-not-input). Split out of
     ``validation`` so a ``.smi`` writer does not pull in torch and the whole
     model tree through it.
+``output_names``
+    Derives a property calculator's default output filename, so ``calc_spe``,
+    ``opt_geometry`` and ``calc_thermo`` share one naming rule instead of each
+    re-deriving it by hand.
 ``reconciliation``
     Comparing what went in against what came out, so a molecule lost in the
     pipeline is visible rather than silent.

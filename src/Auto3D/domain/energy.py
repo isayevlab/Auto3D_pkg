@@ -312,8 +312,11 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
     title across molecules is ordinary -- and the difference between two
     compounds' energies looks exactly like a conformational preference.
     """
-    # Local import: `stereo_check` pulls rdkit stereo perception, which this
-    # module's readers (`filtering`, `ranking`) do not otherwise need.
+    # Local import: not a layering necessity -- `stereo_check` sits beside
+    # `energy` in `domain/` and imports nothing from Auto3D, nor a cost one,
+    # since this module already imports `rdkit.Chem` above. Left
+    # function-scoped rather than promoted; nothing currently requires it at
+    # module scope.
     from Auto3D.domain.stereo_check import species_key
 
     groups: dict[str, list[Chem.Mol]] = {}

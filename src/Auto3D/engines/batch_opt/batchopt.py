@@ -19,14 +19,15 @@ from collections import defaultdict
 
 from rdkit import Chem
 
-# Deliberately NOT `from Auto3D.engines.model_factory import create_model`. This module
-# is the numerical layer; the factory sits above it, and importing upward made
-# `optimizing` construct its own dependency. Callers inject a ready adapter --
-# see `optimizing.__init__`.
 from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
 from Auto3D.domain.energy import set_e_tot_from_ev
 from Auto3D.domain.stereo_check import apply_optimized_coords
 
+# Deliberately NOT `from Auto3D.engines.model_factory import create_model`. This module
+# is the numerical layer; the factory sits above it, and importing upward made
+# `optimizing` construct its own dependency. Callers inject a ready adapter --
+# see `optimizing.__init__`.
+#
 # Note: TF32 settings are now configured via Auto3D.engines.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
 # removed to allow user configuration.

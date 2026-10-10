@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Tests for Auto3D.domain.geometry module."""
+"""Tests for Auto3D.domain.geometry module (formerly Auto3D.foundation.utils.geometry)."""
 
 from __future__ import annotations
 

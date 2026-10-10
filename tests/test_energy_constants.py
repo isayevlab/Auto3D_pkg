@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-"""Tests for the unit-conversion factors and legacy aliases in Auto3D.domain.energy."""
+"""Tests for the unit-conversion factors and legacy aliases in Auto3D.domain.energy
+(formerly Auto3D.foundation.utils.energy).
+"""
 
 from __future__ import annotations
 

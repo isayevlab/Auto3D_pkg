@@ -1,4 +1,5 @@
-"""Tests for Auto3D.domain.stereochemistry module.
+"""Tests for Auto3D.domain.stereochemistry module
+(formerly Auto3D.foundation.utils.stereochemistry).
 
 This module tests stereochemistry-related utility functions including
 enantiomer detection, stereo info extraction, and configuration amendment.

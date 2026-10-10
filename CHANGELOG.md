@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Six `Auto3D.foundation.utils` modules (`connectivity`, `geometry`,
+  `convergence`, `stereochemistry`, `energy`, `stereo_check`) moved to
+  `Auto3D.domain`, `torch_config` moved from `Auto3D.foundation` to
+  `Auto3D.engines`, and the worker-index helper moved from
+  `Auto3D.foundation.config` to `Auto3D.orchestration.job_layout`. None of
+  these paths was ever documented public API. `ChunkMeta` and the
+  `OptionsDict` alias are gone.
+
 ## [3.2.0] - 2026-10-09
 
 ### Fixed

@@ -547,7 +547,7 @@ def test_utils_package_exposes_no_names():
     # The ``from ... import name`` form, because that is what consumers wrote
     # and it is the form that raises ImportError (a bare getattr would raise
     # AttributeError, a weaker and differently-worded failure).
-    for name in ("check_input", "check_connectivity", "hartree2ev", "reorder_sdf"):
+    for name in ("atomic_write_path", "has_dummy_atoms", "default_output_path", "reorder_sdf"):
         with pytest.raises(ImportError):
             exec(f"from Auto3D.foundation.utils import {name}", {})  # noqa: S102
 

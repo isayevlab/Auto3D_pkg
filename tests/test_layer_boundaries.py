@@ -16,9 +16,11 @@ which modules live where -- it reads the tree:
                         processors, pipeline/**
     L2  engines/        models/**, model_factory, isomers/**, batch_opt/**,
                         torch_config
-    L1  domain/         ranking, filtering, embedding, clash_relief, id_mapping
-    L0  foundation/     config, constants, exceptions, registry, results,
-                        utils/**
+    L1  domain/         ranking, filtering, embedding, clash_relief,
+                        id_mapping, connectivity, geometry, convergence,
+                        stereochemistry, energy, stereo_check
+    L0  foundation/     config, constants, exceptions, process_lifecycle,
+                        registry, results, utils/**
 
 The only thing declared below is the ORDER of the layers, which is the one fact
 a directory name cannot carry. A per-module prefix list used to sit here and had
