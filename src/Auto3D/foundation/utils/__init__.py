@@ -25,8 +25,6 @@ What each module owns:
 ``energy``
     The single owner of the ``E_tot`` SDF properties, in both eV and hartree,
     and of the energy-unit constants.
-``geometry``
-    Distance measurement between conformer coordinates.
 ``logging_config``
     Logging setup and the logger factory every module calls.
 ``molprops``

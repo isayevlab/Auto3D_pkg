@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Tests for Auto3D.foundation.utils.geometry module."""
+"""Tests for Auto3D.domain.geometry module."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest  # noqa: F401  (several tests below are parametrized helpers' home)
 
-from Auto3D.foundation.utils.geometry import min_pairwise_distance
+from Auto3D.domain.geometry import min_pairwise_distance
 
 
 class TestMinPairwiseDistance:
