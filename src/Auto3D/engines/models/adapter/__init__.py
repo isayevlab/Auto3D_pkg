@@ -7,11 +7,15 @@ confused with. This package holds only implementations.
 Layering: :mod:`Auto3D.engines.models` is a leaf. It imports ``torch``,
 ``Auto3D.foundation.constants``, ``Auto3D.foundation.exceptions``,
 ``Auto3D.foundation.utils.logging_config`` (L0, same as the other two -- for the
-one-time compile-fallback diagnostic in
+per-increase compile-fallback diagnostic in
 :mod:`Auto3D.engines.models.adapter.compiling`, issue #23) and its own
-submodules, and nothing else from Auto3D. There is exactly one deliberate
-back-edge into ``Auto3D.engines.batch_opt`` (``ANI2xtAdapter.__init__``'s
-deferred ``ANI2xt`` import); see the comment there before moving it.
+submodules, and nothing else from Auto3D. No back-edge into
+``Auto3D.engines.batch_opt``: :mod:`.ani` imports the sibling module
+``Auto3D.engines.models.ani2xt`` at module scope, not anything under
+``batch_opt``. The only deferred third-party imports are ``torchani``
+(inside :class:`.ani.ANI2xAdapter`'s ``__init__``) and ``aimnet.calculators``
+(inside :class:`.aimnet2.AIMNet2Adapter`'s ``__init__``, behind
+``require_aimnet``).
 """
 
 from __future__ import annotations
@@ -19,7 +23,6 @@ from __future__ import annotations
 from Auto3D.engines.models.adapter.aimnet2 import AIMNet2Adapter
 from Auto3D.engines.models.adapter.ani import ANI2xAdapter, ANI2xtAdapter
 from Auto3D.engines.models.adapter.base import BaseModelAdapter
-from Auto3D.engines.models.adapter.base import logger as logger
 from Auto3D.engines.models.adapter.compiling import _try_compile as _try_compile
 from Auto3D.engines.models.adapter.custom import CustomModelAdapter
 from Auto3D.engines.models.adapter.validation import _validate_outputs as _validate_outputs

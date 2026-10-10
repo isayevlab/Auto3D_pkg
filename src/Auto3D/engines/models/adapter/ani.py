@@ -57,9 +57,11 @@ class ANI2xtAdapter(BaseModelAdapter):
         # data-dependent output shape, and a graph break inside forward's
         # per-element loop makes Dynamo skip the whole frame rather than split
         # it, which is why compile_model=True used to produce zero subgraphs for
-        # this model. Bound here rather than imported at module scope because
-        # models -> batch_opt is the one deliberate back-edge and must stay
-        # inside a method (see the deferred ANI2xt import above).
+        # this model. Bound as instance attributes here (both are already
+        # imported at module scope, above) so `_call_model`'s `getattr(self,
+        # "_element_indices", None)` can tell a real ANI2xt apart from the toy
+        # models several tests substitute by bypassing __init__ -- see
+        # `_call_model`'s docstring.
         self._element_indices = element_indices
         self._self_atomic_energies = self_atomic_energies
         self._num_elements = num_elements

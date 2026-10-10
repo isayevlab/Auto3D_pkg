@@ -105,7 +105,7 @@ def set_e_tot_from_ev(mol: Chem.Mol, energy_ev: float, *, labeled: bool = True) 
     Args:
         mol: Molecule to annotate, in place.
         energy_ev: Total energy in eV -- the unit every Auto3D model adapter
-            returns (see ``Auto3D.engines.models.adapter.ModelAdapter.forward``).
+            returns (see ``Auto3D.engines.models.contract.ModelAdapter.forward``).
         labeled: Also write the unit-labeled :data:`E_TOT_HARTREE_PROP`
             sibling. Left True for anything a user reads.
     """

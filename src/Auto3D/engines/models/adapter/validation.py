@@ -2,7 +2,7 @@
 
 Cut from this package's single-file predecessor so
 :mod:`Auto3D.engines.models.adapter.base` and
-:mod:`Auto3D.engines.models.adapter.compiling` can both depend on it without
+:mod:`Auto3D.engines.models.adapter.aimnet2` can both depend on it without
 depending on each other. Imports nothing from the rest of the ``adapter``
 package.
 """

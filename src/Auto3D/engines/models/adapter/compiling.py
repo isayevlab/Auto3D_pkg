@@ -1,17 +1,19 @@
 """torch.compile: the attempt, and the probe for a silent fallback to eager.
 
 Cut from this package's single-file predecessor. Imports nothing from the
-rest of the ``adapter`` package: :func:`warn_if_compile_fell_back_to_eager`
-takes the adapter it inspects as a plain argument rather than importing
+rest of the ``adapter`` package: :func:`_warn_if_compile_fell_back_to_eager`
+takes the adapter it inspects typed against :class:`_CompileTrackedAdapter`
+below -- the three attributes it actually reads and writes, named directly
+-- rather than importing
 :class:`Auto3D.engines.models.adapter.base.BaseModelAdapter` for a type it
-only duck-types against, which is what keeps this module import-free of
-:mod:`.base` while :mod:`.base` imports it.
+only duck-types against anyway, which is what keeps this module import-free
+of :mod:`.base` while :mod:`.base` imports it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import torch
 import torch.nn as nn
@@ -75,7 +77,22 @@ def _try_compile(model: Callable[..., Any] | nn.Module, mode: str = "default") -
     return torch.compile(model, mode=mode, fullgraph=False, dynamic=True)
 
 
-def warn_if_compile_fell_back_to_eager(adapter: nn.Module) -> None:
+class _CompileTrackedAdapter(Protocol):
+    """The three attributes :func:`_warn_if_compile_fell_back_to_eager` reads and writes.
+
+    Set by :meth:`Auto3D.engines.models.adapter.base.BaseModelAdapter.__init__`
+    as plain instance attributes -- none is an ``nn.Module`` member, so
+    ``nn.Module`` was always an arbitrary stand-in for this duck-typed shape,
+    not a real constraint. A real adapter may still lack one or more of
+    these; see the ``getattr``-with-default note in the function below.
+    """
+
+    _compiled: bool
+    _compile_frame_stats_before: dict[str, int]
+    _compile_suppressed_seen: int
+
+
+def _warn_if_compile_fell_back_to_eager(adapter: _CompileTrackedAdapter) -> None:
     """Log each time a NEW compiled frame silently fell back to eager.
 
     ``_try_compile`` sets ``torch._dynamo.config.suppress_errors = True``
@@ -97,10 +114,18 @@ def warn_if_compile_fell_back_to_eager(adapter: nn.Module) -> None:
     process-global: without the delta, one adapter's stale fallback would
     get blamed on the next compiled adapter's unrelated first forward.
 
-    The counters it reads are shared more widely still: aimnet's own
-    ``prepare_batch_idx_ptr`` triggers dynamo compilation even when the
-    AIMNet2 calculator is constructed with ``compile_model=False``, so a
-    non-zero count is not by itself a fallback.
+    The counters it reads are shared more widely still: the ``nvalchemiops``
+    helper aimnet calls, ``prepare_batch_idx_ptr``, carries a bare
+    ``@torch.compile`` (``nvalchemiops/torch/neighbors/neighbor_utils.py:489``),
+    reached through ``aimnet/calculators/neighbors.py``'s ``neighbor_list``
+    import, so it compiles regardless of this adapter's own ``compile_model``
+    setting. A
+    third-party frame that compiles cleanly bumps ``total`` and ``ok``
+    together and cancels out of the ``suppressed`` delta, so it cannot by
+    itself inflate this adapter's count; a third-party frame that itself
+    degrades -- the recompile limit, or a suppressed error once some other
+    adapter's ``_try_compile`` flipped the process-global
+    ``suppress_errors`` -- can.
 
     Called on every forward for each compilable adapter (``ANI2xtAdapter``,
     ``ANI2xAdapter``, ``CustomModelAdapter`` -- inherited from

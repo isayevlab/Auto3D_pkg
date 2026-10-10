@@ -1,5 +1,9 @@
 """The forward template every in-tree adapter shares, and nothing else.
 
+Renamed from this package's single-file predecessor,
+``Auto3D/engines/models/adapter.py`` (``git mv`` to this file; the other five
+modules were then cut out of it).
+
 Not the contract: :class:`Auto3D.engines.models.contract.ModelAdapter` -- see
 :class:`BaseModelAdapter`'s own docstring for the distinction. This module
 holds only that one class; each backend (:mod:`.aimnet2`, :mod:`.ani`,
@@ -17,12 +21,9 @@ import torch.nn as nn
 
 from Auto3D.engines.models.adapter.compiling import (
     _try_compile,
-    warn_if_compile_fell_back_to_eager,
+    _warn_if_compile_fell_back_to_eager,
 )
 from Auto3D.engines.models.adapter.validation import _validate_outputs
-from Auto3D.foundation.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
 
 
 class BaseModelAdapter(ABC, nn.Module):
@@ -165,13 +166,14 @@ class BaseModelAdapter(ABC, nn.Module):
         """Log each time a NEW compiled frame silently fell back to eager.
 
         The bound entry point tests and
-        :mod:`Auto3D.engines.models.contract` name; the mechanism, the DELTA
-        against ``_compile_frame_stats_before``, and the caveats on reading
-        ``torch._dynamo.utils.counters`` (including aimnet's own
-        ``prepare_batch_idx_ptr`` compiling even when ``compile_model=False``)
-        live on the module-level function this delegates to.
+        :func:`Auto3D.engines.model_factory._rebaseline_compile_fallback_counters`
+        name; the mechanism, the DELTA against ``_compile_frame_stats_before``,
+        and the caveats on reading ``torch._dynamo.utils.counters`` (including
+        aimnet's own ``prepare_batch_idx_ptr`` compiling even when
+        ``compile_model=False``) live on the module-level function this
+        delegates to.
         """
-        warn_if_compile_fell_back_to_eager(self)
+        _warn_if_compile_fell_back_to_eager(self)
 
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
         """Identity: this model consumes raw atomic numbers.

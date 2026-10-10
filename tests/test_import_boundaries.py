@@ -456,7 +456,7 @@ BATCHOPT_REEXPORTS = frozenset({"EnForce_ANI", "n_steps", "print_stats"})
 #: ``Auto3D.entry.ASE.thermo.calc_thermo`` at that package path, which is the one
 #: condition the rule above permits a re-export under.
 #:
-#: ``adapter`` joined next, the same way: api.rst:27 documents
+#: ``adapter`` joined next, the same way: api.rst:29 documents
 #: ``Auto3D.engines.models.adapter`` itself as the path to import its backend
 #: classes from, which is what makes its re-export the public surface rather
 #: than a barrel, not merely a split-module convenience.
