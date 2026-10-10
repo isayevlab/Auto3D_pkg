@@ -19,7 +19,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
     StereoEnumerationOptions,
 )
 
-from Auto3D.foundation.utils.stereochemistry import enantiomer, enantiomer_helper
+from Auto3D.domain.stereochemistry import enantiomer, enantiomer_helper
 
 
 def _enumerate(smiles: str) -> list[str]:

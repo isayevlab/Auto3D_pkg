@@ -40,7 +40,4 @@ What each module owns:
 ``stereo_check``
     Species keys and the stereochemistry-preserved check applied after
     optimization.
-``stereochemistry``
-    Stereocenter detection, enantiomer enumeration and removal, configuration
-    amendment.
 """

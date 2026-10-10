@@ -268,7 +268,7 @@ class TestAmendConfigurationDurability:
         """
         import builtins
 
-        from Auto3D.foundation.utils.stereochemistry import amend_configuration_w
+        from Auto3D.domain.stereochemistry import amend_configuration_w
 
         smi = job_dir / "in.smi"
         # Two records under one id => two output lines, so the injected failure

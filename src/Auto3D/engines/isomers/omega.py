@@ -20,7 +20,7 @@ from Auto3D.foundation.utils.logging_config import get_logger
 logger = get_logger(__name__)
 from tqdm import tqdm
 
-from Auto3D.foundation.utils.stereochemistry import (
+from Auto3D.domain.stereochemistry import (
     amend_configuration_w,
     remove_enantiomers,
 )

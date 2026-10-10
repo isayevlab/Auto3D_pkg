@@ -18,15 +18,15 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from tqdm import tqdm
 
 from Auto3D.domain.embedding import embed_with_retry
+from Auto3D.domain.stereochemistry import (
+    count_unspecified_stereo as _count_unspecified_stereo,
+)
+from Auto3D.domain.stereochemistry import (
+    enantiomer_key,
+)
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.molprops import calculate_conformer_count, has_dummy_atoms
 from Auto3D.foundation.utils.sdf_io import skip_message
-from Auto3D.foundation.utils.stereochemistry import (
-    count_unspecified_stereo as _count_unspecified_stereo,
-)
-from Auto3D.foundation.utils.stereochemistry import (
-    enantiomer_key,
-)
 
 
 class RDKitSdfIsomer:
@@ -77,7 +77,7 @@ class RDKitSdfIsomer:
     def count_unspecified_stereo(mol: Chem.Mol) -> int:
         """Count stereo elements the input leaves unspecified.
 
-        Thin alias for :func:`Auto3D.foundation.utils.stereochemistry.count_unspecified_stereo`,
+        Thin alias for :func:`Auto3D.domain.stereochemistry.count_unspecified_stereo`,
         which owns the predicate so this path and ``check_smi_format`` cannot
         drift apart on what counts as unspecified (they did: the SMILES path
         used to count atom centers only and never saw an unspecified C=C).
