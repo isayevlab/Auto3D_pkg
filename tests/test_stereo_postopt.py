@@ -17,7 +17,7 @@ from rdkit.Chem import AllChem
 
 from Auto3D.domain.filtering import filter_unique_optimized
 from Auto3D.domain.ranking import ConformerRanker
-from Auto3D.foundation.utils.stereo_check import (
+from Auto3D.domain.stereo_check import (
     STEREO_CHANGED_PROP,
     apply_optimized_coords,
     stereo_descriptors_from_3d,

@@ -19,7 +19,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
     StereoEnumerationOptions,
 )
 
-from Auto3D.foundation.utils.stereochemistry import enantiomer, enantiomer_helper
+from Auto3D.domain.stereochemistry import enantiomer, enantiomer_helper
 
 
 def _enumerate(smiles: str) -> list[str]:
@@ -50,7 +50,7 @@ def _assert_recovered_tag_matches_parsed(epimers: tuple[str, ...]) -> None:
     is the same for both elements, so the check is too, and duplicating it per
     element would let the two drift apart.
     """
-    from Auto3D.foundation.utils.stereo_check import _assign_pnictogen_tags
+    from Auto3D.domain.stereo_check import _assign_pnictogen_tags
 
     for smiles in epimers:
         parsed = _pnictogen(Chem.MolFromSmiles(smiles)).GetChiralTag()
@@ -309,7 +309,7 @@ class TestChiralPhosphorusIdentity:
     """
 
     def test_phosphorus_epimers_have_distinct_species_keys(self, stereo_perception):
-        from Auto3D.foundation.utils.stereo_check import species_key
+        from Auto3D.domain.stereo_check import species_key
 
         a = _embedded("CC[P@@](C)CCC")
         b = _embedded("CC[P@](C)CCC")
@@ -328,7 +328,7 @@ class TestChiralPhosphorusIdentity:
         epimers above while varying between conformers of one of them, which
         would split a species into singletons instead of merging two.
         """
-        from Auto3D.foundation.utils.stereo_check import species_key
+        from Auto3D.domain.stereo_check import species_key
 
         assert species_key(_embedded("CC[P@@](C)CCC", seed=1)) == species_key(
             _embedded("CC[P@@](C)CCC", seed=7)
@@ -343,7 +343,7 @@ class TestChiralPhosphorusIdentity:
         Symmetry-aware canonical ranks (``breakTies=False``) are what rule it
         out: two neighbors sharing a rank means there is nothing to resolve.
         """
-        from Auto3D.foundation.utils.stereo_check import species_key
+        from Auto3D.domain.stereo_check import species_key
 
         first, second = _embedded("CP(C)CC", seed=1), _embedded("CP(C)CC", seed=7)
         assert species_key(first) == species_key(second), (
@@ -375,7 +375,7 @@ class TestChiralPhosphorusIdentity:
         leave it alone -- a degree filter that caught it would overwrite a
         correct tag with one derived from only three of its four substituents.
         """
-        from Auto3D.foundation.utils.stereo_check import species_key
+        from Auto3D.domain.stereo_check import species_key
 
         a = _embedded("CC[P@@](=O)(C)CCC")
         b = _embedded("CC[P@](=O)(C)CCC")
@@ -393,7 +393,7 @@ class TestChiralPhosphorusIdentity:
         index-order implementation changes the key on 4 of these 9 orderings,
         and on the reversed one recovers the opposite tag from the parsed SMILES.
         """
-        from Auto3D.foundation.utils.stereo_check import species_key
+        from Auto3D.domain.stereo_check import species_key
 
         mol = _embedded("CC[P@@](C)CCC")
         count = mol.GetNumAtoms()
@@ -437,7 +437,7 @@ class TestChiralPhosphorusIdentity:
         Seeds 1 and 2 are chosen because they are the shortest pair whose
         volumes land on opposite sides of zero (-0.94 and +1.25).
         """
-        from Auto3D.foundation.utils.stereo_check import (
+        from Auto3D.domain.stereo_check import (
             _assign_pnictogen_tags,
             species_key,
         )
@@ -465,7 +465,7 @@ class TestChiralPhosphorusIdentity:
         geometry the sign convention assumes is not the geometry present. Guard
         on charge and radical count so the code and the stated model agree.
         """
-        from Auto3D.foundation.utils.stereo_check import _assign_pnictogen_tags
+        from Auto3D.domain.stereo_check import _assign_pnictogen_tags
 
         probe = Chem.Mol(_embedded("CC[P-](C)CCC"))
         Chem.AssignStereochemistryFrom3D(probe)
@@ -484,7 +484,7 @@ class TestChiralPhosphorusIdentity:
         with nothing logged -- and arsine inversion barriers are *higher* than
         phosphine's (~40 kcal/mol), so the two are certainly separable compounds.
         """
-        from Auto3D.foundation.utils.stereo_check import species_key
+        from Auto3D.domain.stereo_check import species_key
 
         a = _embedded("CC[As@@](C)CCC")
         b = _embedded("CC[As@](C)CCC")

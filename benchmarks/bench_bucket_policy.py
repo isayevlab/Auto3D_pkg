@@ -63,11 +63,11 @@ def write_input(path: Path) -> int:
 def run_once(engine: str, policy: str, in_f: Path, out_f: Path, device) -> dict:
     from rdkit import Chem
 
+    from Auto3D.domain.convergence import converged_or_unfiltered
+    from Auto3D.domain.energy import try_e_tot_ev
     from Auto3D.engines.batch_opt.batchopt import optimizing
     from Auto3D.engines.model_factory import create_model
     from Auto3D.foundation.config import OptimizationConfig
-    from Auto3D.foundation.utils.convergence import converged_or_unfiltered
-    from Auto3D.foundation.utils.energy import try_e_tot_ev
 
     model = create_model(engine, device)
     config = OptimizationConfig(

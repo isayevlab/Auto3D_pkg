@@ -3,7 +3,7 @@
 
 Three functions in Auto3D read a file and then rewrite it: ``reorder_sdf``,
 ``ASE.geometry._annotate_and_rewrite`` and
-``utils.stereochemistry.amend_configuration_w``. Opening the target directly
+``domain.stereochemistry.amend_configuration_w``. Opening the target directly
 truncates it, so a failure partway through the rewrite leaves a half-written
 file and no copy of what was there before -- the crash half of audit C14.
 

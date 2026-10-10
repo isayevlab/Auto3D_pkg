@@ -829,11 +829,8 @@ def test_run_pipeline_does_not_mutate_shared_batchsize():
     once and hands it over as its own argument; every ``Auto3DOptions`` in every
     process keeps the per-gigabyte value.
     """
-    from Auto3D.foundation.config import (
-        Auto3DOptions,
-        OptimizationConfig,
-        optimizer_worker_indices,
-    )
+    from Auto3D.foundation.config import Auto3DOptions, OptimizationConfig
+    from Auto3D.orchestration.job_layout import optimizer_worker_indices
     from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
     config = Auto3DOptions(path="x.smi", k=1, batchsize_atoms=1024)

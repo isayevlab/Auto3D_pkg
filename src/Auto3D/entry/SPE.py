@@ -7,11 +7,11 @@ from pathlib import Path
 
 from rdkit import Chem
 
+from Auto3D.domain.energy import set_e_hartree_from_ev
 from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.engines.batch_opt.padding import pad_from_mols
 from Auto3D.engines.model_factory import create_model
 from Auto3D.entry._run_setup import prepare_single_file_run
-from Auto3D.foundation.utils.energy import set_e_hartree_from_ev
 
 __all__ = ["calc_spe"]
 

@@ -411,7 +411,7 @@ def _submodules(package: str) -> frozenset[str]:
     )
 
 
-# ``from Auto3D.foundation.utils import energy`` -- naming a submodule -- stays legal;
+# ``from Auto3D.foundation.utils import atomic_io`` -- naming a submodule -- stays legal;
 # it is a module reference, not a re-export. ``from Auto3D.foundation.utils import
 # hartree2ev`` does not.
 UTILS_SUBMODULES = _submodules("foundation.utils")
@@ -479,7 +479,7 @@ def test_no_src_module_imports_through_the_utils_barrel():
     (``energy``, ``convergence``, ``stereo_check``) had no presence in it at all
     -- and ``check_connectivity`` was reached through the barrel in
     ``filtering.py`` and through ``utils.chemistry`` in ``ranking.py`` (both now
-    name ``utils.connectivity``), two
+    name ``domain.connectivity``), two
     sibling modules disagreeing about the same function with nothing saying
     which was right.
     """
@@ -547,21 +547,21 @@ def test_utils_package_exposes_no_names():
     # The ``from ... import name`` form, because that is what consumers wrote
     # and it is the form that raises ImportError (a bare getattr would raise
     # AttributeError, a weaker and differently-worded failure).
-    for name in ("check_input", "check_connectivity", "hartree2ev", "reorder_sdf"):
+    for name in ("atomic_write_path", "has_dummy_atoms", "default_output_path", "reorder_sdf"):
         with pytest.raises(ImportError):
             exec(f"from Auto3D.foundation.utils import {name}", {})  # noqa: S102
 
 
 def test_utils_submodule_imports_still_work():
-    """Emptying the barrel must not break ``from Auto3D.foundation.utils import energy``.
+    """Emptying the barrel must not break ``from Auto3D.foundation.utils import atomic_io``.
 
     A submodule reference is not a re-export, several tests use this form, and
     ``__init__.py`` importing nothing is exactly the condition under which it is
     easy to assume otherwise.
     """
-    from Auto3D.foundation.utils import energy, output_guard
+    from Auto3D.foundation.utils import atomic_io, output_guard
 
-    assert energy.hartree2ev > 0  # a float constant, not a function
+    assert callable(atomic_io.atomic_write_path)
     assert callable(output_guard.check_output_overwrite)
 
 
@@ -724,6 +724,32 @@ def test_importing_any_utils_module_does_not_load_models():
     assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
     loaded = json.loads(proc.stdout.strip().splitlines()[-1])
     assert not loaded, f"importing Auto3D.foundation.utils.* pulled in the models package: {loaded}"
+
+
+_FOUNDATION_TORCH_PROBE_SOURCE = """
+import importlib, json, pkgutil, sys
+import Auto3D.foundation
+
+for info in pkgutil.walk_packages(Auto3D.foundation.__path__, prefix="Auto3D.foundation."):
+    importlib.import_module(info.name)
+
+print(json.dumps(sorted(m for m in sys.modules if m == "torch" or m.startswith("torch."))[:3]))
+"""
+
+
+def test_the_foundation_layer_imports_no_torch():
+    """L0 is Auto3D-leaf and torch-free: importing every module under
+    ``Auto3D.foundation`` must not load torch at module scope. The walk is the
+    invariant; ``test_file_io_modules_do_not_load_torch_or_the_model_tree``
+    names six modules and is a snapshot."""
+    proc = subprocess.run(
+        [sys.executable, "-c", _FOUNDATION_TORCH_PROBE_SOURCE],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"probe failed:\n{proc.stdout}\n{proc.stderr}"
+    loaded = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert not loaded, f"importing Auto3D.foundation.** loaded torch: {loaded}"
 
 
 # Subprocess probe: what the split-out file-I/O modules cost to import.

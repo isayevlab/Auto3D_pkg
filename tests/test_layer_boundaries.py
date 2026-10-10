@@ -14,10 +14,13 @@ which modules live where -- it reads the tree:
     L4  entry/          auto3D, SPE, ASE/**, tautomer
     L3  orchestration/  workflow, workflow_workers, chunk_manager, job_layout,
                         processors, pipeline/**
-    L2  engines/        models/**, model_factory, isomers/**, batch_opt/**
-    L1  domain/         ranking, filtering, embedding, clash_relief, id_mapping
-    L0  foundation/     config, constants, exceptions, registry, results,
-                        torch_config, utils/**
+    L2  engines/        models/**, model_factory, isomers/**, batch_opt/**,
+                        torch_config
+    L1  domain/         ranking, filtering, embedding, clash_relief,
+                        id_mapping, connectivity, geometry, convergence,
+                        stereochemistry, energy, stereo_check
+    L0  foundation/     config, constants, exceptions, process_lifecycle,
+                        registry, results, utils/**
 
 The only thing declared below is the ORDER of the layers, which is the one fact
 a directory name cannot carry. A per-module prefix list used to sit here and had
@@ -131,7 +134,7 @@ def _internal_edges(*, module_scope_only: bool) -> dict[str, set[str]]:
             for target in targets:
                 if target != "Auto3D" and not target.startswith("Auto3D."):
                     continue
-                # `from Auto3D.foundation.utils.energy import x` may name a module or an
+                # `from Auto3D.domain.energy import x` may name a module or an
                 # attribute of one; walk up to the nearest real module.
                 while target and target not in modules:
                     target = target.rsplit(".", 1)[0] if "." in target else ""

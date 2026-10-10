@@ -25,18 +25,18 @@ from dataclasses import dataclass
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 
+from Auto3D.domain.connectivity import check_connectivity
+from Auto3D.domain.convergence import (
+    converged_or_unfiltered,
+    thermo_succeeded_or_unfiltered,
+)
+from Auto3D.domain.energy import try_e_tot_ev
+from Auto3D.domain.stereo_check import species_key, stereo_preserved
 from Auto3D.foundation.constants import (
     DEFAULT_DUPLICATE_ENERGY_TOL,
     DEFAULT_ENERGY_CLUSTER_WINDOW,
     DEFAULT_RMSD_THRESHOLD,
 )
-from Auto3D.foundation.utils.connectivity import check_connectivity
-from Auto3D.foundation.utils.convergence import (
-    converged_or_unfiltered,
-    thermo_succeeded_or_unfiltered,
-)
-from Auto3D.foundation.utils.energy import try_e_tot_ev
-from Auto3D.foundation.utils.stereo_check import species_key, stereo_preserved
 
 __all__ = [
     "DROP_REASONS",
@@ -157,7 +157,7 @@ def filter_conformers(
     that holds; it did not hold before 3.0.0.
 
     A pair counts as a duplicate only when all three of these agree: the two are
-    the same compound (:func:`Auto3D.foundation.utils.stereo_check.species_key`), their
+    the same compound (:func:`Auto3D.domain.stereo_check.species_key`), their
     heavy-atom RMSD is under ``rmsd_threshold``, and their energies agree within
     ``DEFAULT_DUPLICATE_ENERGY_TOL`` (or at least one of them has no usable
     energy, in which case that term cannot apply and RMSD alone decides).
@@ -176,7 +176,7 @@ def filter_conformers(
             duplicate energy tolerance cannot shrink the comparison set, because
             that tolerance is the floor at which a pair can still be a duplicate.
             The stored Hartree energies are converted to eV on read
-            (``Auto3D.foundation.utils.energy``), so the unit is as documented.
+            (``Auto3D.domain.energy``), so the unit is as documented.
 
     Returns:
         A :class:`FilterResult` whose ``kept`` list is sorted by energy (lowest
@@ -189,7 +189,7 @@ def filter_conformers(
 
     # Filter converged structures with valid connectivity. A record with no
     # 'Converged' property is not filtered on convergence (see
-    # Auto3D.foundation.utils.convergence): treating its absence as failure deleted every
+    # Auto3D.domain.convergence): treating its absence as failure deleted every
     # record of any SDF batchopt did not write.
     #
     # Checked in this order, one reason attributed per record, so a structure
@@ -329,7 +329,7 @@ def _filter_within_cluster(
             see ``Auto3D.domain.embedding.embed_params``); the compound term preserves distinct
             stereoisomers, which arrive here in one group and whose heavy-atom
             RMSD can fall below the default threshold
-            (:func:`Auto3D.foundation.utils.stereo_check.species_key`).
+            (:func:`Auto3D.domain.stereo_check.species_key`).
 
     Returns:
         List of unique molecules within the cluster.
@@ -386,7 +386,7 @@ def _mol_energy(mol: Chem.Mol) -> float | None:
     """Return a mol's optimized energy in eV, or None.
 
     ``E_tot`` is stored in Hartree; the conversion lives in
-    ``Auto3D.foundation.utils.energy`` so this module and ``ranking`` cannot drift apart on
+    ``Auto3D.domain.energy`` so this module and ``ranking`` cannot drift apart on
     it. ``None`` signals "no usable energy" so callers fall back to RMSD-only
     comparison.
     """

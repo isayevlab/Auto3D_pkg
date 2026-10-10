@@ -2,7 +2,7 @@
 
 Three functions in Auto3D rewrite a file they have just read -- ``reorder_sdf``,
 ``ASE.geometry._annotate_and_rewrite`` and
-``utils.stereochemistry.amend_configuration_w`` -- and each grew its own
+``domain.stereochemistry.amend_configuration_w`` -- and each grew its own
 staging code. Two of them (the ``mkstemp`` pair) copied the target's permission
 bits across; ``reorder_sdf`` did not, and it also used a predictable
 ``<name>.reorder.tmp`` filename. So a 0600 SDF came back 0644 after a reorder:
@@ -224,7 +224,7 @@ class TestAmendConfigurationPreservesMode:
 
     @pytest.mark.parametrize("mode", [0o600, 0o644])
     def test_target_mode_survives(self, tmp_path, mode):
-        from Auto3D.foundation.utils.stereochemistry import amend_configuration_w
+        from Auto3D.domain.stereochemistry import amend_configuration_w
 
         smi = tmp_path / "enum.smi"
         smi.write_text("CC[C@H](N)O mol_a_0\n")

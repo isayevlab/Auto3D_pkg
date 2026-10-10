@@ -19,7 +19,16 @@ from collections import defaultdict
 
 from rdkit import Chem
 
-# Note: TF32 settings are now configured via Auto3D.foundation.torch_config.configure_torch()
+from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
+from Auto3D.domain.energy import set_e_tot_from_ev
+from Auto3D.domain.stereo_check import apply_optimized_coords
+
+# Deliberately NOT `from Auto3D.engines.model_factory import create_model`. This module
+# is the numerical layer; the factory sits above it, and importing upward made
+# `optimizing` construct its own dependency. Callers inject a ready adapter --
+# see `optimizing.__init__`.
+#
+# Note: TF32 settings are now configured via Auto3D.engines.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
 # removed to allow user configuration.
 #
@@ -32,15 +41,7 @@ from rdkit import Chem
 from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 from Auto3D.engines.batch_opt.optimization_engine import n_steps
 from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
-
-# Deliberately NOT `from Auto3D.engines.model_factory import create_model`. This module
-# is the numerical layer; the factory sits above it, and importing upward made
-# `optimizing` construct its own dependency. Callers inject a ready adapter --
-# see `optimizing.__init__`.
-from Auto3D.foundation.utils.convergence import OPTIMIZATION_FAILED_PROP, set_converged
-from Auto3D.foundation.utils.energy import set_e_tot_from_ev
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
-from Auto3D.foundation.utils.stereo_check import apply_optimized_coords
 
 from .padding import pad_from_mols
 
@@ -449,7 +450,7 @@ class optimizing:
                     # `_recompute_final_energy_and_fmax`). No filter change
                     # was needed for this: `Converged=False` is already
                     # dropped downstream by
-                    # `Auto3D.foundation.utils.convergence.converged_or_unfiltered`,
+                    # `Auto3D.domain.convergence.converged_or_unfiltered`,
                     # the same path an oscillation-dropped record takes.
                     set_converged(mol, False)
                     mol.SetProp(OPTIMIZATION_FAILED_PROP, "non_finite_energy")
@@ -467,14 +468,14 @@ class optimizing:
                     # way to disk, and the unit-labeled sibling is written next to
                     # it. Writing eV under this name is what made the same tag mean
                     # two different things depending on entry point (see
-                    # Auto3D.foundation.utils.energy).
+                    # Auto3D.domain.energy).
                     set_e_tot_from_ev(mol, energies[i])
                     # fmax stays in eV/Angstrom (opt_tol's unit); it is a force, not
                     # an energy, and no consumer converts it.
                     mol.SetProp("fmax", str(fmaxs[i]))
                     # Routed through the single owner of this property so the
                     # writer and the three filters that read it cannot drift
-                    # (Auto3D.foundation.utils.convergence).
+                    # (Auto3D.domain.convergence).
                     set_converged(mol, convergence_i)
                     # Mark structures dropped due to oscillation for diagnostics
                     is_oscillating = converged_i and osc_count_i >= patience

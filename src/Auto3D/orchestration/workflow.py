@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING
 from Auto3D.domain.id_mapping import decode_ids, encode_ids
 from Auto3D.engines.model_factory import ModelFactory
 from Auto3D.engines.models.preflight import preflight_model
-from Auto3D.foundation.config import Auto3DOptions, optimizer_worker_indices
+from Auto3D.engines.torch_config import TorchConfig, configure_torch
+from Auto3D.foundation.config import Auto3DOptions
 from Auto3D.foundation.constants import EXIT_TERMINATED
 from Auto3D.foundation.exceptions import (
     ConfigurationError,
@@ -30,11 +31,11 @@ from Auto3D.foundation.exceptions import (
     OptimizationError,
 )
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
-from Auto3D.foundation.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
 from Auto3D.foundation.utils.sdf_io import reorder_sdf
 from Auto3D.orchestration.chunk_manager import ChunkManager
+from Auto3D.orchestration.job_layout import optimizer_worker_indices
 from Auto3D.orchestration.pipeline.input_checks import check_input, check_valid_configuration
 from Auto3D.orchestration.workflow_workers import (
     ProgressEvent,

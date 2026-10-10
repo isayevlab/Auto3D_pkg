@@ -15,9 +15,9 @@ import logging
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from Auto3D.domain.geometry import min_pairwise_distance
+from Auto3D.domain.stereo_check import stereo_descriptors_from_3d
 from Auto3D.foundation.constants import MIN_ATOM_DISTANCE
-from Auto3D.foundation.utils.geometry import min_pairwise_distance
-from Auto3D.foundation.utils.stereo_check import stereo_descriptors_from_3d
 
 logger = logging.getLogger("auto3d")
 

@@ -225,8 +225,8 @@ def test_calc_thermo_marks_the_skipped_records_and_computes_the_kept(tmp_path):
     """
     pytest.importorskip("torchani")  # ANI2xt's AEV computer is torchani's
 
+    from Auto3D.domain.convergence import THERMO_FAILED_PROP
     from Auto3D.entry.ASE.thermo import calc_thermo
-    from Auto3D.foundation.utils.convergence import THERMO_FAILED_PROP
 
     path = write_mixed_sdf(tmp_path / "mixed.sdf")
     out = calc_thermo(str(path), "ANI2xt", use_gpu=False, out_path=str(tmp_path / "out.sdf"))

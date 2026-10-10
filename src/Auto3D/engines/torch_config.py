@@ -18,7 +18,7 @@ afterwards; before this, Auto3D turned it off silently and offered no way to
 ask for it back.
 
 Example:
-    >>> from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+    >>> from Auto3D.engines.torch_config import TorchConfig, configure_torch
     >>> config = TorchConfig(allow_tf32=True)
     >>> configure_torch(config)
 """
@@ -102,7 +102,7 @@ def configure_torch(config: TorchConfig | None = None) -> None:
                 nothing else.
 
     Example:
-        >>> from Auto3D.foundation.torch_config import TorchConfig, configure_torch
+        >>> from Auto3D.engines.torch_config import TorchConfig, configure_torch
         >>>
         >>> # Enable TF32 for faster computation
         >>> configure_torch(TorchConfig(allow_tf32=True))

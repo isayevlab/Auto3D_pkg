@@ -15,7 +15,7 @@ including the Python API.
 import operator
 from dataclasses import dataclass
 from pathlib import PurePath
-from typing import Any, TypedDict
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
@@ -291,25 +291,6 @@ def check_engine_choices(values: dict) -> None:
         if isinstance(value, str) and value.lower() in choices:
             continue
         raise ConfigurationError(f"{name} must be one of {', '.join(choices)}, got {value!r}")
-
-
-def optimizer_worker_indices(use_gpu: bool, gpu_idx: "int | list[int]") -> list[int]:
-    """Return the per-process indices for the optimizer worker pool.
-
-    One worker per GPU when running on GPU with a list of indices; a single
-    worker otherwise. On CPU the index is unused (the worker runs on
-    ``torch.device('cpu')``), so a list of indices must NOT fan out into N
-    processes that all contend for the same cores -- that wastes memory (N model
-    loads) and risks OOM on a small box. The isomer worker uses this same count
-    to emit exactly one "Done" sentinel per optimizer, so both call sites must
-    agree to avoid deadlock.
-    """
-    if isinstance(gpu_idx, int):
-        return [gpu_idx]
-    if use_gpu:
-        return list(gpu_idx)
-    # CPU with a list of indices: collapse to a single worker (index unused).
-    return [gpu_idx[0] if gpu_idx else 0]
 
 
 class Auto3DOptions(BaseModel):
@@ -734,44 +715,3 @@ class OptimizationConfig:
             "patience": self.patience,
             "batchsize_atoms": self.batchsize_atoms,
         }
-
-
-class ChunkMeta(TypedDict):
-    """Metadata for a processing chunk."""
-
-    output: str
-    """Path to final output SDF."""
-
-    optimized_og: str
-    """Path to optimized SDF before ranking."""
-
-    output_taut: str
-    """Path to tautomer output SMI."""
-
-    smiles_enumerated: str
-    """Path to enumerated SMILES file."""
-
-    smiles_reduced: str
-    """Path to reduced SMILES file."""
-
-    smiles_hashed: str
-    """Path to hashed SMILES file."""
-
-    enumerated_sdf: str
-    """Path to enumerated SDF file."""
-
-    sorted_sdf: str
-    """Path to sorted SDF file."""
-
-    housekeeping_folder: str
-    """Path to housekeeping folder."""
-
-    path: str
-    """Input path for this chunk."""
-
-    dir: str
-    """Working directory for this chunk."""
-
-
-# Type alias for backward compatibility
-OptionsDict = Auto3DOptions

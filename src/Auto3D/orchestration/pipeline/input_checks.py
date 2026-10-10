@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 from rdkit import Chem
 
+from Auto3D.domain.stereochemistry import count_unspecified_stereo
 from Auto3D.engines.models.loading import load_custom_nnp
 from Auto3D.engines.models.policy import (
     _requires_aimnet,
@@ -40,7 +41,6 @@ from Auto3D.foundation.exceptions import (
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.sdf_io import classify_records, skip_message
 from Auto3D.foundation.utils.smi_io import iter_smi_records
-from Auto3D.foundation.utils.stereochemistry import count_unspecified_stereo
 
 if TYPE_CHECKING:
     from Auto3D.foundation.config import Auto3DOptions
