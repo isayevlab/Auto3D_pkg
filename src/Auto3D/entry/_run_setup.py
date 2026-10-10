@@ -67,8 +67,8 @@ from typing import TYPE_CHECKING
 from Auto3D.engines.model_factory import get_device
 from Auto3D.engines.models.policy import check_engine_supports_molecules, check_gpu_requested
 from Auto3D.engines.models.preflight import resolve_engine_name
-from Auto3D.foundation.exceptions import InputValidationError
 from Auto3D.engines.torch_config import TorchConfig, configure_torch
+from Auto3D.foundation.exceptions import InputValidationError
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.foundation.utils.output_names import default_output_path
 from Auto3D.foundation.utils.sdf_io import classify_records

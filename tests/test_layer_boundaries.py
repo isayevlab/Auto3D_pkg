@@ -14,10 +14,11 @@ which modules live where -- it reads the tree:
     L4  entry/          auto3D, SPE, ASE/**, tautomer
     L3  orchestration/  workflow, workflow_workers, chunk_manager, job_layout,
                         processors, pipeline/**
-    L2  engines/        models/**, model_factory, isomers/**, batch_opt/**
+    L2  engines/        models/**, model_factory, isomers/**, batch_opt/**,
+                        torch_config
     L1  domain/         ranking, filtering, embedding, clash_relief, id_mapping
     L0  foundation/     config, constants, exceptions, registry, results,
-                        torch_config, utils/**
+                        utils/**
 
 The only thing declared below is the ORDER of the layers, which is the one fact
 a directory name cannot carry. A per-module prefix list used to sit here and had
