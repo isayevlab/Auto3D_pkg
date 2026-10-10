@@ -1374,28 +1374,28 @@ class TestFinalizeOutputReconciliation:
         at its call site, not merely import them.
 
         An identity check on the module attribute alone
-        (`workflow.find_smiles_not_in_sdf is reconciliation.find_smiles_not_in_sdf`)
+        (`finalize.find_smiles_not_in_sdf is reconciliation.find_smiles_not_in_sdf`)
         cannot catch a regression to a private reimplementation: the import
         binding survives untouched even if `_reconcile_output` is changed to
         call a different, local function instead, since nothing then
         references the import at all. Spying on the name actually resolved in
-        `workflow`'s module globals at call time closes that gap: it fails if
+        `finalize`'s module globals at call time closes that gap: it fails if
         `_reconcile_output` stops dispatching through it, whether or not the
         unused import is still there.
         """
-        import Auto3D.orchestration.workflow as workflow
+        import Auto3D.orchestration.finalize as finalize
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi_calls = []
         id_calls = []
         monkeypatch.setattr(
-            workflow,
+            finalize,
             "find_smiles_not_in_sdf",
             lambda *a, **kw: smi_calls.append((a, kw)) or [],
         )
         monkeypatch.setattr(
-            workflow,
+            finalize,
             "find_ids_not_in_sdf",
             lambda *a, **kw: id_calls.append((a, kw)) or [],
         )

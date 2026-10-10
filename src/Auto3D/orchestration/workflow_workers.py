@@ -65,7 +65,7 @@ class ProgressEvent(TypedDict):
     every 10 optimizer steps and once at the end; enriched with ``job`` right
     here, in the closure built in ``optim_rank_wrapper``, before being put on
     the cross-process progress queue that ``WorkflowOrchestrator`` drains
-    (``workflow.py``'s ``_supervise_with_progress``/``_emit_progress``) and
+    (``supervisor.py``'s ``_supervise_with_progress``/``_emit_progress``) and
     hands to the caller's ``progress_callback``.
 
     Review Minor #40: this schema used to be restated in three separate
@@ -73,7 +73,7 @@ class ProgressEvent(TypedDict):
     with nothing pinning them to agree. This TypedDict is the one place that
     now does; ``optimization_engine.py``'s own dict literal is out of this
     module's ownership and still untyped at the point it is constructed, but
-    every consumer downstream of this module (``workflow.py``, and this
+    every consumer downstream of this module (``supervisor.py``, and this
     module's own queue) is typed against it.
     """
 
