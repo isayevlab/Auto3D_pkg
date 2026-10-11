@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import NamedTuple
+
 import pandas as pd
 from rdkit import Chem
 
@@ -133,6 +136,14 @@ def _verify_selector_registry(registry: dict[str, str], fields: tuple[str, ...],
             )
 
 
+class InputCounts(NamedTuple):
+    """Per-run record counts ``run``'s "selected 0" warning needs."""
+
+    n_records: int
+    n_unparsed: int
+    n_unconverged: int
+
+
 class ConformerRanker:
     """Select conformers that satisfy user-defined energy criteria.
 
@@ -171,20 +182,21 @@ class ConformerRanker:
         rank_by: str = RANK_BY_ELECTRONIC,
     ) -> None:
         # Same C14 guard the three API entry points run. ConformerRanker is a
-        # documented public writer that reads `input_path` and opens
-        # `Chem.SDWriter(self.out_path)` in run(), so the same-file case
+        # documented public writer that reads `input_path` and, in `run()`,
+        # eventually replaces `self.out_path` (via `_write_results` ->
+        # `atomic_write_path` -> `os.replace`), so the same-file case
         # replaces the user's input with the selected subset -- top-1 of it,
         # under `k=1`. Checked at construction so it fails before any work.
         check_output_not_input(input_path, out_path)
         # ... and the same overwrite gate the three API entry points run, for
-        # the same reason: `Chem.SDWriter(self.out_path)` truncates on open,
-        # so an existing file at `out_path` is replaced by this run's
-        # selection with no warning. The writer opens only after the grouping
-        # and selection are done (run(), below), so a failure before that
-        # left the file alone -- it is the *successful* run that destroyed it,
-        # which is exactly why nothing ever surfaced a problem. Both guards
-        # run; neither subsumes the other (a same-file out_path is refused
-        # even with overwrite=True).
+        # the same reason: `os.replace` on a clean exit still swaps in this
+        # run's selection with no warning, so an existing file at `out_path`
+        # is still replaced. The target is touched only on that clean exit --
+        # a failure before or during the write leaves it alone -- but a
+        # *successful* run destroys it exactly as before, which is why
+        # nothing ever surfaced a problem. Both guards run; neither subsumes
+        # the other (a same-file out_path is refused even with
+        # overwrite=True).
         check_output_overwrite(out_path, overwrite)
         self.input_path = input_path
         self.out_path = out_path
@@ -287,17 +299,16 @@ class ConformerRanker:
         """
         return df_group.sort_values(by=["energies"])
 
-    def _stamp_e_rel(self, mol: Chem.Mol, ref_energy: float) -> float:
-        """Write ``mol``'s ``E_rel(eV)`` relative to ``ref_energy``; return it.
+    def _stamp_e_rel(self, mol: Chem.Mol, rel_energy: float) -> None:
+        """Write the already-computed ``rel_energy`` onto ``mol`` as ``E_rel(eV)``.
 
-        Both ``mol``'s own energy (via ``self._read_energy_ev``) and
-        ``ref_energy`` are already eV: the readers convert from whatever unit
-        the source property is stored in (``E_tot`` is Hartree, ``G_hartree``
-        is Hartree), so `E_rel(eV)` is eV whichever basis is selected.
+        Takes the relative energy rather than computing it, so a caller that
+        must inspect ``rel_energy`` BEFORE deciding whether to stamp it at
+        all can do so -- ``top_window`` must not stamp the molecule that
+        breaks its loop (R36), and computing-then-maybe-stamping is the only
+        way to keep that decision in the caller.
         """
-        rel_energy = self._read_energy_ev(mol) - ref_energy
         mol.SetProp("E_rel(eV)", str(rel_energy))
-        return rel_energy
 
     def top_k(self, df_group: pd.DataFrame, k: int = 1) -> list[Chem.Mol]:
         """Select top-k lowest-energy structures from a group.
@@ -361,9 +372,13 @@ class ConformerRanker:
             self._log_nothing_selected(name.strip(), result)
         else:
             # Adding relative energies
+            # Both sides are eV: the readers convert from whatever unit the
+            # source property is stored in (E_tot is Hartree, G_hartree is
+            # Hartree), so `E_rel(eV)` is eV whichever basis is selected.
             ref_energy = self._read_energy_ev(out_mols[0])
             for mol in out_mols:
-                self._stamp_e_rel(mol, ref_energy)
+                rel_energy = self._read_energy_ev(mol) - ref_energy
+                self._stamp_e_rel(mol, rel_energy)
         return out_mols
 
     def top_window(self, df_group: pd.DataFrame, window: float = 1.0) -> list[Chem.Mol]:
@@ -410,8 +425,9 @@ class ConformerRanker:
             ranked = sorted(result.kept, key=self._read_energy_ev)
             ref_energy = self._read_energy_ev(ranked[0])
             for mol in ranked:
-                rel_energy = self._stamp_e_rel(mol, ref_energy)
+                rel_energy = self._read_energy_ev(mol) - ref_energy
                 if rel_energy <= window:
+                    self._stamp_e_rel(mol, rel_energy)
                     out_mols.append(mol)
                 else:
                     break
@@ -426,15 +442,15 @@ class ConformerRanker:
                 self._account(FilterResult(kept=out_mols, dropped={"energy_window": n_outside}))
         return out_mols
 
-    def _read_input(self) -> pd.DataFrame:
+    def _read_input(self) -> tuple[pd.DataFrame, InputCounts]:
         """Read ``self.input_path`` into a (names, energies, mols) DataFrame.
 
-        Also sets ``self._n_records``, ``self._n_unparsed`` and
-        ``self._n_unconverged`` -- the three counts ``run``'s "selected 0"
-        warning needs, for records that never reach a group (and so never
-        reach ``top_k``/``top_window``'s own ``_drop_totals`` accounting).
-        Fresh on every call, so a ranker reused for a second file does not
-        report the first file's counts.
+        Also returns the three record counts ``run``'s "selected 0" warning
+        needs, for records that never reach a group (and so never reach
+        ``top_k``/``top_window``'s own ``_drop_totals`` accounting). Returned
+        rather than stashed on ``self``, so the counts live only as long as
+        the caller keeps them -- the same lifetime they had as locals in
+        ``run`` before this method existed.
         """
         mols, names, energies = [], [], []
         n_records = 0
@@ -497,18 +513,19 @@ class ConformerRanker:
                 self.input_path,
             )
 
-        self._n_records = n_records
-        self._n_unparsed = n_unparsed
-        self._n_unconverged = n_unconverged
-        return pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+        df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+        counts = InputCounts(
+            n_records=n_records, n_unparsed=n_unparsed, n_unconverged=n_unconverged
+        )
+        return df, counts
 
-    def _iterate_groups(self, df: pd.DataFrame):
+    def _iterate_groups(self, df: pd.DataFrame) -> Iterator[tuple[str, pd.DataFrame]]:
         """Yield ``(group_name, df_group)`` for each distinct species in ``df``."""
         groups = df.groupby("names")
         for group_name in groups.indices:
             yield group_name, groups.get_group(group_name)
 
-    def _select_for_group(self, group_name, df_group: pd.DataFrame) -> list[Chem.Mol]:
+    def _select_for_group(self, df_group: pd.DataFrame) -> list[Chem.Mol]:
         """Run this ranker's configured selector on one group.
 
         Dispatch through the registry rather than a hand-written if/elif
@@ -607,11 +624,11 @@ class ConformerRanker:
         # report the first file's drops (see _account).
         self._drop_totals = {}
 
-        df = self._read_input()
-        for group_name, df_group in self._iterate_groups(df):
-            results += self._select_for_group(group_name, df_group)
+        df, counts = self._read_input()
+        for _, df_group in self._iterate_groups(df):
+            results += self._select_for_group(df_group)
 
-        if self._n_records and not results:
+        if counts.n_records and not results:
             # A non-empty input that selects nothing writes a 0-byte SDF and
             # returns []. WARNING, not INFO: `logging.lastResort` puts WARNING
             # and above on stderr even for a caller who never ran
@@ -628,15 +645,15 @@ class ConformerRanker:
             # filter and so are not double-counted.
             totals = dict(self._drop_totals)
             for reason, count in (
-                ("unparsed", self._n_unparsed),
-                ("unconverged", self._n_unconverged),
+                ("unparsed", counts.n_unparsed),
+                ("unconverged", counts.n_unconverged),
             ):
                 if count:
                     totals[reason] = totals.get(reason, 0) + count
             summary = FilterResult(kept=[], dropped=totals).summary()
             logger.warning(
                 "Selected 0 structures from %d record(s) in %s, so %s is empty: %s.",
-                self._n_records,
+                counts.n_records,
                 self.input_path,
                 self.out_path,
                 summary or "no filter reported a reason",

@@ -398,6 +398,49 @@ class TestConformerRankerTopWindow:
         # mol3 is outside the window (in kcal/mol)
         assert len(results) >= 1
 
+    def test_top_window_leaves_the_first_molecule_outside_the_window_unstamped(self, tmp_path):
+        """The molecule that triggers the early ``break`` must not carry ``E_rel(eV)``.
+
+        Before the seam split, ``top_window``'s loop set ``E_rel(eV)`` only
+        inside ``if rel_energy <= window:``. The split accidentally stamped it
+        unconditionally (R36): the molecule that breaks the loop got a stale
+        ``E_rel(eV)`` property it never had before. That regression is
+        invisible through ``run()`` -- the stamped-but-dropped molecule is
+        never appended to the result and never written -- so this test calls
+        ``top_window`` directly and inspects the dropped molecule itself.
+        """
+        import pandas as pd
+
+        from Auto3D.domain.ranking import ConformerRanker
+
+        mol1 = _create_mol_with_energy("C", -10.0, "mol")
+        mol2 = _create_mol_with_energy("CC", -8.0, "mol")
+        mol3 = _create_mol_with_energy("CCC", -4.0, "mol")  # outside the window
+
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+
+        ranker = ConformerRanker(
+            input_path=input_path,
+            out_path=output_path,
+            threshold=0.3,
+            window=100.0,
+        )
+
+        df = pd.DataFrame(
+            {
+                "names": ["mol", "mol", "mol"],
+                "energies": [-10.0, -8.0, -4.0],
+                "mols": [mol1, mol2, mol3],
+            }
+        )
+
+        results = ranker.top_window(df, window=100.0)
+
+        assert len(results) == 2
+        assert mol3 not in results
+        assert not mol3.HasProp("E_rel(eV)"), "the molecule that broke the loop must not be stamped"
+
 
 class TestConformerRankerSelectorExclusivity:
     """``ConformerRanker`` must reject a k+window combination the same way --
@@ -1315,4 +1358,10 @@ class TestRankedOutputIsWrittenAtomically:
         with pytest.raises(RuntimeError, match="disk gone"):
             ranker.run()
         assert not out_path.exists()
-        assert not list(tmp_path.glob("ranked.sdf*"))
+        # Not `tmp_path.glob("ranked.sdf*")`: `atomic_write_path` names its
+        # sibling with `tempfile.mkstemp(suffix=".sdf")`, i.e.
+        # `tmp<random>.sdf`, which can never match that prefix -- a glob on
+        # it would pass vacuously even if the sibling were left behind.
+        # Assert the directory's exact contents instead, so a leftover
+        # `tmp*.sdf` sibling fails this test.
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["three_conformers.sdf"]

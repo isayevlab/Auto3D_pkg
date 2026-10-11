@@ -44,10 +44,11 @@ def _annotate_and_rewrite(outpath: str) -> None:
     would truncate that file, so a failure partway through the rewrite would
     destroy a completed optimization run (C14). Stage into a sibling temp file
     and ``os.replace`` it into position instead -- which is what
-    :func:`Auto3D.foundation.utils.atomic_io.atomic_write_path` does, for this and the
-    other two in-place rewrites in Auto3D. ``os.replace`` is atomic on POSIX
-    and on Windows, so ``outpath`` is only ever the old complete file or the
-    new complete file, never a partial one.
+    :func:`Auto3D.foundation.utils.atomic_io.atomic_write_path` does, for this
+    and Auto3D's other three callers (two more in-place rewrites, plus the
+    ranked SDF write, which is not a rewrite). ``os.replace`` is atomic on
+    POSIX and on Windows, so ``outpath`` is only ever the old complete file or
+    the new complete file, never a partial one.
 
     Staging does NOT by itself remove the Windows hazard from 74474ed, and an
     earlier version of this docstring wrongly claimed it did. ``reorder_sdf``

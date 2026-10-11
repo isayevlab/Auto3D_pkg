@@ -433,8 +433,9 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
 
     # Write the mols in the correct order to a sibling temp file, then
     # atomically replace the original only on success (crash-safe in-place
-    # overwrite). `atomic_write_path` owns that staging for all three of
-    # Auto3D's in-place rewrites; this one used to do it by hand through a
+    # overwrite). `atomic_write_path` owns that staging for this and three
+    # other callers (two more in-place rewrites, plus the ranked SDF write,
+    # which is not a rewrite); this one used to do it by hand through a
     # predictable `<name>.reorder.tmp` and without copying `sdf`'s permission
     # bits, so a 0600 file came back at whatever the umask allows.
     ordered_mols: list[Chem.Mol] = []

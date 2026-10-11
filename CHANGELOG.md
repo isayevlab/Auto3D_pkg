@@ -20,12 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OptimizationConfig.to_dict()` names `convergence_threshold`; the batch
   optimizer reads that key and, until 4.0, still accepts `opttol` with a
   `DeprecationWarning`.
-- The ranked output file is written through a temporary sibling and renamed
-  into place, so a worker killed mid-write leaves no partial file.
-- Files created through `atomic_write_path` for a target that did not exist
-  now get the mode a plain `open()` would give (`0o666` masked by the umask)
-  instead of `0600`, which affects `opt_geometry`'s output and the SDF
-  writer's as well as the ranked file.
+- The ranked output file is staged through a temporary sibling and renamed
+  into place, so the target is all-or-nothing: a worker that fails or is
+  killed mid-write leaves the target exactly as it was (a killed process can
+  leave a `tmp*.sdf` sibling in the job directory, which the combine step
+  never reads), the combine step can no longer merge a partial chunk, and the
+  file keeps the mode a plain `open()` gives it.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]
