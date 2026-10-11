@@ -1,7 +1,8 @@
 """The run's logging plumbing: the queue-backed handler shared with every worker
 process, the version lookup for the startup banner, and the mixin methods that
-start, write through and shut down the run's own log file. ``WorkflowOrchestrator``
-composes ``RunLoggingMixin``.
+write through to, and shut down, the run's own log file. ``_setup_logging``,
+which starts it, stays in ``workflow.py`` (see its module docstring).
+``WorkflowOrchestrator`` composes ``RunLoggingMixin``.
 """
 
 from __future__ import annotations
@@ -10,8 +11,17 @@ import logging
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from logging.handlers import QueueHandler
+from typing import TYPE_CHECKING
 
 from Auto3D.foundation.utils.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from logging import LogRecord
+    from multiprocessing import Queue
+    from multiprocessing.managers import SyncManager
+    from multiprocessing.process import BaseProcess
+
+    from Auto3D.foundation.config import Auto3DOptions
 
 logger = get_logger(__name__)
 
@@ -64,12 +74,21 @@ class _DropOnFullQueueHandler(QueueHandler):
 
 
 class RunLoggingMixin:
-    """Starts, writes through and shuts down the run's own ``Auto3D.log``.
+    """Writes through to, logs the banner and parameters for, and shuts down
+    the run's own ``Auto3D.log``. ``_setup_logging``, which starts it, stays
+    in ``workflow.py``.
 
-    Expects from the composed class -- set by ``WorkflowOrchestrator.__init__``
-    -- the instance attributes ``logger``, ``logging_queue``, ``_logger_p``,
-    ``_logging_manager``, ``_log_handler`` and ``config``.
+    The attributes below are set by ``WorkflowOrchestrator.__init__``;
+    ``_shutdown_logging`` writes ``logging_queue``, ``_logger_p``,
+    ``_log_handler`` and ``_logging_manager`` back to ``None`` once torn down.
     """
+
+    logger: logging.Logger | None
+    logging_queue: Queue[LogRecord | None] | None
+    _logger_p: BaseProcess | None
+    _logging_manager: SyncManager | None
+    _log_handler: _DropOnFullQueueHandler | None
+    config: Auto3DOptions
 
     def _shutdown_logging(self) -> None:
         """Flush and stop the daemon logging process.

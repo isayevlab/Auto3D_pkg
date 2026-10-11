@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from Auto3D.domain.id_mapping import decode_ids
 from Auto3D.engines.model_factory import ModelFactory
@@ -16,28 +17,37 @@ from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
 from Auto3D.foundation.utils.sdf_io import reorder_sdf
 
+if TYPE_CHECKING:
+    from Auto3D.foundation.config import Auto3DOptions
+
 logger = get_logger(__name__)
 
 
 class FinalizeMixin:
     """Combines, reorders, decodes and reconciles the pipeline's chunk outputs.
 
-    Expects from the composed class -- set by ``WorkflowOrchestrator.__init__``,
-    ``_setup_job_directory`` and ``_encode_input`` -- the instance attributes
-    ``job_dir``, ``input_path``, ``id_mapping``, ``config`` and ``failures``,
-    and (via ``RunLoggingMixin``, reached through the MRO) the method
-    ``_log_both``.
+    The attributes below are set by ``WorkflowOrchestrator.__init__``,
+    ``_setup_job_directory`` and ``_encode_input`` -- except
+    ``config.input_format``, read by ``_reconcile_output`` but written by
+    ``_validate_input`` (``workflow.py``), an ordering dependency that now
+    crosses this file's boundary. ``_log_both``, used by every method here,
+    is reached through the MRO from ``RunLoggingMixin``.
     """
+
+    job_dir: Path
+    input_path: Path
+    id_mapping: dict[str, str]
+    config: Auto3DOptions
+    failures: list[str]
 
     def _combine_chunk_outputs(self) -> Path:
         """Glob every chunk's output and stream-combine it into one file.
 
-        Covers ``_finalize_output``'s sub-steps (1)-(4): locate the chunk
-        output files and compute the run log path; raise
-        ``OptimizationError`` when no chunk produced output; stream each
-        chunk's lines into the combined file, checking each one for the SDF
-        ``$$$$`` terminator; raise ``OptimizationError`` (and remove the
-        combined file) when no terminator was ever seen. Returns the
+        Locates the chunk output files and computes the run log path;
+        raises ``OptimizationError`` when no chunk produced output; streams
+        each chunk's lines into the combined file, checking each one for the
+        SDF ``$$$$`` terminator; raises ``OptimizationError`` (and removes
+        the combined file) when no terminator was ever seen. Returns the
         combined file's path for ``_finalize_output``'s remaining steps
         (timing, reorder, decode, reconcile).
         """

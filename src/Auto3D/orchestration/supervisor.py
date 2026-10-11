@@ -3,13 +3,6 @@ joins them, checks exit codes, tops up the "Done" sentinels a signal-killed
 isomer worker never sent, and (when a progress callback is set) drains
 progress events while they run. ``WorkflowOrchestrator`` composes
 ``SupervisorMixin``.
-
-``ProgressEvent`` (the payload type referenced in two annotations below) is
-defined in the workers module this one must not import -- doing so from here
-would be a same-layer import the test suite checks for textually, and the
-only reason to want it is a type hint that ``from __future__ import
-annotations`` never actually evaluates. The two sites are marked
-``# noqa: F821`` rather than imported.
 """
 
 from __future__ import annotations
@@ -20,8 +13,12 @@ from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.orchestration.job_layout import optimizer_worker_indices
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from multiprocessing import Queue
     from multiprocessing.process import BaseProcess
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow_workers import ProgressEvent
 
 logger = get_logger(__name__)
 
@@ -47,11 +44,11 @@ _ABNORMAL_EXIT_JOIN_TIMEOUT = 600
 class SupervisorMixin:
     """Joins the worker processes, checks their exit codes, and drains progress.
 
-    Expects from the composed class -- set by ``WorkflowOrchestrator.__init__``
-    -- the instance attributes ``config`` (for ``_ensure_done_sentinels``'
-    ``use_gpu``/``gpu_idx`` lookup) and ``progress_callback`` (for
-    ``_emit_progress``).
+    The attributes below are set by ``WorkflowOrchestrator.__init__``.
     """
+
+    config: Auto3DOptions
+    progress_callback: Callable[[ProgressEvent], None] | None
 
     def _ensure_done_sentinels(
         self, p1_exitcode: int | None, chunk_queue: Queue[tuple[str, str, str, int] | str]
@@ -131,7 +128,14 @@ class SupervisorMixin:
                 proc.exitcode,
             )
 
-    def _join_workers(self, p1, p2s, chunk_queue, *, top_up_sentinels: bool) -> None:
+    def _join_workers(
+        self,
+        p1: BaseProcess,
+        p2s: list[BaseProcess],
+        chunk_queue: Queue[tuple[str, str, str, int] | str],
+        *,
+        top_up_sentinels: bool,
+    ) -> None:
         """Join the isomer worker, then every optimizer worker, degrading to a bounded
         join when the isomer worker was killed by a signal.
 
@@ -156,7 +160,7 @@ class SupervisorMixin:
         self,
         p1: BaseProcess,
         p2s: list[BaseProcess],
-        progress_queue: Queue[ProgressEvent],  # noqa: F821 - see module docstring
+        progress_queue: Queue[ProgressEvent],
         chunk_queue: Queue[tuple[str, str, str, int] | str],
     ) -> None:
         """Drain progress events to the callback while workers run, then join.
@@ -202,7 +206,7 @@ class SupervisorMixin:
 
         self._join_workers(p1, p2s, chunk_queue, top_up_sentinels=False)
 
-    def _emit_progress(self, event: ProgressEvent) -> None:  # noqa: F821 - see module docstring
+    def _emit_progress(self, event: ProgressEvent) -> None:
         """Forward one progress event to the callback; never raise."""
         if self.progress_callback is None:
             return

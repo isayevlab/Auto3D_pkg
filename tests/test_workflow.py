@@ -1042,7 +1042,7 @@ class TestAbnormalIsomerWorkerExit:
 
     @pytest.mark.timeout(10)
     def test_supervise_with_progress_recovers_when_isomer_worker_dies_abnormally(self, monkeypatch):
-        """The progress-queue supervision loop (workflow.py's
+        """The progress-queue supervision loop (supervisor.py's
         `_supervise_with_progress`, `while any(p.is_alive())`) is the subtler
         of the two hang sites the issue names: unlike the plain path's
         sequential joins, this loop's own exit condition never goes false

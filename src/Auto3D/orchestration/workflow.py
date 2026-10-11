@@ -3,8 +3,9 @@
 ``WorkflowOrchestrator`` is the sequencer: it owns ``__init__``, ``run`` and
 every setup/teardown step around the three phases below, composing three
 mixins that hold the rest of the implementation. ``run_logging.py`` holds
-the queue-backed log handler, the version lookup and the start/shutdown/
-banner methods (``RunLoggingMixin``). ``supervisor.py`` holds the worker
+the queue-backed log handler, the version lookup and the mixin methods that
+write through (``_log_both``), shut down and log the banner/parameters for
+the run's own log file (``RunLoggingMixin``). ``supervisor.py`` holds the worker
 join, exit-check and progress-drain methods (``SupervisorMixin``).
 ``finalize.py`` holds the output combination, reorder/decode and
 reconciliation methods (``FinalizeMixin``). Three different reasons keep the
@@ -597,7 +598,8 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
             # `finally`, which puts one "Done" sentinel per optimizer on every
             # exit Python *does* get to run cleanup for -- including an unhandled
             # exception, since a `finally` still runs on the way to exit(1).
-            # Layer two is `_ensure_done_sentinels` below: when `p1.exitcode`
+            # Layer two is `_ensure_done_sentinels` (supervisor.py, reached
+            # through `_join_workers` just below): when `p1.exitcode`
             # comes back neither 0 nor None, layer one cannot be assumed to have
             # run, so the parent -- which holds the very same queue proxy --
             # tops the queue up itself, using the identical
