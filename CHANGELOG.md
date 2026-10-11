@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leave a `tmp*.sdf` sibling in the job directory, which the combine step
   never reads), the combine step can no longer merge a partial chunk, and the
   file keeps the mode a plain `open()` gives it.
+- H2 and other bonded pairs shorter than 0.9 A are no longer rejected as
+  clashes; non-bonded contacts still are.
+- Names without two trailing integer groups are no longer shortened; energy
+  ties keep input order.
+- P-containing bonds between 2.32 and 2.34 A now fail the connectivity check.
+- `ConformerRanker`'s `k`/`window` parameters default to `None`; `False` is
+  still accepted.
+- The SMILES-surgery half of `Auto3D.domain.stereochemistry` moved to
+  `Auto3D.domain.stereochemistry_smiles`; the unused `enantiomer()` function
+  is gone (no production caller).
+- A wrong input file extension now exits 2 with a hint naming the supported
+  formats; `ConformerRanker`'s `rank_by`, the name-uniformity guard, and a
+  negative `window` now raise `ConfigurationError` instead of a bare
+  `ValueError`; an unrecognized tautomer engine type does the same; the
+  Omega mode error names every accepted mode.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

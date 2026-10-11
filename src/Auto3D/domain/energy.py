@@ -311,6 +311,19 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
     compound. The caller may have been handed an arbitrary SDF, where reusing a
     title across molecules is ordinary -- and the difference between two
     compounds' energies looks exactly like a conformational preference.
+
+    "Same compound" is ``(species_key(mol), Chem.GetFormalCharge(mol))``, and
+    that sub-check also withholds across two members whose identity differs
+    only in stereochemistry (N-m28): ``species_key`` perceives configuration
+    from the 3D coordinates, so a pair of enumerated stereoisomers that share
+    one species id -- ``ranking.species_id`` strips ``<isomer>_<conformer>``,
+    so that is routine, not an edge case -- is two distinct identities under
+    this check, not one compound at two conformations. That is deliberate,
+    not a gap: a diastereomer or enantiomer pair's energies differ for the
+    same structural reason two unrelated compounds' do, so the withholding
+    above applies to it for the same reason. See
+    ``tests/test_thermo_relative_energies.py::TestGuards::test_stereoisomers_sharing_a_species_id_get_no_relative_energy_today``
+    and ``docs/source/usage.rst``'s thermo section.
     """
     # Local import: not a layering necessity -- `stereo_check` sits beside
     # `energy` in `domain/` and imports nothing from Auto3D, nor a cost one,

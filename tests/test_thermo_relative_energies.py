@@ -132,6 +132,29 @@ class TestGuards:
 
         assert not any(m.HasProp(E_REL_KCAL_PROP) for m in mols)
 
+    def test_stereoisomers_sharing_a_species_id_get_no_relative_energy_today(self):
+        """N-m28 (R14, option a): the sub-check is on ``(species_key, charge)``.
+
+        ``ranking.species_id`` strips ``<isomer>_<conformer>``, so two
+        enumerated stereoisomers of one input can share a species id/title
+        verbatim by the time a thermo output is written. ``species_key``
+        perceives stereochemistry from the 3D coordinates, so a pair of
+        enantiomers under one title is two distinct identities, not a
+        conformational preference -- the same withholding as two unrelated
+        compounds sharing a title (the test above), for the same reason:
+        subtracting the energies of two different structures produces a
+        number with no meaning. This is documented behavior, not a defect;
+        see ``_comparable_groups``'s docstring and ``docs/source/usage.rst``.
+        """
+        mols = [
+            _conformer("stereo_0", -10.0, "C[C@H](O)F"),
+            _conformer("stereo_0", -10.1, "C[C@@H](O)F"),
+        ]
+
+        set_relative_energies(mols)
+
+        assert not any(m.HasProp(E_REL_KCAL_PROP) for m in mols)
+
     def test_records_without_a_name_are_left_alone(self):
         """An untitled SDF must not become one giant group."""
         mols = [_conformer("", -10.0), _conformer("", -40.0, "c1ccccc1")]

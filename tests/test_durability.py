@@ -268,7 +268,7 @@ class TestAmendConfigurationDurability:
         """
         import builtins
 
-        from Auto3D.domain.stereochemistry import amend_configuration_w
+        from Auto3D.domain.stereochemistry_smiles import amend_configuration_w
 
         smi = job_dir / "in.smi"
         # Two records under one id => two output lines, so the injected failure
@@ -1183,6 +1183,45 @@ class TestHousekeepingStaysInsideTheJobDirectory:
         assert Path(os.getcwd()).resolve() == Path(os.path.realpath(project)), (
             "oe_isomer did not restore the working directory"
         )
+
+
+class TestOmegaModeValidation:
+    """P-m44: an unrecognized Omega mode is a typed, informative error.
+
+    The ``case _`` branch fires before ``oechem``/``oeomega`` are touched at
+    all, so the mocks below are belt-and-braces -- the same stand-in pattern
+    as ``TestHousekeepingStaysInsideTheJobDirectory.
+    test_openeye_logfiles_land_in_the_chunk_directory`` -- rather than load
+    the real OpenEye toolkit, which is not installed on this box.
+    """
+
+    def test_an_unrecognized_mode_names_every_accepted_one(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import Auto3D.engines.isomers.omega as ie
+        from Auto3D.foundation.exceptions import ConfigurationError
+
+        monkeypatch.setattr(ie, "oeomega", MagicMock(), raising=False)
+        monkeypatch.setattr(ie, "oechem", MagicMock(), raising=False)
+
+        source = tmp_path / "in.sdf"
+        source.write_text("")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            ie.oe_isomer(
+                "bogus",
+                str(source),
+                str(tmp_path / "smiles_enumerated.smi"),
+                str(tmp_path / "smiles_reduced.smi"),
+                str(tmp_path / "smiles_hashed.smi"),
+                str(tmp_path / "out.sdf"),
+                max_confs=None,
+                threshold=0.3,
+            )
+
+        message = str(excinfo.value)
+        for mode in ("classic", "dense", "pose", "rocs", "fast_rocs", "macrocycle"):
+            assert mode in message, f"the Omega mode error dropped {mode!r}: {message}"
 
 
 class TestRejectedRunLeavesNoTrace:

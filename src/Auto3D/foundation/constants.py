@@ -14,7 +14,11 @@ HARTREE_TO_KCAL_PER_MOL = 627.50947337481  # 1 Hartree in kcal/mol
 EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 
 # Geometry thresholds
-MIN_ATOM_DISTANCE = 0.9  # Å, minimum allowed interatomic distance
+# Å, minimum allowed interatomic distance between a NON-BONDED pair (N-m1).
+# Plenty of ordinary bonds -- H2's equilibrium length is 0.74 A -- sit below
+# this, so clash_relief.relieve_clash excludes bonded pairs before comparing
+# a conformer's minimum pairwise distance against it.
+MIN_ATOM_DISTANCE = 0.9
 
 # Conformer generation limits
 MAX_CONFORMERS_CAP = 1000  # Maximum conformers per molecule

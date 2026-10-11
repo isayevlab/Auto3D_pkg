@@ -446,6 +446,68 @@ def test_the_pool_initializer_arms_both_parent_death_and_double_coordinates(monk
         Chem.SetDefaultPickleProperties(before)
 
 
+def test_closing_the_generator_early_cancels_or_drains_its_futures(monkeypatch):
+    """P-m3: a caller that stops consuming must not leave orphaned futures.
+
+    ``embed_conformers_parallel`` is a generator; a caller that ``break``s or
+    is itself closed (e.g. ``itertools.islice``, an early ``return``) before
+    the loop below has consumed every future used to unwind the ``with``
+    block without a word to the futures still pending -- they kept running
+    (or queued) inside the pool that the ``with`` block was about to tear
+    down out from under them. Closing the generator early must cancel every
+    future it has not yet consumed.
+    """
+    import Auto3D.domain.embedding as embedding
+
+    seen = {}
+
+    class _Fut:
+        def __init__(self, result):
+            self._r = result
+            self.cancelled = False
+
+        def result(self):
+            return self._r
+
+        def cancel(self):
+            self.cancelled = True
+            seen["cancelled"] = seen.get("cancelled", 0) + 1
+            return True
+
+    class _Exec:
+        def __init__(self, *a, **k):
+            self.futs = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def submit(self, fn, *args, **kwargs):
+            f = _Fut(fn(*args, **kwargs))
+            self.futs.append(f)
+            return f
+
+    monkeypatch.setattr(embedding, "ProcessPoolExecutor", _Exec)
+    # Same inputs as TestEmbedConformersParallel.test_parallel_embed_returns_conformers:
+    # two species, so more than one future is in flight when the generator closes.
+    smiles_names = [
+        ("C", "methane"),
+        ("CC", "ethane"),
+    ]
+    gen = embedding.embed_conformers_parallel(
+        smiles_names,
+        n_conformers=5,
+        threshold=0.3,
+        np_threads=1,
+        n_workers=2,
+    )
+    next(gen)
+    gen.close()
+    assert seen.get("cancelled", 0) >= 1
+
+
 class TestEmbedConformersParallel:
     """Tests for the parallel embedding function."""
 

@@ -272,6 +272,31 @@ class TestClashReliefDoesNotRejectPlanarPnictogens:
         )
 
 
+def test_h2_survives_clash_relief():
+    """N-m1: a bonded pair shorter than ``MIN_ATOM_DISTANCE`` is not a clash.
+
+    H2's equilibrium bond length (0.74 A) is well below the 0.9 A threshold,
+    so every H2 (and every other short bond) used to be flagged as clashing
+    and sent through a force-field relaxation it does not need. The clash
+    test is about non-bonded contacts; bonded pairs are excluded from it.
+    """
+    from rdkit import Chem
+    from rdkit.Geometry import Point3D
+
+    from Auto3D.domain.clash_relief import relieve_clash
+
+    mol = Chem.RWMol()
+    a = mol.AddAtom(Chem.Atom(1))
+    b = mol.AddAtom(Chem.Atom(1))
+    mol.AddBond(a, b, Chem.BondType.SINGLE)
+    mol.UpdatePropertyCache(strict=False)
+    conf = Chem.Conformer(2)
+    conf.SetAtomPosition(0, Point3D(0.0, 0.0, 0.0))
+    conf.SetAtomPosition(1, Point3D(0.74, 0.0, 0.0))
+    mol.AddConformer(conf, assignId=True)
+    assert relieve_clash(mol.GetMol(), 0) is True
+
+
 def _optimized(energy: float, changed: bool | None) -> Chem.Mol:
     """A converged, connectivity-valid mol, optionally marked stereo-changed."""
     mol = _embedded()

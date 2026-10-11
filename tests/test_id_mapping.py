@@ -63,11 +63,13 @@ class TestEncodeDecodeIds:
         Path(new_path).unlink(missing_ok=True)
 
     def test_encode_invalid_extension_raises(self, tmp_path):
-        """Test that invalid file extension raises ValueError."""
+        """An unsupported extension raises FileFormatError, not a bare ValueError."""
+        from Auto3D.foundation.exceptions import FileFormatError
+
         input_file = tmp_path / "input.xyz"
         input_file.write_text("invalid")
 
-        with pytest.raises(ValueError, match="smi or sdf"):
+        with pytest.raises(FileFormatError, match="smi or sdf"):
             encode_ids(str(input_file))
 
     def test_encode_skips_blank_lines(self, tmp_path):

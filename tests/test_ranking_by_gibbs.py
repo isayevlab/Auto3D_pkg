@@ -203,7 +203,9 @@ def test_a_missing_gibbs_energy_is_refused_with_a_usable_message(tmp_path):
 
 
 def test_an_unknown_basis_is_refused_at_construction(tmp_path):
-    with pytest.raises(ValueError, match="rank_by"):
+    from Auto3D.foundation.exceptions import ConfigurationError
+
+    with pytest.raises(ConfigurationError, match="rank_by"):
         _ranker(tmp_path, [_mol("m", -10.0)], k=1, rank_by="entropy")
 
 

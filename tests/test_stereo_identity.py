@@ -19,7 +19,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
     StereoEnumerationOptions,
 )
 
-from Auto3D.domain.stereochemistry import enantiomer, enantiomer_helper
+from Auto3D.domain.stereochemistry import enantiomer_helper
 
 
 def _enumerate(smiles: str) -> list[str]:
@@ -67,14 +67,6 @@ def _assert_recovered_tag_matches_parsed(epimers: tuple[str, ...]) -> None:
             assert _pnictogen(mol).GetChiralTag() == parsed, (
                 f"{smiles} seed {seed}: recovered {_pnictogen(mol).GetChiralTag()}, parsed {parsed}"
             )
-
-
-class TestEnantiomerPredicate:
-    """The enantiomer predicate must not treat 'no stereocenters' as 'enantiomers'."""
-
-    def test_two_achiral_molecules_are_not_enantiomers(self):
-        """Molecules with no stereocenters cannot be an enantiomeric pair."""
-        assert enantiomer([], []) is False
 
 
 class TestEZIsomersSurvive:

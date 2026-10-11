@@ -90,11 +90,11 @@ def check_connectivity(mol: Chem.Mol) -> bool:
         5: 0.838,
         6: 0.757,
         7: 0.700,
-        8: 0.658,
+        8: 0.658,  # UFF O_3 (sp3 oxygen).
         9: 0.668,
         14: 1.117,
-        15: 1.117,
-        16: 1.064,
+        15: 1.101,  # UFF P_3+3 (trivalent phosphorus); was 1.117, a copy of Si's radius (N-m26).
+        16: 1.064,  # UFF S_3+2 (divalent sulfur).
         17: 1.044,
         32: 1.197,
         33: 1.211,

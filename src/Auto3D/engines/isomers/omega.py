@@ -20,10 +20,9 @@ from Auto3D.foundation.utils.logging_config import get_logger
 logger = get_logger(__name__)
 from tqdm import tqdm
 
-from Auto3D.domain.stereochemistry import (
-    amend_configuration_w,
-    remove_enantiomers,
-)
+from Auto3D.domain.stereochemistry import remove_enantiomers
+from Auto3D.domain.stereochemistry_smiles import amend_configuration_w
+from Auto3D.foundation.exceptions import ConfigurationError
 
 try:
     from openeye import oechem, oeomega
@@ -152,7 +151,10 @@ def _oe_isomer_in_owned_cwd(
         case "macrocycle":
             omegaOpts = oeomega.OEMacrocycleOmegaOptions()
         case _:
-            raise ValueError(f"mode has to be 'classic' or 'macrocycle', but received {mode}.")
+            raise ConfigurationError(
+                "mode must be one of 'classic', 'dense', 'pose', 'rocs', 'fast_rocs', "
+                f"'macrocycle', but received {mode!r}."
+            )
     omegaOpts.SetParameterVisibility(oechem.OEParamVisibility_Hidden)
     omegaOpts.SetParameterVisibility("-rms", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)

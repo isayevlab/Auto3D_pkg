@@ -18,7 +18,8 @@ which modules live where -- it reads the tree:
                         torch_config
     L1  domain/         ranking, filtering, embedding, clash_relief,
                         id_mapping, connectivity, geometry, convergence,
-                        stereochemistry, energy, stereo_check
+                        stereochemistry, stereochemistry_smiles, energy,
+                        stereo_check
     L0  foundation/     config, constants, exceptions, process_lifecycle,
                         registry, results, utils/**
 

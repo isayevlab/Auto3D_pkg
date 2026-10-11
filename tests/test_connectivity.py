@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Geometry import Point3D
 
 from Auto3D.domain.connectivity import check_connectivity
 
@@ -86,6 +87,26 @@ class TestCheckConnectivity:
         # Must return a bool without raising KeyError(11).
         result = check_connectivity(mol)
         assert isinstance(result, bool)
+
+    def test_p_c_bond_uses_phosphorus_largest_uff_radius_not_silicons(self):
+        """N-m26: phosphorus had silicon's radius, not its own.
+
+        The old table entry for P (15) was 1.117 -- Si's UFF radius, not
+        P_3+3's 1.101 (Rappe et al. 1992, Table 1). 1.25x the correct
+        reference (1.101) is 1.37625; 1.25x the old, too-generous reference
+        (1.117) is 1.39625. A 2.33 A P-C bond sits between the two: it must
+        fail with the correct radius and used to pass with Si's.
+        """
+        mol = Chem.RWMol()
+        p = mol.AddAtom(Chem.Atom(15))
+        c = mol.AddAtom(Chem.Atom(6))
+        mol.AddBond(p, c, Chem.BondType.SINGLE)
+        mol.UpdatePropertyCache(strict=False)
+        conf = Chem.Conformer(2)
+        conf.SetAtomPosition(0, Point3D(0.0, 0.0, 0.0))
+        conf.SetAtomPosition(1, Point3D(2.33, 0.0, 0.0))
+        mol.AddConformer(conf, assignId=True)
+        assert check_connectivity(mol.GetMol()) is False
 
 
 class TestUntabulatedElementsAreReportedOncePerProcess:

@@ -699,3 +699,13 @@ whose conformers were evaluated at more than one temperature — *G*\ (*T*)
 carries a ``-T·S`` term, so a difference across two temperatures is a thermal
 term rather than a conformational preference. Filter on
 ``Thermo_failed == ""`` before comparing the absolute energies.
+
+Both relative properties are also withheld, per group, from any name whose
+records are not all the same identity — ``(species_key, charge)``, read off
+the 3D coordinates, not the title. This includes two enumerated
+stereoisomers that share one species id: ``ranking.species_id`` strips the
+``<isomer>_<conformer>`` suffix every producer appends, so a diastereomer or
+an enantiomer pair of one input is routine under one title by the time a
+thermo output is written. Subtracting their energies would look exactly like
+a conformational preference, which it is not, so it is withheld the same way
+two unrelated compounds that happen to share a title are.

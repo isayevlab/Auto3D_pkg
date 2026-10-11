@@ -83,9 +83,17 @@ def relieve_clash(
         False if it still clashes or if the relaxation changed its
         configuration.
     """
+    # A bonded pair is not a clash candidate (N-m1): H2's equilibrium bond
+    # length (0.74 A) and plenty of other ordinary bonds fall below
+    # MIN_ATOM_DISTANCE, and none of them is a clash. The exclusion is read
+    # off the molecular graph once per call rather than cached, since
+    # relieve_clash can be called again after the force field has changed
+    # the geometry (but not the connectivity) between calls.
+    bonded_pairs = {frozenset((b.GetBeginAtomIdx(), b.GetEndAtomIdx())) for b in mol.GetBonds()}
+
     positions = mol.GetConformer(conf_id).GetPositions()
     # Closing the dead band: a conformer exactly at the threshold is kept.
-    if min_pairwise_distance(positions) >= min_distance:
+    if min_pairwise_distance(positions, exclude=bonded_pairs) >= min_distance:
         return True
 
     # Clashing conformer: try MMFF, fall back to UFF when MMFF is unavailable.
@@ -105,4 +113,4 @@ def relieve_clash(
         return False
 
     positions = mol.GetConformer(conf_id).GetPositions()
-    return min_pairwise_distance(positions) >= min_distance
+    return min_pairwise_distance(positions, exclude=bonded_pairs) >= min_distance

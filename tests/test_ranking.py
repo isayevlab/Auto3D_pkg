@@ -51,13 +51,28 @@ def _write_mols_to_sdf(mols: list[Chem.Mol], filepath: str) -> None:
 def three_conformers_sdf(tmp_path) -> os.PathLike[str]:
     """Three converged conformers of one species, at distinct energies."""
     mols = [
-        _create_mol_with_energy("CCO", -10.0, "mol_1"),
-        _create_mol_with_energy("CCO", -9.0, "mol_2"),
-        _create_mol_with_energy("CCO", -8.0, "mol_3"),
+        _create_mol_with_energy("CCO", -10.0, "mol_0_0"),
+        _create_mol_with_energy("CCO", -9.0, "mol_0_1"),
+        _create_mol_with_energy("CCO", -8.0, "mol_0_2"),
     ]
     input_path = tmp_path / "three_conformers.sdf"
     _write_mols_to_sdf(mols, str(input_path))
     return input_path
+
+
+def test_species_id_requires_two_trailing_integer_groups():
+    """N-m4: a name with fewer than two trailing integer groups is not touched.
+
+    Every producer appends exactly ``_<isomer>_<conformer>``, so stripping on
+    a bare ``rsplit(..., 2)`` used to shorten ANY name with two or more
+    underscores, whether or not the trailing components were the isomer and
+    conformer indices this function exists to strip.
+    """
+    from Auto3D.domain.ranking import species_id
+
+    assert species_id("my_compound") == "my_compound"
+    assert species_id("aspirin_analog_3") == "aspirin_analog_3"
+    assert species_id("KEY_2_7") == "KEY"
 
 
 class TestConformerRankerWithOptimizedFiltering:
@@ -71,9 +86,9 @@ class TestConformerRankerWithOptimizedFiltering:
         # Identical geometry AND near-identical energy (within the duplicate
         # energy tolerance, ~0.01 eV), as truly identical conformers would be,
         # so they deduplicate to one.
-        mol1 = _create_mol_with_energy("C", -10.0, "mol_1")
-        mol2 = _create_mol_with_energy("C", -10.005, "mol_2")  # same structure & energy
-        mol3 = _create_mol_with_energy("C", -10.008, "mol_3")  # same structure & energy
+        mol1 = _create_mol_with_energy("C", -10.0, "mol_0_0")
+        mol2 = _create_mol_with_energy("C", -10.005, "mol_0_1")  # same structure & energy
+        mol3 = _create_mol_with_energy("C", -10.008, "mol_0_2")  # same structure & energy
 
         input_path = str(tmp_path / "input.sdf")
         output_path = str(tmp_path / "output.sdf")
@@ -125,9 +140,9 @@ class TestConformerRankerWithOptimizedFiltering:
         # Identical molecules (same structure AND near-identical energy, within
         # the duplicate energy tolerance) - these should be deduplicated.
         mols = [
-            _create_mol_with_energy("CCCC", -10.0, "a_1"),
-            _create_mol_with_energy("CCCC", -10.005, "a_2"),
-            _create_mol_with_energy("CCCC", -10.008, "a_3"),
+            _create_mol_with_energy("CCCC", -10.0, "a_0_0"),
+            _create_mol_with_energy("CCCC", -10.005, "a_0_1"),
+            _create_mol_with_energy("CCCC", -10.008, "a_0_2"),
         ]
 
         input_path = str(tmp_path / "input.sdf")
@@ -155,9 +170,9 @@ class TestConformerRankerWithOptimizedFiltering:
         """Ranker should accept energy_cluster_window parameter for optimized filtering."""
         from Auto3D.domain.ranking import ConformerRanker
 
-        mol1 = _create_mol_with_energy("C", -10.0, "mol_1")
-        mol2 = _create_mol_with_energy("C", -10.05, "mol_2")  # Similar energy
-        mol3 = _create_mol_with_energy("C", -15.0, "mol_3")  # Different energy cluster
+        mol1 = _create_mol_with_energy("C", -10.0, "mol_0_0")
+        mol2 = _create_mol_with_energy("C", -10.05, "mol_0_1")  # Similar energy
+        mol3 = _create_mol_with_energy("C", -15.0, "mol_0_2")  # Different energy cluster
 
         input_path = str(tmp_path / "input.sdf")
         output_path = str(tmp_path / "output.sdf")
@@ -260,9 +275,9 @@ class TestConformerRankerTopK:
         from Auto3D.domain.ranking import ConformerRanker
 
         # Create multiple molecules with different energies
-        mol1 = _create_mol_with_energy("C", -8.0, "mol_1")
-        mol2 = _create_mol_with_energy("C", -10.0, "mol_2")  # Lowest energy
-        mol3 = _create_mol_with_energy("C", -9.0, "mol_3")
+        mol1 = _create_mol_with_energy("C", -8.0, "mol_0_0")
+        mol2 = _create_mol_with_energy("C", -10.0, "mol_0_1")  # Lowest energy
+        mol3 = _create_mol_with_energy("C", -9.0, "mol_0_2")
 
         input_path = str(tmp_path / "input.sdf")
         output_path = str(tmp_path / "output.sdf")
@@ -442,6 +457,31 @@ class TestConformerRankerTopWindow:
         assert not mol3.HasProp("E_rel(eV)"), "the molecule that broke the loop must not be stamped"
 
 
+def test_k_and_window_default_to_none_and_false_still_means_unset(tmp_path, three_conformers_sdf):
+    """P-m5: ``k``/``window`` default to ``None``; ``False`` is still accepted.
+
+    ``False`` is a valid ``int``, so typing the parameters as ``int | bool``
+    advertised a type the constructor never actually wants there -- a caller
+    who passed ``k=False`` meaning "not specified" got exactly that
+    behavior, but nothing said a bare ``int`` default of ``False`` was ever
+    a defensible *default*. ``None`` is the correct sentinel; ``False``
+    keeps working because every consumer (``run``'s dispatch,
+    ``check_selectors_mutually_exclusive``) already tests truthiness, not
+    identity.
+    """
+    import inspect
+
+    from Auto3D.domain.ranking import ConformerRanker
+
+    sig = inspect.signature(ConformerRanker.__init__)
+    assert sig.parameters["k"].default is None
+    assert sig.parameters["window"].default is None
+    ranker = ConformerRanker(
+        str(three_conformers_sdf), str(tmp_path / "out.sdf"), 0.3, k=False, window=2.0
+    )
+    assert ranker.run()  # False is still "not specified"; window selects
+
+
 class TestConformerRankerSelectorExclusivity:
     """``ConformerRanker`` must reject a k+window combination the same way --
     and with the same words -- as ``Auto3DOptions``/``CLIConfig``.
@@ -516,10 +556,11 @@ class TestConformerRankerValidation:
     """Tests for input validation with proper ValueError exceptions."""
 
     def test_top_k_raises_on_mismatched_names(self, tmp_path):
-        """top_k should raise ValueError when molecules have different names."""
+        """top_k should raise ConfigurationError when molecules have different names."""
         import pandas as pd
 
         from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
         mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
@@ -542,14 +583,15 @@ class TestConformerRankerValidation:
             }
         )
 
-        with pytest.raises(ValueError, match="All molecules must have the same name"):
+        with pytest.raises(ConfigurationError, match="All molecules must have the same name"):
             ranker.top_k(df, k=2)
 
     def test_top_window_raises_on_negative_window(self, tmp_path):
-        """top_window should raise ValueError when window is negative."""
+        """top_window should raise ConfigurationError when window is negative."""
         import pandas as pd
 
         from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol")
 
@@ -571,14 +613,15 @@ class TestConformerRankerValidation:
             }
         )
 
-        with pytest.raises(ValueError, match="window must be non-negative"):
+        with pytest.raises(ConfigurationError, match="window must be non-negative"):
             ranker.top_window(df, window=-1.0)
 
     def test_top_window_raises_on_mismatched_names(self, tmp_path):
-        """top_window should raise ValueError when molecules have different names."""
+        """top_window should raise ConfigurationError when molecules have different names."""
         import pandas as pd
 
         from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.exceptions import ConfigurationError
 
         mol1 = _create_mol_with_energy("C", -10.0, "mol_a")
         mol2 = _create_mol_with_energy("C", -9.0, "mol_b")
@@ -601,7 +644,7 @@ class TestConformerRankerValidation:
             }
         )
 
-        with pytest.raises(ValueError, match="All molecules must have the same name"):
+        with pytest.raises(ConfigurationError, match="All molecules must have the same name"):
             ranker.top_window(df, window=1.0)
 
 

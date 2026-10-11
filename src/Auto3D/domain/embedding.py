@@ -426,57 +426,74 @@ def embed_conformers_parallel(
         # Iterate in submission order (not as_completed) so the emitted molecule
         # order is deterministic and matches the serial path; all futures are
         # already running concurrently, so this costs no parallelism.
-        for future in futures:
-            smi, name = futures[future]
-            try:
-                conformers = future.result()
-            except BrokenProcessPool as exc:
-                # A worker died (e.g. OOM-killed): the pool is broken and EVERY
-                # remaining future will also raise this. Surface it loudly --
-                # the broad except below would otherwise swallow it per-future
-                # and silently drop the whole tail of the batch as warnings.
-                #
-                # The other common cause is not a dead worker at all: under the
-                # spawn context each child re-imports the caller's `__main__`,
-                # and an unguarded script raises there before embedding anything,
-                # breaking the pool. The user's only clue was a child-process
-                # traceback about freeze_support, so attach the two ways out.
-                # A note rather than a new exception type: an OOM kill must keep
-                # surfacing as the BrokenProcessPool everything upstream expects.
-                exc.add_note(
-                    "Parallel embedding spawns worker processes that re-import "
-                    "the calling script. Guard the script's entry point with "
-                    'if __name__ == "__main__":, or embed serially '
-                    "(use_parallel_embedding=False for main(); smiles2mols is "
-                    "serial unless called with parallel_embedding=True)."
-                )
-                raise
-            except SpeciesSkipped as skipped:
-                # The worker refused this species and said why. One warning, from
-                # here -- the process that owns the run log -- and no second line:
-                # the `continue` is also what keeps the generic "produced no
-                # conformers" branch below from firing for a species whose reason
-                # is already on the record.
-                logger.warning("Skipping molecule %r: %s", name, skipped)
-                continue
-            except Exception as e:
-                # Per-molecule boundary: a single molecule's failure (including
-                # RDKit's Boost.Python.ArgumentError, which is a TypeError and so
-                # escaped the previous narrow except) must not abort the whole
-                # batch and silently drop every remaining molecule.
-                logger.warning(f"Failed to embed {name}: {type(e).__name__}: {e}")
-                continue
-            if not conformers:
-                # The counterpart to the serial path's `n_written == 0` warning,
-                # which this path had no equivalent of. A species that embeds
-                # nothing -- unparseable SMILES, or every conformer rejected by
-                # clash relief -- is absent from the output and never reaches
-                # ranking, so not even "No structure converged" appears for it.
-                # Warned here, in the parent, because a message from a
-                # ProcessPoolExecutor worker depends on that child's logging
-                # configuration, while this one does not.
-                logger.warning(
-                    f"{name!r} produced no conformers; this species is absent from the output."
-                )
-                continue
-            yield from conformers
+        #
+        # try/finally (P-m3): this is a generator, and `yield from conformers`
+        # below is a point a caller can stop at -- an early `break`, a closed
+        # `itertools.islice`, or an explicit `.close()` -- which raises
+        # GeneratorExit right here and unwinds the `for` loop without running
+        # its remaining iterations. Before this fix that left every future the
+        # loop had not yet reached still running (or queued) inside the pool
+        # the `with` block was about to tear down out from under them. The
+        # `finally` below cancels every future regardless of where the unwind
+        # happened; `cancel()` on one already consumed or already running is a
+        # harmless no-op (its return value is not meaningful here either way,
+        # so it is ignored), and this still runs before the `with` block's own
+        # shutdown.
+        try:
+            for future in futures:
+                smi, name = futures[future]
+                try:
+                    conformers = future.result()
+                except BrokenProcessPool as exc:
+                    # A worker died (e.g. OOM-killed): the pool is broken and EVERY
+                    # remaining future will also raise this. Surface it loudly --
+                    # the broad except below would otherwise swallow it per-future
+                    # and silently drop the whole tail of the batch as warnings.
+                    #
+                    # The other common cause is not a dead worker at all: under the
+                    # spawn context each child re-imports the caller's `__main__`,
+                    # and an unguarded script raises there before embedding anything,
+                    # breaking the pool. The user's only clue was a child-process
+                    # traceback about freeze_support, so attach the two ways out.
+                    # A note rather than a new exception type: an OOM kill must keep
+                    # surfacing as the BrokenProcessPool everything upstream expects.
+                    exc.add_note(
+                        "Parallel embedding spawns worker processes that re-import "
+                        "the calling script. Guard the script's entry point with "
+                        'if __name__ == "__main__":, or embed serially '
+                        "(use_parallel_embedding=False for main(); smiles2mols is "
+                        "serial unless called with parallel_embedding=True)."
+                    )
+                    raise
+                except SpeciesSkipped as skipped:
+                    # The worker refused this species and said why. One warning, from
+                    # here -- the process that owns the run log -- and no second line:
+                    # the `continue` is also what keeps the generic "produced no
+                    # conformers" branch below from firing for a species whose reason
+                    # is already on the record.
+                    logger.warning("Skipping molecule %r: %s", name, skipped)
+                    continue
+                except Exception as e:
+                    # Per-molecule boundary: a single molecule's failure (including
+                    # RDKit's Boost.Python.ArgumentError, which is a TypeError and so
+                    # escaped the previous narrow except) must not abort the whole
+                    # batch and silently drop every remaining molecule.
+                    logger.warning(f"Failed to embed {name}: {type(e).__name__}: {e}")
+                    continue
+                if not conformers:
+                    # The counterpart to the serial path's `n_written == 0` warning,
+                    # which this path had no equivalent of. A species that embeds
+                    # nothing -- unparseable SMILES, or every conformer rejected by
+                    # clash relief -- is absent from the output and never reaches
+                    # ranking, so not even "No structure converged" appears for it.
+                    # Warned here, in the parent, because a message from a
+                    # ProcessPoolExecutor worker depends on that child's logging
+                    # configuration, while this one does not.
+                    logger.warning(
+                        f"{name!r} produced no conformers; this species is absent from the output."
+                    )
+                    continue
+                yield from conformers
+        finally:
+            for future in futures:
+                future.cancel()

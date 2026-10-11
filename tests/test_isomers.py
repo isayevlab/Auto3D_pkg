@@ -538,8 +538,10 @@ class TestCreateTautomerEngine:
     """Tests for create_tautomer_engine factory function."""
 
     def test_unknown_engine_raises_error(self):
-        """Test that unknown engine type raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown tautomer engine type"):
+        """An unknown engine is a ConfigurationError, not a bare ValueError."""
+        from Auto3D.foundation.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError, match="Unknown tautomer engine type"):
             create_tautomer_engine(
                 "unknown_engine",
                 input_path="/input.smi",
