@@ -44,12 +44,12 @@ and ANI2xt engines and ASE thermochemistry working out of the box; add the
 default AIMNet2 engine with one pip command inside the environment:
 
 ```bash
-conda install -c conda-forge auto3d   # once the 3.1.1 feedstock update lands
+conda install -c conda-forge auto3d   # 3.2.0 on conda-forge
 pip install aimnet                    # adds the AIMNet2 engines
 ```
 
-If conda-forge still shows an older version, install with pip inside a conda
-environment instead — `installation.yml` sets up the supported combination:
+To install with pip inside a conda environment instead, `installation.yml`
+sets up the supported combination:
 
 ```bash
 conda env create --file installation.yml --name auto3D
