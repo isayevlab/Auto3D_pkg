@@ -341,13 +341,22 @@ def test_resolve_multiplicity_respects_explicit_property():
     assert m.GetUnsignedProp("multiplicity") == 4
 
 
-def test_resolve_multiplicity_invalid_property_is_dropped_from_the_record():
-    """A rejected 'multiplicity' must not survive onto the record once the
-    radical-derived value is used instead: a record carrying a multiplicity
-    that was never fed into G would be advertising a number nothing used.
+@pytest.mark.parametrize(
+    "value",
+    ["0", "99", "7", "two"],
+    ids=["below_1", "above_electron_bound", "wrong_parity", "unparseable"],
+)
+def test_resolve_multiplicity_invalid_property_is_dropped_from_the_record(value):
+    """Every one of the four rejection branches must drop the invalid
+    'multiplicity' property from the record once the radical-derived value
+    is used instead: a record carrying a multiplicity that was never fed
+    into G would be advertising a number nothing used.
 
-    The methyl radical is a 9-electron (odd) species, so 2S+1 must be even;
-    7 is odd and is rejected on parity, falling back to the derived doublet.
+    The methyl radical is a 9-electron (odd) species: the valid range is
+    1 to n_electrons + 1 = 10, and parity must be even (2S+1 requires even
+    multiplicity for an odd-electron species). The four ``value``s each land
+    in one rejection branch: "0" is below 1, "99" is above the 10-electron
+    bound, "7" is odd and so fails parity, and "two" is unparseable.
     """
     from rdkit import Chem
 
@@ -355,18 +364,7 @@ def test_resolve_multiplicity_invalid_property_is_dropped_from_the_record():
 
     m = Chem.MolFromSmiles("[CH3]")
     assert _electron_count(m) == 9, "test premise: a 9-electron, odd-electron species"
-    m.SetProp("multiplicity", "7")
-    assert _resolve_multiplicity(m) == 2
-    assert not m.HasProp("multiplicity")
-
-
-def test_resolve_multiplicity_unparseable_property_is_dropped_from_the_record():
-    from rdkit import Chem
-
-    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
-
-    m = Chem.MolFromSmiles("[CH3]")
-    m.SetProp("multiplicity", "two")
+    m.SetProp("multiplicity", value)
     assert _resolve_multiplicity(m) == 2
     assert not m.HasProp("multiplicity")
 
