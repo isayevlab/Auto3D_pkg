@@ -293,7 +293,7 @@ class ChunkManager:
             if limit is not None and limit < available:
                 raw_gb = int(limit / (1024**3))
                 memory_gb = max(1, raw_gb)
-                floor_note = " (floored to 1 GB; R55)" if raw_gb < 1 else ""
+                floor_note = " (floored to 1 GB)" if raw_gb < 1 else ""
                 self._log_info(
                     f"cgroup memory limit ({int(limit / 1024**3)} GB) is lower "
                     f"than the host's available memory "
@@ -303,7 +303,7 @@ class ChunkManager:
             else:
                 raw_gb = int(available / (1024**3))
                 memory_gb = max(1, raw_gb)
-                floor_note = " (floored to 1 GB; R55)" if raw_gb < 1 else ""
+                floor_note = " (floored to 1 GB)" if raw_gb < 1 else ""
                 self._log_info(
                     f"Using the host's available memory: {int(available / 1024**3)} GB{floor_note}."
                 )
