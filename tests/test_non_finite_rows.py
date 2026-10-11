@@ -129,7 +129,12 @@ def test_optimizing_run_writes_non_finite_row_not_converged(tmp_path):
         str(out),
         adapter=adapter,
         device=torch.device("cpu"),
-        config={"opt_steps": 200, "opttol": 1e-3, "patience": 50, "batchsize_atoms": 1024},
+        config={
+            "opt_steps": 200,
+            "convergence_threshold": 1e-3,
+            "patience": 50,
+            "batchsize_atoms": 1024,
+        },
     )
     opt.run()
 

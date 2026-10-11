@@ -13,6 +13,7 @@ including the Python API.
 """
 
 import operator
+import warnings
 from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Any
@@ -291,6 +292,39 @@ def check_engine_choices(values: dict) -> None:
         if isinstance(value, str) and value.lower() in choices:
             continue
         raise ConfigurationError(f"{name} must be one of {', '.join(choices)}, got {value!r}")
+
+
+def _warn_dict_access(method: str, replacement: str) -> None:
+    """Warn that ``Auto3DOptions``'s dict-compat shim is deprecated.
+
+    One ``warnings.warn`` call shared by all five shim methods rather than a
+    copy of the same message inlined in each, so the wording cannot drift
+    between them. ``replacement`` names the actual non-deprecated spelling for
+    ``method`` -- ``options.<field>`` for ``__getitem__``/``get``,
+    ``options.<field> = value`` for ``__setitem__``, and ``options.field_items()``
+    for ``keys``/``items``, since there is no single field name to write for
+    those two.
+
+    This helper is called directly from the shim method's body -- one frame
+    below it, which is itself one frame below the caller that indexed or
+    iterated the config like a dict. ``stacklevel=3`` therefore skips this
+    helper's own frame and the shim method's frame, attributing the warning
+    to that caller's line -- the line that can actually change -- rather than
+    to a line inside this module. This assumes every shim method calls this
+    helper directly, as an ordinary one-frame call (true for all five today);
+    a future shim method calling it indirectly, or not as its own first
+    statement, would need a different stacklevel.
+
+    The message starts with the literal substring ``"Auto3DOptions is not a
+    dict"`` -- both the existing test asserting on it and this repo's
+    message-based ``pyproject.toml`` warning filter key on that exact prefix.
+    """
+    warnings.warn(
+        f"Auto3DOptions is not a dict; {method} is deprecated and is removed "
+        f"in 4.0; use {replacement} instead",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 class Auto3DOptions(BaseModel):
@@ -585,24 +619,42 @@ class Auto3DOptions(BaseModel):
         return self
 
     def __getitem__(self, key: str) -> Any:
-        """Allow dict-like access for backward compatibility."""
+        """Dict-like access, kept for one release behind a deprecation warning."""
+        _warn_dict_access("__getitem__", "options.<field>")
         return getattr(self, key)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """Allow dict-like assignment for backward compatibility."""
+        """Dict-like assignment, kept for one release behind a deprecation warning."""
+        _warn_dict_access("__setitem__", "options.<field> = value")
         setattr(self, key, value)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Dict-like get method for backward compatibility."""
+        """Dict-like ``get``, kept for one release behind a deprecation warning."""
+        _warn_dict_access("get", "options.<field>")
         return getattr(self, key, default)
 
     def keys(self) -> list[str]:
-        """Return field names for backward compatibility."""
-        return list(type(self).model_fields)
+        """Field names, kept for one release behind a deprecation warning."""
+        _warn_dict_access("keys", "options.field_items()")
+        return [k for k, _ in self.field_items()]
 
     def items(self):
-        """Return field name-value pairs for backward compatibility."""
-        return [(k, getattr(self, k)) for k in self.keys()]
+        """Field name-value pairs, kept for one release behind a deprecation warning."""
+        _warn_dict_access("items", "options.field_items()")
+        return self.field_items()
+
+    def field_items(self) -> list[tuple[str, Any]]:
+        """The supported way to iterate an options object.
+
+        Returns every declared field as an ``(name, value)`` pair, in
+        declaration order -- the order ``type(self).model_fields`` iterates
+        in. This is the non-deprecated replacement the dict-like
+        ``keys()``/``items()`` shim methods point to (there is no single
+        field name to write in their place, unlike ``__getitem__``/``get``/
+        ``__setitem__``, which point callers at plain attribute access
+        instead). Emits no warning.
+        """
+        return [(k, getattr(self, k)) for k in type(self).model_fields]
 
     def replace(self, **changes: Any) -> "Auto3DOptions":
         """A **validated** copy of this config with ``changes`` applied.
@@ -709,11 +761,12 @@ class OptimizationConfig:
         """Convert to dict for backward compatibility with existing code.
 
         Returns:
-            Dictionary with optimization parameters using legacy key names.
+            Dictionary with optimization parameters, each key its own field
+            name.
         """
         return {
             "opt_steps": self.opt_steps,
-            "opttol": self.convergence_threshold,  # Legacy key name
+            "convergence_threshold": self.convergence_threshold,
             "patience": self.patience,
             "batchsize_atoms": self.batchsize_atoms,
         }

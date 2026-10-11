@@ -64,27 +64,10 @@ def _stub_model_boundary(monkeypatch, energies_ev):
     import Auto3D.engines.batch_opt.batchopt as bo
     import Auto3D.entry.ASE.geometry as geo
     from tests.helpers_adapter import FakeAdapter
-
-    def fake_ensemble_opt(
-        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None
-    ):
-        n = len(coord)
-        return dict(
-            coord=coord.tolist(),
-            ids=list(range(n)),
-            energy=list(energies_ev[:n]),
-            fmax=[0.0] * n,
-            he=[],
-            close=[],
-            timing={},
-            numbers=numbers.tolist(),
-            converged_mask=[True] * n,
-            oscillating_count=[0] * n,
-            non_finite=[False] * n,
-        )
+    from tests.helpers_batchopt import make_fake_ensemble_opt
 
     adapter = FakeAdapter()
-    monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
+    monkeypatch.setattr(bo, "ensemble_opt", make_fake_ensemble_opt(energies_ev))
     monkeypatch.setattr(geo, "create_model", lambda *a, **k: adapter)
     return adapter
 
@@ -105,7 +88,12 @@ class TestOptimizerWritesHartree:
             str(out),
             adapter=adapter,
             device=torch.device("cpu"),
-            config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+            config={
+                "opt_steps": 1,
+                "convergence_threshold": 0.01,
+                "patience": 1,
+                "batchsize_atoms": 1024,
+            },
         ).run()
 
         mols = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
@@ -212,7 +200,12 @@ class TestTautomerSelectionReadsTheSameUnit:
             str(out),
             adapter=adapter,
             device=torch.device("cpu"),
-            config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+            config={
+                "opt_steps": 1,
+                "convergence_threshold": 0.01,
+                "patience": 1,
+                "batchsize_atoms": 1024,
+            },
         ).run()
 
         selected = select_tautomers(str(out), k=2)

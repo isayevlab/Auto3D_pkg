@@ -761,9 +761,13 @@ No geometry, energy, or ``Converged``/``Dropped_Oscillating`` flag differs.
 
 A legacy dict config is unaffected -- ``ensemble_opt`` reads only
 ``opt_steps``, ``opttol``, ``patience`` and ``batchsize_atoms`` from it, so a
-leftover ``"energy_tol"`` key is ignored rather than rejected. The unrelated
-``energy_tol`` argument of ``Auto3D.filtering`` (the duplicate-conformer energy
-tolerance) is a different parameter and is unchanged.
+leftover ``"energy_tol"`` key is ignored rather than rejected. (From 3.2.1,
+``OptimizationConfig.to_dict()`` names this key ``convergence_threshold``
+instead; a hand-written parameter dict may keep ``opttol`` until 4.0, which
+emits a ``DeprecationWarning`` -- see the ``Unreleased`` section of
+``CHANGELOG.md``.) The unrelated ``energy_tol`` argument of
+``Auto3D.filtering`` (the duplicate-conformer energy tolerance) is a
+different parameter and is unchanged.
 
 ``use_ensemble`` and ``**kwargs`` removed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -68,34 +68,95 @@ class TestEnForceANI:
         assert forces.shape == (4, 5, 3)
 
 
+@pytest.fixture
+def tiny_batch():
+    """A minimal ``(net, coord, numbers, charges, param, device)`` tuple.
+
+    Mirrors ``TestConvergenceStatus.test_ensemble_opt_returns_convergence_info``'s
+    setup -- a mock adapter returning zero forces (instant convergence) over
+    two 3-atom structures -- so ``ensemble_opt(*tiny_batch)`` runs the same
+    one-step path without duplicating the setup in every caller.
+    """
+    mock_adapter = MagicMock()
+    mock_adapter.forward.return_value = (
+        torch.tensor([0.0, 0.0]),
+        torch.zeros(2, 3, 3),  # Zero forces = instant convergence
+    )
+    model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
+    coord = torch.randn(2, 3, 3)
+    numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
+    charges = torch.tensor([0, 0], dtype=torch.long)
+    param = {"opt_steps": 10, "convergence_threshold": 0.01, "patience": 5}
+    device = torch.device("cpu")
+    return model, coord, numbers, charges, param, device
+
+
+def test_ensemble_opt_returns_exactly_the_keys_its_callers_read(tiny_batch):
+    """P-m11: ``ensemble_opt`` must return only the keys its callers read.
+
+    ``ids``, ``he``, ``close`` and ``timing`` were constructed and returned
+    but never read by any caller -- ``optimizing._optimize_bucket`` reads
+    ``energy``, ``fmax``, ``converged_mask``, ``oscillating_count``, ``coord``
+    and ``non_finite`` only, and the direct test callers in this file read no
+    more than that either. Dead weight in both the state dict and the return.
+    """
+    from Auto3D.engines.batch_opt.batchopt import ensemble_opt
+
+    result = ensemble_opt(*tiny_batch)
+    assert set(result) == {
+        "coord",
+        "numbers",
+        "converged_mask",
+        "oscillating_count",
+        "fmax",
+        "energy",
+        "non_finite",
+    }
+
+
+def test_ensemble_opt_accepts_the_legacy_opttol_key_for_one_release(tiny_batch):
+    """A hand-written param dict may still spell the key ``opttol`` until 4.0.
+
+    Dict-style access on ``Auto3DOptions`` gets a one-release deprecation; a
+    raw ``param`` dict built by hand (not through ``OptimizationConfig``)
+    deserves the same courtesy rather than a hard ``KeyError`` the moment
+    ``to_dict()`` renamed its key.
+    """
+    from Auto3D.engines.batch_opt.batchopt import ensemble_opt
+
+    net, coord, numbers, charges, param, device = tiny_batch
+    legacy_param = {k: v for k, v in param.items() if k != "convergence_threshold"}
+    legacy_param["opttol"] = param["convergence_threshold"]
+
+    with pytest.warns(DeprecationWarning, match="opttol"):
+        ensemble_opt(net, coord, numbers, charges, legacy_param, device)
+
+
+def test_ensemble_opt_with_convergence_threshold_key_warns_nothing(tiny_batch):
+    """The current key name is read silently -- no deprecation warning."""
+    import warnings
+
+    from Auto3D.engines.batch_opt.batchopt import ensemble_opt
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ensemble_opt(*tiny_batch)
+    assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
+
+
 class TestConvergenceStatus:
     """Tests for convergence status determination (Issue #90)."""
 
-    def test_ensemble_opt_returns_convergence_info(self):
+    def test_ensemble_opt_returns_convergence_info(self, tiny_batch):
         """ensemble_opt should return converged_mask and oscillating_count."""
         from Auto3D.engines.batch_opt.batchopt import ensemble_opt
-        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 
-        # Create mock model
-        mock_adapter = MagicMock()
-        mock_adapter.forward.return_value = (
-            torch.tensor([0.0, 0.0]),
-            torch.zeros(2, 3, 3),  # Zero forces = instant convergence
-        )
-        model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
-
-        # Create simple input
-        coord = torch.randn(2, 3, 3)
-        numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
-        charges = torch.tensor([0, 0], dtype=torch.long)
-        param = {"opt_steps": 10, "opttol": 0.01, "patience": 5}
-
-        result = ensemble_opt(model, coord, numbers, charges, param, torch.device("cpu"))
+        result = ensemble_opt(*tiny_batch)
 
         # Verify new fields are present, with their actual VALUES: zero force
-        # on step 1 means fmax (0.0) is at once below opttol (0.01) for both
-        # structures, so both must be reported converged and neither must
-        # have been counted as oscillating -- checking only key
+        # on step 1 means fmax (0.0) is at once below convergence_threshold
+        # (0.01) for both structures, so both must be reported converged and
+        # neither must have been counted as oscillating -- checking only key
         # presence/type/length (as before) would pass even if the values
         # were transposed, all-False, or a stray increment leaked into
         # oscillating_count.
@@ -142,7 +203,12 @@ class TestConvergenceFlagDerivation:
             out_f=str(job_dir / "out.sdf"),
             adapter=create_model("ANI2xt", torch.device("cpu")),
             device=torch.device("cpu"),
-            config={"opt_steps": 5, "opttol": 1e-9, "patience": 1, "batchsize_atoms": 1024},
+            config={
+                "opt_steps": 5,
+                "convergence_threshold": 1e-9,
+                "patience": 1,
+                "batchsize_atoms": 1024,
+            },
         )
         opt.run()
 
@@ -161,7 +227,7 @@ class TestConvergenceFlagDerivation:
 
         # Non-vacuity check: the invariant above is only meaningful if the
         # oscillation path was actually taken. If this fails, the fixture
-        # (patience=1, opttol=1e-9, ethanol's FIRE trajectory) has stopped
+        # (patience=1, convergence_threshold=1e-9, ethanol's FIRE trajectory) has stopped
         # reproducing the oscillating condition on this platform/torch
         # version -- it does not mean the Converged/Dropped_Oscillating
         # invariant itself is broken.
@@ -202,7 +268,12 @@ def _optimizing_for_buckets(tmp_path, sizes):
         str(tmp_path / "o.sdf"),
         adapter=FakeAdapter(),
         device=torch.device("cpu"),
-        config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+        config={
+            "opt_steps": 1,
+            "convergence_threshold": 0.01,
+            "patience": 1,
+            "batchsize_atoms": 1024,
+        },
     )
     return eng, mols
 
@@ -255,25 +326,9 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
             m.SetProp("_Name", str(i))
             w.write(m)
 
-    def fake_ensemble_opt(
-        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None
-    ):
-        n = len(coord)
-        return dict(
-            coord=coord.tolist(),
-            ids=list(range(n)),
-            energy=[0.0] * n,
-            fmax=[0.0] * n,
-            he=[],
-            close=[],
-            timing={},
-            numbers=numbers.tolist(),
-            converged_mask=[True] * n,
-            oscillating_count=[0] * n,
-            non_finite=[False] * n,
-        )
+    from tests.helpers_batchopt import make_fake_ensemble_opt
 
-    monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
+    monkeypatch.setattr(bo, "ensemble_opt", make_fake_ensemble_opt())
 
     out = tmp_path / "out.sdf"
     eng = bo.optimizing(
@@ -281,7 +336,12 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
         str(out),
         adapter=FakeAdapter(),
         device=torch.device("cpu"),
-        config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+        config={
+            "opt_steps": 1,
+            "convergence_threshold": 0.01,
+            "patience": 1,
+            "batchsize_atoms": 1024,
+        },
     )
     eng.run()
     names = [m.GetProp("_Name") for m in Chem.SDMolSupplier(str(out), removeHs=False)]
@@ -332,7 +392,7 @@ class TestOptimizingTakesAnAdapterNotAName:
     def _config():
         return {
             "opt_steps": 100,
-            "opttol": 0.003,
+            "convergence_threshold": 0.003,
             "patience": 1000,
             "batchsize_atoms": 1024,
         }
@@ -407,7 +467,7 @@ def test_charges_reach_the_model_as_float32():
         coord,
         numbers,
         charges,
-        {"opt_steps": 10, "opttol": 0.01, "patience": 5},
+        {"opt_steps": 10, "convergence_threshold": 0.01, "patience": 5},
         torch.device("cpu"),
     )
 

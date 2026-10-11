@@ -1,5 +1,6 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,8 +15,6 @@ if TYPE_CHECKING:
     from Auto3D.foundation.config import OptimizationConfig
 
 logger = get_logger(__name__)
-
-from collections import defaultdict
 
 from rdkit import Chem
 
@@ -66,7 +65,9 @@ def ensemble_opt(
         charges: Molecular charges (N,).
         param: Dictionary containing optimization parameters:
             - opt_steps: Maximum optimization steps
-            - opttol: Force convergence tolerance
+            - convergence_threshold: Force convergence tolerance. The legacy
+              key ``opttol`` is accepted in its place until 4.0, with a
+              DeprecationWarning.
             - patience: Oscillation patience
         device: Torch device for computation.
         atom_mask: Boolean mask, shape (N, m), True for real atoms and False
@@ -81,12 +82,8 @@ def ensemble_opt(
     Returns:
         Dictionary containing:
             - coord: Optimized coordinates
-            - ids: Structure IDs
             - energy: Final energies
             - fmax: Maximum forces
-            - he: High energy structures
-            - close: Close contact structures
-            - timing: Timing information
             - numbers: Atomic numbers
             - converged_mask: Boolean convergence status per structure. False
               for a structure still active at the step budget, dropped for
@@ -140,26 +137,35 @@ def ensemble_opt(
     energy = torch.full(
         coord.shape[:1], INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=coord.device
     )
-    ids = torch.arange(coord.shape[0], device=coord.device)  # Returns a 1D tensor
 
     state = dict(
-        ids=ids,
         coord=coord,
         numbers=numbers,
         converged_mask=converged_mask,
         nn=net,
         fmax=fmax,
         energy=energy,
-        timing=defaultdict(float),
         charges=charges,
-        he=list(),
-        close=list(),  # !!! he and close?
     )
+
+    if "convergence_threshold" in param:
+        convergence_threshold = param["convergence_threshold"]
+    else:
+        # One release of backward compatibility for a hand-written param
+        # dict still using the pre-3.2.1 key name; `KeyError` below if
+        # neither key is present, same as before this fallback existed.
+        warnings.warn(
+            "The optimizer parameter key opttol is renamed convergence_threshold "
+            "and is removed in 4.0",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        convergence_threshold = param["opttol"]
 
     n_steps(
         state,
         param["opt_steps"],
-        param["opttol"],
+        convergence_threshold,
         param["patience"],
         atom_mask=atom_mask,
         progress_cb=progress_cb,
@@ -167,12 +173,8 @@ def ensemble_opt(
 
     return dict(
         coord=state["coord"].tolist(),
-        ids=state["ids"].tolist(),
         energy=state["energy"].tolist(),
         fmax=state["fmax"].tolist(),
-        he=state["he"],
-        close=state["close"],
-        timing=dict(state["timing"]),
         numbers=state["numbers"].tolist(),
         converged_mask=state["converged_mask"].tolist(),
         oscillating_count=state["oscillating_count"].tolist(),
@@ -236,11 +238,6 @@ class optimizing:
         self.model = adapter
         self.coord_pad = adapter.coord_pad
         self.species_pad = adapter.species_pad
-
-    @property
-    def config(self) -> dict:
-        """Return configuration as dict for backward compatibility."""
-        return self._config_dict
 
     # Maximum number of molecules per optimization bucket. Caps the batch so a
     # huge homogeneous chunk is still split into manageable pieces.
