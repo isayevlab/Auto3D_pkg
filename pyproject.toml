@@ -177,8 +177,8 @@ ignore = [
 # had been the argument against. The code is enabled for tests/ again.
 "tests/*" = [
     "N801",   # class name should use CapWords (e.g. `userNNP1`/`userNNP2` fixtures
-              # mimicking a real user-provided NNP class; unrelated to this file's
-              # own three renames, so left as pre-existing debt here too)
+              # mimicking a real user-provided NNP class; unrelated to this PR's
+              # three renames, so left as pre-existing debt here too)
     "F401",   # unused imports (legacy test scaffolding, e.g. optional-dep guards)
     "E712",   # `== True`/`== False` comparisons (common in older tests)
     "E702",   # multiple statements on one line (semicolons in legacy tests)

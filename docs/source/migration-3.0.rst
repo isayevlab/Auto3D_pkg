@@ -783,8 +783,8 @@ different parameter and is unchanged.
 ``AUTO3D_USE_ENSEMBLE`` is no longer read. Passing either argument now raises
 ``TypeError``, which is the point: misspellings were previously swallowed.
 
-``optimizing`` takes an adapter, keyword-only
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``Optimizer`` takes an adapter, keyword-only
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: python
 
@@ -796,7 +796,7 @@ different parameter and is unchanged.
    opt = Optimizer(in_f, out_f, adapter=create_model("AIMNET", device),
                     device=device, config=config)
 
-``optimizing`` no longer resolves a model name itself -- ``batch_opt`` does not
+``Optimizer`` no longer resolves a model name itself -- ``batch_opt`` does not
 import ``model_factory`` at all now -- so the caller builds the adapter and
 passes it in. Build it inside the worker process: an adapter must not cross a
 ``spawn`` boundary.

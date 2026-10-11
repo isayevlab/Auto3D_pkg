@@ -341,7 +341,7 @@ class Optimizer:
         )  # Magic step
         return optdict
 
-    def _read_input_mols(self) -> list | None:
+    def _read_input_mols(self) -> list[Chem.Mol] | None:
         """Read and validate ``self.in_f``, returning its molecules.
 
         Returns:
@@ -381,7 +381,7 @@ class Optimizer:
 
         return mols
 
-    def _optimize_all(self, mols: list) -> tuple:
+    def _optimize_all(self, mols: list[Chem.Mol]) -> tuple[list, ...]:
         """Bucket, optimize and scatter results back to ``mols``' order.
 
         Args:
@@ -435,7 +435,7 @@ class Optimizer:
 
         return energies, fmaxs, converged_flags, osc_counts, coords_out, non_finite_flags
 
-    def _write_results(self, mols: list, results: tuple) -> None:
+    def _write_results(self, mols: list[Chem.Mol], results: tuple[list, ...]) -> None:
         """Write ``mols`` with their optimization results to ``self.out_f``.
 
         Args:
