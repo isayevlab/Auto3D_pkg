@@ -713,7 +713,7 @@ def test_tautomers_force_allows_the_overwrite(smi, tmp_path):
 
 
 def test_execute_optimize_rejects_a_positional_call(tmp_path):
-    """`execute_optimize` is keyword-only after `input_file` (P-m42); a flat
+    """`execute_optimize` is keyword-only after `input_file`; a flat
     positional call -- the shape every argument used to be accepted in --
     must now raise `TypeError` instead of silently working."""
     from Auto3D.presentation.cli.commands.properties import execute_optimize

@@ -19,11 +19,11 @@ from Auto3D.foundation.config import (
 )
 from Auto3D.foundation.exceptions import ConfigurationError
 
-#: ``Auto3DOptions`` fields ``CLIConfig`` deliberately does not carry, with the
-#: reason each is excluded. Used by ``to_auto3d_options`` below (which forwards
-#: every *other* field mechanically) and by
-#: ``tests/test_cli_config_schema.py``'s field-parity test, so "not exposed to
-#: the CLI" is stated once instead of once per consumer.
+#: ``Auto3DOptions`` fields deliberately not exposed as a CLI flag or a
+#: ``config init``-generated key, with the reason each is excluded. Read by
+#: ``tests/test_cli_config_schema.py::test_shipped_parameters_yaml_is_complete``
+#: and ``::test_config_init_tables_only_name_real_options``, so "not exposed
+#: to the CLI" is stated once instead of once per consumer.
 OPTIONS_ONLY_FIELDS: dict[str, str] = {
     "input_format": (
         "derived by the workflow from the input file's suffix, not something a user sets"

@@ -621,10 +621,12 @@ def thermo(
         float,
         typer.Option(
             "--low-freq-cutoff",
+            min=0.0,
             help=(
                 "Quasi-harmonic floor (cm^-1): every real vibrational mode below "
-                "this is raised to the cutoff before the entropy/enthalpy/Gibbs "
-                f"sums. Default: {LOW_FREQUENCY_CUTOFF_CM:g} cm^-1."
+                "this is evaluated at the cutoff instead, in the zero-point and "
+                "enthalpy sums as well as the entropy (Truhlar raising, not "
+                "Grimme's quasi-RRHO); pass 0 for plain RRHO."
             ),
         ),
     ] = LOW_FREQUENCY_CUTOFF_CM,

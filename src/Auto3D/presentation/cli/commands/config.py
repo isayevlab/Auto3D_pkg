@@ -131,9 +131,12 @@ def execute_config_init(
         if output.exists() and not force:
             raise ConfigurationError(
                 f"{output} already exists.",
-                # Same reason check_output_overwrite suppresses its class
-                # hint: "Run 'auto3d config init'" is what the user just ran.
-                hint=("Pass --force/-f to overwrite, or choose a different -o path."),
+                # Same key check_output_overwrite's own `-o` refusal sets
+                # (foundation/utils/output_guard.py), so this gets the same
+                # table-owned "--force (-f) ... or -o ..." CLI sentence
+                # instead of ConfigurationError's class hint ("Run 'auto3d
+                # config init'" -- which is what the user just ran).
+                hint_key="output_exists",
             )
 
         config = DEFAULT_CONFIG.copy()

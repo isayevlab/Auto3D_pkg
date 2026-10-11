@@ -246,7 +246,7 @@ class TestAuxiliaryEntryPointGPUGuard:
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 calc_spe(str(job_dir / "nonexistent.sdf"), "AIMNET")
-        # P-m19: the flag spelling moved from the message to the hint.
+        # The flag spelling moved from the message to the hint.
         assert "--no-gpu" not in str(exc_info.value)
         assert "--no-gpu" in get_error_hint(exc_info.value)
 

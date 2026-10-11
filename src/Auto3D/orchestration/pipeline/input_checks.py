@@ -530,12 +530,15 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     # Checked the same way as the GPU-availability guard just above --
     # raised immediately, not folded into `errors` -- so an out-of-range
     # --gpu-idx exits 4 (GPUError) on every entry point instead of 2
-    # (ConfigurationError) on this one (P-m33, R20). Wording and hint copy
+    # (ConfigurationError) on this one (P-m33, R20). Wording copies
     # get_device's own out-of-range GPUError (model_factory.py) exactly, for
     # the same upper-bound check (get_device also rejects a negative index,
     # which this function has never checked and still does not -- out of
-    # scope here): the two must read as the same error on the two entry
-    # points, not as two different ones that happen to share an exit code.
+    # scope here), and the two sites share its hint_key
+    # ("gpu_index_out_of_range") rather than a literal hint, so
+    # cli.errors.get_error_hint's table is the one place that sentence is
+    # spelled: the two must read as the same error on the two entry points,
+    # not as two different ones that happen to share an exit code.
     if use_gpu:
         device_count = torch.cuda.device_count()
         if isinstance(gpu_idx, int):
@@ -544,7 +547,7 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
                     f"GPU index {gpu_idx} is invalid: {device_count} CUDA "
                     f"device(s) visible, so valid indices are "
                     f"0-{device_count - 1}.",
-                    hint="Pass a --gpu-idx within range, or --no-gpu to run on CPU.",
+                    hint_key="gpu_index_out_of_range",
                 )
         elif isinstance(gpu_idx, list):
             for idx in gpu_idx:
@@ -553,7 +556,7 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
                         f"GPU index {idx} is invalid: {device_count} CUDA "
                         f"device(s) visible, so valid indices are "
                         f"0-{device_count - 1}.",
-                        hint="Pass a --gpu-idx within range, or --no-gpu to run on CPU.",
+                        hint_key="gpu_index_out_of_range",
                     )
 
     # Resolve rather than prefix-match: `aimnet2-2025x` starts with "aimnet2"

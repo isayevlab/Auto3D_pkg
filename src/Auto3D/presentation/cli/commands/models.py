@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import importlib
 
+from rich.console import Group
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from Auto3D.engines.models.policy import ANI_ELEMENTS, check_gpu_requested
 from Auto3D.engines.models.species import format_elements
@@ -188,6 +191,11 @@ ENGINE_INFO = {
             "Requires torchani: pip install torchani",
             "8-model ensemble",
             "Well-validated for drug-like molecules",
+            "Stock ANI2x carries no repulsion term either (torchani ships "
+            "pairwise repulsion only in its ANI2xr/ANI2dr variants), so on "
+            "either ANI engine a clashing or badly embedded start is "
+            "extrapolation -- check short contacts in the output instead of "
+            "expecting an analytic wall to have pushed them apart",
         ],
     },
     "ANI2XT": {
@@ -201,9 +209,15 @@ ENGINE_INFO = {
             "Requires torchani: pip install torchani",
             "Single model",
             "Optimized for conformer search",
-            "The shipped checkpoint (ani2xt_no_repulsion.pt) was trained "
-            "without ANI2x's repulsion term, so short-contact geometries "
-            "lean on the network alone",
+            "The shipped checkpoint (ani2xt_no_repulsion.pt) was retrained "
+            "without the standalone pairwise repulsion term the earlier "
+            "ANI2xt variant added on top of the network, so its "
+            "short-range wall is learned, not analytic",
+            "Stock ANI2x carries no repulsion term either (torchani ships "
+            "pairwise repulsion only in its ANI2xr/ANI2dr variants), so on "
+            "either ANI engine a clashing or badly embedded start is "
+            "extrapolation -- check short contacts in the output instead of "
+            "expecting an analytic wall to have pushed them apart",
         ],
     },
 }
@@ -239,23 +253,33 @@ def execute_models_info(engine: str, verbose: int = 0) -> None:
 
     info = ENGINE_INFO[engine_upper]
 
-    content = f"""[bold]{info["name"]}[/bold]
+    header = Text.from_markup(
+        f"[bold]{info['name']}[/bold]\n"
+        f"\n"
+        f"{info['description']}\n"
+        f"\n"
+        f"[bold]Supported Elements:[/bold] {info['elements']}\n"
+        f"\n"
+        f"[bold]Speed:[/bold] {info['speed']}\n"
+        f"[bold]Accuracy:[/bold] {info['accuracy']}\n"
+        f"\n"
+        f"[bold]Reference:[/bold] {info['reference']}\n"
+        f"\n"
+        f"[bold]Notes:[/bold]"
+    )
+    # Each note is its own Padding-wrapped block rather than one note per line
+    # of a single concatenated string: Padding pads every wrapped line of its
+    # child, not only the first, so a note long enough to wrap keeps its
+    # bullet indent on the continuation line instead of running flush left.
+    notes = Group(*(Padding(Text(f"- {note}"), (0, 0, 0, 2)) for note in info["notes"]))
 
-{info["description"]}
-
-[bold]Supported Elements:[/bold] {info["elements"]}
-
-[bold]Speed:[/bold] {info["speed"]}
-[bold]Accuracy:[/bold] {info["accuracy"]}
-
-[bold]Reference:[/bold] {info["reference"]}
-
-[bold]Notes:[/bold]
-"""
-    for note in info["notes"]:
-        content += f"  - {note}\n"
-
-    console.print(Panel(content, title=f"[cyan]{engine_upper}[/cyan]", border_style="blue"))
+    console.print(
+        Panel(
+            Group(header, notes),
+            title=f"[cyan]{engine_upper}[/cyan]",
+            border_style="blue",
+        )
+    )
 
 
 def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose: int = 0) -> None:

@@ -84,6 +84,12 @@ def exit_code_for(error: Exception) -> int:
 # sentence the matching raise site's own message and `hint` no longer spell,
 # so the flag text lives in exactly one place instead of drifting across the
 # CLI presentation layer and the engine/domain raise site.
+#
+# get_error_hint matches a key's class with isinstance, the same way
+# exit_code_for above matches EXIT_CODES -- not exact-type equality -- so a
+# keyed entry for a base class (none of GPUError/ConfigurationError has a
+# subclass today, but ModelError does: ModelLoadError, NumericalError) still
+# matches a raise site that uses the subclass.
 _HINT_BY_KEY: dict[tuple[type, str], str] = {
     (GPUError, "gpu_unavailable"): "Pass --no-gpu to run on the CPU.",
     (GPUError, "gpu_index_out_of_range"): (
@@ -104,11 +110,12 @@ def get_error_hint(error: Auto3DError) -> str | None:
     Three sources are tried in order; the first that has something to say
     wins:
 
-    1. ``_HINT_BY_KEY[(type(error), error.hint_key)]``, when ``hint_key`` is
-       set and names an entry. Keys the hint on *why* a particular raise site
-       fired, not only the exception class -- a bare ``GPUError`` hint
-       cannot distinguish "no CUDA at all" from "index out of range", and
-       the two want different flag advice (``--no-gpu`` vs. ``--gpu-idx``).
+    1. ``_HINT_BY_KEY``, matched on ``error.hint_key`` and ``isinstance(error,
+       cls)`` (not an exact-type lookup), when ``hint_key`` is set and names
+       an entry. Keys the hint on *why* a particular raise site fired, not
+       only the exception class -- a bare ``GPUError`` hint cannot
+       distinguish "no CUDA at all" from "index out of range", and the two
+       want different flag advice (``--no-gpu`` vs. ``--gpu-idx``).
     2. The per-raise ``hint`` attribute, when set -- including when it is
        empty. The class hints below are broad guesses from the exception
        *type* alone, and a raise site that knows better must be able to say
@@ -128,7 +135,14 @@ def get_error_hint(error: Auto3DError) -> str | None:
     """
     hint_key = getattr(error, "hint_key", None)
     if hint_key is not None:
-        keyed_hint = _HINT_BY_KEY.get((type(error), hint_key))
+        keyed_hint = next(
+            (
+                v
+                for (cls, key), v in _HINT_BY_KEY.items()
+                if key == hint_key and isinstance(error, cls)
+            ),
+            None,
+        )
         if keyed_hint is not None:
             return keyed_hint
 

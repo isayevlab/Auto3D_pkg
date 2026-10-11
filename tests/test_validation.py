@@ -250,8 +250,14 @@ class TestCheckValidConfigurationGpuIndex:
     def test_out_of_range_index_raises_gpu_error(self, tmp_path):
         """P-m33 (R20): an out-of-range gpu_idx is now fatal here too, raised
         immediately as GPUError (the exit-4 contract), not folded into the
-        returned error list and wrapped as a ConfigurationError (exit 2)."""
+        returned error list and wrapped as a ConfigurationError (exit 2).
+
+        Also pins this raise site's hint_key: it shares
+        "gpu_index_out_of_range" with `model_factory.get_device`'s own
+        out-of-range raise, so the flag advice comes from
+        `cli.errors.get_error_hint`'s table, not a literal hint here."""
         from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration
+        from Auto3D.presentation.cli.errors import get_error_hint
 
         p = tmp_path / "in.smi"
         p.write_text("CCO mol\n")
@@ -259,8 +265,11 @@ class TestCheckValidConfigurationGpuIndex:
             patch.object(torch.cuda, "is_available", return_value=True),
             patch.object(torch.cuda, "device_count", return_value=1),
         ):
-            with pytest.raises(GPUError, match="GPU index 5 is invalid"):
+            with pytest.raises(GPUError, match="GPU index 5 is invalid") as exc_info:
                 check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=5))
+        assert "--gpu-idx" not in str(exc_info.value)
+        assert exc_info.value.hint is None
+        assert "--gpu-idx" in get_error_hint(exc_info.value)
 
     def test_valid_index_not_flagged(self, tmp_path):
         from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration
@@ -286,8 +295,10 @@ class TestGpuPolicyIsUniform:
     """
 
     def test_check_gpu_requested_raises_gpu_error_without_cuda(self):
-        """The CLI flag spelling lives in the hint, not the exception message
-        (P-m19): the Python API message never spells a CLI flag."""
+        """The CLI flag spelling lives in the hint, not the exception
+        message: the Python API message never spells a CLI flag, and the
+        hint comes from the hint-key table's exact sentence, not merely a
+        substring the class hint would also satisfy."""
         from Auto3D.engines.models.policy import check_gpu_requested
         from Auto3D.presentation.cli.errors import get_error_hint
 
@@ -295,11 +306,13 @@ class TestGpuPolicyIsUniform:
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 check_gpu_requested(True)
         assert "--no-gpu" not in str(exc_info.value)
-        assert "--no-gpu" in get_error_hint(exc_info.value)
+        assert get_error_hint(exc_info.value) == "Pass --no-gpu to run on the CPU."
 
     def test_gpu_index_out_of_range_hint_names_the_flags(self):
         """Same shape as the test above, for `get_device`'s out-of-range
-        GPUError: the flag advice is in the hint, not the message."""
+        GPUError: the flag advice is in the hint, not the message. Pins the
+        raise site's own contract directly (`hint` unset, `hint_key` set)
+        rather than only the string `get_error_hint` returns through it."""
         from Auto3D.engines.model_factory import get_device
         from Auto3D.presentation.cli.errors import get_error_hint
 
@@ -310,6 +323,8 @@ class TestGpuPolicyIsUniform:
             with pytest.raises(GPUError, match="GPU index 99 is invalid") as exc_info:
                 get_device(gpu_idx=99, use_gpu=True)
         assert "--gpu-idx" not in str(exc_info.value)
+        assert exc_info.value.hint is None
+        assert exc_info.value.hint_key == "gpu_index_out_of_range"
         assert "--gpu-idx" in get_error_hint(exc_info.value)
 
     def test_check_gpu_requested_noop_when_use_gpu_false(self):

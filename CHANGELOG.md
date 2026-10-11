@@ -192,9 +192,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolved multiplicity through to aimnet2-nse is tracked separately. An
   invalid `multiplicity` property is now dropped from the output record
   with a warning instead of being carried through unused.
-- `auto3d models info ANI2xt` and the engine table in the usage docs now
-  name the training choice behind the shipped checkpoint: it was trained
-  without ANI2x's repulsion term.
+- `auto3d models info ANI2xt`/`ANI2x` and the engine table in the usage docs
+  now name the training choice behind the shipped ANI2xt checkpoint (retrained
+  without the standalone pairwise repulsion term its own earlier variant
+  added) and note that stock ANI2x carries no repulsion term either, so
+  neither ANI engine analytically pushes apart a clashing geometry.
 - `auto3d thermo` gains `--low-freq-cutoff` (default: the existing
   quasi-harmonic floor), forwarded to `calc_thermo`'s `low_freq_cutoff_cm`;
   previously only the Python API could change it.
@@ -202,9 +204,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cli.errors.get_error_hint` looks up before the per-class hint. The GPU
   index/availability checks, the output-overwrite refusal and the
   missing-selector error no longer spell a CLI flag in their own message or
-  `hint`; the flag-bearing sentence a user actually sees is unchanged, since
-  the CLI prints it as the hint either way, but a Python-API caller that
-  prints the exception's message now sees flag-free text.
+  `hint`; the CLI hint sentence at each of those four sites is reworded, and
+  the missing-selector error gains a flag-bearing `--k=1` CLI hint it did
+  not have before. A Python-API caller that prints the exception's message
+  or `hint` no longer sees a CLI flag spelling at any of the four.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

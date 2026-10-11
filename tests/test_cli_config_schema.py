@@ -265,19 +265,34 @@ def test_shipped_parameters_yaml_loads():
     require_input_path(cfg)  # the shipped example is runnable, not settings-only
 
 
-def test_shipped_parameters_yaml_pins_every_numeric():
-    """The shipped `parameters.yaml` must keep showing the real defaults, not
-    a stale example value that happens to still parse (N-m15)."""
+def test_standard_temperature_k_is_298_15():
     from Auto3D.foundation.constants import STANDARD_TEMPERATURE_K
-    from Auto3D.presentation.cli.config_schema import load_yaml_config
 
     assert STANDARD_TEMPERATURE_K == 298.15
 
+
+def test_shipped_parameters_yaml_pins_every_numeric():
+    """The shipped `parameters.yaml` must keep showing the real defaults, not
+    a stale example value that happens to still parse. Compared against
+    `Auto3DOptions.model_fields[name].default` rather than a hardcoded
+    literal, so raising one of these defaults in `foundation/config.py`
+    without also updating the example file fails this test instead of
+    leaving a now-stale example silently green."""
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
+
     repo_root = Path(__file__).resolve().parent.parent
     cfg = load_yaml_config(repo_root / "parameters.yaml")
-    assert (cfg.capacity, cfg.isomer_threads, cfg.opt_steps) == (42, 4, 2000)
-    assert (cfg.convergence_threshold, cfg.patience, cfg.batchsize_atoms) == (0.01, 250, 1024)
-    assert (cfg.threshold, cfg.parallel_embedding_threshold) == (0.3, 10)
+    for name in (
+        "capacity",
+        "isomer_threads",
+        "opt_steps",
+        "convergence_threshold",
+        "patience",
+        "batchsize_atoms",
+        "threshold",
+        "parallel_embedding_threshold",
+    ):
+        assert getattr(cfg, name) == Auto3DOptions.model_fields[name].default, name
 
 
 def test_shipped_legacy_v2_parameters_yaml_loads():
@@ -576,7 +591,7 @@ def test_config_init_tables_only_name_real_options():
 def test_dead_to_options_names_are_gone():
     """`_ENGINE_CANONICAL_CASE`/`_to_options_path`/`_to_options_engine`/
     `_TO_OPTIONS_TRANSFORMS` had no reader left once `to_auto3d_options` was
-    removed (P-m43); pin that they stay gone rather than creep back."""
+    removed; pin that they stay gone rather than creep back."""
     from Auto3D.presentation.cli import config_schema
 
     assert not hasattr(config_schema, "_to_options_path")

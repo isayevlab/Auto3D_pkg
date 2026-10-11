@@ -141,32 +141,6 @@ def execute_optimize(
         handle_error(e, verbose=verbose, json_output=json_output)
 
 
-def calc_thermo(*args, **kwargs):
-    """Call ``Auto3D.entry.ASE.thermo.calc_thermo``, translating a missing
-    ``ase`` extra into ``DependencyError``.
-
-    A thin, lazily-importing wrapper rather than a bare module-level
-    re-export: ``execute_energy``/``execute_optimize`` also import their API
-    function (``calc_spe``/``opt_geometry``) lazily, inside their own
-    function body, so there is no module attribute either could be replaced
-    through -- a test double for either is passed straight into the real
-    function's own module. ``calc_thermo`` needs one anyway, because a
-    missing ``ase`` has to become ``DependencyError`` *before* a test double
-    could stand in for the real call; giving that translation a name here,
-    at module scope, is what lets ``execute_thermo`` call one thing and lets
-    a test replace this attribute wholesale instead of patching the lazy
-    import inside ``execute_thermo`` itself.
-    """
-    try:
-        from Auto3D.entry.ASE.thermo import calc_thermo as _calc_thermo
-    except ImportError as e:
-        raise DependencyError(
-            "Thermochemistry requires ASE, which is not installed.",
-            dependency_name="ase",
-        ) from e
-    return _calc_thermo(*args, **kwargs)
-
-
 def execute_thermo(
     input_file: Path,
     *,
@@ -192,6 +166,13 @@ def execute_thermo(
     try:
         # The engine name and the GPU policy are validated inside calc_thermo --
         # see execute_energy's comment.
+        try:
+            from Auto3D.entry.ASE.thermo import calc_thermo
+        except ImportError as e:
+            raise DependencyError(
+                "Thermochemistry requires ASE, which is not installed.",
+                dependency_name="ase",
+            ) from e
 
         # Scalar --temperature -> the per-mol (id, T) callback calc_thermo expects.
         def mol_info_func(mol):
