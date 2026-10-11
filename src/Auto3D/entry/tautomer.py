@@ -37,9 +37,11 @@ def select_tautomers(
 
     Args:
         sdf: Path to the SDF this function reads, normally ``main()``'s output.
-        k: Keep the top-k tautomers per input molecule.
+        k: Keep the top-k tautomers per input molecule, applied independently
+            within each `(formula, formal charge)` partition of an id group.
         window: Keep tautomers within this kcal/mol window of the most stable
-            one. Mutually exclusive with `k`.
+            one, applied independently within each `(formula, formal charge)`
+            partition of an id group. Mutually exclusive with `k`.
         overwrite: Allow replacing an existing
             ``<dir(sdf)>/<stem>_top_tautomers.sdf``. Keyword-only, and
             defaults to False because that name is one Auto3D *derives* rather
@@ -213,9 +215,13 @@ def get_stable_tautomers(
         args: Configuration options as an ``Auto3DOptions`` instance. A plain
             dict is *not* accepted: this forwards to :func:`Auto3D.entry.auto3D.main`,
             which reads attributes off the object.
-        tauto_k: Keep the top-k tautomers (mutually exclusive with tauto_window).
+        tauto_k: Keep the top-k tautomers (mutually exclusive with
+            tauto_window), applied independently within each
+            `(formula, formal charge)` partition of an id group.
         tauto_window: Keep tautomers within this energy window (kcal/mol)
-            of the lowest energy tautomer (mutually exclusive with tauto_k).
+            of the lowest energy tautomer (mutually exclusive with tauto_k),
+            applied independently within each `(formula, formal charge)`
+            partition of an id group.
 
     Returns:
         Path to the output SDF file containing stable tautomers.

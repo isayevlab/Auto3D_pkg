@@ -305,3 +305,11 @@ def test_select_tautomers_rejects_neither_k_nor_window(tmp_path):
 
     with pytest.raises(ConfigurationError, match="Either k or window needs to be specified"):
         select_tautomers(str(sdf))
+
+
+def test_select_tautomers_docstring_states_the_partition_rule():
+    """``k``/``window`` apply within each ``(formula, formal charge)``
+    partition of an id group, not across one -- the docstring must say so."""
+    from Auto3D.entry.tautomer import select_tautomers
+
+    assert "partition" in select_tautomers.__doc__.lower()

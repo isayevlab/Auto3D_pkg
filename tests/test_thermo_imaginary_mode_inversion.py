@@ -9,7 +9,9 @@ Three separate decisions, tested here:
    function and a species with none a ``3N-6``-mode one; those two free
    energies are not the same thermodynamic quantity and the difference does
    not cancel in the comparison a user runs thermochemistry to make. Keeping
-   the mode at ``|nu|`` is the Gaussian/ORCA convention.
+   the mode at ``|nu|`` follows the GoodVibes ``--invert`` option and the
+   xtb program's practice; Gaussian and ORCA instead exclude such modes from
+   the thermochemistry.
 2. **A genuine reaction coordinate is removed by Auto3D, deliberately**, so a
    confirmed saddle point passes ``3N-7`` and the count is a decision rather
    than a side effect of ``ignore_imag_modes``.
@@ -39,7 +41,7 @@ from ase.vibrations import VibrationsData
 import Auto3D.entry.ASE.thermo.driver as thermo_mod
 from Auto3D.domain.energy import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
 from Auto3D.entry.ASE.thermo import vibrations as _vibrations
-from Auto3D.entry.ASE.thermo.vibrations import analyze_vibrations, projected_vibrations
+from Auto3D.entry.ASE.thermo.vibrations import Projection, analyze_vibrations, projected_vibrations
 from Auto3D.foundation.constants import (
     EV_PER_WAVENUMBER,
     EV_TO_HARTREE,
@@ -49,6 +51,7 @@ from Auto3D.foundation.constants import (
 from tests.helpers_vibrations import (
     ASE_SELECTION_RULES,
     atoms_for,
+    drive_do_mol_thermo,
     energies_ev,
     fake_vib_for,
     hessian_with_spectrum,
@@ -165,6 +168,13 @@ def _run(
     )
     assert len(captured) == 1, "do_mol_thermo built more than one IdealGasThermo"
     return produced, atoms, captured[0]
+
+
+def _water():
+    """A water molecule and its ASE atoms, for the wording tests below."""
+    mol = probe_mol("O", "water")
+    atoms = atoms_for(mol, potential_energy=0.0)
+    return mol, atoms
 
 
 class TestTheModeCountIsConserved:
@@ -530,3 +540,56 @@ class TestAseSelectionIsDisabledAtTheCallSite:
             "this ASE's default selection is a no-op on a wrong-length list, "
             "so this test cannot discriminate on it"
         )
+
+
+class TestTheInversionWordingAttributesTheRightConvention:
+    def test_inversion_warning_does_not_attribute_inversion_to_gaussian_or_orca(
+        self, monkeypatch, caplog
+    ):
+        import logging
+
+        mol, atoms = _water()
+        # One sub-cutoff imaginary mode (-30 cm-1, below the 50 cm-1 default
+        # saddle-point threshold) plus two real modes -- the same shape as
+        # TestTheModeCountIsConserved's sub-cutoff case, just driven through
+        # do_mol_thermo so the warning actually logs.
+        vib = fake_vib_for(atoms, [1595.0, 3657.0, -30.0], TRANS_ROT_NOISE, "nonlinear")
+        with caplog.at_level(logging.WARNING):
+            drive_do_mol_thermo(mol, atoms, vib, monkeypatch)
+        assert "Gaussian/ORCA convention" not in caplog.text
+        assert "GoodVibes" in caplog.text
+
+    def test_an_exactly_zero_mode_is_dropped_by_ase_and_warned_about(self, monkeypatch, caplog):
+        """Documents existing behavior: with the floor disabled, an
+        exactly-zero mode survives ``analyze_vibrations`` (it classifies
+        ``complex(0, 0)`` as real) but is then dropped by ASE's own
+        ``_clean_vib_energies`` (``real(v) > 0`` excludes zero), which the
+        driver's mode-count warning catches.
+
+        ``project_vibrations`` is patched directly, rather than going through
+        a real Hessian built by ``fake_vib_for``: round-tripping a designed
+        zero eigenvalue through an actual Hessian build-and-diagonalize always
+        comes back as a tiny nonzero residual (checked: consistently a small
+        positive real or purely imaginary value, never exactly zero), which
+        ``analyze_vibrations`` and then ASE both treat as a kept real mode
+        -- not the exactly-zero case this test is about.
+        """
+        import logging
+
+        mol, atoms = _water()
+        vib = fake_vib_for(atoms, [100.0, 1595.0, 3657.0], TRANS_ROT_NOISE, "nonlinear")
+        exact_projection = Projection(
+            energies=[
+                complex(0.0, 0.0),
+                complex(1595.0 * EV_PER_WAVENUMBER, 0.0),
+                complex(3657.0 * EV_PER_WAVENUMBER, 0.0),
+            ],
+            geometry="nonlinear",
+            mode_geometry="nonlinear",
+            linearity="nonlinear",
+        )
+        monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: vib)
+        monkeypatch.setattr(thermo_mod, "project_vibrations", lambda *a, **k: exact_projection)
+        with caplog.at_level(logging.WARNING):
+            thermo_mod.do_mol_thermo(mol, atoms, adapter=None, low_freq_cutoff_cm=0.0)
+        assert "ASE kept" in caplog.text

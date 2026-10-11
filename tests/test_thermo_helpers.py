@@ -291,8 +291,6 @@ def test_resolve_multiplicity_closed_shell_is_singlet():
 
     m = Chem.MolFromSmiles("CCO")
     assert _resolve_multiplicity(m) == 1
-    # Derived multiplicity is recorded on the mol.
-    assert m.GetUnsignedProp("multiplicity") == 1
 
 
 def test_resolve_multiplicity_radical_is_doublet():
@@ -302,7 +300,16 @@ def test_resolve_multiplicity_radical_is_doublet():
 
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
     assert _resolve_multiplicity(m) == 2
-    assert m.GetUnsignedProp("multiplicity") == 2
+
+
+def test_resolve_multiplicity_does_not_write_the_derived_value_back():
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")  # methyl radical, as the doublet case above
+    assert _resolve_multiplicity(m) == 2
+    assert not m.HasProp("multiplicity")
 
 
 def test_resolve_multiplicity_respects_explicit_property():
@@ -322,6 +329,23 @@ def test_do_mol_thermo_default_temperature_is_298_15():
     from Auto3D.entry.ASE.thermo.driver import do_mol_thermo
 
     assert inspect.signature(do_mol_thermo).parameters["T"].default == 298.15
+
+
+def test_do_mol_thermo_prints_nothing_to_stdout(monkeypatch, capsys):
+    """``IdealGasThermo.get_enthalpy``/``get_entropy``/``get_gibbs_energy`` all
+    default to ``verbose=True``, which prints a component table to stdout on
+    every call; ``_gibbs_terms`` must pass ``verbose=False`` on each of them.
+    """
+    from tests.helpers_vibrations import atoms_for, drive_do_mol_thermo, fake_vib_for, probe_mol
+
+    mol = probe_mol("O", "water")
+    atoms = atoms_for(mol, potential_energy=0.0)
+    # A clean spectrum: no imaginary modes, nothing for the floor to raise.
+    vib = fake_vib_for(
+        atoms, [1595.0, 3657.0, 3756.0], (1.6, -3.2, 3.4, -3.5, 3.7, -4.1), "nonlinear"
+    )
+    drive_do_mol_thermo(mol, atoms, vib, monkeypatch)
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.slow

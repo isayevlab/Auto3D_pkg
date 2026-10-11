@@ -179,6 +179,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Auto3D.log`.
 - Worker progress bars are now off while the CLI draws its own progress
   panel.
+- The imaginary-mode inversion warning and the `analyze_vibrations`
+  docstring now name the convention Auto3D actually follows: inverting a
+  sub-cutoff imaginary mode to its real counterpart follows the GoodVibes
+  `--invert` option and the xtb program's practice, not Gaussian or ORCA,
+  which instead exclude such modes from the thermochemistry.
+- `calc_thermo` no longer prints ASE's enthalpy, entropy and Gibbs energy
+  component tables to stdout for every molecule.
+- `calc_thermo` no longer writes a derived `multiplicity` property back onto
+  the record, since no energy engine reads it; an input that already
+  carries a `multiplicity` property is still honored. Threading the
+  resolved multiplicity through to aimnet2-nse is tracked separately.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

@@ -255,12 +255,14 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     """Spin multiplicity (2S+1) for IdealGasThermo's electronic-degeneracy term.
 
     Uses an explicit integer 'multiplicity' molecule property when present.
-    Otherwise derives it from the radical-electron count
-    (multiplicity = unpaired electrons + 1) and records it on the mol, instead of
-    silently assuming a closed-shell singlet -- which would zero the electronic
-    entropy term for every radical. The NNP *energy* stays closed-shell
-    regardless (AIMNet2 takes only coords/species/charge, no spin), so warn for
-    open-shell species that the energy is an approximation.
+    Otherwise derives it from the radical-electron count (multiplicity =
+    unpaired electrons + 1), instead of silently assuming a closed-shell
+    singlet -- which would zero the electronic entropy term for every
+    radical. The derived value is returned but not written back onto ``mol``:
+    no energy engine reads the property, so recording it would only be a
+    value a re-run recomputes anyway. The NNP *energy* stays closed-shell
+    regardless (AIMNet2 takes only coords/species/charge, no spin), so warn
+    for open-shell species that the energy is an approximation.
 
     The property is parsed with plain Python ``int()`` rather than RDKit's
     ``GetUnsignedProp``: the latter parses as an *unsigned* C++ integer, so a
@@ -356,7 +358,6 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             multiplicity,
             n_electrons,
         )
-    mol.SetUnsignedProp("multiplicity", int(multiplicity))
     if n_radical > 0:
         logger.warning(
             "Open-shell species detected (%d unpaired electron(s), "

@@ -627,9 +627,10 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   dropped but the linear rotor is kept. A warning names the molecule in both
   cases.
 - **multiplicity**: 2S+1, the spin multiplicity used for the electronic entropy
-  ``R ln(2S+1)``; the per-mol ``multiplicity`` property when valid, otherwise
-  derived from the radical-electron count and written back, so the record always
-  carries the value used.
+  ``R ln(2S+1)``. It is derived for the thermochemistry from the
+  radical-electron count, or from the per-mol ``multiplicity`` property when
+  the input carries one; the value is not written back onto the record
+  because no energy engine reads it.
 
 ``Thermo_convention``, ``Thermo_standard_state``, ``Symmetry_number`` and
 ``Thermo_linearity`` are written by the thermochemistry step itself, so a
