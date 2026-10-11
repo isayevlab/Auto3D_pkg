@@ -13,6 +13,7 @@ including the Python API.
 """
 
 import operator
+import warnings
 from dataclasses import dataclass
 from pathlib import PurePath
 from typing import Any
@@ -291,6 +292,24 @@ def check_engine_choices(values: dict) -> None:
         if isinstance(value, str) and value.lower() in choices:
             continue
         raise ConfigurationError(f"{name} must be one of {', '.join(choices)}, got {value!r}")
+
+
+def _warn_dict_access(method: str) -> None:
+    """Warn that ``Auto3DOptions``'s dict-compat shim is deprecated.
+
+    One ``warnings.warn`` call shared by all five shim methods rather than a
+    copy of the same message inlined in each, so the wording cannot drift
+    between them. ``stacklevel=3`` skips this helper's own frame and the
+    calling shim method's frame, attributing the warning to the line that
+    actually indexed or iterated the config like a dict -- the line a caller
+    can change -- rather than to a line inside this module.
+    """
+    warnings.warn(
+        f"Auto3DOptions is not a dict; use attribute access (options.<field>) "
+        f"instead of {method}; dict-style access is removed in 4.0",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 class Auto3DOptions(BaseModel):
@@ -585,24 +604,33 @@ class Auto3DOptions(BaseModel):
         return self
 
     def __getitem__(self, key: str) -> Any:
-        """Allow dict-like access for backward compatibility."""
+        """Dict-like access, kept for one release behind a deprecation warning."""
+        _warn_dict_access("__getitem__")
         return getattr(self, key)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """Allow dict-like assignment for backward compatibility."""
+        """Dict-like assignment, kept for one release behind a deprecation warning."""
+        _warn_dict_access("__setitem__")
         setattr(self, key, value)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Dict-like get method for backward compatibility."""
+        """Dict-like ``get``, kept for one release behind a deprecation warning."""
+        _warn_dict_access("get")
         return getattr(self, key, default)
 
     def keys(self) -> list[str]:
-        """Return field names for backward compatibility."""
+        """Field names, kept for one release behind a deprecation warning."""
+        _warn_dict_access("keys")
         return list(type(self).model_fields)
 
     def items(self):
-        """Return field name-value pairs for backward compatibility."""
-        return [(k, getattr(self, k)) for k in self.keys()]
+        """Field name-value pairs, kept for one release behind a deprecation warning.
+
+        Does not call ``self.keys()``: that would also be a shim call and warn
+        a second time for one ``items()`` call.
+        """
+        _warn_dict_access("items")
+        return [(k, getattr(self, k)) for k in type(self).model_fields]
 
     def replace(self, **changes: Any) -> "Auto3DOptions":
         """A **validated** copy of this config with ``changes`` applied.
@@ -709,11 +737,12 @@ class OptimizationConfig:
         """Convert to dict for backward compatibility with existing code.
 
         Returns:
-            Dictionary with optimization parameters using legacy key names.
+            Dictionary with optimization parameters, each key its own field
+            name.
         """
         return {
             "opt_steps": self.opt_steps,
-            "opttol": self.convergence_threshold,  # Legacy key name
+            "convergence_threshold": self.convergence_threshold,
             "patience": self.patience,
             "batchsize_atoms": self.batchsize_atoms,
         }

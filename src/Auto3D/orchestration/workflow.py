@@ -338,7 +338,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
 
         # Store format on the config -- the single source of truth for downstream
         # consumers (chunk manager, isomer workers), surviving replace()/pickling.
-        self.config["input_format"] = input_format
+        self.config.input_format = input_format
 
         # Validate output selection
         if not self.config.k and not self.config.window:

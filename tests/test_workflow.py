@@ -387,7 +387,7 @@ class TestOptimizerEmptyInput:
         device = torch.device("cpu")
         config = {
             "opt_steps": 100,
-            "opttol": 0.003,
+            "convergence_threshold": 0.003,
             "patience": 100,
             "batchsize_atoms": 1024,
         }
@@ -421,7 +421,7 @@ class TestOptimizerEmptyInput:
         device = torch.device("cpu")
         config = {
             "opt_steps": 100,
-            "opttol": 0.003,
+            "convergence_threshold": 0.003,
             "patience": 100,
             "batchsize_atoms": 1024,
         }
@@ -1566,7 +1566,7 @@ class TestQuietPathsNameWhatTheyDropped:
 
         config = {
             "opt_steps": 100,
-            "opttol": 0.003,
+            "convergence_threshold": 0.003,
             "patience": 100,
             "batchsize_atoms": 1024,
         }

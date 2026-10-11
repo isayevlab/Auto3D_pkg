@@ -30,7 +30,7 @@ class TestCheckInput:
     def test_check_input_all_specified_enumerate_true(self):
         """Test with all stereo centers specified and enumerate_isomer=True."""
         args = Auto3DOptions(path=path_all_stereo, k=1, enumerate_isomer=True, use_gpu=False)
-        args["input_format"] = "smi"
+        args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             check_input(args)
         assert len(warnings_list) == 0
@@ -38,7 +38,7 @@ class TestCheckInput:
     def test_check_input_unspecified_enumerate_true(self):
         """Test with unspecified centers and enumerate_isomer=True (no warnings)."""
         args = Auto3DOptions(path=path_unspecified, k=1, enumerate_isomer=True, use_gpu=False)
-        args["input_format"] = "smi"
+        args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             check_input(args)
         assert len(warnings_list) == 0
@@ -46,7 +46,7 @@ class TestCheckInput:
     def test_check_input_unspecified_enumerate_false_warns(self):
         """Test with unspecified centers and enumerate_isomer=False (should warn)."""
         args = Auto3DOptions(path=path_unspecified, k=1, use_gpu=False, enumerate_isomer=False)
-        args["input_format"] = "smi"
+        args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             warnings.simplefilter("always")
             check_input(args)
@@ -55,7 +55,7 @@ class TestCheckInput:
     def test_check_input_all_specified_enumerate_false(self):
         """Test with all stereo centers specified and enumerate_isomer=False (no warnings)."""
         args = Auto3DOptions(path=path_all_stereo, k=1, use_gpu=False, enumerate_isomer=False)
-        args["input_format"] = "smi"
+        args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             check_input(args)
         assert len(warnings_list) == 0

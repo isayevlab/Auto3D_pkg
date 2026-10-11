@@ -105,7 +105,12 @@ class TestOptimizerWritesHartree:
             str(out),
             adapter=adapter,
             device=torch.device("cpu"),
-            config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+            config={
+                "opt_steps": 1,
+                "convergence_threshold": 0.01,
+                "patience": 1,
+                "batchsize_atoms": 1024,
+            },
         ).run()
 
         mols = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m]
@@ -212,7 +217,12 @@ class TestTautomerSelectionReadsTheSameUnit:
             str(out),
             adapter=adapter,
             device=torch.device("cpu"),
-            config={"opt_steps": 1, "opttol": 0.01, "patience": 1, "batchsize_atoms": 1024},
+            config={
+                "opt_steps": 1,
+                "convergence_threshold": 0.01,
+                "patience": 1,
+                "batchsize_atoms": 1024,
+            },
         ).run()
 
         selected = select_tautomers(str(out), k=2)

@@ -160,7 +160,8 @@ class RunLoggingMixin:
         self.logger.info("=" * 80)
         self.logger.info("                               INPUT PARAMETERS")
         self.logger.info("=" * 80)
-        for key, val in self.config.items():
+        for key in type(self.config).model_fields:
+            val = getattr(self.config, key)
             self.logger.info(f"{key}: {val}")
 
         self.logger.info("=" * 80)
