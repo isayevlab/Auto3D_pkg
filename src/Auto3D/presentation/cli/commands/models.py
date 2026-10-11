@@ -191,7 +191,7 @@ ENGINE_INFO = {
             "Requires torchani: pip install torchani",
             "8-model ensemble",
             "Well-validated for drug-like molecules",
-            "Stock ANI2x carries no repulsion term either (torchani ships "
+            "Stock ANI2x carries no repulsion term (torchani ships "
             "pairwise repulsion only in its ANI2xr/ANI2dr variants), so on "
             "either ANI engine a clashing or badly embedded start is "
             "extrapolation -- check short contacts in the output instead of "
