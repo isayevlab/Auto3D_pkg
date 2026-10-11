@@ -35,7 +35,7 @@ class TestCheckSmiFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # Should raise the structured InputValidationError (not AssertionError)
             with pytest.raises(InputValidationError):
@@ -53,7 +53,7 @@ class TestCheckSmiFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # split() drops the trailing whitespace, leaving a single token (no ID)
             with pytest.raises(InputValidationError):
@@ -71,7 +71,7 @@ class TestCheckSmiFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # Should not raise - empty lines are skipped
             ani, only_aimnet = check_smi_format(args)
@@ -90,7 +90,7 @@ class TestCheckSmiFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # Should not raise
             ani, only_aimnet = check_smi_format(args)
@@ -114,7 +114,7 @@ class TestCheckSmiFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # Should NOT raise: only the first two columns (SMILES, ID) are used.
             ani, only_aimnet = check_smi_format(args)
@@ -144,7 +144,7 @@ class TestCheckSdfFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             with pytest.raises(InputValidationError, match="[Ee]mpty.*ID|[Ee]mpty.*_Name"):
                 check_sdf_format(args)
@@ -164,7 +164,7 @@ class TestCheckSdfFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # Should not raise
             ani, only_aimnet = check_sdf_format(args)
@@ -190,7 +190,7 @@ class TestCheckSdfFormatErrors:
 
             args = MagicMock()
             args.path = f.name
-            args.enumerate_isomer = False
+            args.enumerate_isomers = False
 
             # Should not raise, and both molecules (ethanol, propane -- H/C/O
             # only, uncharged) fit the ANI element set, so neither requires

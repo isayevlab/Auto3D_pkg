@@ -100,7 +100,7 @@ class TestValidateCheckSmiFormatParity:
 
         from Auto3D.orchestration.pipeline.input_checks import check_smi_format
 
-        args = SimpleNamespace(path=str(path), enumerate_isomer=True)
+        args = SimpleNamespace(path=str(path), enumerate_isomers=True)
         try:
             check_smi_format(args)
         except InputValidationError:

@@ -356,8 +356,8 @@ class TestClashReliefWarning:
             job_name=str(job_dir),
             max_confs=1,
             threshold=0.3,
-            np=1,
-            flipper=False,
+            n_threads=1,
+            enumerate_isomers=False,
         )
 
         # relieve_clash(mol, conf_id) never sees the species name -- only the

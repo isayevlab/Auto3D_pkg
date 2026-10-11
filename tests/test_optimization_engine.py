@@ -261,6 +261,65 @@ class TestNSteps:
         # oscillating_count should be >= patience for dropped structures
         assert (state["oscillating_count"] >= 5).all()
 
+    @pytest.fixture
+    def mock_nn_with_fmax_about_1000(self):
+        """A model whose first-step force norm (fmax) is ~1000 -- above the old
+        999.0 sentinel ``smallest_fmax0`` seeded, so ``fmax_col < smallest_fmax``
+        was False on step one and the oscillation counter incremented instead
+        of staying at zero (N-m8)."""
+        mock_nn = MagicMock()
+        forces = torch.zeros(2, 5, 3)
+        forces[..., 0] = 1000.0  # norm per atom == 1000.0 exactly
+        mock_nn.forward_batched.return_value = (torch.tensor([1.0, 2.0]), forces)
+        return mock_nn
+
+    @pytest.fixture
+    def state(self, mock_nn_with_fmax_about_1000):
+        return {
+            "numbers": torch.ones(2, 5, dtype=torch.long),
+            "charges": torch.zeros(2, dtype=torch.long),
+            "coord": torch.randn(2, 5, 3),
+            "nn": mock_nn_with_fmax_about_1000,
+            "converged_mask": torch.tensor([False, False]),
+            "fmax": torch.full((2,), 999.0),
+            "energy": torch.full((2,), 999.0, dtype=torch.double),
+        }
+
+    def test_oscillating_count_resets_on_an_extreme_first_step(
+        self, mock_nn_with_fmax_about_1000, state
+    ):
+        """N-m8: the running force minimum must start at +inf, not 999.0.
+
+        A first step whose fmax happens to exceed the old hardcoded 999.0
+        sentinel was never "an improvement" under ``fmax_col < smallest_fmax``,
+        so ``oscillating_count`` incremented on step one for a molecule that
+        had taken no step yet. Starting the sentinel at infinity makes every
+        finite first measurement a reduction, regardless of its magnitude.
+        """
+        n_steps(state, n=1, opttol=0.01, patience=100)
+        assert int(state["oscillating_count"].sum()) == 0
+
+    def test_fire_step_oom_raises_optimization_error(self, monkeypatch, state):
+        """P-m12: a CUDA out-of-memory during the FIRE step itself (not the
+        model forward) must surface as ``OptimizationError`` (exit 7), not a
+        bare CUDA error -- the same contract ``_run_in_sub_batches`` already
+        gives a model-forward OOM.
+        """
+        import Auto3D.engines.batch_opt.optimization_engine as optimization_engine_mod
+        from Auto3D.foundation.exceptions import OptimizationError
+
+        class _OOMFire:
+            def __init__(self, coord):
+                pass
+
+            def __call__(self, coord, forces):
+                raise RuntimeError("CUDA out of memory (fake, FIRE step)")
+
+        monkeypatch.setattr(optimization_engine_mod, "FIRE", _OOMFire)
+
+        with pytest.raises(OptimizationError, match="out of memory"):
+            n_steps(state, n=1, opttol=0.01, patience=100)
+
 
 class _ConstantForceNN:
     """Stub NNP: a constant force field plus a caller-chosen energy sequence.

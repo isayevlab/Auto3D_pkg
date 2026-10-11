@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import warnings
+from collections.abc import Callable
+from typing import TypeVar
 
 import torch
 import torch.nn as nn
@@ -24,6 +26,8 @@ from Auto3D.foundation.exceptions import NumericalError, OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+_T = TypeVar("_T")
 
 
 def _slice(
@@ -55,6 +59,23 @@ def _slice(
         charges[sub],
         None if atom_mask is None else atom_mask[sub],
     )
+
+
+def _is_oom(exc: BaseException) -> bool:
+    """True for a CUDA out-of-memory, typed or reported as a bare ``RuntimeError``.
+
+    ``torch.cuda.OutOfMemoryError`` (itself a ``RuntimeError`` subclass) is
+    what an adapter is expected to raise, but not every code path an adapter
+    calls into does: some still raise a plain ``RuntimeError`` whose message
+    names the condition instead (e.g. ``"CUDA error: out of memory"``). Both
+    are the same recoverable condition from this module's point of view --
+    checked by message text is the only way to recognize the second form,
+    since its type carries no more information than any other
+    ``RuntimeError``.
+    """
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc)
 
 
 class BatchedEnergyForce(nn.Module):
@@ -256,7 +277,14 @@ class BatchedEnergyForce(nn.Module):
             oom = False
             try:
                 out = compute(sub)
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError as exc:
+                # `torch.cuda.OutOfMemoryError` is itself a `RuntimeError`
+                # subclass, so this one clause covers both the typed
+                # exception and the bare-`RuntimeError` form `_is_oom`
+                # recognizes by message (P-m12); anything else re-raises
+                # unchanged.
+                if not _is_oom(exc):
+                    raise
                 oom = True
             except NumericalError:
                 if not tolerate_non_finite:
@@ -410,6 +438,40 @@ class BatchedEnergyForce(nn.Module):
         forces = torch.zeros((n, *coord.shape[1:]), dtype=coord.dtype, device=coord.device)
         return energy, forces
 
+    @staticmethod
+    def _retry_once_on_oom(build: Callable[[], _T]) -> _T:
+        """Run ``build`` (expected to call ``torch.cat``), retrying once after
+        ``torch.cuda.empty_cache()`` if it raises an out-of-memory error (P-m12).
+
+        The final concatenation that assembles every sub-batch's result is
+        itself one GPU allocation sized by the WHOLE batch -- not by
+        ``batchsize_atoms`` -- so it can exhaust memory even when every
+        sub-batch forward above it already succeeded individually.
+        ``_run_in_sub_batches``'s halving loop cannot help here: there is no
+        smaller sub-batch to retry, only the one concatenation. A single
+        retry covers a transient condition (another process freeing memory
+        between the two attempts); a second failure propagates.
+
+        Args:
+            build: Zero-argument callable that performs the concatenation(s)
+                and returns the result.
+
+        Returns:
+            Whatever ``build`` returns.
+
+        Raises:
+            torch.cuda.OutOfMemoryError: ``build`` failed with an
+                out-of-memory error on the retry too.
+        """
+        try:
+            return build()
+        except RuntimeError as exc:
+            if not _is_oom(exc):
+                raise
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return build()
+
     def forward_batched(
         self,
         coord: torch.Tensor,
@@ -466,9 +528,11 @@ class BatchedEnergyForce(nn.Module):
             _compute,
             tolerate_non_finite=True,
         )
-        return (
-            torch.cat([e for e, _f in results], dim=0),
-            torch.cat([f for _e, f in results], dim=0),
+        return self._retry_once_on_oom(
+            lambda: (
+                torch.cat([e for e, _f in results], dim=0),
+                torch.cat([f for _e, f in results], dim=0),
+            )
         )
 
     def energy_batched(
@@ -558,7 +622,7 @@ class BatchedEnergyForce(nn.Module):
             coord,
             _compute,
         )
-        energies = torch.cat(results, dim=0)
+        energies = self._retry_once_on_oom(lambda: torch.cat(results, dim=0))
         validate_energies(energies)
         return energies
 

@@ -202,6 +202,18 @@ class TestEnForceANIModule:
         assert wrapper.batchsize_atoms == 1024 * 16  # 16384
 
 
+def _batch_like_test_forward_batched_retries_on_oom():
+    """The 2-molecule, 3-atom batch every OOM-retry test in this module uses.
+
+    Lifted out of ``test_forward_batched_retries_on_oom`` (which built it
+    inline) so P-m12's two new tests below do not each grow their own copy.
+    """
+    coord = torch.randn(2, 3, 3)
+    numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
+    charges = torch.zeros(2)
+    return coord, numbers, charges
+
+
 def test_forward_batched_retries_on_oom():
     """A transient CUDA OOM on a multi-molecule batch must be retried with a
     smaller batch (not crash the whole run). The adapter here OOMs on any batch
@@ -226,13 +238,59 @@ def test_forward_batched_retries_on_oom():
             return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)
 
     wrapper = BatchedEnergyForce(_OOMAdapter(), batchsize_atoms=10_000)
-    coord = torch.randn(2, 3, 3)
-    numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
-    charges = torch.zeros(2)
+    coord, numbers, charges = _batch_like_test_forward_batched_retries_on_oom()
 
     e, f = wrapper.forward_batched(coord, numbers, charges)
     assert e.shape == (2,) and torch.isfinite(e).all()
     assert f.shape == coord.shape
+
+
+def test_forward_batched_retries_when_the_final_cat_ooms(monkeypatch):
+    """P-m12: the final ``torch.cat`` that assembles sub-batch results is
+    itself a GPU allocation and can OOM even when every sub-batch forward
+    succeeded. One retry, after ``empty_cache()``, must cover it too."""
+    import torch
+
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
+    from tests.helpers_adapter import FakeAdapter
+
+    coord, numbers, charges = _batch_like_test_forward_batched_retries_on_oom()
+    real_cat = torch.cat
+    calls = {"n": 0}
+
+    def flaky_cat(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise torch.cuda.OutOfMemoryError("fake")
+        return real_cat(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "cat", flaky_cat)
+    wrapper = BatchedEnergyForce(FakeAdapter(), batchsize_atoms=16)
+    energies, forces = wrapper.forward_batched(coord, numbers, charges)
+    assert torch.isfinite(energies).all()
+
+
+def test_a_runtime_error_naming_out_of_memory_is_retried_like_the_typed_one():
+    """P-m12: some paths raise a bare ``RuntimeError`` whose message names the
+    condition ("CUDA error: out of memory") instead of the typed
+    ``torch.cuda.OutOfMemoryError``. Both must be treated the same way."""
+    import torch
+
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
+    from tests.helpers_adapter import FakeAdapter
+
+    coord, numbers, charges = _batch_like_test_forward_batched_retries_on_oom()
+
+    class _RuntimeOOM(FakeAdapter):
+        def forward(self, *a, **k):
+            if not getattr(self, "_once", False):
+                self._once = True
+                raise RuntimeError("CUDA error: out of memory (fake)")
+            return super().forward(*a, **k)
+
+    wrapper = BatchedEnergyForce(_RuntimeOOM(), batchsize_atoms=16)
+    energies, _ = wrapper.forward_batched(coord, numbers, charges)
+    assert torch.isfinite(energies).all()
 
 
 def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):

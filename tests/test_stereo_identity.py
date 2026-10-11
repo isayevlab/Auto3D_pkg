@@ -165,7 +165,7 @@ class TestSdfInputStereo:
             output_path=str(output_sdf),
             max_confs=12,
             threshold=0.3,
-            n_jobs=1,
+            n_threads=1,
         )
 
         try:
@@ -237,7 +237,7 @@ class TestSdfInputStereo:
             output_path=str(output_sdf),
             max_confs=12,
             threshold=0.3,
-            n_jobs=1,
+            n_threads=1,
         )
 
         try:

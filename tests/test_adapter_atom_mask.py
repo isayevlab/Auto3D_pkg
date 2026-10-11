@@ -24,6 +24,7 @@ import torch
 from torch import nn
 
 from Auto3D.engines.batch_opt.padding import pad_from_mols
+from Auto3D.engines.models.adapter import AIMNet2Adapter
 from tests.helpers_adapter import FakeAdapter
 
 
@@ -34,9 +35,11 @@ def _aimnet_padding():
     return FakeAdapter(coord_pad=0.0, species_pad=0)
 
 
-from Auto3D.engines.models.adapter import AIMNet2Adapter
-
 rdkit = pytest.importorskip("rdkit")
+# Imported only once rdkit's own availability is confirmed above: this
+# module must not fail to collect with an ImportError on a box without
+# rdkit, so `rdkit`/`rdkit.Chem` are gated behind `importorskip` rather than
+# imported at the top with everything else.
 from rdkit import Chem  # noqa: E402
 from rdkit.Chem import AllChem  # noqa: E402
 

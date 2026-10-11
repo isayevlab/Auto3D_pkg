@@ -75,7 +75,7 @@ def test_the_sdf_isomer_engine_re_embeds_implicit_h_and_skips_only_the_dummy(tmp
             output_path=str(out),
             max_confs=1,
             threshold=0.3,
-            n_jobs=1,
+            n_threads=1,
             enumerate_isomers=False,
         ).run()
 
@@ -108,7 +108,7 @@ def test_check_sdf_format_reads_through_the_record_policy(tmp_path, caplog):
     path = write_mixed_sdf(tmp_path / "mixed.sdf")
     args = MagicMock()
     args.path = str(path)
-    args.enumerate_isomer = False
+    args.enumerate_isomers = False
     with caplog.at_level(logging.INFO, logger="Auto3D"):
         ani, only_aimnet = check_sdf_format(args)
     messages = [r.getMessage() for r in caplog.records]

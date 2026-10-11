@@ -23,6 +23,7 @@ Two constructors, deliberately asymmetric:
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 from Auto3D.engines.isomers.base import IsomerEngine, TautomerEngine
@@ -30,7 +31,6 @@ from Auto3D.engines.isomers.omega import oe_isomer
 from Auto3D.engines.isomers.rdkit_sdf import RDKitSdfIsomer
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
 from Auto3D.engines.isomers.tautomers import RDKitOrOEChemTautomerEngine
-from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.registry import Registry
 
 #: Engine names :meth:`IsomerEngineFactory.create` accepts. ``rdkit`` is also
@@ -50,6 +50,16 @@ _ENGINES: Registry[type] = Registry("isomer engine type")
 _ENGINES.register("rdkit", RDKitIsomer)
 _ENGINES.register("rdkit_sdf", RDKitSdfIsomer)
 _ENGINES.register("omega", oe_isomer)
+
+#: Names :func:`create_tautomer_engine` accepts, both resolving to the same
+#: class (P-m13): the engine dispatches on `mode` internally rather than
+#: needing two registered types. Registered anyway, rather than a
+#: hand-written `if/else` with its own "Supported types" message, so an
+#: unknown tautomer engine name is reported through the one Registry message
+#: every other backend lookup in the package uses.
+_TAUTOMER_ENGINES: Registry[type] = Registry("tautomer engine type")
+_TAUTOMER_ENGINES.register("rdkit", RDKitOrOEChemTautomerEngine)
+_TAUTOMER_ENGINES.register("oechem", RDKitOrOEChemTautomerEngine)
 
 
 class _DeferredIsomerEngine:
@@ -119,7 +129,8 @@ class IsomerEngineFactory:
         job_dir: str = "",
         max_confs: int | None = None,
         threshold: float = 0.3,
-        n_jobs: int = 4,
+        n_threads: int = 4,
+        n_jobs: int | None = None,
         enumerate_isomers: bool = True,
         mode: str = "classic",
         use_parallel_embedding: bool = False,
@@ -140,7 +151,9 @@ class IsomerEngineFactory:
             job_dir: Working directory (rdkit only).
             max_confs: Maximum conformers per molecule.
             threshold: RMSD threshold for duplicate removal.
-            n_jobs: Number of parallel jobs.
+            n_threads: Number of CPU threads for isomer/conformer generation.
+            n_jobs: Deprecated alias for ``n_threads``; emits a
+                ``DeprecationWarning`` and is removed in 4.0.
             enumerate_isomers: Whether to enumerate stereoisomers.
             mode: Omega mode ('classic', 'macrocycle', etc.) for omega engine.
             use_parallel_embedding: Use parallel conformer embedding (rdkit only).
@@ -153,7 +166,7 @@ class IsomerEngineFactory:
             parallel_workers: Number of worker processes for parallel embedding.
                 None resolves to min(cores // threads per worker, species,
                 PARALLEL_EMBED_MAX_WORKERS) at dispatch, where "threads per
-                worker" is ``n_jobs``.
+                worker" is ``n_threads``.
 
         Returns:
             Configured isomer engine, whose ``run()`` builds and drives the
@@ -162,6 +175,13 @@ class IsomerEngineFactory:
         Raises:
             ValueError: If engine_type is not recognized.
         """
+        if n_jobs is not None:
+            warnings.warn(
+                "Option name n_jobs is deprecated; use n_threads (removed in 4.0)",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            n_threads = n_jobs
         engine_type = engine_type.lower()
 
         # Auto-select rdkit_sdf for SDF input when rdkit is requested
@@ -189,8 +209,8 @@ class IsomerEngineFactory:
                     job_name=job_dir,
                     max_confs=max_confs,
                     threshold=threshold,
-                    np=n_jobs,
-                    flipper=enumerate_isomers,
+                    n_threads=n_threads,
+                    enumerate_isomers=enumerate_isomers,
                     use_parallel_embedding=use_parallel_embedding,
                     parallel_embedding_threshold=parallel_embedding_threshold,
                     parallel_workers=parallel_workers,
@@ -204,8 +224,8 @@ class IsomerEngineFactory:
                     enumerated_sdf=output_path,
                     max_confs=max_confs,
                     threshold=threshold,
-                    np=n_jobs,
-                    flipper=enumerate_isomers,
+                    n_threads=n_threads,
+                    enumerate_isomers=enumerate_isomers,
                 ).run()
 
         else:  # "omega" -- the only remaining possibility, checked above
@@ -223,7 +243,7 @@ class IsomerEngineFactory:
                     output=output_path,
                     max_confs=max_confs,
                     threshold=threshold,
-                    flipper=enumerate_isomers,
+                    enumerate_isomers=enumerate_isomers,
                 )
                 return output_path
 
@@ -256,15 +276,13 @@ def create_tautomer_engine(
     """
     engine_type = engine_type.lower()
 
-    if engine_type in ("rdkit", "oechem"):
-        return RDKitOrOEChemTautomerEngine(
-            mode=engine_type,
-            input_f=input_path,
-            out=output_path,
-            pKaNorm=pka_norm,
-        )
-
-    else:
-        raise ConfigurationError(
-            f"Unknown tautomer engine type: '{engine_type}'. Supported types: 'rdkit', 'oechem'"
-        )
+    # Raises ConfigurationError naming the alternatives (P-m13) -- the same
+    # Registry message `IsomerEngineFactory.create` already produces for an
+    # unknown isomer engine name.
+    engine_cls = _TAUTOMER_ENGINES.resolve(engine_type)
+    return engine_cls(
+        mode=engine_type,
+        input_f=input_path,
+        out=output_path,
+        pKaNorm=pka_norm,
+    )

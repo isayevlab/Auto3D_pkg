@@ -38,7 +38,7 @@ def _run_engine(job_dir, smiles, name, three_d, **kwargs):
         output_path=str(output_sdf),
         max_confs=6,
         threshold=0.3,
-        n_jobs=1,
+        n_threads=1,
         **kwargs,
     )
     engine.run()
@@ -78,7 +78,7 @@ class TestUnspecifiedCentersEnumerate:
             output_path=str(output_sdf),
             max_confs=6,
             threshold=0.3,
-            n_jobs=1,
+            n_threads=1,
         ).run()
 
         per_species: dict[str, set[tuple[tuple[int, str], ...]]] = {}
@@ -116,7 +116,7 @@ class TestUnspecifiedCentersEnumerate:
             output_path=str(output_sdf),
             max_confs=4,
             threshold=0.3,
-            n_jobs=1,
+            n_threads=1,
         ).run()
 
         names = [
@@ -207,14 +207,14 @@ class TestEmbeddingGoesThroughEmbedWithRetry:
         self, job_dir, monkeypatch, caplog
     ):
         """Every stereoisomer must route through embed_with_retry, not a bare
-        AllChem.EmbedMultipleConfs, carrying this run's own np/threshold.
+        AllChem.EmbedMultipleConfs, carrying this run's own n_threads/threshold.
 
         Threonine's two independent stereocenters enumerate to two
         diastereomers after enantiomer dedup (pinned by
         ``test_species_names_have_three_components`` above), so a correct
         call count here is exactly two -- one per stereoisomer, not one per
-        input record. Non-default n_jobs/threshold values catch a call site
-        that hardcodes its arguments instead of forwarding ``self.np`` /
+        input record. Non-default n_threads/threshold values catch a call site
+        that hardcodes its arguments instead of forwarding ``self.n_threads`` /
         ``self.threshold``.
         """
         import logging
@@ -244,7 +244,7 @@ class TestEmbeddingGoesThroughEmbedWithRetry:
                 output_path=str(output_sdf),
                 max_confs=6,
                 threshold=0.45,
-                n_jobs=3,
+                n_threads=3,
             ).run()
 
         assert len(calls) == 2, f"expected one call per stereoisomer, got {calls}"

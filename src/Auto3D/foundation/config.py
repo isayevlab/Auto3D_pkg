@@ -44,7 +44,7 @@ from Auto3D.foundation.exceptions import ConfigurationError
 FIELD_BOUNDS: dict[str, tuple[str, float]] = {
     "k": ("ge", 1),
     "window": ("gt", 0),
-    "mpi_np": ("ge", 1),
+    "isomer_threads": ("ge", 1),
     # 10, not 1. This table declared ("ge", 1) while utils/validation.py
     # hand-wrote `< 10` twice -- in check_input and again in
     # check_valid_configuration -- so one option had two different minimums and
@@ -81,7 +81,7 @@ FIELD_BOUNDS: dict[str, tuple[str, float]] = {
 # dynamic" meaning (see their Auto3DOptions docstrings and the ``int | None``
 # typing that goes with them).
 #
-# The other eight FIELD_BOUNDS entries (mpi_np, opt_steps,
+# The other eight FIELD_BOUNDS entries (isomer_threads, opt_steps,
 # convergence_threshold, patience, threshold, batchsize_atoms,
 # parallel_embedding_threshold, capacity) have no such "unset" meaning -- they
 # always have a concrete default already, so there is nothing for None/False to
@@ -327,6 +327,22 @@ def _warn_dict_access(method: str, replacement: str) -> None:
     )
 
 
+#: P-m15: one name per concept, old spellings kept for one release as
+#: deprecated aliases that warn and rename. Consulted at the top of
+#: ``Auto3DOptions.__init__``, BEFORE ``extra="forbid"`` ever sees the raw
+#: kwargs, so a caller still passing ``mpi_np=`` or ``enumerate_isomer=``
+#: gets a ``DeprecationWarning`` naming the replacement field instead of a
+#: ``ConfigurationError`` for an "unrecognized" key that used to be the real
+#: one. Module-level, not a class attribute: pydantic v2 treats a
+#: leading-underscore class attribute as a private model attribute, backed
+#: by ``__pydantic_private__``, which does not exist yet this early in
+#: construction.
+_DEPRECATED_OPTION_ALIASES: dict[str, str] = {
+    "mpi_np": "isomer_threads",
+    "enumerate_isomer": "enumerate_isomers",
+}
+
+
 class Auto3DOptions(BaseModel):
     """Configuration options for Auto3D conformer generation.
 
@@ -362,6 +378,14 @@ class Auto3DOptions(BaseModel):
         API as much as the CLI, and pydantic's message is kept as the text rather
         than replaced -- it names the field and what it received.
         """
+        for old_name, new_name in _DEPRECATED_OPTION_ALIASES.items():
+            if old_name in data:
+                warnings.warn(
+                    f"Option name {old_name} is deprecated; use {new_name} (removed in 4.0)",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                data[new_name] = data.pop(old_name)
         try:
             super().__init__(**data)
         except PydanticValidationError as exc:
@@ -404,14 +428,14 @@ class Auto3DOptions(BaseModel):
     isomer_engine: str = "rdkit"
     """Program for generating 3D isomers: 'rdkit' or 'omega'."""
 
-    enumerate_isomer: bool = True
+    enumerate_isomers: bool = True
     """When True, enumerate cis/trans and R/S isomers."""
 
     mode_oe: str = "classic"
     """Omega mode: 'classic', 'macrocycle', 'dense', 'pose', 'rocs', or 'fast_rocs'."""
 
-    mpi_np: int = 4
-    """Number of CPU cores for isomer generation."""
+    isomer_threads: int = 4
+    """Number of CPU threads for isomer generation."""
 
     max_confs: int | None = None
     """Maximum conformers per SMILES.
@@ -489,7 +513,7 @@ class Auto3DOptions(BaseModel):
     ``None`` resolves to ``min(cores // threads per worker, species, 32)`` at
     embedding time (see ``Auto3D.domain.embedding.resolve_embedding_workers``),
     because the useful count depends on the machine, on how many species the run
-    enumerated, and on ``mpi_np`` -- the threads each worker gives RDKit, which
+    enumerated, and on ``isomer_threads`` -- the threads each worker gives RDKit, which
     the cores have to be shared out between. None of the three is known here. An
     explicit value is used as given.
     """

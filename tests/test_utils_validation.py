@@ -28,24 +28,24 @@ class TestCheckInput:
     """Tests for check_input function."""
 
     def test_check_input_all_specified_enumerate_true(self):
-        """Test with all stereo centers specified and enumerate_isomer=True."""
-        args = Auto3DOptions(path=path_all_stereo, k=1, enumerate_isomer=True, use_gpu=False)
+        """Test with all stereo centers specified and enumerate_isomers=True."""
+        args = Auto3DOptions(path=path_all_stereo, k=1, enumerate_isomers=True, use_gpu=False)
         args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             check_input(args)
         assert len(warnings_list) == 0
 
     def test_check_input_unspecified_enumerate_true(self):
-        """Test with unspecified centers and enumerate_isomer=True (no warnings)."""
-        args = Auto3DOptions(path=path_unspecified, k=1, enumerate_isomer=True, use_gpu=False)
+        """Test with unspecified centers and enumerate_isomers=True (no warnings)."""
+        args = Auto3DOptions(path=path_unspecified, k=1, enumerate_isomers=True, use_gpu=False)
         args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             check_input(args)
         assert len(warnings_list) == 0
 
     def test_check_input_unspecified_enumerate_false_warns(self):
-        """Test with unspecified centers and enumerate_isomer=False (should warn)."""
-        args = Auto3DOptions(path=path_unspecified, k=1, use_gpu=False, enumerate_isomer=False)
+        """Test with unspecified centers and enumerate_isomers=False (should warn)."""
+        args = Auto3DOptions(path=path_unspecified, k=1, use_gpu=False, enumerate_isomers=False)
         args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             warnings.simplefilter("always")
@@ -53,8 +53,8 @@ class TestCheckInput:
         assert len(warnings_list) >= 1
 
     def test_check_input_all_specified_enumerate_false(self):
-        """Test with all stereo centers specified and enumerate_isomer=False (no warnings)."""
-        args = Auto3DOptions(path=path_all_stereo, k=1, use_gpu=False, enumerate_isomer=False)
+        """Test with all stereo centers specified and enumerate_isomers=False (no warnings)."""
+        args = Auto3DOptions(path=path_all_stereo, k=1, use_gpu=False, enumerate_isomers=False)
         args.input_format = "smi"
         with warnings.catch_warnings(record=True) as warnings_list:
             check_input(args)
@@ -66,7 +66,7 @@ class TestCheckSmiFormat:
 
     def test_check_smi_format_returns_tuple(self):
         """Test that check_smi_format returns a tuple of (bool, list)."""
-        args = Auto3DOptions(path=path_all_stereo, k=1, enumerate_isomer=True, use_gpu=False)
+        args = Auto3DOptions(path=path_all_stereo, k=1, enumerate_isomers=True, use_gpu=False)
         result = check_smi_format(args)
         assert isinstance(result, tuple)
         assert len(result) == 2
@@ -75,7 +75,7 @@ class TestCheckSmiFormat:
 
     def test_check_smi_format_ani_compatible(self):
         """Test that check_smi_format correctly identifies ANI-compatible molecules."""
-        args = Auto3DOptions(path=path_example_smi, k=1, enumerate_isomer=True, use_gpu=False)
+        args = Auto3DOptions(path=path_example_smi, k=1, enumerate_isomers=True, use_gpu=False)
         ani_compatible, only_aimnet = check_smi_format(args)
         # Should be ANI compatible (organic molecules with H, C, N, O, F, S, Cl)
         assert ani_compatible is True
@@ -91,7 +91,7 @@ class TestCheckSmiFormat:
         """
         smi = tmp_path / "ragged.smi"
         smi.write_text("CCO ethanol inline_comment_column\nCCN amine\n")
-        args = Auto3DOptions(path=str(smi), k=1, enumerate_isomer=True, use_gpu=False)
+        args = Auto3DOptions(path=str(smi), k=1, enumerate_isomers=True, use_gpu=False)
         ani, _ = check_smi_format(args)
         assert ani is True
 
@@ -101,7 +101,7 @@ class TestCheckSmiFormat:
 
         smi = tmp_path / "noid.smi"
         smi.write_text("CCO\n")
-        args = Auto3DOptions(path=str(smi), k=1, enumerate_isomer=True, use_gpu=False)
+        args = Auto3DOptions(path=str(smi), k=1, enumerate_isomers=True, use_gpu=False)
         with pytest.raises(InputValidationError):
             check_smi_format(args)
 
@@ -111,16 +111,16 @@ class TestCheckSdfFormat:
 
     def test_check_sdf_format_returns_tuple(self):
         """Test that check_sdf_format returns a tuple of (bool, list)."""
-        args = Auto3DOptions(path=path_example_sdf, k=1, enumerate_isomer=False, use_gpu=False)
+        args = Auto3DOptions(path=path_example_sdf, k=1, enumerate_isomers=False, use_gpu=False)
         result = check_sdf_format(args)
         assert isinstance(result, tuple)
         assert len(result) == 2
         assert isinstance(result[0], bool)
         assert isinstance(result[1], list)
 
-    def test_check_sdf_format_warns_enumerate_isomer(self):
-        """Test that check_sdf_format warns when enumerate_isomer=True for SDF."""
-        args = Auto3DOptions(path=path_example_sdf, k=1, enumerate_isomer=True, use_gpu=False)
+    def test_check_sdf_format_warns_enumerate_isomers(self):
+        """Test that check_sdf_format warns when enumerate_isomers=True for SDF."""
+        args = Auto3DOptions(path=path_example_sdf, k=1, enumerate_isomers=True, use_gpu=False)
         with warnings.catch_warnings(record=True) as warnings_list:
             warnings.simplefilter("always")
             check_sdf_format(args)

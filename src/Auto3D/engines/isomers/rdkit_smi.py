@@ -8,10 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from rdkit import Chem
-
-from Auto3D.foundation.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -24,11 +20,14 @@ from Auto3D.domain.embedding import embed_with_retry, resolve_embedding_workers
 from Auto3D.domain.stereochemistry import remove_enantiomers
 from Auto3D.domain.stereochemistry_smiles import amend_configuration_w
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
+from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
 from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import (
     hash_enumerated_smi_IDs,
     iter_smi_records,
 )
+
+logger = get_logger(__name__)
 
 
 class RDKitIsomer:
@@ -43,8 +42,8 @@ class RDKitIsomer:
         job_name: Working directory for temporary files.
         max_confs: Maximum conformers per SMILES. None for dynamic.
         threshold: RMSD threshold for duplicate removal (Å).
-        np: Number of CPU threads for conformer generation.
-        flipper: Whether to enumerate R/S and cis/trans isomers.
+        n_threads: Number of CPU threads for conformer generation.
+        enumerate_isomers: Whether to enumerate R/S and cis/trans isomers.
         use_parallel_embedding: Whether to use parallel conformer embedding.
             Off in this signature, which is the constructor default only: the
             product default (``Auto3DOptions.use_parallel_embedding``) is ON
@@ -55,7 +54,7 @@ class RDKitIsomer:
         parallel_workers: Number of worker processes for parallel embedding.
             None (the default) resolves to min(cores // threads per worker,
             species, PARALLEL_EMBED_MAX_WORKERS) at dispatch, where "threads per
-            worker" is ``np``.
+            worker" is ``n_threads``.
     """
 
     def __init__(
@@ -68,8 +67,8 @@ class RDKitIsomer:
         job_name: str,
         max_confs: int | None,
         threshold: float,
-        np: int,
-        flipper: bool = True,
+        n_threads: int,
+        enumerate_isomers: bool = True,
         use_parallel_embedding: bool = False,
         parallel_embedding_threshold: int = 10,
         parallel_workers: int | None = None,
@@ -84,8 +83,8 @@ class RDKitIsomer:
         self.rdk_tmp = Path(job_name) / "rdk_tmp"
         self.rdk_tmp.mkdir()
         self.threshold = threshold
-        self.np = np
-        self.flipper = flipper
+        self.n_threads = n_threads
+        self.enumerate_isomers = enumerate_isomers
         self.use_parallel_embedding = use_parallel_embedding
         self.parallel_embedding_threshold = parallel_embedding_threshold
         self.parallel_workers = parallel_workers
@@ -183,7 +182,9 @@ class RDKitIsomer:
             n = calculate_conformer_count(mol)
         else:
             n = self.n_conformers
-        embed_with_retry(mol, n_conformers=n, n_threads=self.np, prune_rms_thresh=self.threshold)
+        embed_with_retry(
+            mol, n_conformers=n, n_threads=self.n_threads, prune_rms_thresh=self.threshold
+        )
         return mol
 
     def run(self) -> str:
@@ -192,7 +193,7 @@ class RDKitIsomer:
         Returns:
             Path to the enumerated SDF file.
         """
-        if self.flipper:
+        if self.enumerate_isomers:
             logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
             logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input_f)
@@ -250,7 +251,7 @@ class RDKitIsomer:
     def _run_serial_embedding(self, smi_name_tuples: list[tuple[str, str]]) -> None:
         """Run serial conformer embedding."""
         with Chem.SDWriter(self.enumerated_sdf) as writer:
-            for smi, name in tqdm(smi_name_tuples):
+            for smi, name in tqdm(smi_name_tuples, disable=should_disable_progress_bars()):
                 mol = self.embed_conformer(smi)
                 if mol is None:
                     logger.warning(
@@ -273,16 +274,27 @@ class RDKitIsomer:
                         writer.write(mol, confId=i)
                         n_written += 1
                 if n_written == 0:
-                    # Every embedded conformer was rejected by clash relief
-                    # (or none embedded at all): the species is silently
-                    # absent from the output and never reaches ranking, so
-                    # not even "No structure converged" would appear for it.
-                    # Name it here, once, mirroring the SDF path's equivalent
-                    # warning for a stereoisomer ETKDG could not embed.
-                    logger.warning(
-                        f"{name!r} produced no conformers after clash relief; "
-                        "this species is absent from the output."
-                    )
+                    # The species is silently absent from the output either
+                    # way and never reaches ranking, so not even "No structure
+                    # converged" would appear for it -- named here, once, in
+                    # either case. N-m9: the two causes are distinguishable
+                    # and the old message named only one of them.
+                    # `mol.GetNumConformers() == 0` means embedding itself
+                    # produced nothing (ETKDG could not embed it), so clash
+                    # relief never ran -- it is wrong to blame the message on
+                    # clash relief. One other test file pins the
+                    # "after clash relief" wording verbatim for the other
+                    # branch, below.
+                    if mol.GetNumConformers() == 0:
+                        logger.warning(
+                            f"embedding produced no conformers for {name!r}; "
+                            "this species is absent from the output."
+                        )
+                    else:
+                        logger.warning(
+                            f"{name!r} produced no conformers after clash relief; "
+                            "this species is absent from the output."
+                        )
 
     def _run_parallel_embedding(self, smi_name_tuples: list[tuple[str, str]]) -> None:
         """Run parallel conformer embedding using ProcessPoolExecutor."""
@@ -296,7 +308,7 @@ class RDKitIsomer:
         # logged resolved rather than as requested -- a line reading "with None
         # workers" told the user nothing about what the run is doing.
         n_workers = resolve_embedding_workers(
-            self.parallel_workers, len(smi_name_tuples), threads_per_worker=self.np
+            self.parallel_workers, len(smi_name_tuples), threads_per_worker=self.n_threads
         )
         logger.info(
             "Using parallel embedding with %d worker processes for %d species",
@@ -309,7 +321,7 @@ class RDKitIsomer:
                 smiles_names=smi_name_tuples,
                 n_conformers=self.n_conformers,
                 threshold=self.threshold,
-                np_threads=self.np,
+                np_threads=self.n_threads,
                 n_workers=n_workers,
             ):
                 mol.SetProp("ID", conf_id)

@@ -183,7 +183,7 @@ Example ``config.yaml``:
    gpu_idx: 0                  # Or [0, 1, 2, 3] for multi-GPU
 
    # Isomer enumeration
-   enumerate_isomer: true
+   enumerate_isomers: true
    enumerate_tautomer: false
    isomer_engine: rdkit        # rdkit or omega
 
@@ -374,7 +374,7 @@ Configuration Options
            gpu_idx=0,                    # Or [0, 1, 2, 3] for multi-GPU
 
            # Isomer enumeration
-           enumerate_isomer=True,
+           enumerate_isomers=True,
            enumerate_tautomer=False,
            isomer_engine="rdkit",        # rdkit or omega
 
@@ -400,7 +400,7 @@ SMILES input with the RDKit isomer engine: ``use_parallel_embedding`` is on by
 default since 3.2.0 (SDF input and ``omega`` ignore it), and
 ``parallel_workers`` is ``None``, meaning the worker count is resolved per run
 as ``min(cores // threads per worker, species, 32)`` -- threads per worker being
-``mpi_np``, which each worker hands RDKit, so the cores are shared out between
+``isomer_threads``, which each worker hands RDKit, so the cores are shared out between
 workers rather than given to each of them. Set ``parallel_workers`` to pin a
 number, or pass ``use_parallel_embedding=False`` (``--no-parallel-embedding``)
 for the serial path, which also remains the path for runs with fewer species
@@ -427,7 +427,7 @@ no time to work in. The two attempts together stay inside one cap.
 A species near the cap is the one case where the conformer set is not a property
 of the code alone. ETKDG returns whatever it managed to embed before the clock
 ran out, so such a species keeps a *partial* set whose size depends on machine
-load and on ``mpi_np`` and is therefore not reproducible run to run -- every
+load and on ``isomer_threads`` and is therefore not reproducible run to run -- every
 other species is pinned by ``CONFORMER_RANDOM_SEED``. Raise
 ``EMBED_TIMEOUT_S`` in ``Auto3D.foundation.constants`` if reproducibility
 matters more to you than the bound.
@@ -483,7 +483,7 @@ syntax, Python uses ``param_name`` in ``Auto3DOptions``.
    * - ``gpu_idx``
      - 0
      - GPU index or list of indices for multi-GPU
-   * - ``enumerate_isomer``
+   * - ``enumerate_isomers``
      - True
      - Enumerate unspecified stereocenters
    * - ``enumerate_tautomer``

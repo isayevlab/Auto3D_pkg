@@ -5,9 +5,9 @@ FIRE is an efficient method for finding energy minima, combining aspects of
 molecular dynamics and conjugate gradient methods.
 
 Implementation based on:
-    Guenole, Julien, et al. "Assessment and optimization of the fast inertial
-    relaxation engine (fire) for energy minimization in atomistic simulations
-    and its implementation in lammps." Computational Materials Science 175 (2020): 109584.
+    Bitzek, Erik, Pekka Koskinen, Franz Gaehler, Michael Moseler, and Peter
+    Gumbsch. "Structural relaxation made simple." Physical Review Letters 97,
+    no. 17 (2006): 170201.
 
 Example:
     >>> import torch
@@ -28,7 +28,8 @@ class FIRE:
     """FIRE optimizer for batch molecular geometry optimization.
 
     A general optimization algorithm using the Fast Inertial Relaxation Engine,
-    which combines velocity Verlet integration with adaptive time stepping.
+    which combines a semi-implicit (symplectic) Euler integration step --
+    the same one ASE's own FIRE implements -- with adaptive time stepping.
     This implementation supports batch processing of multiple molecules
     simultaneously.
 
@@ -80,7 +81,7 @@ class FIRE:
         1. Computing velocity-force dot product to determine progress
         2. Mixing velocity with force direction if making progress
         3. Adjusting time step and mixing parameter adaptively
-        4. Computing displacement with velocity Verlet-like update
+        4. Computing displacement with a semi-implicit (symplectic) Euler update
         5. Clamping maximum displacement to maxstep
 
         Args:
@@ -155,7 +156,7 @@ class FIRE:
         nsteps_prog = torch.where(nsteps_inc, self.Nsteps + 1, self.Nsteps)
         self.Nsteps = torch.where(progressing, nsteps_prog, torch.zeros_like(self.Nsteps))
 
-        # Velocity Verlet-like update
+        # Semi-implicit (symplectic) Euler update
         dt = self.dt.unsqueeze(-1).unsqueeze(-1)
         self.v = self.v + dt * forces
         dr = dt * self.v

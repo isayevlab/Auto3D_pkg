@@ -18,8 +18,8 @@ path5 = os.path.join(folder, "tests/files/22057.sdf")
 
 
 def test_check_input():
-    """Test enumerate_isomer argument checker"""
-    args1 = Auto3DOptions(path=path1, k=1, enumerate_isomer=True, use_gpu=False)
+    """Test enumerate_isomers argument checker"""
+    args1 = Auto3DOptions(path=path1, k=1, enumerate_isomers=True, use_gpu=False)
     args1.input_format = "smi"
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list:
@@ -27,7 +27,7 @@ def test_check_input():
         check_input(args1)
     assert len(warnings_list) == 0
 
-    args2 = Auto3DOptions(path=path2, k=1, enumerate_isomer=True, use_gpu=False)
+    args2 = Auto3DOptions(path=path2, k=1, enumerate_isomers=True, use_gpu=False)
     args2.input_format = "smi"
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list2:
@@ -36,8 +36,8 @@ def test_check_input():
     assert len(warnings_list2) == 0
 
     args3 = Auto3DOptions(
-        path=path2, k=1, use_gpu=False, enumerate_isomer=False
-    )  # by default enumerate_isomer=True
+        path=path2, k=1, use_gpu=False, enumerate_isomers=False
+    )  # by default enumerate_isomers=True
     args3.input_format = "smi"
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list3:
@@ -46,8 +46,8 @@ def test_check_input():
     assert len(warnings_list3) >= 1
 
     args4 = Auto3DOptions(
-        path=path1, k=1, use_gpu=False, enumerate_isomer=False
-    )  # by default enumerate_isomer=True
+        path=path1, k=1, use_gpu=False, enumerate_isomers=False
+    )  # by default enumerate_isomers=True
     args4.input_format = "smi"
     # count the number of warnings
     with warnings.catch_warnings(record=True) as warnings_list4:

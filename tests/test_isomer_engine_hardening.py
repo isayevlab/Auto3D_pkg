@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import uuid
 
 import pytest
@@ -29,7 +30,7 @@ from Auto3D.foundation.constants import (
 from tests.helpers_adapter import FakeAdapter
 
 
-def _make_engine(tmp_path, smi_path, flipper=True, max_confs=None):
+def _make_engine(tmp_path, smi_path, enumerate_isomers=True, max_confs=None):
     """Build an RDKitIsomer with throwaway output paths."""
     job_name = os.path.join(tmp_path, "job_" + uuid.uuid4().hex)
     os.makedirs(job_name)
@@ -43,8 +44,8 @@ def _make_engine(tmp_path, smi_path, flipper=True, max_confs=None):
         job_name=job_name,
         max_confs=max_confs,
         threshold=0.3,
-        np=1,
-        flipper=flipper,
+        n_threads=1,
+        enumerate_isomers=enumerate_isomers,
     )
 
 
@@ -139,7 +140,7 @@ class TestInvalidSmilesDoesNotAbort:
             enumerated_sdf=str(out_sdf),
             max_confs=None,
             threshold=0.3,
-            np=1,
+            n_threads=1,
         )
         eng.run()  # must not raise on the None record
         written = list(Chem.SDMolSupplier(str(out_sdf), removeHs=False))
@@ -220,7 +221,7 @@ class TestDummyAtomRecordsAreSkippedByBothIsomerEngines:
             enumerated_sdf=str(out_sdf),
             max_confs=2,
             threshold=0.3,
-            np=1,
+            n_threads=1,
         )
         with caplog.at_level(logging.WARNING, logger="Auto3D"):
             eng.run()
@@ -305,7 +306,7 @@ class TestClashFallback:
         smi = tmp_path / "in.smi"
         smi.write_text("OB(O)c1ccccc1 boronic\n")
         engine = _make_engine(str(tmp_path), smi)
-        # flipper True is fine; phenylboronic acid has no stereocenters.
+        # enumerate_isomers True is fine; phenylboronic acid has no stereocenters.
         out = engine.run()
         written = list(Chem.SDMolSupplier(out, removeHs=False))
         assert len(written) >= 1, "boronic acid was silently dropped (no UFF fallback)"
@@ -369,7 +370,7 @@ class TestConformerCount:
         monkeypatch.setattr(AllChem, "EmbedMultipleConfs", spy_embed)
 
         # SMILES path: RDKitIsomer.embed_conformer computes its own budget.
-        engine = _make_engine(str(tmp_path), tmp_path / "unused.smi", flipper=False)
+        engine = _make_engine(str(tmp_path), tmp_path / "unused.smi", enumerate_isomers=False)
         embedded = engine.embed_conformer(glycerol_smiles)
         assert embedded is not None
         assert len(captured) == 1, "embed_conformer should embed exactly once"
@@ -390,8 +391,8 @@ class TestConformerCount:
             enumerated_sdf=str(tmp_path / "glycerol_out.sdf"),
             max_confs=None,
             threshold=0.3,
-            np=1,
-            flipper=False,
+            n_threads=1,
+            enumerate_isomers=False,
         )
         sdf_engine.run()
         assert len(captured) == 2, "RDKitSdfIsomer.run should embed exactly once more"
@@ -557,7 +558,7 @@ class TestConformerNameShapeIsModeIndependent:
     """Both SMILES modes must append the SAME number of name components.
 
     ``ranking.species_id`` recovers the species id by stripping the two
-    trailing ``<isomer>_<conformer>`` components. With ``enumerate_isomer``
+    trailing ``<isomer>_<conformer>`` components. With ``enumerate_isomers``
     off, this path used to append only the conformer index, so ``KEY_2_0``
     was ambiguous -- species "KEY_2" conformer 0, or species "KEY" isomer 2
     conformer 0? -- and ``smiles2smi`` mints ``KEY_2`` for the second of two
@@ -571,7 +572,7 @@ class TestConformerNameShapeIsModeIndependent:
 
         smi = tmp_path / "in.smi"
         smi.write_text("CCO KEY\n")
-        engine = _make_engine(str(tmp_path), smi, flipper=False, max_confs=2)
+        engine = _make_engine(str(tmp_path), smi, enumerate_isomers=False, max_confs=2)
         engine.run()
 
         mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
@@ -596,7 +597,7 @@ class TestConformerNameShapeIsModeIndependent:
         # 2-pyridone and 2-hydroxypyridine share a standard InChIKey; this is
         # exactly the pair smiles2smi renames the second of.
         smi.write_text("O=c1cccc[nH]1 KEY\nOc1ccccn1 KEY_2\n")
-        engine = _make_engine(str(tmp_path), smi, flipper=False, max_confs=2)
+        engine = _make_engine(str(tmp_path), smi, enumerate_isomers=False, max_confs=2)
         engine.run()
 
         mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
@@ -612,12 +613,14 @@ class TestConformerNameShapeIsModeIndependent:
         smi.write_text("CCO KEY\n")
 
         shapes = {}
-        for flipper in (True, False):
-            engine = _make_engine(str(tmp_path), smi, flipper=flipper, max_confs=2)
+        for enumerate_isomers in (True, False):
+            engine = _make_engine(
+                str(tmp_path), smi, enumerate_isomers=enumerate_isomers, max_confs=2
+            )
             engine.run()
             mols = [m for m in Chem.SDMolSupplier(engine.enumerated_sdf) if m is not None]
-            assert mols, f"no conformers written with flipper={flipper}"
-            shapes[flipper] = {len(m.GetProp("_Name").split("_")) for m in mols}
+            assert mols, f"no conformers written with enumerate_isomers={enumerate_isomers}"
+            shapes[enumerate_isomers] = {len(m.GetProp("_Name").split("_")) for m in mols}
 
         assert shapes[True] == shapes[False] == {3}, f"name shapes differ between modes: {shapes}"
 
@@ -652,3 +655,87 @@ def test_the_documented_conformer_budget_matches_what_max_confs_none_does():
     assert count_withh > num_heavy - 1, (
         "the retired 'num_heavy_atoms - 1' claim would still be defensible"
     )
+
+
+# ---------------------------------------------------------------------------
+# N-m9 -- the serial-embedding "no conformers" warning names its cause
+# ---------------------------------------------------------------------------
+
+
+class TestNoConformersWarningNamesItsCause:
+    def test_warning_names_embedding_failure_not_clash_relief(self, monkeypatch, caplog, tmp_path):
+        """A species whose embedding produced zero conformers must be reported
+        as an embedding failure, not folded into the clash-relief message --
+        the two causes (ETKDG never produced a conformer vs. every embedded
+        conformer was rejected by clash relief) are distinguishable and the
+        warning should say which one happened.
+        """
+        import Auto3D.engines.isomers.rdkit_smi as rdkit_smi_mod
+
+        monkeypatch.setattr(rdkit_smi_mod, "embed_with_retry", lambda *a, **k: 0)
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        engine = _make_engine(str(tmp_path), smi)
+
+        with caplog.at_level(logging.WARNING):
+            engine.run()
+
+        assert "embedding produced no conformers" in caplog.text
+        assert "after clash relief" not in caplog.text
+
+    def test_warning_still_names_clash_relief_when_that_is_the_cause(
+        self, monkeypatch, caplog, tmp_path
+    ):
+        """The clash-relief message must survive verbatim for the other
+        branch: conformers WERE embedded, but every one was rejected by
+        clash relief. One other test file (test_pipeline_e2e.py) pins this
+        exact substring.
+        """
+        import Auto3D.engines.isomers.rdkit_smi as rdkit_smi_mod
+
+        monkeypatch.setattr(rdkit_smi_mod, "relieve_clash", lambda mol, i: False)
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\n")
+        engine = _make_engine(str(tmp_path), smi)
+
+        with caplog.at_level(logging.WARNING):
+            engine.run()
+
+        assert "produced no conformers after clash relief" in caplog.text
+        assert "embedding produced no conformers" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# P-m14 (first half) -- progress bars off when nobody is watching
+# ---------------------------------------------------------------------------
+
+
+class TestProgressBarsDisabled:
+    def test_tqdm_is_disabled_under_a_non_tty_stderr(self, monkeypatch, capsys, tmp_path):
+        """A non-tty stderr (piped output, CI logs) must suppress tqdm's
+        carriage-return bar entirely, not merely fail to animate it."""
+        monkeypatch.setattr(sys.stderr, "isatty", lambda: False, raising=False)
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\nCCC mol2\n")
+        engine = _make_engine(str(tmp_path), smi)
+        engine.run()
+
+        assert "\r" not in capsys.readouterr().err
+
+    def test_tqdm_is_disabled_by_the_environment_switch_even_on_a_tty(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        """``AUTO3D_PROGRESS=off`` disables bars even when stderr IS a tty --
+        the escape hatch for a caller that knows better than isatty()."""
+        monkeypatch.setattr(sys.stderr, "isatty", lambda: True, raising=False)
+        monkeypatch.setenv("AUTO3D_PROGRESS", "off")
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("CCO mol1\nCCC mol2\n")
+        engine = _make_engine(str(tmp_path), smi)
+        engine.run()
+
+        assert "\r" not in capsys.readouterr().err

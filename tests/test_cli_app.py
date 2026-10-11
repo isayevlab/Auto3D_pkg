@@ -1113,7 +1113,7 @@ def test_config_validate_missing_file(runner, tmp_path_cwd):
     [
         ("--max-confs", "5", "max_confs", 5),
         ("--threshold", "0.7", "threshold", 0.7),
-        ("--mpi-np", "2", "mpi_np", 2),
+        ("--isomer-threads", "2", "isomer_threads", 2),
         ("--opt-steps", "77", "opt_steps", 77),
         ("--opt-tol", "0.05", "convergence_threshold", 0.05),
         ("--patience", "33", "patience", 33),
@@ -1183,3 +1183,64 @@ def test_run_forwards_the_parallel_embedding_flag(runner, tmp_path_cwd, flag, ex
     assert options.use_parallel_embedding is expected, (
         f"{flag} did not reach Auto3DOptions.use_parallel_embedding"
     )
+
+
+@pytest.mark.parametrize(
+    "flag,value,field,expected",
+    [
+        ("--mpi-np", "2", "isomer_threads", 2),
+        ("--no-enumerate-isomer", None, "enumerate_isomers", False),
+    ],
+)
+def test_run_accepts_the_deprecated_flag_spellings_and_warns(
+    runner, tmp_path_cwd, flag, value, field, expected
+):
+    """P-m15: ``--mpi-np``/``--enumerate-isomer`` are hidden, not removed.
+
+    Unlike the new-flag forwarding above, nothing exercised these old
+    spellings through Typer after the rename -- ``test_cli_app.py`` only
+    renamed its ``--mpi-np`` row to ``--isomer-threads``, so a mistake in the
+    hidden-option wiring (both flags binding the same name, the alias not
+    registering) would pass silently. ``pytest.warns`` both asserts the
+    warning and -- as the ``pyproject.toml`` filter that turns "Option name"
+    warnings into errors makes necessary -- is what keeps that warning from
+    failing the run outright.
+    """
+    from unittest.mock import patch
+
+    from Auto3D.presentation.cli.app import app
+
+    smi = tmp_path_cwd / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    args = ["run", str(smi), "--k", "1", "--no-gpu", flag]
+    if value is not None:
+        args.append(value)
+
+    with patch.object(Auto3D.entry.auto3D, "main", return_value="out.sdf") as m:
+        with pytest.warns(DeprecationWarning, match="Option name"):
+            result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert m.called, f"{flag} prevented the run from starting"
+    options = m.call_args[0][0]
+    assert getattr(options, field) == expected, f"{flag} did not reach Auto3DOptions.{field}"
+
+
+def test_run_help_hides_the_deprecated_flag_spellings(runner):
+    """The old flags stay hidden from ``--help`` -- only their replacements show.
+
+    This is the other half of "hidden alias": accepting the old spelling is
+    tested above, but nothing checked that ``--help`` had actually stopped
+    advertising it.
+    """
+    from Auto3D.presentation.cli.app import app
+
+    result = runner.invoke(app, ["run", "--help"])
+    assert result.exit_code == 0
+    out = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    assert "--isomer-threads" in out
+    assert "--mpi-np" not in out
+    assert "--enumerate-isomers" in out
+    assert "--enumerate-isomer " not in out
+    assert "--no-enumerate-isomer " not in out

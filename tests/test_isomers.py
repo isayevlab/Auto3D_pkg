@@ -161,7 +161,7 @@ class TestCreateKwargMapping:
             job_dir="/job",
             max_confs=50,
             threshold=0.25,
-            n_jobs=8,
+            n_threads=8,
             enumerate_isomers=False,
             use_parallel_embedding=True,
             parallel_embedding_threshold=5,
@@ -177,8 +177,8 @@ class TestCreateKwargMapping:
             "job_name": "/job",
             "max_confs": 50,
             "threshold": 0.25,
-            "np": 8,
-            "flipper": False,
+            "n_threads": 8,
+            "enumerate_isomers": False,
             "use_parallel_embedding": True,
             "parallel_embedding_threshold": 5,
             "parallel_workers": 2,
@@ -194,8 +194,8 @@ class TestCreateKwargMapping:
         kwargs = spies["rdkit"]
         assert kwargs["max_confs"] is None
         assert kwargs["threshold"] == 0.3
-        assert kwargs["np"] == 4
-        assert kwargs["flipper"] is True
+        assert kwargs["n_threads"] == 4
+        assert kwargs["enumerate_isomers"] is True
         assert kwargs["use_parallel_embedding"] is False
         assert kwargs["parallel_embedding_threshold"] == 10
         # None, not 4: the factory no longer picks a worker count. The engine
@@ -210,7 +210,7 @@ class TestCreateKwargMapping:
             output_path="/output.sdf",
             max_confs=7,
             threshold=0.5,
-            n_jobs=3,
+            n_threads=3,
             enumerate_isomers=False,
         ).run()
 
@@ -219,8 +219,8 @@ class TestCreateKwargMapping:
             "enumerated_sdf": "/output.sdf",
             "max_confs": 7,
             "threshold": 0.5,
-            "np": 3,
-            "flipper": False,
+            "n_threads": 3,
+            "enumerate_isomers": False,
         }
 
     def test_omega_mapping(self, spies):
@@ -248,7 +248,7 @@ class TestCreateKwargMapping:
             "output": "/output.sdf",
             "max_confs": 50,
             "threshold": 0.25,
-            "flipper": False,
+            "enumerate_isomers": False,
         }
 
     def test_omega_default_mode_is_classic(self, spies):
@@ -430,7 +430,7 @@ class TestCreateParallelEmbedding:
         resolution has to happen in the engine -- and it has to happen at
         dispatch rather than in the constructor, because the number of species
         to embed is only known once enumeration has run. 40 species on a
-        128-core box with the factory's default ``n_jobs=4`` threads per worker
+        128-core box with the factory's default ``n_threads=4`` threads per worker
         resolves to ``min(128 // 4, 40, 32) == 32``, which is what distinguishes
         "resolved" from "passed the core count straight through". 32 is also
         what an engine that forgot to forward its thread count would produce
@@ -482,12 +482,12 @@ class TestCreateParallelEmbedding:
         )
 
     def test_rdkit_engine_divides_the_cores_by_its_own_thread_count(self, tmp_path, monkeypatch):
-        """The engine must hand its ``np`` to the resolution as threads per worker.
+        """The engine must hand its ``n_threads`` to the resolution as threads per worker.
 
-        Each worker passes ``np_threads=self.np`` to ``EmbedMultipleConfs``, so
+        Each worker passes ``np_threads=self.n_threads`` to ``EmbedMultipleConfs``, so
         the cores have to be shared out between workers rather than handed to
         each of them -- otherwise an 8-core box runs 8 workers x 4 threads.
-        ``n_jobs=8`` with 128 cores gives ``min(128 // 8, 40, 32) == 16``, a
+        ``n_threads=8`` with 128 cores gives ``min(128 // 8, 40, 32) == 16``, a
         value neither the cap nor the species count nor the raw core count can
         produce, so only a forwarded thread count satisfies it.
         """
@@ -515,7 +515,7 @@ class TestCreateParallelEmbedding:
             smiles_reduced=str(tmp_path / "reduced.smi"),
             smiles_hashed=str(tmp_path / "hashed.smi"),
             job_dir=str(job_dir),
-            n_jobs=8,
+            n_threads=8,
             enumerate_isomers=False,
             use_parallel_embedding=True,
             parallel_embedding_threshold=1,
@@ -538,10 +538,12 @@ class TestCreateTautomerEngine:
     """Tests for create_tautomer_engine factory function."""
 
     def test_unknown_engine_raises_error(self):
-        """An unknown engine is a ConfigurationError, not a bare ValueError."""
+        """An unknown engine is a ConfigurationError naming the alternatives,
+        through the same Registry every other backend lookup in the package
+        uses now (P-m13) -- not a hand-written message of its own."""
         from Auto3D.foundation.exceptions import ConfigurationError
 
-        with pytest.raises(ConfigurationError, match="Unknown tautomer engine type"):
+        with pytest.raises(ConfigurationError, match="Available: 'rdkit', 'oechem'"):
             create_tautomer_engine(
                 "unknown_engine",
                 input_path="/input.smi",

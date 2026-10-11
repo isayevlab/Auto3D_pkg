@@ -110,7 +110,7 @@ With stricter duplicate removal via config:
    # hit_expansion.yaml
    k: 10
    optimizing_engine: AIMNET
-   enumerate_isomer: true
+   enumerate_isomers: true
    threshold: 0.5
 
 .. code:: console
@@ -125,7 +125,7 @@ With stricter duplicate removal via config:
        path="hits.smi",
        k=10,                         # Multiple conformers
        optimizing_engine="AIMNET",   # Higher accuracy
-       enumerate_isomer=True,        # Include stereoisomers
+       enumerate_isomers=True,        # Include stereoisomers
        threshold=0.5,                # Stricter duplicate removal
    )
 
@@ -279,7 +279,7 @@ Auto3D automatically enumerates unspecified stereocenters by default.
    config = Auto3DOptions(
        path="input.smi",
        k=1,
-       enumerate_isomer=True,    # Enable stereoisomer enumeration
+       enumerate_isomers=True,    # Enable stereoisomer enumeration
        isomer_engine="rdkit",    # Or "omega" with OpenEye license
    )
 
@@ -425,7 +425,7 @@ For Schrodinger Glide, export to Maestro format:
    config = Auto3DOptions(
        path="ligands.smi",
        k=10,
-       enumerate_isomer=True,
+       enumerate_isomers=True,
    )
    output = main(config)   # the real path to the output SDF
    # Import output.sdf into Maestro for Glide docking

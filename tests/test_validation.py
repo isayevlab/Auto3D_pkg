@@ -177,7 +177,7 @@ class TestCheckInputExceptions:
         args.opt_steps = 100
         args.input_format = "smi"
         args.path = str(smi_file)
-        args.enumerate_isomer = False
+        args.enumerate_isomers = False
 
         # ANI2x can't handle charged molecules, only AIMNET can
         with pytest.raises(ConfigurationError, match="Only AIMNET can handle"):
@@ -209,7 +209,7 @@ class TestCheckInputExceptions:
         args.opt_steps = 100
         args.input_format = "smi"
         args.path = str(smi_file)
-        args.enumerate_isomer = False
+        args.enumerate_isomers = False
 
         # ANI2xt can't handle Br, only AIMNET can
         with pytest.raises(ConfigurationError, match="Only AIMNET can handle"):
@@ -232,7 +232,7 @@ class TestCheckInputExceptions:
             path=str(smi),
             input_format="smi",
             optimizing_engine="aimnet2-2025",
-            enumerate_isomer=True,
+            enumerate_isomers=True,
             opt_steps=10,
             k=1,
             window=None,
@@ -362,7 +362,7 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
     def _args(path):
         args = MagicMock()
         args.path = str(path)
-        args.enumerate_isomer = False
+        args.enumerate_isomers = False
         return args
 
     def _dummy_warnings(self, caplog):
@@ -376,8 +376,8 @@ class TestDummyAtomRecordsAreAnnouncedUpFront:
 
         p = tmp_path / "in.smi"
         # `*C(F)(Cl)Br` is a dummy record whose stereo is ALSO open: with
-        # enumerate_isomer=False the stereo loop would tell the user to set
-        # enumerate_isomer=True -- advice about a record that is skipped at every
+        # enumerate_isomers=False the stereo loop would tell the user to set
+        # enumerate_isomers=True -- advice about a record that is skipped at every
         # seam downstream, so the setting cannot change its absence from the
         # output. The dummy skip has to come first.
         p.write_text("*C(F)(Cl)Br frag\nCCO ethanol\n")

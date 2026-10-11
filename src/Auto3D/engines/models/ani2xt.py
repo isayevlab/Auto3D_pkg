@@ -10,10 +10,8 @@ from Auto3D.foundation.constants import HARTREE_TO_EV
 # Random seed should be controlled by the caller, not by importing a module.
 # TF32 settings are now configurable via Auto3DOptions.allow_tf32
 # and applied in workflow.py/auto3D.py entry points
-"""
-training process
-https://wandb.ai/oilab/retraiin_ani_no_repulsion/runs/3u1gsp8r?workspace=user-liu97
-"""
+# training process
+# https://wandb.ai/oilab/retraiin_ani_no_repulsion/runs/3u1gsp8r?workspace=user-liu97
 #: The checkpoint sits beside this module. It always did -- while this file
 #: lived in ``batch_opt/`` the path was built by walking up two directories and
 #: back down into ``models/``, which resolved correctly only because both

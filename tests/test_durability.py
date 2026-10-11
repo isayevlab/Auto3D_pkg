@@ -1168,7 +1168,7 @@ class TestHousekeepingStaysInsideTheJobDirectory:
             str(chunk / "smiles_enumerated.sdf"),
             None,
             0.3,
-            flipper=False,
+            enumerate_isomers=False,
         )
         assert rc == 0
 
@@ -1296,7 +1296,7 @@ class TestOmegaConformerNaming:
             str(tmp_path / "out.sdf"),
             max_confs=None,
             threshold=0.3,
-            flipper=False,
+            enumerate_isomers=False,
         )
         assert rc == 0
         return stub_mol
@@ -1370,7 +1370,7 @@ class TestOmegaConformerNaming:
             str(tmp_path / "out.sdf"),
             max_confs=None,
             threshold=0.3,
-            flipper=True,
+            enumerate_isomers=True,
         )
         assert rc == 0
 

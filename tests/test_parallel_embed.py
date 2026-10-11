@@ -305,7 +305,7 @@ def test_the_retry_gets_only_the_budget_the_first_attempt_left(monkeypatch):
         (128, 98, 8, 4, 8),
         # A single-core box still gets one worker, never zero.
         (1, 98, None, 1, 1),
-        # Each worker threads RDKit's embedding `mpi_np` ways, so the cores have
+        # Each worker threads RDKit's embedding `isomer_threads` ways, so the cores have
         # to be shared out between workers rather than handed to each of them:
         # 8 cores at 4 threads apiece is 2 workers, not 8 (which would have put
         # 32 runnable threads on 8 cores).
@@ -360,9 +360,9 @@ def test_resolve_embedding_workers_survives_an_unknown_core_count(monkeypatch):
 def test_resolve_embedding_workers_survives_a_zero_thread_count(monkeypatch):
     """``threads_per_worker=0`` must not divide by zero.
 
-    ``Auto3DOptions`` bounds ``mpi_np`` at >= 1, but the isomer engine's direct
-    callers bypass that validation entirely, and ``self.np`` is whatever they
-    passed.
+    ``Auto3DOptions`` bounds ``isomer_threads`` at >= 1, but the isomer engine's
+    direct callers bypass that validation entirely, and ``self.n_threads`` is
+    whatever they passed.
     """
     from Auto3D.domain.embedding import resolve_embedding_workers
 

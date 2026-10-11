@@ -7,6 +7,7 @@ via the verbose parameter in Auto3D options.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 # Module-level logger cache
@@ -65,3 +66,37 @@ def configure_logging(verbose: bool = False) -> None:
         formatter = logging.Formatter("%(message)s")
         handler.setFormatter(formatter)
         auto3d_logger.addHandler(handler)
+
+
+def should_disable_progress_bars() -> bool:
+    """P-m14 (first half, R18): True when a worker-side ``tqdm`` bar would be
+    noise rather than feedback.
+
+    A carriage-return progress bar is only useful when something is actually
+    watching it redraw in place. Two cases: ``sys.stderr`` is missing or not
+    a terminal (piped output, a CI log, a redirected-to-file run), or the
+    caller has set ``AUTO3D_PROGRESS=off`` -- an explicit escape hatch for a
+    caller that knows better than ``isatty()`` can, e.g. a parent process
+    that is rendering its own progress panel and does not want a worker's
+    bar interleaved with it (the second half of P-m14, landing in a later PR,
+    sets exactly this).
+
+    Every worker-side ``tqdm(...)`` call in the codebase passes
+    ``disable=should_disable_progress_bars()`` rather than caching the
+    answer once at import time, since the environment variable can change
+    between calls (tests rely on this) and stderr's tty-ness is a property
+    of the live stream, not of the module that imports it.
+
+    A context manager for temporarily forcing this off lives beside this
+    function as of a later PR; nothing here yet beyond the plain predicate.
+
+    Returns:
+        True if progress bars should be suppressed.
+    """
+    if os.environ.get("AUTO3D_PROGRESS") == "off":
+        return True
+    stderr = sys.stderr
+    isatty = getattr(stderr, "isatty", None)
+    if stderr is None or isatty is None:
+        return True
+    return not isatty()
