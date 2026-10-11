@@ -20,7 +20,7 @@ Verified against production (not assumed from the plan):
   installed dependencies and input-file format.
   Patching ``AIMNet2Calculator`` and calling ``check_input`` (as an earlier
   draft of this suite assumed) would never intercept anything; the real
-  construction site is ``optimizing.__init__`` (batch_opt/batchopt.py:175),
+  construction site is ``Optimizer.__init__`` (batch_opt/batchopt.py),
   called from ``workflow_workers.optim_rank_wrapper``.
 - ``AIMNet2Adapter.__init__`` imports the calculator lazily, INSIDE the
   method (``from aimnet.calculators import AIMNet2Calculator``,

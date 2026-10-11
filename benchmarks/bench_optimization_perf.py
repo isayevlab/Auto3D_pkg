@@ -59,9 +59,10 @@ import torch
 
 RESULTS = Path(__file__).parent / "results"
 
-# 24 fixed drug-like SMILES: 8 small (~12-18 atoms), 8 medium (~30-40), 8 large
-# (~55-70). Embedded rather than read from a file so the benchmark is identical
-# across checkouts and needs no network.
+# 24 fixed drug-like SMILES: 8 small (9-14 atoms), 8 medium (20-38), 8 large
+# (40-53), hydrogens included (3-29 heavy atoms over the set). Embedded rather
+# than read from a file so the benchmark is identical across checkouts and
+# needs no network.
 SMILES = {
     "small": [
         "CCO",
@@ -254,7 +255,7 @@ def time_steps(mols, batch, device, model, steps, reps) -> dict:
     }
 
 
-def count_syncs(mols, batch, device, model, steps=10) -> float | None:
+def count_syncs(mols, batch, device, model, steps=100) -> float | None:
     """Per-step sync count from ``set_sync_debug_mode('warn')``.
 
     A separate pass from timing: the instrumentation perturbs what it measures.

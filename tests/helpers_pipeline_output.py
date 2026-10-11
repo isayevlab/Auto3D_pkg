@@ -47,6 +47,8 @@ from rdkit import Chem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
 from Auto3D.domain.energy import E_TOT_HARTREE_PROP, E_TOT_PROP, e_tot_hartree
+from Auto3D.foundation.constants import HARTREE_TO_KCAL_PER_MOL
+from Auto3D.foundation.utils.smi_io import strip_taut_suffix
 
 __all__ = [
     "ATOMIC_ENERGY_HARTREE",
@@ -169,12 +171,11 @@ def base_molecule_id(name: str) -> str:
 
     ``ConformerRanker`` already reduced the name to the species id, and
     ``decode_ids`` restored the user-facing id, so the only decoration that can
-    remain is a ``@tautN`` tautomer suffix. Stripped exactly the way the
-    pipeline's own reconciliation does it (``find_smiles_not_in_sdf`` /
-    ``find_ids_not_in_sdf`` in ``utils/reconciliation.py``) so that the accounting
-    assertion compares like with like.
+    remain is a ``@tautN`` tautomer suffix. Stripped with the single owner of
+    that parse, :func:`strip_taut_suffix` in ``foundation/utils/smi_io.py``, so
+    that the accounting assertion compares like with like.
     """
-    return name.split("@taut")[0].strip()
+    return strip_taut_suffix(name.strip())
 
 
 def read_sdf_records(path: str | Path, *, label: str = "") -> list[Chem.Mol]:
@@ -593,6 +594,14 @@ def assert_pipeline_output(
                     f"{mol_id}: E_rel(kcal/mol) = {e_rel} exceeds the "
                     f"{window} kcal/mol window that selected it{where}"
                 )
+                if len(group) >= 2:
+                    expected = (
+                        e_tot_hartree(mol) - min(e_tot_hartree(m) for m in group)
+                    ) * HARTREE_TO_KCAL_PER_MOL
+                    assert abs(e_rel - expected) <= 1e-6, (
+                        f"{mol_id}: E_rel(kcal/mol) = {e_rel} but E_tot puts it "
+                        f"{expected} kcal/mol above the group minimum{where}"
+                    )
             if k == 1:
                 assert abs(e_rel) <= 1e-6, (
                     f"{mol_id}: with k=1 the single kept conformer is its own "
@@ -614,7 +623,7 @@ def assert_opt_geometry_output(
     Args:
         out_path: The path ``opt_geometry`` returned.
         input_mols: The molecules that were handed to it, in input order.
-            ``optimizing.run()`` scatters results back to their original input
+            ``Optimizer.run()`` scatters results back to their original input
             positions, and ``_annotate_and_rewrite`` preserves that order, so
             record *i* of the output corresponds to ``input_mols[i]``.
         moved_at_least: Minimum required max-atom displacement (A) from the

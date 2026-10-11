@@ -29,12 +29,15 @@ to be edited every time a file moved -- and could go stale in both directions:
 a module in no layer (caught) and a layer prefix naming no module (not caught
 until a staleness test was added for it). Neither failure is expressible now.
 
-Two scopes, because they answer different questions. `test_no_module_imports_a_
-higher_layer` reads module-scope imports only: those are what an import of the
-package actually costs and what a circular-import crash is made of. Function-scope
-imports are the sanctioned escape hatch today, and the second test reads them too,
-so that a boundary held only by deferring an import is recorded here rather than
-being invisible to the check that is supposed to find it.
+Two scopes, both checked by the direction test. `test_no_module_imports_a_
+higher_layer` now runs once over module-scope imports only -- those are what an
+import of the package actually costs and what a circular-import crash is made
+of -- and once over every scope, so a boundary held only by deferring an import
+is not invisible to the check that is supposed to find it. Function-scope
+imports are still the sanctioned escape hatch, allowed wherever
+`UPWARD_EXEMPTIONS` lists them. The other test, `test_no_two_packages_import_
+each_other`, is not about direction at all; its job is the mutual-import
+exemption census.
 """
 
 from __future__ import annotations
@@ -42,6 +45,8 @@ from __future__ import annotations
 import ast
 import collections
 import pathlib
+
+import pytest
 
 SRC = pathlib.Path(__file__).resolve().parent.parent / "src"
 PKG = SRC / "Auto3D"
@@ -62,8 +67,9 @@ LAYER_DIRS: dict[int, str] = {
 
 _OWNER = {directory: layer for layer, directory in LAYER_DIRS.items()}
 
-#: Upward module-scope edges that are known, named and dated. An entry here is a
-#: debt with an owner, not a permission: each says what removes it.
+#: Upward edges (module-scope or function-scope) that are known, named and
+#: dated. An entry here is a debt with an owner, not a permission: each says
+#: what removes it.
 #:
 #: Empty, and the way the last entry left is worth recording. It read:
 #: "tautomer.py runs the whole pipeline to score tautomers, so an engine-layer
@@ -182,14 +188,17 @@ def test_every_layer_directory_exists():
     assert not missing, f"these LAYER_DIRS name no directory under {PKG}: {missing}"
 
 
-def test_no_module_imports_a_higher_layer():
-    """Dependencies point down, at module scope.
+@pytest.mark.parametrize("module_scope_only", [True, False], ids=["module-scope", "all-scopes"])
+def test_no_module_imports_a_higher_layer(module_scope_only):
+    """Dependencies point down, checked at module scope and at every scope.
 
     Module-scope imports are the ones that decide what importing the package
     costs and the ones a circular import is built from, so they are the strict
-    half of the rule.
+    half of the rule. The all-scopes run adds function-scope imports, so a
+    boundary held only by deferring one is not invisible to this check.
     """
-    edges = _internal_edges(module_scope_only=True)
+    scope = "module-scope" if module_scope_only else "all-scopes"
+    edges = _internal_edges(module_scope_only=module_scope_only)
     unexpected, stale = [], set(UPWARD_EXEMPTIONS)
 
     for importer in sorted(edges):
@@ -202,13 +211,18 @@ def test_no_module_imports_a_higher_layer():
                 unexpected.append(f"L{high} {importer} -> L{low} {imported}")
 
     assert not unexpected, (
-        "a lower layer imports a higher one; move the code or add a dated entry "
-        "to UPWARD_EXEMPTIONS saying what removes it:\n  " + "\n  ".join(unexpected)
+        f"a lower layer imports a higher one ({scope}); move the code or add a "
+        "dated entry to UPWARD_EXEMPTIONS saying what removes it:\n  " + "\n  ".join(unexpected)
     )
-    assert not stale, (
-        "these UPWARD_EXEMPTIONS no longer correspond to a real edge -- delete "
-        f"them: {sorted(stale)}"
-    )
+    if not module_scope_only:
+        # Checked only here, not at module scope: an exemption is stale only
+        # when no edge in ANY scope still needs it, and the module-scope run
+        # cannot see a function-scope edge, so it would flag one that is
+        # actually still live.
+        assert not stale, (
+            f"these UPWARD_EXEMPTIONS no longer correspond to a real edge -- "
+            f"delete them: {sorted(stale)}"
+        )
 
 
 def test_no_two_packages_import_each_other():
@@ -243,3 +257,29 @@ def test_no_two_packages_import_each_other():
     assert not stale, (
         f"these CYCLE_EXEMPTIONS no longer correspond to a real cycle: {sorted(stale)}"
     )
+
+
+#: Unit and property literals that must be defined in exactly one module, so
+#: that every other reader goes through that module's name rather than
+#: restating the raw value (and risking a second, silently divergent copy).
+SINGLE_SOURCE_LITERALS = {
+    27.211386245988: "foundation/constants.py",
+    "Converged": "domain/convergence.py",
+    "E_tot": "domain/energy.py",
+    "G_hartree": "domain/energy.py",
+}
+
+
+def test_each_unit_and_property_literal_is_defined_once():
+    found: dict[object, list[str]] = {lit: [] for lit in SINGLE_SOURCE_LITERALS}
+    for path in sorted(PKG.rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and type(node.value) in (str, float)
+                and node.value in found
+            ):
+                found[node.value].append(str(path.relative_to(PKG)))
+    for lit, home in SINGLE_SOURCE_LITERALS.items():
+        assert found[lit] == [home], f"{lit!r} is defined in {found[lit]}, expected only {home}"

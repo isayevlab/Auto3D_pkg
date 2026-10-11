@@ -106,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     import torch
 
     from Auto3D.engines.batch_opt.batchopt import Optimizer
+    from Auto3D.engines.model_factory import create_model
     from Auto3D.foundation.config import OptimizationConfig
 
     device = torch.device(args.device)
@@ -133,7 +134,8 @@ def main(argv: list[str] | None = None) -> int:
         # the one-time weight load are not part of the optimization hot loop and
         # would otherwise dominate small runs.
         print(f"Loading engine={args.engine} on device={device} ...", flush=True)
-        opt = Optimizer(in_sdf, out_sdf, args.engine, device, config)
+        adapter = create_model(args.engine, device)
+        opt = Optimizer(in_sdf, out_sdf, adapter=adapter, device=device, config=config)
 
         if is_cuda:
             torch.cuda.reset_peak_memory_stats(device)

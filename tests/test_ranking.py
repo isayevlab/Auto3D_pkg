@@ -25,7 +25,7 @@ def _create_mol_with_energy(
     duplicate-energy tolerance are documented in, and the unit the ranker
     compares in after converting on read. The ``E_tot`` property is written in
     Hartree through the shared boundary helper, matching what
-    ``optimizing.run()`` puts in a real input file.
+    ``Optimizer.run()`` puts in a real input file.
     """
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
@@ -409,9 +409,10 @@ class TestConformerRankerTopWindow:
         )
 
         results = ranker.top_window(df, window=1.0)
-        # mol1 and mol2 are different structures, both within window
-        # mol3 is outside the window (in kcal/mol)
-        assert len(results) >= 1
+        # mol2 sits 0.5 eV (about 11.5 kcal/mol) above mol1, so a 1 kcal/mol
+        # window keeps mol1 alone; the window is given in kcal/mol and
+        # top_window converts it to eV.
+        assert len(results) == 1
 
     def test_top_window_leaves_the_first_molecule_outside_the_window_unstamped(self, tmp_path):
         """The molecule that triggers the early ``break`` must not carry ``E_rel(eV)``.

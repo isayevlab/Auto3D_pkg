@@ -1,8 +1,8 @@
-"""Simulate an environment without the ``aimnet`` package.
+"""Dependency-hiding helpers for every optional package Auto3D can run without.
 
-Dev and CI environments install aimnet (it is a required pip dependency), so
-tests of the no-aimnet path must block the import instead of relying on
-absence. Same technique as ``_hide_torchani`` in ``test_cli_exit_codes.py``:
+Dev and CI environments install aimnet (a required pip dependency) and, on
+most hosts, torchani too, so a test of the code path that runs without one of
+them must block the import rather than relying on absence.
 ``sys.modules[name] = None`` makes ``import name`` raise
 ``ModuleNotFoundError`` with ``exc.name`` set -- exactly what a genuinely
 missing package raises -- and ``monkeypatch`` restores everything afterwards.
@@ -15,17 +15,32 @@ from __future__ import annotations
 import sys
 
 
-def hide_aimnet(monkeypatch) -> None:
-    """Make ``import aimnet`` and ``from aimnet... import ...`` raise
-    ``ModuleNotFoundError(name="aimnet")``.
+def hide_optional_dependency(monkeypatch, name: str, *, reset_model_cache: bool = False) -> None:
+    """Make ``import <name>`` raise ``ModuleNotFoundError(name=<name>)``.
 
-    Cached submodules must be evicted too: ``from aimnet.calculators import
-    X`` resolves via ``sys.modules["aimnet.calculators"]`` when that entry is
-    cached and would never consult the blocked parent entry.
+    Cached submodules are evicted first (``from name.sub import X`` resolves
+    through ``sys.modules["name.sub"]`` and would never consult the blocked
+    parent). ``reset_model_cache`` swaps ``ModelFactory._cache`` for an empty
+    dict so a model built by an earlier test cannot satisfy a request without
+    reaching the import; monkeypatch restores the populated cache afterwards.
+    Without it, a cached model resolves the request without ever reaching the
+    blocked import, so a test asserting the dependency error fails -- but
+    only when the suite happens to run a model build first, which is why this
+    surfaced as an intermittent failure under ``pytest-randomly`` rather than
+    a reliable one.
     """
-    for name in [m for m in sys.modules if m == "aimnet" or m.startswith("aimnet.")]:
-        monkeypatch.delitem(sys.modules, name)
-    monkeypatch.setitem(sys.modules, "aimnet", None)
+    for cached in [m for m in sys.modules if m == name or m.startswith(name + ".")]:
+        monkeypatch.delitem(sys.modules, cached)
+    monkeypatch.setitem(sys.modules, name, None)
+    if reset_model_cache:
+        from Auto3D.engines.model_factory import ModelFactory
+
+        monkeypatch.setattr(ModelFactory, "_cache", {})
+
+
+def hide_aimnet(monkeypatch) -> None:
+    """``hide_optional_dependency`` for aimnet; the name the no-aimnet tests import."""
+    hide_optional_dependency(monkeypatch, "aimnet")
 
 
 class BrokenTransitiveDepFinder:

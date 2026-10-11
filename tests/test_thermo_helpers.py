@@ -1033,7 +1033,6 @@ class TestFailedRecordKeepsInputGeometry:
         relaxed = original + displacement
         symbols = [a.GetSymbol() for a in mol.GetAtoms()]
         atoms = Atoms(symbols, relaxed)
-        atoms.get_calculator = lambda: None
         return atoms, original, relaxed
 
     def test_a_failure_after_the_hessian_leaves_the_conformer_at_its_input_geometry(
