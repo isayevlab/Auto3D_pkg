@@ -206,3 +206,29 @@ class TestTheWarningStillDiscriminates:
         assert [m for m in messages if "unspecified stereo" in m] == [], (
             f"ethanol was warned about: {messages}"
         )
+
+
+class TestUnspecifiedStereoWarningsAggregatePerFile:
+    """P-m32: a file with several under-specified records must get ONE
+    UserWarning naming all of them, not one warning per record flooding the
+    log -- the same aggregation `_warn_about_dummy_atom_records` already does
+    for dummy-atom records."""
+
+    def test_three_underspecified_records_produce_one_aggregated_warning(self, tmp_path):
+        smi_path = tmp_path / "probe.smi"
+        smi_path.write_text("CC(O)CC s1\nCC(N)CC s2\nCC(F)CC s3\n")
+        args = Auto3DOptions(path=str(smi_path), k=1, use_gpu=False, enumerate_isomers=False)
+        args.input_format = "smi"
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            check_smi_format(args)
+
+        messages = [str(record.message) for record in caught]
+        stereo_warnings = [m for m in messages if "unspecified stereo element" in m]
+        assert len(stereo_warnings) == 1, (
+            f"expected exactly one aggregated warning, got: {messages}"
+        )
+        assert "3" in stereo_warnings[0]
+        assert "s1" in stereo_warnings[0]
+        assert "s2" in stereo_warnings[0]

@@ -12,7 +12,6 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 
 import Auto3D.orchestration.workflow
@@ -81,8 +80,18 @@ class TestWorkflowExceptions:
             orchestrator._validate_input()
 
     def test_validate_input_invalid_config_raises_configuration_error(self, tmp_path):
-        """An invalid config (e.g. out-of-range gpu_idx) must fail fast in
-        _validate_input via check_valid_configuration, not deep in a worker."""
+        """An invalid config (e.g. an unresolvable engine name) must fail fast
+        in _validate_input via check_valid_configuration, not deep in a
+        worker.
+
+        The mocked return value is a message check_valid_configuration can
+        still produce via its returned `errors` list (an engine-resolution
+        failure, say) -- an out-of-range gpu_idx is no longer one of those:
+        since task 15 (P-m33) it raises GPUError immediately instead, which
+        is pinned separately in test_validation.py and test_cli_exit_codes.py.
+        This test is about _validate_input's generic list-wrapping, not about
+        any one specific error message.
+        """
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
@@ -94,9 +103,9 @@ class TestWorkflowExceptions:
         with patch.object(
             Auto3D.orchestration.workflow,
             "check_valid_configuration",
-            return_value=["GPU index 5 is invalid. Available GPUs: 1"],
+            return_value=["Unknown optimizing engine: 'bogus-engine'"],
         ):
-            with pytest.raises(ConfigurationError, match="GPU index 5 is invalid"):
+            with pytest.raises(ConfigurationError, match="Unknown optimizing engine"):
                 orchestrator._validate_input()
 
     def test_finalize_output_no_structures_raises_optimization_error(self, tmp_path):
@@ -179,15 +188,15 @@ class TestChunkCreation:
             workflow_logger=None,
         )
 
-        # Create a small DataFrame (1 molecule)
-        df = pd.DataFrame({0: ["CCO"], 1: ["ethanol"]})
+        # A single (smiles, id) record.
+        records = [("CCO", "ethanol")]
 
         # Create chunk indices simulating 3 GPUs with 1 molecule
         # Only chunk 0 should have data, chunks 1 and 2 should be empty
         chunk_idxes = [[0], [], []]  # 3 chunks, only first has data
 
         # Run chunk creation
-        chunk_info = chunk_manager._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = chunk_manager._create_chunk_files(records, chunk_idxes, 3)
 
         # Should only have 1 chunk (empty ones skipped)
         assert len(chunk_info) == 1
@@ -218,13 +227,13 @@ class TestChunkCreation:
             workflow_logger=None,
         )
 
-        # Create DataFrame with 3 molecules
-        df = pd.DataFrame({0: ["CCO", "CCCO", "CCCCO"], 1: ["ethanol", "propanol", "butanol"]})
+        # Three (smiles, id) records, one per chunk.
+        records = [("CCO", "ethanol"), ("CCCO", "propanol"), ("CCCCO", "butanol")]
 
         # Create chunk indices - each chunk has one molecule
         chunk_idxes = [[0], [1], [2]]
 
-        chunk_info = chunk_manager._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = chunk_manager._create_chunk_files(records, chunk_idxes, 3)
 
         # Should have all 3 chunks
         assert len(chunk_info) == 3

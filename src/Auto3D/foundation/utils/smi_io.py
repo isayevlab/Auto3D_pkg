@@ -18,7 +18,9 @@ the whole ``Auto3D.engines.models`` package. The overwrite guards live in
 from __future__ import annotations
 
 import collections
+import os
 import re
+from collections.abc import Iterable
 
 from rdkit import Chem
 from rdkit.Chem import inchi
@@ -86,6 +88,32 @@ def iter_smi_records(path, *, on_malformed="skip"):
             continue
         # Lenient parsing: ignore any extra whitespace-separated columns.
         yield line_no, parts[0], parts[1]
+
+
+def write_smi_records(path: str | os.PathLike[str], records: Iterable[tuple[str, str]]) -> None:
+    """Write ``(smiles, mol_id)`` pairs as a ``.smi`` file, one per line.
+
+    The writer side of :func:`iter_smi_records` (P-m28, R20): a ``smiles id``
+    line, fields separated by a single space, each line ending in ``\\n``.
+    This is the one place that writes an already-ID-encoded ``.smi`` file --
+    ``ChunkManager`` uses it for its chunk files, so the parser and the writer
+    for that intermediate format cannot drift apart the way a pandas
+    ``to_csv(sep=" ")`` call and ``iter_smi_records`` could.
+
+    No overwrite guard (unlike :func:`smiles2smi`): every caller of this
+    writer creates a fresh path of its own choosing (a chunk file under a job
+    directory it just made), never a user-named output the caller might not
+    intend to replace.
+
+    Args:
+        path: Output ``.smi`` path -- a plain string or a ``Path``-like
+            object (``ChunkManager``'s one real caller passes a
+            ``pathlib.Path``).
+        records: ``(smiles, mol_id)`` pairs, in the order to write them.
+    """
+    with open(path, "w") as f:
+        for smiles, mol_id in records:
+            f.write(f"{smiles} {mol_id}\n")
 
 
 def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:

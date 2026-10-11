@@ -133,7 +133,7 @@ class RDKitIsomer:
             for name, smi in self.enumerate.items():
                 for i, isomer in enumerate(smi):
                     new_name = str(name).strip() + "_" + str(i)
-                    line = isomer.strip() + "\t" + new_name + "\n"
+                    line = isomer.strip() + " " + new_name + "\n"
                     f.write(line)
 
     def write_single_isomer_smi(self) -> None:
@@ -152,7 +152,7 @@ class RDKitIsomer:
         """
         with open(self.enumerated_smi_path, "w+") as f:
             for _line_no, smi, name in iter_smi_records(self.input_f, on_malformed="skip"):
-                f.write(f"{smi.strip()}\t{str(name).strip()}_0\n")
+                f.write(f"{smi.strip()} {str(name).strip()}_0\n")
 
     def embed_conformer(self, smi: str) -> Chem.Mol | None:
         """Embed multiple 3D conformers for a SMILES string.

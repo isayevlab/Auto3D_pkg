@@ -7,12 +7,20 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 
 import Auto3D.orchestration.chunk_manager
 from Auto3D.foundation.config import Auto3DOptions
 from Auto3D.orchestration.chunk_manager import ChunkManager
+
+
+@pytest.fixture
+def smi_input(tmp_path):
+    """A two-line, already-ID-encoded ``.smi`` file, as ``prepare_chunks``
+    expects its input (see ``TestPrepareChunks``)."""
+    path = tmp_path / "test_encoded.smi"
+    path.write_text("CCO ethanol\nCCCO propanol\n")
+    return path
 
 
 class TestChunkManagerInit:
@@ -41,88 +49,174 @@ class TestChunkManagerInit:
 class TestCalculateMemoryAndChunks:
     """Tests for ChunkManager.calculate_memory_and_chunks()."""
 
-    def test_uses_provided_memory(self, tmp_path):
-        """Should use config.memory when provided."""
-        config = Auto3DOptions(path="test.smi", k=1, memory=8)
+    @pytest.mark.parametrize(
+        ("memory", "gpu_idx", "use_gpu", "expected_memory_gb", "expected_num_jobs"),
+        [
+            # CPU path (memory=None, use_gpu=False): memory_gb comes from
+            # available system memory; gpu_idx is irrelevant.
+            (None, 0, False, 16, 1),
+            (None, [0, 1], False, 16, 1),
+            # GPU path (memory=None, use_gpu=True): memory_gb comes from
+            # _gpu_free_memory_gb; num_jobs is 1 for a single index, one per
+            # GPU for a list (N-m32).
+            (None, 0, True, 8, 1),
+            (None, [0, 1], True, 8, 2),
+            # Explicit --memory: memory_gb is that value regardless of
+            # use_gpu/gpu_idx; num_jobs still reflects a GPU list, even
+            # combined with an explicit memory (N-m32) -- the (8, [0, 1],
+            # True) cell is this task's Step 2 fix, pinned once here.
+            (8, 0, False, 8, 1),
+            (8, [0, 1], False, 8, 1),
+            (8, 0, True, 8, 1),
+            (8, [0, 1], True, 8, 2),
+        ],
+    )
+    def test_memory_and_num_jobs_grid(
+        self,
+        monkeypatch,
+        tmp_path,
+        memory,
+        gpu_idx,
+        use_gpu,
+        expected_memory_gb,
+        expected_num_jobs,
+    ):
+        """P-m50: the memory x gpu_idx x use_gpu grid, replacing five
+        separate one-arm tests. Only the mock each cell's branch actually
+        reaches is set up: explicit --memory cells need none at all, the GPU
+        branch mocks _gpu_free_memory_gb, and the CPU branch mocks psutil
+        (with both cgroup constants pointed at an absent path, so the result
+        does not depend on this host's real cgroup limit, if any)."""
+        config = Auto3DOptions(
+            path="test.smi", k=1, memory=memory, use_gpu=use_gpu, gpu_idx=gpu_idx
+        )
         manager = ChunkManager(
             config=config,
             input_path=Path(tmp_path / "input.smi"),
             input_format="smi",
             job_dir=tmp_path,
             workflow_logger=None,
+        )
+
+        if memory is None and use_gpu:
+            monkeypatch.setattr(
+                Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", lambda idx: 8
+            )
+        elif memory is None and not use_gpu:
+            monkeypatch.setattr(
+                Auto3D.orchestration.chunk_manager, "CGROUP_MEMORY_MAX_PATH", tmp_path / "absent"
+            )
+            monkeypatch.setattr(
+                Auto3D.orchestration.chunk_manager, "CGROUP_V1_LIMIT_PATH", tmp_path / "absent-v1"
+            )
+            monkeypatch.setattr(
+                Auto3D.orchestration.chunk_manager.psutil,
+                "virtual_memory",
+                lambda: MagicMock(total=64 * 1024**3, available=16 * 1024**3),
+            )
+
+        memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
+
+        assert memory_gb == expected_memory_gb
+        assert num_jobs == expected_num_jobs
+
+    def test_nvidia_smi_fallback_with_gpu_list_still_returns_gpu_count(self, monkeypatch, tmp_path):
+        """The nvidia-smi-unavailable fallback (a conservative 1 GB budget)
+        must not affect num_jobs: num_jobs is computed independent of which
+        branch supplies memory_gb (N-m32), so a listed GPU still gets its own
+        job even when memory falls back to the default."""
+        config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=[0, 1])
+        manager = ChunkManager(
+            config=config,
+            input_path=Path(tmp_path / "input.smi"),
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", lambda idx: None
         )
 
         memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
 
-        assert memory_gb == 8
-        assert num_jobs == 1  # Single job when memory is manually set
+        assert memory_gb == 1
+        assert num_jobs == 2
 
-    def test_single_gpu_returns_one_job(self, tmp_path):
-        """Should return num_jobs=1 for single GPU index.
-
-        Mocks Auto3D.orchestration.chunk_manager._gpu_free_memory_gb (the nvidia-smi-backed
-        query), not torch.cuda.get_device_properties -- that call was removed
-        by the M36 fix specifically so this orchestrator never initializes a
-        CUDA context (audit M36).
-        """
-        config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=0)
+    def test_cpu_memory_uses_available_not_total(self, monkeypatch, tmp_path, smi_input):
+        """N-m33: the CPU path must size chunks from *available* memory, not
+        *total* -- total ignores every other process already resident, which
+        can make chunk sizing (and the batchsize_atoms scaling derived from
+        it) wildly optimistic on a shared box."""
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "CGROUP_MEMORY_MAX_PATH", tmp_path / "absent"
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "CGROUP_V1_LIMIT_PATH", tmp_path / "absent-v1"
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager.psutil,
+            "virtual_memory",
+            lambda: MagicMock(total=64 * 1024**3, available=8 * 1024**3),
+        )
         manager = ChunkManager(
-            config=config,
-            input_path=Path(tmp_path / "input.smi"),
+            config=Auto3DOptions(path=str(smi_input), k=1, use_gpu=False),
+            input_path=smi_input,
             input_format="smi",
             job_dir=tmp_path,
             workflow_logger=None,
         )
-
-        with patch.object(
-            Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", return_value=8
-        ):
-            memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
-
-        assert num_jobs == 1
+        memory_gb, _, _ = manager.calculate_memory_and_chunks()
         assert memory_gb == 8
 
-    def test_multiple_gpus_returns_gpu_count(self, tmp_path):
-        """Should return num_jobs equal to GPU count for multiple GPUs.
-
-        Mocks Auto3D.orchestration.chunk_manager._gpu_free_memory_gb rather than
-        torch.cuda.get_device_properties for the same reason as
-        test_single_gpu_returns_one_job above (audit M36).
-        """
-        config = Auto3DOptions(path="test.smi", k=1, use_gpu=True, gpu_idx=[0, 1, 2])
+    def test_cpu_memory_is_clamped_by_the_cgroup_limit(self, monkeypatch, tmp_path, smi_input):
+        """N-m33: a cgroup v2 memory.max limit below the host's available
+        memory must win -- this process may be confined to far less than
+        `psutil` reports for the whole machine (a shared box, a container)."""
+        limit = tmp_path / "memory.max"
+        limit.write_text("4294967296\n")  # 4 GiB
+        monkeypatch.setattr(Auto3D.orchestration.chunk_manager, "CGROUP_MEMORY_MAX_PATH", limit)
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager.psutil,
+            "virtual_memory",
+            lambda: MagicMock(total=64 * 1024**3, available=16 * 1024**3),
+        )
         manager = ChunkManager(
-            config=config,
-            input_path=Path(tmp_path / "input.smi"),
+            config=Auto3DOptions(path=str(smi_input), k=1, use_gpu=False),
+            input_path=smi_input,
             input_format="smi",
             job_dir=tmp_path,
             workflow_logger=None,
         )
+        memory_gb, _, _ = manager.calculate_memory_and_chunks()
+        assert memory_gb == 4
 
-        with patch.object(
-            Auto3D.orchestration.chunk_manager, "_gpu_free_memory_gb", return_value=8
-        ):
-            memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
-
-        assert num_jobs == 3
-        assert memory_gb == 8
-
-    def test_cpu_uses_system_memory(self, tmp_path):
-        """Should use system memory when use_gpu=False."""
-        config = Auto3DOptions(path="test.smi", k=1, use_gpu=False)
+    def test_cpu_memory_never_drops_below_one_gb(self, monkeypatch, tmp_path, smi_input):
+        """R55: the CPU branch's memory_gb must floor at 1 GB, matching the
+        GPU branch's own floor (`_gpu_free_memory_gb`'s `max(1, ...)` and the
+        nvidia-smi-fallback's explicit `memory_gb = 1`) -- under 1 GiB
+        available (or an equally tight cgroup limit), `int(available /
+        1024**3)` truncates to 0, which would collapse chunk sizing (and the
+        batchsize_atoms scaling derived from it) to its unscaled floor."""
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "CGROUP_MEMORY_MAX_PATH", tmp_path / "absent"
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "CGROUP_V1_LIMIT_PATH", tmp_path / "absent-v1"
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager.psutil,
+            "virtual_memory",
+            lambda: MagicMock(total=16 * 1024**3, available=int(0.5 * 1024**3)),
+        )
         manager = ChunkManager(
-            config=config,
-            input_path=Path(tmp_path / "input.smi"),
+            config=Auto3DOptions(path=str(smi_input), k=1, use_gpu=False),
+            input_path=smi_input,
             input_format="smi",
             job_dir=tmp_path,
             workflow_logger=None,
         )
-
-        with patch("psutil.virtual_memory") as mock_mem:
-            mock_mem.return_value = MagicMock(total=16 * 1024**3)
-            memory_gb, chunk_size, num_jobs = manager.calculate_memory_and_chunks()
-
-        assert memory_gb == 16
-        assert num_jobs == 1
+        memory_gb, _, _ = manager.calculate_memory_and_chunks()
+        assert memory_gb == 1
 
     def test_chunk_size_includes_capacity_multiplier(self, tmp_path):
         """Chunk size should be memory_gb * capacity."""
@@ -418,6 +512,33 @@ class TestScaledBatchsizeAtomsClamp:
         assert manager.scaled_batchsize_atoms == 20_000
 
 
+class TestCeilingCommentCitesMeasurement:
+    """P-m30: the ceiling's comment must justify 1024 * 16 by the measurement
+    that bounded it, not merely by restating that it equals some other
+    wrapper's own default elsewhere in the codebase -- a coincidence of two
+    numbers, not evidence either one is safe."""
+
+    def test_ceiling_comment_cites_the_2026_10_09_measurement(self):
+        source_path = Path(Auto3D.orchestration.chunk_manager.__file__)
+        text = source_path.read_text()
+        marker = "_MAX_SCALED_BATCHSIZE_ATOMS = 1024 * 16"
+        before = text[: text.index(marker)]
+
+        # The contiguous run of '#' comment lines immediately above the
+        # constant -- not the whole file, which contains the phrase
+        # "own default" in unrelated contexts (e.g. constructor docstrings).
+        comment_lines: list[str] = []
+        for line in reversed(before.splitlines()):
+            if line.strip().startswith("#"):
+                comment_lines.append(line)
+            else:
+                break
+        comment_block = "\n".join(reversed(comment_lines))
+
+        assert "2026-10-09" in comment_block
+        assert "own default" not in comment_block
+
+
 class TestCreateChunkFiles:
     """Tests for ChunkManager._create_chunk_files()."""
 
@@ -433,10 +554,10 @@ class TestCreateChunkFiles:
         )
 
         # Single molecule distributed across 3 chunks
-        df = pd.DataFrame({0: ["CCO"], 1: ["ethanol"]})
+        records = [("CCO", "ethanol")]
         chunk_idxes = [[0], [], []]  # Only first chunk has data
 
-        chunk_info = manager._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = manager._create_chunk_files(records, chunk_idxes, 3)
 
         assert len(chunk_info) == 1
         assert "job1" in chunk_info[0][1]
@@ -455,15 +576,10 @@ class TestCreateChunkFiles:
         )
 
         # Three molecules, one per chunk
-        df = pd.DataFrame(
-            {
-                0: ["CCO", "CCCO", "CCCCO"],
-                1: ["ethanol", "propanol", "butanol"],
-            }
-        )
+        records = [("CCO", "ethanol"), ("CCCO", "propanol"), ("CCCCO", "butanol")]
         chunk_idxes = [[0], [1], [2]]
 
-        chunk_info = manager._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = manager._create_chunk_files(records, chunk_idxes, 3)
 
         assert len(chunk_info) == 3
         assert (tmp_path / "job1").exists()
@@ -481,10 +597,10 @@ class TestCreateChunkFiles:
             workflow_logger=None,
         )
 
-        df = pd.DataFrame({0: ["CCO"], 1: ["ethanol"]})
+        records = [("CCO", "ethanol")]
         chunk_idxes = [[0]]
 
-        chunk_info = manager._create_chunk_files(df, chunk_idxes, 1)
+        chunk_info = manager._create_chunk_files(records, chunk_idxes, 1)
 
         chunk_path = Path(chunk_info[0][0])
         assert chunk_path.suffix == ".smi"
@@ -522,10 +638,10 @@ class TestCreateChunkFiles:
             workflow_logger=None,
         )
 
-        df = pd.DataFrame({0: ["CCO"], 1: ["ethanol"]})
+        records = [("CCO", "ethanol")]
         chunk_idxes = [[0]]
 
-        chunk_info = manager._create_chunk_files(df, chunk_idxes, 1)
+        chunk_info = manager._create_chunk_files(records, chunk_idxes, 1)
 
         assert len(chunk_info) == 1
         chunk_path, chunk_dir = chunk_info[0]
@@ -535,6 +651,28 @@ class TestCreateChunkFiles:
 
 class TestPrepareChunks:
     """Tests for ChunkManager.prepare_chunks()."""
+
+    def test_prepare_chunks_reads_through_iter_smi_records(self, monkeypatch, tmp_path, smi_input):
+        """P-m28 (R20): the encoded `.smi` is read by `iter_smi_records`, the
+        same parser `auto3d validate` and the run pipeline use, not by a
+        second, independent pandas reader."""
+        seen = []
+        real = Auto3D.orchestration.chunk_manager.iter_smi_records
+
+        def spy(path):
+            seen.append(path)
+            return real(path)
+
+        monkeypatch.setattr(Auto3D.orchestration.chunk_manager, "iter_smi_records", spy)
+        manager = ChunkManager(
+            config=Auto3DOptions(path=str(smi_input), k=1, memory=1, capacity=1000, use_gpu=False),
+            input_path=smi_input,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        manager.prepare_chunks()
+        assert seen == [str(smi_input)]
 
     def test_prepares_smi_chunks(self, tmp_path):
         """Should prepare chunks for SMI input."""
@@ -620,6 +758,38 @@ class TestPrepareChunks:
         assert manager.scaled_batchsize_atoms == 1024 * 4
 
 
+class TestChunkCountAtExactMultiples:
+    """N-m35: `data_size // chunk_size + 1` always adds a chunk, even when
+    `data_size` divides `chunk_size` evenly -- the "+1" chunk gets no rows at
+    all and is dropped by _create_chunk_files' empty-chunk skip, but it was
+    still allocated and counted against num_jobs, one more job than the work
+    needs."""
+
+    def test_no_empty_trailing_chunk_at_exact_multiple(self, tmp_path):
+        """400 records, chunk_size 200 (memory=1 * capacity=200): exactly 2
+        chunks, not 3."""
+        input_file = tmp_path / "test_encoded.smi"
+        input_file.write_text("".join(f"C m{i}\n" for i in range(400)))
+
+        config = Auto3DOptions(
+            path=str(tmp_path / "test.smi"),
+            k=1,
+            memory=1,
+            capacity=200,
+        )
+        manager = ChunkManager(
+            config=config,
+            input_path=input_file,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+
+        chunk_info = manager.prepare_chunks()
+
+        assert len(chunk_info) == 2
+
+
 class TestRaggedSmiAndChunkSizeClamp:
     """FIX 6: ragged .smi reads and degenerate chunk_size must not crash."""
 
@@ -693,19 +863,22 @@ class TestRaggedSmiAndChunkSizeClamp:
 
 
 class TestSmiParserCrossAgreement:
-    """M59: chunk_manager's pandas-based `.smi` reader stays separate from
-    ``iter_smi_records`` for performance (avoiding a pure-Python per-line loop
-    over what can be a very large file), but the two must not silently drift
-    apart on the input they both exist to read: an already-ID-encoded
-    intermediate `.smi` file with no blank lines and no comments (chunk_manager
-    calls this "encode_ids semantics" in prepare_chunks' docstring). If either
-    parser's tokenizing/whitespace-splitting rule changes, this test should
-    catch the divergence.
+    """P-m28 (R20): chunk_manager now reads an already-ID-encoded `.smi` file
+    through ``iter_smi_records`` -- the same parser `auto3d validate` and the
+    run pipeline use -- and writes each chunk through ``write_smi_records``,
+    so there is exactly one reader and one writer for this format rather than
+    a second, independent one here (chunk_manager calls this "encode_ids
+    semantics" in prepare_chunks' docstring). These tests pin that the chunk
+    file ``prepare_chunks`` writes and ``iter_smi_records`` read back agree,
+    including on a `#`-prefixed line, which used to be a real, documented
+    divergence (M59) before the pandas reader this class is named for was
+    removed.
     """
 
     def test_prepare_chunks_agrees_with_iter_smi_records_on_well_formed_input(self, tmp_path):
-        """Both parsers must extract the same (smiles, id) pairs, in the same
-        order, from a well-formed encoded .smi file."""
+        """Both the written chunk file and iter_smi_records must agree on the
+        same (smiles, id) pairs, in the same order, from a well-formed
+        encoded .smi file."""
         from Auto3D.foundation.utils.smi_io import iter_smi_records
 
         rows = [
@@ -736,21 +909,23 @@ class TestSmiParserCrossAgreement:
         assert len(chunk_info) == 1, "test assumes no chunk splitting"
 
         chunk_path, _ = chunk_info[0]
-        pandas_rows = [
+        chunk_file_rows = [
             tuple(line.split())
             for line in Path(chunk_path).read_text().splitlines()
             if line.strip()
         ]
         iter_rows = [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))]
 
-        assert pandas_rows == rows
+        assert chunk_file_rows == rows
         assert iter_rows == rows
-        assert pandas_rows == iter_rows
+        assert chunk_file_rows == iter_rows
 
     def test_ragged_extra_column_agreement(self, tmp_path):
         """A trailing whitespace-separated column beyond SMILES+ID must be
-        dropped identically by both readers (chunk_manager's usecols=[0, 1]
-        vs. iter_smi_records taking only parts[0]/parts[1])."""
+        dropped identically by both the chunk file and iter_smi_records (both
+        now go through iter_smi_records -- one directly, one by reading the
+        chunk file back -- so the extra column cannot resurface in only one
+        of them)."""
         from Auto3D.foundation.utils.smi_io import iter_smi_records
 
         input_file = tmp_path / "test_encoded.smi"
@@ -768,28 +943,27 @@ class TestSmiParserCrossAgreement:
         assert len(chunk_info) == 1
 
         chunk_path, _ = chunk_info[0]
-        pandas_rows = [
+        chunk_file_rows = [
             tuple(line.split())
             for line in Path(chunk_path).read_text().splitlines()
             if line.strip()
         ]
         iter_rows = [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))]
 
-        assert pandas_rows == iter_rows == [("CCO", "0"), ("CCCO", "1")]
+        assert chunk_file_rows == iter_rows == [("CCO", "0"), ("CCCO", "1")]
 
     def test_documented_divergence_comment_lines(self, tmp_path):
-        """Documents a real, deliberate divergence rather than papering over
-        it: iter_smi_records treats a '#'-prefixed line as a comment and
-        skips it (matching cli.commands.validate, per M25); chunk_manager's
-        pd.read_csv has no `comment=` parameter and reads it as a data row.
+        """A '#'-prefixed line in the input is now skipped the same way by
+        both: iter_smi_records treats it as a comment (matching
+        cli.commands.validate, per M25), and chunk_manager reads the input
+        through that same function before writing the chunk file, so a
+        comment line in the ORIGINAL input never reaches the chunk file at
+        all.
 
-        This is not a bug this task fixes (chunk_manager stays a separate,
-        faster reader by design) -- it is recorded here so that a future
-        change to either parser's comment handling is a deliberate,
-        visible decision rather than a silent behavior change caught only in
-        production. If this test starts failing because someone taught
-        pd.read_csv to skip '#' lines, that is progress: update the
-        assertion, don't just delete the test.
+        This used to be a documented divergence (M59): the old pandas-based
+        chunk reader had no `comment=` parameter and read a '#' line as a
+        data row, while iter_smi_records skipped it. That divergence is gone
+        now that chunk_manager has one reader, not two.
         """
         from Auto3D.foundation.utils.smi_io import iter_smi_records
 
@@ -806,17 +980,18 @@ class TestSmiParserCrossAgreement:
         )
         chunk_info = manager.prepare_chunks()
         chunk_path, _ = chunk_info[0]
-        pandas_rows = [
+        chunk_file_rows = [
             tuple(line.split())
             for line in Path(chunk_path).read_text().splitlines()
             if line.strip()
         ]
         iter_rows = [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(input_file))]
 
-        # pandas reads the '#' line as data; iter_smi_records skips it.
-        assert pandas_rows == [("CCO", "0"), ("#", "1"), ("CCCO", "3")]
+        # Both skip the '#' line now: neither parser nor the written chunk
+        # file ever sees it as data.
+        assert chunk_file_rows == [("CCO", "0"), ("CCCO", "3")]
         assert iter_rows == [("CCO", "0"), ("CCCO", "3")]
-        assert pandas_rows != iter_rows
+        assert chunk_file_rows == iter_rows
 
 
 class TestLogging:

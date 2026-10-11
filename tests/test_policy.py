@@ -70,6 +70,19 @@ class TestRequiresAimnetCountsRadicalElectrons:
         assert _requires_aimnet(_mol("CP(C)C")) is True
 
 
+class TestRequiresAimnetIsPublic:
+    """P-m31: `requires_aimnet` is a public name in the engine policy module,
+    not an underscore-prefixed one -- it is a model precondition other
+    modules (orchestration's input checks) have to ask about, not an
+    implementation detail private to this one."""
+
+    def test_public_name_is_importable_and_behaves_like_the_alias(self):
+        from Auto3D.engines.models.policy import requires_aimnet
+
+        assert requires_aimnet(_mol("CCO")) is False
+        assert requires_aimnet is _requires_aimnet
+
+
 class TestCheckEngineSupportsMoleculesRadicalGate:
     """The three cases issue #10 names explicitly."""
 
