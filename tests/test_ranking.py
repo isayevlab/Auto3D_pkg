@@ -47,6 +47,19 @@ def _write_mols_to_sdf(mols: list[Chem.Mol], filepath: str) -> None:
             writer.write(mol)
 
 
+@pytest.fixture
+def three_conformers_sdf(tmp_path) -> str:
+    """Three converged conformers of one species, at distinct energies."""
+    mols = [
+        _create_mol_with_energy("CCO", -10.0, "mol_1"),
+        _create_mol_with_energy("CCO", -9.0, "mol_2"),
+        _create_mol_with_energy("CCO", -8.0, "mol_3"),
+    ]
+    input_path = tmp_path / "three_conformers.sdf"
+    _write_mols_to_sdf(mols, str(input_path))
+    return input_path
+
+
 class TestConformerRankerWithOptimizedFiltering:
     """Tests for ConformerRanker's conformer filtering."""
 
@@ -1266,3 +1279,40 @@ def test_missing_selector_message_is_not_run_together(tmp_path):
     message = str(excinfo.value)
     assert "youonly" not in message, message
     assert "if you only want" in message, message
+
+
+class TestRankedOutputIsWrittenAtomically:
+    """``run``'s writer must not leave a partial ``out_path`` behind.
+
+    ``Chem.SDWriter(self.out_path)`` opened and truncated the real target
+    directly, so a failure partway through the write (a full disk, a killed
+    worker) left a half-written file where a reader expects either the
+    previous complete file or this run's complete selection -- never
+    neither. This mirrors the ``opt_geometry`` rewrite
+    (``entry/ASE/geometry.py``), which already stages through
+    ``atomic_write_path``.
+    """
+
+    def test_a_writer_failure_leaves_no_partial_output(
+        self, tmp_path, monkeypatch, three_conformers_sdf
+    ):
+        from rdkit import Chem
+
+        from Auto3D.domain.ranking import ConformerRanker
+
+        out_path = tmp_path / "ranked.sdf"
+        calls = {"n": 0}
+        real_write = Chem.SDWriter.write
+
+        def failing_write(self, mol, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise RuntimeError("disk gone")
+            return real_write(self, mol, *args, **kwargs)
+
+        monkeypatch.setattr(Chem.SDWriter, "write", failing_write)
+        ranker = ConformerRanker(str(three_conformers_sdf), str(out_path), 0.3, k=3)
+        with pytest.raises(RuntimeError, match="disk gone"):
+            ranker.run()
+        assert not out_path.exists()
+        assert not list(tmp_path.glob("ranked.sdf*"))

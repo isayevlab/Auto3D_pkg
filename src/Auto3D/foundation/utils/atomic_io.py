@@ -64,9 +64,16 @@ def atomic_write_path(
     tighten a 0644 output to 0600 -- and a hand-rolled ``open()`` would loosen a
     0600 target to the umask instead. Setting the mode up front also preserves a
     read-only (0444) target's protection, which ``rename(2)`` would otherwise
-    bypass. Copying the mode is best effort: a target that does not exist yet,
-    or whose mode cannot be read, is not a reason to abandon a completed
-    computation.
+    bypass. Copying the mode is best effort: a target whose mode cannot be
+    read is not a reason to abandon a completed computation.
+
+    A target that does not exist yet (a first write) is not "best effort" --
+    it gets the mode a plain ``open()`` would have given it, ``0o666`` masked
+    by the process umask, rather than ``mkstemp``'s 0600. Leaving it at 0600
+    would otherwise tighten every fresh output Auto3D writes through this
+    helper (``opt_geometry``'s rewrite, the ranked SDF) relative to what the
+    same write via plain ``open()`` -- what every caller did before this
+    module existed -- would have produced.
 
     Args:
         target: The file to replace. Need not exist yet.
@@ -83,11 +90,30 @@ def atomic_write_path(
     fd, tmp_path = tempfile.mkstemp(suffix=suffix, dir=directory)
     os.close(fd)
     try:
-        os.chmod(tmp_path, stat.S_IMODE(os.stat(target_path).st_mode))
+        mode = stat.S_IMODE(os.stat(target_path).st_mode)
+    except FileNotFoundError:
+        # `target` does not exist yet: give the temp file (and so, on
+        # replace, `target`) the mode a plain `open()` would have given a
+        # new file -- `0o666` masked by the process umask -- rather than
+        # leaving it at `mkstemp`'s 0600. `os.umask` has no "read only" mode,
+        # so the current mask is read by setting it to 0 and immediately
+        # restoring what was there, which is safe here because nothing else
+        # in this process races the umask between these two calls.
+        current_umask = os.umask(0)
+        os.umask(current_umask)
+        mode = 0o666 & ~current_umask
     except OSError:
-        # Best effort: `target` may not exist yet (a first write), or its mode
-        # may be unreadable. Neither is a reason to refuse the rewrite.
-        pass
+        # `target`'s mode could not be read for some other reason. Not a
+        # reason to refuse the rewrite -- fall back to whatever `mkstemp`
+        # already gave the temp file.
+        mode = None
+    if mode is not None:
+        try:
+            os.chmod(tmp_path, mode)
+        except OSError:
+            # Best effort, as above: an unchangeable mode is not a reason to
+            # abandon a completed computation.
+            pass
 
     try:
         yield tmp_path

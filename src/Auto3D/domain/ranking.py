@@ -6,11 +6,9 @@ from __future__ import annotations
 import pandas as pd
 from rdkit import Chem
 
-from Auto3D.domain.connectivity import check_connectivity
 from Auto3D.domain.convergence import (
     converged_or_unfiltered,
     has_convergence_flag,
-    thermo_succeeded_or_unfiltered,
 )
 from Auto3D.domain.energy import (
     E_REL_KCAL_PROP,
@@ -22,11 +20,11 @@ from Auto3D.domain.energy import (
     ev2kcalpermol,
     try_gibbs_ev,
 )
-from Auto3D.domain.filtering import FilterResult, filter_conformers
-from Auto3D.domain.stereo_check import stereo_preserved
+from Auto3D.domain.filtering import FilterResult, filter_conformers, validity_drop_reason
 from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
 from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
 from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
+from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 
@@ -267,6 +265,40 @@ class ConformerRanker:
         else:
             logger.info("No structure selected for %s: %s.", name, result.summary())
 
+    def _check_name_uniformity(self, names: list[str]) -> str:
+        """Raise unless every element of ``names`` is identical; return it.
+
+        ``top_k`` and ``top_window`` are each called once per
+        ``df.groupby("names")`` group, so every row's name should already be
+        the one species id for that group -- this guards the invariant
+        rather than enforcing it.
+        """
+        if len(set(names)) != 1:
+            raise ValueError(f"All molecules must have the same name, got: {set(names)}")
+        return names[0]
+
+    def _sort_by_energy(self, df_group: pd.DataFrame) -> pd.DataFrame:
+        """Sort ``df_group`` by the ``energies`` column, ascending.
+
+        No ``kind`` argument: the default (quicksort) is not stable, so the
+        tie order among equal-energy rows is whatever pandas' default gives
+        it -- pinned bit for bit by the existing suite. (A future change to
+        ``kind="stable"`` is tracked separately and is not this seam.)
+        """
+        return df_group.sort_values(by=["energies"])
+
+    def _stamp_e_rel(self, mol: Chem.Mol, ref_energy: float) -> float:
+        """Write ``mol``'s ``E_rel(eV)`` relative to ``ref_energy``; return it.
+
+        Both ``mol``'s own energy (via ``self._read_energy_ev``) and
+        ``ref_energy`` are already eV: the readers convert from whatever unit
+        the source property is stored in (``E_tot`` is Hartree, ``G_hartree``
+        is Hartree), so `E_rel(eV)` is eV whichever basis is selected.
+        """
+        rel_energy = self._read_energy_ev(mol) - ref_energy
+        mol.SetProp("E_rel(eV)", str(rel_energy))
+        return rel_energy
+
     def top_k(self, df_group: pd.DataFrame, k: int = 1) -> list[Chem.Mol]:
         """Select top-k lowest-energy structures from a group.
 
@@ -278,11 +310,9 @@ class ConformerRanker:
         Returns:
             List of RDKit Mol objects for top-k structures.
         """
-        names = list(df_group["names"])
-        if len(set(names)) != 1:
-            raise ValueError(f"All molecules must have the same name, got: {set(names)}")
+        name = self._check_name_uniformity(list(df_group["names"]))
 
-        df2 = df_group.sort_values(by=["energies"])
+        df2 = self._sort_by_energy(df_group)
 
         # Optimization: when k=1, skip the expensive RMSD dedup but still
         # apply the validity checks. Return the lowest-energy conformer that
@@ -299,15 +329,8 @@ class ConformerRanker:
             out_mols = []
             dropped: dict[str, int] = {}
             for mol in df2["mols"]:
-                if not converged_or_unfiltered(mol):
-                    reason = "unconverged"
-                elif not thermo_succeeded_or_unfiltered(mol):
-                    reason = "thermo_failed"
-                elif not stereo_preserved(mol):
-                    reason = "stereochemistry"
-                elif not check_connectivity(mol):
-                    reason = "connectivity"
-                else:
+                reason = validity_drop_reason(mol)
+                if reason is None:
                     out_mols = [mol]
                     break
                 dropped[reason] = dropped.get(reason, 0) + 1
@@ -332,20 +355,15 @@ class ConformerRanker:
             out_mols = ranked[:k] if k < len(ranked) else ranked
 
         if len(out_mols) == 0:
-            # names[0] is already the group's species id (see species_id()
+            # name is already the group's species id (see species_id()
             # above) -- no further splitting here, or a disambiguated id
             # like "KEY_2" would misreport as "KEY" in this message.
-            self._log_nothing_selected(names[0].strip(), result)
+            self._log_nothing_selected(name.strip(), result)
         else:
             # Adding relative energies
-            # Both sides are eV: the readers convert from whatever unit the
-            # source property is stored in (E_tot is Hartree, G_hartree is
-            # Hartree), so `E_rel(eV)` is eV whichever basis is selected.
             ref_energy = self._read_energy_ev(out_mols[0])
             for mol in out_mols:
-                my_energy = self._read_energy_ev(mol)
-                rel_energy = my_energy - ref_energy
-                mol.SetProp("E_rel(eV)", str(rel_energy))
+                self._stamp_e_rel(mol, ref_energy)
         return out_mols
 
     def top_window(self, df_group: pd.DataFrame, window: float = 1.0) -> list[Chem.Mol]:
@@ -362,17 +380,16 @@ class ConformerRanker:
         names = list(df_group["names"])
         if window < 0:
             raise ValueError(f"window must be non-negative, got: {window * ev2kcalpermol} kcal/mol")
-        if len(set(names)) != 1:
-            raise ValueError(f"All molecules must have the same name, got: {set(names)}")
+        name = self._check_name_uniformity(names)
 
-        df2 = df_group.sort_values(by=["energies"])
+        df2 = self._sort_by_energy(df_group)
         result = self._account(self._filter_mols(list(df2["mols"])))
         out_mols = []
 
         if len(result.kept) == 0:
-            # names[0] is already the group's species id -- see the note in
+            # name is already the group's species id -- see the note in
             # top_k above.
-            self._log_nothing_selected(names[0].strip(), result)
+            self._log_nothing_selected(name.strip(), result)
         else:
             # `window` was converted from kcal/mol to eV above, and E_tot is
             # stored in Hartree, so both sides of the comparison are eV here.
@@ -393,10 +410,8 @@ class ConformerRanker:
             ranked = sorted(result.kept, key=self._read_energy_ev)
             ref_energy = self._read_energy_ev(ranked[0])
             for mol in ranked:
-                my_energy = self._read_energy_ev(mol)
-                rel_energy = my_energy - ref_energy
+                rel_energy = self._stamp_e_rel(mol, ref_energy)
                 if rel_energy <= window:
-                    mol.SetProp("E_rel(eV)", str(rel_energy))
                     out_mols.append(mol)
                 else:
                     break
@@ -411,47 +426,16 @@ class ConformerRanker:
                 self._account(FilterResult(kept=out_mols, dropped={"energy_window": n_outside}))
         return out_mols
 
-    def run(self) -> list[Chem.Mol]:
-        """Execute ranking and write selected conformers to output file.
+    def _read_input(self) -> pd.DataFrame:
+        """Read ``self.input_path`` into a (names, energies, mols) DataFrame.
 
-        Returns:
-            List of selected RDKit Mol objects.
-
-        Raises:
-            ConfigurationError: If neither k nor window is specified, or if
-                both are (top-k and energy-window selection are alternatives,
-                not composable -- only one is ever consulted below, so
-                setting both would silently make one of them inert; callers
-                reaching here through Auto3DOptions/CLIConfig already had
-                this caught earlier, at construction time, with
-                ConfigurationError -- this is the same guard, raising the
-                same exception type, for callers that construct
-                ConformerRanker directly).
-            InputValidationError: If a record carries no ``E_tot`` property.
-                Ranking is selection by energy; a record with no energy
-                cannot be ranked, and refusing the file beats emitting a
-                bare ``KeyError('E_tot')`` from inside RDKit.
+        Also sets ``self._n_records``, ``self._n_unparsed`` and
+        ``self._n_unconverged`` -- the three counts ``run``'s "selected 0"
+        warning needs, for records that never reach a group (and so never
+        reach ``top_k``/``top_window``'s own ``_drop_totals`` accounting).
+        Fresh on every call, so a ranker reused for a second file does not
+        report the first file's counts.
         """
-        logger.info("Begin to select structures that satisfy the requirements...")
-        # Delegated to Auto3D.foundation.config rather than re-implemented here. This was
-        # the third site that knew the k/window pair by name -- after
-        # Auto3DOptions and CLIConfig, both of which reach the same check via
-        # check_field_bounds -- and the copy had already drifted: its message
-        # read "got k=1 and window=5.0" where the shared one reads
-        # "got k=1, window=5.0", so the same misconfiguration was reported two
-        # different ways depending on whether the caller came through a config
-        # class or constructed ConformerRanker directly. Reading the field
-        # names from SELECTOR_FIELDS also means a third selector added to that
-        # tuple is rejected here too, instead of being accepted by
-        # ConformerRanker(...) alone while both config classes refuse it.
-        check_selectors_mutually_exclusive(
-            {name: getattr(self, name, None) for name in SELECTOR_FIELDS}
-        )
-        results = []
-        # Fresh tally per run, so a ranker reused for a second file does not
-        # report the first file's drops (see _account).
-        self._drop_totals = {}
-
         mols, names, energies = [], [], []
         n_records = 0
         n_unparsed = 0
@@ -513,62 +497,50 @@ class ConformerRanker:
                 self.input_path,
             )
 
-        df = pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+        self._n_records = n_records
+        self._n_unparsed = n_unparsed
+        self._n_unconverged = n_unconverged
+        return pd.DataFrame({"names": names, "energies": energies, "mols": mols})
+
+    def _iterate_groups(self, df: pd.DataFrame):
+        """Yield ``(group_name, df_group)`` for each distinct species in ``df``."""
         groups = df.groupby("names")
         for group_name in groups.indices:
-            group = groups.get_group(group_name)
+            yield group_name, groups.get_group(group_name)
 
-            # Dispatch through the registry rather than a hand-written
-            # if/elif chain on the field names, so the set of selectors this
-            # method honors is the set `Auto3D.foundation.config` declares -- checked for
-            # equality at import (see _SELECTORS). Iterating SELECTOR_FIELDS
-            # rather than the dict also means config.py owns the PRECEDENCE,
-            # not this module's dict-literal order; the mutual-exclusivity
-            # check above has already refused more than one anyway.
-            for field in SELECTOR_FIELDS:
-                value = getattr(self, field, None)
-                if value:
-                    top_results = getattr(self, _SELECTORS[field])(group, value)
-                    break
-            else:
-                raise ConfigurationError(
-                    "Parameter k or window needs to be specified. "
-                    'Append "--k=1" if you only want one structure per SMILES'
-                )
-            results += top_results
+    def _select_for_group(self, group_name, df_group: pd.DataFrame) -> list[Chem.Mol]:
+        """Run this ranker's configured selector on one group.
 
-        if n_records and not results:
-            # A non-empty input that selects nothing writes a 0-byte SDF and
-            # returns []. WARNING, not INFO: `logging.lastResort` puts WARNING
-            # and above on stderr even for a caller who never ran
-            # configure_logging, which is every direct API caller.
-            #
-            # The reasons are the ones that actually fired. This used to read
-            # "N record(s) are marked Converged=false and the rest were dropped
-            # by the connectivity, stereochemistry or energy-window filters" --
-            # a hand-maintained list of everything it MIGHT have been, which
-            # left the reader to work out which, and which had to be edited by
-            # hand every time a filter was added. `_drop_totals` is the tally
-            # `top_k`/`top_window` fed as they ran; the two counts below are
-            # the drops `run` itself made, before grouping, which never reach a
-            # filter and so are not double-counted.
-            totals = dict(self._drop_totals)
-            for reason, count in (
-                ("unparsed", n_unparsed),
-                ("unconverged", n_unconverged),
-            ):
-                if count:
-                    totals[reason] = totals.get(reason, 0) + count
-            summary = FilterResult(kept=[], dropped=totals).summary()
-            logger.warning(
-                "Selected 0 structures from %d record(s) in %s, so %s is empty: %s.",
-                n_records,
-                self.input_path,
-                self.out_path,
-                summary or "no filter reported a reason",
-            )
+        Dispatch through the registry rather than a hand-written if/elif
+        chain on the field names, so the set of selectors this method
+        honors is the set `Auto3D.foundation.config` declares -- checked for
+        equality at import (see _SELECTORS). Iterating SELECTOR_FIELDS
+        rather than the dict also means config.py owns the PRECEDENCE, not
+        this module's dict-literal order; `run`'s mutual-exclusivity check
+        has already refused more than one anyway.
+        """
+        for field in SELECTOR_FIELDS:
+            value = getattr(self, field, None)
+            if value:
+                return getattr(self, _SELECTORS[field])(df_group, value)
+        raise ConfigurationError(
+            "Parameter k or window needs to be specified. "
+            'Append "--k=1" if you only want one structure per SMILES'
+        )
 
-        with Chem.SDWriter(self.out_path) as f:
+    def _write_results(self, results: list[Chem.Mol]) -> None:
+        """Write ``results`` to ``self.out_path``, atomically.
+
+        Staged through a temporary sibling and renamed into place on clean
+        exit (:func:`Auto3D.foundation.utils.atomic_io.atomic_write_path`),
+        so a failure partway through the write (a full disk, a killed
+        worker) leaves ``self.out_path`` exactly as it was rather than a
+        half-written file.
+        """
+        with (
+            atomic_write_path(self.out_path, suffix=".sdf") as tmp_path,
+            Chem.SDWriter(tmp_path) as f,
+        ):
             for mol in results:
                 # E_tot arrives in Hartree and leaves in Hartree: every Auto3D
                 # writer stores this property in Hartree now (see
@@ -593,6 +565,84 @@ class ConformerRanker:
                 t_simplified = species_id(t)
                 mol.SetProp("_Name", t_simplified)
                 f.write(mol)
+
+    def run(self) -> list[Chem.Mol]:
+        """Execute ranking and write selected conformers to output file.
+
+        Returns:
+            List of selected RDKit Mol objects.
+
+        Raises:
+            ConfigurationError: If neither k nor window is specified, or if
+                both are (top-k and energy-window selection are alternatives,
+                not composable -- only one is ever consulted below, so
+                setting both would silently make one of them inert; callers
+                reaching here through Auto3DOptions/CLIConfig already had
+                this caught earlier, at construction time, with
+                ConfigurationError -- this is the same guard, raising the
+                same exception type, for callers that construct
+                ConformerRanker directly).
+            InputValidationError: If a record carries no ``E_tot`` property.
+                Ranking is selection by energy; a record with no energy
+                cannot be ranked, and refusing the file beats emitting a
+                bare ``KeyError('E_tot')`` from inside RDKit.
+        """
+        logger.info("Begin to select structures that satisfy the requirements...")
+        # Delegated to Auto3D.foundation.config rather than re-implemented here. This was
+        # the third site that knew the k/window pair by name -- after
+        # Auto3DOptions and CLIConfig, both of which reach the same check via
+        # check_field_bounds -- and the copy had already drifted: its message
+        # read "got k=1 and window=5.0" where the shared one reads
+        # "got k=1, window=5.0", so the same misconfiguration was reported two
+        # different ways depending on whether the caller came through a config
+        # class or constructed ConformerRanker directly. Reading the field
+        # names from SELECTOR_FIELDS also means a third selector added to that
+        # tuple is rejected here too, instead of being accepted by
+        # ConformerRanker(...) alone while both config classes refuse it.
+        check_selectors_mutually_exclusive(
+            {name: getattr(self, name, None) for name in SELECTOR_FIELDS}
+        )
+        results = []
+        # Fresh tally per run, so a ranker reused for a second file does not
+        # report the first file's drops (see _account).
+        self._drop_totals = {}
+
+        df = self._read_input()
+        for group_name, df_group in self._iterate_groups(df):
+            results += self._select_for_group(group_name, df_group)
+
+        if self._n_records and not results:
+            # A non-empty input that selects nothing writes a 0-byte SDF and
+            # returns []. WARNING, not INFO: `logging.lastResort` puts WARNING
+            # and above on stderr even for a caller who never ran
+            # configure_logging, which is every direct API caller.
+            #
+            # The reasons are the ones that actually fired. This used to read
+            # "N record(s) are marked Converged=false and the rest were dropped
+            # by the connectivity, stereochemistry or energy-window filters" --
+            # a hand-maintained list of everything it MIGHT have been, which
+            # left the reader to work out which, and which had to be edited by
+            # hand every time a filter was added. `_drop_totals` is the tally
+            # `top_k`/`top_window` fed as they ran; the two counts below are
+            # the drops `run` itself made, before grouping, which never reach a
+            # filter and so are not double-counted.
+            totals = dict(self._drop_totals)
+            for reason, count in (
+                ("unparsed", self._n_unparsed),
+                ("unconverged", self._n_unconverged),
+            ):
+                if count:
+                    totals[reason] = totals.get(reason, 0) + count
+            summary = FilterResult(kept=[], dropped=totals).summary()
+            logger.warning(
+                "Selected 0 structures from %d record(s) in %s, so %s is empty: %s.",
+                self._n_records,
+                self.input_path,
+                self.out_path,
+                summary or "no filter reported a reason",
+            )
+
+        self._write_results(results)
         return results
 
 

@@ -37,6 +37,26 @@ def _create_mol_with_energy(smiles: str, energy_ev: float, converged: bool = Tru
     return mol
 
 
+@pytest.fixture
+def valid_mol() -> Chem.Mol:
+    """A converged conformer that fails none of the validity checks."""
+    return _create_mol_with_energy("CCO", -100.0)
+
+
+@pytest.fixture
+def unconverged_mol() -> Chem.Mol:
+    """A conformer with an explicit ``Converged=false``."""
+    return _create_mol_with_energy("CCO", -99.0, converged=False)
+
+
+@pytest.fixture
+def stereo_changed_mol() -> Chem.Mol:
+    """A converged conformer marked ``Stereo_changed``."""
+    mol = _create_mol_with_energy("CCO", -98.0)
+    mol.SetProp("Stereo_changed", "true")
+    return mol
+
+
 class TestConvergenceFilterIsNotAnEraser:
     """A record with no 'Converged' property must not be deleted.
 
@@ -776,3 +796,13 @@ class TestTheFilterSaysWhyItDroppedThings:
         result = filter_conformers(distinct, rmsd_threshold=0.3)
         assert len(result.kept) == 3
         assert result.dropped == {}
+
+
+def test_validity_drop_reason_names_the_first_failing_check(
+    valid_mol, unconverged_mol, stereo_changed_mol
+):
+    from Auto3D.domain.filtering import validity_drop_reason
+
+    assert validity_drop_reason(valid_mol) is None
+    assert validity_drop_reason(unconverged_mol) == "unconverged"
+    assert validity_drop_reason(stereo_changed_mol) == "stereochemistry"

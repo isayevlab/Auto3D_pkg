@@ -146,6 +146,24 @@ class TestAtomicWritePathHelper:
         assert not leftovers, f"temp files left behind: {leftovers}"
 
 
+def test_a_fresh_target_gets_the_mode_a_plain_open_would(tmp_path):
+    """A target that does not exist yet must not inherit ``mkstemp``'s 0600.
+
+    Before this, a first write through ``atomic_write_path`` came out 0600 --
+    tighter than a plain ``open()`` would have left it (``0o666`` masked by
+    the process umask) -- because nothing ever reset the mode when
+    ``os.stat(target)`` raised ``FileNotFoundError``. An existing target is
+    unaffected: it keeps inheriting its own mode, as the parametrized test
+    above pins.
+    """
+    target = tmp_path / "fresh.sdf"
+    with atomic_write_path(target) as tmp:
+        Path(tmp).write_text("x")
+    umask = os.umask(0)
+    os.umask(umask)
+    assert stat.S_IMODE(target.stat().st_mode) == (0o666 & ~umask)
+
+
 class TestReorderSdfPreservesMode:
     """``reorder_sdf`` is the call site the shared helper was written for.
 
