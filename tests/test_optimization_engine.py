@@ -299,11 +299,27 @@ class TestNSteps:
         n_steps(state, n=1, opttol=0.01, patience=100)
         assert int(state["oscillating_count"].sum()) == 0
 
-    def test_fire_step_oom_raises_optimization_error(self, monkeypatch, state):
+    @pytest.mark.parametrize(
+        "exc_type",
+        [
+            RuntimeError,
+            torch.cuda.OutOfMemoryError,
+            torch.AcceleratorError,
+        ],
+        ids=["bare-runtimeerror", "typed-oom", "accelerator-error"],
+    )
+    def test_fire_step_oom_raises_optimization_error(self, monkeypatch, state, exc_type):
         """P-m12: a CUDA out-of-memory during the FIRE step itself (not the
         model forward) must surface as ``OptimizationError`` (exit 7), not a
         bare CUDA error -- the same contract ``_run_in_sub_batches`` already
         gives a model-forward OOM.
+
+        GPU review M3 (fix round 1): production can raise this condition as a
+        bare ``RuntimeError``, the typed ``torch.cuda.OutOfMemoryError``, or
+        ``torch.AcceleratorError`` -- all three are ``RuntimeError``
+        subclasses whose message names the condition, and ``is_oom`` must
+        recognize every one of them, not just the bare-``RuntimeError`` form
+        the original test happened to use.
         """
         import Auto3D.engines.batch_opt.optimization_engine as optimization_engine_mod
         from Auto3D.foundation.exceptions import OptimizationError
@@ -313,12 +329,19 @@ class TestNSteps:
                 pass
 
             def __call__(self, coord, forces):
-                raise RuntimeError("CUDA out of memory (fake, FIRE step)")
+                raise exc_type("CUDA out of memory (fake, FIRE step)")
 
         monkeypatch.setattr(optimization_engine_mod, "FIRE", _OOMFire)
 
-        with pytest.raises(OptimizationError, match="out of memory"):
+        with pytest.raises(OptimizationError, match="out of memory") as excinfo:
             n_steps(state, n=1, opttol=0.01, patience=100)
+
+        # GPU review M3 gap 4: `from exc` is the only reason the original
+        # CUDA text survives into the `auto3d run` worker's log (it calls
+        # `logger.exception`, which formats `__cause__`); assert it is
+        # actually chained, not merely that some message was raised.
+        assert excinfo.value.__cause__ is not None
+        assert "out of memory" in str(excinfo.value.__cause__)
 
 
 class _ConstantForceNN:

@@ -43,7 +43,7 @@ from typing import Any, NamedTuple
 import torch
 
 from Auto3D.engines.batch_opt.fire_optimizer import FIRE
-from Auto3D.engines.batch_opt.model_wrapper import _is_oom
+from Auto3D.engines.batch_opt.model_wrapper import is_oom
 from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
@@ -311,15 +311,22 @@ def _step_active_subset(
     # P-m12: a CUDA out-of-memory here is NOT a `_run_in_sub_batches` forward
     # failure -- that halving loop has already returned by this point -- so
     # it would otherwise surface as a bare CUDA error with no actionable
-    # next step. Converted to the same `OptimizationError` (exit 7) a single
-    # molecule that OOMs at batch size 1 already gets.
+    # next step. Converted to the same `OptimizationError` a single molecule
+    # that OOMs at batch size 1 already gets: exit 7 under `auto3d optimize`
+    # and `opt_geometry`, but under `auto3d run` the per-chunk worker
+    # (`orchestration/workflow_workers.py`) logs it and skips the chunk
+    # instead of exiting (the per-chunk handler is revisited in a later PR).
+    # `from exc` chains the original CUDA message either way, so the
+    # allocation numbers (which the fixed string below does not repeat)
+    # still reach the log.
     try:
         stepped = optimizer(coord, f).detach()
     except RuntimeError as exc:
-        if not _is_oom(exc):
+        if not is_oom(exc):
             raise
         raise OptimizationError(
-            "out of memory during the FIRE step; lower --batchsize-atoms or --memory"
+            f"out of memory during the FIRE step ({exc}); lower "
+            "--batchsize-atoms (or --memory under auto3d run)"
         ) from exc
     # A structure that has just met the force criterion keeps the geometry its
     # force was measured at; only the ones still moving take the step.

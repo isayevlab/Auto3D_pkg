@@ -385,7 +385,15 @@ class Auto3DOptions(BaseModel):
                     DeprecationWarning,
                     stacklevel=2,
                 )
-                data[new_name] = data.pop(old_name)
+                old_value = data.pop(old_name)
+                # The warning fires regardless, but the explicit new-name
+                # value wins if a caller somehow passes both -- matching the
+                # CLI's "new flag wins" rule for the same ambiguity
+                # (`commands/run.py`'s `--mpi-np`/`--isomer-threads`
+                # reconciliation), rather than the old value silently
+                # overwriting a value the caller named directly.
+                if new_name not in data:
+                    data[new_name] = old_value
         try:
             super().__init__(**data)
         except PydanticValidationError as exc:

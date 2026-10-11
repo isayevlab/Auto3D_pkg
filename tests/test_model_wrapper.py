@@ -248,7 +248,20 @@ def test_forward_batched_retries_on_oom():
 def test_forward_batched_retries_when_the_final_cat_ooms(monkeypatch):
     """P-m12: the final ``torch.cat`` that assembles sub-batch results is
     itself a GPU allocation and can OOM even when every sub-batch forward
-    succeeded. One retry, after ``empty_cache()``, must cover it too."""
+    succeeded. One retry, after ``empty_cache()``, must cover it too.
+
+    GPU review M3 gap 1 (fix round 1): this is the headline scoping property
+    of P-m12 -- the retry must re-run only the failed concatenation, never
+    the sub-batch forward above it -- and nothing asserted it before.
+    ``batchsize_atoms=16`` over this 2-molecule, 3-atom batch is one
+    sub-batch, so one ``forward`` call is the whole adapter-call budget;
+    ``FakeAdapter`` records one entry in ``.calls`` per invocation, so
+    counting those (rather than adding a second counting double) pins it
+    directly. Three ``torch.cat`` calls: the energies concat fails once and
+    succeeds on retry (2), then the forces concat succeeds outright (1) --
+    retried separately (``model_wrapper.py``'s fix round 1), so a failure on
+    the first does not re-run alongside the second.
+    """
     import torch
 
     from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
@@ -265,9 +278,39 @@ def test_forward_batched_retries_when_the_final_cat_ooms(monkeypatch):
         return real_cat(*args, **kwargs)
 
     monkeypatch.setattr(torch, "cat", flaky_cat)
-    wrapper = BatchedEnergyForce(FakeAdapter(), batchsize_atoms=16)
+    adapter = FakeAdapter()
+    wrapper = BatchedEnergyForce(adapter, batchsize_atoms=16)
     energies, forces = wrapper.forward_batched(coord, numbers, charges)
     assert torch.isfinite(energies).all()
+
+    forward_calls = [c for c in adapter.calls if c["kind"] == "forward"]
+    assert len(forward_calls) == 1, "the sub-batch forward must not be re-run by the OOM retry"
+    assert calls["n"] == 3
+
+
+def test_forward_batched_propagates_if_the_retry_also_ooms(monkeypatch):
+    """P-m12: a single retry covers a transient condition; a second failure
+    at the same concatenation must propagate, not loop or swallow the error.
+
+    GPU review M3 gap 2 (fix round 1): no test previously drove the final
+    concatenation to fail twice in a row.
+    """
+    import pytest
+    import torch
+
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
+    from tests.helpers_adapter import FakeAdapter
+
+    coord, numbers, charges = _batch_like_test_forward_batched_retries_on_oom()
+
+    def always_ooms(*args, **kwargs):
+        raise torch.cuda.OutOfMemoryError("fake, never recovers")
+
+    monkeypatch.setattr(torch, "cat", always_ooms)
+    wrapper = BatchedEnergyForce(FakeAdapter(), batchsize_atoms=16)
+
+    with pytest.raises(torch.cuda.OutOfMemoryError, match="never recovers"):
+        wrapper.forward_batched(coord, numbers, charges)
 
 
 def test_a_runtime_error_naming_out_of_memory_is_retried_like_the_typed_one():

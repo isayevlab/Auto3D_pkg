@@ -310,3 +310,20 @@ def test_old_option_names_still_work_and_warn():
     with pytest.warns(DeprecationWarning, match="enumerate_isomers"):
         config = Auto3DOptions(path="in.smi", k=1, use_gpu=False, enumerate_isomer=False)
     assert config.enumerate_isomers is False
+
+
+def test_the_new_name_wins_when_both_old_and_new_are_passed():
+    """Review fix round 1, Task I1: passing both spellings must not let the
+    deprecated one silently win.
+
+    The CLI's own reconciliation (``commands/run.py``) already resolves the
+    same ambiguity as "the new flag wins if a caller somehow passes both";
+    the Python API previously disagreed -- ``data[new_name] =
+    data.pop(old_name)`` ran unconditionally, so an explicitly passed
+    ``isomer_threads=9`` was silently overwritten by ``mpi_np=2``. The
+    warning must still fire either way, since the caller did use the
+    deprecated name.
+    """
+    with pytest.warns(DeprecationWarning, match="isomer_threads"):
+        config = Auto3DOptions(path="in.smi", k=1, use_gpu=False, mpi_np=2, isomer_threads=9)
+    assert config.isomer_threads == 9

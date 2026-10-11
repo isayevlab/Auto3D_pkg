@@ -203,6 +203,25 @@ class TestCreateKwargMapping:
         # species to embed are both known.
         assert kwargs["parallel_workers"] is None
 
+    def test_n_jobs_is_a_deprecated_alias_for_n_threads(self, spies):
+        """Review fix round 1, Task I2: ``n_jobs`` had zero test coverage.
+
+        The brief's own CHANGELOG line documents ``IsomerEngineFactory.create(
+        ..., n_jobs=...)`` as accepted "the same way" as ``Auto3DOptions``'s
+        ``mpi_np``/``enumerate_isomer`` aliases -- warn, then rename. Every
+        other Step 7 alias (the ``Auto3DOptions`` kwargs, the CLI's hidden
+        flags) got a test proving the shim actually fires; this one did not.
+        """
+        with pytest.warns(DeprecationWarning, match="n_threads"):
+            IsomerEngineFactory.create(
+                engine_type="rdkit",
+                input_path="/input.smi",
+                output_path="/output.sdf",
+                n_jobs=6,
+            ).run()
+
+        assert spies["rdkit"]["n_threads"] == 6
+
     def test_rdkit_sdf_mapping(self, spies):
         IsomerEngineFactory.create(
             engine_type="rdkit_sdf",

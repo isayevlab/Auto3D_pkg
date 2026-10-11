@@ -311,7 +311,14 @@ def _reference_n_steps(state, n, opttol, patience, atom_mask=None):
     state["atom_mask"] = atom_mask
 
     optimizer = FIRE(coord)
-    smallest_fmax0 = torch.full((len(coord), 1), 999.0, dtype=torch.float, device=coord.device)
+    # float("inf"), not 999.0 (GPU review M2, fix round 1): production seeds
+    # this sentinel with infinity (N-m8), and the two must agree for every
+    # `fmax`, not merely every `fmax < 999`, or a future parametrization with
+    # a step-1 `fmax` at or above 999 would fail this reference for a reason
+    # unrelated to the indexing property under test.
+    smallest_fmax0 = torch.full(
+        (len(coord), 1), float("inf"), dtype=torch.float, device=coord.device
+    )
     state["oscillating_count"] = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
 
     istep = 0

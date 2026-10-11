@@ -61,7 +61,7 @@ def _slice(
     )
 
 
-def _is_oom(exc: BaseException) -> bool:
+def is_oom(exc: BaseException) -> bool:
     """True for a CUDA out-of-memory, typed or reported as a bare ``RuntimeError``.
 
     ``torch.cuda.OutOfMemoryError`` (itself a ``RuntimeError`` subclass) is
@@ -72,6 +72,11 @@ def _is_oom(exc: BaseException) -> bool:
     checked by message text is the only way to recognize the second form,
     since its type carries no more information than any other
     ``RuntimeError``.
+
+    Public (not ``_is_oom``): :mod:`Auto3D.engines.batch_opt.optimization_engine`
+    imports this predicate for its own FIRE-step OOM handling, and a
+    leading-underscore name crossing that module boundary would make a
+    private helper a de facto package API with no documented contract.
     """
     if isinstance(exc, torch.cuda.OutOfMemoryError):
         return True
@@ -280,10 +285,10 @@ class BatchedEnergyForce(nn.Module):
             except RuntimeError as exc:
                 # `torch.cuda.OutOfMemoryError` is itself a `RuntimeError`
                 # subclass, so this one clause covers both the typed
-                # exception and the bare-`RuntimeError` form `_is_oom`
+                # exception and the bare-`RuntimeError` form `is_oom`
                 # recognizes by message (P-m12); anything else re-raises
                 # unchanged.
-                if not _is_oom(exc):
+                if not is_oom(exc):
                     raise
                 oom = True
             except NumericalError:
@@ -440,21 +445,36 @@ class BatchedEnergyForce(nn.Module):
 
     @staticmethod
     def _retry_once_on_oom(build: Callable[[], _T]) -> _T:
-        """Run ``build`` (expected to call ``torch.cat``), retrying once after
-        ``torch.cuda.empty_cache()`` if it raises an out-of-memory error (P-m12).
+        """Run ``build`` (expected to call a single ``torch.cat``), retrying
+        once after ``torch.cuda.empty_cache()`` if it raises an out-of-memory
+        error (P-m12).
 
-        The final concatenation that assembles every sub-batch's result is
-        itself one GPU allocation sized by the WHOLE batch -- not by
-        ``batchsize_atoms`` -- so it can exhaust memory even when every
-        sub-batch forward above it already succeeded individually.
-        ``_run_in_sub_batches``'s halving loop cannot help here: there is no
-        smaller sub-batch to retry, only the one concatenation. A single
-        retry covers a transient condition (another process freeing memory
-        between the two attempts); a second failure propagates.
+        A concatenation that assembles every sub-batch's result is itself one
+        GPU allocation sized by the WHOLE batch -- not by ``batchsize_atoms``
+        -- so it can exhaust memory even when every sub-batch forward above it
+        already succeeded individually. ``_run_in_sub_batches``'s halving loop
+        cannot help here: there is no smaller sub-batch to retry, only the one
+        concatenation. A single retry covers a transient condition (another
+        process freeing memory between the two attempts); a second failure
+        propagates.
+
+        Callers with more than one concatenation to make (``forward_batched``
+        has energies and forces) call this once per concatenation rather than
+        wrapping both in one ``build`` -- the forces concat is the one likely
+        to OOM in practice, and retrying both would redo the already-succeeded
+        energies concat for nothing.
+
+        The cache release and the retry both run AFTER this method's own
+        ``except`` block has been left, never inside it, for the same reason
+        ``_run_in_sub_batches`` above follows that rule (audit M37, see the
+        comment there): while an ``except`` clause is executing, the OOM'd
+        exception is still ``sys.exc_info()``'s "currently handled exception",
+        and its traceback keeps every local of the failed ``build()`` call
+        reachable, so ``empty_cache()`` could not yet reclaim any of it.
 
         Args:
-            build: Zero-argument callable that performs the concatenation(s)
-                and returns the result.
+            build: Zero-argument callable that performs one concatenation and
+                returns the result.
 
         Returns:
             Whatever ``build`` returns.
@@ -463,11 +483,14 @@ class BatchedEnergyForce(nn.Module):
             torch.cuda.OutOfMemoryError: ``build`` failed with an
                 out-of-memory error on the retry too.
         """
+        oom = False
         try:
             return build()
         except RuntimeError as exc:
-            if not _is_oom(exc):
+            if not is_oom(exc):
                 raise
+            oom = True
+        if oom:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return build()
@@ -528,12 +551,13 @@ class BatchedEnergyForce(nn.Module):
             _compute,
             tolerate_non_finite=True,
         )
-        return self._retry_once_on_oom(
-            lambda: (
-                torch.cat([e for e, _f in results], dim=0),
-                torch.cat([f for _e, f in results], dim=0),
-            )
-        )
+        # Retried separately (P-m12 fix round 1): a single `build` covering
+        # both concatenations would re-do the energies concat (small) every
+        # time the forces concat (the large allocation, and so the one
+        # likely to OOM in practice) needed a retry.
+        energies = self._retry_once_on_oom(lambda: torch.cat([e for e, _f in results], dim=0))
+        forces = self._retry_once_on_oom(lambda: torch.cat([f for _e, f in results], dim=0))
+        return energies, forces
 
     def energy_batched(
         self,

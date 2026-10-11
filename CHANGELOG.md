@@ -74,11 +74,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "produced no conformers after clash relief" wording.
 - An out-of-memory error at the final batch concatenation
   (`BatchedEnergyForce.forward_batched`/`energy_batched`) is now retried
-  once after `torch.cuda.empty_cache()`; a CUDA out-of-memory reported as a
-  bare `RuntimeError` (rather than the typed `torch.cuda.OutOfMemoryError`)
-  is now recognized and retried the same way everywhere this package catches
-  one; an out-of-memory during the FIRE optimization step now raises
-  `OptimizationError` (exit 7) instead of a bare CUDA error.
+  once after `torch.cuda.empty_cache()`, each concatenation retried
+  separately so a failure on one does not re-run an already-succeeded one;
+  a CUDA out-of-memory reported as a bare `RuntimeError` (rather than the
+  typed `torch.cuda.OutOfMemoryError`) is now recognized and retried the
+  same way everywhere this package catches one; an out-of-memory during the
+  FIRE optimization step now raises `OptimizationError`, carrying the
+  original CUDA message, instead of a bare CUDA error -- exit 7 under
+  `auto3d optimize`/`opt_geometry`; under `auto3d run` the affected chunk is
+  logged and skipped, as any other `OptimizationError` already was there
+  (the per-chunk handler is revisited in a later PR).
 - The tautomer engine lookup in `IsomerEngineFactory`/`create_tautomer_engine`
   goes through the same `Registry` every other backend lookup uses, so an
   unknown tautomer engine name is reported the same way
@@ -112,7 +117,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Auto3DOptions(enumerate_isomer=...)` and `Auto3DOptions(mpi_np=...)` (and
   the matching CLI flags `--enumerate-isomer/--no-enumerate-isomer` and
   `--mpi-np`) still work, with a `DeprecationWarning` naming the replacement
-  field (`enumerate_isomers`, `isomer_threads`); removed in 4.0.
+  field (`enumerate_isomers`, `isomer_threads`); removed in 4.0. If both the
+  old and new name are given, the new one wins (the warning still fires),
+  matching the CLI's own "new flag wins" rule for the same case.
   `IsomerEngineFactory.create(..., n_jobs=...)` is accepted the same way,
   naming `n_threads`.
 

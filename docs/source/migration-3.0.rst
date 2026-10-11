@@ -961,7 +961,9 @@ appeared to be:
 
 If a run used any of these values, treat its output as suspect and recompute
 rather than assume it means what it appears to. The full set of bounds now
-enforced: ``k >= 1``, ``window > 0``, ``mpi_np >= 1``, ``opt_steps >= 1``,
+enforced: ``k >= 1``, ``window > 0``, ``isomer_threads >= 1`` (``mpi_np`` in
+releases before the field was renamed; the old spelling still works for one
+release, with a ``DeprecationWarning``), ``opt_steps >= 1``,
 ``convergence_threshold > 0``, ``patience >= 1``, ``threshold > 0``,
 ``batchsize_atoms >= 1``, ``memory >= 1``, ``capacity >= 1``, and
 ``max_confs >= 1``. ``None``/``False`` still mean "not specified" and are not
