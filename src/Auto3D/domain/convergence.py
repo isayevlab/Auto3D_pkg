@@ -48,7 +48,7 @@ CONVERGED_PROP = "Converged"
 #: without importing ase and torch, the same reason ``CONVERGED_PROP`` lives
 #: here rather than in ``batch_opt``.
 THERMO_FAILED_PROP = "Thermo_failed"
-#: Written by ``Auto3D.engines.batch_opt.batchopt.optimizing.run`` for a record
+#: Written by ``Auto3D.engines.batch_opt.batchopt.Optimizer.run`` for a record
 #: whose energy went non-finite mid-optimization (R38): ``"non_finite_energy"``,
 #: the only reason today. No setter, same as ``THERMO_FAILED_PROP`` above --
 #: that property has none either, and its callers (``ASE/thermo``) just

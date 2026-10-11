@@ -56,7 +56,7 @@ class TestAuxiliaryEntryPointGuards:
 
         calc_spe would otherwise load a real ANI2x model to reach the point
         being tested. To stay within the box's "never load an NNP" constraint,
-        the model machinery (get_device/create_model/EnForce_ANI/pad_from_mols)
+        the model machinery (get_device/create_model/BatchedEnergyForce/pad_from_mols)
         is stubbed out the same way tests/test_isomer_engine_hardening.py and
         tests/test_durability.py::TestSameFileGuard already do for calc_spe;
         the guard being tested for (or its absence) sits earlier in the real
@@ -90,7 +90,7 @@ class TestAuxiliaryEntryPointGuards:
                 n = coords.shape[0]
                 return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
 
-        monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+        monkeypatch.setattr(spe_mod, "BatchedEnergyForce", FakeEnForce)
 
         def fake_pad(mols, adapter, device):
             n = len(mols)
@@ -119,7 +119,7 @@ class TestAuxiliaryEntryPointGuards:
         """opt_geometry must run the same check_engine_supports_molecules
         guard as calc_spe -- only calc_spe's copy was pinned before this.
 
-        `optimizing` (batch_opt.batchopt, imported into Auto3D.entry.ASE.geometry)
+        `Optimizer` (batch_opt.batchopt, imported into Auto3D.entry.ASE.geometry)
         is stubbed with a fake that just copies the input through, the same
         defensive reason test_calc_spe_rejects_charged_input_for_ani stubs
         calc_spe's model machinery: if the guard is missing, execution must
@@ -153,9 +153,9 @@ class TestAuxiliaryEntryPointGuards:
                     for m in mols:
                         m.SetProp("E_tot", "0.0")
                         w.write(m)
-                return True  # matches optimizing.run()'s real True-on-write contract
+                return True  # matches Optimizer.run()'s real True-on-write contract
 
-        monkeypatch.setattr(geometry_mod, "optimizing", _FakeOptEngine)
+        monkeypatch.setattr(geometry_mod, "Optimizer", _FakeOptEngine)
 
         # ConfigurationError, not the base Auto3DError: see the note in
         # test_calc_spe_rejects_charged_input_for_ani. This test already passes
@@ -230,7 +230,7 @@ class TestAuxiliaryEntryPointGPUGuard:
     source of truth for this check) reads it -- the same technique
     tests/test_validation.py::TestGpuPolicyIsUniform and
     tests/test_cli_property_commands.py's GPU-policy tests already use.
-    check_gpu_requested is called before get_device/create_model/optimizing/
+    check_gpu_requested is called before get_device/create_model/Optimizer/
     _load_hessian_model/model_name2model_calculator in each function, so none
     of that model machinery needs to be stubbed here: the guard fires before
     any of it runs, and before the input SDF path is even read.
@@ -293,7 +293,7 @@ class TestSmiles2MolsHonesty:
                 pass
 
             def run(self):
-                return True  # matches optimizing.run()'s real True-on-write contract
+                return True  # matches Optimizer.run()'s real True-on-write contract
 
         class _StubRank:
             def __init__(self, *a, **k):
@@ -307,8 +307,8 @@ class TestSmiles2MolsHonesty:
             "create",
             staticmethod(lambda **kwargs: _StubIsomerEngine()),
         )
-        monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
-        monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
+        monkeypatch.setattr(auto3D_mod, "Optimizer", _StubOpt)
+        monkeypatch.setattr(auto3D_mod, "ConformerRanker", _StubRank)
         monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
 
     def test_unsupported_option_raises(self, isolated_input, monkeypatch):
@@ -357,7 +357,7 @@ class TestSmiles2MolsRaisesWhenNothingWasOptimized:
 
     The isomer/embedding stage is stubbed to write nothing (as a genuine
     all-SMILES-failed-to-embed run would leave `meta["enumerated_sdf"]`), so
-    the REAL `optimizing` class hits its own missing-input early return and
+    the REAL `Optimizer` class hits its own missing-input early return and
     the guard added in `smiles2mols` fires against that real return value.
     `preflight_model`/`create_model`/`get_device` are stubbed to avoid a
     network call or a real NNP load.
@@ -400,7 +400,7 @@ class TestDuplicateInchikeyInputs:
         """Two identical SMILES (same InChIKey) must each yield a structure
         in the output -- not collapse into a single winner.
 
-        Only the NNP-loading `optimizing` stage is stubbed (real RDKit
+        Only the NNP-loading `Optimizer` stage is stubbed (real RDKit
         embedding of two ethanol molecules is trivial and hermetic, and the
         defect lives downstream of it, in the real grouping/ranking code);
         ranking and reorder_sdf run for real since they are what is under
@@ -416,7 +416,7 @@ class TestDuplicateInchikeyInputs:
 
         class _FakeOptimizing:
             """Marks every real embedded conformer 'Converged' with a
-            distinct energy, so ranking.run's real grouping/top-k logic
+            distinct energy, so ConformerRanker.run's real grouping/top-k logic
             executes exactly as it would after a genuine optimization --
             without loading an NNP."""
 
@@ -431,9 +431,9 @@ class TestDuplicateInchikeyInputs:
                         m.SetProp("Converged", "True")
                         m.SetProp("E_tot", str(float(i)))
                         w.write(m)
-                return True  # matches optimizing.run()'s real True-on-write contract
+                return True  # matches Optimizer.run()'s real True-on-write contract
 
-        monkeypatch.setattr(auto3D_mod, "optimizing", _FakeOptimizing)
+        monkeypatch.setattr(auto3D_mod, "Optimizer", _FakeOptimizing)
 
         args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, use_gpu=False, mpi_np=1)
         mols = smiles2mols(["CCO", "CCO"], args)

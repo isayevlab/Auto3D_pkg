@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterator
 from typing import NamedTuple
 
@@ -669,5 +670,16 @@ class ConformerRanker:
 _verify_selector_registry(_SELECTORS, SELECTOR_FIELDS, ConformerRanker)
 
 
-# Backward compatibility alias
-ranking = ConformerRanker
+_LEGACY_NAMES = {"ranking": "ConformerRanker"}
+
+
+def __getattr__(name: str):
+    if name in _LEGACY_NAMES:
+        new = _LEGACY_NAMES[name]
+        warnings.warn(
+            f"Legacy name {__name__}.{name} is deprecated; use {__name__}.{new} (removed in 4.0)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return globals()[new]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

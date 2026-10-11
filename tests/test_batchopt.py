@@ -8,21 +8,21 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from Auto3D.engines.batch_opt.batchopt import optimizing
-from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.batchopt import Optimizer
+from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from tests.helpers_adapter import FakeAdapter
 
 
 class TestEnForceANI:
-    """Tests for EnForce_ANI class."""
+    """Tests for BatchedEnergyForce class."""
 
     def test_enforce_ani_delegates_to_adapter(self):
-        """EnForce_ANI.forward should delegate to adapter's forward method."""
+        """BatchedEnergyForce.forward should delegate to adapter's forward method."""
         mock_adapter = MagicMock()
         mock_adapter.forward.return_value = (torch.tensor([1.0, 2.0]), torch.randn(2, 5, 3))
 
-        # EnForce_ANI should accept the adapter directly
-        model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
+        # BatchedEnergyForce should accept the adapter directly
+        model = BatchedEnergyForce(mock_adapter, batchsize_atoms=1024)
 
         coords = torch.randn(2, 5, 3)
         species = torch.tensor([[6, 1, 1, 1, 1], [6, 1, 1, 1, 1]])
@@ -38,7 +38,7 @@ class TestEnForceANI:
         assert torch.equal(call_args[0][2], charges)
 
     def test_enforce_ani_forward_batched(self):
-        """EnForce_ANI.forward_batched should batch calls correctly."""
+        """BatchedEnergyForce.forward_batched should batch calls correctly."""
         mock_adapter = MagicMock()
 
         # Return consistent results for batching
@@ -48,7 +48,7 @@ class TestEnForceANI:
 
         mock_adapter.forward.side_effect = mock_forward
 
-        model = EnForce_ANI(mock_adapter, batchsize_atoms=10)  # Small batch size
+        model = BatchedEnergyForce(mock_adapter, batchsize_atoms=10)  # Small batch size
 
         # Create input that will require multiple batches (5 atoms * 4 batches = 20 atoms > 10)
         coords = torch.randn(4, 5, 3)
@@ -82,7 +82,7 @@ def tiny_batch():
         torch.tensor([0.0, 0.0]),
         torch.zeros(2, 3, 3),  # Zero forces = instant convergence
     )
-    model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
+    model = BatchedEnergyForce(mock_adapter, batchsize_atoms=1024)
     coord = torch.randn(2, 3, 3)
     numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
     charges = torch.tensor([0, 0], dtype=torch.long)
@@ -95,7 +95,7 @@ def test_ensemble_opt_returns_exactly_the_keys_its_callers_read(tiny_batch):
     """P-m11: ``ensemble_opt`` must return only the keys its callers read.
 
     ``ids``, ``he``, ``close`` and ``timing`` were constructed and returned
-    but never read by any caller -- ``optimizing._optimize_bucket`` reads
+    but never read by any caller -- ``Optimizer._optimize_bucket`` reads
     ``energy``, ``fmax``, ``converged_mask``, ``oscillating_count``, ``coord``
     and ``non_finite`` only, and the direct test callers in this file read no
     more than that either. Dead weight in both the state dict and the return.
@@ -184,7 +184,7 @@ class TestConvergenceFlagDerivation:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.engines.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import Optimizer
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
@@ -198,7 +198,7 @@ class TestConvergenceFlagDerivation:
         # that does not reduce fmax on its very first step.
         from Auto3D.engines.model_factory import create_model
 
-        opt = optimizing(
+        opt = Optimizer(
             in_f=str(sdf),
             out_f=str(job_dir / "out.sdf"),
             adapter=create_model("ANI2xt", torch.device("cpu")),
@@ -242,17 +242,17 @@ class TestConvergenceFlagDerivation:
 
 
 def _optimizing_for_buckets(tmp_path, sizes):
-    """An ``optimizing`` instance built only to call ``_make_buckets``.
+    """An ``Optimizer`` instance built only to call ``_make_buckets``.
 
     ``_make_buckets`` is pure-Python, so a conforming double is enough and no
-    model is loaded. ``optimizing`` no longer builds its own adapter, so there
+    model is loaded. ``Optimizer`` no longer builds its own adapter, so there
     is no ``create_model`` seam left to patch.
     """
     import torch
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.engines.batch_opt.batchopt import Optimizer
 
     inp = tmp_path / "in.sdf"
     mols = []
@@ -263,7 +263,7 @@ def _optimizing_for_buckets(tmp_path, sizes):
             m.SetProp("_Name", str(i))
             w.write(m)
             mols.append(m)
-    eng = optimizing(
+    eng = Optimizer(
         str(inp),
         str(tmp_path / "o.sdf"),
         adapter=FakeAdapter(),
@@ -299,9 +299,9 @@ def test_make_buckets_groups_by_size(tmp_path):
 
 def test_make_buckets_splits_at_max_count(tmp_path):
     """``BUCKET_MAX_COUNT + 1`` same-size molecules form two buckets, not one."""
-    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.engines.batch_opt.batchopt import Optimizer
 
-    sizes = ["C"] * (optimizing.BUCKET_MAX_COUNT + 1)
+    sizes = ["C"] * (Optimizer.BUCKET_MAX_COUNT + 1)
     eng, mols = _optimizing_for_buckets(tmp_path, sizes)
     buckets = eng._make_buckets(mols)
 
@@ -331,7 +331,7 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     monkeypatch.setattr(bo, "ensemble_opt", make_fake_ensemble_opt())
 
     out = tmp_path / "out.sdf"
-    eng = bo.optimizing(
+    eng = bo.Optimizer(
         str(inp),
         str(out),
         adapter=FakeAdapter(),
@@ -352,7 +352,7 @@ class TestBatchOptDependsDownwards:
     """``batch_opt`` must depend on ``models/``, never on ``model_factory``.
 
     ``batchopt.py`` imported ``Auto3D.engines.model_factory.create_model`` at module
-    scope and called it in ``optimizing.__init__``: the numerical layer
+    scope and called it in ``Optimizer.__init__``: the numerical layer
     constructing its own dependency, and reaching UP into the layer that is
     supposed to sit above it. The visible symptom was in the tests -- every one
     of them had to monkeypatch ``Auto3D.engines.batch_opt.batchopt.create_model``, a seam
@@ -384,7 +384,7 @@ class TestBatchOptDependsDownwards:
 class TestOptimizingTakesAnAdapterNotAName:
     """Construction is the caller's job, and the caller must be in the worker.
 
-    ``optimizing`` no longer knows an engine name at all: ``pad_from_mols`` asks
+    ``Optimizer`` no longer knows an engine name at all: ``pad_from_mols`` asks
     the adapter, so there is nothing left for a name to decide.
     """
 
@@ -402,13 +402,13 @@ class TestOptimizingTakesAnAdapterNotAName:
         call fails at the call rather than silently binding a string into the
         slot that supplies the padding values."""
         with pytest.raises(TypeError):
-            optimizing("dummy.sdf", "out.sdf", "AIMNET", torch.device("cpu"), self._config())
+            Optimizer("dummy.sdf", "out.sdf", "AIMNET", torch.device("cpu"), self._config())
 
     def test_padding_values_come_from_the_injected_adapter(self):
         from tests.helpers_adapter import FakeAdapter
 
         adapter = FakeAdapter(coord_pad=1.5, species_pad=-2)
-        opt = optimizing(
+        opt = Optimizer(
             "dummy.sdf",
             "out.sdf",
             adapter=adapter,
@@ -422,7 +422,7 @@ class TestOptimizingTakesAnAdapterNotAName:
     def test_optimizing_no_longer_carries_an_engine_name(self):
         from tests.helpers_adapter import FakeAdapter
 
-        opt = optimizing(
+        opt = Optimizer(
             "dummy.sdf",
             "out.sdf",
             adapter=FakeAdapter(),
@@ -457,7 +457,7 @@ def test_charges_reach_the_model_as_float32():
             seen_dtypes.append(charges.dtype)
             return torch.zeros(coords.shape[0]), torch.zeros_like(coords)
 
-    model = EnForce_ANI(_RecordingAdapter(), batchsize_atoms=1024)
+    model = BatchedEnergyForce(_RecordingAdapter(), batchsize_atoms=1024)
     coord = torch.randn(2, 3, 3)
     numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
     charges = torch.tensor([0.0, 0.0], dtype=torch.float32)

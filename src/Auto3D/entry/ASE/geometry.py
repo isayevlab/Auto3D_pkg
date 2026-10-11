@@ -8,7 +8,7 @@ from __future__ import annotations
 from rdkit import Chem
 
 from Auto3D.domain.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
-from Auto3D.engines.batch_opt.batchopt import optimizing
+from Auto3D.engines.batch_opt.batchopt import Optimizer
 from Auto3D.engines.model_factory import create_model
 from Auto3D.entry._run_setup import prepare_single_file_run
 from Auto3D.foundation.config import OptimizationConfig
@@ -27,7 +27,7 @@ def _annotate_and_rewrite(outpath: str) -> None:
     """Add the unit-labeled ``E_tot(Hartree)`` sibling in-place, atomically.
 
     This function used to CONVERT ``E_tot`` from eV to Hartree, because
-    ``optimizing.run()`` wrote eV. It no longer does: ``optimizing.run()``
+    ``Optimizer.run()`` wrote eV. It no longer does: ``Optimizer.run()``
     writes ``E_tot`` in Hartree like every other Auto3D writer (see
     ``Auto3D.domain.energy``), so converting again here would divide by 27.211
     a second time. Two jobs remain, and neither is a no-op: this pass DROPS
@@ -35,11 +35,11 @@ def _annotate_and_rewrite(outpath: str) -> None:
     output contains only usable energies), and it guarantees the unit-labeled
     ``E_tot(Hartree)`` sibling regardless of what the optimizer wrote -- the
     same guarantee ``ConformerRanker`` makes for the ranked output. Setting
-    the label is idempotent: ``optimizing.run()`` already writes it, and
+    the label is idempotent: ``Optimizer.run()`` already writes it, and
     re-asserting the identical string here keeps the guarantee attached to
     ``opt_geometry`` itself rather than to whichever writer ran upstream.
 
-    ``optimizing.run()`` has already written its only copy of the optimized
+    ``Optimizer.run()`` has already written its only copy of the optimized
     geometries to ``outpath``. Opening ``Chem.SDWriter(outpath)`` directly
     would truncate that file, so a failure partway through the rewrite would
     destroy a completed optimization run (C14). Stage into a sibling temp file
@@ -157,7 +157,7 @@ def opt_geometry(
     # Every guard, the output name and the record read, in one call shared with
     # calc_spe and calc_thermo -- see Auto3D.entry._run_setup for the step list,
     # the order, and why each step sits where it does. All of it happens before
-    # create_model/optimizing load anything: nothing is downloaded or loaded for
+    # create_model/Optimizer load anything: nothing is downloaded or loaded for
     # a run that is about to be refused.
     setup = prepare_single_file_run(
         path,
@@ -173,7 +173,7 @@ def opt_geometry(
     # optimize, and that is a defect in the INPUT -- an InputValidationError
     # (exit 2), not the OptimizationError (exit 7) this used to raise, which
     # names the optimizer for a file the optimizer never saw. Checked here
-    # rather than relying on `optimizing.run()`'s own "input file is empty"/"no
+    # rather than relying on `Optimizer.run()`'s own "input file is empty"/"no
     # valid molecules" early returns, which would load the model for nothing.
     setup.require_records(path)
     outpath = setup.out_path
@@ -185,21 +185,21 @@ def opt_geometry(
         patience=patience if patience is not None else opt_steps,
         batchsize_atoms=batchsize_atoms,
     )
-    # Built here, in the process that runs the optimization. `optimizing` no
+    # Built here, in the process that runs the optimization. `Optimizer` no
     # longer constructs its own adapter (audit M41); see the note at
     # `Auto3D.orchestration.workflow_workers.optim_rank_wrapper` about why construction must
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
-    # `optimizing` (Auto3D.engines.batch_opt.batchopt) reads `path` itself
+    # `Optimizer` (Auto3D.engines.batch_opt.batchopt) reads `path` itself
     # through `iter_conformer_records`, which is the same `classify_records`
     # policy the prologue above applied (N-C1), so the two agree on what counts
     # as a record without this function having to re-derive or re-write anything
     # for it -- which is why `setup.records` is only counted here, never passed
     # on.
-    opt_engine = optimizing(path, outpath, adapter=adapter, device=device, config=opt_config)
+    opt_engine = Optimizer(path, outpath, adapter=adapter, device=device, config=opt_config)
     wrote_output = opt_engine.run()
 
-    # optimizing.run() returns False (and leaves outpath untouched) when
+    # Optimizer.run() returns False (and leaves outpath untouched) when
     # `path` is missing, empty, contains no parseable record, or every record
     # was skipped by the filter as defective (`record_skip_reason`). Checked
     # on the RETURN VALUE, not `os.path.exists(outpath)`: with overwrite=True
@@ -208,7 +208,7 @@ def opt_geometry(
     # `_annotate_and_rewrite` below silently re-annotate and return THAT file
     # as if it were produced by this call. In practice this should not fire:
     # `setup.records` being non-empty (`require_records` above) already implies
-    # `optimizing.run()` will find at least one record through its own,
+    # `Optimizer.run()` will find at least one record through its own,
     # identical filter -- this is defense against that invariant ever
     # drifting, not the primary guard, which is why it stays an
     # OptimizationError while the input check above is an InputValidationError.
@@ -220,7 +220,7 @@ def opt_geometry(
             "conformer, implicit hydrogens, or a dummy atom (atomic number 0)."
         )
 
-    # `optimizing.run()` already wrote E_tot in Hartree; this pass only adds
+    # `Optimizer.run()` already wrote E_tot in Hartree; this pass only adds
     # the unit-labeled sibling, staged through a temp file so a failed rewrite
     # cannot destroy the completed optimization (C14)
     _annotate_and_rewrite(outpath)

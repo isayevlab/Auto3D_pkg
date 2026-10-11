@@ -8,7 +8,7 @@ from pathlib import Path
 from rdkit import Chem
 
 from Auto3D.domain.energy import set_e_hartree_from_ev
-from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.engines.batch_opt.padding import pad_from_mols
 from Auto3D.engines.model_factory import create_model
 from Auto3D.entry._run_setup import prepare_single_file_run
@@ -76,8 +76,8 @@ def calc_spe(
     # Use ModelFactory to create model adapter
     model_adapter = create_model(model_name, device)
 
-    # Create EnForce_ANI wrapper for batched forward support (new API without name)
-    model = EnForce_ANI(model_adapter)
+    # Create BatchedEnergyForce wrapper for batched forward support (new API without name)
+    model = BatchedEnergyForce(model_adapter)
 
     # Use new vectorized padding that returns tensors directly. The explicit
     # atom mask is forwarded to the model: an adapter that flattens a padded
@@ -98,7 +98,7 @@ def calc_spe(
     #
     # NOT bucketed by molecule size, deliberately. `pad_from_mols` pads to the
     # global max atom count, so one large record widens the padded tensor for
-    # every other one, and `optimizing._make_buckets` already solves exactly that
+    # every other one, and `Optimizer._make_buckets` already solves exactly that
     # for the optimizer. Reusing it here was considered and declined: the only
     # engines that pay for padded slots at all are the ANI ones (AIMNet2 flattens
     # to real atoms before the model sees them), `forward_batched` already caps

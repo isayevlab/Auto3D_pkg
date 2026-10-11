@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, TypedDict, cast
 
 from send2trash import send2trash
 
-from Auto3D.domain.ranking import ranking
-from Auto3D.engines.batch_opt.batchopt import optimizing
+from Auto3D.domain.ranking import ConformerRanker
+from Auto3D.engines.batch_opt.batchopt import Optimizer
 from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.policy import check_gpu_requested
@@ -285,7 +285,7 @@ def optim_rank_wrapper(
             # reconciliation is there to notice.
             #
             # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
-            # worker, and must stay here. `optimizing` used to construct it
+            # worker, and must stay here. `Optimizer` used to construct it
             # itself; hoisting construction out to this function keeps it in the
             # same process, but hoisting it any further -- to `workflow.py`,
             # which drives the pool, where these duplicated `create_model` calls
@@ -340,7 +340,7 @@ def optim_rank_wrapper(
                             except Exception:
                                 pass
 
-                    optimizer = optimizing(
+                    optimizer = Optimizer(
                         enumerated_sdf,
                         optimized_og,
                         adapter=adapter,
@@ -350,7 +350,7 @@ def optim_rank_wrapper(
                     )
                     optimizer.run()
 
-                    # optimizing.run() returns early without writing optimized_og when
+                    # Optimizer.run() returns early without writing optimized_og when
                     # the isomer step yielded an empty/missing SDF for this chunk. Skip
                     # ranking rather than letting RDKit raise on a nonexistent path; the
                     # chunk simply contributes no conformers.
@@ -366,7 +366,7 @@ def optim_rank_wrapper(
                     duplicate_threshold = args.threshold
                     k = args.k
                     window = args.window
-                    rank_engine = ranking(
+                    rank_engine = ConformerRanker(
                         optimized_og, output, duplicate_threshold, k=k, window=window
                     )
                     # The ranked mols are written to `output` by `run()`; they are

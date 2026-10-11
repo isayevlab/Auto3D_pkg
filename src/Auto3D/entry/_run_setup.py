@@ -40,7 +40,7 @@ Why this order, and not another:
 * ``classify_records`` + ``log_skipped`` before the engine gate and the device:
   reading the file needs neither, and every defective record is reported here,
   by the one classifier (N-C1) -- ``opt_geometry`` additionally hands the same
-  path to ``optimizing``, which reports it a second time through
+  path to ``Optimizer``, which reports it a second time through
   ``iter_conformer_records``; de-duplicating that would mean the prologue
   passing its records on, which ``geometry.py`` deliberately does not do.
   ``calc_thermo`` passes its own wording for the reasons it marks rather than
@@ -54,7 +54,7 @@ Why this order, and not another:
 
 ``create_model`` is deliberately NOT here: ``calc_thermo`` builds two adapters
 (an fp64 one for the autograd Hessian, an fp32 one for the relaxation) and
-``calc_spe`` wraps one in ``EnForce_ANI``, so there is no shared step left to
+``calc_spe`` wraps one in ``BatchedEnergyForce``, so there is no shared step left to
 factor -- only three different ones that happen to follow.
 """
 

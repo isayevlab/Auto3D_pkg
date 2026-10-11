@@ -193,7 +193,7 @@ def test_calc_spe_writes_exactly_the_kept_records(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
-    monkeypatch.setattr(spe_mod, "EnForce_ANI", _FakeEnForce)
+    monkeypatch.setattr(spe_mod, "BatchedEnergyForce", _FakeEnForce)
     monkeypatch.setattr(spe_mod, "pad_from_mols", _fake_pad)
 
     path = write_mixed_sdf(tmp_path / "mixed.sdf")

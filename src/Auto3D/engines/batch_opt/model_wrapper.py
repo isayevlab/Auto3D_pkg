@@ -1,12 +1,13 @@
 """Model wrapper providing batched inference for NNP models.
 
-This module contains the EnForce_ANI class which wraps model adapters
+This module contains the BatchedEnergyForce class which wraps model adapters
 and provides batched forward functionality for calculating energies and forces.
 """
 
 from __future__ import annotations
 
 import logging
+import warnings
 
 import torch
 import torch.nn as nn
@@ -25,7 +26,38 @@ from Auto3D.foundation.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-class EnForce_ANI(nn.Module):
+def _slice(
+    coord: torch.Tensor,
+    numbers: torch.Tensor,
+    charges: torch.Tensor,
+    atom_mask: torch.Tensor | None,
+    sub: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    """Slice a padded batch's four tensors to the sub-batch indices ``sub``.
+
+    Shared by :meth:`BatchedEnergyForce.forward_batched` and
+    :meth:`BatchedEnergyForce.energy_batched`, whose per-sub-batch ``compute``
+    closures differ only in which call they make with the sliced arguments.
+
+    The other owner of this "index all four together" rule is
+    :meth:`Auto3D.engines.batch_opt.padding.PaddedBatch.sub`, which cannot be
+    delegated to here: it indexes ``self.atom_mask`` unconditionally, while the
+    four loose tensors this module holds have an ``atom_mask`` that may be
+    ``None``.
+
+    Returns:
+        ``(coord[sub], numbers[sub], charges[sub], atom_mask[sub])``, with the
+        last entry ``None`` when ``atom_mask`` is ``None``.
+    """
+    return (
+        coord[sub],
+        numbers[sub],
+        charges[sub],
+        None if atom_mask is None else atom_mask[sub],
+    )
+
+
+class BatchedEnergyForce(nn.Module):
     """Wrapper for model adapters with batched forward support.
 
     Takes in a model adapter and provides batched forward functionality
@@ -46,7 +78,7 @@ class EnForce_ANI(nn.Module):
         >>> # New API with model adapter
         >>> from Auto3D.engines.model_factory import create_model
         >>> adapter = create_model("AIMNET", device)
-        >>> model = EnForce_ANI(adapter)
+        >>> model = BatchedEnergyForce(adapter)
         >>> energy, forces = model.forward(coords, species, charges)
 
         >>> # Batched computation for large systems, straight from the padder
@@ -59,7 +91,7 @@ class EnForce_ANI(nn.Module):
         model_adapter: ModelAdapter,
         batchsize_atoms: int = 1024 * 16,
     ) -> None:
-        """Initialize EnForce_ANI wrapper.
+        """Initialize BatchedEnergyForce wrapper.
 
         Args:
             model_adapter: An object satisfying
@@ -94,7 +126,7 @@ class EnForce_ANI(nn.Module):
         missing = missing_adapter_members(model_adapter)
         if missing:
             raise TypeError(
-                f"EnForce_ANI needs a model adapter satisfying "
+                f"BatchedEnergyForce needs a model adapter satisfying "
                 f"Auto3D.engines.models.contract.ModelAdapter; "
                 f"{type(model_adapter).__name__} is missing "
                 f"{', '.join(missing)}. Build one with "
@@ -106,7 +138,7 @@ class EnForce_ANI(nn.Module):
         # the spot, naming what the parameter is now for.
         if not isinstance(batchsize_atoms, int) or isinstance(batchsize_atoms, bool):
             raise TypeError(
-                "EnForce_ANI's second parameter is batchsize_atoms (an int), got "
+                "BatchedEnergyForce's second parameter is batchsize_atoms (an int), got "
                 f"{batchsize_atoms!r}. The model-name form was removed in 3.0.0; "
                 "build an adapter with Auto3D.engines.model_factory.create_model instead."
             )
@@ -331,7 +363,7 @@ class EnForce_ANI(nn.Module):
             # within the whole bucket during
             # `_recompute_final_energy_and_fmax` -- so it names no stable
             # molecule identity a reader could act on.
-            # `Auto3D.engines.batch_opt.batchopt.optimizing.run`'s warning is
+            # `Auto3D.engines.batch_opt.batchopt.Optimizer._write_results`'s warning is
             # the one that names real molecule ids (SDF ``_Name``). Through
             # the module logger AND through `logging.getLogger("auto3d")`
             # directly -- this module's logger is not an ancestor of
@@ -415,23 +447,23 @@ class EnForce_ANI(nn.Module):
                 raise for other reasons ``_run_in_sub_batches`` does not
                 catch.
         """
+
         # `tolerate_non_finite=True`: the production optimization loop
-        # (`EnForce_ANI` is used here, not in `energy_batched`'s `calc_spe`
-        # path, which must keep raising) retires a non-finite molecule from
-        # the active set instead of aborting every molecule sharing its
-        # bucket. `_run_in_sub_batches` requeues a bisected sub-batch's halves
-        # in ascending order ahead of whatever was already pending, so
-        # `results` below is always in molecule order regardless of how many
-        # times a bucket needed bisecting -- this `torch.cat` does not need
-        # to re-sort anything.
+        # (`BatchedEnergyForce` is used here, not in `energy_batched`'s
+        # `calc_spe` path, which must keep raising) retires a non-finite
+        # molecule from the active set instead of aborting every molecule
+        # sharing its bucket. `_run_in_sub_batches` requeues a bisected
+        # sub-batch's halves in ascending order ahead of whatever was already
+        # pending, so `results` below is always in molecule order regardless
+        # of how many times a bucket needed bisecting -- this `torch.cat`
+        # does not need to re-sort anything.
+        def _compute(sub: torch.Tensor):
+            coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
+            return self(coord_s, numbers_s, charges_s, atom_mask=mask_s)
+
         results = self._run_in_sub_batches(
             coord,
-            lambda sub: self(
-                coord[sub],
-                numbers[sub],
-                charges[sub],
-                atom_mask=None if atom_mask is None else atom_mask[sub],
-            ),
+            _compute,
             tolerate_non_finite=True,
         )
         return (
@@ -497,6 +529,7 @@ class EnForce_ANI(nn.Module):
                 an output file full of ``nan``.
             OptimizationError: A single molecule exhausted GPU memory.
         """
+
         # `.detach()` per sub-batch, not once at the end: no `no_grad` wrapper
         # is possible here (AIMNet2's `energy` differentiates internally), so
         # each result arrives graph-connected, and accumulating them attached
@@ -517,15 +550,29 @@ class EnForce_ANI(nn.Module):
         #
         # A single-point energy has no backward pass, so nothing downstream
         # wants the graph either way.
+        def _compute(sub: torch.Tensor):
+            coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
+            return self.model.energy(coord_s, numbers_s, charges_s, atom_mask=mask_s).detach()
+
         results = self._run_in_sub_batches(
             coord,
-            lambda sub: self.model.energy(
-                coord[sub],
-                numbers[sub],
-                charges[sub],
-                atom_mask=None if atom_mask is None else atom_mask[sub],
-            ).detach(),
+            _compute,
         )
         energies = torch.cat(results, dim=0)
         validate_energies(energies)
         return energies
+
+
+_LEGACY_NAMES = {"EnForce_ANI": "BatchedEnergyForce"}
+
+
+def __getattr__(name: str):
+    if name in _LEGACY_NAMES:
+        new = _LEGACY_NAMES[name]
+        warnings.warn(
+            f"Legacy name {__name__}.{name} is deprecated; use {__name__}.{new} (removed in 4.0)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return globals()[new]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -475,7 +475,7 @@ class TestSpeFiltersAndAligns:
                 captured["n"] = n
                 return torch.arange(1, n + 1, dtype=torch.float64) * 10.0
 
-        monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+        monkeypatch.setattr(spe_mod, "BatchedEnergyForce", FakeEnForce)
 
         def fake_pad(mols, adapter, device):
             assert all(m is not None for m in mols), "None leaked into pad_from_mols"
@@ -533,7 +533,7 @@ class TestSpeFiltersAndAligns:
         monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
 
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
-        monkeypatch.setattr(spe_mod, "EnForce_ANI", lambda adapter: object())
+        monkeypatch.setattr(spe_mod, "BatchedEnergyForce", lambda adapter: object())
 
         def fail_pad(*a, **k):  # pragma: no cover - must never be reached
             raise AssertionError("pad_from_mols must not be called on empty input")

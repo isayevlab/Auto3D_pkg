@@ -131,7 +131,6 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "E402",   # module level import not at top (needed for sys.path manipulation)
     "E741",   # ambiguous variable name (scientific notation l, I, O)
-    "N801",   # class name should use CapWords (legacy code compatibility)
     "N802",   # function name should be lowercase (legacy API compatibility)
     "N803",   # argument name should be lowercase (scientific computing conventions)
     "N806",   # variable name should be lowercase (scientific computing conventions)
@@ -177,6 +176,9 @@ ignore = [
 # one commit, sorting 34 files' imports was no longer the disruptive change it
 # had been the argument against. The code is enabled for tests/ again.
 "tests/*" = [
+    "N801",   # class name should use CapWords (e.g. `userNNP1`/`userNNP2` fixtures
+              # mimicking a real user-provided NNP class; unrelated to this PR's
+              # three renames, so left as pre-existing debt here too)
     "F401",   # unused imports (legacy test scaffolding, e.g. optional-dep guards)
     "E712",   # `== True`/`== False` comparisons (common in older tests)
     "E702",   # multiple statements on one line (semicolons in legacy tests)
@@ -262,6 +264,10 @@ filterwarnings = [
     "error:Auto3DOptions is not a dict:DeprecationWarning",
     # Same reasoning as the filter above, for the ensemble_opt legacy-key path.
     "error:The optimizer parameter key opttol:DeprecationWarning",
+    # Same reasoning again, for the three retired-name module __getattr__ hooks:
+    # a caller-attributed stacklevel means only a message-based filter can
+    # enforce "no production path imports an old name".
+    "error:Legacy name:DeprecationWarning",
     # Third-party noise we do not control.
     "ignore:.*pkg_resources is deprecated.*:DeprecationWarning",
     "ignore:.*Importing 'parser.split_arg_string' is deprecated.*:DeprecationWarning",

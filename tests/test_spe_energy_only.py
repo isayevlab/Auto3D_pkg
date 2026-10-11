@@ -1,6 +1,6 @@
 """A single-point energy must not pay for a backward pass it discards (M39).
 
-``calc_spe`` called ``EnForce_ANI.forward_batched`` and threw the forces away:
+``calc_spe`` called ``BatchedEnergyForce.forward_batched`` and threw the forces away:
 
     es, fs = model.forward_batched(...)   # fs is never read again
 
@@ -31,7 +31,7 @@ import pytest
 import torch
 from torch import nn
 
-from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.foundation.exceptions import NumericalError
 from tests.helpers_adapter import AdapterModuleMixin, FakeAdapter
 
@@ -94,7 +94,7 @@ class TestEnergyBatchedSkipsTheBackwardPass:
     def test_forward_batched_does_run_a_backward_pass(self, monkeypatch):
         """The premise. Without this, the next test proves nothing."""
         calls = _count_autograd_grad(monkeypatch)
-        wrapper = EnForce_ANI(_GradCountingAdapter(), batchsize_atoms=8)
+        wrapper = BatchedEnergyForce(_GradCountingAdapter(), batchsize_atoms=8)
 
         wrapper.forward_batched(*_batch())
 
@@ -102,7 +102,7 @@ class TestEnergyBatchedSkipsTheBackwardPass:
 
     def test_energy_batched_runs_no_backward_pass(self, monkeypatch):
         calls = _count_autograd_grad(monkeypatch)
-        wrapper = EnForce_ANI(_GradCountingAdapter(), batchsize_atoms=8)
+        wrapper = BatchedEnergyForce(_GradCountingAdapter(), batchsize_atoms=8)
 
         wrapper.energy_batched(*_batch())
 
@@ -118,7 +118,7 @@ class TestEnergyBatchedSkipsTheBackwardPass:
         that changed it by an ULP would be a wrong reported energy, and the
         arithmetic here is identical, so ``torch.equal`` is the right assertion.
         """
-        wrapper = EnForce_ANI(_GradCountingAdapter(), batchsize_atoms=8)
+        wrapper = BatchedEnergyForce(_GradCountingAdapter(), batchsize_atoms=8)
 
         es_forward, _ = wrapper.forward_batched(*_batch())
         es_energy = wrapper.energy_batched(*_batch())
@@ -130,8 +130,8 @@ class TestEnergyBatchedSkipsTheBackwardPass:
         forward_adapter = _GradCountingAdapter()
         energy_adapter = _GradCountingAdapter()
 
-        EnForce_ANI(forward_adapter, batchsize_atoms=8).forward_batched(*_batch())
-        EnForce_ANI(energy_adapter, batchsize_atoms=8).energy_batched(*_batch())
+        BatchedEnergyForce(forward_adapter, batchsize_atoms=8).forward_batched(*_batch())
+        BatchedEnergyForce(energy_adapter, batchsize_atoms=8).energy_batched(*_batch())
 
         assert energy_adapter.sub_batch_sizes == forward_adapter.sub_batch_sizes
         assert len(forward_adapter.sub_batch_sizes) > 1, (
@@ -155,7 +155,7 @@ class TestEnergyBatchedSkipsTheBackwardPass:
         atom_mask[1, 3] = False
         atom_mask[2, 2:] = False
 
-        EnForce_ANI(_MaskAdapter(), batchsize_atoms=4).energy_batched(
+        BatchedEnergyForce(_MaskAdapter(), batchsize_atoms=4).energy_batched(
             coords, species, charges, atom_mask=atom_mask
         )
 
@@ -206,25 +206,25 @@ class TestTheOneValueThatMoves:
 
     def test_the_forward_path_now_also_reports_the_models_own_value(self):
         """The regression this class guards: forward used to round this to 1.0."""
-        wrapper = EnForce_ANI(self._fp64_custom_adapter(), batchsize_atoms=1024)
+        wrapper = BatchedEnergyForce(self._fp64_custom_adapter(), batchsize_atoms=1024)
         es, _ = wrapper.forward_batched(*_batch(n_mols=1, n_atoms=2))
         assert es.dtype is torch.float64
         assert float(es[0].detach()) == 1.0 + 2.0**-40
 
     def test_the_energy_path_reports_the_models_own_value(self):
-        wrapper = EnForce_ANI(self._fp64_custom_adapter(), batchsize_atoms=1024)
+        wrapper = BatchedEnergyForce(self._fp64_custom_adapter(), batchsize_atoms=1024)
         es = wrapper.energy_batched(*_batch(n_mols=1, n_atoms=2))
         assert es.dtype is torch.float64
         assert float(es[0].detach()) == 1.0 + 2.0**-40
 
     def test_forward_and_energy_paths_now_agree_bit_for_bit(self):
         """The gap M39 left open (forward vs. energy) is closed (issue #5)."""
-        forward_es, _ = EnForce_ANI(
+        forward_es, _ = BatchedEnergyForce(
             self._fp64_custom_adapter(), batchsize_atoms=1024
         ).forward_batched(*_batch(n_mols=1, n_atoms=2))
-        energy_es = EnForce_ANI(self._fp64_custom_adapter(), batchsize_atoms=1024).energy_batched(
-            *_batch(n_mols=1, n_atoms=2)
-        )
+        energy_es = BatchedEnergyForce(
+            self._fp64_custom_adapter(), batchsize_atoms=1024
+        ).energy_batched(*_batch(n_mols=1, n_atoms=2))
         assert torch.equal(forward_es.detach(), energy_es.detach())
 
 
@@ -240,13 +240,13 @@ class TestEnergyBatchedStillGuardsTheNumbers:
             def energy(self, coords, species, charges, atom_mask=None):
                 return torch.full((coords.shape[0],), bad)
 
-        wrapper = EnForce_ANI(_BadAdapter(), batchsize_atoms=1024)
+        wrapper = BatchedEnergyForce(_BadAdapter(), batchsize_atoms=1024)
 
         with pytest.raises(NumericalError):
             wrapper.energy_batched(*_batch(n_mols=2, n_atoms=3))
 
     def test_finite_energies_pass(self):
-        wrapper = EnForce_ANI(FakeAdapter(), batchsize_atoms=1024)
+        wrapper = BatchedEnergyForce(FakeAdapter(), batchsize_atoms=1024)
         es = wrapper.energy_batched(*_batch(n_mols=2, n_atoms=3))
         assert torch.isfinite(es).all()
 
@@ -274,7 +274,7 @@ class TestEnergyBatchedKeepsTheOomBehavior:
 
         adapter = _OomOnceAdapter()
         # 4 atoms/mol, batchsize_atoms=16 -> 4 molecules per sub-batch.
-        wrapper = EnForce_ANI(adapter, batchsize_atoms=16)
+        wrapper = BatchedEnergyForce(adapter, batchsize_atoms=16)
 
         es = wrapper.energy_batched(*_batch(n_mols=8, n_atoms=4))
 
@@ -294,7 +294,7 @@ class TestEnergyBatchedKeepsTheOomBehavior:
             def energy(self, coords, species, charges, atom_mask=None):
                 raise torch.cuda.OutOfMemoryError("simulated")
 
-        wrapper = EnForce_ANI(_AlwaysOom(), batchsize_atoms=4)
+        wrapper = BatchedEnergyForce(_AlwaysOom(), batchsize_atoms=4)
 
         with pytest.raises(OptimizationError, match="batch size 1"):
             wrapper.energy_batched(*_batch(n_mols=2, n_atoms=4))
@@ -423,7 +423,7 @@ class TestCalcSpeUsesTheEnergyOnlyPath:
 
         monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter())
-        monkeypatch.setattr(spe_mod, "EnForce_ANI", _EnergyOnlyEnForce)
+        monkeypatch.setattr(spe_mod, "BatchedEnergyForce", _EnergyOnlyEnForce)
 
         out = tmp_path / "out.sdf"
         spe_mod.calc_spe(str(sdf), "AIMNET", use_gpu=False, out_path=str(out))
@@ -481,7 +481,7 @@ class TestEnergyBatchedDoesNotRetainSubBatchGraphs:
                 raise AssertionError("energy_batched must not call forward")
 
         adapter = _LifetimeAdapter()
-        net = EnForce_ANI(adapter, batchsize_atoms=8)  # forces several sub-batches
+        net = BatchedEnergyForce(adapter, batchsize_atoms=8)  # forces several sub-batches
         coords, species, charges, atom_mask = _batch(n_mols=6, n_atoms=4)
 
         energies = net.energy_batched(coords, species, charges, atom_mask=atom_mask)
@@ -499,7 +499,7 @@ class TestEnergyBatchedDoesNotRetainSubBatchGraphs:
     def test_the_energy_values_are_unchanged_by_detaching(self):
         """Detaching must free memory without moving a reported number."""
         adapter = _GradCountingAdapter()
-        net = EnForce_ANI(adapter, batchsize_atoms=8)
+        net = BatchedEnergyForce(adapter, batchsize_atoms=8)
         coords, species, charges, atom_mask = _batch(n_mols=6, n_atoms=4)
 
         energies = net.energy_batched(coords, species, charges, atom_mask=atom_mask)

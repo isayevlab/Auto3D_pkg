@@ -198,7 +198,7 @@ def make_state(
     mols: list, batch: int, device: torch.device, model
 ) -> tuple[dict, torch.Tensor, int]:
     """Pad one bucket of ``batch`` molecules (cycled) into an ``n_steps`` state."""
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from Auto3D.engines.batch_opt.padding import pad_from_mols
     from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 
@@ -210,7 +210,7 @@ def make_state(
         "coord": coord,
         "numbers": numbers,
         "charges": charges,
-        "nn": EnForce_ANI(model, 1024 * 16),
+        "nn": BatchedEnergyForce(model, 1024 * 16),
         "converged_mask": torch.zeros(size, dtype=torch.bool, device=device),
         "fmax": torch.full((size,), INITIAL_FMAX_SENTINEL, device=device),
         "energy": torch.full((size,), INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=device),

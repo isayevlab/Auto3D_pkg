@@ -4,7 +4,7 @@ import pytest
 @pytest.mark.slow
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom
-    skeleton (N-C1). `optimizing.run()` (Auto3D.engines.batch_opt.batchopt)
+    skeleton (N-C1). `Optimizer.run()` (Auto3D.engines.batch_opt.batchopt)
     reads its input through `iter_conformer_records` directly -- the same
     filter `calc_spe`/`opt_geometry`/`select_tautomers` apply to their own
     reads of `path` -- so the implicit-H record is skipped at the one place
@@ -94,14 +94,14 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
-    sdf.write_text("")  # contents irrelevant; we stub optimizing + supplier
+    sdf.write_text("")  # contents irrelevant; we stub Optimizer + supplier
 
     class _Stub:
         def __init__(self, *a, **k):
             pass
 
         def run(self):
-            return True  # matches optimizing.run()'s real True-on-write contract
+            return True  # matches Optimizer.run()'s real True-on-write contract
 
     # A real record with a conformer, not an empty list: opt_geometry now
     # raises fast (before loading a model) when `iter_conformer_records`
@@ -112,7 +112,7 @@ def test_opt_geometry_names_output_by_model(monkeypatch, tmp_path):
     AllChem.EmbedMolecule(mol, randomSeed=1)
     mol.SetProp("_Name", "m1")
 
-    monkeypatch.setattr(geo, "optimizing", _Stub)
+    monkeypatch.setattr(geo, "Optimizer", _Stub)
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [mol])
     import torch
 
@@ -137,12 +137,12 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
     import Auto3D.entry.ASE.geometry as geo
 
     sdf = tmp_path / "mols.sdf"
-    sdf.write_text("")  # contents irrelevant; optimizing + supplier are stubbed
+    sdf.write_text("")  # contents irrelevant; Optimizer + supplier are stubbed
 
     good = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     AllChem.EmbedMolecule(good, randomSeed=1)
     good.SetProp("_Name", "good")
-    good.SetProp("E_tot", "-100.0")  # Hartree, as optimizing.run() writes it
+    good.SetProp("E_tot", "-100.0")  # Hartree, as Optimizer.run() writes it
     no_etot = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     AllChem.EmbedMolecule(no_etot, randomSeed=2)
     no_etot.SetProp("_Name", "no_etot")  # deliberately missing E_tot
@@ -152,9 +152,9 @@ def test_opt_geometry_skips_none_and_missing_etot(monkeypatch, tmp_path):
             pass
 
         def run(self):
-            return True  # matches optimizing.run()'s real True-on-write contract
+            return True  # matches Optimizer.run()'s real True-on-write contract
 
-    monkeypatch.setattr(geo, "optimizing", _Stub)
+    monkeypatch.setattr(geo, "Optimizer", _Stub)
     # The re-read supplier yields a None record, a record with no E_tot, and a
     # good one; only the good one should survive into the rewritten output.
     monkeypatch.setattr(geo.Chem, "SDMolSupplier", lambda *a, **k: [None, no_etot, good])
@@ -185,17 +185,17 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
     (`Auto3D.entry._run_setup`) comes back with no usable record -- the record
     is logged and skipped by the classifier itself -- and
     `setup.require_records(path)` refuses the file with an
-    `InputValidationError` BEFORE `create_model`/`optimizing` are ever
+    `InputValidationError` BEFORE `create_model`/`Optimizer` are ever
     reached. That is why neither test below stubs `create_model`: doing so
     would silently pass even if that check were deleted, since the stub would
     never be called either way.
 
     `test_raises_optimization_error_when_optimizing_reports_no_write` below
-    pins the OTHER guard -- `optimizing.run()` returning `False`, which stays
+    pins the OTHER guard -- `Optimizer.run()` returning `False`, which stays
     an `OptimizationError` because by then the input WAS usable and the
     optimizer is the half that produced nothing. It needs a non-empty
-    `input_mols` to reach at all, so it stubs `optimizing` itself (the real
-    `optimizing` class is not used anywhere in this class;
+    `input_mols` to reach at all, so it stubs `Optimizer` itself (the real
+    `Optimizer` class is not used anywhere in this class;
     `get_device`/`configure_torch` are stubbed throughout -- on
     `Auto3D.entry._run_setup`, which owns both calls now -- just to avoid a
     real device lookup or global torch config changes under test).
@@ -254,13 +254,13 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
         """`wrote_output is False` must still raise with a non-empty `input_mols`.
 
         The two tests above both resolve `input_mols == []` and never reach
-        `optimizing` at all -- so neither exercises the `if not wrote_output:
+        `Optimizer` at all -- so neither exercises the `if not wrote_output:
         raise` guard in `opt_geometry` any more. This test gives `opt_geometry`
         one real, valid record (so the empty-filter fail-fast does not fire)
-        and stubs `optimizing` itself to report `run() -> False`, the contract
+        and stubs `Optimizer` itself to report `run() -> False`, the contract
         the real class uses for "nothing was written" (missing/empty/no
         parseable record in ITS OWN read of `path` -- a residual case, since a
-        non-empty `input_mols` here already implies the real `optimizing`
+        non-empty `input_mols` here already implies the real `Optimizer`
         would find the same record through its own, identical
         `iter_conformer_records` filter).
         """
@@ -285,12 +285,12 @@ class TestOptGeometryRaisesWhenNothingWasOptimized:
                 pass
 
             def run(self):
-                return False  # matches optimizing.run()'s real False-on-skip contract
+                return False  # matches Optimizer.run()'s real False-on-skip contract
 
         monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
         monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
-        monkeypatch.setattr(geo, "optimizing", _StubReportsNoWrite)
+        monkeypatch.setattr(geo, "Optimizer", _StubReportsNoWrite)
 
         with pytest.raises(OptimizationError, match="mols.sdf"):
             geo.opt_geometry(str(sdf), "AIMNET", use_gpu=False)

@@ -152,7 +152,7 @@ class TestOptGeometryDurability:
         it into position, so this test now passes (the xfail(strict=True)
         tripwire it carried was removed with that fix). It drives the real
         `opt_geometry` with the batch optimizer
-        (Auto3D.engines.batch_opt.batchopt.optimizing) monkeypatched so no NNP loads,
+        (Auto3D.engines.batch_opt.batchopt.Optimizer) monkeypatched so no NNP loads,
         keeping the test hermetic while the real rewrite pass runs unmodified.
 
         Opening Chem.SDWriter on an existing path truncates it immediately (see
@@ -173,11 +173,11 @@ class TestOptGeometryDurability:
         completed = {}
 
         class FakeOptimizing:
-            """Stand-in for batch_opt.optimizing: skips NNP inference entirely.
+            """Stand-in for batch_opt.Optimizer: skips NNP inference entirely.
 
             Simulates a completed optimization by writing E_tot-bearing records
             straight to outpath with the real SDWriter. This is the only copy
-            of that finished optimization -- `optimizing.run()` writes nowhere
+            of that finished optimization -- `Optimizer.run()` writes nowhere
             else -- which is exactly why truncating `outpath` to rewrite it was
             unrecoverable before C14 was fixed.
             """
@@ -193,9 +193,9 @@ class TestOptGeometryDurability:
                         mol.SetProp("E_tot", str(1.0 + i))
                         w.write(mol)
                 completed["bytes"] = Path(self._outpath).read_bytes()
-                return True  # matches optimizing.run()'s real True-on-write contract
+                return True  # matches Optimizer.run()'s real True-on-write contract
 
-        monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
+        monkeypatch.setattr(geometry, "Optimizer", FakeOptimizing)
 
         class FlakyWriter:
             """Wraps the real SDWriter so opening it truncates `outpath` exactly
@@ -346,7 +346,7 @@ class TestSameFileGuard:
         even reproduce a truncation -- it would just quietly succeed and
         overwrite the input, which is exactly the damage the guard prevents.
         To stay within the box's "never load an NNP" constraint, the model
-        machinery (get_device/create_model/EnForce_ANI/pad_from_mols) is
+        machinery (get_device/create_model/BatchedEnergyForce/pad_from_mols) is
         stubbed out the same way tests/test_isomer_engine_hardening.py already
         does for calc_spe; the guard sits earlier in the real function, so
         calc_spe itself still runs for real here -- and if the guard were
@@ -373,7 +373,7 @@ class TestSameFileGuard:
                 n = coords.shape[0]
                 return torch.ones(n, dtype=torch.float64), torch.zeros_like(coords)
 
-        monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+        monkeypatch.setattr(spe_mod, "BatchedEnergyForce", FakeEnForce)
 
         def fake_pad(mols, adapter, device):
             n = len(mols)
@@ -409,7 +409,7 @@ class TestSameFileGuard:
     def test_opt_geometry_rejects_output_equal_to_input(self, job_dir, monkeypatch):
         """Same guard, second entry point.
 
-        `optimizing` is replaced with a stand-in that writes real records to
+        `Optimizer` is replaced with a stand-in that writes real records to
         whatever outpath it is handed (so no NNP loads, per the box limits).
         Without the guard, opt_geometry would run that stand-in to completion
         against the input file and return normally -- no exception, input
@@ -435,9 +435,9 @@ class TestSameFileGuard:
                     for i, mol in enumerate(mols):
                         mol.SetProp("E_tot", str(1.0 + i))
                         w.write(mol)
-                return True  # matches optimizing.run()'s real True-on-write contract
+                return True  # matches Optimizer.run()'s real True-on-write contract
 
-        monkeypatch.setattr(geometry, "optimizing", FakeOptimizing)
+        monkeypatch.setattr(geometry, "Optimizer", FakeOptimizing)
 
         # FakeOptimizing is benign, so it alone would let the guard move below
         # model construction with this test still green -- see the calc_spe
@@ -858,7 +858,7 @@ class TestOutputOverwriteGuard:
 
         monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
         monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
-        monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+        monkeypatch.setattr(spe_mod, "BatchedEnergyForce", FakeEnForce)
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
         out = spe_mod.calc_spe(
@@ -919,7 +919,7 @@ class TestOutputOverwriteGuard:
             )
 
         monkeypatch.setattr(run_setup, "get_device", _never)
-        monkeypatch.setattr(geometry, "optimizing", _never)
+        monkeypatch.setattr(geometry, "Optimizer", _never)
 
         with pytest.raises(ConfigurationError, match="already exists"):
             geometry.opt_geometry(

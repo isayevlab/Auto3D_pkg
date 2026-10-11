@@ -727,7 +727,7 @@ class OptimizationConfig:
 
     Example:
         >>> config = OptimizationConfig(opt_steps=1000, convergence_threshold=0.005)
-        >>> optimizer = optimizing(in_f, out_f, adapter=adapter, device=device, config=config)
+        >>> optimizer = Optimizer(in_f, out_f, adapter=adapter, device=device, config=config)
     """
 
     opt_steps: int = DEFAULT_OPT_STEPS
@@ -748,7 +748,7 @@ class OptimizationConfig:
     process that measures the memory scales that field by it and builds this
     object with the product (``Auto3DOptions.to_optimization_config``). Whoever
     receives this object -- an optimizer worker in another process, or
-    ``optimizing`` in this one -- batches on the number as given and measures
+    ``Optimizer`` in this one -- batches on the number as given and measures
     nothing itself. Larger values use more GPU memory but may be faster.
     """
 

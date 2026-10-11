@@ -436,10 +436,10 @@ CLOSED_BARRELS = {
 }
 
 # Names ``batch_opt/batchopt.py`` re-exported for backward compatibility. Two
-# of them (``EnForce_ANI``, ``n_steps``) the module genuinely uses, so they
+# of them (``BatchedEnergyForce``, ``n_steps``) the module genuinely uses, so they
 # still resolve there; ``batchopt`` is nonetheless not their home and no
 # first-party module may reach them through it.
-BATCHOPT_REEXPORTS = frozenset({"EnForce_ANI", "n_steps", "print_stats"})
+BATCHOPT_REEXPORTS = frozenset({"BatchedEnergyForce", "n_steps", "print_stats"})
 
 # The only subpackage whose api.rst-documented dotted path *is* the package
 # path, and therefore the only one allowed to re-export:
@@ -649,7 +649,7 @@ def test_only_documented_subpackages_define_all():
 
 
 def test_no_src_module_imports_batchopt_reexports():
-    """``batchopt`` is not the home of ``EnForce_ANI``/``n_steps``/``print_stats``.
+    """``batchopt`` is not the home of ``BatchedEnergyForce``/``n_steps``/``print_stats``.
 
     ``batchopt.py`` itself still *uses* the first two, so they resolve there and
     third-party code does not break today -- but a first-party import through

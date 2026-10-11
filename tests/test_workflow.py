@@ -381,7 +381,7 @@ class TestOptimizerEmptyInput:
 
         import torch
 
-        from Auto3D.engines.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import Optimizer
         from tests.helpers_adapter import FakeAdapter
 
         device = torch.device("cpu")
@@ -393,9 +393,9 @@ class TestOptimizerEmptyInput:
         }
 
         nonexistent = str(tmp_path / "nonexistent.sdf")
-        # An injected double, because `optimizing` no longer constructs its own
+        # An injected double, because `Optimizer` no longer constructs its own
         # adapter -- and this test returns before the model is touched anyway.
-        optimizer = optimizing(
+        optimizer = Optimizer(
             nonexistent,
             str(tmp_path / "out.sdf"),
             adapter=FakeAdapter(),
@@ -415,7 +415,7 @@ class TestOptimizerEmptyInput:
 
         import torch
 
-        from Auto3D.engines.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import Optimizer
         from tests.helpers_adapter import FakeAdapter
 
         device = torch.device("cpu")
@@ -430,7 +430,7 @@ class TestOptimizerEmptyInput:
         empty_sdf = tmp_path / "empty.sdf"
         empty_sdf.write_text("")
 
-        optimizer = optimizing(
+        optimizer = Optimizer(
             str(empty_sdf),
             str(tmp_path / "out.sdf"),
             adapter=FakeAdapter(),
@@ -591,11 +591,11 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
             attempted.append(self._enumerated)
             raise RuntimeError("optimizer blew up on this chunk")
 
-    # Replace the heavy optimizing class with one that always raises, so we
+    # Replace the heavy Optimizer class with one that always raises, so we
     # exercise only the loop's failure isolation. `create_model` is stubbed for
     # the same reason: since C-2 the adapter is built once before the loop, and
     # a real AIMNet2 load has nothing to do with per-chunk isolation.
-    monkeypatch.setattr(ww, "optimizing", _BoomOptimizing)
+    monkeypatch.setattr(ww, "Optimizer", _BoomOptimizing)
     monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
 
     q: queue_mod.Queue = queue_mod.Queue()
@@ -662,7 +662,7 @@ def test_model_construction_failure_is_fatal_and_consumes_no_chunk(tmp_path, mon
     # Exception`` cannot hide it either.
     monkeypatch.setattr(
         ww,
-        "optimizing",
+        "Optimizer",
         lambda *args_, **kwargs_: pytest.fail("a chunk was optimized with no model"),
     )
 
@@ -1198,7 +1198,7 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
             pass
 
         def run(self):
-            return True  # matches optimizing.run()'s real True-on-write contract
+            return True  # matches Optimizer.run()'s real True-on-write contract
 
     class _StubRank:
         def __init__(self, in_f, out_f, *args, **kwargs):
@@ -1207,7 +1207,7 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
         def run(self):
             # find_smiles_not_in_sdf (C7 reconciliation, now wired into
             # smiles2mols) reads this file, so it must be a real SDF -- the
-            # real ranking.run() always writes one, even a valid empty one
+            # real ConformerRanker.run() always writes one, even a valid empty one
             # would still not parse (RDKit rejects a 0-byte SDF), so write
             # the one molecule this test actually asks for.
             from rdkit import Chem
@@ -1219,8 +1219,8 @@ def test_smiles2mols_uses_args_threshold(monkeypatch):
             return []
 
     monkeypatch.setattr(auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create))
-    monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
-    monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
+    monkeypatch.setattr(auto3D_mod, "Optimizer", _StubOpt)
+    monkeypatch.setattr(auto3D_mod, "ConformerRanker", _StubRank)
     monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
 
     args = Auto3DOptions(k=1, use_gpu=False, threshold=0.27)
@@ -1478,7 +1478,7 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
             pass
 
         def run(self):
-            return True  # matches optimizing.run()'s real True-on-write contract
+            return True  # matches Optimizer.run()'s real True-on-write contract
 
     class _StubRank:
         def __init__(self, in_f, out_f, threshold, k=None, window=None):
@@ -1494,8 +1494,8 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
             return []
 
     monkeypatch.setattr(auto3D_mod.IsomerEngineFactory, "create", staticmethod(_capture_create))
-    monkeypatch.setattr(auto3D_mod, "optimizing", _StubOpt)
-    monkeypatch.setattr(auto3D_mod, "ranking", _StubRank)
+    monkeypatch.setattr(auto3D_mod, "Optimizer", _StubOpt)
+    monkeypatch.setattr(auto3D_mod, "ConformerRanker", _StubRank)
     monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
 
     calls = []
@@ -1534,7 +1534,7 @@ class TestQuietPathsNameWhatTheyDropped:
     def test_the_optimizer_names_each_record_it_could_not_parse(
         self, tmp_path, caplog, monkeypatch
     ):
-        """`optimizing` used to log only the all-records-failed case.
+        """`Optimizer` used to log only the all-records-failed case.
 
         A single bad record among a thousand left the output SDF shorter than the
         input with nothing said about which one -- for `opt_geometry`, that is a
@@ -1551,7 +1551,7 @@ class TestQuietPathsNameWhatTheyDropped:
         from rdkit import Chem
         from rdkit.Chem import AllChem
 
-        from Auto3D.engines.batch_opt.batchopt import optimizing
+        from Auto3D.engines.batch_opt.batchopt import Optimizer
         from tests.helpers_adapter import FakeAdapter
 
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
@@ -1570,7 +1570,7 @@ class TestQuietPathsNameWhatTheyDropped:
             "patience": 100,
             "batchsize_atoms": 1024,
         }
-        optimizer = optimizing(
+        optimizer = Optimizer(
             str(bad_sdf),
             str(tmp_path / "out.sdf"),
             adapter=FakeAdapter(),

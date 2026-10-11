@@ -203,7 +203,7 @@ def test_smiles2mols_scales_batchsize_atoms_like_main(monkeypatch, tmp_path):
     The stubs are the ones the sibling spy tests in this file use, plus the two
     this one needs to reach the optimizer at all: ``preflight_model`` (the
     default AIMNET engine would otherwise be resolved against the model
-    registry/cache) and ``create_model``. ``optimizing`` is the assertion
+    registry/cache) and ``create_model``. ``Optimizer`` is the assertion
     point, so it records the config and stops the run there.
     """
     from Auto3D.entry import auto3D as auto3D_mod
@@ -225,7 +225,7 @@ def test_smiles2mols_scales_batchsize_atoms_like_main(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(auto3D_mod, "preflight_model", lambda *a, **k: None)
     monkeypatch.setattr(auto3D_mod, "create_model", lambda *a, **k: FakeAdapter())
-    monkeypatch.setattr(auto3D_mod, "optimizing", _capture_optimizing)
+    monkeypatch.setattr(auto3D_mod, "Optimizer", _capture_optimizing)
 
     options = Auto3DOptions(
         path=str(tmp_path / "unused.smi"),

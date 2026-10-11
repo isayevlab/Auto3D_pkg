@@ -14,7 +14,7 @@ skip_ani2xt_test = False
 # Every real-model test below is marked @pytest.mark.slow individually
 # (single-point energy calculations, each loading a real NNP). NOT a
 # module-level `pytestmark`: test_calc_spe_uses_model_factory below mocks
-# every model-construction call (create_model/EnForce_ANI/pad_from_mols) and
+# every model-construction call (create_model/BatchedEnergyForce/pad_from_mols) and
 # loads no NNP, so it must run in the fast tier -- a module-level mark would
 # have swept it in with everything else regardless of what it actually does.
 #
@@ -337,7 +337,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
             n = coords.shape[0]
             return torch.zeros(n, dtype=torch.float64)
 
-    monkeypatch.setattr(spe_mod, "EnForce_ANI", FakeEnForce)
+    monkeypatch.setattr(spe_mod, "BatchedEnergyForce", FakeEnForce)
 
     pad_calls = []
 

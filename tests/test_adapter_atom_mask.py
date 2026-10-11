@@ -185,10 +185,10 @@ class TestUnpaddedCallersNeedNoMask:
 
 
 class TestMaskReachesTheAdapterThroughTheStack:
-    """EnForce_ANI must slice and forward the mask, not swallow it."""
+    """BatchedEnergyForce must slice and forward the mask, not swallow it."""
 
     def test_forward_batched_forwards_the_mask_per_sub_batch(self):
-        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+        from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 
         seen: list[int] = []
 
@@ -211,7 +211,7 @@ class TestMaskReachesTheAdapterThroughTheStack:
         )
         # batchsize_atoms=9 with N=9 gives one molecule per sub-batch, so the
         # mask has to be sliced with the same indices as coord/numbers.
-        wrapper = EnForce_ANI(_CountingAdapter(), 9)
+        wrapper = BatchedEnergyForce(_CountingAdapter(), 9)
         wrapper.forward_batched(coords, species, charges, atom_mask=atom_mask)
         assert seen == [9, 3]
 

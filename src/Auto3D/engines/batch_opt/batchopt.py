@@ -2,7 +2,7 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
@@ -24,20 +24,20 @@ from Auto3D.domain.stereo_check import apply_optimized_coords
 
 # Deliberately NOT `from Auto3D.engines.model_factory import create_model`. This module
 # is the numerical layer; the factory sits above it, and importing upward made
-# `optimizing` construct its own dependency. Callers inject a ready adapter --
-# see `optimizing.__init__`.
+# `Optimizer` construct its own dependency. Callers inject a ready adapter --
+# see `Optimizer.__init__`.
 #
 # Note: TF32 settings are now configured via Auto3D.engines.torch_config.configure_torch()
 # and the allow_tf32 option in Auto3DOptions. The hardcoded settings have been
 # removed to allow user configuration.
 #
-# `EnForce_ANI` and `n_steps` are imported because this module uses them
-# (`ensemble_opt`'s annotation and `optimizing.run`'s construction; the step
+# `BatchedEnergyForce` and `n_steps` are imported because this module uses them
+# (`ensemble_opt`'s annotation and `Optimizer.run`'s construction; the step
 # loop), NOT as re-exports. Their homes are `batch_opt.model_wrapper` and
 # `batch_opt.optimization_engine`; import them from there. `print_stats` used to
 # be imported here purely to re-export -- nothing in this file called it -- and
 # is gone.
-from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.engines.batch_opt.optimization_engine import n_steps
 from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
@@ -45,8 +45,24 @@ from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 from .padding import pad_from_mols
 
 
+def _as_tensor(
+    value: list | torch.Tensor, dtype: torch.dtype, device: torch.device
+) -> torch.Tensor:
+    """Coerce ``value`` to a tensor of ``dtype`` on ``device``.
+
+    A list is built fresh with ``torch.tensor``; a tensor is detached (so
+    ``requires_grad_`` can be toggled downstream without disturbing whatever
+    graph the caller's tensor belonged to) and cast with ``.to``. Shared by
+    the four ``ensemble_opt`` coercions below, which differ only in the
+    ``value``/``dtype`` pair.
+    """
+    if not isinstance(value, torch.Tensor):
+        return torch.tensor(value, dtype=dtype, device=device)
+    return value.detach().to(dtype=dtype, device=device)
+
+
 def ensemble_opt(
-    net: EnForce_ANI,
+    net: BatchedEnergyForce,
     coord: list | torch.Tensor,
     numbers: list | torch.Tensor,
     charges: list | torch.Tensor,
@@ -58,7 +74,7 @@ def ensemble_opt(
     """Optimize a group of molecules using batch optimization.
 
     Args:
-        net: EnForce_ANI wrapper for the neural network potential.
+        net: BatchedEnergyForce wrapper for the neural network potential.
         coord: Coordinates of input molecules (N, m, 3). N is the number of
             structures, m is the number of atoms in each structure.
         numbers: Atomic numbers in the molecules (N, m).
@@ -99,14 +115,8 @@ def ensemble_opt(
     # Handle both tensor and list inputs for backward compatibility
     # Ensure coords are leaf tensors (detach from any computation graph)
     # so that requires_grad_ can be toggled in n_steps
-    if not isinstance(coord, torch.Tensor):
-        coord = torch.tensor(coord, dtype=torch.float, device=device)
-    else:
-        coord = coord.detach().to(dtype=torch.float, device=device)
-    if not isinstance(numbers, torch.Tensor):
-        numbers = torch.tensor(numbers, dtype=torch.long, device=device)
-    else:
-        numbers = numbers.detach().to(dtype=torch.long, device=device)
+    coord = _as_tensor(coord, torch.float, device)
+    numbers = _as_tensor(numbers, torch.long, device)
     # float32, not long: `pad_from_mols` builds this tensor float32 on purpose
     # (see the comment at its construction site), and CLAUDE.md states charges
     # reach a model as float32. Narrowing to int64 here contradicted both.
@@ -121,15 +131,9 @@ def ensemble_opt(
     # silence. Note `AIMNet2Adapter.analytic_hessian` deliberately does NOT
     # cast, and `ASE/thermo.py`'s Hessian path still builds an int64 charge --
     # so the float32 claim is not yet true everywhere.
-    if not isinstance(charges, torch.Tensor):
-        charges = torch.tensor(charges, dtype=torch.float32, device=device)
-    else:
-        charges = charges.detach().to(dtype=torch.float32, device=device)
+    charges = _as_tensor(charges, torch.float32, device)
     if atom_mask is not None:
-        if not isinstance(atom_mask, torch.Tensor):
-            atom_mask = torch.tensor(atom_mask, dtype=torch.bool, device=device)
-        else:
-            atom_mask = atom_mask.detach().to(dtype=torch.bool, device=device)
+        atom_mask = _as_tensor(atom_mask, torch.bool, device)
     converged_mask = torch.zeros(coord.shape[0], dtype=torch.bool, device=device)
     fmax = torch.full(
         coord.shape[:1], INITIAL_FMAX_SENTINEL, device=coord.device
@@ -182,7 +186,18 @@ def ensemble_opt(
     )
 
 
-class optimizing:
+class _OptimizationResults(NamedTuple):
+    """The six per-molecule lists ``_optimize_all`` hands to ``_write_results``, by name."""
+
+    energies: list
+    fmaxs: list
+    converged_flags: list
+    osc_counts: list
+    coords_out: list
+    non_finite_flags: list
+
+
+class Optimizer:
     def __init__(
         self,
         in_f: str,
@@ -262,7 +277,7 @@ class optimizing:
     # skips padded slots, but ANI2xt computes its descriptors ON padded
     # slots, so an unmeasured, much wider spread is not assumed free. The
     # sub-batch clamp (``batchsize_atoms``, with the OOM halving in
-    # ``EnForce_ANI``) bounds memory per forward either way, not that
+    # ``BatchedEnergyForce``) bounds memory per forward either way, not that
     # descriptor compute.
     BUCKET_SIZE_FACTOR = 4.0
 
@@ -278,7 +293,7 @@ class optimizing:
         sorted ascending) -- the bound on within-bucket padding waste is set
         by ``BUCKET_SIZE_FACTOR`` (see its comment for the measurement behind
         the current value). A NaN molecule no longer takes its bucket down
-        (``EnForce_ANI.forward_batched``'s ``tolerate_non_finite``, R38).
+        (``BatchedEnergyForce.forward_batched``'s ``tolerate_non_finite``, R38).
 
         Args:
             mols: List of RDKit Mol objects.
@@ -304,15 +319,15 @@ class optimizing:
         return buckets
 
     def _optimize_bucket(self, bucket_mols, model):
-        """Run pad -> EnForce_ANI -> ensemble_opt for a single bucket.
+        """Run pad -> BatchedEnergyForce -> ensemble_opt for a single bucket.
 
         Args:
             bucket_mols: List of RDKit Mol objects forming one size-homogeneous
                 bucket. They are padded to this bucket's LOCAL max atom count,
                 not the global max.
-            model: The shared :class:`EnForce_ANI` wrapper, constructed once in
-                :meth:`run` and reused across buckets (it is a thin wrapper over
-                ``self.model`` with no per-bucket state).
+            model: The shared :class:`BatchedEnergyForce` wrapper, constructed once in
+                :meth:`_optimize_all` and reused across buckets (it is a thin wrapper
+                over ``self.model`` with no per-bucket state).
 
         Returns:
             The optdict from :func:`ensemble_opt` (per-molecule lists indexed by
@@ -337,39 +352,23 @@ class optimizing:
         )  # Magic step
         return optdict
 
-    def run(self) -> bool:
-        """Run batch optimization, writing results to ``self.out_f``.
+    def _read_input_mols(self) -> list[Chem.Mol] | None:
+        """Read and validate ``self.in_f``, returning its molecules.
 
         Returns:
-            True if ``self.out_f`` was written this call. False if
-            optimization was skipped entirely -- ``self.in_f`` missing, empty,
-            containing no parseable record, or with every record skipped by
-            the filter as defective (see
-            :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` for what
-            counts as defective) -- in which case
-            ``self.out_f`` is left untouched (a caller that derives its output
-            path once and may re-run against it, e.g.
-            ``ASE.geometry.opt_geometry`` / ``entry.auto3D.smiles2mols`` with
-            ``overwrite=True``, cannot tell a fresh write from a stale
-            leftover file by checking ``os.path.exists(self.out_f)`` alone --
-            this return value is the
-            signal). ``workflow_workers.optim_rank_wrapper`` checks
-            ``os.path.exists`` on a chunk-local path that is always fresh for
-            that call, so it is unaffected either way and is not changed here.
+            The parsed molecules, or ``None`` if ``self.in_f`` is missing,
+            empty, or contains no parseable/kept record -- the conditions
+            under which :meth:`run` returns ``False`` without writing
+            ``self.out_f``.
         """
-        logger.info(
-            "Preparing for parallel optimizing... (Max optimization steps: %i)"
-            % self._config_dict["opt_steps"]
-        )
-
         # Check if input file exists and is not empty
         input_path = Path(self.in_f)
         if not input_path.exists():
             logger.warning(f"Input file {self.in_f} does not exist. Skipping optimization.")
-            return False
+            return None
         if input_path.stat().st_size == 0:
             logger.warning(f"Input file {self.in_f} is empty. Skipping optimization.")
-            return False
+            return None
 
         # `iter_conformer_records` (Auto3D.foundation.utils.sdf_io) is one of
         # the two report-and-keep views over `classify_records`;
@@ -389,8 +388,20 @@ class optimizing:
 
         if not mols:
             logger.warning("No valid molecules in input file. Skipping optimization.")
-            return False
+            return None
 
+        return mols
+
+    def _optimize_all(self, mols: list[Chem.Mol]) -> _OptimizationResults:
+        """Bucket, optimize and scatter results back to ``mols``' order.
+
+        Args:
+            mols: The molecules :meth:`_read_input_mols` returned.
+
+        Returns:
+            The six per-molecule result lists, indexed like ``mols``, as an
+            :class:`_OptimizationResults`.
+        """
         # Pre-size per-molecule output containers indexed by original position.
         # Buckets reorder molecules internally for size-homogeneous padding, but
         # results are scattered back to their original input positions so the
@@ -401,7 +412,6 @@ class optimizing:
         osc_counts = [None] * len(mols)
         coords_out = [None] * len(mols)
         non_finite_flags = [None] * len(mols)
-        patience = self._config_dict["patience"]
 
         # Split into size-homogeneous buckets. Padding each bucket to its LOCAL
         # max atom count (instead of the global max) avoids computing AEVs/forces
@@ -412,9 +422,9 @@ class optimizing:
 
         # The model adapter already disables gradients in BaseModelAdapter.__init__.
         # self.model and batchsize_atoms are constant across buckets, so build the
-        # EnForce_ANI wrapper once and reuse it (avoids per-bucket allocation churn;
-        # it's a thin wrapper with no weight copy).
-        model = EnForce_ANI(self.model, self._config_dict["batchsize_atoms"])
+        # BatchedEnergyForce wrapper once and reuse it (avoids per-bucket allocation
+        # churn; it's a thin wrapper with no weight copy).
+        model = BatchedEnergyForce(self.model, self._config_dict["batchsize_atoms"])
 
         for bucket in buckets:
             bucket_mols = [mols[i] for i in bucket]
@@ -428,10 +438,34 @@ class optimizing:
                 non_finite_flags[orig_i] = optdict["non_finite"][local_i]
 
             # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
-            # or fragment across many buckets. The final empty_cache() below still
-            # runs after all output is written.
+            # or fragment across many buckets. The final empty_cache() in run()
+            # still runs after all output is written.
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        return _OptimizationResults(
+            energies=energies,
+            fmaxs=fmaxs,
+            converged_flags=converged_flags,
+            osc_counts=osc_counts,
+            coords_out=coords_out,
+            non_finite_flags=non_finite_flags,
+        )
+
+    def _write_results(self, mols: list[Chem.Mol], results: _OptimizationResults) -> None:
+        """Write ``mols`` with their optimization results to ``self.out_f``.
+
+        Args:
+            mols: The molecules :meth:`_read_input_mols` returned.
+            results: The :class:`_OptimizationResults` :meth:`_optimize_all` returned.
+        """
+        energies = results.energies
+        fmaxs = results.fmaxs
+        converged_flags = results.converged_flags
+        osc_counts = results.osc_counts
+        coords_out = results.coords_out
+        non_finite_flags = results.non_finite_flags
+        patience = self._config_dict["patience"]
 
         n_stereo_changed = 0
         non_finite_ids: list[str] = []
@@ -443,7 +477,7 @@ class optimizing:
                     # The energy never stabilized to a finite value (R38):
                     # written Converged=False with the reason, and neither
                     # `E_tot` nor `fmax` (both are NaN at this row -- see
-                    # `EnForce_ANI._non_finite_placeholder` and
+                    # `BatchedEnergyForce._non_finite_placeholder` and
                     # `_recompute_final_energy_and_fmax`). No filter change
                     # was needed for this: `Converged=False` is already
                     # dropped downstream by
@@ -512,8 +546,55 @@ class optimizing:
                 f"instead of aborting their bucket: {non_finite_ids}."
             )
 
+    def run(self) -> bool:
+        """Run batch optimization, writing results to ``self.out_f``.
+
+        Returns:
+            True if ``self.out_f`` was written this call. False if
+            optimization was skipped entirely -- ``self.in_f`` missing, empty,
+            containing no parseable record, or with every record skipped by
+            the filter as defective (see
+            :func:`Auto3D.foundation.utils.sdf_io.record_skip_reason` for what
+            counts as defective) -- in which case
+            ``self.out_f`` is left untouched (a caller that derives its output
+            path once and may re-run against it, e.g.
+            ``ASE.geometry.opt_geometry`` / ``entry.auto3D.smiles2mols`` with
+            ``overwrite=True``, cannot tell a fresh write from a stale
+            leftover file by checking ``os.path.exists(self.out_f)`` alone --
+            this return value is the
+            signal). ``workflow_workers.optim_rank_wrapper`` checks
+            ``os.path.exists`` on a chunk-local path that is always fresh for
+            that call, so it is unaffected either way and is not changed here.
+        """
+        logger.info(
+            "Preparing for parallel optimizing... (Max optimization steps: %i)"
+            % self._config_dict["opt_steps"]
+        )
+
+        mols = self._read_input_mols()
+        if mols is None:
+            return False
+
+        results = self._optimize_all(mols)
+        self._write_results(mols, results)
+
         # Clean up GPU memory after optimization
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
         return True
+
+
+_LEGACY_NAMES = {"optimizing": "Optimizer"}
+
+
+def __getattr__(name: str):
+    if name in _LEGACY_NAMES:
+        new = _LEGACY_NAMES[name]
+        warnings.warn(
+            f"Legacy name {__name__}.{name} is deprecated; use {__name__}.{new} (removed in 4.0)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return globals()[new]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
