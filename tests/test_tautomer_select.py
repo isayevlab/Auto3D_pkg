@@ -6,6 +6,35 @@ default fast suite.
 """
 
 
+def test_select_tautomers_groups_by_id_with_whitespace_after_the_taut_suffix(tmp_path):
+    """Fix round 2: `strip_taut_suffix`'s regex is end-anchored (Chem-M5), so
+    `strip_taut_suffix(title).strip()` -- strip AFTER the regex -- leaves a
+    trailing-whitespace title's "@tautN" suffix unstripped (the regex never
+    matches when something follows the suffix). Strip whitespace FIRST (the
+    order `id_mapping.decode_ids` already uses), so "molA@taut2 " (trailing
+    space) still groups with "molA@taut1" under their shared base id,
+    instead of becoming its own one-member group and surviving selection as
+    a second, spurious "molecule"."""
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from Auto3D.entry.tautomer import select_tautomers
+
+    sdf = tmp_path / "in.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        for name, e in [("molA@taut1", -1.0), ("molA@taut2 ", -0.5)]:
+            m = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", name)
+            m.SetProp("E_tot", str(e))
+            w.write(m)
+
+    out = select_tautomers(str(sdf), k=1)
+    mols = list(Chem.SDMolSupplier(out, removeHs=False))
+    names = [m.GetProp("_Name") for m in mols]
+    assert names == ["molA"], names  # one group, one winner -- not two
+
+
 def test_select_tautomers_groups_by_id(tmp_path):
     """select_tautomers must not crash on pandas 3.x and must keep top-k per id."""
     from rdkit import Chem

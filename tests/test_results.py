@@ -63,6 +63,21 @@ def test_lazy_counts_are_still_the_fallback_when_eager_counts_are_omitted(tmp_pa
     assert r.n_conformers == 3
 
 
+def test_lazy_count_strips_whitespace_before_the_taut_suffix(tmp_path):
+    """Fix round 2: Chem-M5's end-anchored `strip_taut_suffix` pattern
+    (`@taut\\d+(?:_\\d+_\\d+)?$`) no longer matches when whitespace follows
+    the suffix, so `strip_taut_suffix(name).strip()` -- strip AFTER the
+    regex -- leaves a trailing-whitespace `_Name` like `"mol@taut2 "`
+    un-stripped of its `@tautN` suffix entirely. Strip whitespace FIRST
+    (the order `id_mapping.decode_ids` already uses), so it still counts
+    under its base id `"mol"`."""
+    p = tmp_path / "out.sdf"
+    _write_sdf(p, ["mol@taut2 ", "mol@taut3", "other"])
+    r = WorkflowResult(str(p))
+    assert r.n_molecules == 2
+    assert r.n_conformers == 3
+
+
 def test_count_output_missing_file_is_zero(tmp_path):
     assert count_output(str(tmp_path / "nope.sdf")) == (0, 0)
     assert count_output("") == (0, 0)

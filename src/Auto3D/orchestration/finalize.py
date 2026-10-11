@@ -157,12 +157,16 @@ class FinalizeMixin:
         # instead of leaving every caller to recompute them from a file that
         # may later be moved or deleted.
         ordered_mols = reorder_sdf(str(path_combined), str(self.input_path)) or []
-        # task-M1: `.strip()` after `strip_taut_suffix`, matching the lazy
-        # `count_output` path (`results.py`) -- without it, a `_Name`
-        # carrying incidental whitespace would compare unequal to the same
-        # id written without it, and the two counts could silently disagree.
+        # task-M1: strip whitespace from `_Name` before counting, matching
+        # the lazy `count_output` path (`results.py`) -- without it, a
+        # `_Name` carrying incidental whitespace would compare unequal to
+        # the same id written without it, and the two counts could silently
+        # disagree. `.strip()` FIRST, then `strip_taut_suffix` (fix round
+        # 2): the regex is now end-anchored (Chem-M5), so whitespace
+        # trailing a "@tautN" suffix would otherwise stop it from matching
+        # at all -- the same order id_mapping.decode_ids already uses.
         self.output_counts = (
-            len({strip_taut_suffix(mol.GetProp("_Name")).strip() for mol in ordered_mols}),
+            len({strip_taut_suffix(mol.GetProp("_Name").strip()) for mol in ordered_mols}),
             len(ordered_mols),
         )
         path_output = decode_ids(str(path_combined), self.id_mapping)

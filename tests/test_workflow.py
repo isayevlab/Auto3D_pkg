@@ -1401,6 +1401,11 @@ class TestFinalizeOutputReconciliation:
         once as `"2"` and once as `"2 "` (trailing whitespace); without
         `.strip()` those are two different strings and the molecule count
         would be wrong by one.
+
+        Fix round 2: `.strip()` must run BEFORE `strip_taut_suffix`, not
+        after -- the regex is end-anchored (Chem-M5), so whitespace trailing
+        a `@tautN` suffix (`"0@taut2 "`, a sixth conformer of encoded id 0)
+        would otherwise stop the suffix from being recognized at all.
         """
         from rdkit import Chem
 
@@ -1433,9 +1438,12 @@ class TestFinalizeOutputReconciliation:
             w.write(_encoded_mol(1))
             w.write(_encoded_mol(2))
             w.write(_encoded_mol("2 "))
+            # A third conformer of encoded id 0, its taut suffix followed by
+            # trailing whitespace -- must still collapse under molecule "0".
+            w.write(_encoded_mol(0, taut="2 "))
 
         orch._finalize_output(start_time=0.0)
-        assert orch.output_counts == (3, 5)
+        assert orch.output_counts == (3, 6)
 
     def test_workflow_uses_the_canonical_reconciliation_functions(self, monkeypatch, tmp_path):
         """Guard against a regression to a hand-rolled duplicate: `_reconcile_output`

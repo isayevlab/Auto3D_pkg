@@ -56,7 +56,11 @@ def count_output(output_path: str) -> tuple[int, int]:
             if mol is None:
                 continue
             conformers += 1
-            ids.add(strip_taut_suffix(mol.GetProp("_Name")).strip())
+            # .strip() FIRST, then strip_taut_suffix: the regex is now
+            # end-anchored (Chem-M5), so trailing whitespace after a
+            # "@tautN" suffix would otherwise stop it from matching at all,
+            # the same order id_mapping.decode_ids already uses.
+            ids.add(strip_taut_suffix(mol.GetProp("_Name").strip()))
     return (len(ids), conformers)
 
 
