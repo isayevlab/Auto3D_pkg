@@ -37,10 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Auto3D.domain.stereochemistry_smiles`; the unused `enantiomer()` function
   is gone (no production caller).
 - A wrong input file extension now exits 2 with a hint naming the supported
-  formats; `ConformerRanker`'s `rank_by`, the name-uniformity guard, and a
-  negative `window` now raise `ConfigurationError` instead of a bare
-  `ValueError`; an unrecognized tautomer engine type does the same; the
-  Omega mode error names every accepted mode.
+  formats; `rank_by`, `window` and tautomer-engine misconfiguration now
+  raise `ConfigurationError` instead of a bare `ValueError`; the Omega mode
+  error names every accepted mode.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

@@ -245,7 +245,12 @@ def test_exit_2_run_unsupported_input_format(tmp_path):
     assert result.exit_code == 2, result.output
     err = _flat(result.stderr)
     assert "not supported" in err
-    assert ".smi" in err and ".sdf" in err
+    # The hint, not just the message: `get_error_hint`'s `FileFormatError`
+    # branch is the thing this test exists to pin. The message alone
+    # already names ".smi"/".sdf" via workflow.py's own wording, so an
+    # exit-code-and-message-only assertion would pass with that branch
+    # reverted.
+    assert "Supported formats: .smi, .sdf" in err
 
 
 # --- 3: missing optional dependency ------------------------------------------

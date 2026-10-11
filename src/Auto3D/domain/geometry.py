@@ -76,11 +76,6 @@ def min_pairwise_distance(points: np.ndarray, exclude: set[frozenset[int]] | Non
         # inside the loop that produced `upp_indices`.
         mask = np.zeros((n, n), dtype=bool)
         for pair in exclude:
-            if len(pair) != 2:
-                # A self-pair (an atom excluded against itself) names no
-                # off-diagonal entry and would silently do nothing below;
-                # treat it as a caller error rather than ignore it quietly.
-                raise ValueError(f"exclude pairs must have exactly two members, got {pair!r}")
             i, j = pair
             if i < n and j < n:
                 mask[i, j] = True
