@@ -350,6 +350,13 @@ def formula_key(mol: Chem.Mol) -> str:
     return "".join(f"{symbol}{counts[symbol]}" for symbol in sorted(counts))
 
 
+def set_conformer_positions(mol: Chem.Mol, coords: Sequence[Sequence[float]]) -> None:
+    """Write ``coords`` (one xyz row per atom, in atom order) onto the molecule's conformer in place."""
+    conformer = mol.GetConformer()
+    for atom_idx in range(mol.GetNumAtoms()):
+        conformer.SetAtomPosition(atom_idx, coords[atom_idx])
+
+
 def apply_optimized_coords(mol: Chem.Mol, coords: Sequence[Sequence[float]]) -> bool:
     """Write optimized coordinates into ``mol`` and record any stereo change.
 
@@ -366,9 +373,7 @@ def apply_optimized_coords(mol: Chem.Mol, coords: Sequence[Sequence[float]]) -> 
         True if the configuration is unchanged, False if it changed.
     """
     before = stereo_descriptors_from_3d(mol)
-    conformer = mol.GetConformer()
-    for atom_idx in range(mol.GetNumAtoms()):
-        conformer.SetAtomPosition(atom_idx, coords[atom_idx])
+    set_conformer_positions(mol, coords)
     preserved = stereo_descriptors_from_3d(mol) == before
     mol.SetProp(STEREO_CHANGED_PROP, str(not preserved))
     return preserved

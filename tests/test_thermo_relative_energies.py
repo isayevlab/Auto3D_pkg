@@ -196,7 +196,11 @@ class TestCalcThermoWiring:
 
         import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
-        source = inspect.getsource(thermo_mod.calc_thermo)
+        assert "_finalize_thermo_records(" in inspect.getsource(thermo_mod.calc_thermo), (
+            "calc_thermo no longer calls _finalize_thermo_records after the loop, "
+            "so neither the counts log nor the relative-energy pass runs at all"
+        )
+        source = inspect.getsource(thermo_mod._finalize_thermo_records)
         assert "set_relative_energies(out_mols)" in source, (
             "calc_thermo no longer recomputes relative energies after the loop, "
             "so its output carries none on the records that succeeded"
@@ -317,7 +321,7 @@ class TestRelativeGibbsEnergies:
 
         import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
-        source = inspect.getsource(thermo_mod.calc_thermo)
+        source = inspect.getsource(thermo_mod._finalize_thermo_records)
         assert "set_relative_gibbs_energies(out_mols)" in source
 
 
@@ -349,7 +353,7 @@ class TestGibbsIsOptIn:
 
         import Auto3D.entry.ASE.thermo.driver as thermo_mod
 
-        source = inspect.getsource(thermo_mod.calc_thermo)
+        source = inspect.getsource(thermo_mod._finalize_thermo_records)
         assert "set_relative_energies(out_mols)" in source
         # The Gibbs call must sit behind the flag, not beside it.
         gibbs_line = next(
