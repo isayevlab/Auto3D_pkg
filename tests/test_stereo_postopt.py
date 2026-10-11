@@ -257,28 +257,63 @@ class TestClashReliefDoesNotRejectPlanarPnictogens:
     the other direction -- that a pyramidal phosphine is still checked.
     """
 
-    def test_aromatic_phosphorus_survives_clash_relief(self):
+    def test_aromatic_phosphorus_survives_clash_relief(self, monkeypatch):
+        """I4: the forced clash must be a NON-bonded pair, or N-m1's bonded-pair
+        exclusion short-circuits before MMFF ever runs, and this test stops
+        exercising the aromaticity hazard it is named for.
+
+        Atom 0 (the methyl carbon on ring C2) and atom 6 (the methyl carbon on
+        P1) are a genuinely non-bonded 1,4 pair across the C2-P1 ring bond,
+        naturally 3.814 A apart in this seed's embedding. Forcing them to
+        0.5 A -- well below 0.8 -- still reaches the force-field branch, where
+        MMFF clears the phosphole's aromatic flag and ``relieve_clash`` must
+        not mistake that for a configuration change.
+        """
+        from rdkit.Chem import AllChem
+
         from Auto3D.domain.clash_relief import relieve_clash
 
         mol = _embedded("Cc1cccp1C", seed=1)
+        assert mol.GetBondBetweenAtoms(0, 6) is None, "test premise: 0-6 must be non-bonded"
         conf = mol.GetConformer()
-        # Force the clashing branch: put atom 1 almost on top of atom 0.
         origin = conf.GetAtomPosition(0)
-        conf.SetAtomPosition(1, (origin.x + 0.2, origin.y, origin.z))
+        conf.SetAtomPosition(6, (origin.x + 0.5, origin.y, origin.z))
+
+        calls = []
+        real_mmff = AllChem.MMFFOptimizeMolecule
+
+        def _spy(*args, **kwargs):
+            calls.append(1)
+            return real_mmff(*args, **kwargs)
+
+        monkeypatch.setattr(AllChem, "MMFFOptimizeMolecule", _spy)
 
         assert relieve_clash(mol, conf_id=0, min_distance=0.8) is True, (
             "a phosphole conformer was discarded by clash relief, because the "
             "force field cleared the aromatic flag between the two descriptor reads"
+        )
+        assert len(calls) == 1, (
+            f"MMFF must run exactly once for this test to exercise the aromaticity "
+            f"hazard it is named for; ran {len(calls)} times"
+        )
+        assert mol.GetAtomWithIdx(5).GetIsAromatic() is False, (
+            "the phosphorus's aromatic flag must actually have been cleared by "
+            "MMFF for this test to pin the hazard it is named for"
         )
 
 
 def test_h2_survives_clash_relief():
     """N-m1: a bonded pair shorter than ``MIN_ATOM_DISTANCE`` is not a clash.
 
-    H2's equilibrium bond length (0.74 A) is well below the 0.9 A threshold,
-    so every H2 (and every other short bond) used to be flagged as clashing
-    and sent through a force-field relaxation it does not need. The clash
-    test is about non-bonded contacts; bonded pairs are excluded from it.
+    H2 (and its isotopologues HD/D2) is essentially the only ordinary
+    covalent bond whose equilibrium length (0.741 A) sits below the 0.9 A
+    non-bonded threshold -- H-F (0.917), O-H (0.958), N-H (1.012) and C-H
+    (1.087) are all above it. The non-bonded clash test is therefore excused
+    for bonded pairs; whether a bonded pair's own length is chemically
+    sane is a separate question, answered by the connectivity check
+    (``domain.connectivity.check_connectivity``) downstream and, for a
+    length far below anything the connectivity check's broken/formed-bond
+    test was built to catch, by ``MIN_BONDED_DISTANCE`` here (C1).
     """
     from rdkit import Chem
     from rdkit.Geometry import Point3D
@@ -295,6 +330,41 @@ def test_h2_survives_clash_relief():
     conf.SetAtomPosition(1, Point3D(0.74, 0.0, 0.0))
     mol.AddConformer(conf, assignId=True)
     assert relieve_clash(mol.GetMol(), 0) is True
+
+
+def test_a_crushed_bonded_pair_still_triggers_relief(monkeypatch):
+    """C1: excluding bonded pairs from the 0.9 A non-bonded test must not
+    open a hole for a bonded pair at a physically impossible distance.
+
+    A 0.35 A C-H distance -- far below any real bond, and far below even
+    H2's 0.741 A -- used to be caught by the unconditional pre-N-m1 clash
+    test (min pairwise distance, bonded or not, < 0.9 A). After N-m1
+    excluded bonded pairs outright, this geometry passed through untouched
+    and unrelaxed. ``MIN_BONDED_DISTANCE`` restores the floor for bonded
+    pairs specifically, well below H2's length so ordinary short bonds are
+    still exempt.
+    """
+    from rdkit.Chem import AllChem
+
+    from Auto3D.domain.clash_relief import relieve_clash
+
+    mol = _embedded("CC", seed=3)  # ethane: atom 0-1 is C-C, atom 0-2 is a C-H bond
+    assert mol.GetBondBetweenAtoms(0, 2) is not None, "test premise: 0-2 must be a bonded pair"
+    conf = mol.GetConformer()
+    origin = conf.GetAtomPosition(0)
+    conf.SetAtomPosition(2, (origin.x + 0.35, origin.y, origin.z))
+
+    calls = []
+    real_mmff = AllChem.MMFFOptimizeMolecule
+
+    def _spy(*args, **kwargs):
+        calls.append(1)
+        return real_mmff(*args, **kwargs)
+
+    monkeypatch.setattr(AllChem, "MMFFOptimizeMolecule", _spy)
+
+    assert relieve_clash(mol, conf_id=0) is True
+    assert len(calls) == 1, f"expected MMFF to run exactly once, ran {len(calls)} times"
 
 
 def _optimized(energy: float, changed: bool | None) -> Chem.Mol:

@@ -15,10 +15,27 @@ EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 
 # Geometry thresholds
 # Å, minimum allowed interatomic distance between a NON-BONDED pair (N-m1).
-# Plenty of ordinary bonds -- H2's equilibrium length is 0.74 A -- sit below
-# this, so clash_relief.relieve_clash excludes bonded pairs before comparing
-# a conformer's minimum pairwise distance against it.
+# H2 (and its isotopologues HD/D2) is essentially the only ordinary covalent
+# bond below this -- H-F 0.917, O-H 0.958, N-H 1.012, C-H 1.087 (NIST CCCBDB
+# equilibrium values) are all above it -- so clash_relief.relieve_clash
+# excludes bonded pairs before comparing a conformer's minimum pairwise
+# distance against it. Whether a bonded pair's own length is chemically sane
+# is a different question: ordinary bond-length validation belongs to
+# domain.connectivity.check_connectivity (bond too long/too short against a
+# UFF-radius reference), and a length far below anything that check's
+# too-short test was built to catch is MIN_BONDED_DISTANCE's job below (C1).
 MIN_ATOM_DISTANCE = 0.9
+
+# Å, minimum allowed length of a BONDED pair (C1). Excluding bonded pairs
+# from MIN_ATOM_DISTANCE's non-bonded test leaves a bonded pair with no floor
+# at all: a crushed embedding (e.g. a 0.35 A C-H from a degenerate or
+# interpenetrating random-coordinates retry) used to be caught by the old,
+# unconditional clash test and sent through MMFF; after N-m1 it passed
+# through untouched. 0.5 A sits below H2's 0.741 A equilibrium length (the
+# shortest real covalent bond) and well above anything a crushed geometry
+# cannot reach on its own, so it catches the pathological case without
+# re-flagging any real bond as a clash.
+MIN_BONDED_DISTANCE = 0.5
 
 # Conformer generation limits
 MAX_CONFORMERS_CAP = 1000  # Maximum conformers per molecule

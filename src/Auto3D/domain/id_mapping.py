@@ -77,7 +77,12 @@ def encode_ids(
         {'mol_A': 0, 'mol_B': 1, 'mol_C': 2}
     """
     path_obj = Path(path).resolve()
-    extension = path_obj.suffix[1:]
+    # casefold (M7), not lower(): a chemically valid `mols.SDF` or `mols.SMI`
+    # must not be refused the way `mols.xyz` is. The canonical lowercase
+    # form is used from here on -- for the output filename below and for
+    # every comparison in this function -- so a caller never has to handle
+    # the input's original casing again.
+    extension = path_obj.suffix[1:].casefold()
     # Checked up front rather than in a trailing `else`: the collision check
     # below must not be the thing that reports an unsupported extension.
     if extension not in ("smi", "sdf"):

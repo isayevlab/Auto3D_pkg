@@ -191,19 +191,42 @@ def _oe_isomer_in_owned_cwd(
             remove_enantiomers(smiles_enumerated, smiles_reduced)
             ifs = oechem.oemolistream()
             ifs.open(smiles_reduced)
+            needs_isomer_index = False
         else:
             ifs = oechem.oemolistream()
             ifs.open(input_f)
+            needs_isomer_index = True
     elif input_format == "sdf":
         ifs = oechem.oemolistream()
         ifs.open(input_f)
+        needs_isomer_index = True
     ofs = oechem.oemolostream()
     ofs.open(output)
 
     logger.info("Enumerating conformers.")
     for mol in tqdm(ifs.GetOEMols()):
+        if needs_isomer_index:
+            # species_id's producer contract (domain.ranking) is
+            # "<id>_<isomer>_<conformer>", two trailing integer groups
+            # appended by every producer (I1). Flipper enumeration supplies
+            # the isomer index itself (OEFlipperOptions.SetWarts above), but
+            # a run with no enumeration -- flipper=False on SMILES input, or
+            # any SDF input, since the SDF branch never reaches the flipper
+            # code at all -- has only one isomer and would otherwise have no
+            # isomer component. Appended once, before Build, so it ends up
+            # ahead of the conformer index set below.
+            mol.SetTitle(f"{mol.GetTitle()}_0")
         ret_code = omega.Build(mol)
         if ret_code == oeomega.OEOmegaReturnCode_Success:
+            # The conformer index -- the contract's second component -- set
+            # explicitly rather than left to Omega's own conformer warts
+            # (SetWarts, above): those warts are armed only in the
+            # non-macrocycle branch, so a macrocycle conformer had no
+            # conformer index at all. Writing it here instead covers both
+            # Omega variants (OEOmega and OEMacrocycleOmega) with the one
+            # shared loop, regardless of which one built ``mol``.
+            for i, conf in enumerate(mol.GetConfs()):
+                conf.SetTitle(f"{mol.GetTitle()}_{i}")
             oechem.OEWriteMolecule(ofs, mol)
         else:
             oechem.OEThrow.Warning("%s: %s" % (mol.GetTitle(), oeomega.OEGetOmegaError(ret_code)))

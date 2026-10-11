@@ -16,7 +16,7 @@ import numpy as np
 
 logger = logging.getLogger("auto3d")
 
-__all__ = ["min_pairwise_distance"]
+__all__ = ["min_distance_among", "min_pairwise_distance"]
 
 
 def min_pairwise_distance(points: np.ndarray, exclude: set[frozenset[int]] | None = None) -> float:
@@ -74,12 +74,18 @@ def min_pairwise_distance(points: np.ndarray, exclude: set[frozenset[int]] | Non
         # small (one entry per bond) and the upper triangle is O(n^2), so a
         # vectorized mask avoids a Python-level `frozenset in exclude` test
         # inside the loop that produced `upp_indices`.
+        #
+        # No bounds guard (M6): an index beyond `n` is a caller error -- a
+        # pair from a different molecule, or a conformer with a different
+        # atom count -- and silently dropping it out of the mask would
+        # *weaken* the clash test rather than report the mistake, which is
+        # the unsafe direction for a safety check. Let numpy's own
+        # IndexError surface instead.
         mask = np.zeros((n, n), dtype=bool)
         for pair in exclude:
             i, j = pair
-            if i < n and j < n:
-                mask[i, j] = True
-                mask[j, i] = True
+            mask[i, j] = True
+            mask[j, i] = True
         keep = ~mask[upp_indices]
         upp_values = upp_values[keep]
         if upp_values.size == 0:
@@ -92,3 +98,40 @@ def min_pairwise_distance(points: np.ndarray, exclude: set[frozenset[int]] | Non
 
     # Return the square root of the minimum squared distance
     return float(np.sqrt(min_squared_distance))
+
+
+def min_distance_among(points: np.ndarray, pairs: set[frozenset[int]]) -> float:
+    """Find the minimum distance among exactly the given index pairs.
+
+    The complement of :func:`min_pairwise_distance`'s ``exclude``: where that
+    function finds the minimum over every pair NOT named, this finds it only
+    over the pairs that ARE named. ``clash_relief`` uses it to ask about
+    bonded pairs specifically -- the ones ``min_pairwise_distance`` excludes
+    from its own, non-bonded test (C1): excluding a bonded pair from the
+    clash test is right, but a bonded pair still needs its OWN floor, or a
+    physically impossible bond length (a crushed embedding) passes through
+    with no check at all.
+
+    Args:
+        points: A (n, 3) array representing the coordinates of n points
+            in 3D space.
+        pairs: Index pairs to measure, each a two-element ``frozenset`` of
+            the two points' positions in ``points``.
+
+    Returns:
+        The minimum distance among the given pairs, or ``inf`` if ``pairs``
+        is empty (e.g. a lone atom with no bonds at all).
+
+    Example:
+        >>> import numpy as np
+        >>> points = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
+        >>> min_distance_among(points, {frozenset((0, 1))})
+        1.0
+    """
+    if not pairs:
+        return float("inf")
+    points = points.astype(np.float32)
+    distances = [
+        float(np.linalg.norm(points[i] - points[j])) for i, j in (tuple(pair) for pair in pairs)
+    ]
+    return min(distances)

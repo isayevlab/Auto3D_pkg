@@ -15,9 +15,9 @@ import logging
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.domain.geometry import min_pairwise_distance
+from Auto3D.domain.geometry import min_distance_among, min_pairwise_distance
 from Auto3D.domain.stereo_check import stereo_descriptors_from_3d
-from Auto3D.foundation.constants import MIN_ATOM_DISTANCE
+from Auto3D.foundation.constants import MIN_ATOM_DISTANCE, MIN_BONDED_DISTANCE
 
 logger = logging.getLogger("auto3d")
 
@@ -31,12 +31,16 @@ def relieve_clash(
 ) -> bool:
     """Optimize a clashing conformer in place and report whether it is usable.
 
-    A conformer is considered "clashing" when its minimum pairwise interatomic
-    distance is below ``min_distance``. Such conformers are relaxed with MMFF;
-    when the molecule lacks full MMFF parameters (elements like B, Se or some
-    Si valences, where ``MMFFOptimizeMolecule`` returns -1 and does nothing),
-    the function falls back to UFF so the conformer is not discarded for lack
-    of a force field.
+    A conformer is considered "clashing" when its minimum pairwise
+    NON-BONDED interatomic distance is below ``min_distance``, or when its
+    shortest BONDED distance is below ``MIN_BONDED_DISTANCE`` (C1) --
+    bonded pairs are excluded from the first test (N-m1) but still need a
+    floor of their own, or a physically impossible bond length (a crushed
+    embedding) would pass through unchecked. Such conformers are relaxed
+    with MMFF; when the molecule lacks full MMFF parameters (elements like
+    B, Se or some Si valences, where ``MMFFOptimizeMolecule`` returns -1 and
+    does nothing), the function falls back to UFF so the conformer is not
+    discarded for lack of a force field.
 
     The force-field relaxation can itself invert a stereocenter or rotate a
     double bond. This runs before the enumerated SDF is written, so the
@@ -83,17 +87,27 @@ def relieve_clash(
         False if it still clashes or if the relaxation changed its
         configuration.
     """
-    # A bonded pair is not a clash candidate (N-m1): H2's equilibrium bond
-    # length (0.74 A) and plenty of other ordinary bonds fall below
-    # MIN_ATOM_DISTANCE, and none of them is a clash. The exclusion is read
-    # off the molecular graph once per call rather than cached, since
-    # relieve_clash can be called again after the force field has changed
-    # the geometry (but not the connectivity) between calls.
+    # A bonded pair is not a NON-BONDED clash candidate (N-m1): H2's
+    # equilibrium bond length (0.741 A) sits below MIN_ATOM_DISTANCE and is
+    # not a clash. But excluding bonded pairs outright would leave them with
+    # no floor at all, and a bonded pair at a physically impossible length
+    # (a crushed embedding) is exactly the geometry this guard exists to
+    # catch (C1) -- so a bonded pair still has its own, much lower floor,
+    # MIN_BONDED_DISTANCE, tested alongside the non-bonded one. The exclusion
+    # set is read off the molecular graph once per call rather than cached,
+    # since relieve_clash can be called again after the force field has
+    # changed the geometry (but not the connectivity) between calls.
     bonded_pairs = {frozenset((b.GetBeginAtomIdx(), b.GetEndAtomIdx())) for b in mol.GetBonds()}
 
+    def _survives(positions) -> bool:
+        return (
+            min_pairwise_distance(positions, exclude=bonded_pairs) >= min_distance
+            and min_distance_among(positions, bonded_pairs) >= MIN_BONDED_DISTANCE
+        )
+
     positions = mol.GetConformer(conf_id).GetPositions()
-    # Closing the dead band: a conformer exactly at the threshold is kept.
-    if min_pairwise_distance(positions, exclude=bonded_pairs) >= min_distance:
+    # Closing the dead band: a conformer exactly at either threshold is kept.
+    if _survives(positions):
         return True
 
     # Clashing conformer: try MMFF, fall back to UFF when MMFF is unavailable.
@@ -113,4 +127,4 @@ def relieve_clash(
         return False
 
     positions = mol.GetConformer(conf_id).GetPositions()
-    return min_pairwise_distance(positions, exclude=bonded_pairs) >= min_distance
+    return _survives(positions)

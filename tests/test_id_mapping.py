@@ -48,6 +48,17 @@ class TestEncodeDecodeIds:
         assert "CC 1" in content
         assert "CCC 2" in content
 
+    def test_encode_accepts_an_uppercase_extension(self, tmp_path):
+        """M7: a chemically valid ``mols.SMI`` must not be refused the way
+        an unsupported extension is; the check is case-insensitive."""
+        input_file = tmp_path / "input.SMI"
+        input_file.write_text("CCO mol_alpha\n")
+
+        new_path, mapping = encode_ids(str(input_file))
+
+        assert mapping == {"mol_alpha": 0}
+        assert "CCO 0" in Path(new_path).read_text()
+
     def test_encode_sdf_file(self):
         """Test encoding IDs in an SDF file."""
         sdf_path = str(FILES_DIR / "example.sdf")

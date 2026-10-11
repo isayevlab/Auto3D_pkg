@@ -26,11 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leave a `tmp*.sdf` sibling in the job directory, which the combine step
   never reads), the combine step can no longer merge a partial chunk, and the
   file keeps the mode a plain `open()` gives it.
-- H2 and other bonded pairs shorter than 0.9 A are no longer rejected as
-  clashes; non-bonded contacts still are.
+- Bonded pairs are exempt from the 0.9 A non-bonded clash test (H2 survives),
+  while a bond shorter than 0.5 A still triggers relief.
 - Names without two trailing integer groups are no longer shortened; energy
   ties keep input order.
-- P-containing bonds between 2.32 and 2.34 A now fail the connectivity check.
+- The broken-bond threshold for every P-X bond drops by 0.02 A (P-C: 2.3425
+  to 2.3225 A).
+- The O and S radii follow their aromatic UFF types, moving the broken-bond
+  threshold by +0.027 A (C-O) and +0.017 A (C-S).
 - `ConformerRanker`'s `k`/`window` parameters default to `None`; `False` is
   still accepted.
 - The SMILES-surgery half of `Auto3D.domain.stereochemistry` moved to
@@ -40,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formats; `rank_by`, `window` and tautomer-engine misconfiguration now
   raise `ConfigurationError` instead of a bare `ValueError`; the Omega mode
   error names every accepted mode.
+- Omega-produced conformer names always carry the isomer and conformer
+  indices, so grouping and `k`/`window` behave the same as for the RDKit
+  producers.
+- Relative energies are no longer withheld for a title whose records are
+  different compounds; each identity now gets its own reference.
+- Input file extensions are case-insensitive.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

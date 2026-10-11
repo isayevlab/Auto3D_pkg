@@ -90,11 +90,11 @@ def check_connectivity(mol: Chem.Mol) -> bool:
         5: 0.838,
         6: 0.757,
         7: 0.700,
-        8: 0.658,  # UFF O_3 (sp3 oxygen).
+        8: 0.680,  # UFF O_R (resonant/aromatic oxygen); was 0.658 (O_3), not the largest (Q2/M1).
         9: 0.668,
         14: 1.117,
         15: 1.101,  # UFF P_3+3 (trivalent phosphorus); was 1.117, a copy of Si's radius (N-m26).
-        16: 1.064,  # UFF S_3+2 (divalent sulfur).
+        16: 1.077,  # UFF S_R (aromatic sulfur); was 1.064 (S_3+2), not the largest (Q2/M1).
         17: 1.044,
         32: 1.197,
         33: 1.211,

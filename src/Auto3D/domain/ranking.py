@@ -324,6 +324,18 @@ class ConformerRanker:
         all can do so -- ``top_window`` must not stamp the molecule that
         breaks its loop (R36), and computing-then-maybe-stamping is the only
         way to keep that decision in the caller.
+
+        The reference this is relative to (``ref_energy`` in the two callers
+        below) is the group's single minimum, where the group is everything
+        sharing one ``species_id`` -- every enumerated stereoisomer of one
+        input, not just one identity (I2). That is a DIFFERENT convention
+        from ``domain.energy._comparable_groups``/``set_relative_energies``,
+        which references each ``(species_key, charge)`` identity to its own
+        minimum (I3). Both writers publish the same property name,
+        ``E_rel(kcal/mol)`` on the final SDF, under these two different
+        references, by design: unifying them would change this ranker's
+        reference structure, which is a larger change than either finding on
+        its own.
         """
         mol.SetProp("E_rel(eV)", str(rel_energy))
 

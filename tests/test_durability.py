@@ -1224,6 +1224,96 @@ class TestOmegaModeValidation:
             assert mode in message, f"the Omega mode error dropped {mode!r}: {message}"
 
 
+class _StubOeConf:
+    """Enough of an ``OEConfBase`` for the title-setting contract: state, not behavior."""
+
+    def __init__(self) -> None:
+        self.title: str | None = None
+
+    def SetTitle(self, title: str) -> None:
+        self.title = title
+
+
+class _StubOeMol:
+    """Enough of an ``OEMolBase`` for ``oe_isomer``'s post-``Build`` naming step."""
+
+    def __init__(self, title: str, n_confs: int = 3) -> None:
+        self._title = title
+        self._confs = [_StubOeConf() for _ in range(n_confs)]
+
+    def GetTitle(self) -> str:
+        return self._title
+
+    def SetTitle(self, title: str) -> None:
+        self._title = title
+
+    def GetConfs(self):
+        return iter(self._confs)
+
+
+class TestOmegaConformerNaming:
+    """I1 (R48): Omega must honor the two-component ``<id>_<isomer>_<conformer>``
+    name contract every other producer does (``domain.ranking.species_id``'s
+    documented shape), regardless of whether OpenEye's own warts fire --
+    they are armed only in the non-macrocycle, flipper-driven path.
+
+    OpenEye is not installed in this environment, so ``oeomega``/``oechem``
+    are stubbed with the ``MagicMock`` pattern from
+    ``TestHousekeepingStaysInsideTheJobDirectory.test_openeye_logfiles_land_in_the_chunk_directory``,
+    with ``GetOEMols()`` returning real stub molecules (``_StubOeMol``) so
+    their titles can be inspected after ``oe_isomer`` runs, rather than a
+    bare ``MagicMock`` (whose default ``__iter__`` is empty and would make
+    the conformer loop below never execute at all).
+    """
+
+    @staticmethod
+    def _run(tmp_path, monkeypatch, mode: str, stub_mol: _StubOeMol):
+        from unittest.mock import MagicMock
+
+        import Auto3D.engines.isomers.omega as ie
+
+        fake_oeomega = MagicMock()
+        fake_omega_instance = MagicMock()
+        fake_omega_instance.Build.return_value = fake_oeomega.OEOmegaReturnCode_Success
+        fake_oeomega.OEOmega.return_value = fake_omega_instance
+        fake_oeomega.OEMacrocycleOmega.return_value = fake_omega_instance
+        monkeypatch.setattr(ie, "oeomega", fake_oeomega, raising=False)
+
+        fake_oechem = MagicMock()
+        fake_ifs = MagicMock()
+        fake_ifs.GetOEMols.return_value = [stub_mol]
+        fake_oechem.oemolistream.return_value = fake_ifs
+        monkeypatch.setattr(ie, "oechem", fake_oechem, raising=False)
+
+        source = tmp_path / "in.sdf"
+        source.write_text("")
+        rc = ie.oe_isomer(
+            mode,
+            str(source),
+            str(tmp_path / "smiles_enumerated.smi"),
+            str(tmp_path / "smiles_reduced.smi"),
+            str(tmp_path / "smiles_hashed.smi"),
+            str(tmp_path / "out.sdf"),
+            max_confs=None,
+            threshold=0.3,
+            flipper=False,
+        )
+        assert rc == 0
+        return stub_mol
+
+    def test_classic_mode_no_enumeration_gets_isomer_and_conformer_indices(
+        self, tmp_path, monkeypatch
+    ):
+        stub_mol = self._run(tmp_path, monkeypatch, "classic", _StubOeMol("7"))
+        titles = [conf.title for conf in stub_mol._confs]
+        assert titles == ["7_0_0", "7_0_1", "7_0_2"], titles
+
+    def test_macrocycle_mode_no_enumeration_gets_the_same_shape(self, tmp_path, monkeypatch):
+        stub_mol = self._run(tmp_path, monkeypatch, "macrocycle", _StubOeMol("7"))
+        titles = [conf.title for conf in stub_mol._confs]
+        assert titles == ["7_0_0", "7_0_1", "7_0_2"], titles
+
+
 class TestRejectedRunLeavesNoTrace:
     """A run rejected for a bad input must leave nothing on disk.
 
