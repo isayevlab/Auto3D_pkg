@@ -108,9 +108,9 @@ class TestAuto3DOptions:
         assert config.tauto_engine == "rdkit"
         assert config.pKaNorm is True
         assert config.isomer_engine == "rdkit"
-        assert config.enumerate_isomer is True
+        assert config.enumerate_isomers is True
         assert config.mode_oe == "classic"
-        assert config.mpi_np == 4
+        assert config.isomer_threads == 4
         assert config.max_confs is None
         assert config.use_gpu is True
         assert config.gpu_idx == 0
@@ -297,3 +297,33 @@ def test_to_dict_names_every_field_by_its_own_name():
         "patience": 5,
         "batchsize_atoms": 1024,
     }
+
+
+def test_old_option_names_still_work_and_warn():
+    """P-m15: ``mpi_np``/``enumerate_isomer`` are renamed ``isomer_threads``/
+    ``enumerate_isomers``; the old spellings still work for one release,
+    with a ``DeprecationWarning`` naming the new field."""
+    with pytest.warns(DeprecationWarning, match="isomer_threads"):
+        config = Auto3DOptions(path="in.smi", k=1, use_gpu=False, mpi_np=2)
+    assert config.isomer_threads == 2
+
+    with pytest.warns(DeprecationWarning, match="enumerate_isomers"):
+        config = Auto3DOptions(path="in.smi", k=1, use_gpu=False, enumerate_isomer=False)
+    assert config.enumerate_isomers is False
+
+
+def test_the_new_name_wins_when_both_old_and_new_are_passed():
+    """Review fix round 1, Task I1: passing both spellings must not let the
+    deprecated one silently win.
+
+    The CLI's own reconciliation (``commands/run.py``) already resolves the
+    same ambiguity as "the new flag wins if a caller somehow passes both";
+    the Python API previously disagreed -- ``data[new_name] =
+    data.pop(old_name)`` ran unconditionally, so an explicitly passed
+    ``isomer_threads=9`` was silently overwritten by ``mpi_np=2``. The
+    warning must still fire either way, since the caller did use the
+    deprecated name.
+    """
+    with pytest.warns(DeprecationWarning, match="isomer_threads"):
+        config = Auto3DOptions(path="in.smi", k=1, use_gpu=False, mpi_np=2, isomer_threads=9)
+    assert config.isomer_threads == 9

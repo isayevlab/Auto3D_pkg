@@ -186,8 +186,8 @@ def isomer_wrapper(
                 enumerated_sdf = meta["enumerated_sdf"]
                 max_confs = args.max_confs
                 duplicate_threshold = args.threshold
-                mpi_np = args.mpi_np
-                enumerate_isomer = args.enumerate_isomer
+                isomer_threads = args.isomer_threads
+                enumerate_isomers = args.enumerate_isomers
                 isomer_program = args.isomer_engine
                 # Isomer enumeration step using factory
                 engine = IsomerEngineFactory.create(
@@ -201,8 +201,8 @@ def isomer_wrapper(
                     job_dir=dir,
                     max_confs=max_confs,
                     threshold=duplicate_threshold,
-                    n_jobs=mpi_np,
-                    enumerate_isomers=enumerate_isomer,
+                    n_threads=isomer_threads,
+                    enumerate_isomers=enumerate_isomers,
                     mode=args.mode_oe if isomer_program == "omega" else "classic",
                     use_parallel_embedding=args.use_parallel_embedding,
                     parallel_workers=args.parallel_workers,

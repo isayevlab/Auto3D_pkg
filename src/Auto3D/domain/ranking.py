@@ -61,7 +61,7 @@ def species_id(name: str) -> str:
     mode. The SDF input path (RDKitSdfIsomer) names "uniformly, including
     when there is only one isomer" per its docstring; the SMILES path
     (RDKitIsomer) takes the isomer index from ``write_enumerated_smi`` when
-    ``enumerate_isomer`` is on and from ``write_single_isomer_smi`` (always
+    ``enumerate_isomers`` is on and from ``write_single_isomer_smi`` (always
     0 -- one "isomer", the molecule as written) when it is off. The
     conformer index comes from ``embed_conformer`` either way.
 
@@ -82,7 +82,7 @@ def species_id(name: str) -> str:
 
     That disambiguation is only recoverable because every producer appends
     the same NUMBER of components. Until 3.0.0 the SMILES path with
-    ``enumerate_isomer=False`` appended only the conformer index, which made
+    ``enumerate_isomers=False`` appended only the conformer index, which made
     ``KEY_2_0`` mean either species "KEY_2" conformer 0 or species "KEY"
     isomer 2 conformer 0 -- indistinguishable here, so an InChIKey collision
     in that mode merged two DIFFERENT input molecules into one ranking group

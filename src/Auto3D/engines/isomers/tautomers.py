@@ -10,12 +10,9 @@ question; this move does not make it.
 from __future__ import annotations
 
 from rdkit import Chem
-
-from Auto3D.foundation.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
+from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.smi_io import (
     combine_smi,
     iter_smi_records,
@@ -25,6 +22,8 @@ try:
     from openeye import oechem, oequacpac
 except ImportError:
     pass
+
+logger = get_logger(__name__)
 
 
 def _contradicts_reference_stereo(reference: Chem.Mol, tautomer: Chem.Mol) -> bool:

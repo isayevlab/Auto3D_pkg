@@ -43,6 +43,8 @@ from typing import Any, NamedTuple
 import torch
 
 from Auto3D.engines.batch_opt.fire_optimizer import FIRE
+from Auto3D.engines.batch_opt.model_wrapper import is_oom
+from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -305,7 +307,27 @@ def _step_active_subset(
     # persistent `self.v`, so this detach only has coord's own step to worry
     # about, and the loop is robust to both (otherwise the next
     # `requires_grad_` would error, or `self.v` would grow a graph forever).
-    stepped = optimizer(coord, f).detach()
+    #
+    # P-m12: a CUDA out-of-memory here is NOT a `_run_in_sub_batches` forward
+    # failure -- that halving loop has already returned by this point -- so
+    # it would otherwise surface as a bare CUDA error with no actionable
+    # next step. Converted to the same `OptimizationError` a single molecule
+    # that OOMs at batch size 1 already gets: exit 7 under `auto3d optimize`
+    # and `opt_geometry`, but under `auto3d run` the per-chunk worker
+    # (`orchestration/workflow_workers.py`) logs it and skips the chunk
+    # instead of exiting (the per-chunk handler is revisited in a later PR).
+    # `from exc` chains the original CUDA message either way, so the
+    # allocation numbers (which the fixed string below does not repeat)
+    # still reach the log.
+    try:
+        stepped = optimizer(coord, f).detach()
+    except RuntimeError as exc:
+        if not is_oom(exc):
+            raise
+        raise OptimizationError(
+            f"out of memory during the FIRE step ({exc}); lower "
+            "--batchsize-atoms (or --memory under auto3d run)"
+        ) from exc
     # A structure that has just met the force criterion keeps the geometry its
     # force was measured at; only the ones still moving take the step.
     #
@@ -543,7 +565,18 @@ def n_steps(
     # itself. `torch.full` needs neither the intermediate array nor the
     # `.to()`; dtype (float32, via `torch.float`) and shape (`len(coord), 1`)
     # are unchanged.
-    smallest_fmax0 = torch.full((len(coord), 1), 999.0, dtype=torch.float, device=coord.device)
+    #
+    # Seeded at +inf, not a hardcoded finite sentinel (N-m8): a finite
+    # sentinel like the old 999.0 is only "larger than any real fmax" by
+    # assumption, and a first-step fmax that happened to exceed it (an
+    # unconverged, far-from-equilibrium starting geometry) made
+    # `fmax_col < smallest_fmax` False below, incrementing
+    # `oscillating_count` on step one for a molecule that had not taken a
+    # single step yet. +inf is larger than every finite measurement, so the
+    # very first fmax is always a reduction.
+    smallest_fmax0 = torch.full(
+        (len(coord), 1), float("inf"), dtype=torch.float, device=coord.device
+    )
     # Integer step counter: only ever compared to `patience` and reset to zero,
     # so use torch.long rather than float for a quantity that is conceptually
     # an integer count.

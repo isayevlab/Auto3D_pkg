@@ -18,9 +18,9 @@ pKaNorm: True
 # Stereoisomer enumeration settings
 isomer_engine: rdkit
 max_confs: None
-enumerate_isomer: True
+enumerate_isomers: True
 mode_oe: 'classic'
-mpi_np: 4
+isomer_threads: 4
 
 # Optimization settings
 # optimizing_engine accepts: AIMNET (alias for aimnet2), any aimnet registry
@@ -37,7 +37,7 @@ batchsize_atoms: 1024
 # Parallel conformer embedding
 # On by default. parallel_workers: None means
 # min(cores // threads per worker, species, 32), where threads per worker is
-# mpi_np -- set a number to pin it instead. Runs stay serial below
+# isomer_threads -- set a number to pin it instead. Runs stay serial below
 # parallel_embedding_threshold species (counted after stereoisomer enumeration
 # and enantiomer removal, not on this file's input) even when it is on, since
 # spawning costs more than it saves there.

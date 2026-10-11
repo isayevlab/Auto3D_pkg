@@ -257,8 +257,8 @@ def smiles2mols(
             job_dir=tmpdirname,
             max_confs=args.max_confs,
             threshold=args.threshold,
-            n_jobs=args.mpi_np,
-            enumerate_isomers=args.enumerate_isomer,
+            n_threads=args.isomer_threads,
+            enumerate_isomers=args.enumerate_isomers,
             # The call's own keyword, never `args.use_parallel_embedding`: the
             # spawn pool would re-import an unguarded caller script in every
             # child, which is why this one entry point takes its opt-in at the

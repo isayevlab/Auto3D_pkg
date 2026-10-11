@@ -14,8 +14,6 @@ if TYPE_CHECKING:
     from Auto3D.engines.models.contract import ModelAdapter
     from Auto3D.foundation.config import OptimizationConfig
 
-logger = get_logger(__name__)
-
 from rdkit import Chem
 
 from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
@@ -43,6 +41,8 @@ from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SE
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
 from .padding import pad_from_mols
+
+logger = get_logger(__name__)
 
 
 def _as_tensor(

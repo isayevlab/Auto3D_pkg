@@ -16,29 +16,29 @@ import os
 import re
 from pathlib import Path
 
-from Auto3D.foundation.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
 from tqdm import tqdm
 
 from Auto3D.domain.stereochemistry import remove_enantiomers
 from Auto3D.domain.stereochemistry_smiles import amend_configuration_w
 from Auto3D.foundation.exceptions import ConfigurationError
+from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
 
 try:
     from openeye import oechem, oeomega
 except ImportError:
     pass
 
+logger = get_logger(__name__)
+
 #: Matches a title already carrying a trailing ``_<digits>`` isomer index
-#: (NEW-2): the flipper branch's premise is that
+#: (NEW-2): the ``enumerate_isomers`` branch's premise is that
 #: ``OEFlipperOptions.SetWarts(True)`` (below) always gives each enumerated
 #: isomer one, by the time ``remove_enantiomers`` has rewritten the title a
 #: second time -- but neither is re-verified anywhere downstream, so a
 #: molecule that reaches the main loop without one would otherwise get only
 #: a conformer index (one trailing integer group, not the two
 #: ``species_id`` requires), silently reproducing the per-conformer-group
-#: defect I1 fixed for the non-flipper paths.
+#: defect I1 fixed for the non-enumerating paths.
 _TRAILING_ISOMER_INDEX_RE = re.compile(r"_\d+$")
 
 
@@ -71,7 +71,7 @@ def oe_isomer(
     output: str,
     max_confs: int | None,
     threshold: float,
-    flipper: bool = True,
+    enumerate_isomers: bool = True,
 ) -> int:
     """Generate R/S, cis/trans isomers and conformers using OpenEye Omega.
 
@@ -103,7 +103,7 @@ def oe_isomer(
             OpenEye logfiles are written, and must exist.
         max_confs: Maximum conformers per molecule. None for default (1000).
         threshold: RMSD threshold for duplicate removal.
-        flipper: Whether to enumerate stereoisomers.
+        enumerate_isomers: Whether to enumerate stereoisomers.
 
     Returns:
         0 on success.
@@ -124,7 +124,7 @@ def oe_isomer(
             output,
             max_confs,
             threshold,
-            flipper,
+            enumerate_isomers,
         )
 
 
@@ -137,7 +137,7 @@ def _oe_isomer_in_owned_cwd(
     output: str,
     max_confs: int | None,
     threshold: float,
-    flipper: bool = True,
+    enumerate_isomers: bool = True,
 ) -> int:
     """Body of :func:`oe_isomer`, run with the cwd set to a directory we own.
 
@@ -196,7 +196,7 @@ def _oe_isomer_in_owned_cwd(
     else:
         omega = oeomega.OEOmega(omegaOpts)
     if input_format == "smi":
-        if flipper:
+        if enumerate_isomers:
             logger.info("Enumerating stereoisomers.")
             oe_flipper(input_f, smiles_enumerated)
             amend_configuration_w(smiles_enumerated)
@@ -216,13 +216,13 @@ def _oe_isomer_in_owned_cwd(
     ofs.open(output)
 
     logger.info("Enumerating conformers.")
-    for mol in tqdm(ifs.GetOEMols()):
+    for mol in tqdm(ifs.GetOEMols(), disable=should_disable_progress_bars()):
         # species_id's producer contract (domain.ranking) is
         # "<id>_<isomer>_<conformer>", two trailing integer groups appended
         # by every producer (I1). A run with no enumeration --
-        # flipper=False on SMILES input, or any SDF input, since the SDF
-        # branch never reaches the flipper code at all -- has only one
-        # isomer and so always needs an explicit "_0" appended
+        # enumerate_isomers=False on SMILES input, or any SDF input, since
+        # the SDF branch never reaches the Flipper code at all -- has only
+        # one isomer and so always needs an explicit "_0" appended
         # (needs_isomer_index True, unconditionally -- the input title may
         # itself end in digits for an unrelated reason, e.g. smiles2smi's
         # InChIKey-disambiguation suffix, so this is never skipped).
@@ -231,9 +231,9 @@ def _oe_isomer_in_owned_cwd(
         # remove_enantiomers's own re-indexing), but neither is re-verified
         # here, so a title that reaches this point WITHOUT one still gets
         # "_0" (NEW-2) -- checked, not assumed, and only in this branch:
-        # unlike the non-flipper title, this one has already been rewritten
-        # by remove_enantiomers, so a trailing digit here really is an
-        # isomer index, not user content.
+        # unlike the non-enumerating title, this one has already been
+        # rewritten by remove_enantiomers, so a trailing digit here really
+        # is an isomer index, not user content.
         if needs_isomer_index or not _TRAILING_ISOMER_INDEX_RE.search(mol.GetTitle()):
             mol.SetTitle(f"{mol.GetTitle()}_0")
         ret_code = omega.Build(mol)

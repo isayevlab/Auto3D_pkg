@@ -62,7 +62,7 @@ def check_input(args: Any) -> None:
             - optimizing_engine: Engine for geometry optimization ('ANI2x', 'ANI2xt', 'AIMNET', or path)
             - input_format: Input file format ('smi' or 'sdf')
             - path: Path to input file
-            - enumerate_isomer: Whether to enumerate stereoisomers
+            - enumerate_isomers: Whether to enumerate stereoisomers
 
             ``opt_steps`` is no longer read here: its minimum lives in
             ``Auto3D.foundation.config.FIELD_BOUNDS`` and is enforced when the
@@ -215,7 +215,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         args: Arguments object containing Auto3D configuration options.
             Expected attributes:
             - path: Path to the input SMILES file
-            - enumerate_isomer: Whether to enumerate stereoisomers
+            - enumerate_isomers: Whether to enumerate stereoisomers
 
     Returns:
         A tuple containing:
@@ -253,7 +253,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # The stereo half warns about every stereo element the input leaves open --
     # tetrahedral centers AND double-bond geometry. It used to call
     # CalcNumUnspecifiedAtomStereoCenters, which sees only ATOM centers, so an
-    # unspecified C=C passed silently: with enumerate_isomer=False,
+    # unspecified C=C passed silently: with enumerate_isomers=False,
     # "OC(=O)C=CC(=O)O" embeds as fumaric AND maleic acid (~5 kcal/mol apart)
     # under one species id, and "CC=CC" embeds as cis-2-butene alone with the
     # trans isomer absent -- in both cases the user gets a molecule they did
@@ -264,7 +264,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     for smiles, mol_id in smi_records:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
-            if not args.enumerate_isomer:
+            if not args.enumerate_isomers:
                 warnings.warn(f"Failed to parse SMILES: {smiles}", UserWarning)
             logger.warning(f"Skipping invalid SMILES: {smiles}")
             continue
@@ -279,22 +279,22 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
             # must not decide anything on behalf of the records that stay.
             #
             # And not warned about for open stereo either: "set
-            # enumerate_isomer=True so Auto3D can enumerate the unspecified
+            # enumerate_isomers=True so Auto3D can enumerate the unspecified
             # stereo elements" is advice about a record that will be skipped at
             # every seam downstream -- it tells the user to change a setting
             # that cannot affect this molecule's absence from the output.
             dummy_atom_ids.append(mol_id)
             continue
 
-        if not args.enumerate_isomer:
+        if not args.enumerate_isomers:
             c = count_unspecified_stereo(mol)
             if c > 0:
                 msg = (
                     f"{smiles} contains {c} unspecified stereo element(s) "
                     "(atomic stereo centers and/or double-bond geometry), but "
-                    "enumerate_isomer=False, so its conformers will be a mixture "
+                    "enumerate_isomers=False, so its conformers will be a mixture "
                     "of configurations -- or one arbitrary configuration. "
-                    "Please use enumerate_isomer=True so that Auto3D can enumerate "
+                    "Please use enumerate_isomers=True so that Auto3D can enumerate "
                     "the unspecified stereo elements."
                 )
                 warnings.warn(msg, UserWarning)
@@ -335,7 +335,7 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
         args: Arguments object containing Auto3D configuration options.
             Expected attributes:
             - path: Path to the input SDF file
-            - enumerate_isomer: Whether to enumerate stereoisomers
+            - enumerate_isomers: Whether to enumerate stereoisomers
 
     Returns:
         A tuple containing:
@@ -402,10 +402,10 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     logger.info(f"\tThere are {len(classified.parsed)} conformers in the input file {args.path}.")
     logger.info("\tAll conformers and IDs are valid.")
 
-    if args.enumerate_isomer:
+    if args.enumerate_isomers:
         msg = (
             "Enumerating stereocenters of an SDF file could change the conformers of the input file. "
-            "Please use enumerate_isomer=False."
+            "Please use enumerate_isomers=False."
         )
         warnings.warn(msg, UserWarning)
     return ANI, only_aimnet_ids

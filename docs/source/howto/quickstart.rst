@@ -211,7 +211,7 @@ Example ``config.yaml``:
    k: 5
    optimizing_engine: AIMNET
    use_gpu: true
-   enumerate_isomer: true
+   enumerate_isomers: true
    threshold: 0.3
 
 Troubleshooting

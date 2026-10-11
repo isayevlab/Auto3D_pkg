@@ -290,7 +290,12 @@ def test_shipped_legacy_v2_parameters_yaml_loads():
     repo_root = Path(__file__).resolve().parent.parent
     yaml_path = repo_root / "docs" / "legacy-v2" / "parameters.yaml"
 
-    config = load_yaml_config(yaml_path)  # must not raise
+    # This file still spells two options the old way (`enumerate_isomer`,
+    # `mpi_np`, pre-P-m15); both are deprecated-but-accepted aliases for one
+    # release, which is exactly what this file is a fixture for -- so the
+    # warnings are expected, not swallowed.
+    with pytest.warns(DeprecationWarning, match="Option name"):
+        config = load_yaml_config(yaml_path)  # must not raise
     assert config.k == 1
     assert config.window is None  # the example's `window: None`
     assert config.memory is None
@@ -320,8 +325,13 @@ def test_shipped_legacy_v2_tauto_yaml_raises_configuration_error():
     yaml_path = repo_root / "docs" / "legacy-v2" / "tauto.yaml"
     assert yaml_path.exists(), "the migration guide names this file"
 
+    # This file also still spells `enumerate_isomer`/`mpi_np` the old way
+    # (pre-P-m15); those are deprecated-but-accepted aliases for one release
+    # and are popped before the `tauto_k`/`tauto_window` rejection this test
+    # is actually about, so the warnings are expected here too.
     with pytest.raises(ConfigurationError) as exc_info:
-        load_yaml_config(yaml_path)
+        with pytest.warns(DeprecationWarning, match="Option name"):
+            load_yaml_config(yaml_path)
 
     # ConfigurationError is an Auto3DError, so `except Auto3DError` in
     # cli/commands/run.py catches it -- exit 2 with a hint, not exit 1 under
@@ -398,10 +408,10 @@ _ROUND_TRIP_VALUES: dict[str, object] = {
     "tauto_engine": "oechem",
     "pKaNorm": False,
     "isomer_engine": "omega",
-    "enumerate_isomer": False,
+    "enumerate_isomers": False,
     "mode_oe": "dense",
     "max_confs": 11,
-    "mpi_np": 3,
+    "isomer_threads": 3,
     "optimizing_engine": "ANI2xt",
     "use_gpu": False,
     "gpu_idx": 2,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -73,9 +74,11 @@ def execute_run(
     enumerate_tautomer: bool | None = None,
     tauto_engine: str | None = None,
     isomer_engine: str | None = None,
+    enumerate_isomers: bool | None = None,
     enumerate_isomer: bool | None = None,
     max_confs: int | None = None,
     threshold: float | None = None,
+    isomer_threads: int | None = None,
     mpi_np: int | None = None,
     opt_steps: int | None = None,
     opt_tol: float | None = None,
@@ -109,10 +112,14 @@ def execute_run(
         enumerate_tautomer: Enumerate tautomers before conformer generation.
         tauto_engine: Tautomer engine ('rdkit' or 'oechem').
         isomer_engine: 3D isomer engine ('rdkit' or 'omega').
-        enumerate_isomer: Enumerate cis/trans and R/S isomers.
+        enumerate_isomers: Enumerate cis/trans and R/S isomers.
+        enumerate_isomer: Deprecated alias for ``enumerate_isomers``; emits a
+            ``DeprecationWarning`` and is removed in 4.0.
         max_confs: Max conformers per molecule.
         threshold: RMSD threshold for duplicate removal (Angstrom).
-        mpi_np: CPU cores for isomer generation.
+        isomer_threads: CPU threads for isomer generation.
+        mpi_np: Deprecated alias for ``isomer_threads``; emits a
+            ``DeprecationWarning`` and is removed in 4.0.
         opt_steps: Max optimization steps per structure.
         opt_tol: Max-force convergence threshold, i.e.
             ``Auto3DOptions.convergence_threshold``. Spelled ``--opt-tol`` to
@@ -131,6 +138,31 @@ def execute_run(
         json_output: Output results as JSON.
     """
     start_time = time.time()
+
+    # P-m15: the deprecated flags reach here as separate parameters (Typer
+    # binds `--enumerate-isomer`/`--mpi-np` to their own hidden options, not
+    # to the new ones), so they are reconciled here rather than inside
+    # Auto3DOptions -- by the time a value reaches `merge_configs` below it is
+    # already under the new key, and `Auto3DOptions` would never see the old
+    # one to warn about it. The new flag wins if a caller somehow passes both.
+    if enumerate_isomer is not None:
+        warnings.warn(
+            "Option name --enumerate-isomer/--no-enumerate-isomer is "
+            "deprecated; use --enumerate-isomers/--no-enumerate-isomers "
+            "(removed in 4.0)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if enumerate_isomers is None:
+            enumerate_isomers = enumerate_isomer
+    if mpi_np is not None:
+        warnings.warn(
+            "Option name --mpi-np is deprecated; use --isomer-threads (removed in 4.0)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if isomer_threads is None:
+            isomer_threads = mpi_np
 
     # Configure logging based on verbosity. Diagnostics already go to stderr (see
     # configure_logging), so --json stdout stays a clean, parseable document.
@@ -176,10 +208,10 @@ def execute_run(
                 "enumerate_tautomer": enumerate_tautomer,
                 "tauto_engine": tauto_engine,
                 "isomer_engine": isomer_engine,
-                "enumerate_isomer": enumerate_isomer,
+                "enumerate_isomers": enumerate_isomers,
                 "max_confs": max_confs,
                 "threshold": threshold,
-                "mpi_np": mpi_np,
+                "isomer_threads": isomer_threads,
                 "opt_steps": opt_steps,
                 # --opt-tol is the CLI spelling of convergence_threshold, the
                 # same quantity `auto3d optimize --opt-tol` already named.

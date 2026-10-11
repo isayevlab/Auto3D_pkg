@@ -63,7 +63,7 @@ from Auto3D.foundation.constants import (
     STANDARD_STATE_LABEL,
 )
 from Auto3D.foundation.exceptions import ConfigurationError
-from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
 
 logger = get_logger(__name__)
 
@@ -820,7 +820,7 @@ def calc_thermo(
     hessian_adapter = _load_hessian_model(model_name, device)
     opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
-    for mol in tqdm(survivors):
+    for mol in tqdm(survivors, disable=should_disable_progress_bars()):
         mol = _thermo_one_record(
             mol,
             hessian_adapter=hessian_adapter,

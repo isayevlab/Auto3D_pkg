@@ -19,6 +19,23 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from typing import Any
+
+from rdkit import Chem
+from rdkit.Chem import AllChem, rdDistGeom
+
+from Auto3D.domain.clash_relief import relieve_clash
+from Auto3D.domain.conformer_budget import calculate_conformer_count
+from Auto3D.foundation.constants import (
+    CONFORMER_RANDOM_SEED,
+    EMBED_TIMEOUT_S,
+    PARALLEL_EMBED_MAX_WORKERS,
+)
+from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
+from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.molprops import has_dummy_atoms
+
+logger = get_logger(__name__)
 
 #: The context :func:`embed_conformers_parallel`'s pool starts workers from.
 #:
@@ -41,23 +58,6 @@ from concurrent.futures.process import BrokenProcessPool
 #: ``get_context("spawn")`` returns a context object; unlike ``get_context()``
 #: with no argument, it does not read or set the global start method.
 EMBEDDING_MP_CONTEXT = multiprocessing.get_context("spawn")
-from typing import Any
-
-from rdkit import Chem
-from rdkit.Chem import AllChem, rdDistGeom
-
-from Auto3D.domain.clash_relief import relieve_clash
-from Auto3D.domain.conformer_budget import calculate_conformer_count
-from Auto3D.foundation.constants import (
-    CONFORMER_RANDOM_SEED,
-    EMBED_TIMEOUT_S,
-    PARALLEL_EMBED_MAX_WORKERS,
-)
-from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
-from Auto3D.foundation.utils.logging_config import get_logger
-from Auto3D.foundation.utils.molprops import has_dummy_atoms
-
-logger = get_logger(__name__)
 
 
 class SpeciesSkipped(Exception):  # noqa: N818 - a skip signal, not a failure
@@ -157,10 +157,10 @@ def resolve_embedding_workers(
 
     The division is what keeps the box from being oversubscribed: each worker
     hands ``threads_per_worker`` to ``EmbedMultipleConfs`` (the isomer engine
-    passes its ``np``/``mpi_np``, default 4), so one worker per core would put
+    passes its ``n_threads``/``isomer_threads``, default 4), so one worker per core would put
     ``cores x threads`` runnable threads on ``cores`` cores. ``threads_per_worker``
     is floored at 1 before dividing: the engine's direct callers bypass
-    ``Auto3DOptions``'s ``mpi_np >= 1`` bound, and a 0 there would be a
+    ``Auto3DOptions``'s ``isomer_threads >= 1`` bound, and a 0 there would be a
     ``ZeroDivisionError``.
 
     An explicit ``requested`` is obeyed as given -- cap, cores and thread count
@@ -172,9 +172,9 @@ def resolve_embedding_workers(
 
     The floor can still overshoot the box: one worker handing RDKit
     ``threads_per_worker`` threads is ``threads_per_worker`` runnable threads
-    wherever there are fewer cores than that -- 2 cores with ``mpi_np=4``
+    wherever there are fewer cores than that -- 2 cores with ``isomer_threads=4``
     measured 2x oversubscribed. Closing it would mean overriding the caller's
-    own ``mpi_np``, which is their choice to make, so it is named here instead.
+    own ``isomer_threads``, which is their choice to make, so it is named here instead.
 
     Args:
         requested: Explicit worker count, or None to scale to the machine.

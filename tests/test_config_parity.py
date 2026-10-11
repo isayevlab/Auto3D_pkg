@@ -435,7 +435,9 @@ class TestDuplicateInchikeyInputs:
 
         monkeypatch.setattr(auto3D_mod, "Optimizer", _FakeOptimizing)
 
-        args = Auto3DOptions(path=isolated_input("smiles2.smi"), k=1, use_gpu=False, mpi_np=1)
+        args = Auto3DOptions(
+            path=isolated_input("smiles2.smi"), k=1, use_gpu=False, isomer_threads=1
+        )
         mols = smiles2mols(["CCO", "CCO"], args)
 
         assert len(mols) == 2, (

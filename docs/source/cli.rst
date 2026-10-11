@@ -121,8 +121,8 @@ Run conformer generation on input molecules.
    * - ``--isomer-engine``
      - ``rdkit``
      - 3D isomer engine: ``rdkit`` or ``omega`` (needs OpenEye)
-   * - ``--enumerate-isomer`` / ``--no-``
-     - ``--enumerate-isomer``
+   * - ``--enumerate-isomers`` / ``--no-``
+     - ``--enumerate-isomers``
      - Enumerate cis/trans and R/S isomers
    * - ``--max-confs``
      - auto
@@ -131,9 +131,9 @@ Run conformer generation on input molecules.
    * - ``--threshold``
      - 0.3
      - RMSD threshold for duplicate removal (Angstrom)
-   * - ``--mpi-np``
+   * - ``--isomer-threads``
      - 4
-     - CPU cores used for isomer generation
+     - CPU threads used for isomer generation
    * - ``--opt-steps``
      - 2000
      - Max optimization steps per structure
@@ -162,7 +162,7 @@ Run conformer generation on input molecules.
        per RDKit thread). The worker count comes from the ``parallel_workers``
        config-file / Python-API option -- there is no CLI flag for it -- which
        unset resolves to ``min(cores // threads per worker, species, 32)``,
-       where threads per worker is ``--mpi-np``. Runs with fewer species than
+       where threads per worker is ``--isomer-threads``. Runs with fewer species than
        ``parallel_embedding_threshold`` -- counted after stereoisomer
        enumeration and enantiomer removal, not on the input file -- stay serial
        either way.
@@ -596,7 +596,7 @@ Auto3D accepts YAML configuration files. Example:
    patience: 250
 
    # Isomer settings
-   enumerate_isomer: true
+   enumerate_isomers: true
    enumerate_tautomer: false
    isomer_engine: rdkit
 

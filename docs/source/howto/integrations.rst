@@ -219,7 +219,7 @@ The output SDF file can be imported directly into Maestro for Glide docking.
    config = Auto3DOptions(
        path="ligands.smi",
        k=10,
-       enumerate_isomer=True,
+       enumerate_isomers=True,
    )
    output = main(config)
    # Import output.sdf into Maestro for Glide docking

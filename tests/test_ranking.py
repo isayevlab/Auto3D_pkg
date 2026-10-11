@@ -817,7 +817,7 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
 
     ``smiles2smi`` renames the second of two inputs that share a standard
     InChIKey to ``<KEY>_2`` *specifically so it is not dropped*. With
-    ``enumerate_isomer=False`` the SMILES path used to append only the
+    ``enumerate_isomers=False`` the SMILES path used to append only the
     conformer index, so ``species_id`` stripped the ``_2`` along with it and
     both molecules landed in one ranking group: ``k=1`` then returned ONE
     conformer for the pair -- and, since selection is by energy across the
@@ -837,7 +837,7 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
     def _canonical(mol: Chem.Mol) -> str:
         return Chem.MolToSmiles(Chem.RemoveHs(Chem.Mol(mol)))
 
-    def test_enumerate_isomer_false_returns_both_molecules(self, tmp_path):
+    def test_enumerate_isomers_false_returns_both_molecules(self, tmp_path):
         from Auto3D.domain.ranking import ConformerRanker, species_id
         from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
         from Auto3D.foundation.utils.smi_io import smiles2smi
@@ -862,8 +862,8 @@ class TestTwoInputsSharingAnInChIKeyStayTwoMolecules:
             job_name=str(job),
             max_confs=2,
             threshold=0.3,
-            np=1,
-            flipper=False,  # enumerate_isomer=False -- the affected mode
+            n_threads=1,
+            enumerate_isomers=False,  # enumerate_isomers=False -- the affected mode
         )
         enumerated = engine.run()
 

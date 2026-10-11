@@ -129,7 +129,6 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
-    "E402",   # module level import not at top (needed for sys.path manipulation)
     "E741",   # ambiguous variable name (scientific notation l, I, O)
     "N802",   # function name should be lowercase (legacy API compatibility)
     "N803",   # argument name should be lowercase (scientific computing conventions)
@@ -268,6 +267,11 @@ filterwarnings = [
     # a caller-attributed stacklevel means only a message-based filter can
     # enforce "no production path imports an old name".
     "error:Legacy name:DeprecationWarning",
+    # Same reasoning again, for Auto3DOptions' mpi_np/enumerate_isomer ->
+    # isomer_threads/enumerate_isomers aliases (P-m15): "error" so the suite
+    # fails if any production path still constructs a config with an old
+    # option name instead of the renamed one.
+    "error:Option name:DeprecationWarning",
     # Third-party noise we do not control.
     "ignore:.*pkg_resources is deprecated.*:DeprecationWarning",
     "ignore:.*Importing 'parser.split_arg_string' is deprecated.*:DeprecationWarning",

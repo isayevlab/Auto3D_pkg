@@ -148,11 +148,21 @@ IsomerEngineOption = Annotated[
     str | None,
     typer.Option("--isomer-engine", help="3D isomer engine: rdkit or omega (needs OpenEye)."),
 ]
-EnumerateIsomerFlag = Annotated[
+EnumerateIsomersFlag = Annotated[
+    bool | None,
+    typer.Option(
+        "--enumerate-isomers/--no-enumerate-isomers",
+        help="Enumerate cis/trans and R/S isomers.",
+    ),
+]
+#: Deprecated spelling of ``EnumerateIsomersFlag`` (P-m15), hidden from
+#: ``--help`` but still accepted for one release; ``execute_run`` warns and
+#: renames it.
+EnumerateIsomerFlagDeprecated = Annotated[
     bool | None,
     typer.Option(
         "--enumerate-isomer/--no-enumerate-isomer",
-        help="Enumerate cis/trans and R/S isomers.",
+        hidden=True,
     ),
 ]
 MaxConfsOption = Annotated[
@@ -167,9 +177,16 @@ ThresholdOption = Annotated[
     float | None,
     typer.Option("--threshold", help="RMSD threshold for duplicate removal (Angstrom)."),
 ]
-MpiNpOption = Annotated[
+IsomerThreadsOption = Annotated[
     int | None,
-    typer.Option("--mpi-np", help="CPU cores used for isomer generation."),
+    typer.Option("--isomer-threads", help="CPU threads used for isomer generation."),
+]
+#: Deprecated spelling of ``IsomerThreadsOption`` (P-m15), hidden from
+#: ``--help`` but still accepted for one release; ``execute_run`` warns and
+#: renames it.
+MpiNpOptionDeprecated = Annotated[
+    int | None,
+    typer.Option("--mpi-np", hidden=True),
 ]
 RunOptStepsOption = Annotated[
     int | None,
@@ -282,10 +299,12 @@ def run(
     enumerate_tautomer: EnumerateTautomerFlag = None,
     tauto_engine: TautoEngineOption = None,
     isomer_engine: IsomerEngineOption = None,
-    enumerate_isomer: EnumerateIsomerFlag = None,
+    enumerate_isomers: EnumerateIsomersFlag = None,
+    enumerate_isomer: EnumerateIsomerFlagDeprecated = None,
     max_confs: MaxConfsOption = None,
     threshold: ThresholdOption = None,
-    mpi_np: MpiNpOption = None,
+    isomer_threads: IsomerThreadsOption = None,
+    mpi_np: MpiNpOptionDeprecated = None,
     opt_steps: RunOptStepsOption = None,
     opt_tol: RunOptTolOption = None,
     patience: RunPatienceOption = None,
@@ -331,9 +350,11 @@ def run(
         enumerate_tautomer=enumerate_tautomer,
         tauto_engine=tauto_engine,
         isomer_engine=isomer_engine,
+        enumerate_isomers=enumerate_isomers,
         enumerate_isomer=enumerate_isomer,
         max_confs=max_confs,
         threshold=threshold,
+        isomer_threads=isomer_threads,
         mpi_np=mpi_np,
         opt_steps=opt_steps,
         opt_tol=opt_tol,

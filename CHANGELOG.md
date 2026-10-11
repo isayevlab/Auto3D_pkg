@@ -67,6 +67,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Relative energies are no longer withheld for a title whose records are
   different compounds; each identity now gets its own reference.
 - Input file extensions are case-insensitive.
+- The SMILES isomer engine's serial-embedding "no conformers" warning now
+  distinguishes its cause: a species whose embedding produced zero
+  conformers reports "embedding produced no conformers", while a species
+  whose conformers were all rejected by clash relief keeps the existing
+  "produced no conformers after clash relief" wording.
+- An out-of-memory error at the final batch concatenation
+  (`BatchedEnergyForce.forward_batched`/`energy_batched`) is now retried
+  once after `torch.cuda.empty_cache()`, each concatenation retried
+  separately so a failure on one does not re-run an already-succeeded one;
+  a CUDA out-of-memory reported as a bare `RuntimeError` (rather than the
+  typed `torch.cuda.OutOfMemoryError`) is now recognized and retried the
+  same way everywhere this package catches one; an out-of-memory during the
+  FIRE optimization step now raises `OptimizationError`, carrying the
+  original CUDA message, instead of a bare CUDA error -- exit 7 under
+  `auto3d optimize`/`opt_geometry`; under `auto3d run` the affected chunk is
+  logged and skipped, as any other `OptimizationError` already was there
+  (the per-chunk handler is revisited in a later PR).
+- The tautomer engine lookup in `IsomerEngineFactory`/`create_tautomer_engine`
+  goes through the same `Registry` every other backend lookup uses, so an
+  unknown tautomer engine name is reported the same way
+  (`"Available: 'rdkit', 'oechem'"`) as any other unknown backend name.
+- Worker-side progress bars (`tqdm`) are now disabled when `sys.stderr` is
+  not a terminal (piped output, a CI log) or when the environment variable
+  `AUTO3D_PROGRESS` is set to `off`.
+- `Auto3DOptions.enumerate_isomers` and `Auto3DOptions.isomer_threads` are
+  the one name each for "enumerate stereoisomers" and "CPU threads for
+  isomer generation" end to end: the CLI (`--enumerate-isomers/
+  --no-enumerate-isomers`, `--isomer-threads`), `IsomerEngineFactory.create`
+  (`enumerate_isomers=`, `n_threads=`) and the isomer engine constructors
+  (`RDKitIsomer`, `RDKitSdfIsomer`, `oe_isomer`) all use these names now.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]
@@ -84,6 +114,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ConformerRanker`; the old lowercase names stay importable for one release
   through a module `__getattr__` that emits a `DeprecationWarning`, and are
   removed in 4.0.
+- `Auto3DOptions(enumerate_isomer=...)` and `Auto3DOptions(mpi_np=...)` (and
+  the matching CLI flags `--enumerate-isomer/--no-enumerate-isomer` and
+  `--mpi-np`) still work, with a `DeprecationWarning` naming the replacement
+  field (`enumerate_isomers`, `isomer_threads`); removed in 4.0. If both the
+  old and new name are given, the new one wins (the warning still fires),
+  matching the CLI's own "new flag wins" rule for the same case.
+  `IsomerEngineFactory.create(..., n_jobs=...)` is accepted the same way,
+  naming `n_threads`.
 
 ## [3.2.0] - 2026-10-09
 

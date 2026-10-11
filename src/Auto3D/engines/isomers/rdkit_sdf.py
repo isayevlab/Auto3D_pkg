@@ -7,10 +7,6 @@ the ``rdkit`` + ``input_format="sdf"`` auto-selection.
 from __future__ import annotations
 
 from rdkit import Chem
-
-from Auto3D.foundation.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -26,8 +22,11 @@ from Auto3D.domain.stereochemistry import (
     enantiomer_key,
 )
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
+from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
 from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.sdf_io import skip_message
+
+logger = get_logger(__name__)
 
 
 class RDKitSdfIsomer:
@@ -52,8 +51,8 @@ class RDKitSdfIsomer:
         enumerated_sdf: Path for output SDF file.
         max_confs: Maximum conformers per stereoisomer. None for dynamic.
         threshold: RMSD threshold for duplicate removal (Å).
-        np: Number of CPU threads for parallelization.
-        flipper: Whether to enumerate unspecified stereocenters. When False,
+        n_threads: Number of CPU threads for parallelization.
+        enumerate_isomers: Whether to enumerate unspecified stereocenters. When False,
             a molecule with unspecified stereo is embedded as-is and its
             conformers are a mixture of configurations; a warning says so.
     """
@@ -64,15 +63,15 @@ class RDKitSdfIsomer:
         enumerated_sdf: str,
         max_confs: int | None,
         threshold: float,
-        np: int,
-        flipper: bool = True,
+        n_threads: int,
+        enumerate_isomers: bool = True,
     ) -> None:
         self.sdf = sdf
         self.enumerated_sdf = enumerated_sdf
         self.n_conformers = max_confs
         self.threshold = threshold
-        self.np = np
-        self.flipper = flipper
+        self.n_threads = n_threads
+        self.enumerate_isomers = enumerate_isomers
 
     @staticmethod
     def count_unspecified_stereo(mol: Chem.Mol) -> int:
@@ -91,7 +90,7 @@ class RDKitSdfIsomer:
         A 3D SDF whose centers are all specified yields exactly one entry, so
         this is a no-op for that input; only unspecified centers enumerate.
         """
-        if not self.flipper:
+        if not self.enumerate_isomers:
             unspecified = self.count_unspecified_stereo(mol)
             if unspecified:
                 logger.warning(
@@ -137,7 +136,7 @@ class RDKitSdfIsomer:
         """
         supp = Chem.SDMolSupplier(self.sdf, removeHs=False)
         with Chem.SDWriter(self.enumerated_sdf) as writer:
-            for mol in tqdm(supp):
+            for mol in tqdm(supp, disable=should_disable_progress_bars()):
                 if mol is None:
                     logger.warning(
                         "Skipping molecule: failed to parse (SDMolSupplier yielded None)."
@@ -166,7 +165,7 @@ class RDKitSdfIsomer:
                     embed_with_retry(
                         mol2,
                         n_conformers=n_conformers,
-                        n_threads=self.np,
+                        n_threads=self.n_threads,
                         prune_rms_thresh=self.threshold,
                     )
                     if mol2.GetNumConformers() == 0:

@@ -144,3 +144,39 @@ def test_pytest_timeout_is_a_dev_dependency_and_a_declared_marker(request):
     markers = pyproject["tool"]["pytest"]["ini_options"].get("markers", [])
     assert any(m.startswith("timeout") for m in markers), markers
     assert "--strict-markers" in pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+
+
+def test_fire_optimizer_cites_bitzek_not_guenole():
+    """N-m7: FIRE's docstrings cited the wrong paper and the wrong integrator.
+
+    ``fire_optimizer.py`` cited Guenole et al. 2020 and described the step as
+    "velocity Verlet", but the implementation is the original FIRE paper's
+    semi-implicit (symplectic) Euler update -- the same one ASE's own FIRE
+    implements. The citation and the integrator name are both corrected;
+    the numerics are untouched.
+    """
+    text = (
+        TESTS_DIR.parent / "src" / "Auto3D" / "engines" / "batch_opt" / "fire_optimizer.py"
+    ).read_text()
+    assert "Bitzek" in text
+    assert "Guenole" not in text
+    assert "Verlet" not in text
+
+
+def ruff_ignore_list() -> list[str]:
+    """``[tool.ruff.lint] ignore`` as declared in ``pyproject.toml``."""
+    import tomllib
+
+    pyproject = tomllib.loads((TESTS_DIR.parent / "pyproject.toml").read_text())
+    return pyproject["tool"]["ruff"]["lint"]["ignore"]
+
+
+def test_no_e402_blanket_ignore():
+    """P-m46: E402 was globally ignored instead of fixed at each site.
+
+    Every genuine case left after moving the root-cause statements below their
+    files' import blocks now carries its own ``# noqa: E402`` with a one-line
+    reason, so a *new* out-of-place import is caught instead of silently
+    passing under a package-wide exemption.
+    """
+    assert "E402" not in ruff_ignore_list()
