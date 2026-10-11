@@ -19,8 +19,11 @@ from Auto3D.foundation.constants import (
 )
 from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
+from Auto3D.foundation.utils.logging_config import get_logger
 
 __all__ = ["opt_geometry"]
+
+logger = get_logger(__name__)
 
 
 def _annotate_and_rewrite(outpath: str) -> None:
@@ -111,7 +114,12 @@ def opt_geometry(
         opt_tol: Convergence threshold for max force (eV/Å). Defaults to 0.01.
         opt_steps: Maximum optimization steps per structure. Defaults to 2000.
         patience: Drop conformer if force doesn't decrease for this many
-            consecutive steps. Defaults to None (uses opt_steps value).
+            consecutive steps. Defaults to None, which folds to opt_steps and
+            so disables oscillation dropping entirely on this entry point --
+            unlike ``Auto3DOptions``, whose default is the 250-step
+            ``DEFAULT_PATIENCE``. Must be >= 1 (N-m21); an explicit value at
+            or above opt_steps -- which can never trigger before opt_steps's
+            own step limit does -- is accepted but logged as a WARNING.
         batchsize_atoms: Number of atoms per optimization batch, used **as
             given**. Larger values use more GPU memory but may be faster.
             Defaults to 1024.
@@ -137,6 +145,10 @@ def opt_geometry(
         Path to output SDF file with optimized geometries.
 
     Raises:
+        ConfigurationError: if ``patience < 1`` (N-m21): below that bound a
+            structure is dropped as "oscillating" before the optimizer does
+            any useful work, with no error naming why -- raised before any
+            model is loaded.
         InputValidationError: if no record of ``path`` is usable (unparseable,
             conformerless, implicit hydrogens, or dummy atoms); see the
             warnings logged for each record.
@@ -178,6 +190,28 @@ def opt_geometry(
     setup.require_records(path)
     outpath = setup.out_path
     device = setup.device
+
+    # An explicit patience at or above opt_steps can never fire: the step
+    # limit always ends the run first (batch_opt.optimization_engine's loop
+    # stops at opt_steps regardless of each structure's own
+    # non-improving-step count), so this is almost certainly a mistake rather
+    # than an intentional "never drop as oscillating". `>=`, not `>` (M3): the
+    # oscillation counter starts at 0 and the step-1 force is always a
+    # reduction (smallest_fmax0 seeded at +inf, optimization_engine.py), so it
+    # can reach at most opt_steps - 1 after opt_steps steps -- `not_oscillating
+    # = oscillating_count < patience` can never go False at
+    # `patience == opt_steps` either, so equality is already in the "can never
+    # trigger" case the warning is about. Checked against the caller's OWN
+    # value, before it is folded into `patience if patience is not None else
+    # opt_steps` below -- the folded value can never itself exceed opt_steps,
+    # so checking after would never warn.
+    if patience is not None and patience >= opt_steps:
+        logger.warning(
+            "patience (%d) reaches or exceeds opt_steps (%d); patience can "
+            "never trigger before the optimizer's own step limit does.",
+            patience,
+            opt_steps,
+        )
 
     opt_config = OptimizationConfig(
         opt_steps=opt_steps,

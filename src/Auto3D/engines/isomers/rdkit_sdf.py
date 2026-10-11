@@ -23,8 +23,7 @@ from Auto3D.domain.stereochemistry import (
 )
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
-from Auto3D.foundation.utils.molprops import has_dummy_atoms
-from Auto3D.foundation.utils.sdf_io import skip_message
+from Auto3D.foundation.utils.sdf_io import classify_records
 
 logger = get_logger(__name__)
 
@@ -131,25 +130,25 @@ class RDKitSdfIsomer:
     def run(self) -> str:
         """Enumerate stereoisomers and conformers into the output SDF file.
 
+        Reads through the shared :func:`~Auto3D.foundation.utils.sdf_io.classify_records`
+        policy (P-m27) rather than its own ``SDMolSupplier`` loop and inline
+        ``has_dummy_atoms`` check: an implicit-hydrogen record (a heavy-atom
+        skeleton) and a conformerless one are both still legitimate input
+        here -- this method calls ``Chem.AddHs`` and embeds every record it
+        keeps regardless of what hydrogens or coordinates the input carried
+        -- so both reasons are passed in ``keep``. Only an unparseable record
+        and a dummy-atom one (an R-group placeholder, N-M3 -- not a species
+        any caller can process) are still skipped, each logged once by
+        :meth:`~Auto3D.foundation.utils.sdf_io.ClassifiedRecords.log_skipped`.
+
         Returns:
             Path to the enumerated SDF file.
         """
-        supp = Chem.SDMolSupplier(self.sdf, removeHs=False)
+        classified = classify_records(self.sdf, keep=("implicit_hydrogens", "no_conformer"))
+        classified.log_skipped()
         with Chem.SDWriter(self.enumerated_sdf) as writer:
-            for mol in tqdm(supp, disable=should_disable_progress_bars()):
-                if mol is None:
-                    logger.warning(
-                        "Skipping molecule: failed to parse (SDMolSupplier yielded None)."
-                    )
-                    continue
+            for mol in tqdm(classified.kept, disable=should_disable_progress_bars()):
                 name = mol.GetProp("_Name")
-                if has_dummy_atoms(mol):
-                    # N-M3, same rule as the SMILES path's embed_conformer and
-                    # as every reader that goes through iter_conformer_records.
-                    # `skip_message` rather than a fourth copy of the sentence:
-                    # one wording for one outcome, wherever it is reported.
-                    logger.warning(skip_message("dummy_atoms"), name)
-                    continue
                 for isomer_idx, isomer in enumerate(self.stereoisomers(mol, name)):
                     mol2 = Chem.AddHs(isomer)
                     if self.n_conformers is None:

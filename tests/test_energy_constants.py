@@ -22,12 +22,23 @@ class TestEnergyConversionConstants:
         assert abs(HARTREE_TO_EV - 27.211386245988) < 1e-10
 
     def test_hartree_to_kcal_per_mol_value(self):
-        """Test that HARTREE_TO_KCAL_PER_MOL has the expected value."""
-        assert abs(HARTREE_TO_KCAL_PER_MOL - 627.50947337481) < 1e-8
+        """N-m22: HARTREE_TO_KCAL_PER_MOL is derived from HARTREE_TO_EV *
+        EV_TO_KCAL_PER_MOL (the same pattern EV_TO_HARTREE already uses for
+        its own derivation), not an independent literal that can drift from
+        the two factors it is a product of."""
+        assert abs(HARTREE_TO_KCAL_PER_MOL - HARTREE_TO_EV * EV_TO_KCAL_PER_MOL) < 1e-12
 
     def test_ev_to_kcal_per_mol_value(self):
         """Test that EV_TO_KCAL_PER_MOL has the expected value."""
         assert abs(EV_TO_KCAL_PER_MOL - 23.060547830619026) < 1e-10
+
+    def test_ev_per_wavenumber_is_codata_2018(self):
+        """N-m22: the wavenumber conversion is the CODATA 2018 value
+        (1/8065.543937 eV per cm^-1), a 0.044 ppm shift from the prior
+        1/8065.54429."""
+        from Auto3D.foundation.constants import EV_PER_WAVENUMBER
+
+        assert abs(1.0 / EV_PER_WAVENUMBER - 8065.543937) < 1e-6
 
     def test_the_legacy_lowercase_aliases_are_gone(self):
         """R17: hartree2ev, hartree2kcalpermol and ev2kcalpermol are removed."""

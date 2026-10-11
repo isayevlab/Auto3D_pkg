@@ -7,7 +7,6 @@ from rdkit import Chem
 
 from Auto3D.foundation.utils.sdf_io import (
     SDF2chunks,
-    count_sdf,
     guess_file_type,
     iter_conformer_records,
     record_skip_reason,
@@ -101,6 +100,31 @@ class TestSDF2chunks:
             original = f.read()
 
         assert reconstructed == original
+
+    def test_sdf2chunks_does_not_split_on_a_dollar_line_inside_a_property(self, tmp_path):
+        """N-m30: a `$$$$` line inside an SD property VALUE is not the record
+        terminator. A real terminator is preceded by `M  END` (directly, when
+        the record carries no properties) or by the blank line that ends the
+        last property's value -- not by arbitrary property text, which is
+        exactly what an embedded `$$$$` line is preceded by.
+        """
+        mol = _make_mol("CCO")
+        mol.SetProp("note", "line one\n$$$$\nline three")
+        path = tmp_path / "x.sdf"
+        with Chem.SDWriter(str(path)) as w:
+            w.write(mol)
+        assert len(SDF2chunks(str(path))) == 1
+
+    def test_sdf2chunks_still_splits_two_well_formed_records(self, tmp_path):
+        """The fix above must not stop SDF2chunks from splitting at all."""
+        path = tmp_path / "two.sdf"
+        with Chem.SDWriter(str(path)) as w:
+            w.write(_make_mol("one"))
+            w.write(_make_mol("two"))
+        chunks = SDF2chunks(str(path))
+        assert len(chunks) == 2
+        assert chunks[0][-1].strip() == "$$$$"
+        assert chunks[1][-1].strip() == "$$$$"
 
 
 class TestReorderSdf:
@@ -213,18 +237,24 @@ class TestNoneMolHardening:
     on it and raised ``AttributeError``. They must skip ``None`` instead.
     """
 
-    def test_count_sdf_skips_none_records(self, tmp_path, monkeypatch):
-        """count_sdf must not count (or crash on) a None record."""
+    def test_iter_conformer_records_skips_none_records(self, tmp_path, monkeypatch):
+        """N-m31: `count_sdf` is gone (zero production callers); its
+        production-equivalent reader, `iter_conformer_records`, must not
+        count (or crash on) a None record either."""
+
+        from rdkit.Chem import AllChem
 
         import Auto3D.foundation.utils.sdf_io as sdf_io
 
-        valid = _make_mol("mol_a")
+        valid = Chem.AddHs(Chem.MolFromSmiles("C"))
+        AllChem.EmbedMolecule(valid, randomSeed=1)
+        valid.SetProp("_Name", "mol_a")
         monkeypatch.setattr(sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid, None])
 
         sdf = tmp_path / "mols.sdf"
         sdf.write_text("placeholder")  # path only needs to exist for the call
 
-        assert count_sdf(str(sdf)) == 1
+        assert len(list(iter_conformer_records(str(sdf)))) == 1
 
     def test_reorder_sdf_skips_none_records(self, tmp_path, monkeypatch):
         """reorder_sdf must skip None records in the target SDF."""
@@ -299,8 +329,9 @@ class TestSDF2chunksTrailingRecord:
     def test_trailing_record_without_terminator_preserved(self, tmp_path):
         """SDF2chunks keeps a terminator-less trailing record as its own chunk."""
         sdf = tmp_path / "ragged.sdf"
-        # First record has $$$$; second record lacks it.
-        sdf.write_text("mol1\n  line1\n$$$$\nmol2\n  line2\n  line3\n")
+        # First record is well-formed (M  END precedes its $$$$, N-m30);
+        # second record lacks both.
+        sdf.write_text("mol1\n  line1\nM  END\n$$$$\nmol2\n  line2\n  line3\n")
 
         chunks = SDF2chunks(str(sdf))
 
@@ -311,6 +342,33 @@ class TestSDF2chunksTrailingRecord:
         joined = "".join(chunks[1])
         assert "line2" in joined
         assert "line3" in joined
+
+    def test_a_file_with_no_m_end_at_all_warns_about_the_real_cause(self, tmp_path, caplog):
+        """Chem-M8: under the `M  END` gate, a file that contains `$$$$`
+        lines but no `M  END` anywhere can never have any of them accepted
+        as a terminator -- every one is data, not a record boundary -- so
+        the whole file falls back to one unsplit chunk (current fallback
+        behavior, unchanged). The generic "ends without a '$$$$' terminator"
+        message would be misleading here (the file is full of them); the
+        real cause -- no molfile terminator was ever seen -- must be named.
+        """
+        import logging
+
+        sdf = tmp_path / "no_m_end.sdf"
+        # Two "$$$$" lines, neither ever accepted: no "M  END" anywhere.
+        sdf.write_text("mol1\n  line1\n$$$$\nmol2\n  line2\n$$$$\n")
+
+        with caplog.at_level(logging.WARNING):
+            chunks = SDF2chunks(str(sdf))
+
+        # Current fallback behavior preserved: one chunk, the whole file.
+        assert len(chunks) == 1
+        joined = "".join(chunks[0])
+        assert "mol1" in joined and "mol2" in joined
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("M  END" in m for m in messages), messages
+        assert not any("ends without a '$$$$' terminator" in m for m in messages), messages
 
 
 class TestIterConformerRecords:

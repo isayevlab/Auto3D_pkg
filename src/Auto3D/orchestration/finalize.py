@@ -16,6 +16,7 @@ from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.reconciliation import find_ids_not_in_sdf, find_smiles_not_in_sdf
 from Auto3D.foundation.utils.sdf_io import reorder_sdf
+from Auto3D.foundation.utils.smi_io import strip_taut_suffix
 
 if TYPE_CHECKING:
     from Auto3D.foundation.config import Auto3DOptions
@@ -39,6 +40,7 @@ class FinalizeMixin:
     id_mapping: dict[str, str]
     config: Auto3DOptions
     failures: list[str]
+    output_counts: tuple[int, int]
 
     def _combine_chunk_outputs(self) -> Path:
         """Glob every chunk's output and stream-combine it into one file.
@@ -79,21 +81,37 @@ class FinalizeMixin:
         # the OS write buffer), measured at 2.70x the file's own size (53 MB
         # peak for a 19.6 MB SDF); a 2 GB output would have meant roughly
         # 5.4 GB resident in the orchestrator. Iterating line-by-line while
-        # writing keeps the $$$$-terminator check exactly as it was (`any`
-        # line, across every chunk, stripped, equal to "$$$$") without ever
-        # holding more than the current line in memory, and sidesteps the
+        # writing keeps the $$$$-terminator check without ever holding more
+        # than the current line in memory, and sidesteps the
         # line-splitting-across-a-read-boundary edge case a raw
         # shutil.copyfileobj byte-chunk copy would have to guard against
         # separately to answer the same question.
+        #
+        # N-m30: the check is no longer "any line, across every chunk,
+        # stripped, equal to '$$$$'" -- an SD property VALUE can legitimately
+        # contain such a line (a user- or tool-written string happens to
+        # match the terminator), which must not count. The same `saw_m_end`
+        # + "previous line is blank or M  END" gate `SDF2chunks` uses applies
+        # here too (see the comment above its own loop, in sdf_io.py, for why
+        # both conditions are needed); both flags reset at the start of each
+        # chunk file, since each is expected to be a complete, independent
+        # SDF.
         path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
         found_terminator = False
         with path_combined.open("w") as combined_fh:
             for file_path in output_files:
+                saw_m_end = False
+                prev_stripped: str | None = None
                 with file_path.open("r") as chunk_fh:
                     for line in chunk_fh:
-                        if line.strip() == "$$$$":
+                        stripped = line.strip()
+                        if stripped == "M  END":
+                            saw_m_end = True
+                        if stripped == "$$$$" and saw_m_end and prev_stripped in ("", "M  END"):
                             found_terminator = True
+                            saw_m_end = False
                         combined_fh.write(line)
+                        prev_stripped = stripped
 
         if not found_terminator:
             # Nothing converged: leave no partial/empty output file behind,
@@ -129,8 +147,28 @@ class FinalizeMixin:
         # Log timing
         self._log_timing(start_time)
 
-        # Reorder and decode IDs
-        reorder_sdf(str(path_combined), str(self.input_path))
+        # Reorder and decode IDs. reorder_sdf's returned records still carry
+        # their PRE-decode (encoded) names, but P-m26's counts only need
+        # distinct-name counting, which `decode_ids` -- a per-encoded-id
+        # dict lookup, never a merge -- cannot change: two records share a
+        # base id before decoding if and only if they still share one after.
+        # Counting here, rather than re-reading the decoded path_output
+        # afterward, is what lets main() hand WorkflowResult eager counts
+        # instead of leaving every caller to recompute them from a file that
+        # may later be moved or deleted.
+        ordered_mols = reorder_sdf(str(path_combined), str(self.input_path)) or []
+        # task-M1: strip whitespace from `_Name` before counting, matching
+        # the lazy `count_output` path (`results.py`) -- without it, a
+        # `_Name` carrying incidental whitespace would compare unequal to
+        # the same id written without it, and the two counts could silently
+        # disagree. `.strip()` FIRST, then `strip_taut_suffix` (fix round
+        # 2): the regex is now end-anchored (Chem-M5), so whitespace
+        # trailing a "@tautN" suffix would otherwise stop it from matching
+        # at all -- the same order id_mapping.decode_ids already uses.
+        self.output_counts = (
+            len({strip_taut_suffix(mol.GetProp("_Name").strip()) for mol in ordered_mols}),
+            len(ordered_mols),
+        )
         path_output = decode_ids(str(path_combined), self.id_mapping)
 
         # Cleanup temporary files (input_path is unlinked in run()'s finally)

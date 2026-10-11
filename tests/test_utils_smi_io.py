@@ -11,6 +11,7 @@ from Auto3D.foundation.utils.smi_io import (
     hash_taut_smi,
     iter_smi_records,
     smiles2smi,
+    strip_taut_suffix,
 )
 
 # Get the test files directory
@@ -218,6 +219,46 @@ class TestHashTautSmi:
         # Should have different taut numbers
         assert len(set(ids)) == 2
         assert all("@taut" in id for id in ids)
+
+
+class TestStripTautSuffix:
+    """N-m29: ``@taut`` only starts a suffix to strip when at least one
+    digit immediately follows it -- exactly the shape ``hash_taut_smi``
+    writes (``id + f"@taut{c}"``), optionally followed by exactly ONE
+    ``_<isomer>_<conformer>`` suffix of its own
+    (``id@tautN_<isomer>_<conformer>``, the shape ``select_tautomers``
+    reads). Chem review M5: tightened from an unbounded ``@taut\\d+.*$`` to
+    ``@taut\\d+(?:_\\d+_\\d+)?$`` -- the two producer-exact shapes only --
+    so an id whose own text happens to continue past one of those two shapes
+    is left alone rather than truncated.
+
+    Splitting on the first occurrence of the bare substring ``"@taut"``
+    anywhere in the id, the original behavior, truncated a legitimate id
+    that merely contains that text (``"sample@tautonomy_1"``) as if it were
+    a hashed suffix.
+    """
+
+    def test_strip_taut_suffix_only_strips_a_digit_led_suffix(self):
+        assert strip_taut_suffix("sample@tautonomy_1") == "sample@tautonomy_1"
+        assert strip_taut_suffix("mol_a@taut0") == "mol_a"
+        assert strip_taut_suffix("cmpd@1") == "cmpd@1"
+
+    def test_strip_taut_suffix_removes_a_trailing_isomer_conformer_suffix_too(self):
+        """Two tautomers of "id1", enumerated into different isomers and
+        conformers, must strip to the SAME base id so they group together --
+        the real shape `select_tautomers` reads
+        (`tests/test_e_tot_units.py::test_relative_tautomer_energy_is_kcal_per_mol`
+        pins this at the integration level)."""
+        assert strip_taut_suffix("id1@taut0_0_0") == "id1"
+        assert strip_taut_suffix("id1@taut1_2_3") == "id1"
+        assert strip_taut_suffix("id@taut3_1_7") == "id"
+
+    def test_strip_taut_suffix_leaves_a_non_isomer_conformer_tail_intact(self):
+        """Chem-M5: the pattern matches exactly the two producer shapes, not
+        '@taut<digits>' plus arbitrary trailing text -- an id whose own
+        text continues past the digit run with anything other than one
+        '_<isomer>_<conformer>' pair is left alone."""
+        assert strip_taut_suffix("sample@taut3x") == "sample@taut3x"
 
 
 class TestCombineSmi:

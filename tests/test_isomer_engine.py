@@ -8,7 +8,7 @@ from rdkit import Chem
 from rdkit.Chem import rdMolAlign
 
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
-from Auto3D.foundation.utils.sdf_io import SDF2chunks, count_sdf
+from Auto3D.foundation.utils.sdf_io import SDF2chunks, iter_conformer_records
 
 # Mark all tests in this module as slow (isomer embedding)
 pytestmark = pytest.mark.slow
@@ -118,7 +118,7 @@ def test_SDF2chunks():
     duplicated or dropped a molecule and another chunk absorbed the slack.
     """
     chunks = SDF2chunks(example_sdf)
-    assert len(chunks) == count_sdf(example_sdf)
+    assert len(chunks) == len(list(iter_conformer_records(example_sdf)))
 
     reference_mols = [
         mol for mol in Chem.SDMolSupplier(example_sdf, removeHs=False) if mol is not None

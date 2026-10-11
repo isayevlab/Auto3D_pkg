@@ -115,7 +115,11 @@ def select_tautomers(
     # this used to split on a bare '@' by hand, which also truncates a user ID
     # that legitimately contains '@' (an email-style ID, say), the same drift
     # bug M-audit found in foundation/results.py.
-    ids = [strip_taut_suffix(title).strip() for title in titles]
+    # .strip() FIRST, then strip_taut_suffix: the regex is end-anchored
+    # (Chem-M5), so trailing whitespace after a "@tautN" suffix would
+    # otherwise stop it from matching at all (fix round 2; the same order
+    # id_mapping.decode_ids already uses).
+    ids = [strip_taut_suffix(title.strip()) for title in titles]
     energies = [e_tot_hartree(mol) * HARTREE_TO_KCAL_PER_MOL for mol in mols]
     df = pd.DataFrame({"id": ids, "energy": energies, "mol": mols})
     for group_name, group in df.groupby("id"):

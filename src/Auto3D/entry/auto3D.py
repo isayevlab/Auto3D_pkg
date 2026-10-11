@@ -116,8 +116,17 @@ def main(
     # CLI already does for n_molecules/n_conformers (cli/commands/run.py), so
     # a test/mock that swaps in a bare stand-in for the orchestrator (e.g.
     # test_mp_start_method.py) still gets a valid WorkflowResult instead of an
-    # AttributeError.
-    return WorkflowResult(output_path, failures=getattr(orchestrator, "failures", None))
+    # AttributeError. P-m26: output_counts, when present, are the eager
+    # (n_molecules, n_conformers) FinalizeMixin._finalize_output already
+    # computed from the run's own record list; its absence (the same stand-in
+    # case) falls back to WorkflowResult's lazy, computed-from-disk count.
+    n_molecules, n_conformers = getattr(orchestrator, "output_counts", (None, None))
+    return WorkflowResult(
+        output_path,
+        failures=getattr(orchestrator, "failures", None),
+        n_molecules=n_molecules,
+        n_conformers=n_conformers,
+    )
 
 
 def smiles2mols(

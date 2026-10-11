@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Reading, splitting, counting, filtering and reordering SDF files.
+"""Reading, splitting, filtering and reordering SDF files.
 
 Structural SDF file handling only: nothing here knows what an Auto3D energy or
 convergence flag means (``utils/energy.py`` and ``utils/convergence.py`` own
@@ -11,18 +11,28 @@ per-record consumer cannot process (N-C1): unparseable, conformerless,
 carrying implicit hydrogens (a heavy-atom skeleton -- every Auto3D writer
 emits explicit H), or carrying a dummy atom (an R-group placeholder is not a
 species, N-M3). :func:`classify_records` applies it to one read of a file and
-returns the partition (:class:`ClassifiedRecords`) without logging anything.
-Two views report-and-keep over that one partition: :func:`iter_conformer_records`
+returns the partition (:class:`ClassifiedRecords`), without logging anything,
+treating every reason in its optional ``keep`` tuple as acceptable rather
+than defective (P-m27) -- a consumer that does not need this policy's default
+answer for some reason (unparseable and dummy-atom records are never
+keepable; they have no conformer, no connectivity, or no species to work
+with) passes the reasons IT can still use. Two views report-and-keep over
+that one partition at the default ``keep=()``: :func:`iter_conformer_records`
 (callers: ``tautomer.select_tautomers`` and ``batch_opt.batchopt.Optimizer.run``)
 and ``entry._run_setup.prepare_single_file_run`` (callers: ``SPE.calc_spe``,
 ``ASE.geometry.opt_geometry``, and ``ASE.thermo.driver.calc_thermo``, the last
 passing its own partial ``skip_messages`` table so a defective record is
 marked ``Thermo_failed`` rather than dropped). ``check_sdf_format`` is a
-third, deliberate subset reporter: its SDF engine adds hydrogens and
-re-embeds every record, so an implicit-H record is legitimate input there,
-and it reports only the unparseable and dummy-atom defects while reading
-through the same :func:`classify_records` partition as the other two. The
-invariant a future change must preserve: grepping ``src/`` for
+third, deliberate subset reporter at the default ``keep=()``: its SDF engine
+adds hydrogens and re-embeds every record, so an implicit-H record is
+legitimate input there, and it reports only the unparseable and dummy-atom
+defects while reading through the same :func:`classify_records` partition as
+the other two. ``engines.isomers.rdkit_sdf.RDKitSdfIsomer.run`` is the one
+caller that passes a non-default ``keep`` (``("implicit_hydrogens",
+"no_conformer")``): it calls ``Chem.AddHs`` and embeds every record it keeps
+regardless of what hydrogens or coordinates the input carried, so those two
+reasons are not defects for it, only unparseable and dummy-atom records are.
+The invariant a future change must preserve: grepping ``src/`` for
 ``iter_conformer_records`` and for ``classify_records`` must turn up exactly
 the callers named above, or this paragraph has drifted from them again.
 """
@@ -94,21 +104,64 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     with open(sdf) as f:
         data = f.readlines()
     chunk: list[str] = []
+    # N-m30: an SD property VALUE can legitimately contain a line that is
+    # itself "$$$$" (a user- or tool-written string happens to match the
+    # terminator), which must not split or end a record. `saw_m_end` is set
+    # once the molblock's own `M  END` line is seen and `prev_stripped` is
+    # the previous line's stripped text; a `$$$$` only counts as the
+    # terminator when BOTH hold: `saw_m_end` is True (the molblock has
+    # already closed) AND the immediately preceding line is `M  END` itself
+    # (no properties) or blank (the blank line that ends the last property's
+    # multi-line value, per the SD format). Property text that is not
+    # immediately preceded by one of those two is, by construction, still
+    # inside an open property value, so a `$$$$` line there is data, not a
+    # terminator.
+    saw_m_end = False
+    # Chem-M8: `saw_m_end` is cleared on every accepted terminator, so it
+    # cannot answer "was there ever an `M  END` in this file at all?" --
+    # `ever_saw_m_end` is the one flag that is only ever set, never cleared,
+    # for exactly that question below.
+    ever_saw_m_end = False
+    prev_stripped: str | None = None
     for line in data:
-        if line.strip() == "$$$$":
+        stripped = line.strip()
+        if stripped == "M  END":
+            saw_m_end = True
+            ever_saw_m_end = True
+        if stripped == "$$$$" and saw_m_end and prev_stripped in ("", "M  END"):
             chunk.append(line)
             chunks.append(chunk)
             chunk = []
+            saw_m_end = False
         else:
             chunk.append(line)
+        prev_stripped = stripped
     # A final record lacking the '$$$$' terminator leaves residual lines in
-    # `chunk`. Preserve it as the last chunk rather than silently dropping it.
+    # `chunk`. Preserve it as the last chunk rather than silently dropping it
+    # (the fallback behavior is unchanged by chem-M8 below; only which
+    # warning fires changes).
     if any(line.strip() for line in chunk):
-        logger.warning(
-            "SDF file %s ends without a '$$$$' terminator; "
-            "keeping the trailing record as a final chunk.",
-            sdf,
-        )
+        if not ever_saw_m_end:
+            # Under the M  END gate above, a file with no M  END line at all
+            # (not a molfile, or every record is malformed before its own
+            # atom/bond block) can never have any `$$$$` in it accepted as a
+            # terminator -- every one is data, not a record boundary -- so
+            # the whole file ends up here, in this one fallback chunk. The
+            # "ends without a '$$$$' terminator" message below would be
+            # misleading for such a file: it may contain many. Name the real
+            # cause instead.
+            logger.warning(
+                "SDF file %s contains no 'M  END' line, so no '$$$$' in it "
+                "could be accepted as a record terminator; keeping the "
+                "whole file as one unsplit chunk.",
+                sdf,
+            )
+        else:
+            logger.warning(
+                "SDF file %s ends without a '$$$$' terminator; "
+                "keeping the trailing record as a final chunk.",
+                sdf,
+            )
         chunks.append(chunk)
     return chunks
 
@@ -137,10 +190,13 @@ _SKIP_MESSAGES = {
 def skip_message(reason: str) -> str:
     """The logging template :meth:`ClassifiedRecords.log_skipped` uses for ``reason``.
 
-    Exposed so other readers that log the same outcome without going through
-    :meth:`ClassifiedRecords.log_skipped` -- ``check_sdf_format`` for an
-    unparseable record, and the SDF isomer engine for a dummy-atom record --
-    do not keep a second copy of the wording.
+    Exposed so another reader that logs the same outcome without going
+    through :meth:`ClassifiedRecords.log_skipped` -- ``check_sdf_format``,
+    for the unparseable record it reports itself -- does not keep a second
+    copy of the wording. The SDF isomer engine (``RDKitSdfIsomer.run``) used
+    to be a second such caller, for a dummy-atom record; it now reads through
+    :func:`classify_records` and :meth:`ClassifiedRecords.log_skipped`
+    directly, like every other reader of this module's shared policy.
     """
     return _SKIP_MESSAGES[reason]
 
@@ -197,7 +253,7 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
 class ClassifiedRecords:
     """One SDF read, partitioned by `record_skip_reason`. File order is kept in every list."""
 
-    kept: list[Chem.Mol]  # record_skip_reason(mol) is None
+    kept: list[Chem.Mol]  # record_skip_reason(mol) is None, or in the caller's `keep`
     skipped: list[tuple[Chem.Mol, str]]  # parseable but defective: (mol, reason)
     unparseable: list[int]  # positions SDMolSupplier yielded None for
     parsed: list[Chem.Mol]  # kept + skipped, in file order (what check_sdf_format counts)
@@ -283,7 +339,7 @@ class ClassifiedRecords:
                 logger.warning(table[reason], name)
 
 
-def classify_records(path: str) -> ClassifiedRecords:
+def classify_records(path: str, keep: tuple[str, ...] = ()) -> ClassifiedRecords:
     """Read ``path`` once and partition its records. Logs nothing; see ``log_skipped``.
 
     The one place a reader of an SDF file turns records into "these I can
@@ -295,6 +351,15 @@ def classify_records(path: str) -> ClassifiedRecords:
 
     Args:
         path: Path to the SDF file to read.
+        keep: Reasons (:func:`record_skip_reason`'s return values) to treat
+            as acceptable rather than defective for THIS caller, moving a
+            record into ``kept`` instead of ``skipped`` (P-m27). The default
+            ``()`` reproduces today's behavior for every existing caller --
+            only a reason of ``None`` is kept. ``"unparseable"`` and
+            ``"dummy_atoms"`` are not meaningful here regardless: an
+            unparseable record has no connectivity to keep, and a dummy atom
+            (an R-group placeholder, N-M3) is not a species no caller can
+            legitimately process.
 
     Returns:
         The file's records as a :class:`ClassifiedRecords`.
@@ -310,7 +375,7 @@ def classify_records(path: str) -> ClassifiedRecords:
             unparseable.append(position)
             continue
         parsed.append(mol)
-        if reason is None:
+        if reason is None or reason in keep:
             kept.append(mol)
         else:
             skipped.append((mol, reason))
@@ -451,20 +516,3 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
                 for mol in mols:
                     f.write(mol)
     return ordered_mols
-
-
-def count_sdf(sdf: str) -> int:
-    """Count the number of molecules in an SDF file.
-
-    Args:
-        sdf: Path to the SDF file.
-
-    Returns:
-        Number of molecules in the file.
-
-    Example:
-        >>> count_sdf("molecules.sdf")
-        10
-    """
-    mols = Chem.SDMolSupplier(sdf)
-    return len([mol for mol in mols if mol is not None])

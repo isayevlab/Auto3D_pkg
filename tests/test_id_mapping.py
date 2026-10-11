@@ -6,7 +6,7 @@ import pytest
 from rdkit import Chem  # noqa: F401  (several tests import it locally too)
 
 from Auto3D.domain.id_mapping import decode_ids, encode_ids
-from Auto3D.foundation.utils.sdf_io import count_sdf
+from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
 # Get the test files directory
 TEST_DIR = Path(__file__).parent
@@ -195,9 +195,12 @@ class TestNoneMolHardening:
     def test_decode_ids_skips_none_records(self, tmp_path, monkeypatch):
         """decode_ids must skip None records without raising."""
 
+        from rdkit.Chem import AllChem
+
         import Auto3D.domain.id_mapping as id_mapping
 
-        valid = Chem.MolFromSmiles("C")
+        valid = Chem.AddHs(Chem.MolFromSmiles("C"))
+        AllChem.EmbedMolecule(valid, randomSeed=1)
         valid.SetProp("_Name", "0")
         valid.SetProp("ID", "0_conf1")
 
@@ -209,7 +212,10 @@ class TestNoneMolHardening:
 
         out = decode_ids(str(sdf), {"mol_a": 0})
         # Only the valid record is written; no AttributeError on the None.
-        written = count_sdf(out)
+        # N-m31: count_sdf is gone; iter_conformer_records is the
+        # production-equivalent reader (the same monkeypatched
+        # SDMolSupplier backs this call too, like count_sdf's did).
+        written = len(list(iter_conformer_records(out)))
         assert written == 1
 
 

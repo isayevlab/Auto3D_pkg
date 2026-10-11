@@ -18,6 +18,7 @@ the whole ``Auto3D.engines.models`` package. The overwrite guards live in
 from __future__ import annotations
 
 import collections
+import re
 
 from rdkit import Chem
 from rdkit.Chem import inchi
@@ -250,15 +251,54 @@ def hash_taut_smi(smi: str, out: str) -> None:
 
 
 def strip_taut_suffix(name: str) -> str:
-    """Return a molecule ID with any ``@tautN`` suffix removed.
+    """Return a molecule ID with its ``@tautN`` suffix, and a following
+    isomer/conformer suffix if any, removed.
 
-    The suffix is written by :func:`hash_taut_smi` (``id + f"@taut{c}"``), so
-    this is its inverse and the single place the parse lives. Splitting on
-    ``"@taut"`` -- never on a bare ``"@"`` -- keeps user IDs that legitimately
-    contain ``@`` (an email-style ID, say) intact; splitting on ``"@"`` was a
-    real drift bug in ``foundation/results.py``, which under-counted such IDs.
+    The suffix is written by :func:`hash_taut_smi` (``id + f"@taut{c}"``) and
+    read back by ``decode_ids``/``select_tautomers``. Two shapes reach this
+    function, both producer-exact:
+
+    - ``id@tautN`` -- :func:`hash_taut_smi` itself, the id's final segment.
+    - ``id@tautN_<isomer>_<conformer>`` -- the isomer engines append their own
+      ``_<isomer>_<conformer>`` suffix AFTER the tautomer hash
+      (:class:`~Auto3D.engines.isomers.rdkit_sdf.RDKitSdfIsomer`,
+      :class:`~Auto3D.engines.isomers.rdkit_smi.RDKitIsomer`), so
+      ``select_tautomers`` needs that tail gone too, to group a record with
+      its sibling tautomers under their shared base id.
+
+    The pattern -- ``@taut`` followed by at least one digit, optionally
+    followed by exactly one ``_<digits>_<digits>`` isomer/conformer pair,
+    then end of string -- matches exactly those two shapes and nothing else
+    (N-m29, tightened per chem review M5). In particular it leaves alone:
+
+    - a legitimate id that merely contains ``@`` (an email-style ID, say);
+    - the literal text ``"@taut"`` with no following digit (e.g.
+      ``"sample@tautonomy_1"``, where ``"@taut"`` is followed by the letter
+      ``"o"``, not a digit);
+    - an id whose OWN text happens to contain ``@taut<digits>`` with anything
+      other than exactly that one isomer/conformer shape following it (e.g.
+      ``"lot@taut2_batchA"``, ``"sample@taut3x"``) -- not a regression (the
+      previous, looser ``@taut\\d+.*$`` consumed these the same way and the
+      original ``.split("@taut")[0]`` did worse), and unreachable on the
+      chunked pipeline, where ids are dense integers by the time a tautomer
+      hash is computed; it can still reach the user-id paths
+      (``select_tautomers``, the two ``reconciliation.py`` functions,
+      ``count_output``), which is why it is bounded here rather than left at
+      ``.*$``.
+
+    An end-anchored pattern with no isomer/conformer allowance
+    (``@taut\\d+$``) would reject the second shape outright, splitting one
+    tautomer's enumerated conformers across several wrongly-distinct "base
+    ids" instead of grouping them -- see ``tests/test_e_tot_units.py``'s
+    ``test_relative_tautomer_energy_is_kcal_per_mol``, which pins this.
+
+    Splitting on ``"@"`` was a real drift bug in ``foundation/results.py``,
+    which under-counted an id that legitimately contains one; splitting on
+    the first occurrence of the bare substring ``"@taut"`` anywhere in the
+    id (with no digit requirement, and consuming everything after it) was a
+    second, looser one this narrows against.
     """
-    return name.split("@taut")[0]
+    return re.sub(r"@taut\d+(?:_\d+_\d+)?$", "", name)
 
 
 def combine_smi(smies: list[str], out: str) -> None:
