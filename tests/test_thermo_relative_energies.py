@@ -39,6 +39,25 @@ def _conformer(name: str, energy_ev: float, smiles: str = "CCO") -> Chem.Mol:
     return mol
 
 
+def _finalize_thermo_records_source() -> str:
+    """Confirm ``calc_thermo`` delegates to ``_finalize_thermo_records``, then return its source.
+
+    Shared by the three wiring guards below so each checks both halves of the
+    chain -- that ``calc_thermo`` still calls the helper, and that the helper
+    still does the work -- without repeating the delegation assertion three
+    times.
+    """
+    import inspect
+
+    import Auto3D.entry.ASE.thermo.driver as thermo_mod
+
+    assert "_finalize_thermo_records(" in inspect.getsource(thermo_mod.calc_thermo), (
+        "calc_thermo no longer calls _finalize_thermo_records after the loop, "
+        "so neither the counts log nor the relative-energy pass runs at all"
+    )
+    return inspect.getsource(thermo_mod._finalize_thermo_records)
+
+
 class TestGrouping:
     def test_each_group_is_referenced_to_its_own_minimum(self):
         mols = [
@@ -192,18 +211,14 @@ class TestCalcThermoWiring:
         publish relative energies for the failures and strip them from the
         successes, restoring the exact defect being fixed.
         """
-        import inspect
-
-        import Auto3D.entry.ASE.thermo.driver as thermo_mod
-
-        source = inspect.getsource(thermo_mod.calc_thermo)
+        source = _finalize_thermo_records_source()
         assert "set_relative_energies(out_mols)" in source, (
-            "calc_thermo no longer recomputes relative energies after the loop, "
-            "so its output carries none on the records that succeeded"
+            "_finalize_thermo_records no longer recomputes relative energies after the "
+            "loop, so its output carries none on the records that succeeded"
         )
         assert "clear_relative_energies(mols_failed)" in source, (
-            "calc_thermo no longer strips the stale relative energy from failed "
-            "records, so the property survives only where it is meaningless"
+            "_finalize_thermo_records no longer strips the stale relative energy from "
+            "failed records, so the property survives only where it is meaningless"
         )
 
 
@@ -313,12 +328,10 @@ class TestRelativeGibbsEnergies:
         assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
 
     def test_calc_thermo_publishes_it(self):
-        import inspect
-
-        import Auto3D.entry.ASE.thermo.driver as thermo_mod
-
-        source = inspect.getsource(thermo_mod.calc_thermo)
-        assert "set_relative_gibbs_energies(out_mols)" in source
+        source = _finalize_thermo_records_source()
+        assert "set_relative_gibbs_energies(out_mols)" in source, (
+            "_finalize_thermo_records no longer computes the Gibbs relative energy"
+        )
 
 
 class TestGibbsIsOptIn:
@@ -345,12 +358,10 @@ class TestGibbsIsOptIn:
 
     def test_the_electronic_relative_energy_has_no_such_switch(self):
         """``E_rel(kcal/mol)`` is documented output and stays unconditional."""
-        import inspect
-
-        import Auto3D.entry.ASE.thermo.driver as thermo_mod
-
-        source = inspect.getsource(thermo_mod.calc_thermo)
-        assert "set_relative_energies(out_mols)" in source
+        source = _finalize_thermo_records_source()
+        assert "set_relative_energies(out_mols)" in source, (
+            "_finalize_thermo_records no longer recomputes relative energies unconditionally"
+        )
         # The Gibbs call must sit behind the flag, not beside it.
         gibbs_line = next(
             line for line in source.splitlines() if "set_relative_gibbs_energies(out_mols)" in line

@@ -30,6 +30,7 @@ from Auto3D.domain.energy import (
     set_relative_energies,
     set_relative_gibbs_energies,
 )
+from Auto3D.domain.stereo_check import set_conformer_positions
 from Auto3D.engines.model_factory import create_model
 from Auto3D.engines.models.contract import ModelAdapter
 from Auto3D.entry._run_setup import prepare_single_file_run
@@ -81,6 +82,142 @@ _THERMO_SKIP_MESSAGES = {
     "implicit_hydrogens": "%s: implicit hydrogens; no thermochemistry computed.",
     "dummy_atoms": "%s: contains a dummy atom (atomic number 0); no thermochemistry computed.",
 }
+
+
+def _warn_imaginary_modes(analysis, name, vib_e) -> None:
+    """Log the saddle-point diagnostics a vibrational analysis surfaces, if any apply."""
+    if analysis.n_inverted > 0:
+        logger.warning(
+            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
+            "%d below the %.0f cm-1 saddle-point threshold are kept at |nu| "
+            "(the Gaussian/ORCA convention for a numerical artifact) rather "
+            "than deleted, so the partition function keeps all %d vibrational "
+            "modes. Deleting one instead removes that mode's entire "
+            "contribution to G -- dominated by -T*S_vib, which diverges as "
+            "1/nu -- and the resulting mode-count mismatch does not cancel "
+            "between two species with different artifact counts.",
+            analysis.n_imag,
+            name,
+            analysis.max_imag_cm,
+            analysis.n_inverted,
+            analysis.imag_cutoff_cm,
+            # The list that was projected, not `n_expected`: the two differ in
+            # the quasilinear case, where 3N-6 modes are paired with the linear
+            # rotor, and the sentence is about the modes actually kept.
+            len(vib_e),
+        )
+    elif analysis.n_imag > 0:
+        logger.warning(
+            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
+            "they are at or above the %.0f cm-1 saddle-point threshold, so "
+            "they are removed from the thermochemistry rather than inverted.",
+            analysis.n_imag,
+            name,
+            analysis.max_imag_cm,
+            analysis.imag_cutoff_cm,
+        )
+    if analysis.is_transition_state:
+        # Well above the numerical-artifact scale: this is a reaction
+        # coordinate, and a "free energy" computed here is a saddle point's,
+        # not a minimum's -- the rigid-rotor/harmonic partition function
+        # assumes a minimum. The numbers are still written (a deliberate TS
+        # calculation wants them), but the record is marked as failed below so
+        # it cannot pass the documented `Thermo_failed == ""` success filter.
+        logger.warning(
+            "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
+            "artifact threshold: this geometry is a saddle point, not a "
+            "minimum. Its thermochemistry is reported but marked "
+            "%s=%r, so it does not pass the success filter.",
+            name,
+            analysis.max_imag_cm,
+            analysis.imag_cutoff_cm,
+            THERMO_FAILED_PROP,
+            TRANSITION_STATE_FAILURE,
+        )
+
+
+def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry) -> None:
+    """Write the vibrational-analysis SD properties, including the verdict, onto ``mol``."""
+    mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
+    mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
+    mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
+    mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
+    # Name every convention in the file itself: the quasi-harmonic floor, the
+    # standard state and the mass convention are modeling choices that do not
+    # cancel between species, and sigma is the one input the user can set.
+    # Symmetry_number (capital S) is the value USED; symmetry_number is the
+    # request, which may have been rejected (see _symmetry_number).
+    mol.SetProp("N_raised_modes", str(analysis.n_raised))
+    mol.SetProp("Thermo_vib_modes", str(len(analysis.corrected_energies)))
+    mol.SetProp(
+        "Thermo_convention",
+        f"{analysis.convention}; {STANDARD_STATE_LABEL}; {mass_convention(mol)}",
+    )
+    mol.SetProp("Thermo_linearity", analysis.linearity)
+    mol.SetProp("Symmetry_number", str(symmetry))
+    mol.SetProp("Thermo_standard_state", STANDARD_STATE_LABEL)
+    # A saddle point is not a minimum, so it must not read as a success. Set
+    # here, at the one place that knows, rather than left to the caller: the
+    # writer preserves a non-empty marker, so this verdict survives however
+    # the record is routed.
+    mol.SetProp(
+        THERMO_FAILED_PROP,
+        TRANSITION_STATE_FAILURE if analysis.is_transition_state else "",
+    )
+
+
+def _gibbs_terms(
+    atoms, analysis, e, *, geometry, symmetry, spin, n_expected, name, T
+) -> tuple[float, float, float]:
+    """Build ``IdealGasThermo`` from the corrected spectrum; return ``(H, S, G)`` in hartree (S in hartree/K)."""
+    # The list handed to ASE is final: 3N-6 (or 3N-5) modes for a minimum,
+    # 3N-7 for a confirmed saddle point whose reaction coordinate Auto3D
+    # removed itself. _verbatim_mode_kwargs stops ASE re-selecting on top of
+    # it, which is what made G depend on the installed ASE version.
+    # ignore_imag_modes stays on as a backstop only: after inversion, removal
+    # and the quasi-harmonic floor there is nothing left for it to drop, and
+    # the check below says so if that ever stops being true.
+    vib_e = analysis.corrected_energies
+    thermo = IdealGasThermo(
+        vib_energies=vib_e,
+        potentialenergy=e,
+        atoms=atoms,
+        geometry=geometry,
+        symmetrynumber=symmetry,
+        spin=spin,
+        ignore_imag_modes=True,
+        **_verbatim_mode_kwargs(len(vib_e), n_expected),
+    )
+    n_used = len(thermo.vib_energies)
+    if n_used != len(vib_e):
+        logger.warning(
+            "%s: ASE kept %d of the %d vibrational modes it was given. Auto3D "
+            "builds that list to be consumed verbatim, so G is missing %d "
+            "mode(s) it was meant to include.",
+            name,
+            n_used,
+            len(vib_e),
+            len(vib_e) - n_used,
+        )
+    H = thermo.get_enthalpy(temperature=T) * EV_TO_HARTREE
+    # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
+    # Hartree. Name the property accordingly so a downstream G = H - T*S
+    # reconstruction is not off by a factor of T.
+    # Standard state is 1 atm (STANDARD_PRESSURE = 101325 Pa). Read from the
+    # constant rather than repeating the literal: it had no reader anywhere in
+    # src/ or tests/ while these two calls each hardcoded 101325, so editing the
+    # constant would silently have changed nothing.
+    # ASE's internal reference is 1 bar
+    # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
+    # 1 atm -- matching ORCA/Gaussian. Both signs, since "the correction" alone
+    # does not say which way the reported numbers move: ASE subtracts
+    # kB*ln(P/P_ref) from S, so against 1 bar the entropy is LOWER by
+    # R*ln(1.01325) = 0.026 cal/mol/K and G is HIGHER by R*T*ln(1.01325) =
+    # +0.0078 kcal/mol at 298.15 K. get_enthalpy takes no pressure argument at
+    # all: H is pressure independent and identical either way.
+    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
+    G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
+    return H, S, G
 
 
 def do_mol_thermo(
@@ -176,127 +313,19 @@ def do_mol_thermo(
         low_freq_cutoff_cm=low_freq_cutoff_cm,
         linearity=projection.linearity,
     )
-    if analysis.n_inverted > 0:
-        logger.warning(
-            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
-            "%d below the %.0f cm-1 saddle-point threshold are kept at |nu| "
-            "(the Gaussian/ORCA convention for a numerical artifact) rather "
-            "than deleted, so the partition function keeps all %d vibrational "
-            "modes. Deleting one instead removes that mode's entire "
-            "contribution to G -- dominated by -T*S_vib, which diverges as "
-            "1/nu -- and the resulting mode-count mismatch does not cancel "
-            "between two species with different artifact counts.",
-            analysis.n_imag,
-            name,
-            analysis.max_imag_cm,
-            analysis.n_inverted,
-            analysis.imag_cutoff_cm,
-            # The list that was projected, not `n_expected`: the two differ in
-            # the quasilinear case, where 3N-6 modes are paired with the linear
-            # rotor, and the sentence is about the modes actually kept.
-            len(vib_e),
-        )
-    elif analysis.n_imag > 0:
-        logger.warning(
-            "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
-            "they are at or above the %.0f cm-1 saddle-point threshold, so "
-            "they are removed from the thermochemistry rather than inverted.",
-            analysis.n_imag,
-            name,
-            analysis.max_imag_cm,
-            analysis.imag_cutoff_cm,
-        )
-    if analysis.is_transition_state:
-        # Well above the numerical-artifact scale: this is a reaction
-        # coordinate, and a "free energy" computed here is a saddle point's,
-        # not a minimum's -- the rigid-rotor/harmonic partition function
-        # assumes a minimum. The numbers are still written (a deliberate TS
-        # calculation wants them), but the record is marked as failed below so
-        # it cannot pass the documented `Thermo_failed == ""` success filter.
-        logger.warning(
-            "%s has an imaginary mode of %.0f cm-1, above the %.0f cm-1 "
-            "artifact threshold: this geometry is a saddle point, not a "
-            "minimum. Its thermochemistry is reported but marked "
-            "%s=%r, so it does not pass the success filter.",
-            name,
-            analysis.max_imag_cm,
-            analysis.imag_cutoff_cm,
-            THERMO_FAILED_PROP,
-            TRANSITION_STATE_FAILURE,
-        )
-    mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
-    mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
-    mol.SetProp("Max_imaginary_mode_cm-1", f"{analysis.max_imag_cm:.1f}")
-    mol.SetProp("Is_transition_state", str(analysis.is_transition_state))
-    # Name every convention in the file itself: the quasi-harmonic floor, the
-    # standard state and the mass convention are modeling choices that do not
-    # cancel between species, and sigma is the one input the user can set.
-    # Symmetry_number (capital S) is the value USED; symmetry_number is the
-    # request, which may have been rejected (see _symmetry_number).
-    mol.SetProp("N_raised_modes", str(analysis.n_raised))
-    mol.SetProp("Thermo_vib_modes", str(len(analysis.corrected_energies)))
-    mol.SetProp(
-        "Thermo_convention",
-        f"{analysis.convention}; {STANDARD_STATE_LABEL}; {mass_convention(mol)}",
-    )
-    mol.SetProp("Thermo_linearity", analysis.linearity)
-    mol.SetProp("Symmetry_number", str(symmetry))
-    mol.SetProp("Thermo_standard_state", STANDARD_STATE_LABEL)
-    # A saddle point is not a minimum, so it must not read as a success. Set
-    # here, at the one place that knows, rather than left to the caller: the
-    # writer preserves a non-empty marker, so this verdict survives however
-    # the record is routed.
-    mol.SetProp(
-        THERMO_FAILED_PROP,
-        TRANSITION_STATE_FAILURE if analysis.is_transition_state else "",
-    )
-    # The list handed to ASE is final: 3N-6 (or 3N-5) modes for a minimum,
-    # 3N-7 for a confirmed saddle point whose reaction coordinate Auto3D
-    # removed itself. _verbatim_mode_kwargs stops ASE re-selecting on top of
-    # it, which is what made G depend on the installed ASE version.
-    # ignore_imag_modes stays on as a backstop only: after inversion, removal
-    # and the quasi-harmonic floor there is nothing left for it to drop, and
-    # the check below says so if that ever stops being true.
-    vib_e = analysis.corrected_energies
-    thermo = IdealGasThermo(
-        vib_energies=vib_e,
-        potentialenergy=e,
-        atoms=atoms,
+    _warn_imaginary_modes(analysis, name, vib_e)
+    _stamp_vibration_props(mol, analysis, symmetry)
+    H, S, G = _gibbs_terms(
+        atoms,
+        analysis,
+        e,
         geometry=geometry,
-        symmetrynumber=symmetry,
+        symmetry=symmetry,
         spin=spin,
-        ignore_imag_modes=True,
-        **_verbatim_mode_kwargs(len(vib_e), n_expected),
+        n_expected=n_expected,
+        name=name,
+        T=T,
     )
-    n_used = len(thermo.vib_energies)
-    if n_used != len(vib_e):
-        logger.warning(
-            "%s: ASE kept %d of the %d vibrational modes it was given. Auto3D "
-            "builds that list to be consumed verbatim, so G is missing %d "
-            "mode(s) it was meant to include.",
-            name,
-            n_used,
-            len(vib_e),
-            len(vib_e) - n_used,
-        )
-    H = thermo.get_enthalpy(temperature=T) * EV_TO_HARTREE
-    # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
-    # Hartree. Name the property accordingly so a downstream G = H - T*S
-    # reconstruction is not off by a factor of T.
-    # Standard state is 1 atm (STANDARD_PRESSURE = 101325 Pa). Read from the
-    # constant rather than repeating the literal: it had no reader anywhere in
-    # src/ or tests/ while these two calls each hardcoded 101325, so editing the
-    # constant would silently have changed nothing.
-    # ASE's internal reference is 1 bar
-    # (1e5 Pa), so this applies the -kB*T*ln(P/P_ref) correction to report G at
-    # 1 atm -- matching ORCA/Gaussian. Both signs, since "the correction" alone
-    # does not say which way the reported numbers move: ASE subtracts
-    # kB*ln(P/P_ref) from S, so against 1 bar the entropy is LOWER by
-    # R*ln(1.01325) = 0.026 cal/mol/K and G is HIGHER by R*T*ln(1.01325) =
-    # +0.0078 kcal/mol at 298.15 K. get_enthalpy takes no pressure argument at
-    # all: H is pressure independent and identical either way.
-    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
-    G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
 
     mol.SetProp("H_hartree", str(H))
     mol.SetProp("S_hartree_per_K", str(S))
@@ -326,14 +355,14 @@ def do_mol_thermo(
 
     # Only now, with every thermo property computed and set, overwrite mol's
     # conformer with the relaxed geometry. Deliberately deferred from the top
-    # of this function: calc_thermo calls this inside a try block and appends
-    # `mol` itself (not a copy) to mols_failed on an exception, so syncing
-    # early would leave a failed record's conformer holding a partially- or
-    # never-converged relaxed geometry with none of the properties that would
-    # justify it, instead of the pristine input geometry it came in with.
-    conformer = mol.GetConformer()
-    for i in range(mol.GetNumAtoms()):
-        conformer.SetAtomPosition(i, coord[i])
+    # of this function: `_thermo_one_record` holds the try block this call
+    # sits inside and returns `mol` itself (not a copy) on every path, and
+    # `calc_thermo`'s loop appends whatever it is handed to out_mols or
+    # mols_failed -- so syncing early would leave a failed record's conformer
+    # holding a partially- or never-converged relaxed geometry with none of
+    # the properties that would justify it, instead of the pristine input
+    # geometry it came in with.
+    set_conformer_positions(mol, coord)
 
     return mol
 
@@ -446,9 +475,9 @@ def _write_thermo_output(
     document: ``if mol.GetProp("Thermo_failed") == "":`` selects a success.
     An ``out_mols`` record that does not already carry the marker is given the
     empty-string positive one here (mirroring the negative one already set on
-    every ``mols_failed`` record by its failure path in ``calc_thermo``), so a
-    consumer can filter on this single property either way without needing to
-    know which failure modes exist.
+    every ``mols_failed`` record by its failure path in
+    ``_thermo_one_record``), so a consumer can filter on this single property
+    either way without needing to know which failure modes exist.
 
     A marker already present is never overwritten. ``do_mol_thermo`` sets the
     verdict itself -- ``""`` for a minimum, ``"transition_state"`` for a
@@ -471,6 +500,160 @@ def _write_thermo_output(
             w.write(mol)
         for mol in mols_failed:
             w.write(mol)
+
+
+def _thermo_one_record(
+    mol: Chem.Mol,
+    *,
+    hessian_adapter: ModelAdapter,
+    opt_adapter: ModelAdapter,
+    calculator,
+    device,
+    mol_info_func,
+    opt_tol,
+    opt_steps,
+    low_freq_cutoff_cm: float,
+) -> Chem.Mol:
+    """Relax, Hessian and thermo one record; return the same, mutated ``mol``.
+
+    Every return path sets ``THERMO_FAILED_PROP`` first (the stationary-point
+    gate, the T guard and both exception handlers set it; ``do_mol_thermo``
+    sets it to ``""`` for a minimum or ``"transition_state"`` for a confirmed
+    saddle point), so ``calc_thermo``'s loop routes the returned ``mol`` to
+    ``out_mols`` or ``mols_failed`` by reading that single property, exactly
+    as the loop body did before this was pulled out.
+    """
+    # Routed through mol2atoms (rather than a bare Atoms(species, coord))
+    # so isotope masses are applied consistently with vib_hessian's Atoms
+    # object -- otherwise the optimization and the Hessian/thermo stages
+    # would silently disagree on atomic mass for isotopically labeled input.
+    charge = rdmolops.GetFormalCharge(mol)
+    atoms = mol2atoms(mol)
+
+    calculator.set_charge(charge)
+    # atoms.set_calculator() is deprecated since ase 3.22.1; use `.calc`
+    # (Minor 6, same rationale as vib_hessian's call above).
+    atoms.calc = calculator
+
+    if mol_info_func is None:
+        idx = mol.GetProp("_Name").strip()
+        T = 298.15
+    else:
+        idx, T = mol_info_func(mol)
+
+    if not T > 0:
+        # Checked here, before the forward pass and the (up to opt_steps)
+        # relaxation below are spent on a record that do_mol_thermo would
+        # refuse anyway: mol_info_func is caller-supplied, so a
+        # non-positive T is the caller's bug, not something this run
+        # should pay a full relaxation to discover.
+        logger.warning(
+            "%s: mol_info_func returned a non-positive temperature T=%r K; "
+            "no thermochemistry computed (a bad mol_info_func is the "
+            "caller's bug).",
+            idx,
+            T,
+        )
+        mol.SetProp(THERMO_FAILED_PROP, "ConfigurationError")
+        return mol
+
+    try:
+        EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
+        _, f_ = opt_adapter.forward(
+            EnForce_in["coord"].requires_grad_(True),
+            EnForce_in["numbers"],
+            EnForce_in["charge"],
+        )
+        fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+
+        # Gate on the documented threshold, not a hardcoded 0.01.
+        # opt_tol was previously reachable only from the ValueError
+        # fallback, so constants.py's tighter value never applied to
+        # the primary path.
+        converged = fmax <= opt_tol
+        if not converged:
+            logger.info(
+                "Relaxing %s to fmax=%.1e before the Hessian (input fmax=%.2e).",
+                idx,
+                opt_tol,
+                fmax,
+            )
+            converged = relax_to_stationary_point(
+                atoms,
+                fmax=opt_tol,
+                steps=opt_steps,
+                name=idx,
+            )
+
+        if not converged:
+            # The harmonic approximation needs a stationary point.
+            # Emitting G here would look exactly like a real result.
+            mol.SetProp(THERMO_FAILED_PROP, "not_converged")
+            return mol
+
+        mol = do_mol_thermo(
+            mol, atoms, hessian_adapter, device, T, low_freq_cutoff_cm=low_freq_cutoff_cm
+        )
+        # do_mol_thermo writes the verdict: "" for a minimum, or
+        # "transition_state" for a confirmed saddle point, whose
+        # rigid-rotor/harmonic thermochemistry is not a minimum's and must
+        # not pass the documented success filter. calc_thermo routes on that
+        # single property, the same way the stationary-point gate above does.
+        return mol
+    except (
+        RuntimeError,
+        torch.cuda.OutOfMemoryError,
+        ValueError,
+        np.linalg.LinAlgError,
+        ZeroDivisionError,
+        ConfigurationError,
+    ) as e:
+        logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
+        logger.warning(f"Failed: {idx}")
+        mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
+        return mol
+    except Exception as e:
+        # Catch-all for truly unexpected errors - prevents batch failure
+        # Log at ERROR level for debugging while allowing pipeline to continue
+        logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
+        logger.warning(f"Failed (unexpected): {idx}")
+        mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
+        return mol
+
+
+def _finalize_thermo_records(out_mols, mols_failed, relative_gibbs) -> None:
+    """Log the run's counts and stamp relative energies over the finished sets."""
+    logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
+    logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
+
+    # `do_mol_thermo` cleared each record's inherited `E_rel(kcal/mol)` because
+    # the relaxation replaced the `E_tot` it was computed from. It could not
+    # recompute one: it sees a single molecule and the quantity is defined
+    # against a conformer group. Here the whole set is in hand, so restore the
+    # documented property against the relaxed energies.
+    #
+    # Successes only. A saddle point's thermochemistry is not a minimum's, and a
+    # record that failed the stationary-point gate never reached `do_mol_thermo`
+    # -- so it still carries the *input* `E_tot`, from whatever engine wrote the
+    # file. Letting either into the group would either pollute the comparison or,
+    # as the reference, shift every other conformer in it. Excluding them is also
+    # what makes the mixed-level-of-theory caveat in CHANGELOG a property of the
+    # file rather than something the reader has to remember.
+    set_relative_energies(out_mols)
+    # The Gibbs one only on request. Computing it here is free -- every record
+    # already has `G_hartree` -- but it is the entry point to a workflow that is
+    # not: obtaining a dG at all costs a Hessian per conformer, and a default
+    # that quietly depends on one turns the cheap path expensive. So the
+    # electronic quantity is what a run produces unless the caller asks.
+    #
+    # It picks its own reference: the lowest-G conformer need not be the
+    # lowest-E one once ZPE and S_vib enter.
+    if relative_gibbs:
+        set_relative_gibbs_energies(out_mols)
+    # And the failures keep no relative energy at all: theirs derives from an
+    # `E_tot` this run did not recompute, and leaving it would mean the property
+    # survives on exactly the records a user must discard.
+    clear_relative_energies(mols_failed)
 
 
 def calc_thermo(
@@ -646,139 +829,28 @@ def calc_thermo(
     opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
     for mol in tqdm(survivors):
-        # Routed through mol2atoms (rather than a bare Atoms(species, coord))
-        # so isotope masses are applied consistently with vib_hessian's Atoms
-        # object -- otherwise the optimization and the Hessian/thermo stages
-        # would silently disagree on atomic mass for isotopically labeled input.
-        charge = rdmolops.GetFormalCharge(mol)
-        atoms = mol2atoms(mol)
-
-        calculator.set_charge(charge)
-        # atoms.set_calculator() is deprecated since ase 3.22.1; use `.calc`
-        # (Minor 6, same rationale as vib_hessian's call above).
-        atoms.calc = calculator
-
-        if mol_info_func is None:
-            idx = mol.GetProp("_Name").strip()
-            T = 298.15
+        mol = _thermo_one_record(
+            mol,
+            hessian_adapter=hessian_adapter,
+            opt_adapter=opt_adapter,
+            calculator=calculator,
+            device=device,
+            mol_info_func=mol_info_func,
+            opt_tol=opt_tol,
+            opt_steps=opt_steps,
+            low_freq_cutoff_cm=low_freq_cutoff_cm,
+        )
+        # do_mol_thermo writes the verdict: "" for a minimum, or
+        # "transition_state" for a confirmed saddle point, whose
+        # rigid-rotor/harmonic thermochemistry is not a minimum's and must
+        # not pass the documented success filter. Route on that single
+        # property, the same way the stationary-point gate above does.
+        if mol.GetProp(THERMO_FAILED_PROP):
+            mols_failed.append(mol)
         else:
-            idx, T = mol_info_func(mol)
+            out_mols.append(mol)
 
-        if not T > 0:
-            # Checked here, before the forward pass and the (up to opt_steps)
-            # relaxation below are spent on a record that do_mol_thermo would
-            # refuse anyway: mol_info_func is caller-supplied, so a
-            # non-positive T is the caller's bug, not something this run
-            # should pay a full relaxation to discover.
-            logger.warning(
-                "%s: mol_info_func returned a non-positive temperature T=%r K; "
-                "no thermochemistry computed (a bad mol_info_func is the "
-                "caller's bug).",
-                idx,
-                T,
-            )
-            mol.SetProp(THERMO_FAILED_PROP, "ConfigurationError")
-            mols_failed.append(mol)
-            continue
-
-        try:
-            EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
-            _, f_ = opt_adapter.forward(
-                EnForce_in["coord"].requires_grad_(True),
-                EnForce_in["numbers"],
-                EnForce_in["charge"],
-            )
-            fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
-
-            # Gate on the documented threshold, not a hardcoded 0.01.
-            # opt_tol was previously reachable only from the ValueError
-            # fallback, so constants.py's tighter value never applied to
-            # the primary path.
-            converged = fmax <= opt_tol
-            if not converged:
-                logger.info(
-                    "Relaxing %s to fmax=%.1e before the Hessian (input fmax=%.2e).",
-                    idx,
-                    opt_tol,
-                    fmax,
-                )
-                converged = relax_to_stationary_point(
-                    atoms,
-                    fmax=opt_tol,
-                    steps=opt_steps,
-                    name=idx,
-                )
-
-            if not converged:
-                # The harmonic approximation needs a stationary point.
-                # Emitting G here would look exactly like a real result.
-                mol.SetProp(THERMO_FAILED_PROP, "not_converged")
-                mols_failed.append(mol)
-                continue
-
-            mol = do_mol_thermo(
-                mol, atoms, hessian_adapter, device, T, low_freq_cutoff_cm=low_freq_cutoff_cm
-            )
-            # do_mol_thermo writes the verdict: "" for a minimum, or
-            # "transition_state" for a confirmed saddle point, whose
-            # rigid-rotor/harmonic thermochemistry is not a minimum's and must
-            # not pass the documented success filter. Route on that single
-            # property, the same way the stationary-point gate above does.
-            if mol.GetProp(THERMO_FAILED_PROP):
-                mols_failed.append(mol)
-            else:
-                out_mols.append(mol)
-        except (
-            RuntimeError,
-            torch.cuda.OutOfMemoryError,
-            ValueError,
-            np.linalg.LinAlgError,
-            ZeroDivisionError,
-            ConfigurationError,
-        ) as e:
-            logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
-            logger.warning(f"Failed: {idx}")
-            mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
-            mols_failed.append(mol)
-        except Exception as e:
-            # Catch-all for truly unexpected errors - prevents batch failure
-            # Log at ERROR level for debugging while allowing pipeline to continue
-            logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
-            logger.warning(f"Failed (unexpected): {idx}")
-            mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
-            mols_failed.append(mol)
-
-    logger.info(f"Number of failed thermo calculations: {len(mols_failed)}")
-    logger.info(f"Number of successful thermo calculations: {len(out_mols)}")
-
-    # `do_mol_thermo` cleared each record's inherited `E_rel(kcal/mol)` because
-    # the relaxation replaced the `E_tot` it was computed from. It could not
-    # recompute one: it sees a single molecule and the quantity is defined
-    # against a conformer group. Here the whole set is in hand, so restore the
-    # documented property against the relaxed energies.
-    #
-    # Successes only. A saddle point's thermochemistry is not a minimum's, and a
-    # record that failed the stationary-point gate never reached `do_mol_thermo`
-    # -- so it still carries the *input* `E_tot`, from whatever engine wrote the
-    # file. Letting either into the group would either pollute the comparison or,
-    # as the reference, shift every other conformer in it. Excluding them is also
-    # what makes the mixed-level-of-theory caveat in CHANGELOG a property of the
-    # file rather than something the reader has to remember.
-    set_relative_energies(out_mols)
-    # The Gibbs one only on request. Computing it here is free -- every record
-    # already has `G_hartree` -- but it is the entry point to a workflow that is
-    # not: obtaining a dG at all costs a Hessian per conformer, and a default
-    # that quietly depends on one turns the cheap path expensive. So the
-    # electronic quantity is what a run produces unless the caller asks.
-    #
-    # It picks its own reference: the lowest-G conformer need not be the
-    # lowest-E one once ZPE and S_vib enter.
-    if relative_gibbs:
-        set_relative_gibbs_energies(out_mols)
-    # And the failures keep no relative energy at all: theirs derives from an
-    # `E_tot` this run did not recompute, and leaving it would mean the property
-    # survives on exactly the records a user must discard.
-    clear_relative_energies(mols_failed)
+    _finalize_thermo_records(out_mols, mols_failed, relative_gibbs)
 
     _write_thermo_output(outpath, out_mols, mols_failed)
     return str(outpath)
