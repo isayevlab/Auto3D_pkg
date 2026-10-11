@@ -779,9 +779,10 @@ def analyze_vibrations(
     and are all evaluated at the floor, contributing identically.
 
     One classification detail deliberately does NOT match ASE: this function
-    calls a mode imaginary when ``imag(v) != 0``, while ``_clean_vib_energies``
-    keeps a mode only when ``real(v) > 0``, i.e. it treats ``real(v) <= 0`` as
-    imaginary. The two agree everywhere except for an exactly-zero mode
+    calls a mode imaginary when ``imag(v) != 0``, while ``_clean_vib_energies``,
+    with ``ignore_imag_modes=True``, as the driver passes, keeps a mode only
+    when ``real(v) > 0``, i.e. it treats ``real(v) <= 0`` as imaginary. The
+    two agree everywhere except for an exactly-zero mode
     (``complex(0, 0)``), which this function calls real. With the
     quasi-harmonic floor in force such a mode is raised to the floor and the
     difference is moot; with the floor disabled this function still passes it

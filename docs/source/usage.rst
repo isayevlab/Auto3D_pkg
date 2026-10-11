@@ -608,8 +608,11 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   atoms carry RDKit isotope labels says ``isotope-labeled masses`` instead: each
   labeled atom gets its own isotope's mass, every other atom still the most
   abundant isotope, and which atoms differ is recoverable from the record's atom
-  block. Two files are comparable only when this string, ``T_K``,
-  ``Symmetry_number`` and ``multiplicity`` all agree.
+  block. Two files are comparable only when this string, ``T_K`` and
+  ``Symmetry_number`` all agree and the spin multiplicity used for
+  ``R ln(2S+1)`` -- an explicit ``multiplicity`` property when the input
+  carried a valid one, otherwise unpaired electrons + 1 from the record's own
+  atom block -- is the same on both.
 - **Thermo_standard_state**: ``"1 atm"``, the ideal-gas 1 atm standard state
   (the Gaussian and ORCA default; ASE's internal 1 bar reference is corrected,
   which lowers *S* by ``R ln 1.01325`` = 0.026 cal/mol/K and raises *G* by
@@ -626,11 +629,15 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   below ``h^2 / (8 pi^3 k T)``, 0.026 amu A^2 at 298 K), so the phantom mode is
   dropped but the linear rotor is kept. A warning names the molecule in both
   cases.
-- **multiplicity**: 2S+1, the spin multiplicity used for the electronic entropy
-  ``R ln(2S+1)``. It is derived for the thermochemistry from the
-  radical-electron count, or from the per-mol ``multiplicity`` property when
-  the input carries one; the value is not written back onto the record
-  because no energy engine reads it.
+- **multiplicity**: 2S+1, the spin multiplicity used for the electronic
+  entropy ``R ln(2S+1)``. The per-mol ``multiplicity`` property is used when
+  the input carries a valid one (>= 1, at most ``n_electrons + 1``, and of
+  the parity the electron count requires); otherwise it is derived as
+  unpaired electrons + 1 from the record's radical-electron count. Either
+  way the value is used for the thermochemistry only and is not written back
+  onto the record: it affects *S* and *G* through ``R ln(2S+1)``, never *H*
+  and never the NNP energy, and the derived form is recomputable from the
+  record's own atom block (the molfile radical flags).
 
 ``Thermo_convention``, ``Thermo_standard_state``, ``Symmetry_number`` and
 ``Thermo_linearity`` are written by the thermochemistry step itself, so a

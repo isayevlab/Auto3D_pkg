@@ -189,7 +189,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `calc_thermo` no longer writes a derived `multiplicity` property back onto
   the record, since no energy engine reads it; an input that already
   carries a `multiplicity` property is still honored. Threading the
-  resolved multiplicity through to aimnet2-nse is tracked separately.
+  resolved multiplicity through to aimnet2-nse is tracked separately. An
+  invalid `multiplicity` property is now dropped from the output record
+  with a warning instead of being carried through unused.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

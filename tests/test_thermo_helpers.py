@@ -320,6 +320,38 @@ def test_resolve_multiplicity_respects_explicit_property():
     m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
     m.SetUnsignedProp("multiplicity", 4)  # ... but an explicit value wins
     assert _resolve_multiplicity(m) == 4
+    # A valid explicit property is the one actually used, so it stays.
+    assert m.GetUnsignedProp("multiplicity") == 4
+
+
+def test_resolve_multiplicity_invalid_property_is_dropped_from_the_record():
+    """A rejected 'multiplicity' must not survive onto the record once the
+    radical-derived value is used instead: a record carrying a multiplicity
+    that was never fed into G would be advertising a number nothing used.
+
+    The methyl radical is a 9-electron (odd) species, so 2S+1 must be even;
+    7 is odd and is rejected on parity, falling back to the derived doublet.
+    """
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _electron_count, _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")
+    assert _electron_count(m) == 9, "test premise: a 9-electron, odd-electron species"
+    m.SetProp("multiplicity", "7")
+    assert _resolve_multiplicity(m) == 2
+    assert not m.HasProp("multiplicity")
+
+
+def test_resolve_multiplicity_unparseable_property_is_dropped_from_the_record():
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")
+    m.SetProp("multiplicity", "two")
+    assert _resolve_multiplicity(m) == 2
+    assert not m.HasProp("multiplicity")
 
 
 def test_do_mol_thermo_default_temperature_is_298_15():
