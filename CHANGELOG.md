@@ -100,8 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `opt_geometry` refuses `patience < 1` (via `OptimizationConfig.__post_init__`,
   the one field that dataclass validates itself) instead of silently
   dropping every converged structure as oscillating on the optimizer's
-  first step, and warns once when an explicitly passed `patience` exceeds
-  `opt_steps`, which can never trigger before the step limit does.
+  first step, and warns once when an explicitly passed `patience` reaches
+  or exceeds `opt_steps`, which can never trigger before the step limit
+  does.
 - `EV_PER_WAVENUMBER` is the CODATA 2018 value (1 eV = 8065.543937 cm^-1,
   a 0.044 ppm shift from the prior 8065.54429) and `HARTREE_TO_KCAL_PER_MOL`
   is now derived from `HARTREE_TO_EV * EV_TO_KCAL_PER_MOL` rather than an

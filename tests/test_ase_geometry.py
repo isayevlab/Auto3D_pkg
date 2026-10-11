@@ -77,6 +77,24 @@ def test_opt_geometry_warns_when_patience_exceeds_opt_steps(monkeypatch, tmp_pat
     assert "patience" in caplog.text and "opt_steps" in caplog.text
 
 
+def test_opt_geometry_warns_when_patience_equals_opt_steps(monkeypatch, tmp_path, caplog):
+    """Chem-M3: the warning's predicate is `>=`, not `>`. The oscillation
+    counter starts at 0 and the step-1 force is always a reduction (the
+    running minimum is seeded at +inf), so it can reach at most
+    `opt_steps - 1` after `opt_steps` steps -- `patience == opt_steps` can
+    also never trigger before the step limit does, so an explicit
+    `patience=opt_steps` (a plausible way to spell "never drop as
+    oscillating") must warn too, not just a value strictly above it."""
+    import logging
+
+    from Auto3D.entry.ASE.geometry import opt_geometry
+
+    sdf = _two_record_input(tmp_path, monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        opt_geometry(str(sdf), "ANI2xt", patience=10, opt_steps=10, use_gpu=False)
+    assert "patience" in caplog.text and "opt_steps" in caplog.text
+
+
 @pytest.mark.slow
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom

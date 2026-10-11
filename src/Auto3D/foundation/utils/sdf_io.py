@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Reading, splitting, counting, filtering and reordering SDF files.
+"""Reading, splitting, filtering and reordering SDF files.
 
 Structural SDF file handling only: nothing here knows what an Auto3D energy or
 convergence flag means (``utils/energy.py`` and ``utils/convergence.py`` own
@@ -117,11 +117,17 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     # inside an open property value, so a `$$$$` line there is data, not a
     # terminator.
     saw_m_end = False
+    # Chem-M8: `saw_m_end` is cleared on every accepted terminator, so it
+    # cannot answer "was there ever an `M  END` in this file at all?" --
+    # `ever_saw_m_end` is the one flag that is only ever set, never cleared,
+    # for exactly that question below.
+    ever_saw_m_end = False
     prev_stripped: str | None = None
     for line in data:
         stripped = line.strip()
         if stripped == "M  END":
             saw_m_end = True
+            ever_saw_m_end = True
         if stripped == "$$$$" and saw_m_end and prev_stripped in ("", "M  END"):
             chunk.append(line)
             chunks.append(chunk)
@@ -131,13 +137,31 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
             chunk.append(line)
         prev_stripped = stripped
     # A final record lacking the '$$$$' terminator leaves residual lines in
-    # `chunk`. Preserve it as the last chunk rather than silently dropping it.
+    # `chunk`. Preserve it as the last chunk rather than silently dropping it
+    # (the fallback behavior is unchanged by chem-M8 below; only which
+    # warning fires changes).
     if any(line.strip() for line in chunk):
-        logger.warning(
-            "SDF file %s ends without a '$$$$' terminator; "
-            "keeping the trailing record as a final chunk.",
-            sdf,
-        )
+        if not ever_saw_m_end:
+            # Under the M  END gate above, a file with no M  END line at all
+            # (not a molfile, or every record is malformed before its own
+            # atom/bond block) can never have any `$$$$` in it accepted as a
+            # terminator -- every one is data, not a record boundary -- so
+            # the whole file ends up here, in this one fallback chunk. The
+            # "ends without a '$$$$' terminator" message below would be
+            # misleading for such a file: it may contain many. Name the real
+            # cause instead.
+            logger.warning(
+                "SDF file %s contains no 'M  END' line, so no '$$$$' in it "
+                "could be accepted as a record terminator; keeping the "
+                "whole file as one unsplit chunk.",
+                sdf,
+            )
+        else:
+            logger.warning(
+                "SDF file %s ends without a '$$$$' terminator; "
+                "keeping the trailing record as a final chunk.",
+                sdf,
+            )
         chunks.append(chunk)
     return chunks
 

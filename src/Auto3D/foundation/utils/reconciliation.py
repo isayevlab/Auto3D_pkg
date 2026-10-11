@@ -48,10 +48,15 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     for _line_no, smiles_str, mol_id in iter_smi_records(smi, on_malformed="skip"):
         smi_names.append((smiles_str, mol_id))
 
-    # Get all molecule names from SDF. removeHs=False (P-m27): every Auto3D
-    # writer emits explicit H, and the default removeHs=True may fail to
-    # parse, or silently alter, such a record -- the same reason every other
-    # reader of an Auto3D output SDF passes it.
+    # Get all molecule names from SDF. removeHs=False (P-m27): the same
+    # setting `find_ids_not_in_sdf`'s own source-SDF supplier below already
+    # uses, and the one every other reader of an Auto3D output SDF uses --
+    # not because a vanilla explicit-H record fails to parse or changes
+    # name under the default (it does neither; `RemoveHs` never touches
+    # `_Name`, which is all this function reads), but so every supplier in
+    # this module reads hydrogens the same way: a hydrogen-count-dependent
+    # identity check always compares like with like, and this file never
+    # pays a RemoveHs pass on input that carries no implicit H to remove.
     sdf_data: list[str] = []
     mols = Chem.SDMolSupplier(sdf, removeHs=False)
     for i, mol in enumerate(mols):
@@ -62,10 +67,11 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
         # decode_ids keeps a "@tautN" suffix on tautomer-enumerated conformers
         # (see Auto3D.domain.id_mapping.decode_ids), but the .smi input has only the
         # base id. Strip it the same way reorder_sdf/count_output do (via the
-        # single-owner strip_taut_suffix, which splits on "@taut" -- never a
-        # bare "@" -- so an id that legitimately contains "@" is not
-        # truncated), or every tautomer-derived molecule would be misreported
-        # as missing.
+        # single-owner strip_taut_suffix, which matches "@taut" followed by at
+        # least one digit, plus an optional trailing isomer/conformer suffix,
+        # and removes the match -- never a bare "@" -- so an id that
+        # legitimately contains "@" is not truncated), or every
+        # tautomer-derived molecule would be misreported as missing.
         name = strip_taut_suffix(name)
         sdf_data.append(name)
     sdf_data = list(set(sdf_data))

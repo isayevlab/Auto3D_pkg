@@ -224,15 +224,16 @@ class TestHashTautSmi:
 class TestStripTautSuffix:
     """N-m29: ``@taut`` only starts a suffix to strip when at least one
     digit immediately follows it -- exactly the shape ``hash_taut_smi``
-    writes (``id + f"@taut{c}"``), possibly with a stereoisomer/conformer
-    suffix of its own appended after (``id@tautN_<isomer>_<conformer>``,
-    the shape ``select_tautomers`` reads). Everything from ``"@taut"``
-    onward is removed once that digit is seen -- not just the digit run --
-    which is what lets two of one molecule's tautomers, enumerated into
-    different isomers/conformers, still group under their shared base id.
+    writes (``id + f"@taut{c}"``), optionally followed by exactly ONE
+    ``_<isomer>_<conformer>`` suffix of its own
+    (``id@tautN_<isomer>_<conformer>``, the shape ``select_tautomers``
+    reads). Chem review M5: tightened from an unbounded ``@taut\\d+.*$`` to
+    ``@taut\\d+(?:_\\d+_\\d+)?$`` -- the two producer-exact shapes only --
+    so an id whose own text happens to continue past one of those two shapes
+    is left alone rather than truncated.
 
     Splitting on the first occurrence of the bare substring ``"@taut"``
-    anywhere in the id, the previous behavior, truncated a legitimate id
+    anywhere in the id, the original behavior, truncated a legitimate id
     that merely contains that text (``"sample@tautonomy_1"``) as if it were
     a hashed suffix.
     """
@@ -250,6 +251,14 @@ class TestStripTautSuffix:
         pins this at the integration level)."""
         assert strip_taut_suffix("id1@taut0_0_0") == "id1"
         assert strip_taut_suffix("id1@taut1_2_3") == "id1"
+        assert strip_taut_suffix("id@taut3_1_7") == "id"
+
+    def test_strip_taut_suffix_leaves_a_non_isomer_conformer_tail_intact(self):
+        """Chem-M5: the pattern matches exactly the two producer shapes, not
+        '@taut<digits>' plus arbitrary trailing text -- an id whose own
+        text continues past the digit run with anything other than one
+        '_<isomer>_<conformer>' pair is left alone."""
+        assert strip_taut_suffix("sample@taut3x") == "sample@taut3x"
 
 
 class TestCombineSmi:

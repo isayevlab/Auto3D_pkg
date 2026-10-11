@@ -4,7 +4,9 @@ from __future__ import annotations
 
 # Energy conversion factors (CODATA 2018)
 HARTREE_TO_EV = 27.211386245988  # 1 Hartree in eV
-EV_TO_KCAL_PER_MOL = 23.060547830619026  # 1 eV in kcal/mol (original Auto3D value)
+# 1 eV in kcal/mol = e*N_A/4184, exact under the 2019 SI with the
+# thermochemical calorie (4.184 J).
+EV_TO_KCAL_PER_MOL = 23.060547830619026
 # 1 Hartree in kcal/mol. Computed from the two factors above (N-m22), the same
 # derivation pattern EV_TO_HARTREE below uses, rather than carried as its own
 # independent literal that could drift from the product of the two. This
@@ -267,10 +269,20 @@ IMAGINARY_MODE_CUTOFF_CM = 50.0
 # quasi-RRHO (Chem. Eur. J. 2012, 18, 9955); at 298 K, kT = 207 cm^-1, so
 # every mode below the floor is deep in the classical limit.
 #
-# They share that number, not a mechanism. Auto3D follows Truhlar's
-# quasi-harmonic treatment: every real mode below the floor is RAISED to the
-# floor wavenumber in the frequency list handed to the partition function, so
-# ZPE, the vibrational enthalpy and the vibrational entropy all move together.
+# They share that number, not a mechanism. Raising a sub-cutoff mode's
+# frequency to evaluate the vibrational ENTROPY is Ribeiro, Marenich, Cramer
+# and Truhlar's quasi-harmonic treatment (the common implementation,
+# GoodVibes' `-qs truhlar`, substitutes the raised frequency into S_vib alone,
+# leaving ZPE and the vibrational enthalpy on the real frequency). Applying
+# that same raised value to ZPE and the vibrational enthalpy as well is
+# Auto3D's own convention, not Truhlar's: this implementation raises the
+# frequency in the one list handed to the partition function, so ZPE, the
+# vibrational enthalpy and the vibrational entropy all move together. The two
+# choices differ by at most 0.011 kcal/mol per raised mode in H_hartree and
+# G_hartree at 298 K -- a mode far below kT has a vibrational enthalpy of
+# ~RT regardless of its exact frequency, so raising ZPE and H_vib together
+# very nearly cancel, leaving S_vib to carry essentially all of the
+# difference (including the +1.6 kcal/mol n-decane shift recorded below).
 # Grimme's quasi-RRHO instead keeps the real frequency for ZPE and enthalpy
 # unchanged and uses this same 100 cm^-1 only as the midpoint of a damping
 # function that interpolates the ENTROPY term alone between the harmonic and

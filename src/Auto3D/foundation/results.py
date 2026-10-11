@@ -34,10 +34,12 @@ def count_output(output_path: str) -> tuple[int, int]:
     Molecule identity is the input id -- the part of the conformer name before
     the ``@tautN`` tautomer separator (``id@tautN``), so all tautomers of one
     input molecule count as a single molecule. Stripped with
-    ``strip_taut_suffix`` (splits on ``"@taut"``, never a bare ``"@"``) so an
-    input id that legitimately contains ``@`` (an email-style id, say) is not
-    truncated into a different, wrong id -- splitting on bare ``"@"`` was a
-    real drift bug here, previously out of sync with
+    ``strip_taut_suffix`` (matches ``"@taut"`` followed by at least one digit,
+    optionally followed by one ``_<isomer>_<conformer>`` pair, and removes
+    the match -- never a bare ``"@"``) so an input id that legitimately
+    contains ``@`` (an email-style id, say) is not truncated into a
+    different, wrong id -- splitting on bare ``"@"`` was a real drift bug
+    here, previously out of sync with
     ``reconciliation.find_smiles_not_in_sdf``/``find_ids_not_in_sdf``, which
     already used the correct ``"@taut"`` split. A missing/unreadable file
     yields ``(0, 0)``.

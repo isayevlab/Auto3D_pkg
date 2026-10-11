@@ -343,6 +343,33 @@ class TestSDF2chunksTrailingRecord:
         assert "line2" in joined
         assert "line3" in joined
 
+    def test_a_file_with_no_m_end_at_all_warns_about_the_real_cause(self, tmp_path, caplog):
+        """Chem-M8: under the `M  END` gate, a file that contains `$$$$`
+        lines but no `M  END` anywhere can never have any of them accepted
+        as a terminator -- every one is data, not a record boundary -- so
+        the whole file falls back to one unsplit chunk (current fallback
+        behavior, unchanged). The generic "ends without a '$$$$' terminator"
+        message would be misleading here (the file is full of them); the
+        real cause -- no molfile terminator was ever seen -- must be named.
+        """
+        import logging
+
+        sdf = tmp_path / "no_m_end.sdf"
+        # Two "$$$$" lines, neither ever accepted: no "M  END" anywhere.
+        sdf.write_text("mol1\n  line1\n$$$$\nmol2\n  line2\n$$$$\n")
+
+        with caplog.at_level(logging.WARNING):
+            chunks = SDF2chunks(str(sdf))
+
+        # Current fallback behavior preserved: one chunk, the whole file.
+        assert len(chunks) == 1
+        joined = "".join(chunks[0])
+        assert "mol1" in joined and "mol2" in joined
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("M  END" in m for m in messages), messages
+        assert not any("ends without a '$$$$' terminator" in m for m in messages), messages
+
 
 class TestIterConformerRecords:
     """The one filter every single-file reader goes through -- `calc_spe`,

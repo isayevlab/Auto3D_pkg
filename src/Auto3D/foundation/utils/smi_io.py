@@ -251,38 +251,54 @@ def hash_taut_smi(smi: str, out: str) -> None:
 
 
 def strip_taut_suffix(name: str) -> str:
-    """Return a molecule ID with its ``@tautN`` suffix, and anything after
-    it, removed.
+    """Return a molecule ID with its ``@tautN`` suffix, and a following
+    isomer/conformer suffix if any, removed.
 
     The suffix is written by :func:`hash_taut_smi` (``id + f"@taut{c}"``) and
-    read back by ``decode_ids``/``select_tautomers`` as the id's final
-    segment -- except when it is not final at all: a tautomer's own
-    stereoisomer/conformer suffix is appended AFTER it (``id@tautN_<isomer>_
-    <conformer>``, e.g. ``"mol_a@taut0_0_0"``), so ``select_tautomers``
-    genuinely needs everything from ``"@taut"`` onward gone, not just the
-    digit run, to group that record with its sibling tautomers under their
-    shared base id.
+    read back by ``decode_ids``/``select_tautomers``. Two shapes reach this
+    function, both producer-exact:
 
-    Matching ``@taut\\d+`` -- requiring at least one digit IMMEDIATELY after
-    ``"taut"`` -- before removing that and everything after it is what keeps
-    a legitimate id that merely contains ``@`` (an email-style ID, say) or
-    the literal text ``"@taut"`` with no following digit (e.g.
-    ``"sample@tautonomy_1"``, where ``"@taut"`` is followed by the letter
-    ``"o"``) intact (N-m29): nothing after ``"taut"`` is a digit, so the
-    pattern never matches and the id is returned unchanged. A narrower,
-    end-anchored pattern (``@taut\\d+$``) would reject exactly those
-    isomer/conformer-suffixed ids above, splitting one tautomer's enumerated
-    conformers across several wrongly-distinct "base ids" instead of grouping
-    them -- see ``tests/test_e_tot_units.py``'s
+    - ``id@tautN`` -- :func:`hash_taut_smi` itself, the id's final segment.
+    - ``id@tautN_<isomer>_<conformer>`` -- the isomer engines append their own
+      ``_<isomer>_<conformer>`` suffix AFTER the tautomer hash
+      (:class:`~Auto3D.engines.isomers.rdkit_sdf.RDKitSdfIsomer`,
+      :class:`~Auto3D.engines.isomers.rdkit_smi.RDKitIsomer`), so
+      ``select_tautomers`` needs that tail gone too, to group a record with
+      its sibling tautomers under their shared base id.
+
+    The pattern -- ``@taut`` followed by at least one digit, optionally
+    followed by exactly one ``_<digits>_<digits>`` isomer/conformer pair,
+    then end of string -- matches exactly those two shapes and nothing else
+    (N-m29, tightened per chem review M5). In particular it leaves alone:
+
+    - a legitimate id that merely contains ``@`` (an email-style ID, say);
+    - the literal text ``"@taut"`` with no following digit (e.g.
+      ``"sample@tautonomy_1"``, where ``"@taut"`` is followed by the letter
+      ``"o"``, not a digit);
+    - an id whose OWN text happens to contain ``@taut<digits>`` with anything
+      other than exactly that one isomer/conformer shape following it (e.g.
+      ``"lot@taut2_batchA"``, ``"sample@taut3x"``) -- not a regression (the
+      previous, looser ``@taut\\d+.*$`` consumed these the same way and the
+      original ``.split("@taut")[0]`` did worse), and unreachable on the
+      chunked pipeline, where ids are dense integers by the time a tautomer
+      hash is computed; it can still reach the user-id paths
+      (``select_tautomers``, the two ``reconciliation.py`` functions,
+      ``count_output``), which is why it is bounded here rather than left at
+      ``.*$``.
+
+    An end-anchored pattern with no isomer/conformer allowance
+    (``@taut\\d+$``) would reject the second shape outright, splitting one
+    tautomer's enumerated conformers across several wrongly-distinct "base
+    ids" instead of grouping them -- see ``tests/test_e_tot_units.py``'s
     ``test_relative_tautomer_energy_is_kcal_per_mol``, which pins this.
 
     Splitting on ``"@"`` was a real drift bug in ``foundation/results.py``,
     which under-counted an id that legitimately contains one; splitting on
     the first occurrence of the bare substring ``"@taut"`` anywhere in the
-    id (with no digit requirement) was a second, narrower one this anchors
-    against.
+    id (with no digit requirement, and consuming everything after it) was a
+    second, looser one this narrows against.
     """
-    return re.sub(r"@taut\d+.*$", "", name)
+    return re.sub(r"@taut\d+(?:_\d+_\d+)?$", "", name)
 
 
 def combine_smi(smies: list[str], out: str) -> None:

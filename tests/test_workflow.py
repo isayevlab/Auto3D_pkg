@@ -1394,22 +1394,29 @@ class TestFinalizeOutputReconciliation:
         by the encode/decode relabeling, since `decode_ids` maps each
         encoded id to exactly one original id -- and stores it as
         `self.output_counts`, so `main()` can hand eager counts to
-        `WorkflowResult` without re-reading the output file."""
+        `WorkflowResult` without re-reading the output file.
+
+        Task-M1: the eager count applies the same `.strip()` to `_Name` the
+        lazy `count_output` path does (`results.py`) -- encoded id 2 appears
+        once as `"2"` and once as `"2 "` (trailing whitespace); without
+        `.strip()` those are two different strings and the molecule count
+        would be wrong by one.
+        """
         from rdkit import Chem
 
         from Auto3D.foundation.config import Auto3DOptions
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         orig_smi = tmp_path / "orig.smi"
-        orig_smi.write_text("C mol_a\nC mol_b\n")
+        orig_smi.write_text("C mol_a\nC mol_b\nC mol_c\n")
 
         config = Auto3DOptions(path=str(orig_smi), k=1, use_gpu=False)
         config.input_format = "smi"
         orch = WorkflowOrchestrator(config)
         orch.job_dir = tmp_path
         orch.input_path = tmp_path / "orig_encoded.smi"
-        orch.input_path.write_text("C 0\nC 1\n")
-        orch.id_mapping = {"mol_a": 0, "mol_b": 1}
+        orch.input_path.write_text("C 0\nC 1\nC 2\n")
+        orch.id_mapping = {"mol_a": 0, "mol_b": 1, "mol_c": 2}
         orch.logger = None
 
         job = tmp_path / "job1"
@@ -1417,14 +1424,18 @@ class TestFinalizeOutputReconciliation:
         combined = job / "orig_encoded_3d.sdf"
         with Chem.SDWriter(str(combined)) as w:
             # Two tautomer-enumerated conformers of encoded id 0 (collapse to
-            # one molecule) and one conformer of encoded id 1 -> 2 molecules,
-            # 3 conformers.
+            # one molecule), one conformer of encoded id 1, and two
+            # conformers of encoded id 2 -- one named "2", one "2 " (trailing
+            # whitespace) -- which must also collapse to one molecule.
+            # -> 3 molecules, 5 conformers.
             w.write(_encoded_mol(0, taut=0))
             w.write(_encoded_mol(0, taut=1))
             w.write(_encoded_mol(1))
+            w.write(_encoded_mol(2))
+            w.write(_encoded_mol("2 "))
 
         orch._finalize_output(start_time=0.0)
-        assert orch.output_counts == (2, 3)
+        assert orch.output_counts == (3, 5)
 
     def test_workflow_uses_the_canonical_reconciliation_functions(self, monkeypatch, tmp_path):
         """Guard against a regression to a hand-rolled duplicate: `_reconcile_output`
