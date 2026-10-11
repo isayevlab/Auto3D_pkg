@@ -717,9 +717,12 @@ produces: mirror images are rigorously degenerate under every potential
 Auto3D uses, and Auto3D removes them during enumeration, so the two-identity
 case in practice is diastereomers or unrelated compounds, not enantiomers.
 
-This is a different convention from ``ConformerRanker``'s own
-``E_rel(kcal/mol)`` on the ranked (pre-thermo) SDF, which groups on
-``species_id`` and therefore references every enumerated stereoisomer of one
-input to one shared minimum, not each identity to its own. Both writers
-publish the property under the same name; which convention a given file's
-values follow depends on which one wrote it.
+This is a different convention from ``ConformerRanker``'s own relative
+energy on the ranked (pre-thermo) SDF, which groups on ``species_id`` and
+therefore references every enumerated stereoisomer of one input to one
+shared minimum, not each identity to its own -- on EITHER basis the ranker
+selects on: ``E_rel(kcal/mol)`` by default, or ``G_rel(kcal/mol)`` when
+ranking on *G* (see above). The Boltzmann-population property is the one
+this matters most for, since that is the one actually divided by *RT*.
+Both writers publish the property under the same name; which convention a
+given file's values follow depends on which one wrote it.

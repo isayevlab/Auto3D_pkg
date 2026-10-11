@@ -12,16 +12,50 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.domain.geometry import min_distance_among, min_pairwise_distance
+from Auto3D.domain.connectivity import UFF_BOND_RADII
+from Auto3D.domain.geometry import min_pairwise_distance
 from Auto3D.domain.stereo_check import stereo_descriptors_from_3d
-from Auto3D.foundation.constants import MIN_ATOM_DISTANCE, MIN_BONDED_DISTANCE
+from Auto3D.foundation.constants import MIN_ATOM_DISTANCE, MIN_BONDED_FRACTION
 
 logger = logging.getLogger("auto3d")
 
 __all__ = ["relieve_clash"]
+
+
+def _shortest_bonded_ratio(
+    mol: Chem.Mol, positions: np.ndarray, bonded_pairs: set[frozenset[int]]
+) -> float:
+    """Minimum, over every bonded pair, of distance / UFF reference length.
+
+    The radius-scaled form of the bonded floor (C1, ruling R51): each bond
+    is judged against ITS OWN reference length (``r_i + r_j`` from
+    ``domain.connectivity.UFF_BOND_RADII``), not a single flat distance, so
+    a bond between heavier elements -- whose reference length is longer --
+    is not under-covered relative to a light one.
+
+    A pair whose element is outside ``UFF_BOND_RADII`` (e.g. an alkali/
+    alkaline-earth counterion or a transition-metal coordination bond) has
+    no reference length to scale by and is skipped -- "no opinion", the same
+    policy ``check_connectivity`` uses for the same elements.
+
+    Returns:
+        The minimum ratio, or ``inf`` if ``bonded_pairs`` is empty or every
+        pair in it involves an untabulated element.
+    """
+    ratios = []
+    for pair in bonded_pairs:
+        i, j = tuple(pair)
+        r_i = UFF_BOND_RADII.get(mol.GetAtomWithIdx(i).GetAtomicNum())
+        r_j = UFF_BOND_RADII.get(mol.GetAtomWithIdx(j).GetAtomicNum())
+        if r_i is None or r_j is None:
+            continue
+        distance = float(np.linalg.norm(positions[i] - positions[j]))
+        ratios.append(distance / (r_i + r_j))
+    return min(ratios) if ratios else float("inf")
 
 
 def relieve_clash(
@@ -32,10 +66,11 @@ def relieve_clash(
     """Optimize a clashing conformer in place and report whether it is usable.
 
     A conformer is considered "clashing" when its minimum pairwise
-    NON-BONDED interatomic distance is below ``min_distance``, or when its
-    shortest BONDED distance is below ``MIN_BONDED_DISTANCE`` (C1) --
-    bonded pairs are excluded from the first test (N-m1) but still need a
-    floor of their own, or a physically impossible bond length (a crushed
+    NON-BONDED interatomic distance is below ``min_distance``, or when any
+    BONDED pair's distance is below ``MIN_BONDED_FRACTION`` of that bond's
+    own UFF reference length (C1/R51) -- bonded pairs are excluded from the
+    first test (N-m1) but still need a floor of their own, scaled per bond
+    rather than flat, or a physically impossible bond length (a crushed
     embedding) would pass through unchecked. Such conformers are relaxed
     with MMFF; when the molecule lacks full MMFF parameters (elements like
     B, Se or some Si valences, where ``MMFFOptimizeMolecule`` returns -1 and
@@ -82,31 +117,42 @@ def relieve_clash(
         min_distance: Minimum acceptable interatomic distance (Angstroms).
 
     Returns:
-        True if the (possibly optimized) conformer's minimum pairwise distance
-        is >= ``min_distance`` and its stereochemistry survived unchanged;
-        False if it still clashes or if the relaxation changed its
-        configuration.
+        True if the (possibly optimized) conformer passes BOTH tests --
+        its minimum pairwise NON-BONDED distance is >= ``min_distance`` AND
+        every BONDED pair's distance is at least ``MIN_BONDED_FRACTION`` of
+        that bond's own UFF reference length -- and its stereochemistry
+        survived unchanged; False if it still fails either test or if the
+        relaxation changed its configuration.
     """
     # A bonded pair is not a NON-BONDED clash candidate (N-m1): H2's
     # equilibrium bond length (0.741 A) sits below MIN_ATOM_DISTANCE and is
     # not a clash. But excluding bonded pairs outright would leave them with
     # no floor at all, and a bonded pair at a physically impossible length
     # (a crushed embedding) is exactly the geometry this guard exists to
-    # catch (C1) -- so a bonded pair still has its own, much lower floor,
-    # MIN_BONDED_DISTANCE, tested alongside the non-bonded one. The exclusion
-    # set is read off the molecular graph once per call rather than cached,
-    # since relieve_clash can be called again after the force field has
-    # changed the geometry (but not the connectivity) between calls.
+    # catch (C1) -- so a bonded pair still has its own floor, scaled by its
+    # own UFF reference length (MIN_BONDED_FRACTION, R51) and tested
+    # alongside the non-bonded one. The exclusion set is read off the
+    # molecular graph once per call rather than cached, since relieve_clash
+    # can be called again after the force field has changed the geometry
+    # (but not the connectivity) between calls.
     bonded_pairs = {frozenset((b.GetBeginAtomIdx(), b.GetEndAtomIdx())) for b in mol.GetBonds()}
 
     def _survives(positions) -> bool:
         return (
             min_pairwise_distance(positions, exclude=bonded_pairs) >= min_distance
-            and min_distance_among(positions, bonded_pairs) >= MIN_BONDED_DISTANCE
+            and _shortest_bonded_ratio(mol, positions, bonded_pairs) >= MIN_BONDED_FRACTION
         )
 
     positions = mol.GetConformer(conf_id).GetPositions()
-    # Closing the dead band: a conformer exactly at either threshold is kept.
+    # Closing the dead band: a conformer exactly AT the bonded threshold is
+    # kept (0.6 and the UFF radii involved are all exactly representable).
+    # The non-bonded comparison is not exact the same way (NEW-5):
+    # min_pairwise_distance casts to float32, so an exact 0.9 A separation
+    # comes back as 0.8999999761581421 -- just under min_distance -- and
+    # goes to the force field rather than being kept outright. Harmless in
+    # practice (one extra force-field call on a measure-zero geometry), but
+    # worth stating correctly rather than claiming both thresholds behave
+    # the same at their exact boundary.
     if _survives(positions):
         return True
 

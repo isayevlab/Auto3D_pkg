@@ -1313,6 +1313,70 @@ class TestOmegaConformerNaming:
         titles = [conf.title for conf in stub_mol._confs]
         assert titles == ["7_0_0", "7_0_1", "7_0_2"], titles
 
+    def test_flipper_mode_appends_an_isomer_index_only_when_one_is_missing(
+        self, tmp_path, monkeypatch
+    ):
+        """NEW-2: the flipper branch's premise -- that
+        ``OEFlipperOptions.SetWarts`` (reinforced by ``remove_enantiomers``'s
+        own re-indexing) always leaves a title ending in ``_<digits>`` -- is
+        never re-verified. A title that reaches the main loop without one
+        must still get ``_0``; a title that already has one must not get a
+        second (no double-append).
+        """
+        from unittest.mock import MagicMock
+
+        import Auto3D.engines.isomers.omega as ie
+
+        fake_oeomega = MagicMock()
+        fake_omega_instance = MagicMock()
+        fake_omega_instance.Build.return_value = fake_oeomega.OEOmegaReturnCode_Success
+        fake_oeomega.OEOmega.return_value = fake_omega_instance
+        monkeypatch.setattr(ie, "oeomega", fake_oeomega, raising=False)
+
+        # amend_configuration_w and remove_enantiomers are real, file-based
+        # RDKit functions and need a real file to read, so
+        # `smiles_enumerated` is pre-seeded directly here rather than
+        # produced by the (mocked) flipper. What they write to
+        # `smiles_reduced` afterward is harmless but unused: the mocked
+        # `ifs.GetOEMols()` for the MAIN loop (below) returns the two stub
+        # molecules directly, regardless of that file's real content.
+        smiles_enumerated = tmp_path / "smiles_enumerated.smi"
+        smiles_enumerated.write_text("CCO 7_1\n")
+
+        no_wart_mol = _StubOeMol("7")
+        with_wart_mol = _StubOeMol("7_1")
+        fake_oechem = MagicMock()
+        # Two distinct `oemolistream()` calls happen, in order: one inside
+        # `oe_flipper` (the mocked flipper's own `ifs.GetOEMols()` must
+        # yield nothing, or its `mol.GetActive()` call fails against stub
+        # mols that don't implement the full OEMol surface) and one in the
+        # main function, after `remove_enantiomers`, which is the one that
+        # must yield the two stub molecules this test inspects.
+        fake_ifs_for_flipper = MagicMock()
+        fake_ifs_for_flipper.GetOEMols.return_value = []
+        fake_ifs_for_main_loop = MagicMock()
+        fake_ifs_for_main_loop.GetOEMols.return_value = [no_wart_mol, with_wart_mol]
+        fake_oechem.oemolistream.side_effect = [fake_ifs_for_flipper, fake_ifs_for_main_loop]
+        monkeypatch.setattr(ie, "oechem", fake_oechem, raising=False)
+
+        source = tmp_path / "in.smi"
+        source.write_text("CCO 7\n")
+        rc = ie.oe_isomer(
+            "classic",
+            str(source),
+            str(smiles_enumerated),
+            str(tmp_path / "smiles_reduced.smi"),
+            str(tmp_path / "smiles_hashed.smi"),
+            str(tmp_path / "out.sdf"),
+            max_confs=None,
+            threshold=0.3,
+            flipper=True,
+        )
+        assert rc == 0
+
+        assert [conf.title for conf in no_wart_mol._confs] == ["7_0_0", "7_0_1", "7_0_2"]
+        assert [conf.title for conf in with_wart_mol._confs] == ["7_1_0", "7_1_1", "7_1_2"]
+
 
 class TestRejectedRunLeavesNoTrace:
     """A run rejected for a bad input must leave nothing on disk.

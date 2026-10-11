@@ -309,11 +309,14 @@ def test_h2_survives_clash_relief():
     covalent bond whose equilibrium length (0.741 A) sits below the 0.9 A
     non-bonded threshold -- H-F (0.917), O-H (0.958), N-H (1.012) and C-H
     (1.087) are all above it. The non-bonded clash test is therefore excused
-    for bonded pairs; whether a bonded pair's own length is chemically
-    sane is a separate question, answered by the connectivity check
-    (``domain.connectivity.check_connectivity``) downstream and, for a
-    length far below anything the connectivity check's broken/formed-bond
-    test was built to catch, by ``MIN_BONDED_DISTANCE`` here (C1).
+    for bonded pairs; whether a bonded pair's own length is chemically sane
+    is a separate question. For a BONDED pair specifically, the
+    connectivity check (``domain.connectivity.check_connectivity``)
+    downstream tests only whether it is too LONG (broken) -- its too-short
+    test applies to non-bonded pairs only (NEW-1) -- so the only check a
+    too-short bond meets at all is ``MIN_BONDED_FRACTION`` here (C1/R51):
+    H2's 0.741 A clears even that (0.6 x H-H's 0.708 A reference length is
+    0.425 A).
     """
     from rdkit import Chem
     from rdkit.Geometry import Point3D
@@ -340,9 +343,9 @@ def test_a_crushed_bonded_pair_still_triggers_relief(monkeypatch):
     H2's 0.741 A -- used to be caught by the unconditional pre-N-m1 clash
     test (min pairwise distance, bonded or not, < 0.9 A). After N-m1
     excluded bonded pairs outright, this geometry passed through untouched
-    and unrelaxed. ``MIN_BONDED_DISTANCE`` restores the floor for bonded
-    pairs specifically, well below H2's length so ordinary short bonds are
-    still exempt.
+    and unrelaxed. ``MIN_BONDED_FRACTION`` restores the floor for bonded
+    pairs specifically, scaled to each bond's own UFF reference length so
+    ordinary short bonds (H2 included) are still exempt.
     """
     from rdkit.Chem import AllChem
 
@@ -365,6 +368,42 @@ def test_a_crushed_bonded_pair_still_triggers_relief(monkeypatch):
 
     assert relieve_clash(mol, conf_id=0) is True
     assert len(calls) == 1, f"expected MMFF to run exactly once, ran {len(calls)} times"
+
+
+def test_the_bonded_floor_scales_with_the_bonds_own_reference_length(monkeypatch):
+    """NEW-1/R51: a flat 0.5 A bonded floor undercovers heavier bonds.
+
+    A C-H bond's UFF reference length is 0.757 + 0.354 = 1.111 A, so
+    ``MIN_BONDED_FRACTION``'s 0.6x is 0.667 A -- well above the old flat
+    0.5 A floor. A 0.60 A C-H distance is below 0.667 A (so it must trigger
+    relief under the radius-scaled rule) but above the old flat 0.5 A floor
+    (so it would NOT have triggered relief under R47). The 0.35 A case
+    (further below both floors) must still trigger relief too.
+    """
+    from rdkit.Chem import AllChem
+
+    from Auto3D.domain.clash_relief import relieve_clash
+
+    def _mmff_call_count(ch_distance: float) -> int:
+        mol = _embedded("CC", seed=3)
+        assert mol.GetBondBetweenAtoms(0, 2) is not None, "test premise: 0-2 is a bonded pair"
+        conf = mol.GetConformer()
+        origin = conf.GetAtomPosition(0)
+        conf.SetAtomPosition(2, (origin.x + ch_distance, origin.y, origin.z))
+
+        calls = []
+        real_mmff = AllChem.MMFFOptimizeMolecule
+
+        def _spy(*args, **kwargs):
+            calls.append(1)
+            return real_mmff(*args, **kwargs)
+
+        monkeypatch.setattr(AllChem, "MMFFOptimizeMolecule", _spy)
+        assert relieve_clash(mol, conf_id=0) is True
+        return len(calls)
+
+    assert _mmff_call_count(0.60) == 1, "0.60 A is below the C-H radius-scaled floor (0.667 A)"
+    assert _mmff_call_count(0.35) == 1, "0.35 A must still trigger relief"
 
 
 def _optimized(energy: float, changed: bool | None) -> Chem.Mol:

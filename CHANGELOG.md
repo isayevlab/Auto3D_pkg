@@ -27,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never reads), the combine step can no longer merge a partial chunk, and the
   file keeps the mode a plain `open()` gives it.
 - Bonded pairs are exempt from the 0.9 A non-bonded clash test (H2 survives),
-  while a bond shorter than 0.5 A still triggers relief.
+  while a bond shorter than 60% of its own UFF reference length still
+  triggers relief.
 - Names without two trailing integer groups are no longer shortened; energy
   ties keep input order.
 - The broken-bond threshold for every P-X bond drops by 0.02 A (P-C: 2.3425

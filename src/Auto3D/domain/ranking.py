@@ -329,13 +329,18 @@ class ConformerRanker:
         below) is the group's single minimum, where the group is everything
         sharing one ``species_id`` -- every enumerated stereoisomer of one
         input, not just one identity (I2). That is a DIFFERENT convention
-        from ``domain.energy._comparable_groups``/``set_relative_energies``,
-        which references each ``(species_key, charge)`` identity to its own
-        minimum (I3). Both writers publish the same property name,
-        ``E_rel(kcal/mol)`` on the final SDF, under these two different
+        from ``domain.energy._comparable_groups``/``set_relative_energies``/
+        ``set_relative_gibbs_energies``, which reference each
+        ``(species_key, charge)`` identity to its own minimum (I3). Both
+        writers publish the same property name under these two different
         references, by design: unifying them would change this ranker's
-        reference structure, which is a larger change than either finding on
-        its own.
+        reference structure, which is a larger change than either finding
+        on its own. This applies to EITHER basis this ranker selects on
+        (NEW-4): with ``rank_by=RANK_BY_ELECTRONIC`` the shared property is
+        ``E_rel(kcal/mol)``; with ``rank_by=RANK_BY_GIBBS`` it is
+        ``G_rel(kcal/mol)`` -- the one a Boltzmann population actually
+        divides by RT, so the cross-stereoisomer reference matters most for
+        exactly that property, not the electronic one.
         """
         mol.SetProp("E_rel(eV)", str(rel_energy))
 

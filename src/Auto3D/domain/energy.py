@@ -250,6 +250,14 @@ def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
     temperatures is a thermal term, not a conformational preference, and for a
     druglike molecule it is tens of kcal/mol.
 
+    "A group" here is whatever ``_comparable_groups`` yields, which since I3
+    is one per IDENTITY under a title, not one per title (NEW-7): the
+    temperature check below runs once per identity subgroup, so a title
+    whose two identities each span their own mismatched temperatures logs
+    the WARNING twice, with each subgroup's own (smaller) record count --
+    correct, since ``G_rel`` is referenced within the subgroup, but worth
+    knowing before reading two warnings under one title as two inputs.
+
     Reads ``G_hartree`` and ``T_K``, which ``Auto3D.entry.ASE.thermo`` writes.
     """
     for group in _comparable_groups(mols, G_REL_KCAL_PROP):
