@@ -261,12 +261,15 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
     multiplicity that was not the one actually used. Otherwise derives it
     from the radical-electron count (multiplicity = unpaired electrons + 1),
     instead of silently assuming a closed-shell singlet -- which would zero
-    the electronic entropy term for every radical. The derived value is
-    returned but not written back onto ``mol``: no energy engine reads the
-    property, so recording it would only be a value a re-run recomputes
-    anyway. The NNP *energy* stays closed-shell regardless (AIMNet2 takes
-    only coords/species/charge, no spin), so warn for open-shell species
-    that the energy is an approximation.
+    the electronic entropy term for every radical. This assumes high-spin
+    coupling of those radical electrons: an open-shell singlet (the same
+    radical count, but paired into S = 0, e.g. some diradicals) needs an
+    explicit 'multiplicity' property to override the high-spin default. The
+    derived value is returned but not written back onto ``mol``: no energy
+    engine reads the property, so recording it would only be a value a
+    re-run recomputes anyway. The NNP *energy* stays closed-shell regardless
+    (AIMNet2 takes only coords/species/charge, no spin), so warn for
+    open-shell species that the energy is an approximation.
 
     The property is parsed with plain Python ``int()`` rather than RDKit's
     ``GetUnsignedProp``: the latter parses as an *unsigned* C++ integer, so a
@@ -372,8 +375,10 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
         )
     if n_radical > 0:
         logger.warning(
-            "Open-shell species detected (%d unpaired electron(s), "
-            "multiplicity %d); the NNP energy is a closed-shell approximation.",
+            "Molecule %s: open-shell species detected (%d unpaired "
+            "electron(s), multiplicity %d); the NNP energy is a closed-shell "
+            "approximation.",
+            _mol_name(mol),
             n_radical,
             multiplicity,
         )

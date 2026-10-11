@@ -302,6 +302,23 @@ def test_resolve_multiplicity_radical_is_doublet():
     assert _resolve_multiplicity(m) == 2
 
 
+def test_resolve_multiplicity_open_shell_warning_names_the_molecule(caplog):
+    """The open-shell warning is the one sibling in this function that did
+    not name the record; every other warning here passes ``_mol_name(mol)``.
+    """
+    import logging
+
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
+    m.SetProp("_Name", "my_radical")
+    with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+        assert _resolve_multiplicity(m) == 2
+    assert any("my_radical" in r.message for r in caplog.records), caplog.text
+
+
 def test_resolve_multiplicity_does_not_write_the_derived_value_back():
     from rdkit import Chem
 
