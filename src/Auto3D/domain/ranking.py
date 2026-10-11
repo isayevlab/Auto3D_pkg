@@ -567,7 +567,7 @@ class ConformerRanker:
         for group_name in groups.indices:
             yield group_name, groups.get_group(group_name)
 
-    def _select_for_group(self, df_group: pd.DataFrame) -> list[Chem.Mol]:
+    def _select_for_group(self, df_group: pd.DataFrame) -> list[Chem.Mol]:  # type: ignore[return]
         """Run this ranker's configured selector on one group.
 
         Dispatch through the registry rather than a hand-written if/elif
@@ -582,6 +582,7 @@ class ConformerRanker:
             value = getattr(self, field, None)
             if value:
                 return getattr(self, _SELECTORS[field])(df_group, value)
+        # No field in SELECTOR_FIELDS was truthy, so this always raises.
         require_selector(self.k, self.window)
 
     def _write_results(self, results: list[Chem.Mol]) -> None:

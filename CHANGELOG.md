@@ -170,9 +170,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unhandled `FileExistsError` traceback.
 - An optimizer or isomer worker that exits abnormally is now recorded in
   `Auto3D.log`, not only on the console.
-- A worker whose run-log queue is full now drops the record instead of
-  crashing on `queue.Full`, the same way the parent's own run-log handler
-  already did.
+- A worker whose run-log queue is full now drops the record silently
+  instead of printing a `queue.Full` traceback to its stderr, the same way
+  the parent's own run-log handler already did.
 - A configuration-class error (wrong engine or option, missing dependency,
   GPU, input format) in one chunk now stops that optimization worker
   instead of being retried on every chunk; its exit is recorded in

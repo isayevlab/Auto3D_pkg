@@ -174,8 +174,8 @@ def test_symmetry_number_default_warning_reaches_run_log():
 
 def test_worker_handler_drops_a_record_when_the_queue_is_full(capsys):
     """A full run-log queue must drop the record quietly, the same
-    way the parent's own run-log handler already does, instead of crashing
-    the logging call (or spamming the worker's shared stderr about it).
+    way the parent's own run-log handler already does, instead of
+    spamming the worker's shared stderr with a traceback about it.
 
     A full queue does not propagate ``queue.Full`` out of the logging call
     either way: the stock ``QueueHandler.emit`` catches it and hands it to

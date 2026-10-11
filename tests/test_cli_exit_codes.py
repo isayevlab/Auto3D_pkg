@@ -253,12 +253,16 @@ def test_exit_2_run_unsupported_input_format(tmp_path):
     assert "Supported formats: .smi, .sdf" in err
 
 
-def test_exit_2_when_the_explicit_job_directory_already_exists():
+def test_exit_2_when_the_explicit_job_directory_already_exists(stub_torchani_importable):
     """A job-directory name collision must be a configuration error
     naming the directory, not a bare ``FileExistsError`` traceback (exit 1).
 
-    ``--engine ANI2xt --no-gpu`` short-circuits engine resolution, so this
-    fails in ``_setup_job_directory`` before any NNP is loaded.
+    ``stub_torchani_importable``: ``check_input``'s torchani probe runs
+    inside ``_validate_input``, before ``_setup_job_directory`` -- so on a
+    box (or CI leg) without torchani installed, an unrelated
+    ``DependencyError`` (exit 3) would be raised before this test's own
+    collision check is ever reached. The fixture makes that probe pass
+    regardless, so the run reaches the job-directory check on every leg.
 
     A plain ``tempfile.TemporaryDirectory()`` rather than the ``tmp_path``
     fixture: pytest's own tmp dir embeds this test's full name, long enough

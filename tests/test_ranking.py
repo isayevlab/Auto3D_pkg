@@ -1197,7 +1197,7 @@ class TestSelectorDispatchRegistry:
     third selector added to ``Auto3D.foundation.config.SELECTOR_FIELDS`` would then be
     accepted by ``Auto3DOptions``, accepted by ``CLIConfig``, accepted by
     ``check_selectors_mutually_exclusive`` -- and silently ignored here, falling
-    through to "Parameter k or window needs to be specified" even though the
+    through to "Either k or window needs to be specified" even though the
     user had specified one.
     """
 

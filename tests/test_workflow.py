@@ -1214,12 +1214,16 @@ def test_check_exit_writes_the_abnormal_exit_to_the_run_log(tmp_path, caplog):
 
     records: list[logging.LogRecord] = []
     run_log = logging.getLogger("auto3d.test_run_log")
-    run_log.addHandler(_ListHandler(records))
+    handler = _ListHandler(records)
+    run_log.addHandler(handler)
     orch.logger = run_log
 
-    proc = types.SimpleNamespace(exitcode=-9, pid=4242)
-    with caplog.at_level(logging.ERROR):
-        orch._check_exit(proc, "Optimization")
+    try:
+        proc = types.SimpleNamespace(exitcode=-9, pid=4242)
+        with caplog.at_level(logging.ERROR):
+            orch._check_exit(proc, "Optimization")
+    finally:
+        run_log.removeHandler(handler)
 
     assert any("exited with code -9" in r.getMessage() for r in records)
     assert any(r.levelno == logging.ERROR for r in records)

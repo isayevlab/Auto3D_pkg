@@ -130,9 +130,9 @@ def _attach_run_log_handlers(
     ``QueueHandler``: the queue this worker shares with every other worker
     and the parent is bounded, and a burst that fills it must be dropped
     quietly -- the same way the parent's own run-log handler already does --
-    instead of crashing this logging call, or printing a traceback about the
-    drop to the worker's shared stderr. ``isinstance(h, QueueHandler)``
-    below still matches it, since it is a subclass.
+    instead of printing a traceback about the drop to the worker's shared
+    stderr. ``isinstance(h, QueueHandler)`` below still matches it, since
+    it is a subclass.
 
     Returns the ``(logger_name, handler)`` pairs newly added (never the ones
     already present), so a caller (chiefly tests) can remove them again;
