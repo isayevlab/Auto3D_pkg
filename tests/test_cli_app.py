@@ -812,7 +812,7 @@ def test_json_document_is_not_colorized_on_a_terminal(tmp_path):
     assert json.loads(on_terminal.decode().replace("\r\n", "\n"))["success"] is True
 
 
-# Rich styles help output when it thinks the stream supports colour, which CI
+# Rich styles help output when it thinks the stream supports color, which CI
 # forces on via FORCE_COLOR. Tests that match on the text must ignore styling.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -833,7 +833,7 @@ def test_help_goes_to_stdout_and_carries_no_import_banner(auto3d_process):
     assert result.returncode == 0, result.stderr
 
     # Strip ANSI before matching. Rich emits a bold escape ahead of the usage
-    # line whenever it believes the stream is colour-capable, and GitHub
+    # line whenever it believes the stream is color-capable, and GitHub
     # Actions sets FORCE_COLOR, so `lstrip()` alone left a leading `\x1b[1m`
     # and this assertion failed on every CI runner while passing locally --
     # the same local/CI split that has produced several defects in this

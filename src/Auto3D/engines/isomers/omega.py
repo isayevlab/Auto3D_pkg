@@ -184,7 +184,7 @@ def _oe_isomer_in_owned_cwd(
         omegaOpts.SetMaxConfs(max_confs)
         omegaOpts.SetEnergyWindow(999)
         omegaOpts.SetRMSRange("0.8, 1.0, 1.2, 1.4")
-    # dense, pose, rocs, fast_rocs mdoes use the default parameters from OEOMEGA:
+    # dense, pose, rocs, fast_rocs modes use the default parameters from OEOMEGA:
     # https://docs.eyesopen.com/toolkits/python/omegatk/OEConfGenConstants/OEOmegaSampling.html
     opts = oechem.OESimpleAppOptions(
         omegaOpts, "Omega", oechem.OEFileStringType_Mol, oechem.OEFileStringType_Mol3D

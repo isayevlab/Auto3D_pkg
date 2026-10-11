@@ -698,7 +698,7 @@ relative energy is named for it — ``G_rel(kcal/mol)`` rather than
 ``E_rel(kcal/mol)``. Ranking a file with no ``G_hartree`` on this basis is
 refused with a message pointing at ``calc_thermo``. Duplicate detection is
 deliberately *not* switched: whether two records are the same structure is a
-question about geometry and electronic energy, not about which is favoured at
+question about geometry and electronic energy, not about which is favored at
 temperature.
 
 Use ``G_rel(kcal/mol)`` for conformer populations. A Boltzmann weight goes as

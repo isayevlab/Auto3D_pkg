@@ -156,7 +156,7 @@ def test_mypy_does_not_pin_python_version():
     third-party packages*. numpy ships stubs containing 3.12 ``type``
     statements, so pinning the declared floor ("3.11") makes those a
     ``[syntax]`` error -- which is fatal. mypy then stops with "errors prevented
-    further checking" before analysing a single Auto3D module, reports one error
+    further checking" before analyzing a single Auto3D module, reports one error
     that is not in this package, and looks like a clean run.
 
     Skipping the offending package is not the fix either: which one trips first

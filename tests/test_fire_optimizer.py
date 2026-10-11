@@ -242,7 +242,7 @@ class TestFIREClean:
         """State follows the index, position for position.
 
         ``n_steps`` always passes an ascending index from ``torch.nonzero``, but
-        pinning the general behaviour is what makes the bit-identity argument in
+        pinning the general behavior is what makes the bit-identity argument in
         ``test_optimization_engine_indexing.py`` checkable: ``index_select``
         preserves order, so a converged molecule's removal never permutes the
         survivors relative to the batch they are scattered back into.

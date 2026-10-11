@@ -248,7 +248,7 @@ class TestCalcThermoWiring:
     def test_calc_thermo_runs_both_halves_after_the_loop(self):
         """Wiring guard: the helpers must be reached from ``calc_thermo``.
 
-        A source check rather than a behavioural one because the surrounding
+        A source check rather than a behavioral one because the surrounding
         loop needs a neural network potential, which the fast tier does not
         load. It is narrow on purpose -- it pins that the calls exist and which
         collection each is handed, since swapping those two arguments would

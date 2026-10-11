@@ -417,7 +417,7 @@ def optim_rank_wrapper(
                     housekeeping_folder = meta["housekeeping_folder"]
                     os.mkdir(housekeeping_folder)
                     housekeeping(dir, housekeeping_folder, output)
-                    # Conpress verbose folder
+                    # Compress verbose folder
                     housekeeping_folder_gz = housekeeping_folder + ".tar.gz"
                     with tarfile.open(housekeeping_folder_gz, "w:gz") as tar:
                         tar.add(housekeeping_folder, arcname=Path(housekeeping_folder).name)

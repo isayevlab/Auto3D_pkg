@@ -231,7 +231,7 @@ class ConformerRanker:
         #: detection is deliberately NOT switched with it -- that filter asks
         #: whether two records are the same structure, which is a question
         #: about the electronic energy and the geometry, not about which is
-        #: favoured at temperature.
+        #: favored at temperature.
         self.rank_by = rank_by
         self._read_energy_ev, self._energy_prop, self._rel_prop = _RANK_BASES[rank_by]
         #: Run-level drop tally, keyed by ``Auto3D.domain.filtering.DROP_REASONS``.

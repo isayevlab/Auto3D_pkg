@@ -767,7 +767,7 @@ def analyze_vibrations(
        handing a single floored list to ``IdealGasThermo`` does. That
        simplification is measured, not assumed: at 298 K a mode below the
        floor carries ``ZPE + dH_vib`` of 0.594 kcal/mol at 30 cm-1 and 0.604
-       at 100 cm-1 -- the zero-point rise is cancelled by the thermal-enthalpy
+       at 100 cm-1 -- the zero-point rise is canceled by the thermal-enthalpy
        fall -- so raising everywhere differs from raising inside the entropy
        only by 0.010-0.012 kcal/mol per mode.
 

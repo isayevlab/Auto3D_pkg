@@ -69,7 +69,7 @@ class CustomModelAdapter(BaseModelAdapter):
         # TorchScript archives are already a compiled graph, so `torch.compile`
         # has nothing to add; an eager `nn.Module` -- which `load_custom_nnp`
         # also accepts, and which every AIMNet2-derived custom model is -- does
-        # benefit. Honouring the flag only in that case is what stops
+        # benefit. Honoring the flag only in that case is what stops
         # `compile_model=True` from being silently ignored on the one adapter a
         # user supplies the model for.
         compile_custom = compile_model and not isinstance(model, torch.jit.ScriptModule)

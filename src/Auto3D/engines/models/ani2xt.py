@@ -94,7 +94,7 @@ def element_indices(
     ``argsort`` into element order, count buckets with a fixed-size
     ``scatter_add_``, then ``split`` the sorted order by those counts. Only the
     counts cross to the host. Out-of-range species get their own bucket and are
-    discarded rather than clamped into a neighbouring element's network, which is
+    discarded rather than clamped into a neighboring element's network, which is
     what ``flat == e`` did.
 
     Ordering is *not* load-bearing for energies -- each network is applied row by

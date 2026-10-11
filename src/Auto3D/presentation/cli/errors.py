@@ -289,9 +289,9 @@ def handle_interrupt(
         batch: The most recent optimizer progress counts, if any arrived --
             ``{"converged", "active", "dropped", "step"}``. These describe the
             batch that was in the optimizer, not the whole run (see
-            ``Auto3D.presentation.cli.progress.OptimizationDisplay``), and are labelled that
+            ``Auto3D.presentation.cli.progress.OptimizationDisplay``), and are labeled that
             way; claiming them as run totals would be the same defect this
-            module's neighbours were just cleared of.
+            module's neighbors were just cleared of.
         elapsed_seconds: Wall-clock time before the signal arrived.
 
     Raises:

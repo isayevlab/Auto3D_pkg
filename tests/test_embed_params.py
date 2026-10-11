@@ -23,7 +23,7 @@ from rdkit.Chem import AllChem, rdDistGeom
 from Auto3D.domain.embedding import embed_params
 from Auto3D.foundation.constants import CONFORMER_RANDOM_SEED
 
-# The keyword overload's documented C++ defaults -- the behaviour being preserved.
+# The keyword overload's documented C++ defaults -- the behavior being preserved.
 KWARG_DEFAULTS = {
     "useExpTorsionAnglePrefs": True,
     "useBasicKnowledge": True,

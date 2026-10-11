@@ -194,7 +194,7 @@ class RDKitIsomer:
             Path to the enumerated SDF file.
         """
         if self.enumerate_isomers:
-            logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
+            logger.info("Enumerating cis/trans isomers for unspecified double bonds...")
             logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input_f)
             for name, smiles in smiles_og.items():
