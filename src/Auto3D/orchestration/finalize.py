@@ -92,9 +92,10 @@ class FinalizeMixin:
         # contain such a line (a user- or tool-written string happens to
         # match the terminator), which must not count. The same `saw_m_end`
         # + "previous line is blank or M  END" gate `SDF2chunks` uses applies
-        # here too (see its docstring for why both conditions are needed);
-        # both flags reset at the start of each chunk file, since each is
-        # expected to be a complete, independent SDF.
+        # here too (see the comment above its own loop, in sdf_io.py, for why
+        # both conditions are needed); both flags reset at the start of each
+        # chunk file, since each is expected to be a complete, independent
+        # SDF.
         path_combined = self.job_dir / f"{self.input_path.stem}_out.sdf"
         found_terminator = False
         with path_combined.open("w") as combined_fh:

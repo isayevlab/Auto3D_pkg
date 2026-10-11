@@ -114,7 +114,10 @@ def opt_geometry(
         opt_tol: Convergence threshold for max force (eV/Å). Defaults to 0.01.
         opt_steps: Maximum optimization steps per structure. Defaults to 2000.
         patience: Drop conformer if force doesn't decrease for this many
-            consecutive steps. Defaults to None (uses opt_steps value).
+            consecutive steps. Defaults to None (uses opt_steps value). Must
+            be >= 1 (N-m21); an explicit value above opt_steps -- which can
+            never trigger before opt_steps's own step limit does -- is
+            accepted but logged as a WARNING.
         batchsize_atoms: Number of atoms per optimization batch, used **as
             given**. Larger values use more GPU memory but may be faster.
             Defaults to 1024.
@@ -140,6 +143,10 @@ def opt_geometry(
         Path to output SDF file with optimized geometries.
 
     Raises:
+        ConfigurationError: if ``patience < 1`` (N-m21): below that bound a
+            structure is dropped as "oscillating" before the optimizer does
+            any useful work, with no error naming why -- raised before any
+            model is loaded.
         InputValidationError: if no record of ``path`` is usable (unparseable,
             conformerless, implicit hydrogens, or dummy atoms); see the
             warnings logged for each record.
