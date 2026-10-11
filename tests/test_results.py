@@ -40,6 +40,29 @@ def test_workflow_result_counts(tmp_path):
     assert r.n_conformers == 3
 
 
+def test_eager_counts_survive_the_file_being_moved(tmp_path):
+    """P-m26: when the caller already knows the counts (the orchestrator
+    computes them from the record list `reorder_sdf` returns), they must not
+    be recomputed lazily from the output path -- which zeros them out the
+    moment that path is moved or deleted, as `count_output`'s own "missing
+    file -> (0, 0)" fallback does."""
+    path = tmp_path / "out.sdf"
+    _write_sdf(path, ["a", "a", "b"])  # 3 records, 2 names
+    result = WorkflowResult(str(path), n_molecules=2, n_conformers=3)
+    path.rename(tmp_path / "elsewhere.sdf")
+    assert (result.n_molecules, result.n_conformers) == (2, 3)
+
+
+def test_lazy_counts_are_still_the_fallback_when_eager_counts_are_omitted(tmp_path):
+    """Every existing caller that builds a WorkflowResult from just a path
+    (and failures) must keep getting the lazy, computed-from-disk count."""
+    p = tmp_path / "out.sdf"
+    _write_sdf(p, ["a@taut0", "a@taut1", "b"])
+    r = WorkflowResult(str(p))
+    assert r.n_molecules == 2
+    assert r.n_conformers == 3
+
+
 def test_count_output_missing_file_is_zero(tmp_path):
     assert count_output(str(tmp_path / "nope.sdf")) == (0, 0)
     assert count_output("") == (0, 0)

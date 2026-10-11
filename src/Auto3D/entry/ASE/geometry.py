@@ -19,8 +19,11 @@ from Auto3D.foundation.constants import (
 )
 from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
+from Auto3D.foundation.utils.logging_config import get_logger
 
 __all__ = ["opt_geometry"]
+
+logger = get_logger(__name__)
 
 
 def _annotate_and_rewrite(outpath: str) -> None:
@@ -178,6 +181,22 @@ def opt_geometry(
     setup.require_records(path)
     outpath = setup.out_path
     device = setup.device
+
+    # An explicit patience above opt_steps can never fire: the step limit
+    # always ends the run first (batch_opt.optimization_engine's loop stops
+    # at opt_steps regardless of each structure's own non-improving-step
+    # count), so this is almost certainly a mistake rather than an
+    # intentional "never drop as oscillating". Checked against the caller's
+    # OWN value, before it is folded into `patience if patience is not None
+    # else opt_steps` below -- the folded value can never itself exceed
+    # opt_steps, so checking after would never warn.
+    if patience is not None and patience > opt_steps:
+        logger.warning(
+            "patience (%d) exceeds opt_steps (%d); patience can never trigger "
+            "before the optimizer's own step limit does.",
+            patience,
+            opt_steps,
+        )
 
     opt_config = OptimizationConfig(
         opt_steps=opt_steps,

@@ -11,6 +11,7 @@ from Auto3D.foundation.utils.smi_io import (
     hash_taut_smi,
     iter_smi_records,
     smiles2smi,
+    strip_taut_suffix,
 )
 
 # Get the test files directory
@@ -218,6 +219,37 @@ class TestHashTautSmi:
         # Should have different taut numbers
         assert len(set(ids)) == 2
         assert all("@taut" in id for id in ids)
+
+
+class TestStripTautSuffix:
+    """N-m29: ``@taut`` only starts a suffix to strip when at least one
+    digit immediately follows it -- exactly the shape ``hash_taut_smi``
+    writes (``id + f"@taut{c}"``), possibly with a stereoisomer/conformer
+    suffix of its own appended after (``id@tautN_<isomer>_<conformer>``,
+    the shape ``select_tautomers`` reads). Everything from ``"@taut"``
+    onward is removed once that digit is seen -- not just the digit run --
+    which is what lets two of one molecule's tautomers, enumerated into
+    different isomers/conformers, still group under their shared base id.
+
+    Splitting on the first occurrence of the bare substring ``"@taut"``
+    anywhere in the id, the previous behavior, truncated a legitimate id
+    that merely contains that text (``"sample@tautonomy_1"``) as if it were
+    a hashed suffix.
+    """
+
+    def test_strip_taut_suffix_only_strips_a_digit_led_suffix(self):
+        assert strip_taut_suffix("sample@tautonomy_1") == "sample@tautonomy_1"
+        assert strip_taut_suffix("mol_a@taut0") == "mol_a"
+        assert strip_taut_suffix("cmpd@1") == "cmpd@1"
+
+    def test_strip_taut_suffix_removes_a_trailing_isomer_conformer_suffix_too(self):
+        """Two tautomers of "id1", enumerated into different isomers and
+        conformers, must strip to the SAME base id so they group together --
+        the real shape `select_tautomers` reads
+        (`tests/test_e_tot_units.py::test_relative_tautomer_energy_is_kcal_per_mol`
+        pins this at the integration level)."""
+        assert strip_taut_suffix("id1@taut0_0_0") == "id1"
+        assert strip_taut_suffix("id1@taut1_2_3") == "id1"
 
 
 class TestCombineSmi:

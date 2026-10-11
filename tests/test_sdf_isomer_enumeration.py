@@ -252,3 +252,84 @@ class TestEmbeddingGoesThroughEmbedWithRetry:
         # The engine's own "produced no conformers" warning must still fire --
         # routing through embed_with_retry must not swallow it.
         assert sum("produced no conformers" in r.message for r in caplog.records) == 2
+
+
+class TestRDKitSdfIsomerReadsThroughTheSharedClassifier:
+    """P-m27: the engine reads through `classify_records(path, keep=(...))`
+    instead of its own `SDMolSupplier` loop + inline `has_dummy_atoms` check,
+    keeping implicit-hydrogen and conformerless records (both legitimate
+    input here: the engine calls `Chem.AddHs` and embeds every record it
+    keeps, regardless of what coordinates -- if any -- the input carried) and
+    skipping only unparseable and dummy-atom records.
+
+    A genuinely conformerless record cannot come from an on-disk SDF --
+    ``SDMolSupplier`` attaches a conformer (even a degenerate one) to every
+    record it parses (see ``tests/helpers_records.py``'s ``write_mixed_sdf``
+    docstring) -- so this is the one test in this file that stands up a
+    mocked ``SDMolSupplier`` rather than driving the engine over a real file.
+    """
+
+    def test_embeds_implicit_h_and_conformerless_skips_unparseable_and_dummy(
+        self, job_dir, monkeypatch, caplog
+    ):
+        import logging
+
+        import Auto3D.foundation.utils.sdf_io as sdf_io
+
+        dummy = Chem.AddHs(Chem.MolFromSmiles("*CCO"))
+        AllChem.EmbedMolecule(dummy, randomSeed=1)
+        dummy.SetProp("_Name", "frag")
+
+        # Implicit hydrogens (a heavy-atom skeleton) but a real conformer.
+        skeleton = Chem.MolFromSmiles("CCO")
+        AllChem.Compute2DCoords(skeleton)
+        skeleton.SetProp("_Name", "skeleton")
+
+        # No conformer at all -- the one class write_mixed_sdf cannot produce.
+        flat = Chem.MolFromSmiles("CC")
+        flat.SetProp("_Name", "flat")
+        assert flat.GetNumConformers() == 0  # test premise
+
+        # `sdf_io.Chem` is the same `rdkit.Chem` module object `Chem` here is,
+        # so patching `SDMolSupplier` on it affects every caller for the rest
+        # of this test, including the verification read below -- capture the
+        # real one first so that read sees the file on disk, not the mock.
+        real_supplier = sdf_io.Chem.SDMolSupplier
+        monkeypatch.setattr(
+            sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [None, dummy, skeleton, flat]
+        )
+
+        input_sdf = job_dir / "mixed_in.sdf"
+        input_sdf.write_text("placeholder")  # unread; SDMolSupplier is mocked
+        output_sdf = job_dir / "mixed_out.sdf"
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D"):
+            IsomerEngineFactory.create(
+                "rdkit_sdf",
+                input_path=str(input_sdf),
+                output_path=str(output_sdf),
+                max_confs=1,
+                threshold=0.3,
+                n_threads=1,
+                enumerate_isomers=False,
+            ).run()
+
+        prefixes = {
+            m.GetProp("_Name").rsplit("_", 2)[0]
+            for m in real_supplier(str(output_sdf), removeHs=False)
+            if m is not None
+        }
+        assert prefixes == {"skeleton", "flat"}
+        assert "frag" not in prefixes
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert sum("dummy atom" in m for m in messages) == 1, messages
+        assert any("frag" in m for m in messages), messages
+        # The shared classifier's wording specifically (position 0, the
+        # first mocked record): the engine's own former hand-rolled message
+        # ("Skipping molecule: failed to parse (SDMolSupplier yielded
+        # None).") said something different, so this line is what actually
+        # distinguishes "reads through classify_records" from "still has its
+        # own supplier loop", unlike the dummy-atom wording above, which
+        # both already shared via `skip_message`.
+        assert "Skipping record 0: RDKit could not parse it." in messages, messages

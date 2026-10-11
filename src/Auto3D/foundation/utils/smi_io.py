@@ -18,6 +18,7 @@ the whole ``Auto3D.engines.models`` package. The overwrite guards live in
 from __future__ import annotations
 
 import collections
+import re
 
 from rdkit import Chem
 from rdkit.Chem import inchi
@@ -250,15 +251,38 @@ def hash_taut_smi(smi: str, out: str) -> None:
 
 
 def strip_taut_suffix(name: str) -> str:
-    """Return a molecule ID with any ``@tautN`` suffix removed.
+    """Return a molecule ID with its ``@tautN`` suffix, and anything after
+    it, removed.
 
-    The suffix is written by :func:`hash_taut_smi` (``id + f"@taut{c}"``), so
-    this is its inverse and the single place the parse lives. Splitting on
-    ``"@taut"`` -- never on a bare ``"@"`` -- keeps user IDs that legitimately
-    contain ``@`` (an email-style ID, say) intact; splitting on ``"@"`` was a
-    real drift bug in ``foundation/results.py``, which under-counted such IDs.
+    The suffix is written by :func:`hash_taut_smi` (``id + f"@taut{c}"``) and
+    read back by ``decode_ids``/``select_tautomers`` as the id's final
+    segment -- except when it is not final at all: a tautomer's own
+    stereoisomer/conformer suffix is appended AFTER it (``id@tautN_<isomer>_
+    <conformer>``, e.g. ``"mol_a@taut0_0_0"``), so ``select_tautomers``
+    genuinely needs everything from ``"@taut"`` onward gone, not just the
+    digit run, to group that record with its sibling tautomers under their
+    shared base id.
+
+    Matching ``@taut\\d+`` -- requiring at least one digit IMMEDIATELY after
+    ``"taut"`` -- before removing that and everything after it is what keeps
+    a legitimate id that merely contains ``@`` (an email-style ID, say) or
+    the literal text ``"@taut"`` with no following digit (e.g.
+    ``"sample@tautonomy_1"``, where ``"@taut"`` is followed by the letter
+    ``"o"``) intact (N-m29): nothing after ``"taut"`` is a digit, so the
+    pattern never matches and the id is returned unchanged. A narrower,
+    end-anchored pattern (``@taut\\d+$``) would reject exactly those
+    isomer/conformer-suffixed ids above, splitting one tautomer's enumerated
+    conformers across several wrongly-distinct "base ids" instead of grouping
+    them -- see ``tests/test_e_tot_units.py``'s
+    ``test_relative_tautomer_energy_is_kcal_per_mol``, which pins this.
+
+    Splitting on ``"@"`` was a real drift bug in ``foundation/results.py``,
+    which under-counted an id that legitimately contains one; splitting on
+    the first occurrence of the bare substring ``"@taut"`` anywhere in the
+    id (with no digit requirement) was a second, narrower one this anchors
+    against.
     """
-    return name.split("@taut")[0]
+    return re.sub(r"@taut\d+.*$", "", name)
 
 
 def combine_smi(smies: list[str], out: str) -> None:

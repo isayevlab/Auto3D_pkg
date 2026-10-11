@@ -3,8 +3,15 @@
 ``main()`` returns a :class:`WorkflowResult`, a ``str`` subclass that *is* the
 output SDF path (so every existing caller -- ``Path(out)``, ``open(out)``,
 ``print(out)``, string ops -- keeps working unchanged) but also exposes the
-molecule/conformer counts of the run. The counts are computed lazily on first
-access and cached, so callers that only need the path pay nothing.
+molecule/conformer counts of the run. Since P-m26, ``WorkflowOrchestrator``
+passes those counts in eagerly (computed once, at the end of the run, from
+the record list ``reorder_sdf`` already produced) rather than leaving every
+caller to recompute them by re-reading the output path -- which silently
+zeroed them out the moment that path was moved, renamed, or deleted. A caller
+that does not have the counts in hand still gets them computed lazily, from
+the output path, on first access and cached -- so a caller that only needs
+the path pays nothing, and this remains the fallback whenever the eager
+counts are omitted (``n_molecules=None``/``n_conformers=None``, the default).
 
 It also carries ``failures``: the input molecule IDs that ``WorkflowOrchestrator``
 reconciled away against the output SDF and found missing (C7). Unlike the
@@ -56,12 +63,19 @@ class WorkflowResult(str):
 
     Subclasses ``str`` (value = the output path) so it is a drop-in for the path
     string the pipeline historically returned. ``n_molecules`` / ``n_conformers``
+    prefer the eager counts passed at construction (P-m26); when omitted, they
     are read from the output SDF lazily and cached.
     """
 
     failures: list[str]
 
-    def __new__(cls, value: str, failures: list[str] | None = None) -> WorkflowResult:
+    def __new__(
+        cls,
+        value: str,
+        failures: list[str] | None = None,
+        n_molecules: int | None = None,
+        n_conformers: int | None = None,
+    ) -> WorkflowResult:
         """Construct the result.
 
         Args:
@@ -70,9 +84,18 @@ class WorkflowResult(str):
                 as reconciled by ``WorkflowOrchestrator._finalize_output``.
                 Defaults to an empty list so any existing caller that builds a
                 ``WorkflowResult`` from just a path keeps working.
+            n_molecules: The run's molecule count, already known to the
+                caller (``WorkflowOrchestrator._finalize_output`` computes it
+                from the reordered record list). ``None`` (the default) keeps
+                the lazy, computed-from-disk count as the fallback, so any
+                existing caller that builds a ``WorkflowResult`` from just a
+                path keeps working.
+            n_conformers: As ``n_molecules``, for the conformer count.
         """
         obj = super().__new__(cls, value)
         obj.failures = list(failures) if failures else []
+        obj._eager_n_molecules = n_molecules
+        obj._eager_n_conformers = n_conformers
         return obj
 
     @cached_property
@@ -82,9 +105,13 @@ class WorkflowResult(str):
     @property
     def n_molecules(self) -> int:
         """Number of distinct input molecules that produced a conformer."""
+        if self._eager_n_molecules is not None:
+            return self._eager_n_molecules
         return self._counts[0]
 
     @property
     def n_conformers(self) -> int:
         """Total number of conformers written to the output SDF."""
+        if self._eager_n_conformers is not None:
+            return self._eager_n_conformers
         return self._counts[1]

@@ -5,7 +5,12 @@ from __future__ import annotations
 # Energy conversion factors (CODATA 2018)
 HARTREE_TO_EV = 27.211386245988  # 1 Hartree in eV
 EV_TO_KCAL_PER_MOL = 23.060547830619026  # 1 eV in kcal/mol (original Auto3D value)
-HARTREE_TO_KCAL_PER_MOL = 627.50947337481  # 1 Hartree in kcal/mol
+# 1 Hartree in kcal/mol. Computed from the two factors above (N-m22), the same
+# derivation pattern EV_TO_HARTREE below uses, rather than carried as its own
+# independent literal that could drift from the product of the two. This
+# moves the value by 6.9e-7 kcal/mol (1.1e-9 relative) from the prior
+# 627.50947337481 -- not an observable change to anything that reads it.
+HARTREE_TO_KCAL_PER_MOL = HARTREE_TO_EV * EV_TO_KCAL_PER_MOL
 # 1 eV in Hartree. Computed from HARTREE_TO_EV (not an independent literal), so
 # the two can never drift apart. Previously defined independently -- misspelled
 # as `ev2hatree`, and via the identical expression `1 / hartree2ev` -- in both
@@ -164,6 +169,10 @@ DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by
 # the thermochemistry path (calc_thermo): a true minimum is needed before a
 # Hessian/frequency calculation, unlike conformer generation where 0.01 suffices.
+# Unlike DEFAULT_DUPLICATE_ENERGY_TOL two constants above, whether an fp32
+# AIMNet2 or ANI force field actually reaches this tolerance within the
+# default 2000-step budget of ase.optimize.BFGS (relax_to_stationary_point)
+# is not measured here.
 DEFAULT_THERMO_CONVERGENCE_THRESHOLD = 2e-4
 DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
@@ -258,6 +267,16 @@ IMAGINARY_MODE_CUTOFF_CM = 50.0
 # quasi-RRHO (Chem. Eur. J. 2012, 18, 9955); at 298 K, kT = 207 cm^-1, so
 # every mode below the floor is deep in the classical limit.
 #
+# They share that number, not a mechanism. Auto3D follows Truhlar's
+# quasi-harmonic treatment: every real mode below the floor is RAISED to the
+# floor wavenumber in the frequency list handed to the partition function, so
+# ZPE, the vibrational enthalpy and the vibrational entropy all move together.
+# Grimme's quasi-RRHO instead keeps the real frequency for ZPE and enthalpy
+# unchanged and uses this same 100 cm^-1 only as the midpoint of a damping
+# function that interpolates the ENTROPY term alone between the harmonic and
+# free-rotor limits -- a different, entropy-only mechanism that happens to be
+# centered on the same number.
+#
 # Set to 0.0 to disable and recover plain RRHO (calc_thermo's and
 # do_mol_thermo's low_freq_cutoff_cm argument). Turning the floor ON is a
 # convention change, not a bug fix: it does not cancel between species and it
@@ -342,5 +361,7 @@ LINEAR_AXIS_ROTATION_GATE = 1e-8
 # 3.14), so the band warns about quasi-linear species only.
 LINEARITY_MARGINAL_RATIO = 0.5
 
-# eV per wavenumber, for reporting vibrational energies in cm^-1.
-EV_PER_WAVENUMBER = 1.0 / 8065.54429
+# eV per wavenumber, for reporting vibrational energies in cm^-1. 8065.543937
+# is the CODATA 2018 value (1 eV = 8065.543937 cm^-1); the prior 8065.54429
+# was off by 0.044 ppm, not an observable change to anything that reads this.
+EV_PER_WAVENUMBER = 1.0 / 8065.543937

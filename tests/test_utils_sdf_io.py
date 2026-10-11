@@ -7,7 +7,6 @@ from rdkit import Chem
 
 from Auto3D.foundation.utils.sdf_io import (
     SDF2chunks,
-    count_sdf,
     guess_file_type,
     iter_conformer_records,
     record_skip_reason,
@@ -101,6 +100,31 @@ class TestSDF2chunks:
             original = f.read()
 
         assert reconstructed == original
+
+    def test_sdf2chunks_does_not_split_on_a_dollar_line_inside_a_property(self, tmp_path):
+        """N-m30: a `$$$$` line inside an SD property VALUE is not the record
+        terminator. A real terminator is preceded by `M  END` (directly, when
+        the record carries no properties) or by the blank line that ends the
+        last property's value -- not by arbitrary property text, which is
+        exactly what an embedded `$$$$` line is preceded by.
+        """
+        mol = _make_mol("CCO")
+        mol.SetProp("note", "line one\n$$$$\nline three")
+        path = tmp_path / "x.sdf"
+        with Chem.SDWriter(str(path)) as w:
+            w.write(mol)
+        assert len(SDF2chunks(str(path))) == 1
+
+    def test_sdf2chunks_still_splits_two_well_formed_records(self, tmp_path):
+        """The fix above must not stop SDF2chunks from splitting at all."""
+        path = tmp_path / "two.sdf"
+        with Chem.SDWriter(str(path)) as w:
+            w.write(_make_mol("one"))
+            w.write(_make_mol("two"))
+        chunks = SDF2chunks(str(path))
+        assert len(chunks) == 2
+        assert chunks[0][-1].strip() == "$$$$"
+        assert chunks[1][-1].strip() == "$$$$"
 
 
 class TestReorderSdf:
@@ -213,18 +237,24 @@ class TestNoneMolHardening:
     on it and raised ``AttributeError``. They must skip ``None`` instead.
     """
 
-    def test_count_sdf_skips_none_records(self, tmp_path, monkeypatch):
-        """count_sdf must not count (or crash on) a None record."""
+    def test_iter_conformer_records_skips_none_records(self, tmp_path, monkeypatch):
+        """N-m31: `count_sdf` is gone (zero production callers); its
+        production-equivalent reader, `iter_conformer_records`, must not
+        count (or crash on) a None record either."""
+
+        from rdkit.Chem import AllChem
 
         import Auto3D.foundation.utils.sdf_io as sdf_io
 
-        valid = _make_mol("mol_a")
+        valid = Chem.AddHs(Chem.MolFromSmiles("C"))
+        AllChem.EmbedMolecule(valid, randomSeed=1)
+        valid.SetProp("_Name", "mol_a")
         monkeypatch.setattr(sdf_io.Chem, "SDMolSupplier", lambda *a, **k: [valid, None])
 
         sdf = tmp_path / "mols.sdf"
         sdf.write_text("placeholder")  # path only needs to exist for the call
 
-        assert count_sdf(str(sdf)) == 1
+        assert len(list(iter_conformer_records(str(sdf)))) == 1
 
     def test_reorder_sdf_skips_none_records(self, tmp_path, monkeypatch):
         """reorder_sdf must skip None records in the target SDF."""
@@ -299,8 +329,9 @@ class TestSDF2chunksTrailingRecord:
     def test_trailing_record_without_terminator_preserved(self, tmp_path):
         """SDF2chunks keeps a terminator-less trailing record as its own chunk."""
         sdf = tmp_path / "ragged.sdf"
-        # First record has $$$$; second record lacks it.
-        sdf.write_text("mol1\n  line1\n$$$$\nmol2\n  line2\n  line3\n")
+        # First record is well-formed (M  END precedes its $$$$, N-m30);
+        # second record lacks both.
+        sdf.write_text("mol1\n  line1\nM  END\n$$$$\nmol2\n  line2\n  line3\n")
 
         chunks = SDF2chunks(str(sdf))
 

@@ -757,6 +757,17 @@ class OptimizationConfig:
     This dataclass encapsulates all parameters related to the FIRE optimizer
     and convergence criteria, replacing the previous untyped dict approach.
 
+    ``patience`` is the one field this dataclass validates itself (N-m21):
+    ``__post_init__`` raises :class:`~Auto3D.foundation.exceptions.ConfigurationError`
+    for ``patience < 1``, the same bound ``FIELD_BOUNDS`` applies on the
+    ``Auto3DOptions`` path. Every other field is trusted as given -- this
+    class has no pydantic validation layer of its own, unlike
+    ``Auto3DOptions`` -- but ``patience < 1`` would otherwise silently drop
+    every converged structure as "oscillating" on the optimizer's very first
+    step, with no error and no converged output, so it is checked here too
+    rather than only on the one entry point (``Auto3DOptions``) that happens
+    to route through pydantic.
+
     Example:
         >>> config = OptimizationConfig(opt_steps=1000, convergence_threshold=0.005)
         >>> optimizer = Optimizer(in_f, out_f, adapter=adapter, device=device, config=config)
@@ -788,6 +799,20 @@ class OptimizationConfig:
     # until 3.0.0 and reached an optimizer criterion that could never fire
     # (audit M1), so they were knobs that changed nothing. Removed rather than
     # kept as inert configuration.
+
+    def __post_init__(self) -> None:
+        """Reject ``patience < 1`` (N-m21).
+
+        ``batch_opt.optimization_engine`` drops a structure as "oscillating"
+        once its non-improving-step count reaches ``patience``
+        (``osc_count >= patience``); at ``patience=0`` that is true from the
+        very first step, so every structure is dropped before the optimizer
+        does any useful work and the run reports no converged output -- with
+        no error naming why. Checked here rather than left to that silent
+        outcome.
+        """
+        if self.patience < 1:
+            raise ConfigurationError(f"patience must be >= 1, got {self.patience!r}")
 
     def to_dict(self) -> dict:
         """Convert to dict for backward compatibility with existing code.

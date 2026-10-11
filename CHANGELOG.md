@@ -97,6 +97,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --no-enumerate-isomers`, `--isomer-threads`), `IsomerEngineFactory.create`
   (`enumerate_isomers=`, `n_threads=`) and the isomer engine constructors
   (`RDKitIsomer`, `RDKitSdfIsomer`, `oe_isomer`) all use these names now.
+- `opt_geometry` refuses `patience < 1` (via `OptimizationConfig.__post_init__`,
+  the one field that dataclass validates itself) instead of silently
+  dropping every converged structure as oscillating on the optimizer's
+  first step, and warns once when an explicitly passed `patience` exceeds
+  `opt_steps`, which can never trigger before the step limit does.
+- `EV_PER_WAVENUMBER` is the CODATA 2018 value (1 eV = 8065.543937 cm^-1,
+  a 0.044 ppm shift from the prior 8065.54429) and `HARTREE_TO_KCAL_PER_MOL`
+  is now derived from `HARTREE_TO_EV * EV_TO_KCAL_PER_MOL` rather than an
+  independent literal (a 1.1e-9 relative shift); neither moves any caller's
+  value by an observable amount.
+- An id containing the literal text `@taut` with no digit immediately after
+  it (e.g. `"sample@tautonomy_1"`) is no longer mistaken for a hashed
+  `@tautN` suffix: `strip_taut_suffix` now requires at least one digit right
+  after `"taut"` before stripping, instead of matching the bare substring
+  `"@taut"` anywhere in the id, which could truncate such an id and confuse
+  it with an unrelated one.
+- A `$$$$` line inside an SD property value no longer splits or terminates a
+  record: both `SDF2chunks` and the chunk-combine step now require an
+  `M  END` line (and, when the record carries properties, the blank line
+  that ends the last one) to immediately precede a `$$$$` before treating
+  it as the terminator.
+- `count_sdf` is removed from `Auto3D.foundation.utils.sdf_io` (zero
+  production callers); count records through `iter_conformer_records`.
+- `WorkflowResult` carries the molecule/conformer counts computed at the end
+  of the run (from the record list the finalize step already produced),
+  rather than only a lazy count re-read from the output path on first
+  access, so moving or deleting that file no longer zeroes them.
+- `find_smiles_not_in_sdf` and `find_ids_not_in_sdf` read the output SDF
+  with `removeHs=False`, like every other reader of an Auto3D output file,
+  so an explicit-hydrogen record is not at risk of a parse failure or a
+  silent structural change during reconciliation. `classify_records` gains
+  a `keep` parameter (default `()`, unchanged behavior for every existing
+  caller); the SDF isomer engine now reads through it with
+  `keep=("implicit_hydrogens", "no_conformer")` instead of its own
+  `SDMolSupplier` loop and inline dummy-atom check.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

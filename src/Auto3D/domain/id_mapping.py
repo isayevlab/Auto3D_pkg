@@ -20,7 +20,7 @@ from rdkit import Chem
 from Auto3D.foundation.exceptions import FileFormatError, InputValidationError
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
-from Auto3D.foundation.utils.smi_io import iter_smi_records
+from Auto3D.foundation.utils.smi_io import iter_smi_records, strip_taut_suffix
 
 logger = get_logger(__name__)
 
@@ -184,9 +184,16 @@ def decode_ids(path: str, mapping: dict[str, int], *, overwrite: bool = False) -
                 logger.warning("Skipping molecule at index %d: failed to parse", i)
                 continue
             name = mol.GetProp("_Name").strip()
-            if "@taut" in name:
-                components = name.split("@taut")
-                new_name = inverse_mapping[int(components[0])] + "@taut" + "".join(components[1:])
+            # strip_taut_suffix is the single owner of the "@tautN" parse
+            # (N-m29); its pattern -- "@taut" followed by at least one digit,
+            # then everything after -- replaces this function's own
+            # `"@taut" in name` / `name.split("@taut")`, which treated the
+            # bare substring anywhere in the id as the separator (matching
+            # e.g. "sample@tautonomy_1", which has no digit after "taut" and
+            # is not a hashed suffix at all).
+            base = strip_taut_suffix(name)
+            if base != name:
+                new_name = inverse_mapping[int(base)] + name[len(base) :]
             else:
                 new_name = inverse_mapping[int(name)]
             mol.SetProp("_Name", new_name)

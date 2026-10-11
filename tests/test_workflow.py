@@ -1257,13 +1257,19 @@ def test_validate_input_accepts_an_uppercase_extension(tmp_path):
     assert orch.config.input_format == "smi"
 
 
-def _encoded_mol(encoded_id):
-    """A minimal mol shaped like decode_ids expects: numeric _Name + ID."""
+def _encoded_mol(encoded_id, taut=None):
+    """A minimal mol shaped like decode_ids expects: numeric _Name + ID.
+
+    ``taut``, when given, appends a ``@tautN`` suffix to ``_Name`` (as
+    tautomer-enumerated conformers of one encoded id carry), so a caller can
+    build several conformers that `strip_taut_suffix` groups as one molecule.
+    """
     from rdkit import Chem
 
+    name = f"{encoded_id}@taut{taut}" if taut is not None else str(encoded_id)
     mol = Chem.MolFromSmiles("C")
-    mol.SetProp("_Name", str(encoded_id))
-    mol.SetProp("ID", f"{encoded_id}_conf1")
+    mol.SetProp("_Name", name)
+    mol.SetProp("ID", f"{name}_conf1")
     return mol
 
 
@@ -1381,6 +1387,45 @@ class TestFinalizeOutputReconciliation:
         orch._finalize_output(start_time=0.0)
         assert orch.failures == ["mol_c"], orch.failures
 
+    def test_finalize_output_sets_output_counts_from_the_reordered_records(self, tmp_path):
+        """P-m26: `_finalize_output` computes (n_molecules, n_conformers)
+        from the list `reorder_sdf` returns -- still-encoded names, but
+        counting distinct `strip_taut_suffix`-stripped names is unaffected
+        by the encode/decode relabeling, since `decode_ids` maps each
+        encoded id to exactly one original id -- and stores it as
+        `self.output_counts`, so `main()` can hand eager counts to
+        `WorkflowResult` without re-reading the output file."""
+        from rdkit import Chem
+
+        from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+        orig_smi = tmp_path / "orig.smi"
+        orig_smi.write_text("C mol_a\nC mol_b\n")
+
+        config = Auto3DOptions(path=str(orig_smi), k=1, use_gpu=False)
+        config.input_format = "smi"
+        orch = WorkflowOrchestrator(config)
+        orch.job_dir = tmp_path
+        orch.input_path = tmp_path / "orig_encoded.smi"
+        orch.input_path.write_text("C 0\nC 1\n")
+        orch.id_mapping = {"mol_a": 0, "mol_b": 1}
+        orch.logger = None
+
+        job = tmp_path / "job1"
+        job.mkdir()
+        combined = job / "orig_encoded_3d.sdf"
+        with Chem.SDWriter(str(combined)) as w:
+            # Two tautomer-enumerated conformers of encoded id 0 (collapse to
+            # one molecule) and one conformer of encoded id 1 -> 2 molecules,
+            # 3 conformers.
+            w.write(_encoded_mol(0, taut=0))
+            w.write(_encoded_mol(0, taut=1))
+            w.write(_encoded_mol(1))
+
+        orch._finalize_output(start_time=0.0)
+        assert orch.output_counts == (2, 3)
+
     def test_workflow_uses_the_canonical_reconciliation_functions(self, monkeypatch, tmp_path):
         """Guard against a regression to a hand-rolled duplicate: `_reconcile_output`
         must actually call the imported `find_smiles_not_in_sdf`/`find_ids_not_in_sdf`
@@ -1427,6 +1472,40 @@ class TestFinalizeOutputReconciliation:
         orch._reconcile_output(str(tmp_path / "out.sdf"))
         assert id_calls, "find_ids_not_in_sdf was not called from _reconcile_output"
         assert not smi_calls
+
+
+def test_finalize_output_raises_when_the_only_dollar_line_is_inside_a_property(tmp_path):
+    """N-m30: a chunk whose only `$$$$`-looking line sits inside a property
+    value, with no real `M  END`-terminated record anywhere in it, must not
+    be mistaken for a chunk that produced a converged structure.
+    `_combine_chunk_outputs` (reached through `_finalize_output`) must still
+    raise `OptimizationError`, exactly as it would for a chunk with no
+    `$$$$` line at all.
+    """
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    orig_smi = tmp_path / "orig.smi"
+    orig_smi.write_text("C mol_a\n")
+
+    config = Auto3DOptions(path=str(orig_smi), k=1, use_gpu=False)
+    config.input_format = "smi"
+    orch = WorkflowOrchestrator(config)
+    orch.job_dir = tmp_path
+    orch.input_path = tmp_path / "orig_encoded.smi"
+    orch.input_path.write_text("C 0\n")
+    orch.id_mapping = {"mol_a": 0}
+    orch.logger = None
+
+    job = tmp_path / "job1"
+    job.mkdir()
+    combined = job / "orig_encoded_3d.sdf"
+    # No `M  END` anywhere in this chunk: the only line equal to "$$$$" sits
+    # inside a fragment of property text, not after a real molblock.
+    combined.write_text("mol_a\nsome note text\n$$$$\nmore note text\n")
+
+    with pytest.raises(OptimizationError, match="No 3D structure converged"):
+        orch._finalize_output(start_time=0.0)
 
 
 def test_main_propagates_orchestrator_failures_into_workflow_result(monkeypatch, tmp_path):

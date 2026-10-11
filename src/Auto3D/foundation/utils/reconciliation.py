@@ -48,9 +48,12 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     for _line_no, smiles_str, mol_id in iter_smi_records(smi, on_malformed="skip"):
         smi_names.append((smiles_str, mol_id))
 
-    # Get all molecule names from SDF
+    # Get all molecule names from SDF. removeHs=False (P-m27): every Auto3D
+    # writer emits explicit H, and the default removeHs=True may fail to
+    # parse, or silently alter, such a record -- the same reason every other
+    # reader of an Auto3D output SDF passes it.
     sdf_data: list[str] = []
-    mols = Chem.SDMolSupplier(sdf)
+    mols = Chem.SDMolSupplier(sdf, removeHs=False)
     for i, mol in enumerate(mols):
         if mol is None:
             logger.warning("Skipping molecule at index %d: failed to parse", i)
@@ -141,9 +144,10 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
             continue
         source_ids.append(mol.GetProp("_Name").strip())
 
-    # Get all molecule names from the output SDF
+    # Get all molecule names from the output SDF. removeHs=False (P-m27),
+    # same reason as find_smiles_not_in_sdf's output-SDF supplier above.
     sdf_ids: set[str] = set()
-    mols = Chem.SDMolSupplier(sdf)
+    mols = Chem.SDMolSupplier(sdf, removeHs=False)
     for i, mol in enumerate(mols):
         if mol is None:
             logger.warning("Skipping molecule at index %d: failed to parse", i)

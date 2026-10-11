@@ -1,6 +1,82 @@
 import pytest
 
 
+def _two_record_input(tmp_path, monkeypatch):
+    """Build a tiny two-record SDF and stub out everything `opt_geometry`
+    needs to run without a GPU, a real model, or a real optimizer -- the same
+    technique `test_opt_geometry_names_output_by_model` below uses for
+    itself, lifted into a helper so the patience tests can share it. Neither
+    test below cares what the optimizer does, only whether `opt_geometry`
+    reaches (or refuses to reach) it.
+    """
+    import torch
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    import Auto3D.entry._run_setup as run_setup
+    import Auto3D.entry.ASE.geometry as geo
+    from tests.helpers_adapter import FakeAdapter
+
+    mol1 = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol1, randomSeed=1)
+    mol1.SetProp("_Name", "m1")
+    mol2 = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    AllChem.EmbedMolecule(mol2, randomSeed=2)
+    mol2.SetProp("_Name", "m2")
+    sdf = tmp_path / "mols.sdf"
+    with Chem.SDWriter(str(sdf)) as w:
+        w.write(mol1)
+        w.write(mol2)
+
+    class _Stub:
+        def __init__(self, in_f, out_f, *a, **k):
+            self._out_f = out_f
+
+        def run(self):
+            # Real contract: write the optimized structures to out_f and
+            # return True. `opt_geometry` re-reads out_f right after this
+            # (`_annotate_and_rewrite`), so a stub that returns True without
+            # writing a parseable file breaks that step, not the behavior
+            # under test.
+            with Chem.SDWriter(self._out_f) as w:
+                out_mol = Chem.Mol(mol1)
+                out_mol.SetProp("E_tot", "-1.0")
+                w.write(out_mol)
+            return True  # matches Optimizer.run()'s real True-on-write contract
+
+    monkeypatch.setattr(run_setup, "get_device", lambda *a, **k: torch.device("cpu"))
+    monkeypatch.setattr(run_setup, "configure_torch", lambda *a, **k: None)
+    monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
+    monkeypatch.setattr(geo, "Optimizer", _Stub)
+    return sdf
+
+
+def test_opt_geometry_rejects_patience_zero(monkeypatch, tmp_path):
+    """N-m21: `patience` has no lower bound on the `OptimizationConfig` path
+    today, so `patience=0` silently drops every converged structure as
+    oscillating on its very first step instead of being refused up front."""
+    from Auto3D.entry.ASE.geometry import opt_geometry
+    from Auto3D.foundation.exceptions import ConfigurationError
+
+    sdf = _two_record_input(tmp_path, monkeypatch)
+    with pytest.raises(ConfigurationError, match="patience"):
+        opt_geometry(str(sdf), "ANI2xt", patience=0, opt_steps=10, use_gpu=False)
+
+
+def test_opt_geometry_warns_when_patience_exceeds_opt_steps(monkeypatch, tmp_path, caplog):
+    """An explicit `patience` above `opt_steps` can never fire -- the step
+    limit always ends the run first -- so it is almost certainly a mistake,
+    warned about rather than silently accepted."""
+    import logging
+
+    from Auto3D.entry.ASE.geometry import opt_geometry
+
+    sdf = _two_record_input(tmp_path, monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="Auto3D"):
+        opt_geometry(str(sdf), "ANI2xt", patience=50, opt_steps=10, use_gpu=False)
+    assert "patience" in caplog.text and "opt_steps" in caplog.text
+
+
 @pytest.mark.slow
 def test_opt_geometry_skips_implicit_hydrogen_records(tmp_path, caplog):
     """An implicit-H record must not be optimized as a bare heavy-atom

@@ -64,6 +64,65 @@ class TestNoneAndMalformedInputHardening:
         assert ("mol_b", "CC") in bad
 
 
+class TestOutputSupplierPassesRemoveHsFalse:
+    """P-m27: the default `SDMolSupplier(sdf)` (``removeHs=True``) may fail
+    to parse, or silently alter, an explicit-hydrogen output record -- every
+    Auto3D writer emits explicit H, so the output SDF these two functions
+    read is exactly that. `find_ids_not_in_sdf`'s OWN source-SDF supplier
+    already passes ``removeHs=False``; this pins the same call contract on
+    the two OUTPUT-SDF suppliers these functions were missing it on.
+    """
+
+    def test_find_smiles_not_in_sdf_passes_removehs_false(self, monkeypatch, tmp_path):
+        import Auto3D.foundation.utils.reconciliation as reconciliation
+
+        calls = []
+
+        def _spy(*args, **kwargs):
+            calls.append(kwargs)
+            return []
+
+        monkeypatch.setattr(reconciliation.Chem, "SDMolSupplier", _spy)
+
+        smi = tmp_path / "in.smi"
+        smi.write_text("C mol_a\n")
+        sdf = tmp_path / "out.sdf"
+        sdf.write_text("placeholder")
+
+        find_smiles_not_in_sdf(str(smi), str(sdf))
+        assert calls and calls[0].get("removeHs") is False, calls
+
+    def test_find_ids_not_in_sdf_passes_removehs_false_for_the_output_sdf(
+        self, monkeypatch, tmp_path
+    ):
+        import Auto3D.foundation.utils.reconciliation as reconciliation
+
+        calls = []
+        real_supplier = reconciliation.Chem.SDMolSupplier
+
+        def _spy(path, *args, **kwargs):
+            calls.append((path, kwargs))
+            if str(path) == str(source):
+                return real_supplier(str(path), removeHs=False)
+            return []
+
+        source = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source))
+        writer.write(_make_mol("mol_a"))
+        writer.close()
+
+        monkeypatch.setattr(reconciliation.Chem, "SDMolSupplier", _spy)
+
+        sdf = tmp_path / "out.sdf"
+        sdf.write_text("placeholder")
+
+        find_ids_not_in_sdf(str(source), str(sdf))
+        # The source-SDF call (already passing removeHs=False) and the
+        # output-SDF call (the one this fix adds it to) are both here.
+        output_calls = [kw for path, kw in calls if str(path) == str(sdf)]
+        assert output_calls and output_calls[0].get("removeHs") is False, calls
+
+
 class TestFindSmilesNotInSdfTautStripping:
     """C7: a decoded '@tautN' suffix must not cause a false "missing" report."""
 
@@ -117,6 +176,37 @@ class TestBareAtSurvivesTautStripping:
         writer.close()
 
         assert find_ids_not_in_sdf(str(source), str(out)) == []
+
+    def test_find_ids_not_in_sdf_does_not_hide_a_missing_id_behind_a_non_suffix_at_taut(
+        self, tmp_path
+    ):
+        """N-m29: an output id containing the literal text "@taut" other than
+        as a trailing ``@tautN`` suffix (the one `hash_taut_smi` writes) must
+        not be truncated down to a shorter id it merely starts with.
+
+        Before the fix, `strip_taut_suffix("sample@tautonomy_1")` split on
+        the bare substring `"@taut"` to `"sample"`, so a SEPARATE input
+        molecule actually named `"sample"` -- which never produced any
+        output here -- was wrongly matched against this unrelated record and
+        not reported missing.
+        """
+        source = tmp_path / "source.sdf"
+        writer = Chem.SDWriter(str(source))
+        writer.write(_make_mol("sample"))
+        writer.close()
+
+        out = tmp_path / "out.sdf"
+        writer = Chem.SDWriter(str(out))
+        # An unrelated record that merely starts with "sample@taut" but is
+        # not that molecule's hashed tautomer suffix.
+        writer.write(_make_mol("sample@tautonomy_1"))
+        writer.close()
+
+        bad = find_ids_not_in_sdf(str(source), str(out))
+        assert bad == ["sample"], (
+            f"'sample' was not reported missing "
+            f"(hidden behind the unrelated 'sample@tautonomy_1'?): {bad}"
+        )
 
 
 class TestFindIdsNotInSdf:
