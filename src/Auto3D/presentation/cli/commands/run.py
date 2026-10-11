@@ -7,7 +7,8 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
+from Auto3D.foundation.config import require_selector
+from Auto3D.foundation.exceptions import InputValidationError
 from Auto3D.foundation.utils.logging_config import configure_logging
 from Auto3D.presentation.cli.config_schema import (
     build_cli_config,
@@ -234,15 +235,12 @@ def execute_run(
             # inject k=1 with a warning, which made `auto3d run` the only entry
             # point that would pick a scientific parameter on the user's behalf --
             # a user who forgot --k silently got one conformer per molecule while
-            # every other surface refused. Raised here rather than left to
+            # every other surface refused. Checked here rather than left to
             # check_valid_configuration inside main() so it fails before the banner
             # prints (which would otherwise render "window=None") and before any
-            # work starts. Same wording as auto3D.py:167 / workflow.py:198.
-            if config.k is None and config.window is None:
-                raise ConfigurationError(
-                    "Either k or window needs to be specified. "
-                    "Usually, setting '--k=1' satisfies most needs."
-                )
+            # work starts. require_selector is the one place this error is
+            # worded, shared with every other entry point.
+            require_selector(config.k, config.window)
 
             # Print banner unless quiet/json
             if not quiet and not json_output:

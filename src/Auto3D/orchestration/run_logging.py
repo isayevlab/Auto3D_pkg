@@ -167,7 +167,7 @@ class RunLoggingMixin:
         self.logger.info("                               RUNNING PROCESS")
         self.logger.info("=" * 80)
 
-    def _log_both(self, msg: str, *, warning: bool = False) -> None:
+    def _log_both(self, msg: str, *, warning: bool = False, level: int | None = None) -> None:
         """Emit ``msg`` to both the module logger and this run's Auto3D.log.
 
         ``self.logger`` (the per-run file logger ``_setup_logging`` attaches)
@@ -176,7 +176,12 @@ class RunLoggingMixin:
         identical module-level call -- four times (``_finalize_output``,
         ``_reconcile_output``, and twice in ``_log_timing``), three at
         ``info`` and one at ``warning``.
+
+        ``level``, when given, wins over ``warning``: it lets a caller (an
+        abnormal worker exit) log at ``ERROR`` without this method growing a
+        third boolean flag for every severity a future caller might need.
         """
-        (logger.warning if warning else logger.info)(msg)
+        lvl = level if level is not None else (logging.WARNING if warning else logging.INFO)
+        logger.log(lvl, msg)
         if self.logger:
-            (self.logger.warning if warning else self.logger.info)(msg)
+            self.logger.log(lvl, msg)

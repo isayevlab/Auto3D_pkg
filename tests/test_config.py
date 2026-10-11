@@ -327,3 +327,18 @@ def test_the_new_name_wins_when_both_old_and_new_are_passed():
     with pytest.warns(DeprecationWarning, match="isomer_threads"):
         config = Auto3DOptions(path="in.smi", k=1, use_gpu=False, mpi_np=2, isomer_threads=9)
     assert config.isomer_threads == 9
+
+
+def test_require_selector_rejects_neither_and_both_with_one_wording_each():
+    """One ``require_selector`` is the single raise site for the
+    missing-selector error; every entry point (CLI, YAML validation, Python
+    API, the ranker's own guard) calls it instead of spelling its own
+    message."""
+    from Auto3D.foundation.config import require_selector
+
+    require_selector(1, None)
+    require_selector(None, 2.0)
+    with pytest.raises(ConfigurationError, match="Either k or window needs to be specified"):
+        require_selector(None, None)
+    with pytest.raises(ConfigurationError, match="Only one of k or window"):
+        require_selector(1, 2.0)

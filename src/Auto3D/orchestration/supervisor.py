@@ -7,6 +7,7 @@ progress events while they run. ``WorkflowOrchestrator`` composes
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from Auto3D.foundation.utils.logging_config import get_logger
@@ -45,6 +46,10 @@ class SupervisorMixin:
     """Joins the worker processes, checks their exit codes, and drains progress.
 
     The attributes below are set by ``WorkflowOrchestrator.__init__``.
+    ``_log_both``, used by ``_check_exit`` and ``_join_optimizer_bounded`` to
+    put an abnormal exit in the run's own Auto3D.log (not only the console),
+    is reached through the MRO from ``RunLoggingMixin``, the same way
+    ``FinalizeMixin`` reaches it.
     """
 
     config: Auto3DOptions
@@ -110,22 +115,26 @@ class SupervisorMixin:
         """
         p2.join(timeout=_ABNORMAL_EXIT_JOIN_TIMEOUT)
         if p2.is_alive():
-            logger.error(
-                "Optimization process (pid=%s) did not exit within %ss of the "
-                "isomer worker's abnormal exit; terminating it.",
-                p2.pid,
-                _ABNORMAL_EXIT_JOIN_TIMEOUT,
+            self._log_both(
+                f"Optimization process (pid={p2.pid}) did not exit within "
+                f"{_ABNORMAL_EXIT_JOIN_TIMEOUT}s of the isomer worker's abnormal exit; "
+                "terminating it.",
+                level=logging.ERROR,
             )
             p2.terminate()
             p2.join()
 
     def _check_exit(self, proc: BaseProcess, label: str) -> None:
-        """Log a warning if a worker process exited abnormally."""
+        """Log a worker's abnormal exit to both the console and the run log.
+
+        This used to go through the bare module ``logger`` alone, so a
+        run's own Auto3D.log never recorded a worker crash a user would
+        only have seen if they had kept the live console output.
+        """
         if proc.exitcode not in (0, None):
-            logger.error(
-                "%s process exited with code %s; output may be incomplete.",
-                label,
-                proc.exitcode,
+            self._log_both(
+                f"{label} process exited with code {proc.exitcode}; output may be incomplete.",
+                level=logging.ERROR,
             )
 
     def _join_workers(

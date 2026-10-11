@@ -253,6 +253,41 @@ def test_exit_2_run_unsupported_input_format(tmp_path):
     assert "Supported formats: .smi, .sdf" in err
 
 
+def test_exit_2_when_the_explicit_job_directory_already_exists():
+    """A job-directory name collision must be a configuration error
+    naming the directory, not a bare ``FileExistsError`` traceback (exit 1).
+
+    ``--engine ANI2xt --no-gpu`` short-circuits engine resolution, so this
+    fails in ``_setup_job_directory`` before any NNP is loaded.
+
+    A plain ``tempfile.TemporaryDirectory()`` rather than the ``tmp_path``
+    fixture: pytest's own tmp dir embeds this test's full name, long enough
+    that the path in the error panel can hard-wrap mid-word at the terminal
+    width Rich falls back to under capture, splitting the very substring
+    this test looks for in a way `_flat` cannot repair.
+    """
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp_path = Path(d)
+        smi = tmp_path / "mols.smi"
+        smi.write_text("CCO m1\n")
+        (tmp_path / "mols_pinned").mkdir()
+
+        result = runner.invoke(
+            app,
+            ["run", str(smi), "--k", "1", "--no-gpu", "--engine", "ANI2xt", "--job-name", "pinned"],
+        )
+
+    assert result.exit_code == 2, result.output
+    err = _flat(result.stderr)
+    assert "mols_pinned" in err
+    # The class hint ("Run 'auto3d config init' ...") is suppressed at the
+    # raise site: it does not apply to a directory-name collision.
+    assert "config init" not in err
+
+
 # --- 3: missing optional dependency ------------------------------------------
 
 

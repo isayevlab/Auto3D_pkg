@@ -727,6 +727,7 @@ class TestEncodedInputStaging:
         test is about job-directory collision, not the ANI2xt engine.
         """
         from Auto3D.foundation.config import Auto3DOptions
+        from Auto3D.foundation.exceptions import ConfigurationError
         from Auto3D.orchestration.workflow import WorkflowOrchestrator
 
         smi = job_dir / "mols.smi"
@@ -749,7 +750,9 @@ class TestEncodedInputStaging:
             )
         )
 
-        with pytest.raises(FileExistsError):
+        # The collision is now a ConfigurationError naming the
+        # directory (exit 2 at the CLI), not a bare FileExistsError traceback.
+        with pytest.raises(ConfigurationError, match="already exists"):
             orch.run()
 
         assert precious.read_bytes() == b"EARLIER RUN\n"

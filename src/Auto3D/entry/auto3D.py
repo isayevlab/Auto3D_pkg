@@ -22,7 +22,7 @@ from Auto3D.engines.batch_opt.batchopt import Optimizer
 from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.preflight import preflight_model
-from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.config import Auto3DOptions, require_selector
 from Auto3D.foundation.exceptions import ConfigurationError, OptimizationError
 from Auto3D.foundation.utils.logging_config import configure_logging, get_logger
 from Auto3D.foundation.utils.reconciliation import find_smiles_not_in_sdf
@@ -37,6 +37,7 @@ from Auto3D.orchestration.workflow import WorkflowOrchestrator
 # cycle. Re-exported here for backward compatibility with code/tests that import
 # them from Auto3D.entry.auto3D.
 from Auto3D.orchestration.workflow_workers import (  # noqa: F401
+    isomer_engine_kwargs,
     isomer_wrapper,
     logger_process,
     optim_rank_wrapper,
@@ -230,11 +231,7 @@ def smiles2mols(
         args.path = path0
         k = args.k
         window = args.window
-        if (not k) and (not window):
-            raise ConfigurationError(
-                "Either k or window needs to be specified. "
-                "Usually, setting '--k=1' satisfies most needs."
-            )
+        require_selector(k, window)
         args.input_format = "smi"
 
         # Fail fast on an invalid configuration (notably an out-of-range
@@ -256,6 +253,12 @@ def smiles2mols(
 
         # smi to sdf
         meta = create_chunk_meta_names(path0, tmpdirname)
+        isomer_kwargs = isomer_engine_kwargs(args)
+        # The call's own keyword, never `args.use_parallel_embedding`: the
+        # spawn pool would re-import an unguarded caller script in every
+        # child, which is why this one entry point takes its opt-in at the
+        # call site instead of inheriting the field's default.
+        isomer_kwargs["use_parallel_embedding"] = parallel_embedding
         isomer_engine = IsomerEngineFactory.create(
             engine_type="rdkit",
             input_path=path0,
@@ -264,17 +267,7 @@ def smiles2mols(
             smiles_reduced=meta["smiles_reduced"],
             smiles_hashed=meta["smiles_hashed"],
             job_dir=tmpdirname,
-            max_confs=args.max_confs,
-            threshold=args.threshold,
-            n_threads=args.isomer_threads,
-            enumerate_isomers=args.enumerate_isomers,
-            # The call's own keyword, never `args.use_parallel_embedding`: the
-            # spawn pool would re-import an unguarded caller script in every
-            # child, which is why this one entry point takes its opt-in at the
-            # call site instead of inheriting the field's default.
-            use_parallel_embedding=parallel_embedding,
-            parallel_workers=args.parallel_workers,
-            parallel_embedding_threshold=args.parallel_embedding_threshold,
+            **isomer_kwargs,
         )
         isomer_engine.run()
 
