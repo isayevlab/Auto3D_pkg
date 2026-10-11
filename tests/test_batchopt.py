@@ -114,29 +114,44 @@ def test_ensemble_opt_returns_exactly_the_keys_its_callers_read(tiny_batch):
     }
 
 
+def test_ensemble_opt_accepts_the_legacy_opttol_key_for_one_release(tiny_batch):
+    """A hand-written param dict may still spell the key ``opttol`` until 4.0.
+
+    Dict-style access on ``Auto3DOptions`` gets a one-release deprecation; a
+    raw ``param`` dict built by hand (not through ``OptimizationConfig``)
+    deserves the same courtesy rather than a hard ``KeyError`` the moment
+    ``to_dict()`` renamed its key.
+    """
+    from Auto3D.engines.batch_opt.batchopt import ensemble_opt
+
+    net, coord, numbers, charges, param, device = tiny_batch
+    legacy_param = {k: v for k, v in param.items() if k != "convergence_threshold"}
+    legacy_param["opttol"] = param["convergence_threshold"]
+
+    with pytest.warns(DeprecationWarning, match="opttol"):
+        ensemble_opt(net, coord, numbers, charges, legacy_param, device)
+
+
+def test_ensemble_opt_with_convergence_threshold_key_warns_nothing(tiny_batch):
+    """The current key name is read silently -- no deprecation warning."""
+    import warnings
+
+    from Auto3D.engines.batch_opt.batchopt import ensemble_opt
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ensemble_opt(*tiny_batch)
+    assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
+
+
 class TestConvergenceStatus:
     """Tests for convergence status determination (Issue #90)."""
 
-    def test_ensemble_opt_returns_convergence_info(self):
+    def test_ensemble_opt_returns_convergence_info(self, tiny_batch):
         """ensemble_opt should return converged_mask and oscillating_count."""
         from Auto3D.engines.batch_opt.batchopt import ensemble_opt
-        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
 
-        # Create mock model
-        mock_adapter = MagicMock()
-        mock_adapter.forward.return_value = (
-            torch.tensor([0.0, 0.0]),
-            torch.zeros(2, 3, 3),  # Zero forces = instant convergence
-        )
-        model = EnForce_ANI(mock_adapter, batchsize_atoms=1024)
-
-        # Create simple input
-        coord = torch.randn(2, 3, 3)
-        numbers = torch.tensor([[6, 1, 1], [6, 1, 1]], dtype=torch.long)
-        charges = torch.tensor([0, 0], dtype=torch.long)
-        param = {"opt_steps": 10, "convergence_threshold": 0.01, "patience": 5}
-
-        result = ensemble_opt(model, coord, numbers, charges, param, torch.device("cpu"))
+        result = ensemble_opt(*tiny_batch)
 
         # Verify new fields are present, with their actual VALUES: zero force
         # on step 1 means fmax (0.0) is at once below convergence_threshold
@@ -311,25 +326,9 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
             m.SetProp("_Name", str(i))
             w.write(m)
 
-    def fake_ensemble_opt(
-        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None
-    ):
-        n = len(coord)
-        return dict(
-            coord=coord.tolist(),
-            ids=list(range(n)),
-            energy=[0.0] * n,
-            fmax=[0.0] * n,
-            he=[],
-            close=[],
-            timing={},
-            numbers=numbers.tolist(),
-            converged_mask=[True] * n,
-            oscillating_count=[0] * n,
-            non_finite=[False] * n,
-        )
+    from tests.helpers_batchopt import make_fake_ensemble_opt
 
-    monkeypatch.setattr(bo, "ensemble_opt", fake_ensemble_opt)
+    monkeypatch.setattr(bo, "ensemble_opt", make_fake_ensemble_opt())
 
     out = tmp_path / "out.sdf"
     eng = bo.optimizing(

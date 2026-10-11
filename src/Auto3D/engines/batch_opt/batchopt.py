@@ -1,5 +1,6 @@
 # Original source: /labspace/models/aimnet/batch_opt_script/
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -64,7 +65,9 @@ def ensemble_opt(
         charges: Molecular charges (N,).
         param: Dictionary containing optimization parameters:
             - opt_steps: Maximum optimization steps
-            - convergence_threshold: Force convergence tolerance
+            - convergence_threshold: Force convergence tolerance. The legacy
+              key ``opttol`` is accepted in its place until 4.0, with a
+              DeprecationWarning.
             - patience: Oscillation patience
         device: Torch device for computation.
         atom_mask: Boolean mask, shape (N, m), True for real atoms and False
@@ -145,10 +148,24 @@ def ensemble_opt(
         charges=charges,
     )
 
+    if "convergence_threshold" in param:
+        convergence_threshold = param["convergence_threshold"]
+    else:
+        # One release of backward compatibility for a hand-written param
+        # dict still using the pre-3.2.1 key name; `KeyError` below if
+        # neither key is present, same as before this fallback existed.
+        warnings.warn(
+            "The optimizer parameter key opttol is renamed convergence_threshold "
+            "and is removed in 4.0",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        convergence_threshold = param["opttol"]
+
     n_steps(
         state,
         param["opt_steps"],
-        param["convergence_threshold"],
+        convergence_threshold,
         param["patience"],
         atom_mask=atom_mask,
         progress_cb=progress_cb,

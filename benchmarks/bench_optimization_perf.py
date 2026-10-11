@@ -53,7 +53,6 @@ import subprocess
 import sys
 import time
 import warnings
-from collections import defaultdict
 from pathlib import Path
 
 import torch
@@ -215,7 +214,6 @@ def make_state(
         "converged_mask": torch.zeros(size, dtype=torch.bool, device=device),
         "fmax": torch.full((size,), INITIAL_FMAX_SENTINEL, device=device),
         "energy": torch.full((size,), INITIAL_ENERGY_SENTINEL, dtype=torch.double, device=device),
-        "timing": defaultdict(float),
     }
     return state, atom_mask, int(coord.shape[1])
 

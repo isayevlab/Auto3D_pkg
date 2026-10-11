@@ -254,6 +254,14 @@ filterwarnings = [
     # must stay visible so tests can assert them (audit M34).
     "default::DeprecationWarning:Auto3D.*",
     "default::UserWarning:Auto3D.*",
+    # A `module` selector matches the frame a warning is ATTRIBUTED to (per
+    # stacklevel), not the frame that raised it; both of these are raised
+    # from Auto3D with a stacklevel that deliberately attributes them to the
+    # caller's own module, so `Auto3D.*` above cannot gate either one -- only
+    # a message-based filter keeps "no production path uses this" enforced.
+    "error:Auto3DOptions is not a dict:DeprecationWarning",
+    # Same reasoning as the filter above, for the ensemble_opt legacy-key path.
+    "error:The optimizer parameter key opttol:DeprecationWarning",
     # Third-party noise we do not control.
     "ignore:.*pkg_resources is deprecated.*:DeprecationWarning",
     "ignore:.*Importing 'parser.split_arg_string' is deprecated.*:DeprecationWarning",

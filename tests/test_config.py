@@ -13,15 +13,17 @@ def test_input_format_is_real_field_surviving_replace():
 
     It was previously set as a dynamic attribute via __setitem__, which
     replace() silently dropped -- a latent AttributeError for any consumer
-    reading it off a replace()'d config copy.
+    reading it off a replace()'d config copy. This test is about `replace()`,
+    not about the dict-compat shim (that is `TestAuto3DOptions` and
+    `test_dict_style_access_warns_once_per_method`'s job), so it reaches its
+    subject through plain attribute access and never triggers a
+    DeprecationWarning.
     """
     cfg = Auto3DOptions(path="x.smi", k=1)
     assert cfg.input_format is None  # declared default
-    with pytest.warns(DeprecationWarning):
-        cfg["input_format"] = "smi"  # dict-like write; deprecated, kept for one release
+    cfg.input_format = "smi"
     assert cfg.input_format == "smi"
-    with pytest.warns(DeprecationWarning):
-        assert "input_format" in cfg.keys()  # part of the dict-like contract
+    assert "input_format" in type(cfg).model_fields  # a declared field
     cfg2 = cfg.replace(batchsize_atoms=2048)
     assert cfg2.input_format == "smi"  # survives replace()
 
@@ -255,6 +257,25 @@ def test_dict_style_access_warns_once_per_method():
     messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
     assert len(messages) == 5
     assert all("Auto3DOptions is not a dict" in m for m in messages)
+
+
+def test_field_items_is_the_non_deprecated_iteration_accessor():
+    """``field_items()`` is the supported replacement for the dict-like
+    shim's ``keys()``/``items()``: every declared field, exactly once, in
+    ``model_fields`` declaration order, with no warning at all.
+    """
+    import warnings
+
+    config = Auto3DOptions(path="in.smi")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = config.field_items()
+    assert [w for w in caught if issubclass(w.category, DeprecationWarning)] == []
+
+    field_names = [k for k, _ in result]
+    assert field_names == list(type(config).model_fields)  # declaration order
+    assert len(field_names) == len(set(field_names))  # each field exactly once
+    assert result == [(k, getattr(config, k)) for k in type(config).model_fields]
 
 
 def test_to_dict_names_every_field_by_its_own_name():

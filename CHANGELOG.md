@@ -17,13 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to `Auto3D.domain.conformer_budget` (`has_dummy_atoms` stayed in
   `Auto3D.foundation.utils.molprops`). None of these paths was ever
   documented public API. `ChunkMeta` and the `OptionsDict` alias are gone.
+- `OptimizationConfig.to_dict()` names `convergence_threshold`; the batch
+  optimizer reads that key and, until 4.0, still accepts `opttol` with a
+  `DeprecationWarning`.
+
+### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]
   = value`, `.get()`, `.keys()`, `.items()`) now emits a `DeprecationWarning`
-  naming the attribute form (`options.<field>`) to use instead; the shim is
-  removed in 4.0.
-- `OptimizationConfig.to_dict()` names its force-convergence key
-  `convergence_threshold` rather than the legacy `opttol` key (its only
-  reader was the batch optimizer).
+  naming its replacement -- the attribute form (`options.<field>`) for
+  `__getitem__`/`__setitem__`/`get`, or the new `options.field_items()`
+  accessor for `.keys()`/`.items()`, which have no single field name to
+  point to; the shim is removed in 4.0.
+- A hand-written `OptimizationConfig`-style parameter dict may still spell
+  its force-convergence key `opttol` rather than `convergence_threshold`;
+  doing so now emits a `DeprecationWarning`, and the legacy key is removed
+  in 4.0.
 
 ## [3.2.0] - 2026-10-09
 
