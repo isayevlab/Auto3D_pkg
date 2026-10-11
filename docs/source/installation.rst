@@ -51,10 +51,11 @@ Note that ``installation.yml`` already runs ``pip install
 
       pip install aimnet
 
-   If ``conda install -c conda-forge auto3d`` still resolves to an older
-   version, the feedstock update has not landed yet -- use the pip-inside-conda
-   route above, which is always current. If you are packaging Auto3D rather
-   than installing it, see :doc:`howto/conda_build`.
+   conda-forge carries the current release (``conda install -c conda-forge
+   auto3d`` resolves 3.2.0); the pip-inside-conda route above is the
+   alternative when you want the AIMNet2 engines installed in one step. If
+   you are packaging Auto3D rather than installing it, see
+   :doc:`howto/conda_build`.
 
 Optional Dependencies Installation
 ----------------------------------

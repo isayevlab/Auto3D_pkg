@@ -20,7 +20,7 @@ This release corrects defects that produced silently wrong results. Read the
    **If you installed Auto3D from PyPI or conda-forge, every change on this
    page applies to you.** 3.0.0 is the current release; the previously published
    release was 2.3.1, so PyPI went straight from 2.3.1 to 3.0.0 with no 3.x in
-   between. (conda-forge is still on 2.3.0 -- see :doc:`installation`.) Two
+   between. Two
    earlier iterations of this work, recorded in the CHANGELOG as ``[3.0.0-dev]``
    and ``[3.5.0-dev]``, were never published to either index.
 
