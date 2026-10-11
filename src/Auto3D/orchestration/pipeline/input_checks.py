@@ -528,10 +528,11 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     # raised immediately, not folded into `errors` -- so an out-of-range
     # --gpu-idx exits 4 (GPUError) on every entry point instead of 2
     # (ConfigurationError) on this one (P-m33, R20). Wording and hint copy
-    # get_device's own out-of-range GPUError (model_factory.py) exactly: the
-    # two guards check the identical condition on two different entry
-    # points and must read as the same error, not as two different ones that
-    # happen to share an exit code.
+    # get_device's own out-of-range GPUError (model_factory.py) exactly, for
+    # the same upper-bound check (get_device also rejects a negative index,
+    # which this function has never checked and still does not -- out of
+    # scope here): the two must read as the same error on the two entry
+    # points, not as two different ones that happen to share an exit code.
     if use_gpu:
         device_count = torch.cuda.device_count()
         if isinstance(gpu_idx, int):
