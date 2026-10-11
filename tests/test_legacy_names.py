@@ -20,3 +20,8 @@ def test_the_three_legacy_names_resolve_to_the_new_classes_and_warn():
     assert any("Optimizer" in m for m in messages)
     assert any("BatchedEnergyForce" in m for m in messages)
     assert any("ConformerRanker" in m for m in messages)
+    # Pins the exact prefix pyproject.toml's `"error:Legacy name:DeprecationWarning"`
+    # filter matches on: a reworded hook that drops this prefix would silently stop
+    # being enforced by that filter, with this test (asserting only the new name
+    # appears somewhere) still green.
+    assert all(m.startswith("Legacy name ") for m in messages)

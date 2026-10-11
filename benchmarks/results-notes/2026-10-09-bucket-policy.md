@@ -106,7 +106,7 @@ same-policy discrepancy that a strict equality check would have misread as an ou
 
 ## What the sub-batch clamp did
 
-`POLICIES = {"size": 1.25, "merged": float("inf")}` sets `optimizing.BUCKET_SIZE_FACTOR`. Policy
+`POLICIES = {"size": 1.25, "merged": float("inf")}` sets `Optimizer.BUCKET_SIZE_FACTOR`. Policy
 `size` (the current default) partitioned the 240 conformers into 7 size-homogeneous buckets for
 both engines (the printed "Total 3D conformers: 240 in 7 size-bucket(s)" lines). Policy `merged`
 collapsed that to a single bucket of all 240 conformers, every conformer padded to the chunk's
@@ -124,7 +124,7 @@ were measured inside that envelope. A chunk with a much wider spread (one 200-at
 among 10-atom ones) would pad every small molecule to the outlier's size; AIMNet2 flattens
 the batch and skips padded slots, but ANI2xt computes its descriptors on padded slots, so
 its cost there is unmeasured, and the sub-batch clamp (`batchsize_atoms`, with the OOM
-halving in `EnForce_ANI`) bounds memory per forward but not that compute. The production
+halving in `BatchedEnergyForce`) bounds memory per forward but not that compute. The production
 change should therefore keep a bounded `BUCKET_SIZE_FACTOR` that covers this envelope (4.0:
 every chunk this measurement covered becomes one bucket; a chunk whose largest molecule has
 more than four times the atoms of its smallest still splits) rather than remove the factor,

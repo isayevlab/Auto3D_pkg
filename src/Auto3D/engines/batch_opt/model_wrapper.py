@@ -39,6 +39,12 @@ def _slice(
     :meth:`BatchedEnergyForce.energy_batched`, whose per-sub-batch ``compute``
     closures differ only in which call they make with the sliced arguments.
 
+    The other owner of this "index all four together" rule is
+    :meth:`Auto3D.engines.batch_opt.padding.PaddedBatch.sub`, which cannot be
+    delegated to here: it indexes ``self.atom_mask`` unconditionally, while the
+    four loose tensors this module holds have an ``atom_mask`` that may be
+    ``None``.
+
     Returns:
         ``(coord[sub], numbers[sub], charges[sub], atom_mask[sub])``, with the
         last entry ``None`` when ``atom_mask`` is ``None``.
@@ -357,7 +363,7 @@ class BatchedEnergyForce(nn.Module):
             # within the whole bucket during
             # `_recompute_final_energy_and_fmax` -- so it names no stable
             # molecule identity a reader could act on.
-            # `Auto3D.engines.batch_opt.batchopt.Optimizer.run`'s warning is
+            # `Auto3D.engines.batch_opt.batchopt.Optimizer._write_results`'s warning is
             # the one that names real molecule ids (SDF ``_Name``). Through
             # the module logger AND through `logging.getLogger("auto3d")`
             # directly -- this module's logger is not an ancestor of
@@ -441,6 +447,7 @@ class BatchedEnergyForce(nn.Module):
                 raise for other reasons ``_run_in_sub_batches`` does not
                 catch.
         """
+
         # `tolerate_non_finite=True`: the production optimization loop
         # (`BatchedEnergyForce` is used here, not in `energy_batched`'s
         # `calc_spe` path, which must keep raising) retires a non-finite
@@ -450,12 +457,13 @@ class BatchedEnergyForce(nn.Module):
         # pending, so `results` below is always in molecule order regardless
         # of how many times a bucket needed bisecting -- this `torch.cat`
         # does not need to re-sort anything.
+        def _compute(sub: torch.Tensor):
+            coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
+            return self(coord_s, numbers_s, charges_s, atom_mask=mask_s)
+
         results = self._run_in_sub_batches(
             coord,
-            lambda sub: self(
-                *(args := _slice(coord, numbers, charges, atom_mask, sub))[:3],
-                atom_mask=args[3],
-            ),
+            _compute,
             tolerate_non_finite=True,
         )
         return (
@@ -521,6 +529,7 @@ class BatchedEnergyForce(nn.Module):
                 an output file full of ``nan``.
             OptimizationError: A single molecule exhausted GPU memory.
         """
+
         # `.detach()` per sub-batch, not once at the end: no `no_grad` wrapper
         # is possible here (AIMNet2's `energy` differentiates internally), so
         # each result arrives graph-connected, and accumulating them attached
@@ -541,12 +550,13 @@ class BatchedEnergyForce(nn.Module):
         #
         # A single-point energy has no backward pass, so nothing downstream
         # wants the graph either way.
+        def _compute(sub: torch.Tensor):
+            coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
+            return self.model.energy(coord_s, numbers_s, charges_s, atom_mask=mask_s).detach()
+
         results = self._run_in_sub_batches(
             coord,
-            lambda sub: self.model.energy(
-                *(args := _slice(coord, numbers, charges, atom_mask, sub))[:3],
-                atom_mask=args[3],
-            ).detach(),
+            _compute,
         )
         energies = torch.cat(results, dim=0)
         validate_energies(energies)

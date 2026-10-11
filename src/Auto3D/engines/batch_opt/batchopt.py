@@ -2,7 +2,7 @@
 import logging
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
@@ -186,6 +186,17 @@ def ensemble_opt(
     )
 
 
+class _OptimizationResults(NamedTuple):
+    """The six per-molecule lists ``_optimize_all`` hands to ``_write_results``, by name."""
+
+    energies: list
+    fmaxs: list
+    converged_flags: list
+    osc_counts: list
+    coords_out: list
+    non_finite_flags: list
+
+
 class Optimizer:
     def __init__(
         self,
@@ -315,8 +326,8 @@ class Optimizer:
                 bucket. They are padded to this bucket's LOCAL max atom count,
                 not the global max.
             model: The shared :class:`BatchedEnergyForce` wrapper, constructed once in
-                :meth:`run` and reused across buckets (it is a thin wrapper over
-                ``self.model`` with no per-bucket state).
+                :meth:`_optimize_all` and reused across buckets (it is a thin wrapper
+                over ``self.model`` with no per-bucket state).
 
         Returns:
             The optdict from :func:`ensemble_opt` (per-molecule lists indexed by
@@ -381,16 +392,15 @@ class Optimizer:
 
         return mols
 
-    def _optimize_all(self, mols: list[Chem.Mol]) -> tuple[list, ...]:
+    def _optimize_all(self, mols: list[Chem.Mol]) -> _OptimizationResults:
         """Bucket, optimize and scatter results back to ``mols``' order.
 
         Args:
             mols: The molecules :meth:`_read_input_mols` returned.
 
         Returns:
-            The six per-molecule result lists, indexed like ``mols``:
-            ``(energies, fmaxs, converged_flags, osc_counts, coords_out,
-            non_finite_flags)``.
+            The six per-molecule result lists, indexed like ``mols``, as an
+            :class:`_OptimizationResults`.
         """
         # Pre-size per-molecule output containers indexed by original position.
         # Buckets reorder molecules internally for size-homogeneous padding, but
@@ -428,22 +438,33 @@ class Optimizer:
                 non_finite_flags[orig_i] = optdict["non_finite"][local_i]
 
             # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
-            # or fragment across many buckets. The final empty_cache() below still
-            # runs after all output is written.
+            # or fragment across many buckets. The final empty_cache() in run()
+            # still runs after all output is written.
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-        return energies, fmaxs, converged_flags, osc_counts, coords_out, non_finite_flags
+        return _OptimizationResults(
+            energies=energies,
+            fmaxs=fmaxs,
+            converged_flags=converged_flags,
+            osc_counts=osc_counts,
+            coords_out=coords_out,
+            non_finite_flags=non_finite_flags,
+        )
 
-    def _write_results(self, mols: list[Chem.Mol], results: tuple[list, ...]) -> None:
+    def _write_results(self, mols: list[Chem.Mol], results: _OptimizationResults) -> None:
         """Write ``mols`` with their optimization results to ``self.out_f``.
 
         Args:
             mols: The molecules :meth:`_read_input_mols` returned.
-            results: The six per-molecule result lists :meth:`_optimize_all`
-                returned, in the same order.
+            results: The :class:`_OptimizationResults` :meth:`_optimize_all` returned.
         """
-        energies, fmaxs, converged_flags, osc_counts, coords_out, non_finite_flags = results
+        energies = results.energies
+        fmaxs = results.fmaxs
+        converged_flags = results.converged_flags
+        osc_counts = results.osc_counts
+        coords_out = results.coords_out
+        non_finite_flags = results.non_finite_flags
         patience = self._config_dict["patience"]
 
         n_stereo_changed = 0

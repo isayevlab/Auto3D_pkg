@@ -61,7 +61,7 @@ twice.
    * - Producer
      - before 3.0
      - 3.0
-   * - ``optimizing.run()`` -- the unranked SDF from the optimization step
+   * - ``Optimizer.run()`` -- the unranked SDF from the optimization step
        (kept in the job directory, and in the ``--verbose`` housekeeping
        archive)
      - eV
@@ -884,7 +884,7 @@ a logged warning instead of disappearing from the output with no trace.
 ``ConformerRanker`` on a file Auto3D's optimizer did not write
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``ConformerRanker`` is public and documented. (The lowercase ``ranking`` alias
+``ConformerRanker`` is public. (The lowercase ``ranking`` alias
 in ``Auto3D.domain.ranking`` is deprecated in favor of
 ``Auto3D.domain.ranking.ConformerRanker`` and is removed in 4.0.) Only
 ``batch_opt`` writes the ``Converged`` SD property. The
