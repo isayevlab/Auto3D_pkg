@@ -196,6 +196,37 @@ def _requires_aimnet(mol: Chem.Mol) -> bool:
     return (not elements.issubset(ANI_ELEMENTS)) or charge != 0 or n_radical_electrons != 0
 
 
+def _is_zwitterion(mol: Chem.Mol) -> bool:
+    """True if `mol` carries both a positively- and a negatively-charged atom
+    while its NET formal charge is zero.
+
+    A zwitterion (e.g. the amino-acid form ``[NH3+]CC(=O)[O-]``) passes
+    ``_requires_aimnet``'s charge test unchanged -- the net charge really is
+    zero -- so it reaches ANI2x/ANI2xt silently today. Both networks were
+    trained on neutral, closed-shell molecules whose charge sits on no atom
+    at all; a zwitterion's charge-separated electron distribution is outside
+    that training set even though its net charge agrees with it, which is a
+    different failure mode from the charged/out-of-set/radical cases
+    ``_requires_aimnet`` already catches -- and why this is a warning rather
+    than the same hard error.
+
+    Args:
+        mol: An RDKit molecule.
+
+    Returns:
+        True if at least one atom carries a positive formal charge and at
+        least one (other) atom carries a negative formal charge, while the
+        molecule's net formal charge is zero.
+    """
+    # Deferred for the same reason as _requires_aimnet's.
+    from rdkit import Chem
+
+    if Chem.rdmolops.GetFormalCharge(mol) != 0:
+        return False
+    charges = [a.GetFormalCharge() for a in mol.GetAtoms()]
+    return any(c > 0 for c in charges) and any(c < 0 for c in charges)
+
+
 def check_engine_supports_molecules(
     mols: Chem.Mol | list[Chem.Mol], optimizing_engine: str
 ) -> None:
@@ -223,6 +254,12 @@ def check_engine_supports_molecules(
     ``Auto3D.entry.ASE.thermo.properties``, when it derives the
     electronic-entropy term -- this is the signal the OTHER three entry
     points, which never reach that code, were missing entirely).
+
+    A net-zero zwitterion requested on ANI2x/ANI2xt is not an error either --
+    its net charge really is zero, so ``_requires_aimnet`` does not flag it --
+    but it is still outside the neutral, charge-localized training set those
+    networks were built on, so it gets the same one-warning-per-call treatment
+    (see :func:`_is_zwitterion`).
 
     Args:
         mols: A single RDKit Mol or an iterable of them, read from the
@@ -273,4 +310,18 @@ def check_engine_supports_molecules(
             "parsed to Auto3D. A molecule requires AIMNET if it has an element "
             "outside the ANI training set, a nonzero net charge, or unpaired "
             "(radical) electrons."
+        )
+
+    # Every molecule here passed _requires_aimnet (net charge zero, in-set
+    # elements, no radical), so a zwitterion among them is not an error -- but
+    # it is still outside what ANI2x/ANI2xt were trained on (see
+    # _is_zwitterion). Batched into ONE warning per call, same reasoning as
+    # the AIMNET/custom-NNP branch's radical warning above.
+    if any(_is_zwitterion(mol) for mol in mol_list):
+        logger.warning(
+            "Net-zero zwitterion(s) detected among the input molecules; %s "
+            "was trained on neutral, closed-shell molecules whose charge sits "
+            "on no atom, and a zwitterion -- net-neutral but charge-separated "
+            "-- is outside that training set.",
+            optimizing_engine,
         )

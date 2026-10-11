@@ -1108,25 +1108,30 @@ class TestLoadHessianModelRouting:
                 energy = coords.pow(2).sum(dim=(1, 2))
                 return energy, torch.zeros_like(coords)
 
-        def _fake_create_model(name, device, compile_model=None, use_cache=True):
-            calls["args"] = (name, device, compile_model, use_cache)
-            return _FakeAdapter()
+        def _fake_create_model(name, device, compile_model=None, use_cache=True, double=False):
+            calls["args"] = (name, device, compile_model, use_cache, double)
+            adapter = _FakeAdapter()
+            if double:
+                adapter.to_double()
+            return adapter
 
         monkeypatch.setattr(thermo_mod, "create_model", _fake_create_model)
         return calls, thermo_mod, torch.device("cpu")
 
-    def test_ani2xt_routes_through_model_factory_uncached_uncompiled(self, monkeypatch):
+    def test_ani2xt_routes_through_model_factory_double_uncompiled(self, monkeypatch):
         import torch
 
         calls, thermo_mod, device = self._install_fake_factory(monkeypatch)
 
         result = thermo_mod._load_hessian_model("ANI2xt", device)
 
-        # use_cache=False: this module is about to be mutated to fp64 in
-        # place, and the factory cache is shared with the fp32 instance
-        # model_name2model_calculator loads right after in calc_thermo.
-        # compile_model=False: nothing here benefits from torch.compile.
-        assert calls["args"] == ("ANI2xt", device, False, False)
+        # double=True, use_cache left at the factory's own default (True):
+        # the factory itself performs the fp64 upcast now, keyed into its own
+        # cache entry, so the fp32 instance model_name2model_calculator loads
+        # for the SAME calc_thermo call is a different cache entry and is
+        # never the one mutated. compile_model=False: nothing here benefits
+        # from torch.compile.
+        assert calls["args"] == ("ANI2xt", device, False, True, True)
         assert result.model.weight.dtype == torch.float64
 
     def test_custom_path_routes_through_model_factory(self, monkeypatch, tmp_path):
@@ -1138,14 +1143,15 @@ class TestLoadHessianModelRouting:
 
         result = thermo_mod._load_hessian_model(str(fake_path), device)
 
-        name, device_arg, compile_model, _use_cache = calls["args"]
-        # use_cache is deliberately not asserted: ModelFactory.create's
-        # custom-path branch returns a fresh CustomModelAdapter before ever
-        # consulting cls._cache (a custom path is never cached), so this
-        # parameter has no observable effect for this branch -- pinning its
-        # value here would be asserting a no-op. (It does matter for the
-        # ANI2xt/ANI2x branch above, which the previous test covers.)
-        assert (name, device_arg, compile_model) == (str(fake_path), device, False)
+        name, device_arg, compile_model, _use_cache, double = calls["args"]
+        # use_cache is deliberately not asserted: this test monkeypatches
+        # create_model itself (see _install_fake_factory), so the real
+        # ModelFactory.create -- and its cache (custom paths included, since
+        # P-m17) -- is never reached here at all; what matters for THIS test
+        # is only the arguments _load_hessian_model passes through. The real
+        # factory's own caching behavior, custom-path and ANI2xt/ANI2x alike,
+        # is covered directly in tests/test_model_caching.py.
+        assert (name, device_arg, compile_model, double) == (str(fake_path), device, False, True)
         assert result.model.weight.dtype == torch.float64
 
 
@@ -1693,18 +1699,22 @@ class TestLoadHessianModelDispatchFoldsCase:
 
         seen = {}
 
-        def _create(name, device, compile_model=None, use_cache=True):
-            seen["use_cache"] = use_cache
-            return _FakeAdapter()
+        def _create(name, device, compile_model=None, use_cache=True, double=False):
+            seen["double"] = double
+            adapter = _FakeAdapter()
+            if double:
+                adapter.to_double()
+            return adapter
 
         monkeypatch.setattr(thermo_mod, "create_model", _create)
 
         result = thermo_mod._load_hessian_model(spelling, torch.device("cpu"))
 
-        # The ANI branch, identified by what only it does: fp64 in place, and the
-        # factory cache disabled so the shared fp32 instance is not upcast too.
+        # The ANI branch, identified by what only it does: double=True, so the
+        # factory upcasts into its OWN cache entry rather than mutating the
+        # shared fp32 instance in place.
         assert result.model.weight.dtype == torch.float64
-        assert seen["use_cache"] is False
+        assert seen["double"] is True
 
 
 class TestDerivedMultiplicityIsAlsoChecked:

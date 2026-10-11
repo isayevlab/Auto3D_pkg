@@ -153,8 +153,12 @@ class ModelFactory:
     _engines.register(MODEL_ANI2X, ANI2xAdapter)
     _engines.register(MODEL_ANI2XT, ANI2xtAdapter)
 
-    # Model instance cache: key = (name, device_str, compile_model)
-    _cache: dict[tuple[str, str, bool], ModelAdapter] = {}
+    # Model instance cache. Built-in/aimnet keys:
+    # (name, device_str, compile_model, double). Custom-path keys:
+    # (resolved_path, mtime_ns, device_str, compile_model, double) -- the
+    # mtime makes a rewritten file invalidate its own cache entry rather than
+    # silently handing back the model built from the file's previous contents.
+    _cache: dict[tuple, ModelAdapter] = {}
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -181,6 +185,7 @@ class ModelFactory:
         device: torch.device | None = None,
         compile_model: bool | None = None,
         use_cache: bool = True,
+        double: bool = False,
     ) -> ModelAdapter:
         """Create a model adapter by name.
 
@@ -195,8 +200,18 @@ class ModelFactory:
                 Measured cost and gain, single box: see *torch.compile()
                 Optimization* in ``docs/source/advanced_usage.rst``.
             use_cache: Whether to cache and reuse model instances. Default True.
-                Set False to force creating a new model instance. Has no
-                effect for a custom-model path, which is always rebuilt.
+                Set False to force creating a new model instance. A
+                custom-model path is cached too (P-m17), keyed on its
+                resolved path and the file's mtime, so a rewrite of the file
+                invalidates the entry rather than silently reusing the model
+                built from the previous contents.
+            double: Whether to promote the fresh adapter's weights to float64
+                (via :meth:`~Auto3D.engines.models.contract.ModelAdapter.to_double`)
+                before it is cached. Part of the cache key, so a
+                ``double=True`` request never returns -- and never upcasts in
+                place -- an fp32 instance some other caller is holding (P-m16).
+                AIMNet2 has no fp64 form and raises ``NotImplementedError``
+                here; that propagates, and nothing is cached for the attempt.
 
         Returns:
             Initialized model adapter on the specified device.
@@ -223,6 +238,8 @@ class ModelFactory:
                 optimizer. Not reachable with `compile_model=False`, and not
                 reachable for AIMNet2, whose compilation happens inside
                 ``aimnet`` and is never probed here.
+            NotImplementedError: `double` is True and the resolved adapter has
+                no fp64 form (AIMNet2).
         """
         if device is None:
             device = torch.device("cpu")
@@ -243,7 +260,7 @@ class ModelFactory:
         #    ModelAdapter now -- so this factory is the only name resolver
         #    left, and the reason above stands on its own.)
         if name_upper in cls._engines and cls._engines.resolve(name_upper) is not None:
-            cache_key = (name_upper, str(device), compile_model)
+            cache_key = (name_upper, str(device), compile_model, double)
             if use_cache and cache_key in cls._cache:
                 return cls._cache[cache_key]
             try:
@@ -270,30 +287,51 @@ class ModelFactory:
                 _verify_compiled_adapter(adapter, eager, device)
                 _rebaseline_compile_fallback_counters(adapter)
                 del eager
+            if double:
+                adapter.to_double()
             if use_cache:
                 cls._cache[cache_key] = adapter
             return adapter
 
         # 2. Existing path on disk -> custom NNP (file/custom model
-        #    selection). Note: this branch returns before ever consulting
-        #    cls._cache, so `use_cache` has no effect for a custom model path
-        #    -- a fresh CustomModelAdapter is always created.
+        #    selection). Keyed on the RESOLVED path (so two spellings of the
+        #    same file, e.g. a relative and an absolute path, share one
+        #    entry) and the file's mtime (so a rewrite -- the file replaced
+        #    with a new checkpoint under the same name -- invalidates the
+        #    entry instead of silently handing back the model built from the
+        #    previous contents).
         if Path(name).exists():
+            stat = Path(name).stat()
+            cache_key = (
+                str(Path(name).resolve()),
+                stat.st_mtime_ns,
+                str(device),
+                compile_model,
+                double,
+            )
+            if use_cache and cache_key in cls._cache:
+                return cls._cache[cache_key]
             adapter = CustomModelAdapter(name, device, compile_model=compile_model)
             if compile_model and getattr(adapter, "_compiled", False):
                 eager = CustomModelAdapter(name, device, compile_model=False)
                 _verify_compiled_adapter(adapter, eager, device)
                 _rebaseline_compile_fallback_counters(adapter)
                 del eager
+            if double:
+                adapter.to_double()
+            if use_cache:
+                cls._cache[cache_key] = adapter
             return adapter
 
         # 3. Everything else -> aimnet registry name. "AIMNET" is the legacy
         #    alias for the registry default.
         registry_name = DEFAULT_AIMNET_MODEL if name_upper == MODEL_AIMNET.upper() else name
-        cache_key = (registry_name, str(device), compile_model)
+        cache_key = (registry_name, str(device), compile_model, double)
         if use_cache and cache_key in cls._cache:
             return cls._cache[cache_key]
         adapter = AIMNet2Adapter(registry_name, device, compile_model=compile_model)
+        if double:
+            adapter.to_double()
         if use_cache:
             cls._cache[cache_key] = adapter
         return adapter
@@ -326,6 +364,7 @@ def create_model(
     device: torch.device | None = None,
     compile_model: bool | None = None,
     use_cache: bool = True,
+    double: bool = False,
 ) -> ModelAdapter:
     """Convenience function to create a model adapter.
 
@@ -338,7 +377,12 @@ def create_model(
             Measured cost and gain, single box: see *torch.compile()
             Optimization* in ``docs/source/advanced_usage.rst``.
         use_cache: Whether to cache and reuse model instances. Default True.
-            Has no effect for a custom-model path, which is always rebuilt.
+            A custom-model path is cached too, keyed on its resolved path and
+            the file's mtime; see :meth:`ModelFactory.create`.
+        double: Promote the fresh adapter's weights to float64 before it is
+            cached. See :meth:`ModelFactory.create`, which this delegates to
+            and which documents the cache-key and ``NotImplementedError``
+            implications in full.
 
     Returns:
         Initialized model adapter.
@@ -349,6 +393,8 @@ def create_model(
             found the compiled adapter disagreeing with an eager one. See
             :meth:`ModelFactory.create`, which this delegates to and which
             documents both in full.
+        NotImplementedError: `double` is True and the resolved adapter has no
+            fp64 form (AIMNet2).
 
     Example:
         >>> model = create_model("AIMNET", device=torch.device("cuda:0"))  # Fast single model (default)
@@ -357,7 +403,9 @@ def create_model(
         >>> # Clear cache when done
         >>> ModelFactory.clear_cache()
     """
-    return ModelFactory.create(name, device, compile_model=compile_model, use_cache=use_cache)
+    return ModelFactory.create(
+        name, device, compile_model=compile_model, use_cache=use_cache, double=double
+    )
 
 
 def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device:

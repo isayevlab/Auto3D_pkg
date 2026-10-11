@@ -69,11 +69,10 @@ class _DeferredIsomerEngine:
     each engine takes.
     """
 
-    __slots__ = ("_build_and_run", "output_path")
+    __slots__ = ("_build_and_run",)
 
-    def __init__(self, build_and_run: Callable[[], str], output_path: str) -> None:
+    def __init__(self, build_and_run: Callable[[], str]) -> None:
         self._build_and_run = build_and_run
-        self.output_path = output_path
 
     def run(self) -> str:
         """Build the concrete engine, run it, and return its output path."""
@@ -228,7 +227,7 @@ class IsomerEngineFactory:
                 )
                 return output_path
 
-        return _DeferredIsomerEngine(build_and_run, output_path)
+        return _DeferredIsomerEngine(build_and_run)
 
 
 def create_tautomer_engine(

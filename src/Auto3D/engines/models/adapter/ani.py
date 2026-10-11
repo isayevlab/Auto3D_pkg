@@ -71,6 +71,27 @@ class ANI2xtAdapter(BaseModelAdapter):
         # Compile only the per-element MLP evaluation. Compiling the whole
         # module (which includes torchani's AEVComputer) gives energies off by
         # hundreds of eV with no error raised (P-C1). The AEV stays eager.
+        #
+        # P-m21 (attempted, not landed -- see task-12-report.md): each
+        # distinct element-presence pattern across a run 0/1-specializes
+        # `element_indices`'s seven per-element row-index tensors, so past
+        # `torch._dynamo.config.recompile_limit` of those patterns the frame
+        # silently falls back to eager (measured: total 9, ok 8).
+        # `torch._dynamo.mark_dynamic` on `aev_flat` and each `elem_index[i]`
+        # does not fix this on torch 2.9.1+cu128: with seven simultaneously
+        # varying, frequently 0/1-sized dims, Dynamo's own 0/1 specialization
+        # recompiles anyway ("to avoid specialization try
+        # torch._dynamo.mark_unbacked"); `mark_unbacked` instead raises
+        # `GuardOnDataDependentSymNode: Eq(u7, 0) | Eq(u7, 1)` inside
+        # Inductor's constant-folding pass; and stacking
+        # `torch.fx.experimental._config.backed_size_oblivious = True` with
+        # `use_duck_shape = False` and
+        # `torch._inductor.config.joint_graph_constant_folding = False` only
+        # trades that failure for a broadcast-lowering guard on the same
+        # size-1 question. No config combination tried removes the
+        # specialization. The compile below is unchanged from before this was
+        # attempted -- no mark_dynamic wrapper is installed, rather than
+        # landing a closure whose docstring claims a fix that does not hold.
         model._atom_energies_fn = _try_compile(model._atom_energies_fn)
         return model
 

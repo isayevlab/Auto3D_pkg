@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 import torch
 
 import Auto3D.engines.model_factory as model_factory
 from Auto3D.engines.model_factory import ModelFactory, create_model
+from tests.helpers_custom_nnp import ScriptableNNP
 
 
 class _FakeAIMNet2Adapter:
@@ -106,3 +109,27 @@ class TestModelCaching:
         model_compile = create_model("AIMNET", device, compile_model=True)
         # These should be different cache entries
         assert ModelFactory.get_cache_info()["size"] == 2
+
+    def test_custom_nnp_path_is_cached_and_invalidates_on_a_rewrite(self, tmp_path):
+        """P-m17: a custom-NNP path is cached by (resolved path, mtime, ...),
+        so repeated calls reuse the instance -- and a rewrite of the file on
+        disk, which changes its mtime, must not hand back the stale one."""
+        path = tmp_path / "tiny.pt"
+        torch.jit.script(ScriptableNNP()).save(str(path))
+        cpu = torch.device("cpu")
+        first = create_model(str(path), cpu)
+        assert create_model(str(path), cpu) is first
+        time.sleep(0.01)
+        torch.jit.script(ScriptableNNP()).save(str(path))
+        assert create_model(str(path), cpu) is not first
+
+    def test_a_double_request_does_not_touch_the_cached_fp32_instance(self):
+        """P-m16: the cache key carries dtype, so a double=True request never
+        returns (and never upcasts in place) the cached fp32 instance."""
+        pytest.importorskip("torchani")
+        cpu = torch.device("cpu")
+        single = create_model("ANI2xt", cpu)
+        double = create_model("ANI2xt", cpu, double=True)
+        assert single is not double
+        assert next(single.model.parameters()).dtype == torch.float32
+        assert next(double.model.parameters()).dtype == torch.float64

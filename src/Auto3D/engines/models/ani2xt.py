@@ -4,7 +4,6 @@ from collections.abc import Sequence
 import torch
 import torch.nn as nn
 
-from Auto3D.engines.models.species import ANI2XT_INDEX
 from Auto3D.foundation.constants import HARTREE_TO_EV
 
 # Note: Do NOT set torch.manual_seed() at module level.
@@ -207,6 +206,13 @@ def _atom_energies(
 
 class ANI2xt(nn.Module):
     def __init__(self, device, state_dict=ani_2xt_dict, periodic_table_index=False):
+        # periodic_table_index: accepted and unused. Every construction site
+        # passes (or defaults to) False -- species.py:3 documents that this is
+        # the only convention ANI2xt supports -- so there is nothing left to
+        # branch on; forward()'s old periodic_table_index=True remap and its
+        # own error path were dead code and are gone (P-m52). Kept as a
+        # parameter rather than removed outright so a caller that still passes
+        # periodic_table_index=False explicitly does not get a TypeError.
         super().__init__()
         # torchani is an optional dependency, imported lazily so that merely
         # importing this module (e.g. via Auto3D.entry.ASE.thermo, which only
@@ -287,18 +293,16 @@ class ANI2xt(nn.Module):
         # energies (hundreds of eV) on CPU and GPU alike (2026-09-21 review,
         # P-C1), while compiling only this function is exact to ~1e-6 eV.
         self._atom_energies_fn = _atom_energies
-        self._device = device
-        self.periodic = periodic_table_index
-        # Canonical atomic-number -> ANI2xt species index map (species.ANI2XT_INDEX).
-        self.periodict2idx = dict(ANI2XT_INDEX)
 
     def forward(self, species, coords, elem_index=None, self_energies=None):
         """Compute molecular energies.
 
         Args:
-            species: Tensor of shape (batch, num_atoms) with element indices
-                     If periodic_table_index=True, uses atomic numbers (1=H, 6=C, etc.)
-                     Otherwise, uses sequential indices (0=H, 1=C, 2=N, 3=O, 4=F, 5=S, 6=Cl)
+            species: Tensor of shape (batch, num_atoms) with 0-based network
+                     indices (0=H, 1=C, 2=N, 3=O, 4=F, 5=S, 6=Cl). Every
+                     construction site builds this class with
+                     periodic_table_index=False (species.py:3 documents the
+                     convention), so forward never sees raw atomic numbers.
             coords: Tensor of shape (batch, num_atoms, 3) with atomic coordinates
             elem_index: Optional per-element row indices on the flattened atom
                 axis, as returned by :func:`element_indices`. Species are
@@ -317,14 +321,6 @@ class ANI2xt(nn.Module):
         Returns:
             Tensor of shape (batch,) with molecular energies in eV
 
-        Raises:
-            ValueError: ``elem_index`` or ``self_energies`` was supplied while
-                ``periodic_table_index=True``. The caller would have computed
-                them from atomic numbers rather than from the remapped 0-based
-                indices this model's networks are indexed by, and the mistake is
-                silent -- atomic number 6 (carbon) is a valid *index* for
-                chlorine.
-
         Note:
             The AEV/network path runs in float32 (coords dtype), but the
             per-atom and self-atomic energies are accumulated in float64 so the
@@ -341,28 +337,17 @@ class ANI2xt(nn.Module):
             as float64 and forces as float32 (the autograd grad w.r.t. the
             float32 coords), matching the AIMNet2 adapter's output contract.
         """
-        if self.periodic:
-            if elem_index is not None or self_energies is not None:
-                raise ValueError(
-                    "ANI2xt.forward: elem_index/self_energies are indexed by "
-                    "0-based network index, but this instance was built with "
-                    "periodic_table_index=True and receives atomic numbers. "
-                    "Precompute them from the remapped species, or let forward "
-                    "compute them."
-                )
-            # Convert atomic numbers to sequential indices
-            species_idx = species.clone()
-            for key, val in self.periodict2idx.items():
-                species_idx[species == key] = val
-        else:
-            species_idx = species
+        # Every construction site uses periodic_table_index=False (species.py:3
+        # documents the convention), so species already carries 0-based network
+        # indices and needs no remap here.
+        species_idx = species
 
         # Padded atoms carry species == species_pad == -1 (set by the batch
-        # padder). -1 is not in periodict2idx, so it survives unchanged here and
-        # is passed to the AEV computer, which relies on TorchANI's convention
-        # that a species index of -1 marks a dummy/masked atom (excluded from the
-        # AEV and from every per-element index below, which drop negatives).
-        # This correctness depends on -1 being TorchANI's masked-atom sentinel.
+        # padder). -1 survives unchanged here and is passed to the AEV
+        # computer, which relies on TorchANI's convention that a species index
+        # of -1 marks a dummy/masked atom (excluded from the AEV and from
+        # every per-element index below, which drop negatives). This
+        # correctness depends on -1 being TorchANI's masked-atom sentinel.
         # Compute AEVs (use new API: aev_computer(species, coords))
         aev = self.aev_computer(species_idx, coords)  # (batch, num_atoms, aev_dim)
 

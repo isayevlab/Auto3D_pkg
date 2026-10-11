@@ -169,7 +169,8 @@ class BaseModelAdapter(ABC, nn.Module):
         :func:`Auto3D.engines.model_factory._rebaseline_compile_fallback_counters`
         name; the mechanism, the DELTA against ``_compile_frame_stats_before``,
         and the caveats on reading ``torch._dynamo.utils.counters`` (including
-        aimnet's own ``prepare_batch_idx_ptr`` compiling even when
+        the ``nvalchemiops`` helper aimnet calls, ``prepare_batch_idx_ptr``
+        -- reached through ``neighbor_list`` -- compiling even when
         ``compile_model=False``) live on the module-level function this
         delegates to.
         """

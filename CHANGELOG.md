@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- A custom NNP whose `forward` returns a wrong energy shape (not one energy
+  per molecule) is refused at load, with a smoke forward on a probe batch,
+  instead of failing deep inside the optimization loop.
+- `check_engine_supports_molecules` now warns (once per call) when a
+  net-zero zwitterion is requested on ANI2x/ANI2xt: its net charge is zero,
+  so it is not rejected, but it is still outside the neutral, charge-local
+  training set those networks were built on.
+- `create_model`/`ModelFactory.create` gain a `double` keyword to request an
+  fp64 adapter; it is part of the model cache key, so a `double=True` request
+  never returns, or mutates in place, a cached fp32 instance.
+- The three legacy lowercase unit-conversion aliases in `Auto3D.domain.energy`
+  (`hartree2ev`, `hartree2kcalpermol`, `ev2kcalpermol`) are removed; use
+  `HARTREE_TO_EV`, `HARTREE_TO_KCAL_PER_MOL` and `EV_TO_KCAL_PER_MOL`.
 - Six `Auto3D.foundation.utils` modules (`connectivity`, `geometry`,
   `convergence`, `stereochemistry`, `energy`, `stereo_check`) moved to
   `Auto3D.domain`, `torch_config` moved from `Auto3D.foundation` to

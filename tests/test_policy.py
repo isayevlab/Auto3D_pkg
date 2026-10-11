@@ -134,6 +134,18 @@ class TestOpenShellWarningIsBatchedOncePerCall:
         assert "open-shell" in caplog.text.lower()
 
 
+class TestZwitterionWarning:
+    """A net-zero zwitterion passes the charge/element/radical gate (its net
+    formal charge is 0), so it reaches ANI2x/ANI2xt silently -- outside the
+    neutral, closed-shell training set those networks were built on."""
+
+    def test_net_zero_zwitterion_under_ani_warns(self, caplog):
+        mol = _mol("[NH3+]CC(=O)[O-]")
+        with caplog.at_level(logging.WARNING):
+            check_engine_supports_molecules(mol, "ANI2x")
+        assert "zwitterion" in caplog.text.lower()
+
+
 class TestHasDummyAtoms:
     """N-M3: an R-group placeholder (``*``, ``[3*]``) is not a species.
 

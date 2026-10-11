@@ -62,6 +62,9 @@ class AIMNet2Adapter(BaseModelAdapter):
         calc = AIMNet2Calculator(model_name, device=device, compile_model=compile_model)
         super().__init__(calc.model, device, coord_pad=0.0, species_pad=0, compile_model=False)
         self._calc = calc
+        #: Whether ``forward`` has already asked the calculator to validate
+        #: species on this instance. See ``forward``'s docstring (P-m20/R16).
+        self._species_validated = False
 
     def analytic_hessian(
         self,
@@ -140,6 +143,19 @@ class AIMNet2Adapter(BaseModelAdapter):
         atom_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies (eV) and forces (eV/A) for a padded batch.
+
+        Species validation (P-m20/R16): the calculator's own ``eval(...,
+        validate_species=...)`` is a SECOND line, not the first. Auto3D's own
+        engine-policy gate (``models.policy.check_engine_supports_molecules``)
+        already checks every molecule's elements and net charge before any
+        optimization starts -- raising, not merely warning, for anything
+        outside AIMNET's element set -- so re-validating species on every one
+        of the thousands of forwards a single optimization makes is paying
+        for a check the gate upstream already made. This adapter asks for it
+        once, on its first forward, and passes ``validate_species=False``
+        afterward: a second, defense-in-depth check against this one
+        instance's own first batch, not a substitute for the upstream gate
+        and not a per-call cost for the rest of the run.
 
         Args:
             coords: (batch, n_atoms, 3); padded slots at coord_pad.
@@ -220,6 +236,7 @@ class AIMNet2Adapter(BaseModelAdapter):
         numbers_flat = species[mask]  # (M,)
         mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]  # (M,)
 
+        validate_species = not getattr(self, "_species_validated", False)
         result = self._calc(
             {
                 "coord": coord_flat,
@@ -228,7 +245,9 @@ class AIMNet2Adapter(BaseModelAdapter):
                 "mol_idx": mol_idx,
             },
             forces=True,
+            validate_species=validate_species,
         )
+        self._species_validated = True
         energy = result["energy"].reshape(-1).to(torch.double)  # (B,)
         forces_flat = result["forces"].reshape(-1, 3)  # (M, 3)
 

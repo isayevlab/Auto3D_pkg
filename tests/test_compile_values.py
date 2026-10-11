@@ -1,5 +1,6 @@
 """P-C1: compile_model=True must not change energies. Reproduces on CPU."""
 
+import itertools
 import logging
 
 import pytest
@@ -14,6 +15,11 @@ from tests.helpers_custom_nnp import ScriptableNNP
 
 SMILES = ["CCO", "c1ccccc1O", "CC(=O)Nc1ccc(O)cc1", "CSCC", "OCC(O)CO", "Clc1ccccc1"]
 
+#: The five non-H/C elements ANI2xt/ANI2x were trained on; H and C are the
+#: other two of the seven (species.py::ANI2XT_INDEX) and are present in every
+#: molecule _element_pattern_batches builds, below.
+_HETEROATOMS = ("N", "O", "F", "S", "Cl")
+
 
 def _mols():
     out = []
@@ -22,6 +28,41 @@ def _mols():
         AllChem.EmbedMolecule(m, randomSeed=42)
         out.append(m)
     return out
+
+
+def _element_pattern_batches(n: int) -> list[list[Chem.Mol]]:
+    """``n`` single-molecule batches, each a distinct element-presence pattern.
+
+    Every molecule is H/C plus zero or more of ``_HETEROATOMS``, one carbon
+    per heteroatom in a short chain (so valence is never a question) and a
+    trailing anchor carbon -- e.g. ``("N", "O")`` builds ``C(N)C(O)C``, an
+    amino-alcohol with elements {H, C, N, O}. Patterns are enumerated by
+    heteroatom SUBSET SIZE (0, 1, 2, ...) so the earliest ones are the
+    simplest; there are 2**len(_HETEROATOMS) == 32 of them in total, which is
+    comfortably more than ``torch._dynamo.config.recompile_limit + 2`` on any
+    configuration this suite runs under.
+
+    Vary which of the seven ANI2xt elements appear, which is what makes each
+    batch a fresh 0/1-specialization of ``ANI2xtAdapter``'s per-element index
+    tensors (``element_indices``) -- the compiled frame this test's recompile
+    count is about.
+    """
+    subsets = list(
+        itertools.chain.from_iterable(
+            itertools.combinations(_HETEROATOMS, k) for k in range(len(_HETEROATOMS) + 1)
+        )
+    )
+    if n > len(subsets):
+        raise ValueError(f"only {len(subsets)} distinct element patterns are available, got {n}")
+
+    batches = []
+    for subset in subsets[:n]:
+        smiles = "".join(f"C({sym})" for sym in subset) + "C"
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        assert mol is not None, f"test premise: {smiles!r} must parse"
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        batches.append([mol])
+    return batches
 
 
 def _energies_and_forces(adapter, mols):
@@ -88,6 +129,45 @@ def test_ani2xt_compiled_matches_eager_on_cpu():
     # second call, warm compile
     e2, _ = _energies_and_forces(compiled, mols)
     assert torch.allclose(e2, e0, atol=1e-5)
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "P-m21 is not fixed: on torch 2.9.1+cu128, mark_dynamic does not stop "
+        "Dynamo's 0/1 specialization once seven simultaneously varying, "
+        "frequently 0/1-sized index tensors are involved (measured: total 9, "
+        "ok 8), and neither does stacking backed_size_oblivious, "
+        "use_duck_shape=False or joint_graph_constant_folding=False -- each "
+        "only trades the failure for a different internal guard. strict=True "
+        "so this flips loudly once a real fix lands (a torch upgrade, or a "
+        "working alternative to mark_dynamic). See task-12-report.md."
+    ),
+)
+def test_ani2xt_compile_does_not_hit_the_recompile_limit():
+    """P-m21: distinct element-presence patterns must not exhaust Dynamo's
+    recompile budget and fall back to eager with no error or warning.
+
+    Each distinct pattern of which elements are present 0/1-specializes
+    ``element_indices``'s per-element row-index tensors, so without a working
+    fix every new pattern is a fresh compile; past
+    ``torch._dynamo.config.recompile_limit`` of those, Dynamo runs the frame
+    eager for the rest of the process (measured on CPU: total 9, ok 8) --
+    silently, since ``compile_model=True`` asked for compilation, not a
+    guarantee, and nothing downstream checks whether it got one.
+    """
+    pytest.importorskip("torchani")
+    import torch._dynamo
+    from torch._dynamo.utils import counters
+
+    adapter = create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)
+    before = dict(counters["frames"])
+    for mols in _element_pattern_batches(torch._dynamo.config.recompile_limit + 2):
+        coord, species, charges, mask = pad_from_mols(mols, adapter, torch.device("cpu"))
+        adapter.forward(coord, species, charges, atom_mask=mask)
+    after = counters["frames"]
+    assert after["total"] - before.get("total", 0) == after["ok"] - before.get("ok", 0)
 
 
 def test_ani2x_adapter_compile_hook_returns_model_unchanged(caplog):

@@ -5,10 +5,11 @@ import os
 import pandas as pd
 from rdkit import Chem
 
-from Auto3D.domain.energy import e_tot_hartree, hartree2kcalpermol
+from Auto3D.domain.energy import e_tot_hartree
 from Auto3D.domain.stereo_check import formula_key
 from Auto3D.entry.auto3D import main
 from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.constants import HARTREE_TO_KCAL_PER_MOL
 from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
@@ -115,7 +116,7 @@ def select_tautomers(
     # that legitimately contains '@' (an email-style ID, say), the same drift
     # bug M-audit found in foundation/results.py.
     ids = [strip_taut_suffix(title).strip() for title in titles]
-    energies = [e_tot_hartree(mol) * hartree2kcalpermol for mol in mols]
+    energies = [e_tot_hartree(mol) * HARTREE_TO_KCAL_PER_MOL for mol in mols]
     df = pd.DataFrame({"id": ids, "energy": energies, "mol": mols})
     for group_name, group in df.groupby("id"):
         group = group.sort_values(by="energy")
@@ -160,7 +161,7 @@ def select_tautomers(
             )
 
         for out_mols0_partition in partitions.values():
-            ref_energy = e_tot_hartree(out_mols0_partition[0]) * hartree2kcalpermol
+            ref_energy = e_tot_hartree(out_mols0_partition[0]) * HARTREE_TO_KCAL_PER_MOL
             # select top k
             if k is not None:
                 if k >= len(out_mols0_partition):
@@ -168,7 +169,7 @@ def select_tautomers(
                 else:
                     out_mols = out_mols0_partition[:k]
                 for mol in out_mols:
-                    mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
+                    mol_energy = e_tot_hartree(mol) * HARTREE_TO_KCAL_PER_MOL
                     e_rel = mol_energy - ref_energy
                     mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))
                     mol.SetProp("_Name", group_name)
@@ -177,7 +178,7 @@ def select_tautomers(
             else:
                 out_mols = []
                 for mol in out_mols0_partition:
-                    mol_energy = e_tot_hartree(mol) * hartree2kcalpermol
+                    mol_energy = e_tot_hartree(mol) * HARTREE_TO_KCAL_PER_MOL
                     e_rel = mol_energy - ref_energy
                     if e_rel <= window:
                         mol.SetProp("E_tautomer_relative(kcal/mol)", str(e_rel))

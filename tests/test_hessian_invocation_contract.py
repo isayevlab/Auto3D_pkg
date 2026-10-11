@@ -287,9 +287,12 @@ class TestLoadHessianModelReturnsOneType:
                 energy = coords.pow(2).sum(dim=(1, 2))
                 return energy, torch.zeros_like(coords)
 
-        def _create(name, device, compile_model=None, use_cache=True):
-            calls["args"] = (name, device, compile_model, use_cache)
-            return _FakeAdapter()
+        def _create(name, device, compile_model=None, use_cache=True, double=False):
+            calls["args"] = (name, device, compile_model, use_cache, double)
+            adapter = _FakeAdapter()
+            if double:
+                adapter.to_double()
+            return adapter
 
         monkeypatch.setattr(thermo_mod, "create_model", _create)
         return calls
@@ -311,16 +314,17 @@ class TestLoadHessianModelReturnsOneType:
             f"{type(result).__name__}, which does not satisfy ModelAdapter"
         )
 
-    def test_the_ani_branch_still_upcasts_in_place_and_uncached(self, monkeypatch):
-        """fp64 for the autograd Hessian, and never a cached instance.
+    def test_the_ani_branch_still_upcasts_but_into_its_own_cache_entry(self, monkeypatch):
+        """fp64 for the autograd Hessian, via the factory's own double= cache key.
 
-        The factory cache is shared with the fp32 adapter the optimization half
-        of the same ``calc_thermo`` call uses, so upcasting a cached entry would
+        double=True is part of ModelFactory's cache key (P-m16), so this never
+        shares a cache entry with the fp32 adapter the optimization half of the
+        same calc_thermo call uses -- upcasting THAT entry in place would
         silently move that run to two precisions (B1 risk 6).
         """
         calls = self._fake_factory(monkeypatch)
 
         result = thermo_mod._load_hessian_model("ANI2xt", torch.device("cpu"))
 
-        assert calls["args"] == ("ANI2xt", torch.device("cpu"), False, False)
+        assert calls["args"] == ("ANI2xt", torch.device("cpu"), False, True, True)
         assert result.model.weight.dtype == torch.float64

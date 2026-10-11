@@ -321,6 +321,10 @@ class TestCustomModelAdapter:
         # double has to answer .eval() the way a real nn.Module does -- with
         # itself -- rather than with a fresh MagicMock.
         mock_model.eval.return_value = mock_model
+        # `load_custom_nnp` also smoke-tests the loaded forward on a one-
+        # molecule probe batch, so the double's call must answer with a real
+        # (batch,)-shaped tensor rather than an auto-generated MagicMock.
+        mock_model.return_value = torch.zeros(1)
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")

@@ -60,13 +60,10 @@ __all__ = [
     "e_tot_ev",
     "try_e_tot_ev",
     "try_gibbs_ev",
-    # Conversion factors, and their lowercase legacy spellings
+    # Conversion factors
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
     "EV_TO_KCAL_PER_MOL",
-    "hartree2ev",
-    "hartree2kcalpermol",
-    "ev2kcalpermol",
 ]
 
 #: Unlabeled property name, kept for backward compatibility. Hartree.
@@ -89,14 +86,6 @@ G_REL_KCAL_PROP = "G_rel(kcal/mol)"
 G_HARTREE_PROP = "G_hartree"
 #: Temperature the thermochemistry was evaluated at, in Kelvin.
 T_K_PROP = "T_K"
-
-# Legacy lowercase spellings of the three conversion factors in
-# ``Auto3D.foundation.constants``. They are the names Auto3D 2.x used and several call
-# sites still read, so they stay -- here rather than in a "chemistry" grab bag,
-# since a unit conversion factor belongs with the module that owns the unit.
-hartree2ev: float = HARTREE_TO_EV
-hartree2kcalpermol: float = HARTREE_TO_KCAL_PER_MOL
-ev2kcalpermol: float = EV_TO_KCAL_PER_MOL
 
 
 def set_e_tot_from_ev(mol: Chem.Mol, energy_ev: float, *, labeled: bool = True) -> None:

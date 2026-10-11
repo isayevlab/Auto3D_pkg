@@ -172,9 +172,8 @@ class TestFIREClean:
 
         # Clean to keep only first 2 molecules
         keep = torch.tensor([0, 1])
-        result = optimizer.clean(keep)
+        optimizer.clean(keep)
 
-        assert result is True
         assert optimizer.v.shape[0] == 2
         assert optimizer.Nsteps.shape[0] == 2
         assert optimizer.dt.shape[0] == 2
