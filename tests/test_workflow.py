@@ -1244,6 +1244,19 @@ def test_orchestrator_input_format_single_source_of_truth(tmp_path):
     assert not hasattr(orch, "input_format")
 
 
+def test_validate_input_accepts_an_uppercase_extension(tmp_path):
+    """M7: the extension check is case-insensitive; a chemically valid
+    ``mols.SMI`` must not be refused the way ``mols.xyz`` is."""
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    smi = tmp_path / "m.SMI"
+    smi.write_text("CCO ethanol\n")
+    orch = WorkflowOrchestrator(Auto3DOptions(path=str(smi), k=1, use_gpu=False))
+    orch._validate_input()
+    assert orch.config.input_format == "smi"
+
+
 def _encoded_mol(encoded_id):
     """A minimal mol shaped like decode_ids expects: numeric _Name + ID."""
     from rdkit import Chem

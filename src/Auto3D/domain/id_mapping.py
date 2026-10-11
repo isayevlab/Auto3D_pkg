@@ -17,7 +17,7 @@ from pathlib import Path
 
 from rdkit import Chem
 
-from Auto3D.foundation.exceptions import InputValidationError
+from Auto3D.foundation.exceptions import FileFormatError, InputValidationError
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.output_guard import check_output_overwrite
 from Auto3D.foundation.utils.smi_io import iter_smi_records
@@ -65,7 +65,7 @@ def encode_ids(
         - Dictionary mapping original IDs to their numeric indices
 
     Raises:
-        ValueError: If the input file is neither .smi nor .sdf format.
+        FileFormatError: If the input file is neither .smi nor .sdf format.
         ConfigurationError: If a file already exists at the encoded path and
             `overwrite` is False.
         InputValidationError: If a molecule has a missing/blank ID or a
@@ -77,11 +77,16 @@ def encode_ids(
         {'mol_A': 0, 'mol_B': 1, 'mol_C': 2}
     """
     path_obj = Path(path).resolve()
-    extension = path_obj.suffix[1:]
+    # casefold (M7), not lower(): a chemically valid `mols.SDF` or `mols.SMI`
+    # must not be refused the way `mols.xyz` is. The canonical lowercase
+    # form is used from here on -- for the output filename below and for
+    # every comparison in this function -- so a caller never has to handle
+    # the input's original casing again.
+    extension = path_obj.suffix[1:].casefold()
     # Checked up front rather than in a trailing `else`: the collision check
     # below must not be the thing that reports an unsupported extension.
     if extension not in ("smi", "sdf"):
-        raise ValueError("The input file should be either smi or sdf")
+        raise FileFormatError("The input file should be either smi or sdf")
 
     directory = Path(out_dir) if out_dir is not None else path_obj.parent
     new_path = directory / f"{path_obj.stem}_encoded.{extension}"

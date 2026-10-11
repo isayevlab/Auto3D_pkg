@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Iterator
 from typing import NamedTuple
@@ -66,10 +67,16 @@ def species_id(name: str) -> str:
     contains an underscore -- notably ``smiles2smi``'s InChIKey-collision
     disambiguation (``utils/smi_io.py``), which renames a duplicate input's
     id to ``f"{inchikey}_{count}"`` (e.g. ``KEY_2``) specifically so it is not
-    dropped. Stripping the trailing two components with ``rsplit(..., 2)``
-    instead recovers ``species_id`` intact (embedded underscores and all), so
-    conformers of one species still group together AND a disambiguated id
-    like ``KEY_2`` stays distinct from ``KEY``.
+    dropped. An unconditional ``rsplit(..., 2)`` is also wrong, the other
+    way: it shortens ANY name with two or more underscores, trailing isomer
+    and conformer indices or not, so ``"aspirin_analog_3"`` -- one
+    underscore-bearing input name, no suffix ever appended to it -- used to
+    come back as ``"aspirin"`` (N-m4). The strip is applied only when the
+    name actually ends in two integer groups (``re.search(r"_\\d+_\\d+$",
+    name)``); anything else is returned unchanged, intact underscores and
+    all, so conformers of one species still group together, a disambiguated
+    id like ``KEY_2`` stays distinct from ``KEY``, and a name nothing ever
+    suffixed is not shortened at all.
 
     That disambiguation is only recoverable because every producer appends
     the same NUMBER of components. Until 3.0.0 the SMILES path with
@@ -83,7 +90,10 @@ def species_id(name: str) -> str:
     Pinned by ``tests/test_ranking.py`` and
     ``tests/test_isomer_engine_hardening.py``.
     """
-    return name.strip().rsplit("_", 2)[0].strip()
+    stripped = name.strip()
+    if re.search(r"_\d+_\d+$", stripped):
+        return stripped.rsplit("_", 2)[0].strip()
+    return stripped
 
 
 #: Selector field (from :data:`Auto3D.foundation.config.SELECTOR_FIELDS`) -> the
@@ -155,9 +165,9 @@ class ConformerRanker:
         input_path: Path to SDF file containing optimized isomers.
         out_path: Path for output SDF file with selected structures.
         threshold: RMSD threshold for duplicate removal (Angstrom).
-        k: Select top-k structures per SMILES. False to disable.
+        k: Select top-k structures per SMILES. None (or False) to disable.
         window: Select structures within window kcal/mol of minimum.
-                False to disable.
+                None (or False) to disable.
         energy_cluster_window: Energy width in eV below which molecules are
             RMSD-compared to each other. A performance knob only -- see
             ``Auto3D.domain.filtering.filter_conformers``, which is the single
@@ -176,8 +186,8 @@ class ConformerRanker:
         input_path: str,
         out_path: str,
         threshold: float,
-        k: int | bool = False,
-        window: float | bool = False,
+        k: int | None = None,
+        window: float | None = None,
         energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
         overwrite: bool = True,
         rank_by: str = RANK_BY_ELECTRONIC,
@@ -206,7 +216,9 @@ class ConformerRanker:
         self.window = window
         self.energy_cluster_window = energy_cluster_window
         if rank_by not in _RANK_BASES:
-            raise ValueError(f"rank_by must be one of {sorted(_RANK_BASES)}, got {rank_by!r}")
+            raise ConfigurationError(
+                f"rank_by must be one of {sorted(_RANK_BASES)}, got {rank_by!r}", hint=""
+            )
         #: Which energy selection compares. Electronic by default: a Gibbs
         #: energy exists only after a thermochemistry run, so defaulting to it
         #: would make the cheap path depend on the expensive one. Duplicate
@@ -287,18 +299,22 @@ class ConformerRanker:
         rather than enforcing it.
         """
         if len(set(names)) != 1:
-            raise ValueError(f"All molecules must have the same name, got: {set(names)}")
+            raise ConfigurationError(
+                f"All molecules must have the same name, got: {set(names)}", hint=""
+            )
         return names[0]
 
     def _sort_by_energy(self, df_group: pd.DataFrame) -> pd.DataFrame:
-        """Sort ``df_group`` by the ``energies`` column, ascending.
+        """Sort ``df_group`` by the ``energies`` column, ascending and stably.
 
-        No ``kind`` argument: the default (quicksort) is not stable, so the
-        tie order among equal-energy rows is whatever pandas' default gives
-        it -- pinned bit for bit by the existing suite. (A future change to
-        ``kind="stable"`` is tracked separately and is not this seam.)
+        ``kind="stable"`` (N-m4): the default (quicksort) is not stable, so
+        two exactly-tied conformers -- the same energy to the precision it is
+        stored at -- could come out in either order, nondeterministic with
+        respect to input order even though nothing about the input changed.
+        A stable sort keeps the tie order equal to the input order, which is
+        the only order with no information added by the sort itself.
         """
-        return df_group.sort_values(by=["energies"])
+        return df_group.sort_values(by=["energies"], kind="stable")
 
     def _stamp_e_rel(self, mol: Chem.Mol, rel_energy: float) -> None:
         """Write the already-computed ``rel_energy`` onto ``mol`` as ``E_rel(eV)``.
@@ -308,6 +324,23 @@ class ConformerRanker:
         all can do so -- ``top_window`` must not stamp the molecule that
         breaks its loop (R36), and computing-then-maybe-stamping is the only
         way to keep that decision in the caller.
+
+        The reference this is relative to (``ref_energy`` in the two callers
+        below) is the group's single minimum, where the group is everything
+        sharing one ``species_id`` -- every enumerated stereoisomer of one
+        input, not just one identity (I2). That is a DIFFERENT convention
+        from ``domain.energy._comparable_groups``/``set_relative_energies``/
+        ``set_relative_gibbs_energies``, which reference each
+        ``(species_key, charge)`` identity to its own minimum (I3). Both
+        writers publish the same property name under these two different
+        references, by design: unifying them would change this ranker's
+        reference structure, which is a larger change than either finding
+        on its own. This applies to EITHER basis this ranker selects on
+        (NEW-4): with ``rank_by=RANK_BY_ELECTRONIC`` the shared property is
+        ``E_rel(kcal/mol)``; with ``rank_by=RANK_BY_GIBBS`` it is
+        ``G_rel(kcal/mol)`` -- the one a Boltzmann population actually
+        divides by RT, so the cross-stereoisomer reference matters most for
+        exactly that property, not the electronic one.
         """
         mol.SetProp("E_rel(eV)", str(rel_energy))
 
@@ -395,7 +428,9 @@ class ConformerRanker:
         window = window / ev2kcalpermol  # convert energy window into eV unit
         names = list(df_group["names"])
         if window < 0:
-            raise ValueError(f"window must be non-negative, got: {window * ev2kcalpermol} kcal/mol")
+            raise ConfigurationError(
+                f"window must be non-negative, got: {window * ev2kcalpermol} kcal/mol", hint=""
+            )
         name = self._check_name_uniformity(names)
 
         df2 = self._sort_by_energy(df_group)

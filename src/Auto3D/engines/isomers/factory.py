@@ -30,6 +30,7 @@ from Auto3D.engines.isomers.omega import oe_isomer
 from Auto3D.engines.isomers.rdkit_sdf import RDKitSdfIsomer
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
 from Auto3D.engines.isomers.tautomers import RDKitOrOEChemTautomerEngine
+from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.registry import Registry
 
 #: Engine names :meth:`IsomerEngineFactory.create` accepts. ``rdkit`` is also
@@ -248,7 +249,7 @@ def create_tautomer_engine(
         Configured tautomer engine instance.
 
     Raises:
-        ValueError: If engine_type is not recognized.
+        ConfigurationError: If engine_type is not recognized.
 
     Example:
         >>> engine = create_tautomer_engine("rdkit", "input.smi", "output.smi")
@@ -265,6 +266,6 @@ def create_tautomer_engine(
         )
 
     else:
-        raise ValueError(
+        raise ConfigurationError(
             f"Unknown tautomer engine type: '{engine_type}'. Supported types: 'rdkit', 'oechem'"
         )

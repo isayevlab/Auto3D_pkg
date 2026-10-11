@@ -14,7 +14,33 @@ HARTREE_TO_KCAL_PER_MOL = 627.50947337481  # 1 Hartree in kcal/mol
 EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 
 # Geometry thresholds
-MIN_ATOM_DISTANCE = 0.9  # Å, minimum allowed interatomic distance
+# Å, minimum allowed interatomic distance between a NON-BONDED pair (N-m1).
+# H2 (and its isotopologues HD/D2) is essentially the only ordinary covalent
+# bond below this -- H-F 0.917, O-H 0.958, N-H 1.012, C-H 1.087 (NIST CCCBDB
+# equilibrium values) are all above it -- so clash_relief.relieve_clash
+# excludes bonded pairs before comparing a conformer's minimum pairwise
+# distance against it. A bonded pair's own length is a different question,
+# and this constant answers neither half of it: for a BONDED pair,
+# domain.connectivity.check_connectivity tests only whether it is too LONG
+# (broken, > 1.25x the UFF reference length) -- its too-short test
+# (< 1.1x) applies to NON-bonded pairs only (NEW-1) -- so the only check a
+# too-short bonded pair meets at all is MIN_BONDED_FRACTION below (C1/R51).
+MIN_ATOM_DISTANCE = 0.9
+
+# Dimensionless, minimum allowed fraction of a BONDED pair's own UFF
+# reference length (C1, revised R51: radius-scaled, not a flat floor).
+# Excluding bonded pairs from MIN_ATOM_DISTANCE's non-bonded test leaves a
+# bonded pair with no floor at all: a crushed embedding (e.g. a 0.35 A C-H
+# from a degenerate or interpenetrating random-coordinates retry) used to be
+# caught by the old, unconditional clash test and sent through MMFF; after
+# N-m1 it passed through untouched. A flat 0.5 A floor (R47) caught that
+# case but left bonds between heavier elements -- whose reference length is
+# longer -- undercovered in the same relative sense (NEW-1): below this
+# fraction of its own ``domain.connectivity.UFF_BOND_RADII``-derived
+# reference length (r_i + r_j), a bonded pair is a crushed embedding; H-H
+# 0.425 A, C-H 0.667 A, C-C 0.908 A, so H2 at its 0.741 A equilibrium length
+# still passes (0.741 > 0.425).
+MIN_BONDED_FRACTION = 0.6
 
 # Conformer generation limits
 MAX_CONFORMERS_CAP = 1000  # Maximum conformers per molecule

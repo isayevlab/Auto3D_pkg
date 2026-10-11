@@ -102,12 +102,17 @@ class TestGrouping:
         """``ranking.species_id`` is not idempotent and must not be reused here.
 
         In a ``main()`` output ``_Name`` is *already* the group key, so applying
-        ``name.rsplit("_", 2)[0]`` a second time turns ``aspirin_analog_3`` into
-        ``aspirin`` and merges compounds that merely share a prefix.
+        ``species_id``'s strip (which only fires on a name ending in two
+        trailing integer groups, N-m4) a second time turns e.g. ``foo_1_2``
+        into ``foo`` and would merge compounds that merely share a prefix
+        (NEW-6: ``aspirin_analog_3`` no longer demonstrates this -- it has
+        only one trailing integer group, so ``species_id`` leaves it alone
+        -- the same correction already applied in ``energy.py``'s own
+        docstrings, task m2).
         """
         mols = [
-            _conformer("aspirin_analog_3", -10.0),
-            _conformer("aspirin", -30.0),
+            _conformer("foo_1_2", -10.0),
+            _conformer("foo", -30.0),
         ]
 
         set_relative_energies(mols)
@@ -119,18 +124,56 @@ class TestGrouping:
 
 
 class TestGuards:
-    def test_a_group_of_different_compounds_gets_no_relative_energy(self):
-        """``calc_thermo`` accepts any SDF, including one with reused titles.
+    def test_a_group_of_different_compounds_gets_relative_energies_only_within_each_compound(self):
+        """I3 (R49): the withholding is per identity, not per title.
 
-        Subtracting the energies of two different compounds produces a number
-        with no meaning, and it would look exactly like a conformational
-        preference. Withholding is the only safe answer.
+        ``calc_thermo`` accepts any SDF, including one with reused titles.
+        Subtracting the energies of two different compounds would produce a
+        number with no meaning, and it would look exactly like a
+        conformational preference -- but refusing the WHOLE title group over
+        that used to also blank out every conformer that *is* comparable to
+        its own kind. Each identity now gets its own reference instead; a
+        subgroup of one record (as here -- each compound is alone under this
+        title) gets 0, not nothing.
         """
         mols = [_conformer("shared", -10.0, "CCO"), _conformer("shared", -40.0, "c1ccccc1")]
 
         set_relative_energies(mols)
 
-        assert not any(m.HasProp(E_REL_KCAL_PROP) for m in mols)
+        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
+
+    def test_stereoisomers_sharing_a_title_get_relative_energies_within_their_own_identity(self):
+        """I3 (R49): a diastereomer pair sharing a title each gets its own reference.
+
+        ``ranking.species_id`` strips ``<isomer>_<conformer>``, so two
+        enumerated stereoisomers of one input sharing a species id/title
+        verbatim is routine by the time a thermo output is written.
+        ``species_key`` perceives stereochemistry from the 3D coordinates, so
+        a diastereomer pair under one title is two distinct identities (Q3:
+        no cross-diastereomer Boltzmann distribution) -- but each identity's
+        OWN conformers are still comparable to each other, and withholding
+        the whole title group used to blank those out too. A diastereomer
+        pair, not an enantiomer pair (M5): mirror images are degenerate under
+        every potential Auto3D uses and are removed during enumeration, so an
+        enantiomer pair sharing a title is not a geometry Auto3D produces.
+        """
+        mols = [
+            _conformer("stereo_0", -10.0, "C[C@H](O)[C@H](O)C"),
+            _conformer("stereo_0", -9.5, "C[C@H](O)[C@H](O)C"),
+            _conformer("stereo_0", -8.0, "C[C@H](O)[C@@H](O)C"),
+            _conformer("stereo_0", -7.0, "C[C@H](O)[C@@H](O)C"),
+        ]
+
+        set_relative_energies(mols)
+
+        # First diastereomer's pair: referenced to its own minimum (-10.0).
+        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.5 * ev2kcalpermol)
+        # Second diastereomer's pair: referenced to ITS OWN minimum (-8.0),
+        # not to the first pair's -10.0.
+        assert float(mols[2].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(mols[3].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * ev2kcalpermol)
 
     def test_records_without_a_name_are_left_alone(self):
         """An untitled SDF must not become one giant group."""
@@ -160,17 +203,18 @@ class TestGuards:
         assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
         assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * ev2kcalpermol)
 
-    def test_a_stale_value_is_cleared_when_the_group_is_refused(self):
-        """Refusing to compute must not leave the old number in place."""
+    def test_a_stale_value_on_a_mixed_title_is_replaced_per_identity(self):
+        """I3 (R49): a title spanning two compounds no longer keeps a stale
+        value by refusing to touch it -- each identity is recomputed, same
+        as any other subgroup."""
         mols = [_conformer("shared", -10.0, "CCO"), _conformer("shared", -40.0, "c1ccccc1")]
         for m in mols:
             m.SetProp(E_REL_KCAL_PROP, "999.0")
 
         set_relative_energies(mols)
 
-        assert not any(m.HasProp(E_REL_KCAL_PROP) for m in mols), (
-            "a refused group kept a relative energy derived from an older run"
-        )
+        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
 
 
 class TestCalcThermoWiring:
@@ -315,7 +359,8 @@ class TestRelativeGibbsEnergies:
         assert float(mols[0].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
         assert not mols[1].HasProp(energy_mod.G_REL_KCAL_PROP)
 
-    def test_different_compounds_sharing_a_title_are_refused(self):
+    def test_different_compounds_sharing_a_title_get_their_own_gibbs_reference(self):
+        """I3 (R49): same per-identity split as ``set_relative_energies``."""
         from Auto3D.domain import energy as energy_mod
 
         mols = [
@@ -325,7 +370,8 @@ class TestRelativeGibbsEnergies:
 
         energy_mod.set_relative_gibbs_energies(mols)
 
-        assert not any(m.HasProp(energy_mod.G_REL_KCAL_PROP) for m in mols)
+        assert float(mols[0].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
+        assert float(mols[1].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
 
     def test_calc_thermo_publishes_it(self):
         source = _finalize_thermo_records_source()

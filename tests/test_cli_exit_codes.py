@@ -228,6 +228,31 @@ def test_exit_2_click_usage_error(tmp_path):
     assert result.exit_code == 2, result.output
 
 
+def test_exit_2_run_unsupported_input_format(tmp_path):
+    """P-m44: a wrong input extension to ``run`` must exit 2, not 1.
+
+    ``WorkflowOrchestrator._validate_input`` already raised a typed
+    ``FileFormatError`` for this before model construction -- but
+    ``FileFormatError`` was absent from ``EXIT_CODES``, so it fell through to
+    the generic code 1, indistinguishable from an internal crash, and with no
+    hint. This fails before any NNP is loaded.
+    """
+    junk = tmp_path / "mols.xyz"
+    junk.write_text("CCO m1\n")
+
+    result = runner.invoke(app, ["run", str(junk), "--k", "1", "--no-gpu"])
+
+    assert result.exit_code == 2, result.output
+    err = _flat(result.stderr)
+    assert "not supported" in err
+    # The hint, not just the message: `get_error_hint`'s `FileFormatError`
+    # branch is the thing this test exists to pin. The message alone
+    # already names ".smi"/".sdf" via workflow.py's own wording, so an
+    # exit-code-and-message-only assertion would pass with that branch
+    # reverted.
+    assert "Supported formats: .smi, .sdf" in err
+
+
 # --- 3: missing optional dependency ------------------------------------------
 
 

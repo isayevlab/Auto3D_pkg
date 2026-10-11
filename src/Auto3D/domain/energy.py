@@ -188,25 +188,25 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
     ``ranking.species_id``, which strips ``<isomer>_<conformer>``; that is wrong
     here and silently so. By the time a file is written, ``ranking.run`` has
     already stripped the name, so ``_Name`` *is* the group key -- applying the
-    strip a second time is not idempotent and turns ``aspirin_analog_3`` into
-    ``aspirin``, merging compounds that share a prefix.
+    strip a second time is not idempotent and turns e.g. ``foo_1_2`` into
+    ``foo``, merging records that are not conformers of one species.
 
-    Two groups get nothing rather than a wrong number, because a relative
-    energy is only defined within one compound and the caller may have been
-    handed an arbitrary SDF:
+    An untitled group (``_Name`` empty or absent) gets nothing, because a
+    title is the only thing identifying a group at all and collecting every
+    untitled record into one bucket would be worse than refusing. A titled
+    group whose members are not all the same compound -- judged by
+    ``stereo_check.species_key`` and formal charge, see
+    :func:`_comparable_groups` -- is split into one reference per identity
+    instead (I3): reusing a title across unrelated molecules is ordinary in
+    a hand-built file, and two enumerated stereoisomers sharing a title is
+    ordinary in an Auto3D one, but each identity's own conformers are still
+    genuinely comparable to each other even when another identity shares
+    the title.
 
-    * an untitled group (``_Name`` empty or absent), which would otherwise
-      collect every such record into one bucket;
-    * a group whose members are not the same compound, judged by
-      ``stereo_check.species_key`` and formal charge. Reusing a title
-      across different molecules is ordinary in a hand-built file, and the
-      difference between two compounds' energies looks exactly like a
-      conformational preference.
-
-    In both cases any pre-existing value is cleared, so the property present on
-    a record always means "this took part in a valid comparison". A record with
-    no readable ``E_tot`` is skipped individually and does not disqualify the
-    rest of its group.
+    Any pre-existing value is replaced (or cleared, for the untitled case),
+    so the property present on a record always means "this took part in a
+    valid comparison measured just now". A record with no readable ``E_tot``
+    is skipped individually and does not disqualify the rest of its group.
 
     Args:
         mols: The records to annotate, already filtered to those that are
@@ -249,6 +249,14 @@ def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
     and *G*\\ (*T*) carries a ``-T*S`` term -- a difference taken across two
     temperatures is a thermal term, not a conformational preference, and for a
     druglike molecule it is tens of kcal/mol.
+
+    "A group" here is whatever ``_comparable_groups`` yields, which since I3
+    is one per IDENTITY under a title, not one per title (NEW-7): the
+    temperature check below runs once per identity subgroup, so a title
+    whose two identities each span their own mismatched temperatures logs
+    the WARNING twice, with each subgroup's own (smaller) record count --
+    correct, since ``G_rel`` is referenced within the subgroup, but worth
+    knowing before reading two warnings under one title as two inputs.
 
     Reads ``G_hartree`` and ``T_K``, which ``Auto3D.entry.ASE.thermo`` writes.
     """
@@ -302,15 +310,46 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
     ``ranking.species_id``, which strips ``<isomer>_<conformer>``; that is wrong
     here and silently so. By the time a file is written, ``ranking.run`` has
     already stripped the name, so ``_Name`` *is* the group key -- applying the
-    strip a second time is not idempotent and turns ``aspirin_analog_3`` into
-    ``aspirin``, merging compounds that share a prefix.
+    strip a second time is not idempotent and turns e.g. ``foo_1_2`` into
+    ``foo``, merging records that are not conformers of one species.
 
-    A group is skipped, and any stale ``prop`` on it cleared, when it cannot
-    support a comparison: when it has no title (which would otherwise collect
-    every untitled record into one bucket), or when its members are not the same
-    compound. The caller may have been handed an arbitrary SDF, where reusing a
-    title across molecules is ordinary -- and the difference between two
-    compounds' energies looks exactly like a conformational preference.
+    An untitled group (``_Name`` empty or absent) is skipped entirely, and any
+    stale ``prop`` on it cleared, because a title is the only thing that
+    identifies a group at all -- without one, every untitled record in the
+    file would collect into a single meaningless bucket.
+
+    A titled group that spans more than one **identity** --
+    ``(species_key(mol), Chem.GetFormalCharge(mol))`` -- is split into one
+    yielded group per identity instead of being withheld outright (I3/R49):
+    each identity is referenced to its own minimum, and a one-record identity
+    gets 0, the same as a lone conformer under an unshared title. This is not
+    only the all-or-nothing case the module used to refuse (two unrelated
+    compounds sharing a reused title in a hand-built SDF, where reusing a
+    title across molecules is ordinary); the common, Auto3D-produced case is
+    narrower and still real (N-m28, Q3): ``ranking.species_id`` strips
+    ``<isomer>_<conformer>``, so two enumerated stereoisomers of one input
+    routinely share one title, and ``species_key`` -- which perceives
+    configuration from the 3D coordinates -- reads them as two distinct
+    identities, not one compound at two conformations. That distinction is
+    deliberate and unchanged (a diastereomer pair has no thermal pathway to
+    interconvert at 298 K, so one Boltzmann distribution over both is not
+    physical; an enantiomer pair cannot arise this way at all -- Auto3D
+    removes enantiomers during enumeration, see M5). What changes is that
+    each identity's OWN conformers, which really are comparable to each
+    other, are no longer collateral damage of the other identity's presence
+    under the same title. See
+    ``tests/test_thermo_relative_energies.py::TestGuards::test_stereoisomers_sharing_a_title_get_relative_energies_within_their_own_identity``
+    and ``docs/source/usage.rst``'s thermo section.
+
+    Note for ``ranking.ConformerRanker``'s own ``E_rel(kcal/mol)`` (I2): the
+    ranked SDF's relative energy is NOT this function's convention. The
+    ranker groups on ``species_id`` (which strips the isomer component) and
+    references every member of that group -- all enumerated stereoisomers of
+    one input, not just one identity -- to the group's single minimum; see
+    ``ranking.ConformerRanker._stamp_e_rel``. The two writers publish the
+    same property name under two different references, by design: unifying
+    them would change the ranker's reference structure, which is outside
+    this function's scope.
     """
     # Local import: not a layering necessity -- `stereo_check` sits beside
     # `energy` in `domain/` and imports nothing from Auto3D, nor a cost one,
@@ -336,21 +375,27 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
             )
             continue
 
-        identities = {(species_key(mol), Chem.GetFormalCharge(mol)) for mol in group}
-        if len(identities) > 1:
-            _clear_prop(group, prop)
-            logger.warning(
-                "%d record(s) named %r are not all the same compound (%d distinct "
-                "species); %s is withheld rather than subtracting the energies of "
-                "different molecules.",
+        subgroups: dict[tuple[str, int], list[Chem.Mol]] = {}
+        for mol in group:
+            identity = (species_key(mol), Chem.GetFormalCharge(mol))
+            subgroups.setdefault(identity, []).append(mol)
+
+        if len(subgroups) > 1:
+            # INFO, not WARNING (I3): this is routine for an Auto3D output
+            # (enumerated stereoisomers sharing a title), not a defect in the
+            # input, and each subgroup below still gets its own reference --
+            # nothing is withheld because of this split.
+            logger.info(
+                "%d record(s) named %r span %d distinct compounds (stereoisomers "
+                "or otherwise); %s is referenced within each compound "
+                "separately, not across the shared title.",
                 len(group),
                 name,
-                len(identities),
+                len(subgroups),
                 prop,
             )
-            continue
 
-        yield group
+        yield from subgroups.values()
 
 
 def _clear_prop(mols: Iterable[Chem.Mol], prop: str) -> None:

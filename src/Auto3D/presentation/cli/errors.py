@@ -13,6 +13,7 @@ from Auto3D.foundation.exceptions import (
     Auto3DError,
     ConfigurationError,
     DependencyError,
+    FileFormatError,
     GPUError,
     InputValidationError,
     ModelError,
@@ -43,6 +44,7 @@ def _traceback_console() -> Console:
 EXIT_CODES: dict[type, int] = {
     ConfigurationError: 2,
     InputValidationError: 2,
+    FileFormatError: 2,
     DependencyError: 3,
     GPUError: 4,
     ModelError: 5,  # includes ModelLoadError / NumericalError
@@ -102,6 +104,9 @@ def get_error_hint(error: Auto3DError) -> str | None:
 
     if isinstance(error, ConfigurationError):
         return "Run 'auto3d config init' to generate a valid config file"
+
+    if isinstance(error, FileFormatError):
+        return "Supported formats: .smi, .sdf"
 
     if isinstance(error, InputValidationError):
         return "Run 'auto3d validate <file>' to check your input file"

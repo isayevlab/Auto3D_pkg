@@ -21,10 +21,8 @@ from tqdm import tqdm
 from Auto3D.domain.clash_relief import relieve_clash
 from Auto3D.domain.conformer_budget import calculate_conformer_count
 from Auto3D.domain.embedding import embed_with_retry, resolve_embedding_workers
-from Auto3D.domain.stereochemistry import (
-    amend_configuration_w,
-    remove_enantiomers,
-)
+from Auto3D.domain.stereochemistry import remove_enantiomers
+from Auto3D.domain.stereochemistry_smiles import amend_configuration_w
 from Auto3D.foundation.constants import MAX_STEREOISOMERS
 from Auto3D.foundation.utils.molprops import has_dummy_atoms
 from Auto3D.foundation.utils.smi_io import (

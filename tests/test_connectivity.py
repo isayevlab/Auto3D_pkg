@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Geometry import Point3D
 
 from Auto3D.domain.connectivity import check_connectivity
 
@@ -86,6 +87,68 @@ class TestCheckConnectivity:
         # Must return a bool without raising KeyError(11).
         result = check_connectivity(mol)
         assert isinstance(result, bool)
+
+    def test_p_c_bond_uses_phosphorus_largest_uff_radius_not_silicons(self):
+        """N-m26: phosphorus had silicon's radius, not its own.
+
+        The old table entry for P (15) was 1.117 -- Si's UFF radius, not
+        P_3+3's 1.101 (Rappe et al. 1992, Table 1). ``check_connectivity``'s
+        reference length is the SUM of both atoms' radii (:func:`check_connectivity`,
+        ``Radii[i] + Radii[j]``), not one radius alone: 1.25x the correct sum
+        (1.101 + 0.757) is 2.3225 A; 1.25x the old, too-generous sum
+        (1.117 + 0.757) is 2.3425 A. A 2.33 A P-C bond sits between the two:
+        it must fail with the correct radius and used to pass with Si's.
+        """
+        mol = Chem.RWMol()
+        p = mol.AddAtom(Chem.Atom(15))
+        c = mol.AddAtom(Chem.Atom(6))
+        mol.AddBond(p, c, Chem.BondType.SINGLE)
+        mol.UpdatePropertyCache(strict=False)
+        conf = Chem.Conformer(2)
+        conf.SetAtomPosition(0, Point3D(0.0, 0.0, 0.0))
+        conf.SetAtomPosition(1, Point3D(2.33, 0.0, 0.0))
+        mol.AddConformer(conf, assignId=True)
+        assert check_connectivity(mol.GetMol()) is False
+
+    def test_c_o_bond_uses_oxygens_largest_uff_radius(self):
+        """Q2/M1 (R50): O and S use their largest UFF type too, not just P.
+
+        O_3 (0.658) is not the largest tabulated UFF radius for oxygen --
+        O_R (aromatic/resonant oxygen, 0.680) is -- and the module header
+        already claims "the largest was used" for every element. Reference
+        sum: 1.25x(0.757 + 0.680) = 1.79625 A under the corrected table,
+        1.25x(0.757 + 0.658) = 1.76875 A under the old one. A 1.78 A C-O bond
+        sits between the two: it must be intact (not broken) under the
+        corrected table and would have been broken under the old one.
+        """
+        mol = Chem.RWMol()
+        c = mol.AddAtom(Chem.Atom(6))
+        o = mol.AddAtom(Chem.Atom(8))
+        mol.AddBond(c, o, Chem.BondType.SINGLE)
+        mol.UpdatePropertyCache(strict=False)
+        conf = Chem.Conformer(2)
+        conf.SetAtomPosition(0, Point3D(0.0, 0.0, 0.0))
+        conf.SetAtomPosition(1, Point3D(1.78, 0.0, 0.0))
+        mol.AddConformer(conf, assignId=True)
+        assert check_connectivity(mol.GetMol()) is True
+
+    def test_c_s_bond_uses_sulfurs_largest_uff_radius(self):
+        """Q2/M1 (R50): the same correction for sulfur, mirroring the C-O case.
+
+        Reference sum: 1.25x(0.757 + 1.077) = 2.2925 A under the corrected
+        table, 1.25x(0.757 + 1.064) = 2.27625 A under the old one. A 2.28 A
+        C-S bond sits between the two.
+        """
+        mol = Chem.RWMol()
+        c = mol.AddAtom(Chem.Atom(6))
+        s = mol.AddAtom(Chem.Atom(16))
+        mol.AddBond(c, s, Chem.BondType.SINGLE)
+        mol.UpdatePropertyCache(strict=False)
+        conf = Chem.Conformer(2)
+        conf.SetAtomPosition(0, Point3D(0.0, 0.0, 0.0))
+        conf.SetAtomPosition(1, Point3D(2.28, 0.0, 0.0))
+        mol.AddConformer(conf, assignId=True)
+        assert check_connectivity(mol.GetMol()) is True
 
 
 class TestUntabulatedElementsAreReportedOncePerProcess:

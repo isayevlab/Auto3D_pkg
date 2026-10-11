@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 from pathlib import Path
 
 from Auto3D.foundation.utils.logging_config import get_logger
@@ -20,15 +21,25 @@ from Auto3D.foundation.utils.logging_config import get_logger
 logger = get_logger(__name__)
 from tqdm import tqdm
 
-from Auto3D.domain.stereochemistry import (
-    amend_configuration_w,
-    remove_enantiomers,
-)
+from Auto3D.domain.stereochemistry import remove_enantiomers
+from Auto3D.domain.stereochemistry_smiles import amend_configuration_w
+from Auto3D.foundation.exceptions import ConfigurationError
 
 try:
     from openeye import oechem, oeomega
 except ImportError:
     pass
+
+#: Matches a title already carrying a trailing ``_<digits>`` isomer index
+#: (NEW-2): the flipper branch's premise is that
+#: ``OEFlipperOptions.SetWarts(True)`` (below) always gives each enumerated
+#: isomer one, by the time ``remove_enantiomers`` has rewritten the title a
+#: second time -- but neither is re-verified anywhere downstream, so a
+#: molecule that reaches the main loop without one would otherwise get only
+#: a conformer index (one trailing integer group, not the two
+#: ``species_id`` requires), silently reproducing the per-conformer-group
+#: defect I1 fixed for the non-flipper paths.
+_TRAILING_ISOMER_INDEX_RE = re.compile(r"_\d+$")
 
 
 def oe_flipper(input_f: str, out: str) -> None:
@@ -152,7 +163,10 @@ def _oe_isomer_in_owned_cwd(
         case "macrocycle":
             omegaOpts = oeomega.OEMacrocycleOmegaOptions()
         case _:
-            raise ValueError(f"mode has to be 'classic' or 'macrocycle', but received {mode}.")
+            raise ConfigurationError(
+                "mode must be one of 'classic', 'dense', 'pose', 'rocs', 'fast_rocs', "
+                f"'macrocycle', but received {mode!r}."
+            )
     omegaOpts.SetParameterVisibility(oechem.OEParamVisibility_Hidden)
     omegaOpts.SetParameterVisibility("-rms", oechem.OEParamVisibility_Simple)
     omegaOpts.SetParameterVisibility("-ewindow", oechem.OEParamVisibility_Simple)
@@ -189,19 +203,50 @@ def _oe_isomer_in_owned_cwd(
             remove_enantiomers(smiles_enumerated, smiles_reduced)
             ifs = oechem.oemolistream()
             ifs.open(smiles_reduced)
+            needs_isomer_index = False
         else:
             ifs = oechem.oemolistream()
             ifs.open(input_f)
+            needs_isomer_index = True
     elif input_format == "sdf":
         ifs = oechem.oemolistream()
         ifs.open(input_f)
+        needs_isomer_index = True
     ofs = oechem.oemolostream()
     ofs.open(output)
 
     logger.info("Enumerating conformers.")
     for mol in tqdm(ifs.GetOEMols()):
+        # species_id's producer contract (domain.ranking) is
+        # "<id>_<isomer>_<conformer>", two trailing integer groups appended
+        # by every producer (I1). A run with no enumeration --
+        # flipper=False on SMILES input, or any SDF input, since the SDF
+        # branch never reaches the flipper code at all -- has only one
+        # isomer and so always needs an explicit "_0" appended
+        # (needs_isomer_index True, unconditionally -- the input title may
+        # itself end in digits for an unrelated reason, e.g. smiles2smi's
+        # InChIKey-disambiguation suffix, so this is never skipped).
+        # Flipper enumeration is supposed to supply the isomer index itself
+        # (OEFlipperOptions.SetWarts above, reinforced by
+        # remove_enantiomers's own re-indexing), but neither is re-verified
+        # here, so a title that reaches this point WITHOUT one still gets
+        # "_0" (NEW-2) -- checked, not assumed, and only in this branch:
+        # unlike the non-flipper title, this one has already been rewritten
+        # by remove_enantiomers, so a trailing digit here really is an
+        # isomer index, not user content.
+        if needs_isomer_index or not _TRAILING_ISOMER_INDEX_RE.search(mol.GetTitle()):
+            mol.SetTitle(f"{mol.GetTitle()}_0")
         ret_code = omega.Build(mol)
         if ret_code == oeomega.OEOmegaReturnCode_Success:
+            # The conformer index -- the contract's second component -- set
+            # explicitly rather than left to Omega's own conformer warts
+            # (SetWarts, above): those warts are armed only in the
+            # non-macrocycle branch, so a macrocycle conformer had no
+            # conformer index at all. Writing it here instead covers both
+            # Omega variants (OEOmega and OEMacrocycleOmega) with the one
+            # shared loop, regardless of which one built ``mol``.
+            for i, conf in enumerate(mol.GetConfs()):
+                conf.SetTitle(f"{mol.GetTitle()}_{i}")
             oechem.OEWriteMolecule(ofs, mol)
         else:
             oechem.OEThrow.Warning("%s: %s" % (mol.GetTitle(), oeomega.OEGetOmegaError(ret_code)))

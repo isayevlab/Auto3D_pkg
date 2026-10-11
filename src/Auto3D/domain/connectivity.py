@@ -18,7 +18,51 @@ from rdkit.Chem import rdMolTransforms
 
 logger = logging.getLogger("auto3d")
 
-__all__ = ["check_connectivity", "amend_mol", "get_mol_connectivity"]
+__all__ = ["UFF_BOND_RADII", "check_connectivity", "amend_mol", "get_mol_connectivity"]
+
+#: UFF bond radii (Rappe et al. JACS 1992, Table 1), in angstroms. These
+#: radii neglect the bond-order and electronegativity corrections in the
+#: original paper. Where several types exist for the same element, the
+#: largest of the types reachable from ordinary organic input was used --
+#: not the largest in the table outright. Hydrogen is the one place that
+#: distinction matters: UFF also tabulates ``H_b`` (bridging hydrogen, the
+#: three-center B-H-B bond) at 0.460 A, larger than the ``H_`` 0.354 A used
+#: here, but ``H_b`` is irrelevant to druglike input and adopting it would
+#: loosen every X-H broken-bond threshold by 0.13 A (N-m26 rulings Q2/R50;
+#: the hydrogen qualification). Every other tabulated element's value here
+#: already is its largest type (verified against an independent
+#: transcription of Table 1): C_3 > C_R, N_3 > N_R, O_R > O_3, S_R > S_3+2,
+#: P_3+3 > P_3+5, B_3 > B_2, and F/Cl/Br/I/Ge/As/Se/Sb/Te have one type each.
+#: Consequence of the selection rule itself: a single bond-order-blind
+#: reference length makes the broken-bond (1.25x) check lenient and the
+#: formed-bond (1.1x) check strict, so a stretched aromatic/conjugated bond
+#: or a short multiple bond can be mis-judged. The molecular graph already
+#: carries bond orders (see get_mol_connectivity); a bond-order-aware
+#: reference would be more accurate but is intentionally not used here.
+#:
+#: Exposed at module level (rather than local to check_connectivity) so
+#: clash_relief.relieve_clash can scale its own bonded-pair floor by the
+#: same per-element reference length (C1/NEW-1, ruling R51) instead of
+#: carrying a second, independently-maintained copy of these numbers.
+UFF_BOND_RADII: dict[int, float] = {
+    1: 0.354,
+    5: 0.838,
+    6: 0.757,
+    7: 0.700,
+    8: 0.680,  # UFF O_R (resonant/aromatic oxygen); was 0.658 (O_3), not the largest (Q2/M1).
+    9: 0.668,
+    14: 1.117,
+    15: 1.101,  # UFF P_3+3 (trivalent phosphorus); was 1.117, a copy of Si's radius (N-m26).
+    16: 1.077,  # UFF S_R (aromatic sulfur); was 1.064 (S_3+2), not the largest (Q2/M1).
+    17: 1.044,
+    32: 1.197,
+    33: 1.211,
+    34: 1.190,
+    35: 1.192,
+    51: 1.407,
+    52: 1.386,
+    53: 1.382,
+}
 
 #: Atomic numbers already named by :func:`check_connectivity`'s untabulated-element
 #: warning in this process (N-m27).
@@ -75,35 +119,9 @@ def check_connectivity(mol: Chem.Mol) -> bool:
         are NOT validated -- such pairs are skipped ("no opinion"), so the
         dissociation of an M-L bond will not be flagged as invalid connectivity.
     """
-    # Initialize UFF bond radii (Rappe et al. JACS 1992)
-    # Units of angstroms
-    # These radii neglect the bond-order and electronegativity corrections in the
-    # original paper. Where several values exist for the same atom, the largest
-    # was used. Consequence: a single bond-order-blind reference length makes the
-    # broken-bond (1.25x) check lenient and the formed-bond (1.1x) check strict,
-    # so a stretched aromatic/conjugated bond or a short multiple bond can be
-    # mis-judged. The molecular graph already carries bond orders (see
-    # get_mol_connectivity); a bond-order-aware reference would be more accurate
-    # but is intentionally not used here.
-    Radii = {
-        1: 0.354,
-        5: 0.838,
-        6: 0.757,
-        7: 0.700,
-        8: 0.658,
-        9: 0.668,
-        14: 1.117,
-        15: 1.117,
-        16: 1.064,
-        17: 1.044,
-        32: 1.197,
-        33: 1.211,
-        34: 1.190,
-        35: 1.192,
-        51: 1.407,
-        52: 1.386,
-        53: 1.382,
-    }
+    # UFF bond radii: see the module-level UFF_BOND_RADII docstring for the
+    # selection rule and its one qualification (hydrogen).
+    Radii = UFF_BOND_RADII
 
     atoms = [atom for atom in mol.GetAtoms()]
     n = len(atoms)

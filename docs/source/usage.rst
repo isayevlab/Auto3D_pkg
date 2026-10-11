@@ -699,3 +699,30 @@ whose conformers were evaluated at more than one temperature — *G*\ (*T*)
 carries a ``-T·S`` term, so a difference across two temperatures is a thermal
 term rather than a conformational preference. Filter on
 ``Thermo_failed == ""`` before comparing the absolute energies.
+
+Both relative properties are also referenced within each **identity** under
+a title — ``(species_key, charge)``, read off the 3D coordinates, not the
+title — rather than across the whole title. ``ranking.species_id`` strips
+the ``<isomer>_<conformer>`` suffix every producer appends, so two enumerated
+stereoisomers of one input routinely share one title by the time a thermo
+output is written; subtracting their energies would look exactly like a
+conformational preference, which it is not, so each identity gets its own
+reference instead, as if it were the only one under that title (a one-record
+identity reads 0, the same as an unshared title). This holds whether the two
+identities are a diastereomer pair (no thermal pathway between them at 298 K,
+so one Boltzmann distribution over both would not be physical) or two
+genuinely unrelated compounds that happen to share a reused title in a
+hand-built SDF. An *enantiomer* pair, specifically, is not a shape this
+produces: mirror images are rigorously degenerate under every potential
+Auto3D uses, and Auto3D removes them during enumeration, so the two-identity
+case in practice is diastereomers or unrelated compounds, not enantiomers.
+
+This is a different convention from ``ConformerRanker``'s own relative
+energy on the ranked (pre-thermo) SDF, which groups on ``species_id`` and
+therefore references every enumerated stereoisomer of one input to one
+shared minimum, not each identity to its own -- on EITHER basis the ranker
+selects on: ``E_rel(kcal/mol)`` by default, or ``G_rel(kcal/mol)`` when
+ranking on *G* (see above). The Boltzmann-population property is the one
+this matters most for, since that is the one actually divided by *RT*.
+Both writers publish the property under the same name; which convention a
+given file's values follow depends on which one wrote it.

@@ -48,6 +48,17 @@ class TestEncodeDecodeIds:
         assert "CC 1" in content
         assert "CCC 2" in content
 
+    def test_encode_accepts_an_uppercase_extension(self, tmp_path):
+        """M7: a chemically valid ``mols.SMI`` must not be refused the way
+        an unsupported extension is; the check is case-insensitive."""
+        input_file = tmp_path / "input.SMI"
+        input_file.write_text("CCO mol_alpha\n")
+
+        new_path, mapping = encode_ids(str(input_file))
+
+        assert mapping == {"mol_alpha": 0}
+        assert "CCO 0" in Path(new_path).read_text()
+
     def test_encode_sdf_file(self):
         """Test encoding IDs in an SDF file."""
         sdf_path = str(FILES_DIR / "example.sdf")
@@ -63,11 +74,13 @@ class TestEncodeDecodeIds:
         Path(new_path).unlink(missing_ok=True)
 
     def test_encode_invalid_extension_raises(self, tmp_path):
-        """Test that invalid file extension raises ValueError."""
+        """An unsupported extension raises FileFormatError, not a bare ValueError."""
+        from Auto3D.foundation.exceptions import FileFormatError
+
         input_file = tmp_path / "input.xyz"
         input_file.write_text("invalid")
 
-        with pytest.raises(ValueError, match="smi or sdf"):
+        with pytest.raises(FileFormatError, match="smi or sdf"):
             encode_ids(str(input_file))
 
     def test_encode_skips_blank_lines(self, tmp_path):

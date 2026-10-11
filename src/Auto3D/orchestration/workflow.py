@@ -329,7 +329,9 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         # raises FileFormatError (not a generic ValueError from encode_ids) and
         # no encoded temp file is written for input we are about to reject. The
         # encoded file keeps the source suffix, so this format is authoritative.
-        input_format = Path(self.config.path).suffix[1:]  # Remove leading dot
+        # casefold (M7): a chemically valid `mols.SDF` or `mols.SMI` must not
+        # be refused the way `mols.xyz` is.
+        input_format = Path(self.config.path).suffix[1:].casefold()  # Remove leading dot
         if input_format not in ("smi", "sdf"):
             raise FileFormatError(
                 f"Input file type is not supported. Only .smi and .sdf are supported. "

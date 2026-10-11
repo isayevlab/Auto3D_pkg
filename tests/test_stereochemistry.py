@@ -1,8 +1,10 @@
-"""Tests for Auto3D.domain.stereochemistry module
+"""Tests for Auto3D.domain.stereochemistry and .stereochemistry_smiles
 (formerly Auto3D.foundation.utils.stereochemistry).
 
 This module tests stereochemistry-related utility functions including
-enantiomer detection, stereo info extraction, and configuration amendment.
+enantiomer detection, stereo info extraction, and configuration amendment --
+split, since P-m29, across the two modules the functions themselves now live
+in (see ``test_the_two_halves_import_from_their_own_modules`` below).
 """
 
 import os
@@ -12,57 +14,34 @@ import pytest
 from rdkit import Chem
 
 from Auto3D.domain.stereochemistry import (
+    are_enantiomers,
+    enantiomer_helper,
+    remove_enantiomers,
+)
+from Auto3D.domain.stereochemistry_smiles import (
     amend_configuration,
     amend_configuration_w,
-    are_enantiomers,
     check_value,
     create_enantiomer,
-    enantiomer,
-    enantiomer_helper,
     get_stereo_info,
     no_enantiomer,
     no_enantiomer_helper,
-    remove_enantiomers,
 )
 from Auto3D.foundation.exceptions import InputValidationError
 
 
-class TestEnantiomer:
-    """Tests for the enantiomer() function."""
+def test_the_two_halves_import_from_their_own_modules():
+    """P-m29: the SMILES-surgery half is its own module, ``stereochemistry_smiles``.
 
-    def test_enantiomer_true(self):
-        """Test that opposite stereo configurations are detected as enantiomers."""
-        # (R, R) vs (S, S) - all inverted -> enantiomers
-        l1 = [(1, "R"), (5, "R")]
-        l2 = [(1, "S"), (5, "S")]
-        assert enantiomer(l1, l2) is True
-
-    def test_enantiomer_false_same(self):
-        """Test that same configurations are not enantiomers."""
-        # (R, R) vs (R, R) - same -> not enantiomers
-        l1 = [(1, "R"), (5, "R")]
-        l2 = [(1, "R"), (5, "R")]
-        assert enantiomer(l1, l2) is False
-
-    def test_enantiomer_false_partial(self):
-        """Test that partially inverted stereo is not enantiomeric."""
-        # (R, R) vs (S, R) - only one inverted -> not enantiomers
-        l1 = [(1, "R"), (5, "R")]
-        l2 = [(1, "S"), (5, "R")]
-        assert enantiomer(l1, l2) is False
-
-    def test_enantiomer_single_center(self):
-        """Test enantiomer detection with single stereo center."""
-        l1 = [(3, "R")]
-        l2 = [(3, "S")]
-        assert enantiomer(l1, l2) is True
-
-    def test_enantiomer_mismatched_length_raises(self):
-        """Test that mismatched list lengths raise ValueError."""
-        l1 = [(1, "R"), (5, "R")]
-        l2 = [(1, "S")]
-        with pytest.raises(ValueError, match="length"):
-            enantiomer(l1, l2)
+    Neither module re-exports the other's names: ``Auto3D.domain.stereochemistry``
+    is not documented public API (not in ``docs/source/api.rst``), so the split
+    carries no re-export obligation either direction.
+    """
+    from Auto3D.domain.stereochemistry import are_enantiomers, enantiomer_key  # noqa: F401
+    from Auto3D.domain.stereochemistry_smiles import (  # noqa: F401
+        create_enantiomer,
+        get_stereo_info,
+    )
 
 
 class TestEnantiomerHelper:
@@ -403,20 +382,6 @@ class TestAmendConfiguration:
 
 class TestIntegration:
     """Integration tests using real molecular examples."""
-
-    def test_enantiomer_detection_rdkit_consistency(self):
-        """Test that enantiomer detection is consistent with RDKit."""
-        smi1 = "C[C@H](O)F"
-        smi2 = "C[C@@H](O)F"
-
-        mol1 = Chem.MolFromSmiles(smi1)
-        mol2 = Chem.MolFromSmiles(smi2)
-
-        centers1 = Chem.FindMolChiralCenters(mol1, useLegacyImplementation=False)
-        centers2 = Chem.FindMolChiralCenters(mol2, useLegacyImplementation=False)
-
-        # These should be detected as enantiomers
-        assert enantiomer(centers1, centers2) is True
 
     def test_create_enantiomer_valid_smiles(self):
         """Test that created enantiomers are valid SMILES."""
