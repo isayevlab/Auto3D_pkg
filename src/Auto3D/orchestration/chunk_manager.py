@@ -6,17 +6,18 @@ of input data into chunks for parallel processing.
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pandas as pd
 import psutil
 
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.sdf_io import SDF2chunks
+from Auto3D.foundation.utils.smi_io import iter_smi_records, write_smi_records
 
 if TYPE_CHECKING:
     import logging
@@ -25,15 +26,64 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Where this process' cgroup memory limit, if any, is published (N-m33): v2
+# (the unified hierarchy) first, with the v1 layout as a fallback for hosts
+# that have not migrated. Module-level `Path` constants, not inline literals,
+# so a test can point either at a controlled file instead of the real
+# filesystem -- which may or may not have either path, depending on the host.
+CGROUP_MEMORY_MAX_PATH = Path("/sys/fs/cgroup/memory.max")
+CGROUP_V1_LIMIT_PATH = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+
+
+def _read_cgroup_limit_bytes(path: Path) -> int | None:
+    """One cgroup memory-limit file's value in bytes, or None.
+
+    None covers every "nothing to report" case alike: the file does not
+    exist (no cgroup, or a different layout), this process cannot read it
+    (sandboxed), its content is the literal ``"max"`` (cgroup v2's spelling
+    for "no limit"), or its content is not a whole number of bytes at all.
+    The caller's fallback -- the host's available memory -- is the same
+    answer regardless of which of these it was.
+    """
+    try:
+        text = path.read_text().strip()
+    except (FileNotFoundError, PermissionError):
+        return None
+    if text == "max":
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _cgroup_memory_limit_bytes() -> int | None:
+    """This process' cgroup memory limit in bytes, or None if unconfined.
+
+    v2's ``memory.max`` is authoritative when it names an actual limit; v1's
+    ``memory.limit_in_bytes`` is consulted only when v2 is absent, ``"max"``,
+    or unparsable. A v1-only host never has a `memory.max` file at all, so
+    "v2 absent" is the ordinary way v1 is reached here, not a rare fallback.
+    """
+    limit = _read_cgroup_limit_bytes(CGROUP_MEMORY_MAX_PATH)
+    if limit is not None:
+        return limit
+    return _read_cgroup_limit_bytes(CGROUP_V1_LIMIT_PATH)
+
+
 # Ceiling for the memory-scaled `batchsize_atoms` multiplier (audit M36). A
 # bare `batchsize_atoms * memory_gb` has no upper bound: on an 80 GB GPU the
 # documented default (1024 atoms/GB) scales to 81,920 atoms in a single NN
 # forward call, which -- combined with `Optimizer.BUCKET_MAX_COUNT = 1024`
 # molecules per bucket -- can mean one flattened AIMNet2 call over an entire
-# max-size bucket. 1024 * 16 matches `BatchedEnergyForce`'s own default
-# `batchsize_atoms` (batch_opt/model_wrapper.py), i.e. the ceiling already
-# considered a safe single-call size everywhere else `BatchedEnergyForce` is
-# constructed without an explicit override.
+# max-size bucket. 1024 * 16 is bounded by a direct measurement, not by
+# coincidence with some other default: a 2026-10-09 bucket-policy run merged
+# 24 molecules (14 to 53 atoms, 240 conformers total) through both AIMNet2
+# and ANI2xt at this batch size with no failure, which confirms a merged
+# bucket this size is safe even though the two engines pay for it
+# differently -- AIMNet2 skips its padded slots while ANI2xt still computes
+# descriptors on them, so ANI2xt is the more expensive of the two at the same
+# nominal batch size.
 _MAX_SCALED_BATCHSIZE_ATOMS = 1024 * 16
 
 
@@ -188,16 +238,23 @@ class ChunkManager:
         Returns:
             Tuple of (memory_gb, chunk_size, num_jobs).
         """
-        num_jobs = 1
+        # num_jobs reflects every GPU the caller listed, independent of which
+        # branch below ends up supplying memory_gb (N-m32): an explicit
+        # --memory must not collapse several listed GPUs back down to a
+        # single job just because memory_gb no longer needs measuring.
+        if self.config.use_gpu and isinstance(self.config.gpu_idx, list):
+            num_jobs = len(self.config.gpu_idx)
+        else:
+            num_jobs = 1
 
         if self.config.memory is not None:
             memory_gb = int(self.config.memory)
         elif self.config.use_gpu:
-            if isinstance(self.config.gpu_idx, int):
-                gpu_idx = self.config.gpu_idx
-            else:
-                gpu_idx = self.config.gpu_idx[0]
-                num_jobs = len(self.config.gpu_idx)
+            gpu_idx = (
+                self.config.gpu_idx[0]
+                if isinstance(self.config.gpu_idx, list)
+                else self.config.gpu_idx
+            )
             free_gb = _gpu_free_memory_gb(gpu_idx)
             if free_gb is None:
                 # nvidia-smi unavailable/unparsable (no NVIDIA driver,
@@ -218,7 +275,24 @@ class ChunkManager:
             else:
                 memory_gb = free_gb
         else:
-            memory_gb = int(psutil.virtual_memory().total / (1024**3))
+            # `available`, not `total` (N-m33): `total` ignores every other
+            # process already resident on a shared box, which makes chunk
+            # sizing -- and the batchsize_atoms scaling derived from it --
+            # wildly optimistic. Further clamped to this process' cgroup
+            # memory limit, if any: a container or shared box can confine it
+            # to far less than psutil reports for the whole machine.
+            available = psutil.virtual_memory().available
+            limit = _cgroup_memory_limit_bytes()
+            if limit is not None and limit < available:
+                self._log_info(
+                    f"cgroup memory limit ({int(limit / 1024**3)} GB) is lower "
+                    f"than the host's available memory "
+                    f"({int(available / 1024**3)} GB); using the cgroup limit."
+                )
+                memory_gb = int(limit / (1024**3))
+            else:
+                self._log_info(f"Using the host's available memory: {int(available / 1024**3)} GB.")
+                memory_gb = int(available / (1024**3))
 
         # Clamp to at least 1: a fractional/zero capacity would otherwise make
         # data_size // chunk_size explode num_chunks or raise ZeroDivisionError.
@@ -243,26 +317,25 @@ class ChunkManager:
 
         # Read input data
         if self.input_format == "smi":
-            # Robust read matching encode_ids semantics: take only the first two
-            # whitespace-separated columns, ignore any extra columns, and skip
-            # blank lines. The python engine + usecols tolerates ragged rows
-            # (an extra token) that the default C engine rejects with
-            # "Expected 2 fields, saw 3".
-            df = pd.read_csv(
-                str(self.input_path),
-                sep=r"\s+",
-                header=None,
-                names=[0, 1],
-                usecols=[0, 1],
-                engine="python",
-                skip_blank_lines=True,
-                dtype=str,
-            )
+            # iter_smi_records is the single parser for this format (P-m28,
+            # R20): the same one `auto3d validate` and the run pipeline use,
+            # so an already-ID-encoded `.smi` cannot be read one way here and
+            # a different way everywhere else. on_malformed left at its
+            # lenient default ("skip") matches what the previous pandas read
+            # did for a short/blank line: skip it rather than raise.
+            records = [
+                (smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(self.input_path))
+            ]
         else:  # sdf
-            df = SDF2chunks(str(self.input_path))
+            records = SDF2chunks(str(self.input_path))
 
-        data_size = len(df)
-        num_chunks = max(int(data_size // chunk_size + 1), num_jobs)
+        data_size = len(records)
+        # math.ceil, not `data_size // chunk_size + 1` (N-m35): the "+1" added
+        # an extra chunk even when data_size divides chunk_size evenly, which
+        # _create_chunk_files' empty-chunk skip then dropped -- but only after
+        # it had already been allocated and counted toward num_chunks, one
+        # more job than the work needs.
+        num_chunks = max(math.ceil(data_size / chunk_size), num_jobs)
 
         self._log_info(f"The available memory is {memory_gb} GB.")
         self._log_info(f"The task will be divided into {num_chunks} jobs.")
@@ -276,18 +349,19 @@ class ChunkManager:
                 idx += num_chunks
 
         # Create chunk files
-        return self._create_chunk_files(df, chunk_idxes, num_chunks)
+        return self._create_chunk_files(records, chunk_idxes, num_chunks)
 
     def _create_chunk_files(
         self,
-        df: pd.DataFrame | list,
+        records: list[tuple[str, str]] | list[list[str]],
         chunk_idxes: list[list[int]],
         num_chunks: int,
     ) -> list[tuple[str, str]]:
         """Create individual chunk files for parallel processing.
 
         Args:
-            df: Input data (DataFrame for SMI, list for SDF).
+            records: Input data -- (smiles, id) pairs for SMI, or SDF2chunks'
+                per-molecule line lists for SDF.
             chunk_idxes: Indices for each chunk.
             num_chunks: Number of chunks to create.
 
@@ -308,12 +382,12 @@ class ChunkManager:
 
             if self.input_format == "smi":
                 chunk_path = chunk_dir / f"{basename}_{i + 1}.smi"
-                df_chunk = df.iloc[chunk_idxes[i], :]
-                df_chunk.to_csv(str(chunk_path), header=None, index=None, sep=" ")
-                count = len(df_chunk)
+                chunk_records = [records[j] for j in chunk_idxes[i]]
+                write_smi_records(chunk_path, chunk_records)
+                count = len(chunk_records)
             else:  # sdf
                 chunk_path = chunk_dir / f"{basename}_{i + 1}.sdf"
-                chunks = [df[j] for j in chunk_idxes[i]]
+                chunks = [records[j] for j in chunk_idxes[i]]
                 chunk_path.write_text("".join(line for chunk in chunks for line in chunk))
                 count = len(chunks)
 

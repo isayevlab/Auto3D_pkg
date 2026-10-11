@@ -12,6 +12,7 @@ from Auto3D.foundation.utils.smi_io import (
     iter_smi_records,
     smiles2smi,
     strip_taut_suffix,
+    write_smi_records,
 )
 
 # Get the test files directory
@@ -441,6 +442,30 @@ class TestIterSmiRecords:
         p.write_text("CCO mol1\n")
         with pytest.raises(ValueError, match="on_malformed"):
             list(iter_smi_records(str(p), on_malformed="bogus"))
+
+
+class TestWriteSmiRecords:
+    """P-m28: the writer side of ``iter_smi_records`` (R20)."""
+
+    def test_write_smi_records_round_trips_through_iter_smi_records(self, tmp_path):
+        path = tmp_path / "x.smi"
+        write_smi_records(path, [("CCO", "a"), ("c1ccccc1", "b_2")])
+        assert path.read_text() == "CCO a\nc1ccccc1 b_2\n"
+        assert [(smi, mol_id) for _line_no, smi, mol_id in iter_smi_records(str(path))] == [
+            ("CCO", "a"),
+            ("c1ccccc1", "b_2"),
+        ]
+
+    def test_write_smi_records_accepts_a_str_path(self, tmp_path):
+        """``path`` may be a plain string, not only a ``Path``."""
+        path = str(tmp_path / "x.smi")
+        write_smi_records(path, [("CCO", "a")])
+        assert Path(path).read_text() == "CCO a\n"
+
+    def test_write_smi_records_empty_iterable_writes_empty_file(self, tmp_path):
+        path = tmp_path / "x.smi"
+        write_smi_records(path, [])
+        assert path.read_text() == ""
 
 
 if __name__ == "__main__":

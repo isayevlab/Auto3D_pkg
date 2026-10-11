@@ -29,10 +29,10 @@ def validate_smiles_file(file_path: Path) -> ValidationResult:
     """Validate a SMILES file.
 
     Must reject exactly what the runner (encode_ids/iter_smi_records,
-    file_ops.py) rejects, or a passing `auto3d validate` is not trustworthy
+    smi_io.py) rejects, or a passing `auto3d validate` is not trustworthy
     (M25): a line needs both a SMILES and an ID (whitespace-separated), and
     '#'-prefixed lines are treated as comments -- both checks mirrored from
-    file_ops.iter_smi_records so the two never drift apart again.
+    smi_io.iter_smi_records so the two never drift apart again.
     """
     from rdkit import Chem
 

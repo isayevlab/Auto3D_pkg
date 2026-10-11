@@ -475,6 +475,27 @@ def test_exit_4_out_of_range_gpu_index(monkeypatch):
     m.assert_not_called()
 
 
+def test_exit_4_out_of_range_gpu_index_via_run(monkeypatch, tmp_path):
+    """P-m33 (R20): the same documented exit-4 example, reached through
+    ``auto3d run`` rather than ``models test``. ``check_valid_configuration``
+    used to fold an out-of-range gpu_idx into its returned error list, which
+    ``WorkflowOrchestrator._validate_input`` wraps as a ConfigurationError
+    (exit 2) -- the wrong code for a GPU problem, and a different one than
+    ``models test`` reports for the identical misconfiguration.
+    """
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+
+    smi = tmp_path / "mols.smi"
+    smi.write_text("CCO m1\n")
+
+    result = runner.invoke(app, ["run", str(smi), "--k", "1", "--gpu-idx", "99"])
+
+    assert result.exit_code == 4, result.output
+    err = _flat(result.stderr)
+    assert "GPU index 99 is invalid" in err
+
+
 def test_exit_4_no_cuda_at_all(monkeypatch):
     """The other exit-4 path, pinned alongside so the two stay distinguishable
     by message even though they share an integer."""

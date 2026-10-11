@@ -12,7 +12,6 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 
 import Auto3D.orchestration.workflow
@@ -179,15 +178,15 @@ class TestChunkCreation:
             workflow_logger=None,
         )
 
-        # Create a small DataFrame (1 molecule)
-        df = pd.DataFrame({0: ["CCO"], 1: ["ethanol"]})
+        # A single (smiles, id) record.
+        records = [("CCO", "ethanol")]
 
         # Create chunk indices simulating 3 GPUs with 1 molecule
         # Only chunk 0 should have data, chunks 1 and 2 should be empty
         chunk_idxes = [[0], [], []]  # 3 chunks, only first has data
 
         # Run chunk creation
-        chunk_info = chunk_manager._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = chunk_manager._create_chunk_files(records, chunk_idxes, 3)
 
         # Should only have 1 chunk (empty ones skipped)
         assert len(chunk_info) == 1
@@ -218,13 +217,13 @@ class TestChunkCreation:
             workflow_logger=None,
         )
 
-        # Create DataFrame with 3 molecules
-        df = pd.DataFrame({0: ["CCO", "CCCO", "CCCCO"], 1: ["ethanol", "propanol", "butanol"]})
+        # Three (smiles, id) records, one per chunk.
+        records = [("CCO", "ethanol"), ("CCCO", "propanol"), ("CCCCO", "butanol")]
 
         # Create chunk indices - each chunk has one molecule
         chunk_idxes = [[0], [1], [2]]
 
-        chunk_info = chunk_manager._create_chunk_files(df, chunk_idxes, 3)
+        chunk_info = chunk_manager._create_chunk_files(records, chunk_idxes, 3)
 
         # Should have all 3 chunks
         assert len(chunk_info) == 3

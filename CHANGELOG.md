@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- An out-of-range `--gpu-idx` now exits 4 (`GPUError`) from `auto3d run` and
+  from `main()`/`smiles2mols`, matching the documented exit-code table;
+  `check_valid_configuration` previously folded it into its returned error
+  list, which was wrapped as a `ConfigurationError` (exit 2).
+- The SMILES input check now warns once per file about every record left
+  with unspecified stereo elements under `enumerate_isomers=False`, instead
+  of once per record.
+- `requires_aimnet` is now a public name in `Auto3D.engines.models.policy`
+  (`_requires_aimnet` remains as an alias).
+- `ChunkManager` no longer allocates an empty trailing chunk when the input
+  size divides the chunk size evenly.
+- `ChunkManager`'s CPU-only chunk sizing now uses the host's *available*
+  memory instead of *total*, and is further clamped to this process'
+  cgroup memory limit (v1 or v2) when one is set; the figure used is logged.
+- `ChunkManager`'s `num_jobs` now reflects every GPU listed in `--gpu-idx`
+  even when `--memory` is also given explicitly; it previously collapsed
+  back to a single job in that combination.
+- The encoded `.smi` read inside `ChunkManager.prepare_chunks` and the chunk
+  files it writes now go through `smi_io`'s one parser (`iter_smi_records`)
+  and new one writer (`write_smi_records`) instead of a second, independent
+  pandas-based reader/writer; `pandas` is no longer a dependency of the
+  orchestrator. A `#`-prefixed line in an intermediate `.smi` file is now
+  skipped like any other comment line, not kept as data, and the
+  enumerated-isomer `.smi` files RDKit's isomer engine writes are now
+  space-separated rather than tab-separated.
 - A custom NNP whose `forward` returns a wrong energy shape (not one energy
   per molecule) is refused at its first use, with the shape named, instead
   of failing deep inside the optimization loop.

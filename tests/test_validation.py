@@ -247,7 +247,10 @@ class TestCheckValidConfigurationGpuIndex:
     """check_valid_configuration must flag an out-of-range gpu_idx so the
     workflow can fail fast instead of crashing inside a spawned worker."""
 
-    def test_out_of_range_index_flagged(self, tmp_path):
+    def test_out_of_range_index_raises_gpu_error(self, tmp_path):
+        """P-m33 (R20): an out-of-range gpu_idx is now fatal here too, raised
+        immediately as GPUError (the exit-4 contract), not folded into the
+        returned error list and wrapped as a ConfigurationError (exit 2)."""
         from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration
 
         p = tmp_path / "in.smi"
@@ -256,10 +259,8 @@ class TestCheckValidConfigurationGpuIndex:
             patch.object(torch.cuda, "is_available", return_value=True),
             patch.object(torch.cuda, "device_count", return_value=1),
         ):
-            errors = check_valid_configuration(
-                Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=5)
-            )
-        assert any("GPU index 5 is invalid" in e for e in errors)
+            with pytest.raises(GPUError, match="GPU index 5 is invalid"):
+                check_valid_configuration(Auto3DOptions(path=str(p), k=1, use_gpu=True, gpu_idx=5))
 
     def test_valid_index_not_flagged(self, tmp_path):
         from Auto3D.orchestration.pipeline.input_checks import check_valid_configuration

@@ -26,15 +26,16 @@ from rdkit import Chem
 from Auto3D.domain.stereochemistry import count_unspecified_stereo
 from Auto3D.engines.models.loading import load_custom_nnp
 from Auto3D.engines.models.policy import (
-    _requires_aimnet,
     check_gpu_requested,
     has_dummy_atoms,
+    requires_aimnet,
 )
 from Auto3D.engines.models.preflight import resolve_engine_name
 from Auto3D.foundation.exceptions import (
     ConfigurationError,
     DependencyError,
     FileFormatError,
+    GPUError,
     InputValidationError,
     ModelLoadError,
 )
@@ -208,6 +209,54 @@ def _warn_about_dummy_atom_records(ids: list[str]) -> None:
     logger.warning("%d record(s) contain dummy atoms and will be skipped: %s", len(ids), listed)
 
 
+def _warn_about_unspecified_stereo_records(records: list[tuple[str, str, int]]) -> None:
+    """One ``UserWarning`` per input check for every record left with
+    unspecified stereo under ``enumerate_isomers=False`` (P-m32), instead of
+    one warning per record -- a file where most inputs share the same open
+    stereo defect used to put one near-identical warning on the console per
+    record.
+
+    For exactly one record the wording is the pre-existing single-record
+    message, unchanged: four tests in ``tests/test_smiles_stereo_warning.py``
+    pin that text verbatim, and it already names the one record precisely.
+    For more than one, the message aggregates in the same shape
+    :func:`_warn_about_dummy_atom_records` uses for the up-front dummy-atom
+    warning, including the same ``_MAX_DUMMY_IDS_REPORTED`` cap on how many
+    ids it lists.
+
+    Args:
+        records: ``(smiles, mol_id, unspecified_stereo_count)`` for every
+            record left with open stereo. Empty means nothing is warned.
+    """
+    if not records:
+        return
+    if len(records) == 1:
+        smiles, _mol_id, count = records[0]
+        msg = (
+            f"{smiles} contains {count} unspecified stereo element(s) "
+            "(atomic stereo centers and/or double-bond geometry), but "
+            "enumerate_isomers=False, so its conformers will be a mixture "
+            "of configurations -- or one arbitrary configuration. "
+            "Please use enumerate_isomers=True so that Auto3D can enumerate "
+            "the unspecified stereo elements."
+        )
+        warnings.warn(msg, UserWarning)
+        return
+    shown = records[:_MAX_DUMMY_IDS_REPORTED]
+    listed = ", ".join(mol_id for _smiles, mol_id, _count in shown)
+    if len(records) > len(shown):
+        listed += f", ... ({len(records) - len(shown)} more)"
+    warnings.warn(
+        f"{len(records)} record(s) have unspecified stereo elements (atomic "
+        "stereo centers and/or double-bond geometry), but "
+        "enumerate_isomers=False, so their conformers will each be a mixture "
+        "of configurations -- or one arbitrary configuration: "
+        f"{listed}. Please use enumerate_isomers=True so that Auto3D can "
+        "enumerate the unspecified stereo elements.",
+        UserWarning,
+    )
+
+
 def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     """Check the SMILES input file format and validate molecules.
 
@@ -261,6 +310,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     # predicate RDKitSdfIsomer uses, so the SMILES and SDF paths agree.
     only_aimnet_smiles = []
     dummy_atom_ids: list[str] = []
+    unspecified_stereo_records: list[tuple[str, str, int]] = []
     for smiles, mol_id in smi_records:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
@@ -289,20 +339,13 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
         if not args.enumerate_isomers:
             c = count_unspecified_stereo(mol)
             if c > 0:
-                msg = (
-                    f"{smiles} contains {c} unspecified stereo element(s) "
-                    "(atomic stereo centers and/or double-bond geometry), but "
-                    "enumerate_isomers=False, so its conformers will be a mixture "
-                    "of configurations -- or one arbitrary configuration. "
-                    "Please use enumerate_isomers=True so that Auto3D can enumerate "
-                    "the unspecified stereo elements."
-                )
-                warnings.warn(msg, UserWarning)
+                unspecified_stereo_records.append((smiles, mol_id, c))
 
-        if _requires_aimnet(mol):
+        if requires_aimnet(mol):
             ANI = False
             only_aimnet_smiles.append(smiles)
     _warn_about_dummy_atom_records(dummy_atom_ids)
+    _warn_about_unspecified_stereo_records(unspecified_stereo_records)
     # Logged here, after the dummy-atom warning rather than beside the record
     # count above: "All SMILES and IDs are valid." immediately followed by "N
     # record(s) contain dummy atoms and will be skipped" reads as a
@@ -390,7 +433,7 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
             dummy_atom_ids.append(mol_id)
             continue
 
-        if _requires_aimnet(mol):
+        if requires_aimnet(mol):
             ANI = False
             only_aimnet_ids.append(mol_id)
 
@@ -446,13 +489,15 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
         List of error messages. Empty list if configuration is valid.
 
     Raises:
-        GPUError: `use_gpu` is True and no CUDA device is visible. Raised
-            immediately (not folded into the returned `errors` list) so every
-            caller of this function -- main() via
-            WorkflowOrchestrator._validate_input, and smiles2mols -- gets the
-            same fatal GPUError, with the same "--no-gpu" hint, that
-            check_input already raised for this condition (M23). See
-            check_gpu_requested for the full rationale.
+        GPUError: `use_gpu` is True and no CUDA device is visible, or
+            `use_gpu` is True and `gpu_idx` names a device that does not
+            exist (P-m33). Both are raised immediately (not folded into the
+            returned `errors` list) so every caller of this function --
+            main() via WorkflowOrchestrator._validate_input, and
+            smiles2mols -- gets the same fatal GPUError that check_input
+            (the no-CUDA case, M23) and get_device (the out-of-range case)
+            already raise for the identical condition. See
+            check_gpu_requested for the no-CUDA rationale.
     """
     path = options.path
     use_gpu = options.use_gpu
@@ -479,17 +524,32 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     # never sees a confusing second "0 available GPUs" message.
     check_gpu_requested(use_gpu)
 
+    # Checked the same way as the GPU-availability guard just above --
+    # raised immediately, not folded into `errors` -- so an out-of-range
+    # --gpu-idx exits 4 (GPUError) on every entry point instead of 2
+    # (ConfigurationError) on this one (P-m33, R20). Wording and hint copy
+    # get_device's own out-of-range GPUError (model_factory.py) exactly: the
+    # two guards check the identical condition on two different entry
+    # points and must read as the same error, not as two different ones that
+    # happen to share an exit code.
     if use_gpu:
+        device_count = torch.cuda.device_count()
         if isinstance(gpu_idx, int):
-            if gpu_idx >= torch.cuda.device_count():
-                errors.append(
-                    f"GPU index {gpu_idx} is invalid. Available GPUs: {torch.cuda.device_count()}"
+            if gpu_idx >= device_count:
+                raise GPUError(
+                    f"GPU index {gpu_idx} is invalid: {device_count} CUDA "
+                    f"device(s) visible, so valid indices are "
+                    f"0-{device_count - 1}.",
+                    hint="Pass a --gpu-idx within range, or --no-gpu to run on CPU.",
                 )
         elif isinstance(gpu_idx, list):
             for idx in gpu_idx:
-                if idx >= torch.cuda.device_count():
-                    errors.append(
-                        f"GPU index {idx} is invalid. Available GPUs: {torch.cuda.device_count()}"
+                if idx >= device_count:
+                    raise GPUError(
+                        f"GPU index {idx} is invalid: {device_count} CUDA "
+                        f"device(s) visible, so valid indices are "
+                        f"0-{device_count - 1}.",
+                        hint="Pass a --gpu-idx within range, or --no-gpu to run on CPU.",
                     )
 
     # Resolve rather than prefix-match: `aimnet2-2025x` starts with "aimnet2"

@@ -163,7 +163,7 @@ def has_dummy_atoms(mol: Chem.Mol) -> bool:
     return _has_dummy_atoms(mol)
 
 
-def _requires_aimnet(mol: Chem.Mol) -> bool:
+def requires_aimnet(mol: Chem.Mol) -> bool:
     """True if `mol` cannot be represented by ANI2x/ANI2xt.
 
     A molecule needs AIMNET when it carries an element outside ANI_ELEMENTS, a
@@ -194,6 +194,12 @@ def _requires_aimnet(mol: Chem.Mol) -> bool:
     charge = Chem.rdmolops.GetFormalCharge(mol)
     n_radical_electrons = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
     return (not elements.issubset(ANI_ELEMENTS)) or charge != 0 or n_radical_electrons != 0
+
+
+# Back-compat alias (P-m31): every pre-existing in-module and test call site
+# spells this name with the leading underscore; `requires_aimnet` above is
+# the public name new callers (orchestration's input checks) should use.
+_requires_aimnet = requires_aimnet
 
 
 def _is_zwitterion(mol: Chem.Mol) -> bool:
