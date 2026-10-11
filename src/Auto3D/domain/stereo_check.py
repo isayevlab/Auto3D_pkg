@@ -9,6 +9,10 @@ The comparison here never crosses molecules: descriptors are read from one
 molecule object immediately before and immediately after its coordinates are
 overwritten, so atom and bond indices match by construction and no atom
 mapping or reference SMILES is required.
+
+The coordinate write itself (``set_conformer_positions``) is shared from here
+because both this module's own post-optimization check and the thermo driver
+(``Auto3D.entry.ASE.thermo.driver``) perform it.
 """
 
 from __future__ import annotations

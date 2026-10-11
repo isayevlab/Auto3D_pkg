@@ -167,7 +167,7 @@ def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry) -> None:
 
 
 def _gibbs_terms(
-    atoms, analysis, e, geometry, symmetry, spin, n_expected, name, T
+    atoms, analysis, e, *, geometry, symmetry, spin, n_expected, name, T
 ) -> tuple[float, float, float]:
     """Build ``IdealGasThermo`` from the corrected spectrum; return ``(H, S, G)`` in hartree (S in hartree/K)."""
     # The list handed to ASE is final: 3N-6 (or 3N-5) modes for a minimum,
@@ -315,7 +315,17 @@ def do_mol_thermo(
     )
     _warn_imaginary_modes(analysis, name, vib_e)
     _stamp_vibration_props(mol, analysis, symmetry)
-    H, S, G = _gibbs_terms(atoms, analysis, e, geometry, symmetry, spin, n_expected, name, T)
+    H, S, G = _gibbs_terms(
+        atoms,
+        analysis,
+        e,
+        geometry=geometry,
+        symmetry=symmetry,
+        spin=spin,
+        n_expected=n_expected,
+        name=name,
+        T=T,
+    )
 
     mol.SetProp("H_hartree", str(H))
     mol.SetProp("S_hartree_per_K", str(S))
@@ -345,11 +355,13 @@ def do_mol_thermo(
 
     # Only now, with every thermo property computed and set, overwrite mol's
     # conformer with the relaxed geometry. Deliberately deferred from the top
-    # of this function: calc_thermo calls this inside a try block and appends
-    # `mol` itself (not a copy) to mols_failed on an exception, so syncing
-    # early would leave a failed record's conformer holding a partially- or
-    # never-converged relaxed geometry with none of the properties that would
-    # justify it, instead of the pristine input geometry it came in with.
+    # of this function: `_thermo_one_record` holds the try block this call
+    # sits inside and returns `mol` itself (not a copy) on every path, and
+    # `calc_thermo`'s loop appends whatever it is handed to out_mols or
+    # mols_failed -- so syncing early would leave a failed record's conformer
+    # holding a partially- or never-converged relaxed geometry with none of
+    # the properties that would justify it, instead of the pristine input
+    # geometry it came in with.
     set_conformer_positions(mol, coord)
 
     return mol
@@ -463,9 +475,9 @@ def _write_thermo_output(
     document: ``if mol.GetProp("Thermo_failed") == "":`` selects a success.
     An ``out_mols`` record that does not already carry the marker is given the
     empty-string positive one here (mirroring the negative one already set on
-    every ``mols_failed`` record by its failure path in ``calc_thermo``), so a
-    consumer can filter on this single property either way without needing to
-    know which failure modes exist.
+    every ``mols_failed`` record by its failure path in
+    ``_thermo_one_record``), so a consumer can filter on this single property
+    either way without needing to know which failure modes exist.
 
     A marker already present is never overwritten. ``do_mol_thermo`` sets the
     verdict itself -- ``""`` for a minimum, ``"transition_state"`` for a
@@ -492,6 +504,7 @@ def _write_thermo_output(
 
 def _thermo_one_record(
     mol: Chem.Mol,
+    *,
     hessian_adapter: ModelAdapter,
     opt_adapter: ModelAdapter,
     calculator,
@@ -500,15 +513,15 @@ def _thermo_one_record(
     opt_tol,
     opt_steps,
     low_freq_cutoff_cm: float,
-) -> tuple[Chem.Mol, bool]:
-    """Relax, Hessian and thermo one record; return ``(mol, success)``.
+) -> Chem.Mol:
+    """Relax, Hessian and thermo one record; return the same, mutated ``mol``.
 
-    ``mol`` is the same, mutated object the per-record loop has always
-    carried; ``success`` is whether it belongs in ``out_mols`` (True) rather
-    than ``mols_failed`` (False) -- calc_thermo's loop still makes that
-    append itself, exactly as the loop body decided it before this was
-    pulled out, with the one difference that the decision now crosses a
-    function return instead of a bare ``continue``.
+    Every return path sets ``THERMO_FAILED_PROP`` first (the stationary-point
+    gate, the T guard and both exception handlers set it; ``do_mol_thermo``
+    sets it to ``""`` for a minimum or ``"transition_state"`` for a confirmed
+    saddle point), so ``calc_thermo``'s loop routes the returned ``mol`` to
+    ``out_mols`` or ``mols_failed`` by reading that single property, exactly
+    as the loop body did before this was pulled out.
     """
     # Routed through mol2atoms (rather than a bare Atoms(species, coord))
     # so isotope masses are applied consistently with vib_hessian's Atoms
@@ -542,7 +555,7 @@ def _thermo_one_record(
             T,
         )
         mol.SetProp(THERMO_FAILED_PROP, "ConfigurationError")
-        return mol, False
+        return mol
 
     try:
         EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
@@ -576,7 +589,7 @@ def _thermo_one_record(
             # The harmonic approximation needs a stationary point.
             # Emitting G here would look exactly like a real result.
             mol.SetProp(THERMO_FAILED_PROP, "not_converged")
-            return mol, False
+            return mol
 
         mol = do_mol_thermo(
             mol, atoms, hessian_adapter, device, T, low_freq_cutoff_cm=low_freq_cutoff_cm
@@ -584,9 +597,9 @@ def _thermo_one_record(
         # do_mol_thermo writes the verdict: "" for a minimum, or
         # "transition_state" for a confirmed saddle point, whose
         # rigid-rotor/harmonic thermochemistry is not a minimum's and must
-        # not pass the documented success filter. Route on that single
-        # property, the same way the stationary-point gate above does.
-        return mol, not mol.GetProp(THERMO_FAILED_PROP)
+        # not pass the documented success filter. calc_thermo routes on that
+        # single property, the same way the stationary-point gate above does.
+        return mol
     except (
         RuntimeError,
         torch.cuda.OutOfMemoryError,
@@ -598,14 +611,14 @@ def _thermo_one_record(
         logger.warning(f"Thermo calculation failed for {idx}: {type(e).__name__}: {e}")
         logger.warning(f"Failed: {idx}")
         mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
-        return mol, False
+        return mol
     except Exception as e:
         # Catch-all for truly unexpected errors - prevents batch failure
         # Log at ERROR level for debugging while allowing pipeline to continue
         logger.error(f"Unexpected error for {idx}: {type(e).__name__}: {e}")
         logger.warning(f"Failed (unexpected): {idx}")
         mol.SetProp(THERMO_FAILED_PROP, type(e).__name__)
-        return mol, False
+        return mol
 
 
 def _finalize_thermo_records(out_mols, mols_failed, relative_gibbs) -> None:
@@ -816,21 +829,26 @@ def calc_thermo(
     opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
     for mol in tqdm(survivors):
-        mol, success = _thermo_one_record(
+        mol = _thermo_one_record(
             mol,
-            hessian_adapter,
-            opt_adapter,
-            calculator,
-            device,
-            mol_info_func,
-            opt_tol,
-            opt_steps,
-            low_freq_cutoff_cm,
+            hessian_adapter=hessian_adapter,
+            opt_adapter=opt_adapter,
+            calculator=calculator,
+            device=device,
+            mol_info_func=mol_info_func,
+            opt_tol=opt_tol,
+            opt_steps=opt_steps,
+            low_freq_cutoff_cm=low_freq_cutoff_cm,
         )
-        if success:
-            out_mols.append(mol)
-        else:
+        # do_mol_thermo writes the verdict: "" for a minimum, or
+        # "transition_state" for a confirmed saddle point, whose
+        # rigid-rotor/harmonic thermochemistry is not a minimum's and must
+        # not pass the documented success filter. Route on that single
+        # property, the same way the stationary-point gate above does.
+        if mol.GetProp(THERMO_FAILED_PROP):
             mols_failed.append(mol)
+        else:
+            out_mols.append(mol)
 
     _finalize_thermo_records(out_mols, mols_failed, relative_gibbs)
 
