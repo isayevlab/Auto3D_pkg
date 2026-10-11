@@ -48,7 +48,7 @@ def _write_mols_to_sdf(mols: list[Chem.Mol], filepath: str) -> None:
 
 
 @pytest.fixture
-def three_conformers_sdf(tmp_path) -> str:
+def three_conformers_sdf(tmp_path) -> os.PathLike[str]:
     """Three converged conformers of one species, at distinct energies."""
     mols = [
         _create_mol_with_energy("CCO", -10.0, "mol_1"),
