@@ -79,18 +79,46 @@ def exit_code_for(error: Exception) -> int:
     return 1
 
 
+# Per-raise-site hints, keyed on (exception class, hint_key) rather than the
+# class alone -- see get_error_hint. Each entry is the CLI-flag-bearing
+# sentence the matching raise site's own message and `hint` no longer spell,
+# so the flag text lives in exactly one place instead of drifting across the
+# CLI presentation layer and the engine/domain raise site.
+_HINT_BY_KEY: dict[tuple[type, str], str] = {
+    (GPUError, "gpu_unavailable"): "Pass --no-gpu to run on the CPU.",
+    (GPUError, "gpu_index_out_of_range"): (
+        "Pass a --gpu-idx within range, or --no-gpu to run on the CPU."
+    ),
+    (ConfigurationError, "output_exists"): (
+        "Pass --force (-f) to overwrite, or -o for another output path."
+    ),
+    (ConfigurationError, "k_one_for_single_conformer"): (
+        "Append --k=1 to keep one conformer per molecule."
+    ),
+}
+
+
 def get_error_hint(error: Auto3DError) -> str | None:
     """Get a helpful hint for an error.
 
-    A per-raise ``hint`` set on the exception wins over the per-class hints
-    below, including when it is empty: the class hints are broad guesses from
-    the exception *type* alone, and a raise site that knows better must be
-    able to say "nothing useful to add" as well as "say this instead". The
-    output-overwrite refusal is the motivating case -- it is a
-    ``ConfigurationError``, so it inherited "Run 'auto3d config init' to
-    generate a valid config file", which is a non-sequitur for
-    ``-o precious.sdf`` and would have become one of the most frequently
-    printed hints in the CLI.
+    Three sources are tried in order; the first that has something to say
+    wins:
+
+    1. ``_HINT_BY_KEY[(type(error), error.hint_key)]``, when ``hint_key`` is
+       set and names an entry. Keys the hint on *why* a particular raise site
+       fired, not only the exception class -- a bare ``GPUError`` hint
+       cannot distinguish "no CUDA at all" from "index out of range", and
+       the two want different flag advice (``--no-gpu`` vs. ``--gpu-idx``).
+    2. The per-raise ``hint`` attribute, when set -- including when it is
+       empty. The class hints below are broad guesses from the exception
+       *type* alone, and a raise site that knows better must be able to say
+       "nothing useful to add" as well as "say this instead". The
+       end-of-run ``auto3d validate`` failure is the motivating case: it is
+       an ``InputValidationError``, so it inherited "Run 'auto3d validate
+       <file>' to check your input file", which is absurd advice to print
+       right after that command already ran and showed exactly what is
+       wrong.
+    3. The per-class hint below, keyed on ``type(error)`` alone.
 
     Args:
         error: The error that occurred.
@@ -98,6 +126,12 @@ def get_error_hint(error: Auto3DError) -> str | None:
     Returns:
         Helpful hint string, or None.
     """
+    hint_key = getattr(error, "hint_key", None)
+    if hint_key is not None:
+        keyed_hint = _HINT_BY_KEY.get((type(error), hint_key))
+        if keyed_hint is not None:
+            return keyed_hint
+
     explicit_hint = getattr(error, "hint", None)
     if explicit_hint is not None:
         return explicit_hint or None

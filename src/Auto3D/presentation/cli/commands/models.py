@@ -201,6 +201,9 @@ ENGINE_INFO = {
             "Requires torchani: pip install torchani",
             "Single model",
             "Optimized for conformer search",
+            "The shipped checkpoint (ani2xt_no_repulsion.pt) was trained "
+            "without ANI2x's repulsion term, so short-contact geometries "
+            "lean on the network alone",
         ],
     },
 }

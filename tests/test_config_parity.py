@@ -241,33 +241,40 @@ class TestAuxiliaryEntryPointGPUGuard:
 
         from Auto3D.entry.SPE import calc_spe
         from Auto3D.foundation.exceptions import GPUError
+        from Auto3D.presentation.cli.errors import get_error_hint
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 calc_spe(str(job_dir / "nonexistent.sdf"), "AIMNET")
-        assert "--no-gpu" in str(exc_info.value)
+        # P-m19: the flag spelling moved from the message to the hint.
+        assert "--no-gpu" not in str(exc_info.value)
+        assert "--no-gpu" in get_error_hint(exc_info.value)
 
     def test_opt_geometry_rejects_gpu_request_without_cuda(self, job_dir):
         from unittest.mock import patch
 
         from Auto3D.entry.ASE.geometry import opt_geometry
         from Auto3D.foundation.exceptions import GPUError
+        from Auto3D.presentation.cli.errors import get_error_hint
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 opt_geometry(str(job_dir / "nonexistent.sdf"), "AIMNET")
-        assert "--no-gpu" in str(exc_info.value)
+        assert "--no-gpu" not in str(exc_info.value)
+        assert "--no-gpu" in get_error_hint(exc_info.value)
 
     def test_calc_thermo_rejects_gpu_request_without_cuda(self, job_dir):
         from unittest.mock import patch
 
         from Auto3D.entry.ASE.thermo import calc_thermo
         from Auto3D.foundation.exceptions import GPUError
+        from Auto3D.presentation.cli.errors import get_error_hint
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 calc_thermo(str(job_dir / "nonexistent.sdf"), "AIMNET")
-        assert "--no-gpu" in str(exc_info.value)
+        assert "--no-gpu" not in str(exc_info.value)
+        assert "--no-gpu" in get_error_hint(exc_info.value)
 
 
 class TestSmiles2MolsHonesty:

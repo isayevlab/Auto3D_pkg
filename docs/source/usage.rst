@@ -88,6 +88,10 @@ Auto3D supports three neural network potentials:
    speed ratio between them is quoted anywhere -- treat the ordering as
    unmeasured and time your own workload before choosing.
 
+   The shipped ``ANI2xt`` checkpoint (``ani2xt_no_repulsion.pt``) was trained
+   without ANI2x's repulsion term, so short-contact geometries lean on the
+   network alone.
+
 Select a model with ``--engine``:
 
 .. code:: console

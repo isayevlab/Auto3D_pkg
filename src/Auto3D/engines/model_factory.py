@@ -469,8 +469,11 @@ def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device
                     f"0-{device_count - 1}.",
                     # The class hint ("Try --no-gpu ... or check CUDA
                     # installation") is a non-sequitur here: CUDA is installed
-                    # and working, the index is simply out of range.
-                    hint=("Pass a --gpu-idx within range, or --no-gpu to run on CPU."),
+                    # and working, the index is simply out of range. The
+                    # actionable flag advice lives in cli.errors.get_error_hint's
+                    # hint-key table, not here -- this message stays usable
+                    # from the Python API, which has no CLI flags to spell.
+                    hint_key="gpu_index_out_of_range",
                 )
             return torch.device(f"cuda:{gpu_idx}")
         return torch.device("cuda:0")

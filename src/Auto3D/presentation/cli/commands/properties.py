@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from Auto3D.foundation.constants import LOW_FREQUENCY_CUTOFF_CM
 from Auto3D.foundation.exceptions import ConfigurationError, DependencyError
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.presentation.cli.console import emit_json, print_success
@@ -57,6 +58,7 @@ def _report(output_path: str, command: str, json_output: bool) -> None:
 
 def execute_energy(
     input_file: Path,
+    *,
     engine: str,
     gpu: bool,
     gpu_idx: int,
@@ -97,6 +99,7 @@ def execute_energy(
 
 def execute_optimize(
     input_file: Path,
+    *,
     engine: str,
     gpu: bool,
     gpu_idx: int,
@@ -138,8 +141,35 @@ def execute_optimize(
         handle_error(e, verbose=verbose, json_output=json_output)
 
 
+def calc_thermo(*args, **kwargs):
+    """Call ``Auto3D.entry.ASE.thermo.calc_thermo``, translating a missing
+    ``ase`` extra into ``DependencyError``.
+
+    A thin, lazily-importing wrapper rather than a bare module-level
+    re-export: ``execute_energy``/``execute_optimize`` also import their API
+    function (``calc_spe``/``opt_geometry``) lazily, inside their own
+    function body, so there is no module attribute either could be replaced
+    through -- a test double for either is passed straight into the real
+    function's own module. ``calc_thermo`` needs one anyway, because a
+    missing ``ase`` has to become ``DependencyError`` *before* a test double
+    could stand in for the real call; giving that translation a name here,
+    at module scope, is what lets ``execute_thermo`` call one thing and lets
+    a test replace this attribute wholesale instead of patching the lazy
+    import inside ``execute_thermo`` itself.
+    """
+    try:
+        from Auto3D.entry.ASE.thermo import calc_thermo as _calc_thermo
+    except ImportError as e:
+        raise DependencyError(
+            "Thermochemistry requires ASE, which is not installed.",
+            dependency_name="ase",
+        ) from e
+    return _calc_thermo(*args, **kwargs)
+
+
 def execute_thermo(
     input_file: Path,
+    *,
     engine: str,
     gpu: bool,
     gpu_idx: int,
@@ -152,6 +182,7 @@ def execute_thermo(
     verbose: int = 0,
     force: bool = False,
     relative_gibbs: bool = False,
+    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
 ) -> None:
     """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra.
 
@@ -161,13 +192,6 @@ def execute_thermo(
     try:
         # The engine name and the GPU policy are validated inside calc_thermo --
         # see execute_energy's comment.
-        try:
-            from Auto3D.entry.ASE.thermo import calc_thermo
-        except ImportError as e:
-            raise DependencyError(
-                "Thermochemistry requires ASE, which is not installed.",
-                dependency_name="ase",
-            ) from e
 
         # Scalar --temperature -> the per-mol (id, T) callback calc_thermo expects.
         def mol_info_func(mol):
@@ -186,6 +210,7 @@ def execute_thermo(
             out_path=str(output) if output else None,
             overwrite=force,
             relative_gibbs=relative_gibbs,
+            low_freq_cutoff_cm=low_freq_cutoff_cm,
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001

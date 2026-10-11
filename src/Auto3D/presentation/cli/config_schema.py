@@ -30,42 +30,6 @@ OPTIONS_ONLY_FIELDS: dict[str, str] = {
     ),
 }
 
-# Built-in engine names mapped back to the exact spelling Auto3DOptions and the
-# model factory compare against. `_validate_engine` accepts any case (
-# `resolve_engine_name` case-folds) but returns the value unchanged, so
-# `self.optimizing_engine` still carries whatever the caller typed, e.g.
-# "ani2x". Registry names and custom paths are deliberately absent and pass
-# through verbatim -- see test_config_accepts_registry_and_path_engines.
-_ENGINE_CANONICAL_CASE: dict[str, str] = {
-    "ANI2X": "ANI2x",
-    "ANI2XT": "ANI2xt",
-    "AIMNET": "AIMNET",
-}
-
-
-def _to_options_path(value: Path | None) -> str | None:
-    """``Path`` -> ``str``, keeping an absence an absence.
-
-    ``str(None)`` would be the literal ``"None"``: a path that looks real and
-    names nothing.
-    """
-    return str(value) if value is not None else None
-
-
-def _to_options_engine(value: str) -> str:
-    return _ENGINE_CANONICAL_CASE.get(value.upper(), value)
-
-
-#: The only fields whose value differs between the two classes. Everything else
-#: is forwarded verbatim by ``to_auto3d_options``, so a field added to both
-#: classes cannot be silently dropped on the way across (which the previous
-#: hand-written 27-assignment ``return Auto3DOptions(...)`` allowed -- nothing
-#: checked that the mapper actually forwarded every field).
-_TO_OPTIONS_TRANSFORMS: dict[str, Any] = {
-    "path": _to_options_path,
-    "optimizing_engine": _to_options_engine,
-}
-
 
 def build_cli_config(**kwargs: Any) -> Auto3DOptions:
     """Construct an ``Auto3DOptions``, translating any failure into ``ConfigurationError``.
@@ -114,10 +78,9 @@ def build_cli_config(**kwargs: Any) -> Auto3DOptions:
     # not only layering. `resolve_engine_name` lives in `Auto3D.engines.models`, so a
     # validator on `Auto3DOptions` (foundation layer) would point upward at the
     # engine layer -- the edge PR #159 removed. It would also run on *every*
-    # construction, including the pickled reconstruction inside each spawned
-    # worker, and resolving a registry name can reach the model registry. A
-    # config object validates values; whether a name resolves against a registry
-    # is a question for the layer that owns the registry.
+    # construction, and resolving a registry name can reach the model
+    # registry. A config object validates values; whether a name resolves
+    # against a registry is a question for the layer that owns the registry.
     #
     # Doing it at this boundary keeps what CLIConfig's validator bought: a typo
     # in `--engine` or a config file is refused while the user is still looking

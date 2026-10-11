@@ -110,6 +110,16 @@ def test_models_info_ani2x(runner):
     assert "ANI-2x" in result.stdout
 
 
+def test_models_info_ani2xt_names_the_no_repulsion_training(runner):
+    """The shipped ANI2xt checkpoint is a no-repulsion variant of ANI2x; the
+    notes must say so rather than leave it undocumented (N-m10)."""
+    from Auto3D.presentation.cli.app import app
+
+    result = runner.invoke(app, ["models", "info", "ANI2xt"])
+    assert result.exit_code == 0
+    assert "repulsion" in result.stdout.lower()
+
+
 def test_models_info_works_without_aimnet(runner, monkeypatch):
     """CHANGELOG (Unreleased) claims ``auto3d models info`` works without
     aimnet installed, and nothing exercised that claim.
@@ -1244,3 +1254,26 @@ def test_run_help_hides_the_deprecated_flag_spellings(runner):
     assert "--enumerate-isomers" in out
     assert "--enumerate-isomer " not in out
     assert "--no-enumerate-isomer " not in out
+
+
+@pytest.fixture
+def sdf_path(tmp_path):
+    """An SDF that exists, for `thermo` with `calc_thermo` mocked below."""
+    p = tmp_path / "mols.sdf"
+    p.write_text("")
+    return p
+
+
+def test_thermo_forwards_low_freq_cutoff(runner, sdf_path, monkeypatch):
+    """``--low-freq-cutoff`` must reach `calc_thermo` as `low_freq_cutoff_cm`
+    (N-m37)."""
+    from Auto3D.presentation.cli.app import app
+
+    seen = {}
+    monkeypatch.setattr(
+        "Auto3D.presentation.cli.commands.properties.calc_thermo",
+        lambda *a, **k: seen.update(k) or str(sdf_path),
+    )
+    result = runner.invoke(app, ["thermo", str(sdf_path), "--low-freq-cutoff", "50"])
+    assert result.exit_code == 0
+    assert seen["low_freq_cutoff_cm"] == 50.0

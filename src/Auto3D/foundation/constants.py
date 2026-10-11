@@ -128,6 +128,11 @@ STANDARD_PRESSURE = 101325  # Pa
 # (H is pressure independent).
 STANDARD_STATE_LABEL = "1 atm"
 
+# Kelvin. The default temperature `auto3d thermo`'s `--temperature` and
+# `do_mol_thermo`'s `T` fall back to when the caller does not name one; one
+# named constant instead of the literal `298.15` typed at each default.
+STANDARD_TEMPERATURE_K = 298.15
+
 # Model names
 MODEL_AIMNET = "AIMNET"
 MODEL_ANI2X = "ANI2x"

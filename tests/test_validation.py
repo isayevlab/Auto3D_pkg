@@ -286,12 +286,31 @@ class TestGpuPolicyIsUniform:
     """
 
     def test_check_gpu_requested_raises_gpu_error_without_cuda(self):
+        """The CLI flag spelling lives in the hint, not the exception message
+        (P-m19): the Python API message never spells a CLI flag."""
         from Auto3D.engines.models.policy import check_gpu_requested
+        from Auto3D.presentation.cli.errors import get_error_hint
 
         with patch.object(torch.cuda, "is_available", return_value=False):
             with pytest.raises(GPUError, match="No cuda device") as exc_info:
                 check_gpu_requested(True)
-        assert "--no-gpu" in str(exc_info.value)
+        assert "--no-gpu" not in str(exc_info.value)
+        assert "--no-gpu" in get_error_hint(exc_info.value)
+
+    def test_gpu_index_out_of_range_hint_names_the_flags(self):
+        """Same shape as the test above, for `get_device`'s out-of-range
+        GPUError: the flag advice is in the hint, not the message."""
+        from Auto3D.engines.model_factory import get_device
+        from Auto3D.presentation.cli.errors import get_error_hint
+
+        with (
+            patch.object(torch.cuda, "is_available", return_value=True),
+            patch.object(torch.cuda, "device_count", return_value=2),
+        ):
+            with pytest.raises(GPUError, match="GPU index 99 is invalid") as exc_info:
+                get_device(gpu_idx=99, use_gpu=True)
+        assert "--gpu-idx" not in str(exc_info.value)
+        assert "--gpu-idx" in get_error_hint(exc_info.value)
 
     def test_check_gpu_requested_noop_when_use_gpu_false(self):
         """use_gpu=False must never raise, CUDA available or not."""

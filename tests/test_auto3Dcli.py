@@ -90,7 +90,9 @@ def test_unknown_key_reports_same_verdict_as_the_modern_path(tmp_path, monkeypat
     monkeypatch.setattr(run_mod, "handle_error", spy)
 
     with pytest.raises(SystemExit) as exc_info:
-        run_mod.execute_run(input_file=smi, config_file=cfg, quiet=True)
+        run_mod.execute_run(
+            input_file=smi, options=run_mod.RunOptions(), config_file=cfg, quiet=True
+        )
 
     assert seen, "expected the failure to route through handle_error"
     from Auto3D.foundation.exceptions import ConfigurationError

@@ -147,11 +147,15 @@ def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: b
 
     if os.path.exists(out_path):
         raise ConfigurationError(
-            f"{out_path} already exists. Pass --force/-f to overwrite, or "
-            "choose a different -o path. (Python API: pass overwrite=True.)",
-            # No hint: the message above already states both ways out, and
-            # ConfigurationError's class hint ("run auto3d config init") has
-            # nothing to do with an -o collision. "" suppresses it; None
-            # would have meant "unset" and let the class hint through.
-            hint="",
+            f"{out_path} already exists; pass overwrite to replace it or "
+            "choose another output path. (Python API: pass overwrite=True.)",
+            # The CLI's "--force/-f"/"-o" flag spellings live in
+            # cli.errors.get_error_hint's hint-key table, not here -- this
+            # message already states both ways out in flag-free words and
+            # stays usable from the Python API, which has no CLI flags to
+            # spell. ConfigurationError's class hint ("run auto3d config
+            # init") has nothing to do with an output collision either way;
+            # the hint-key lookup finds this site's own hint before ever
+            # reaching it.
+            hint_key="output_exists",
         )

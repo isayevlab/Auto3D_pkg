@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import time
 import warnings
 from pathlib import Path
@@ -63,31 +64,88 @@ def _exit_if_incomplete(results: RunSummary) -> None:
         raise SystemExit(EXIT_PARTIAL_SUCCESS)
 
 
+@dataclasses.dataclass(frozen=True)
+class RunOptions:
+    """The ``auto3d run`` pipeline-override flags, one definition shared by
+    ``execute_run`` and ``app.py``'s ``run`` command.
+
+    Before this class existed, each of these ~20 names was spelled twice
+    inside this module alone -- once in ``execute_run``'s signature, once in
+    the override-dict literal it built -- on top of the two spellings
+    ``app.py`` already needs (its own Typer parameters, and the keyword call
+    into ``execute_run``). ``execute_run`` now builds the override dict from
+    ``dataclasses.fields(options)`` instead, so the flag list has one
+    spelling inside this module.
+
+    Every field is ``None`` when the corresponding flag was not given, and
+    only non-None fields reach ``merge_configs`` -- so a value set in a
+    ``-c`` config file survives a flag the user did not pass, and a flag the
+    user did pass wins. See ``cli/app.py`` for which ``Auto3DOptions`` fields
+    are deliberately left to ``-c`` rather than given a flag.
+
+    Field names match the current CLI flag (or, for the two deprecated
+    aliases, the legacy flag), not always the ``Auto3DOptions`` field each
+    ends up overriding -- ``execute_run`` renames the handful that differ
+    (``engine`` -> ``optimizing_engine``, etc.) when it builds the override
+    dict.
+    """
+
+    k: int | None = None  #: Top-k conformers override.
+    window: float | None = None  #: Energy window override.
+    engine: str | None = None  #: Optimization engine override.
+    gpu: bool | None = None  #: GPU enable/disable override.
+    gpu_idx: str | None = None  #: GPU index override.
+    job_name: str | None = None  #: Output folder/run name override.
+    enumerate_tautomer: bool | None = None  #: Enumerate tautomers before conformer generation.
+    tauto_engine: str | None = None  #: Tautomer engine ('rdkit' or 'oechem').
+    isomer_engine: str | None = None  #: 3D isomer engine ('rdkit' or 'omega').
+    enumerate_isomers: bool | None = None  #: Enumerate cis/trans and R/S isomers.
+    #: Deprecated alias for ``enumerate_isomers``; emits a
+    #: ``DeprecationWarning`` and is removed in 4.0.
+    enumerate_isomer: bool | None = None
+    max_confs: int | None = None  #: Max conformers per molecule.
+    threshold: float | None = None  #: RMSD threshold for duplicate removal (Angstrom).
+    isomer_threads: int | None = None  #: CPU threads for isomer generation.
+    #: Deprecated alias for ``isomer_threads``; emits a ``DeprecationWarning``
+    #: and is removed in 4.0.
+    mpi_np: int | None = None
+    opt_steps: int | None = None  #: Max optimization steps per structure.
+    #: Max-force convergence threshold, i.e. ``Auto3DOptions.convergence_threshold``.
+    #: Spelled ``--opt-tol`` to match ``auto3d optimize``/``auto3d thermo``,
+    #: which already used that name for the same quantity.
+    opt_tol: float | None = None
+    patience: int | None = None  #: Steps without improvement before a conformer is dropped.
+    batchsize_atoms: int | None = None  #: Atoms per optimization batch per GB.
+    memory: int | None = None  #: RAM available to Auto3D in GB.
+    tf32: bool | None = None  #: Allow TF32 matmul on Ampere+ GPUs (Auto3DOptions.allow_tf32).
+    #: Embed conformers in parallel worker processes
+    #: (``Auto3DOptions.use_parallel_embedding``, on by default). The
+    #: ``--no-`` half is the way back to the serial path.
+    parallel_embedding: bool | None = None
+
+
+# RunOptions field name -> the Auto3DOptions field it overrides, for the few
+# names that differ. Every other RunOptions field overrides the identically
+# named Auto3DOptions field.
+_FIELD_TO_CONFIG_KEY: dict[str, str] = {
+    "engine": "optimizing_engine",
+    "gpu": "use_gpu",
+    "opt_tol": "convergence_threshold",
+    "tf32": "allow_tf32",
+    "parallel_embedding": "use_parallel_embedding",
+}
+
+# RunOptions fields that never reach the override dict under their own name:
+# each is a deprecated alias reconciled into another field first (see
+# execute_run).
+_DEPRECATED_ALIAS_FIELDS = frozenset({"enumerate_isomer", "mpi_np"})
+
+
 def execute_run(
     input_file: Path,
+    *,
+    options: RunOptions,
     config_file: Path | None = None,
-    k: int | None = None,
-    window: float | None = None,
-    engine: str | None = None,
-    gpu: bool | None = None,
-    gpu_idx: str | None = None,
-    job_name: str | None = None,
-    enumerate_tautomer: bool | None = None,
-    tauto_engine: str | None = None,
-    isomer_engine: str | None = None,
-    enumerate_isomers: bool | None = None,
-    enumerate_isomer: bool | None = None,
-    max_confs: int | None = None,
-    threshold: float | None = None,
-    isomer_threads: int | None = None,
-    mpi_np: int | None = None,
-    opt_steps: int | None = None,
-    opt_tol: float | None = None,
-    patience: int | None = None,
-    batchsize_atoms: int | None = None,
-    memory: int | None = None,
-    tf32: bool | None = None,
-    parallel_embedding: bool | None = None,
     save_intermediate: bool = False,
     verbose: int = 0,
     quiet: bool = False,
@@ -95,44 +153,11 @@ def execute_run(
 ) -> None:
     """Execute the main conformer generation workflow.
 
-    Every pipeline override below is ``None`` when the flag was not given, and
-    only non-None entries reach ``merge_configs`` -- so a value set in a ``-c``
-    config file survives a flag the user did not pass, and a flag the user did
-    pass wins. See ``cli/app.py`` for which ``Auto3DOptions`` fields are
-    deliberately left to ``-c`` rather than given a flag.
-
     Args:
         input_file: Path to input .smi or .sdf file.
+        options: The pipeline-override flags; see `RunOptions` for what each
+            field means and which config field it overrides.
         config_file: Optional YAML configuration file.
-        k: Top-k conformers override.
-        window: Energy window override.
-        engine: Optimization engine override.
-        gpu: GPU enable/disable override.
-        gpu_idx: GPU index override.
-        job_name: Output folder/run name override.
-        enumerate_tautomer: Enumerate tautomers before conformer generation.
-        tauto_engine: Tautomer engine ('rdkit' or 'oechem').
-        isomer_engine: 3D isomer engine ('rdkit' or 'omega').
-        enumerate_isomers: Enumerate cis/trans and R/S isomers.
-        enumerate_isomer: Deprecated alias for ``enumerate_isomers``; emits a
-            ``DeprecationWarning`` and is removed in 4.0.
-        max_confs: Max conformers per molecule.
-        threshold: RMSD threshold for duplicate removal (Angstrom).
-        isomer_threads: CPU threads for isomer generation.
-        mpi_np: Deprecated alias for ``isomer_threads``; emits a
-            ``DeprecationWarning`` and is removed in 4.0.
-        opt_steps: Max optimization steps per structure.
-        opt_tol: Max-force convergence threshold, i.e.
-            ``Auto3DOptions.convergence_threshold``. Spelled ``--opt-tol`` to
-            match ``auto3d optimize``/``auto3d thermo``, which already used
-            that name for the same quantity.
-        patience: Steps without improvement before a conformer is dropped.
-        batchsize_atoms: Atoms per optimization batch per GB.
-        memory: RAM available to Auto3D in GB.
-        tf32: Allow TF32 matmul on Ampere+ GPUs (Auto3DOptions.allow_tf32).
-        parallel_embedding: Embed conformers in parallel worker processes
-            (``Auto3DOptions.use_parallel_embedding``, on by default). The
-            ``--no-`` half is the way back to the serial path.
         save_intermediate: Keep all intermediate metadata (Auto3DOptions.verbose).
         verbose: Logging verbosity level (0-2).
         quiet: Suppress non-error output.
@@ -140,13 +165,14 @@ def execute_run(
     """
     start_time = time.time()
 
-    # P-m15: the deprecated flags reach here as separate parameters (Typer
-    # binds `--enumerate-isomer`/`--mpi-np` to their own hidden options, not
-    # to the new ones), so they are reconciled here rather than inside
-    # Auto3DOptions -- by the time a value reaches `merge_configs` below it is
-    # already under the new key, and `Auto3DOptions` would never see the old
-    # one to warn about it. The new flag wins if a caller somehow passes both.
-    if enumerate_isomer is not None:
+    # P-m15: the deprecated flags reach here as separate RunOptions fields
+    # (Typer binds `--enumerate-isomer`/`--mpi-np` to their own hidden
+    # options, not to the new ones), so they are reconciled here rather than
+    # inside Auto3DOptions -- by the time a value reaches `merge_configs`
+    # below it is already under the new key, and `Auto3DOptions` would never
+    # see the old one to warn about it. The new flag wins if a caller
+    # somehow passes both.
+    if options.enumerate_isomer is not None:
         warnings.warn(
             "Option name --enumerate-isomer/--no-enumerate-isomer is "
             "deprecated; use --enumerate-isomers/--no-enumerate-isomers "
@@ -154,16 +180,16 @@ def execute_run(
             DeprecationWarning,
             stacklevel=2,
         )
-        if enumerate_isomers is None:
-            enumerate_isomers = enumerate_isomer
-    if mpi_np is not None:
+        if options.enumerate_isomers is None:
+            options = dataclasses.replace(options, enumerate_isomers=options.enumerate_isomer)
+    if options.mpi_np is not None:
         warnings.warn(
             "Option name --mpi-np is deprecated; use --isomer-threads (removed in 4.0)",
             DeprecationWarning,
             stacklevel=2,
         )
-        if isomer_threads is None:
-            isomer_threads = mpi_np
+        if options.isomer_threads is None:
+            options = dataclasses.replace(options, isomer_threads=options.mpi_np)
 
     # Configure logging based on verbosity. Diagnostics already go to stderr (see
     # configure_logging), so --json stdout stays a clean, parseable document.
@@ -198,34 +224,19 @@ def execute_run(
                 # Pydantic provides defaults for all fields except path
                 config = build_cli_config(path=input_file)  # type: ignore[call-arg]
 
-            # Apply CLI overrides
+            # Apply CLI overrides, one per RunOptions field (renamed through
+            # _FIELD_TO_CONFIG_KEY where the flag spelling and the
+            # Auto3DOptions field differ; the two deprecated aliases are
+            # skipped since they were already folded into their replacement
+            # field above).
             overrides = {
-                "k": k,
-                "window": window,
-                "optimizing_engine": engine,
-                "use_gpu": gpu,
-                "gpu_idx": gpu_idx,
-                "job_name": job_name,
-                "enumerate_tautomer": enumerate_tautomer,
-                "tauto_engine": tauto_engine,
-                "isomer_engine": isomer_engine,
-                "enumerate_isomers": enumerate_isomers,
-                "max_confs": max_confs,
-                "threshold": threshold,
-                "isomer_threads": isomer_threads,
-                "opt_steps": opt_steps,
-                # --opt-tol is the CLI spelling of convergence_threshold, the
-                # same quantity `auto3d optimize --opt-tol` already named.
-                "convergence_threshold": opt_tol,
-                "patience": patience,
-                "batchsize_atoms": batchsize_atoms,
-                "memory": memory,
-                "allow_tf32": tf32,
-                "use_parallel_embedding": parallel_embedding,
-                # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
-                # Only override when set, so a config-file `verbose: true` is preserved.
-                "verbose": True if save_intermediate else None,
+                _FIELD_TO_CONFIG_KEY.get(field.name, field.name): getattr(options, field.name)
+                for field in dataclasses.fields(options)
+                if field.name not in _DEPRECATED_ALIAS_FIELDS
             }
+            # --save-intermediate maps to Auto3DOptions.verbose (save metadata).
+            # Only override when set, so a config-file `verbose: true` is preserved.
+            overrides["verbose"] = True if save_intermediate else None
             config = merge_configs(
                 config, {key: val for key, val in overrides.items() if val is not None}
             )
@@ -254,8 +265,12 @@ def execute_run(
                 )
                 console.print()
 
-            # Convert to Auto3DOptions and run
-            options = require_input_path(config)
+            # Convert to Auto3DOptions and run. A local distinct from the
+            # `options: RunOptions` parameter above -- that one is done being
+            # read by this point (the override dict is already built) -- so
+            # this doesn't shadow it under the same name for the rest of the
+            # function.
+            auto3d_options = require_input_path(config)
             job_hint = job_directory_hint(config.path, config.job_name)
 
             from Auto3D.entry.auto3D import main
@@ -289,10 +304,10 @@ def execute_run(
                         display.update_from_jobs(jobs)
                         live.update(display.make_panel())
 
-                    output_path = main(options, progress_callback=progress_cb)
+                    output_path = main(auto3d_options, progress_callback=progress_cb)
             else:
                 # Quiet / JSON: no live display, keep stdout clean for piping.
-                output_path = main(options)
+                output_path = main(auto3d_options)
 
             elapsed = time.time() - start_time
 

@@ -10,6 +10,14 @@ import typer
 from typer.core import TyperCommand
 
 import Auto3D
+from Auto3D.foundation.constants import (
+    DEFAULT_BATCHSIZE_ATOMS,
+    DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_OPT_STEPS,
+    DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
+    LOW_FREQUENCY_CUTOFF_CM,
+    STANDARD_TEMPERATURE_K,
+)
 from Auto3D.presentation.cli.commands.properties import engine_autocomplete
 from Auto3D.presentation.cli.console import console, reserve_stdout
 
@@ -336,33 +344,35 @@ def run(
     ] = False,
 ) -> None:
     """Run conformer generation on input molecules."""
-    from Auto3D.presentation.cli.commands.run import execute_run
+    from Auto3D.presentation.cli.commands.run import RunOptions, execute_run
 
     execute_run(
         input_file=input_file,
+        options=RunOptions(
+            k=k,
+            window=window,
+            engine=engine,
+            gpu=gpu,
+            gpu_idx=gpu_idx,
+            job_name=job_name,
+            enumerate_tautomer=enumerate_tautomer,
+            tauto_engine=tauto_engine,
+            isomer_engine=isomer_engine,
+            enumerate_isomers=enumerate_isomers,
+            enumerate_isomer=enumerate_isomer,
+            max_confs=max_confs,
+            threshold=threshold,
+            isomer_threads=isomer_threads,
+            mpi_np=mpi_np,
+            opt_steps=opt_steps,
+            opt_tol=opt_tol,
+            patience=patience,
+            batchsize_atoms=batchsize_atoms,
+            memory=memory,
+            tf32=tf32,
+            parallel_embedding=parallel_embedding,
+        ),
         config_file=config,
-        k=k,
-        window=window,
-        engine=engine,
-        gpu=gpu,
-        gpu_idx=gpu_idx,
-        job_name=job_name,
-        enumerate_tautomer=enumerate_tautomer,
-        tauto_engine=tauto_engine,
-        isomer_engine=isomer_engine,
-        enumerate_isomers=enumerate_isomers,
-        enumerate_isomer=enumerate_isomer,
-        max_confs=max_confs,
-        threshold=threshold,
-        isomer_threads=isomer_threads,
-        mpi_np=mpi_np,
-        opt_steps=opt_steps,
-        opt_tol=opt_tol,
-        patience=patience,
-        batchsize_atoms=batchsize_atoms,
-        memory=memory,
-        tf32=tf32,
-        parallel_embedding=parallel_embedding,
         save_intermediate=save_intermediate,
         verbose=verbose,
         quiet=quiet,
@@ -535,12 +545,12 @@ def energy(
 
     execute_energy(
         input_file,
-        engine,
-        gpu,
-        gpu_idx,
-        output,
-        tf32,
-        json_output,
+        engine=engine,
+        gpu=gpu,
+        gpu_idx=gpu_idx,
+        output=output,
+        allow_tf32=tf32,
+        json_output=json_output,
         verbose=verbose,
         force=force,
     )
@@ -555,15 +565,17 @@ def optimize(
     output: OutputOption = None,
     opt_tol: Annotated[
         float, typer.Option("--opt-tol", help="Max-force convergence (eV/A).")
-    ] = 0.01,
-    opt_steps: Annotated[int, typer.Option("--opt-steps", help="Max optimization steps.")] = 2000,
+    ] = DEFAULT_CONVERGENCE_THRESHOLD,
+    opt_steps: Annotated[
+        int, typer.Option("--opt-steps", help="Max optimization steps.")
+    ] = DEFAULT_OPT_STEPS,
     patience: Annotated[
         int | None,
         typer.Option("--patience", help="Drop a conformer after this many non-improving steps."),
     ] = None,
     batchsize_atoms: Annotated[
         int, typer.Option("--batchsize-atoms", help="Atoms per optimization batch.")
-    ] = 1024,
+    ] = DEFAULT_BATCHSIZE_ATOMS,
     tf32: Tf32Flag = False,
     json_output: JsonFlag = False,
     verbose: VerboseOption = 0,
@@ -574,16 +586,16 @@ def optimize(
 
     execute_optimize(
         input_file,
-        engine,
-        gpu,
-        gpu_idx,
-        output,
-        opt_tol,
-        opt_steps,
-        patience,
-        batchsize_atoms,
-        tf32,
-        json_output,
+        engine=engine,
+        gpu=gpu,
+        gpu_idx=gpu_idx,
+        output=output,
+        opt_tol=opt_tol,
+        opt_steps=opt_steps,
+        patience=patience,
+        batchsize_atoms=batchsize_atoms,
+        allow_tf32=tf32,
+        json_output=json_output,
         verbose=verbose,
         force=force,
     )
@@ -598,13 +610,24 @@ def thermo(
     output: OutputOption = None,
     temperature: Annotated[
         float, typer.Option("--temperature", "-T", help="Temperature in Kelvin.")
-    ] = 298.15,
+    ] = STANDARD_TEMPERATURE_K,
     opt_tol: Annotated[
         float, typer.Option("--opt-tol", help="Pre-optimization max-force convergence (eV/A).")
-    ] = 0.0002,
+    ] = DEFAULT_THERMO_CONVERGENCE_THRESHOLD,
     opt_steps: Annotated[
         int, typer.Option("--opt-steps", help="Max pre-optimization steps.")
-    ] = 2000,
+    ] = DEFAULT_OPT_STEPS,
+    low_freq_cutoff: Annotated[
+        float,
+        typer.Option(
+            "--low-freq-cutoff",
+            help=(
+                "Quasi-harmonic floor (cm^-1): every real vibrational mode below "
+                "this is raised to the cutoff before the entropy/enthalpy/Gibbs "
+                f"sums. Default: {LOW_FREQUENCY_CUTOFF_CM:g} cm^-1."
+            ),
+        ),
+    ] = LOW_FREQUENCY_CUTOFF_CM,
     relative_gibbs: Annotated[
         bool,
         typer.Option(
@@ -624,18 +647,19 @@ def thermo(
 
     execute_thermo(
         input_file,
-        engine,
-        gpu,
-        gpu_idx,
-        output,
-        temperature,
-        opt_tol,
-        opt_steps,
-        tf32,
-        json_output,
+        engine=engine,
+        gpu=gpu,
+        gpu_idx=gpu_idx,
+        output=output,
+        temperature=temperature,
+        opt_tol=opt_tol,
+        opt_steps=opt_steps,
+        allow_tf32=tf32,
+        json_output=json_output,
         verbose=verbose,
         force=force,
         relative_gibbs=relative_gibbs,
+        low_freq_cutoff_cm=low_freq_cutoff,
     )
 
 

@@ -265,6 +265,21 @@ def test_shipped_parameters_yaml_loads():
     require_input_path(cfg)  # the shipped example is runnable, not settings-only
 
 
+def test_shipped_parameters_yaml_pins_every_numeric():
+    """The shipped `parameters.yaml` must keep showing the real defaults, not
+    a stale example value that happens to still parse (N-m15)."""
+    from Auto3D.foundation.constants import STANDARD_TEMPERATURE_K
+    from Auto3D.presentation.cli.config_schema import load_yaml_config
+
+    assert STANDARD_TEMPERATURE_K == 298.15
+
+    repo_root = Path(__file__).resolve().parent.parent
+    cfg = load_yaml_config(repo_root / "parameters.yaml")
+    assert (cfg.capacity, cfg.isomer_threads, cfg.opt_steps) == (42, 4, 2000)
+    assert (cfg.convergence_threshold, cfg.patience, cfg.batchsize_atoms) == (0.01, 250, 1024)
+    assert (cfg.threshold, cfg.parallel_embedding_threshold) == (0.3, 10)
+
+
 def test_shipped_legacy_v2_parameters_yaml_loads():
     """docs/legacy-v2/parameters.yaml (``k: 1`` / ``window: False``) must
     validate through ``load_yaml_config`` -- the function ``auto3Dcli.
@@ -556,3 +571,15 @@ def test_config_init_tables_only_name_real_options():
     from Auto3D.presentation.cli.config_schema import build_cli_config
 
     build_cli_config(**DEFAULT_CONFIG)
+
+
+def test_dead_to_options_names_are_gone():
+    """`_ENGINE_CANONICAL_CASE`/`_to_options_path`/`_to_options_engine`/
+    `_TO_OPTIONS_TRANSFORMS` had no reader left once `to_auto3d_options` was
+    removed (P-m43); pin that they stay gone rather than creep back."""
+    from Auto3D.presentation.cli import config_schema
+
+    assert not hasattr(config_schema, "_to_options_path")
+    assert not hasattr(config_schema, "_to_options_engine")
+    assert not hasattr(config_schema, "_ENGINE_CANONICAL_CASE")
+    assert not hasattr(config_schema, "_TO_OPTIONS_TRANSFORMS")
