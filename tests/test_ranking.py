@@ -1197,7 +1197,7 @@ class TestSelectorDispatchRegistry:
     third selector added to ``Auto3D.foundation.config.SELECTOR_FIELDS`` would then be
     accepted by ``Auto3DOptions``, accepted by ``CLIConfig``, accepted by
     ``check_selectors_mutually_exclusive`` -- and silently ignored here, falling
-    through to "Parameter k or window needs to be specified" even though the
+    through to "Either k or window needs to be specified" even though the
     user had specified one.
     """
 
@@ -1334,12 +1334,14 @@ class TestSelectorDispatchRegistry:
 
 
 def test_missing_selector_message_is_not_run_together(tmp_path):
-    """The no-selector refusal must render as prose, not "if youonly want".
+    """The no-selector refusal inside the dispatch loop goes through the one
+    shared ``require_selector`` wording, not a hand-built message.
 
-    ``run``'s message is built by implicit string concatenation across three
-    source lines; the second fragment ended without a trailing space, so the
-    shipped text read "Append \"--k=1\" if youonly want one structure per
-    SMILES".
+    This used to build its own message via implicit string concatenation
+    across three source lines, with a missing space that printed "...if
+    youonly want one structure per SMILES". ``require_selector``'s one-line
+    message replaces that call entirely, which also removes the class of bug
+    this test was written to catch.
     """
     from Auto3D.domain.ranking import ConformerRanker
     from Auto3D.foundation.exceptions import ConfigurationError
@@ -1364,7 +1366,7 @@ def test_missing_selector_message_is_not_run_together(tmp_path):
 
     message = str(excinfo.value)
     assert "youonly" not in message, message
-    assert "if you only want" in message, message
+    assert message == "Either k or window needs to be specified.", message
 
 
 class TestRankedOutputIsWrittenAtomically:

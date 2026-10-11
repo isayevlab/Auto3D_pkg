@@ -39,11 +39,11 @@ from typing import TYPE_CHECKING
 from Auto3D.domain.id_mapping import encode_ids
 from Auto3D.engines.models.preflight import preflight_model
 from Auto3D.engines.torch_config import TorchConfig, configure_torch
-from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.config import Auto3DOptions, require_selector
 from Auto3D.foundation.constants import EXIT_TERMINATED
 from Auto3D.foundation.exceptions import ConfigurationError, FileFormatError, InputValidationError
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
-from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.logging_config import get_logger, worker_progress_bars_off
 from Auto3D.orchestration.chunk_manager import ChunkManager
 from Auto3D.orchestration.finalize import FinalizeMixin
 from Auto3D.orchestration.job_layout import optimizer_worker_indices
@@ -343,11 +343,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         self.config.input_format = input_format
 
         # Validate output selection
-        if not self.config.k and not self.config.window:
-            raise ConfigurationError(
-                "Either k or window needs to be specified. "
-                "Usually, setting '--k=1' satisfies most needs."
-            )
+        require_selector(self.config.k, self.config.window)
 
         # Generate job name if not provided
         if self.config.job_name == "":
@@ -390,7 +386,16 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         self.job_name = f"{input_file.stem}_{self.config.job_name}"
         self.job_dir = input_file.parent / self.job_name
 
-        self.job_dir.mkdir()
+        try:
+            self.job_dir.mkdir()
+        except FileExistsError:
+            # hint="" suppresses the class hint ("Run 'auto3d config init' to
+            # generate a valid config file"), which does not apply here.
+            raise ConfigurationError(
+                f"Job directory already exists: {self.job_dir}. "
+                "Pick another job name or remove it.",
+                hint="",
+            ) from None
 
     def _encode_input(self) -> None:
         """Write the encoded copy of the input into this run's job directory.
@@ -584,42 +589,49 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
                     )
                 )
 
-            # Start all processes
-            p1.start()
-            started.append(p1)
-            for p2 in p2s:
-                p2.start()
-                started.append(p2)
+            # Start all processes. Wrapped in worker_progress_bars_off over
+            # the same condition that created progress_queue above: a
+            # worker's own tqdm bar must not
+            # interleave with the live panel the parent draws in this case,
+            # and AUTO3D_PROGRESS=off is read from the environment each
+            # worker inherits at start(), restored once every join below
+            # returns (including on the exception path, via `finally`).
+            with worker_progress_bars_off(enabled=self.progress_callback is not None):
+                p1.start()
+                started.append(p1)
+                for p2 in p2s:
+                    p2.start()
+                    started.append(p2)
 
-            # Wait for completion and supervise exit codes.
-            #
-            # Two-layer guarantee against an isomer worker that dies without
-            # running its `finally` (SIGKILL from the OOM killer, a segfault in
-            # RDKit/Boost, os._exit -- none of which give Python a chance to run
-            # cleanup code): layer one is workflow_workers.isomer_wrapper's own
-            # `finally`, which puts one "Done" sentinel per optimizer on every
-            # exit Python *does* get to run cleanup for -- including an unhandled
-            # exception, since a `finally` still runs on the way to exit(1).
-            # Layer two is `_ensure_done_sentinels` (supervisor.py, reached
-            # through `_join_workers` just below): when `p1.exitcode`
-            # comes back neither 0 nor None, layer one cannot be assumed to have
-            # run, so the parent -- which holds the very same queue proxy --
-            # tops the queue up itself, using the identical
-            # `optimizer_worker_indices` count both the isomer worker and the
-            # spawn loop above use (a doubled-up sentinel from a worker that
-            # *did* clean up normally is harmless: every optimizer has already
-            # exited by the time it would be consumed). `_join_optimizer_bounded`
-            # backstops that second layer with a bounded join + terminate() --
-            # but ONLY when `_isomer_worker_was_signal_killed`, not for every
-            # nonzero exit code; see that helper and `_ABNORMAL_EXIT_JOIN_TIMEOUT`
-            # for why a plain unhandled exception (a positive exit code, `finally`
-            # already ran) must keep blocking indefinitely rather than risk
-            # cutting off an optimizer still doing legitimate, possibly
-            # long-running work on the backlog queued before the failure.
-            if progress_queue is not None:
-                self._supervise_with_progress(p1, p2s, progress_queue, chunk_queue)
-            else:
-                self._join_workers(p1, p2s, chunk_queue, top_up_sentinels=True)
+                # Wait for completion and supervise exit codes.
+                #
+                # Two-layer guarantee against an isomer worker that dies without
+                # running its `finally` (SIGKILL from the OOM killer, a segfault in
+                # RDKit/Boost, os._exit -- none of which give Python a chance to run
+                # cleanup code): layer one is workflow_workers.isomer_wrapper's own
+                # `finally`, which puts one "Done" sentinel per optimizer on every
+                # exit Python *does* get to run cleanup for -- including an unhandled
+                # exception, since a `finally` still runs on the way to exit(1).
+                # Layer two is `_ensure_done_sentinels` (supervisor.py, reached
+                # through `_join_workers` just below): when `p1.exitcode`
+                # comes back neither 0 nor None, layer one cannot be assumed to have
+                # run, so the parent -- which holds the very same queue proxy --
+                # tops the queue up itself, using the identical
+                # `optimizer_worker_indices` count both the isomer worker and the
+                # spawn loop above use (a doubled-up sentinel from a worker that
+                # *did* clean up normally is harmless: every optimizer has already
+                # exited by the time it would be consumed). `_join_optimizer_bounded`
+                # backstops that second layer with a bounded join + terminate() --
+                # but ONLY when `_isomer_worker_was_signal_killed`, not for every
+                # nonzero exit code; see that helper and `_ABNORMAL_EXIT_JOIN_TIMEOUT`
+                # for why a plain unhandled exception (a positive exit code, `finally`
+                # already ran) must keep blocking indefinitely rather than risk
+                # cutting off an optimizer still doing legitimate, possibly
+                # long-running work on the backlog queued before the failure.
+                if progress_queue is not None:
+                    self._supervise_with_progress(p1, p2s, progress_queue, chunk_queue)
+                else:
+                    self._join_workers(p1, p2s, chunk_queue, top_up_sentinels=True)
         finally:
             self._terminate_workers(started, managers)
 

@@ -26,6 +26,12 @@ from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.policy import check_gpu_requested
 from Auto3D.engines.torch_config import TorchConfig, configure_torch
+from Auto3D.foundation.exceptions import (
+    ConfigurationError,
+    DependencyError,
+    FileFormatError,
+    GPUError,
+)
 from Auto3D.foundation.process_lifecycle import _exit_when_parent_dies
 from Auto3D.orchestration.job_layout import (
     create_chunk_meta_names,
@@ -33,6 +39,7 @@ from Auto3D.orchestration.job_layout import (
     optimizer_worker_indices,
 )
 from Auto3D.orchestration.processors import TautomerProcessor
+from Auto3D.orchestration.run_logging import _DropOnFullQueueHandler
 
 if TYPE_CHECKING:
     from logging import LogRecord
@@ -119,6 +126,14 @@ def _attach_run_log_handlers(
     twice. Production is unaffected: each run spawns a fresh worker process
     with a fresh queue, so this only ever attaches once there.
 
+    The handler is ``_DropOnFullQueueHandler``, not a stock
+    ``QueueHandler``: the queue this worker shares with every other worker
+    and the parent is bounded, and a burst that fills it must be dropped
+    quietly -- the same way the parent's own run-log handler already does --
+    instead of printing a traceback about the drop to the worker's shared
+    stderr. ``isinstance(h, QueueHandler)`` below still matches it, since
+    it is a subclass.
+
     Returns the ``(logger_name, handler)`` pairs newly added (never the ones
     already present), so a caller (chiefly tests) can remove them again;
     production callers can ignore the return value since these handlers live
@@ -132,11 +147,41 @@ def _attach_run_log_handlers(
         )
         if already_attached:
             continue
-        handler = QueueHandler(logging_queue)
+        handler = _DropOnFullQueueHandler(logging_queue)
         tree_logger.addHandler(handler)
         tree_logger.setLevel(logging.INFO)
         added.append((logger_name, handler))
     return added
+
+
+def isomer_engine_kwargs(options: Auto3DOptions) -> dict:
+    """Build the isomer-engine keyword arguments ``options`` alone determines.
+
+    Shared by every call site that constructs an isomer engine through
+    ``IsomerEngineFactory.create``, so the nine keywords below are
+    marshaled in exactly one place instead of once per call site.
+
+    Deliberately excludes the per-chunk arguments (``engine_type``,
+    ``input_path``, ``output_path``, ``job_dir``, and the three
+    ``smiles_*`` paths): those vary per chunk and are not derived from
+    ``options`` alone, so each caller still passes them itself.
+
+    ``mode`` is always ``options.mode_oe`` here, with no ``engine_type``
+    conditional: ``IsomerEngineFactory.create`` only reads ``mode`` in its
+    ``omega`` branch, so the value is simply unused -- not wrong -- for
+    every other engine.
+    """
+    return {
+        "input_format": options.input_format,
+        "max_confs": options.max_confs,
+        "threshold": options.threshold,
+        "n_threads": options.isomer_threads,
+        "enumerate_isomers": options.enumerate_isomers,
+        "mode": options.mode_oe,
+        "use_parallel_embedding": options.use_parallel_embedding,
+        "parallel_workers": options.parallel_workers,
+        "parallel_embedding_threshold": options.parallel_embedding_threshold,
+    }
 
 
 def isomer_wrapper(
@@ -184,29 +229,17 @@ def isomer_wrapper(
                 smiles_reduced = meta["smiles_reduced"]
                 smiles_hashed = meta["smiles_hashed"]
                 enumerated_sdf = meta["enumerated_sdf"]
-                max_confs = args.max_confs
-                duplicate_threshold = args.threshold
-                isomer_threads = args.isomer_threads
-                enumerate_isomers = args.enumerate_isomers
                 isomer_program = args.isomer_engine
                 # Isomer enumeration step using factory
                 engine = IsomerEngineFactory.create(
                     engine_type=isomer_program,
                     input_path=path,
                     output_path=enumerated_sdf,
-                    input_format=args.input_format,
                     smiles_enumerated=smiles_enumerated,
                     smiles_reduced=smiles_reduced,
                     smiles_hashed=smiles_hashed,
                     job_dir=dir,
-                    max_confs=max_confs,
-                    threshold=duplicate_threshold,
-                    n_threads=isomer_threads,
-                    enumerate_isomers=enumerate_isomers,
-                    mode=args.mode_oe if isomer_program == "omega" else "classic",
-                    use_parallel_embedding=args.use_parallel_embedding,
-                    parallel_workers=args.parallel_workers,
-                    parallel_embedding_threshold=args.parallel_embedding_threshold,
+                    **isomer_engine_kwargs(args),
                 )
                 engine.run()
 
@@ -394,6 +427,24 @@ def optim_rank_wrapper(
                             send2trash(housekeeping_folder_gz)
                         except OSError:
                             os.remove(housekeeping_folder_gz)
+                except (ConfigurationError, DependencyError, GPUError, FileFormatError):
+                    # A configuration-class error (wrong engine/option,
+                    # missing dependency, GPU, input format) would fail
+                    # identically on every remaining chunk, so retrying it
+                    # per chunk looks like a batch of difficult molecules
+                    # instead of naming the one systematic cause. This stops
+                    # the worker instead of continuing the loop; the run's
+                    # exit code is still decided by the output reconciliation,
+                    # as for any worker crash. An `OptimizationError` (e.g. an
+                    # out-of-memory in the FIRE step) stays per-chunk below:
+                    # it depends on the chunk's molecules and the device's
+                    # state, not on configuration.
+                    logger.exception(
+                        f"job{job} failed during optimization/ranking with a "
+                        "configuration-class error; it would fail the same way "
+                        "on every chunk, so this worker stops."
+                    )
+                    raise
                 except Exception:
                     logger.exception(
                         f"job{job} failed during optimization/ranking; "

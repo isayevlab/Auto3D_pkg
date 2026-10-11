@@ -253,6 +253,45 @@ def test_exit_2_run_unsupported_input_format(tmp_path):
     assert "Supported formats: .smi, .sdf" in err
 
 
+def test_exit_2_when_the_explicit_job_directory_already_exists(stub_torchani_importable):
+    """A job-directory name collision must be a configuration error
+    naming the directory, not a bare ``FileExistsError`` traceback (exit 1).
+
+    ``stub_torchani_importable``: ``check_input``'s torchani probe runs
+    inside ``_validate_input``, before ``_setup_job_directory`` -- so on a
+    box (or CI leg) without torchani installed, an unrelated
+    ``DependencyError`` (exit 3) would be raised before this test's own
+    collision check is ever reached. The fixture makes that probe pass
+    regardless, so the run reaches the job-directory check on every leg.
+
+    A plain ``tempfile.TemporaryDirectory()`` rather than the ``tmp_path``
+    fixture: pytest's own tmp dir embeds this test's full name, long enough
+    that the path in the error panel can hard-wrap mid-word at the terminal
+    width Rich falls back to under capture, splitting the very substring
+    this test looks for in a way `_flat` cannot repair.
+    """
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp_path = Path(d)
+        smi = tmp_path / "mols.smi"
+        smi.write_text("CCO m1\n")
+        (tmp_path / "mols_pinned").mkdir()
+
+        result = runner.invoke(
+            app,
+            ["run", str(smi), "--k", "1", "--no-gpu", "--engine", "ANI2xt", "--job-name", "pinned"],
+        )
+
+    assert result.exit_code == 2, result.output
+    err = _flat(result.stderr)
+    assert "mols_pinned" in err
+    # The class hint ("Run 'auto3d config init' ...") is suppressed at the
+    # raise site: it does not apply to a directory-name collision.
+    assert "config init" not in err
+
+
 # --- 3: missing optional dependency ------------------------------------------
 
 

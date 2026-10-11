@@ -159,6 +159,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller); the SDF isomer engine now reads through it with
   `keep=("implicit_hydrogens", "no_conformer")` instead of its own
   `SDMolSupplier` loop and inline dummy-atom check.
+- The "Program running time" line now reports the real elapsed time to the
+  second, instead of the elapsed whole minutes plus one.
+- The missing-selector error (neither `k` nor `window` given) now has one
+  wording everywhere it is raised -- the CLI, YAML validation, the Python
+  API and the ranker's own guard -- and its hint no longer spells a CLI
+  flag.
+- An existing job directory (a `--job-name` collision) is now a
+  configuration error (exit 2) naming the directory, instead of an
+  unhandled `FileExistsError` traceback.
+- An optimizer or isomer worker that exits abnormally is now recorded in
+  `Auto3D.log`, not only on the console.
+- A worker whose run-log queue is full now drops the record silently
+  instead of printing a `queue.Full` traceback to its stderr, the same way
+  the parent's own run-log handler already did.
+- A configuration-class error (wrong engine or option, missing dependency,
+  GPU, input format) in one chunk now stops that optimization worker
+  instead of being retried on every chunk; its exit is recorded in
+  `Auto3D.log`.
+- Worker progress bars are now off while the CLI draws its own progress
+  panel.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]

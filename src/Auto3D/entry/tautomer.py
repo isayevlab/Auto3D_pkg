@@ -8,7 +8,7 @@ from rdkit import Chem
 from Auto3D.domain.energy import e_tot_hartree
 from Auto3D.domain.stereo_check import formula_key
 from Auto3D.entry.auto3D import main
-from Auto3D.foundation.config import Auto3DOptions
+from Auto3D.foundation.config import Auto3DOptions, require_selector
 from Auto3D.foundation.constants import HARTREE_TO_KCAL_PER_MOL
 from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger
@@ -72,16 +72,19 @@ def select_tautomers(
             bypassing that CLI-level guard."""
     logger.info("Begin to select stable tautomers based on their conformer energies...")
     results = []
-    if (k is not None) and (window is not None):
-        raise ConfigurationError("Only k OR window needs to be specified")
-    # Checked here, not inside the grouping loop below: a loop-scoped check
-    # cannot fire for an input that yields no groups, so a zero-record SDF
-    # used to write an empty output and return its path for a call that
-    # specified no selection at all.
-    if (k is None) and (window is None):
-        raise ConfigurationError("Either k OR window needs to be specified")
+    # Checked before require_selector: require_selector treats a falsy k
+    # (0, like unset) as "not specified", which is the right call wherever
+    # Auto3DOptions' own FIELD_BOUNDS already refused k < 1 upstream -- but
+    # this function has no such upstream gate, so an explicitly-given k=0
+    # must be caught here first, as the real "tauto_k must be >= 1" problem
+    # it is, rather than reported as no selector given at all.
     if (k is not None) and (k < 1):
         raise ConfigurationError(f"tauto_k must be >= 1, got {k}")
+    # require_selector is called here, not inside the grouping loop below: a
+    # check placed inside the loop cannot fire for an input that yields no
+    # groups, so a zero-record SDF used to write an empty output and return
+    # its path for a call that specified no selection at all.
+    require_selector(k, window)
 
     # Resolved and gated up front, before the input is read and grouped:
     # refusing after all the work is done costs the user the run for nothing,

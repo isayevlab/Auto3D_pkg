@@ -9,6 +9,7 @@ import yaml
 from rich.panel import Panel
 from rich.syntax import Syntax
 
+from Auto3D.foundation.config import require_selector
 from Auto3D.foundation.constants import (
     DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_OPT_STEPS,
@@ -211,12 +212,10 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
         # warning saying "using k=1", which was true only of `auto3d run` --
         # and is now true of nothing, since run refuses too. A pre-flight
         # checker that predicts success for a config the runner rejects is
-        # worse than no checker.
-        if config.k is None and config.window is None:
-            raise ConfigurationError(
-                "Either k or window needs to be specified. "
-                "Usually, setting 'k: 1' satisfies most needs."
-            )
+        # worse than no checker. require_selector is the one place this
+        # error is worded, shared with every other entry point; its hint
+        # reads correctly for a YAML file too.
+        require_selector(config.k, config.window)
 
         # Say where the input comes from, so "valid" is not mistaken for
         # "complete": a settings-only file is valid for `auto3d run INPUT -c`

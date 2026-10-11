@@ -6,9 +6,11 @@ via the verbose parameter in Auto3D options.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
+from collections.abc import Iterator
 
 # Module-level logger cache
 _loggers: dict[str, logging.Logger] = {}
@@ -87,8 +89,9 @@ def should_disable_progress_bars() -> bool:
     between calls (tests rely on this) and stderr's tty-ness is a property
     of the live stream, not of the module that imports it.
 
-    A context manager for temporarily forcing this off lives beside this
-    function as of a later PR; nothing here yet beyond the plain predicate.
+    :func:`worker_progress_bars_off`, beside this function, is the context
+    manager that sets ``AUTO3D_PROGRESS=off`` for spawned workers while the
+    parent draws its own progress panel.
 
     Returns:
         True if progress bars should be suppressed.
@@ -100,3 +103,25 @@ def should_disable_progress_bars() -> bool:
     if stderr is None or isatty is None:
         return True
     return not isatty()
+
+
+@contextlib.contextmanager
+def worker_progress_bars_off(enabled: bool) -> Iterator[None]:
+    """Set ``AUTO3D_PROGRESS=off`` for spawned workers while the parent draws its own panel.
+
+    Spawned processes inherit the parent's environment at ``start()``; the
+    previous value is restored on exit so a later in-process run is not
+    affected.
+    """
+    if not enabled:
+        yield
+        return
+    previous = os.environ.get("AUTO3D_PROGRESS")
+    os.environ["AUTO3D_PROGRESS"] = "off"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("AUTO3D_PROGRESS", None)
+        else:
+            os.environ["AUTO3D_PROGRESS"] = previous

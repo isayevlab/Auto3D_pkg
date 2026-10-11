@@ -268,7 +268,7 @@ class TestTheGateRefusesBeforeDoingTheWork:
 
         monkeypatch.setattr(tautomer.Chem, "SDMolSupplier", _never)
 
-        with pytest.raises(ConfigurationError, match="Either k OR window"):
+        with pytest.raises(ConfigurationError, match="Either k or window needs to be specified"):
             select_tautomers(sdf)
 
     def test_neither_k_nor_window_is_refused_for_a_zero_record_input(self, tmp_path):
@@ -282,7 +282,7 @@ class TestTheGateRefusesBeforeDoingTheWork:
         norecords = tmp_path / "norecords.sdf"
         norecords.write_text("$$$$\n")
 
-        with pytest.raises(ConfigurationError, match="Either k OR window"):
+        with pytest.raises(ConfigurationError, match="Either k or window needs to be specified"):
             select_tautomers(str(norecords))
 
         assert not (tmp_path / "norecords_top_tautomers.sdf").exists(), (

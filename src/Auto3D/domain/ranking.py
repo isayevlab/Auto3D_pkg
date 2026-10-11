@@ -25,7 +25,11 @@ from Auto3D.domain.energy import (
     try_gibbs_ev,
 )
 from Auto3D.domain.filtering import FilterResult, filter_conformers, validity_drop_reason
-from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
+from Auto3D.foundation.config import (
+    SELECTOR_FIELDS,
+    check_selectors_mutually_exclusive,
+    require_selector,
+)
 from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW, EV_TO_KCAL_PER_MOL
 from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
@@ -105,7 +109,7 @@ def species_id(name: str) -> str:
 #: self.window: ...``, which meant a third selector added to ``SELECTOR_FIELDS``
 #: was accepted by ``Auto3DOptions``, accepted by ``CLIConfig``, accepted by
 #: ``check_selectors_mutually_exclusive`` -- and then silently ignored here,
-#: falling through to the "Parameter k or window needs to be specified" error
+#: falling through to the "Either k or window needs to be specified" error
 #: even though the user had specified one. The registry plus the import-time
 #: equality check below turns that into an ImportError at the moment the field
 #: list and this table disagree.
@@ -563,7 +567,7 @@ class ConformerRanker:
         for group_name in groups.indices:
             yield group_name, groups.get_group(group_name)
 
-    def _select_for_group(self, df_group: pd.DataFrame) -> list[Chem.Mol]:
+    def _select_for_group(self, df_group: pd.DataFrame) -> list[Chem.Mol]:  # type: ignore[return]
         """Run this ranker's configured selector on one group.
 
         Dispatch through the registry rather than a hand-written if/elif
@@ -578,10 +582,8 @@ class ConformerRanker:
             value = getattr(self, field, None)
             if value:
                 return getattr(self, _SELECTORS[field])(df_group, value)
-        raise ConfigurationError(
-            "Parameter k or window needs to be specified. "
-            'Append "--k=1" if you only want one structure per SMILES'
-        )
+        # No field in SELECTOR_FIELDS was truthy, so this always raises.
+        require_selector(self.k, self.window)
 
     def _write_results(self, results: list[Chem.Mol]) -> None:
         """Write ``results`` to ``self.out_path``, atomically.

@@ -282,7 +282,7 @@ def test_select_tautomers_rejects_k_and_window_together(tmp_path):
         m.SetProp("E_tot", "-1.0")
         w.write(m)
 
-    with pytest.raises(ConfigurationError, match="Only k OR window"):
+    with pytest.raises(ConfigurationError, match="Only one of k or window"):
         select_tautomers(str(sdf), k=1, window=2.0)
 
 
@@ -303,5 +303,5 @@ def test_select_tautomers_rejects_neither_k_nor_window(tmp_path):
         m.SetProp("E_tot", "-1.0")
         w.write(m)
 
-    with pytest.raises(ConfigurationError, match="Either k OR window"):
+    with pytest.raises(ConfigurationError, match="Either k or window needs to be specified"):
         select_tautomers(str(sdf))

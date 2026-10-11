@@ -470,6 +470,45 @@ def test_workers_importable_from_workflow_workers():
     assert all(callable(f) for f in (isomer_wrapper, optim_rank_wrapper, logger_process))
 
 
+def test_isomer_engine_kwargs_names_every_field_the_factory_takes():
+    """One ``isomer_engine_kwargs`` builds the isomer-engine keyword
+    arguments ``Auto3DOptions`` determines, shared by every call site that
+    constructs an isomer engine through ``IsomerEngineFactory.create`` --
+    instead of each site marshaling the same nine keywords by hand.
+
+    The per-chunk arguments (``engine_type``, ``input_path``, ``output_path``,
+    ``job_dir``, and the three ``smiles_*`` paths) are not here: they vary
+    per call and are not derived from ``options`` alone.
+    """
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow_workers import isomer_engine_kwargs
+
+    options = Auto3DOptions(
+        path="in.smi",
+        k=1,
+        enumerate_isomers=True,
+        isomer_threads=3,
+        max_confs=7,
+        threshold=0.2,
+        mode_oe="dense",
+        use_parallel_embedding=True,
+        parallel_workers=2,
+        parallel_embedding_threshold=5,
+    )
+    options.input_format = "smi"
+    assert isomer_engine_kwargs(options) == {
+        "input_format": "smi",
+        "max_confs": 7,
+        "threshold": 0.2,
+        "n_threads": 3,
+        "enumerate_isomers": True,
+        "mode": "dense",
+        "use_parallel_embedding": True,
+        "parallel_workers": 2,
+        "parallel_embedding_threshold": 5,
+    }
+
+
 class TestAFailedChunksCauseReachesTheUser:
     """A worker's warnings and errors must not stay buried in the run log.
 
@@ -641,6 +680,59 @@ def test_optim_rank_wrapper_isolates_failing_chunks(tmp_path, monkeypatch):
     # read by nobody. Ranked structures reach the caller through the output
     # SDF each chunk writes, not through this frame.
     assert result is None
+
+
+def test_optim_rank_wrapper_reraises_configuration_class_errors(tmp_path, monkeypatch):
+    """A configuration-class error (wrong engine/option, missing
+    dependency, GPU, input format) must leave the chunk loop instead of
+    being retried on every remaining chunk.
+
+    Unlike a chunk-specific failure (the ``RuntimeError`` in the sibling
+    test above), a configuration-class error would fail identically on every
+    chunk -- so retrying it looks like a batch of difficult molecules
+    instead of naming the real, systematic cause. This stops the worker
+    (exit code 1); the run's exit code is still decided by the output
+    reconciliation, as for any worker crash.
+    """
+    import queue as queue_mod
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.foundation.exceptions import ConfigurationError
+    from Auto3D.orchestration import workflow_workers as ww
+    from tests.helpers_adapter import FakeAdapter
+
+    attempted = []
+
+    class _BoomOptimizing:
+        def __init__(self, in_f, out_f, *, adapter, device, config, progress_cb=None):
+            self._enumerated = in_f
+
+        def run(self):
+            attempted.append(self._enumerated)
+            raise ConfigurationError("wrong engine for this input")
+
+    monkeypatch.setattr(ww, "Optimizer", _BoomOptimizing)
+    monkeypatch.setattr(ww, "create_model", lambda *a, **k: FakeAdapter())
+
+    q: queue_mod.Queue = queue_mod.Queue()
+    d1 = tmp_path / "job1"
+    d1.mkdir()
+    d2 = tmp_path / "job2"
+    d2.mkdir()
+    q.put(("enum1.sdf", str(tmp_path / "c1.smi"), str(d1), 1))
+    q.put(("enum2.sdf", str(tmp_path / "c2.smi"), str(d2), 2))
+    q.put("Done")
+    logq: queue_mod.Queue = queue_mod.Queue()
+
+    args = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+
+    with pytest.raises(ConfigurationError):
+        ww.optim_rank_wrapper(
+            args, args.to_optimization_config(batchsize_atoms=4096), q, logq, gpu_idx=0
+        )
+    # Only the first chunk was attempted: the error left the loop instead of
+    # being caught and retried on the second chunk.
+    assert attempted == ["enum1.sdf"]
 
 
 def test_model_construction_failure_is_fatal_and_consumes_no_chunk(tmp_path, monkeypatch):
@@ -1092,6 +1184,52 @@ class TestAbnormalIsomerWorkerExit:
         assert chunk_q.empty()
 
 
+class _ListHandler(logging.Handler):
+    """Appends every record it receives to a list, for direct inspection."""
+
+    def __init__(self, records: list) -> None:
+        super().__init__()
+        self._records = records
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._records.append(record)
+
+
+def test_check_exit_writes_the_abnormal_exit_to_the_run_log(tmp_path, caplog):
+    """An abnormal worker exit must reach the run's own Auto3D.log,
+    not only the console.
+
+    ``_check_exit`` used to log through the bare module ``logger`` alone, so
+    this never reached ``self.logger`` -- the per-run file handler
+    ``_setup_logging`` attaches -- even though that is exactly the record a
+    user re-reading a finished run's log needs to see.
+    """
+    import types
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    config = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+    orch = WorkflowOrchestrator(config)
+
+    records: list[logging.LogRecord] = []
+    run_log = logging.getLogger("auto3d.test_run_log")
+    handler = _ListHandler(records)
+    run_log.addHandler(handler)
+    orch.logger = run_log
+
+    try:
+        proc = types.SimpleNamespace(exitcode=-9, pid=4242)
+        with caplog.at_level(logging.ERROR):
+            orch._check_exit(proc, "Optimization")
+    finally:
+        run_log.removeHandler(handler)
+
+    assert any("exited with code -9" in r.getMessage() for r in records)
+    assert any(r.levelno == logging.ERROR for r in records)
+    assert "exited with code -9" in caplog.text
+
+
 def test_the_optimizer_stand_ins_mirror_the_real_signature():
     """Both optimizer stand-ins are spawned through production's own positional
     ``args=(...)`` tuple, so a parameter list that has fallen behind
@@ -1500,6 +1638,36 @@ class TestFinalizeOutputReconciliation:
         orch._reconcile_output(str(tmp_path / "out.sdf"))
         assert id_calls, "find_ids_not_in_sdf was not called from _reconcile_output"
         assert not smi_calls
+
+
+def test_log_timing_reports_the_real_elapsed_time(tmp_path, monkeypatch, caplog):
+    """The running-time line must report the real elapsed time, to the
+    second, not the elapsed whole minutes plus one.
+
+    ``int(125 / 60) + 1`` reported "3 minute(s)" for an elapsed 2 minutes 5
+    seconds (125s): integer division throws away the remainder, and the "+ 1"
+    (presumably meant to round up) overshoots once the remainder is itself
+    discarded, so every run's reported time was inflated by close to a
+    minute.
+    """
+    import time
+
+    from Auto3D.foundation.config import Auto3DOptions
+    from Auto3D.orchestration.workflow import WorkflowOrchestrator
+
+    config = Auto3DOptions(path="x.smi", k=1, use_gpu=False)
+    orch = WorkflowOrchestrator(config)
+    orch.logger = None
+
+    # `time` is the one true module object (`finalize.py`'s own `import time`
+    # names the same singleton), so patching the object directly scopes
+    # exactly as far as the dotted-string form would have -- without hiding
+    # the target from a refactoring tool (tests/test_suite_hygiene.py).
+    monkeypatch.setattr(time, "time", lambda: 1_000_125.0)
+    with caplog.at_level(logging.INFO):
+        orch._log_timing(start_time=1_000_000.0)
+    assert "2 minute(s) 5 second(s)" in caplog.text
+    assert "3 minute" not in caplog.text
 
 
 def test_finalize_output_raises_when_the_only_dollar_line_is_inside_a_property(tmp_path):

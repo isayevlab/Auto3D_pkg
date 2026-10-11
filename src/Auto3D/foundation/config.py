@@ -264,6 +264,21 @@ def check_selectors_mutually_exclusive(values: dict) -> None:
         )
 
 
+def require_selector(k: int | bool | None, window: float | bool | None) -> None:
+    """Raise unless exactly one of ``k``/``window`` is set.
+
+    The one place the "neither selector" error is worded; every entry point
+    (CLI, YAML validation, Python API, the ranker's own guard) calls this
+    instead of spelling the message itself.
+    """
+    check_selectors_mutually_exclusive({"k": k, "window": window})
+    if not k and not window:
+        raise ConfigurationError(
+            "Either k or window needs to be specified.",
+            hint="Setting k=1 keeps the lowest-energy conformer per molecule.",
+        )
+
+
 def check_engine_choices(values: dict) -> None:
     """Validate ``values`` (field name -> value) against ``ENGINE_CHOICES``.
 

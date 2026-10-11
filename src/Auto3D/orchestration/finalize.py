@@ -232,13 +232,11 @@ class FinalizeMixin:
         """
         self._log_both("Energy unit: Hartree if implicit.")
 
-        elapsed_minutes = int((time.time() - start_time) / 60)
-
-        if elapsed_minutes <= 60:
-            msg = f"Program running time: {elapsed_minutes + 1} minute(s)"
-        else:
-            hours = elapsed_minutes // 60
-            remaining = elapsed_minutes - hours * 60
-            msg = f"Program running time: {hours} hour(s) and {remaining} minute(s)"
+        elapsed = int(time.time() - start_time)
+        hours, rem = divmod(elapsed, 3600)
+        minutes, seconds = divmod(rem, 60)
+        msg = f"Program running time: {minutes} minute(s) {seconds} second(s)"
+        if hours:
+            msg = f"Program running time: {hours} hour(s) {minutes} minute(s) {seconds} second(s)"
 
         self._log_both(msg)

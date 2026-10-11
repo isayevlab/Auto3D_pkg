@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import sys
+
+import pytest
 
 from Auto3D.foundation.utils.logging_config import configure_logging, get_logger
 
@@ -167,3 +170,74 @@ def test_symmetry_number_default_warning_reaches_run_log():
         thermo._symmetry_default_warned = saved_warned_flag
         for logger_name, handler in added:
             logging.getLogger(logger_name).removeHandler(handler)
+
+
+def test_worker_handler_drops_a_record_when_the_queue_is_full(capsys):
+    """A full run-log queue must drop the record quietly, the same
+    way the parent's own run-log handler already does, instead of
+    spamming the worker's shared stderr with a traceback about it.
+
+    A full queue does not propagate ``queue.Full`` out of the logging call
+    either way: the stock ``QueueHandler.emit`` catches it and hands it to
+    ``logging.Handler.handleError``, which prints the traceback to stderr
+    and returns -- so the queue's size is the same before and after the fix,
+    and only the absence of that printed traceback discriminates
+    ``_DropOnFullQueueHandler`` from the stock handler
+    ``_attach_run_log_handlers`` used to construct.
+    """
+    from Auto3D.orchestration.workflow_workers import _attach_run_log_handlers
+
+    q: queue.Queue = queue.Queue(maxsize=1)
+    q.put("occupied")
+    added = _attach_run_log_handlers(q)
+    try:
+        logging.getLogger("auto3d.worker_test").warning("one more")
+    finally:
+        for logger_name, handler in added:
+            logging.getLogger(logger_name).removeHandler(handler)
+
+    assert q.qsize() == 1
+    err = capsys.readouterr().err
+    assert "Full" not in err, err
+
+
+def test_worker_progress_bars_off_sets_and_restores_the_switch(monkeypatch):
+    """While the CLI draws its own progress panel, a spawned worker's own
+    ``tqdm`` bar must not interleave with it.
+
+    ``AUTO3D_PROGRESS=off`` is set for the duration of the block (spawned
+    processes inherit the parent's environment at ``start()``) and restored
+    to whatever it was before on exit, so a later in-process run is not
+    affected -- including when the previous value was unset, and including
+    on the exception path.
+    """
+    from Auto3D.foundation.utils.logging_config import (
+        should_disable_progress_bars,
+        worker_progress_bars_off,
+    )
+
+    monkeypatch.delenv("AUTO3D_PROGRESS", raising=False)
+    with worker_progress_bars_off(enabled=True):
+        assert os.environ["AUTO3D_PROGRESS"] == "off"
+        assert should_disable_progress_bars()
+    assert "AUTO3D_PROGRESS" not in os.environ
+
+    monkeypatch.setenv("AUTO3D_PROGRESS", "on")
+    with worker_progress_bars_off(enabled=True):
+        assert os.environ["AUTO3D_PROGRESS"] == "off"
+    assert os.environ["AUTO3D_PROGRESS"] == "on"
+
+    with worker_progress_bars_off(enabled=False):
+        assert os.environ["AUTO3D_PROGRESS"] == "on"
+
+
+def test_worker_progress_bars_off_restores_on_exception(monkeypatch):
+    """The previous value is restored even when the block raises."""
+    from Auto3D.foundation.utils.logging_config import worker_progress_bars_off
+
+    monkeypatch.delenv("AUTO3D_PROGRESS", raising=False)
+    with pytest.raises(ValueError, match="boom"):
+        with worker_progress_bars_off(enabled=True):
+            assert os.environ["AUTO3D_PROGRESS"] == "off"
+            raise ValueError("boom")
+    assert "AUTO3D_PROGRESS" not in os.environ

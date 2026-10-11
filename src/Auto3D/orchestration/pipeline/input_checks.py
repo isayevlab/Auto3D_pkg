@@ -31,6 +31,7 @@ from Auto3D.engines.models.policy import (
     requires_aimnet,
 )
 from Auto3D.engines.models.preflight import resolve_engine_name
+from Auto3D.foundation.config import require_selector
 from Auto3D.foundation.exceptions import (
     ConfigurationError,
     DependencyError,
@@ -513,8 +514,10 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
         errors.append(f"Input path does not exist: {path}")
 
     # Check k and window
-    if not options.k and not options.window:
-        errors.append("Either 'k' or 'window' must be specified for conformer selection.")
+    try:
+        require_selector(options.k, options.window)
+    except ConfigurationError as exc:
+        errors.append(str(exc))
 
     # Check GPU configuration. Raises immediately rather than appending to
     # `errors`: every caller wraps a non-empty `errors` list into a single
