@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import sys
 from unittest.mock import patch
 
 import pytest
@@ -296,30 +295,10 @@ def test_exit_2_when_the_explicit_job_directory_already_exists(stub_torchani_imp
 
 
 def _hide_torchani(monkeypatch):
-    """Make ``import torchani`` fail exactly as an uninstalled package does.
+    """Hide torchani via the shared helper; see ``hide_optional_dependency``."""
+    from tests.helpers_no_aimnet import hide_optional_dependency
 
-    ``sys.modules[name] = None`` makes the import machinery raise
-    ``ImportError`` with ``.name == "torchani"``, which is the attribute the
-    translation in ``ModelFactory.create`` keys on -- so this simulates the
-    *absence* of torchani specifically, not a torchani that is present but
-    broken (which deliberately still propagates untranslated).
-
-    Hiding the import is not sufficient on its own. ``ModelFactory._cache`` is a
-    class attribute, so it outlives every test in the process: if any earlier
-    test built an ANI2x model on this device, ``create`` returns that instance
-    and never reaches an import at all. The command then succeeds and the test
-    fails asserting exit 3 -- but only when the suite happens to run a model
-    build first, which is why this surfaced as an intermittent failure under
-    ``pytest-randomly`` rather than a reliable one.
-
-    Swapping in an empty dict rather than calling ``clear_cache()`` keeps this
-    scoped: monkeypatch restores the populated cache afterwards, so tests that
-    follow are not made slower by a cold factory.
-    """
-    from Auto3D.engines.model_factory import ModelFactory
-
-    monkeypatch.setitem(sys.modules, "torchani", None)
-    monkeypatch.setattr(ModelFactory, "_cache", {})
+    hide_optional_dependency(monkeypatch, "torchani", reset_model_cache=True)
 
 
 def test_exit_3_models_test_without_torchani(monkeypatch):
@@ -425,15 +404,10 @@ def test_a_broken_torchani_is_not_reported_as_a_missing_one(monkeypatch, tmp_pat
 
 
 def _hide_aimnet(monkeypatch):
-    """Same technique and reasoning as ``_hide_torchani`` above, for aimnet:
-    block the import and swap ``ModelFactory._cache`` for an empty dict so a
-    previously built AIMNet model cannot satisfy the request without
-    reaching an import."""
-    from Auto3D.engines.model_factory import ModelFactory
-    from tests.helpers_no_aimnet import hide_aimnet
+    """Hide aimnet via the shared helper; see ``hide_optional_dependency``."""
+    from tests.helpers_no_aimnet import hide_optional_dependency
 
-    hide_aimnet(monkeypatch)
-    monkeypatch.setattr(ModelFactory, "_cache", {})
+    hide_optional_dependency(monkeypatch, "aimnet", reset_model_cache=True)
 
 
 def test_exit_3_models_test_without_aimnet(monkeypatch):

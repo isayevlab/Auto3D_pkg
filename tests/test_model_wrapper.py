@@ -288,6 +288,44 @@ def test_forward_batched_retries_when_the_final_cat_ooms(monkeypatch):
     assert calls["n"] == 3
 
 
+def test_forward_batched_retries_only_the_forces_cat_when_that_is_the_one_that_ooms(monkeypatch):
+    """The sibling of the test above: the first injected failure lands on the
+    forces concatenation (the second ``torch.cat``) instead of the energies
+    one. Each concatenation is retried separately in ``model_wrapper.py``, so
+    the energies concatenation, already finished by the time the forces one
+    OOMs, must not be re-run alongside it -- only a joint retry around both
+    calls would do that, and it would still satisfy a test that only counts
+    ``torch.cat`` calls in total. Energies tensors are 1-D (shape ``(B,)``)
+    and forces tensors are 3-D (shape ``(B, N, 3)``), which is enough to tell
+    the two calls apart without touching production code.
+    """
+    import torch
+
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
+    from tests.helpers_adapter import FakeAdapter
+
+    coord, numbers, charges = _batch_like_test_forward_batched_retries_on_oom()
+    real_cat = torch.cat
+    calls = {"energies": 0, "forces": 0}
+
+    def flaky_cat(tensors, *args, **kwargs):
+        is_forces = tensors[0].dim() == 3
+        key = "forces" if is_forces else "energies"
+        calls[key] += 1
+        if is_forces and calls["forces"] == 1:
+            raise torch.cuda.OutOfMemoryError("fake")
+        return real_cat(tensors, *args, **kwargs)
+
+    monkeypatch.setattr(torch, "cat", flaky_cat)
+    adapter = FakeAdapter()
+    wrapper = BatchedEnergyForce(adapter, batchsize_atoms=16)
+    energies, forces = wrapper.forward_batched(coord, numbers, charges)
+    assert torch.isfinite(energies).all()
+
+    assert calls["energies"] == 1, "the forces retry must not re-run the energies concatenation"
+    assert calls["forces"] == 2
+
+
 def test_forward_batched_propagates_if_the_retry_also_ooms(monkeypatch):
     """P-m12: a single retry covers a transient condition; a second failure
     at the same concatenation must propagate, not loop or swallow the error.

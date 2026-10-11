@@ -16,9 +16,21 @@ import sys
 import pytest
 
 from Auto3D.foundation.exceptions import DependencyError
-from tests.helpers_no_aimnet import BrokenTransitiveDepFinder, hide_aimnet
+from tests.helpers_no_aimnet import BrokenTransitiveDepFinder, hide_aimnet, hide_optional_dependency
 
 AIMNET_INSTALLED = importlib.util.find_spec("aimnet") is not None
+
+
+def test_hide_optional_dependency_evicts_cached_submodules(monkeypatch):
+    import types
+
+    monkeypatch.setitem(sys.modules, "fakedep", types.ModuleType("fakedep"))
+    monkeypatch.setitem(sys.modules, "fakedep.sub", types.ModuleType("fakedep.sub"))
+    hide_optional_dependency(monkeypatch, "fakedep")
+    assert "fakedep.sub" not in sys.modules
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        importlib.import_module("fakedep")
+    assert exc_info.value.name == "fakedep"
 
 
 class TestRequireAimnet:

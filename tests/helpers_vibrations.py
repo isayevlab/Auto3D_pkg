@@ -215,7 +215,6 @@ def atoms_for(mol: Chem.Mol, potential_energy: float = -1234.5) -> Atoms:
     positions = np.asarray(mol.GetConformer().GetPositions(), dtype=float)
     atoms = Atoms([a.GetSymbol() for a in mol.GetAtoms()], positions)
     atoms.set_masses(mol2atoms(mol, positions=positions).get_masses())
-    atoms.get_calculator = lambda: None
     atoms.get_potential_energy = lambda: potential_energy
     return atoms
 

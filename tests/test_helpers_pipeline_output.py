@@ -25,6 +25,7 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 
 from Auto3D.domain.energy import E_TOT_HARTREE_PROP, E_TOT_PROP
+from Auto3D.foundation.constants import HARTREE_TO_KCAL_PER_MOL
 from Auto3D.foundation.results import WorkflowResult
 from tests.helpers_pipeline_output import (
     ATOMIC_ENERGY_HARTREE,
@@ -183,6 +184,10 @@ class TestBaseMoleculeId:
     )
     def test_strips_only_the_tautomer_suffix(self, name, expected):
         assert base_molecule_id(name) == expected
+
+    def test_strips_the_tautomer_suffix_through_the_single_owner_parse(self):
+        assert base_molecule_id("x@taut3  ") == "x"
+        assert base_molecule_id("a@b.c@taut1") == "a@b.c"
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +598,29 @@ class TestAssertPipelineOutput:
         assert_pipeline_output(result, formula_by_id=FORMULAS, window=4.0)
         with pytest.raises(AssertionError, match="exceeds the 2.0 kcal/mol window"):
             assert_pipeline_output(result, formula_by_id=FORMULAS, window=2.0)
+
+    def test_rejects_a_window_e_rel_that_skipped_the_hartree_to_kcal_conversion(self, tmp_path):
+        low, high = -230.0, -229.99  # Hartree; the gap is 0.01 Ha = 6.275 kcal/mol
+        others = [_annotate_ranked(_embedded(SMILES_BY_ID[i]), i) for i in ("smi3", "smi4")]
+
+        def smi2_pair(e_rel_high):
+            return [
+                _annotate_ranked(
+                    _embedded(SMILES_BY_ID["smi2"], seed=1), "smi2", energy=low, e_rel=0.0
+                ),
+                _annotate_ranked(
+                    _embedded(SMILES_BY_ID["smi2"], seed=2), "smi2", energy=high, e_rel=e_rel_high
+                ),
+            ]
+
+        bare = _write_sdf(tmp_path / "bare.sdf", [*smi2_pair(high - low), *others])
+        with pytest.raises(AssertionError, match="E_tot puts it"):
+            assert_pipeline_output(WorkflowResult(bare), formula_by_id=FORMULAS, window=10.0)
+        converted = _write_sdf(
+            tmp_path / "converted.sdf",
+            [*smi2_pair((high - low) * HARTREE_TO_KCAL_PER_MOL), *others],
+        )
+        assert_pipeline_output(WorkflowResult(converted), formula_by_id=FORMULAS, window=10.0)
 
     def test_rejects_a_negative_relative_energy(self, tmp_path):
         mols = [
