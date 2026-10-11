@@ -43,6 +43,7 @@ __all__ = [
     "FilterResult",
     "filter_conformers",
     "filter_unique_optimized",
+    "validity_drop_reason",
 ]
 
 #: Every reason a conformer can leave the selected set, in report order.
@@ -142,6 +143,41 @@ def _energy_sort_key(mol: Chem.Mol) -> tuple[bool, float]:
     return (False, energy)
 
 
+def validity_drop_reason(mol: Chem.Mol) -> str | None:
+    """Name the first validity check ``mol`` fails, or ``None`` if it passes.
+
+    The four checks ``filter_conformers`` applies to a non-``None`` record,
+    in the same short-circuit order (one reason attributed per record, so a
+    structure that fails several is reported under the first): convergence,
+    thermochemistry, stereochemistry, then connectivity. Shared with
+    ``ranking.ConformerRanker.top_k``'s ``k == 1`` fast path, which applies
+    the identical checks without the RMSD dedup, so the diagnostic a user
+    gets for an empty selection does not depend on which ``k`` they asked
+    for.
+
+    Args:
+        mol: An RDKit Mol that is not ``None`` (the caller handles the
+            unparsed case, which has no validity check of its own).
+
+    Returns:
+        The drop reason (one of :data:`DROP_REASONS`), or ``None`` when
+        ``mol`` passes every check.
+    """
+    if not converged_or_unfiltered(mol):
+        return "unconverged"
+    elif not thermo_succeeded_or_unfiltered(mol):
+        # A saddle point or a failed stationary-point gate. Its electronic
+        # energy can sit below a genuine minimum's, so leaving it in the
+        # running is a way to publish the wrong structure as the most
+        # stable conformer.
+        return "thermo_failed"
+    elif not stereo_preserved(mol):
+        return "stereochemistry"
+    elif not check_connectivity(mol):
+        return "connectivity"
+    return None
+
+
 def filter_conformers(
     mols: list[Chem.Mol],
     *,
@@ -199,20 +235,12 @@ def filter_conformers(
     for mol in mols:
         if mol is None:
             _drop("unparsed")
-        elif not converged_or_unfiltered(mol):
-            _drop("unconverged")
-        elif not thermo_succeeded_or_unfiltered(mol):
-            # A saddle point or a failed stationary-point gate. Its electronic
-            # energy can sit below a genuine minimum's, so leaving it in the
-            # running is a way to publish the wrong structure as the most
-            # stable conformer.
-            _drop("thermo_failed")
-        elif not stereo_preserved(mol):
-            _drop("stereochemistry")
-        elif not check_connectivity(mol):
-            _drop("connectivity")
-        else:
+            continue
+        reason = validity_drop_reason(mol)
+        if reason is None:
             valid_mols.append(mol)
+        else:
+            _drop(reason)
 
     if not valid_mols:
         return FilterResult(kept=[], dropped=dropped)

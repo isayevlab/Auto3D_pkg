@@ -549,11 +549,12 @@ def amend_configuration_w(smi: str) -> None:
     Note:
         The rewrite is staged through a sibling temp file and moved into place
         with ``os.replace`` (atomic on POSIX and Windows) by
-        :func:`Auto3D.foundation.utils.atomic_io.atomic_write_path`, which owns that
-        staging for all three of Auto3D's in-place rewrites. Opening ``smi``
-        for writing directly would truncate it, so a failure partway through
-        the loop below would destroy the input this function just read and
-        leave nothing to recover from (C14).
+        :func:`Auto3D.foundation.utils.atomic_io.atomic_write_path`, which owns
+        that staging for this, Auto3D's other two in-place rewrites, and the
+        ranked SDF write (not a rewrite). Opening ``smi`` for writing directly
+        would truncate it, so a failure partway through the loop below would
+        destroy the input this function just read and leave nothing to
+        recover from (C14).
     """
     dct = amend_configuration(smi)
 

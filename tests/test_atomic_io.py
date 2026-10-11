@@ -1,4 +1,4 @@
-"""The one shared in-place-rewrite helper, and the three call sites using it.
+"""The one shared atomic-write helper, and the four call sites using it.
 
 Three functions in Auto3D rewrite a file they have just read -- ``reorder_sdf``,
 ``ASE.geometry._annotate_and_rewrite`` and
@@ -9,6 +9,9 @@ bits across; ``reorder_sdf`` did not, and it also used a predictable
 a permission *loosening*, on exactly the path an ordinary
 ``auto3d run mols.smi`` takes. That is the divergence
 :func:`Auto3D.foundation.utils.atomic_io.atomic_write_path` exists to remove.
+The fourth caller, ``ranking.ConformerRanker._write_results``, is not a
+rewrite -- the ranked SDF may not exist yet -- which is why the helper also
+has a fresh-target mode (below).
 
 The table below is the contract, asserted once for the helper and once per call
 site, so a site that stops using the helper fails here rather than silently
@@ -16,8 +19,10 @@ regressing to its own staging:
 
 * the temp file is a **sibling** of the target -- ``os.replace`` is only atomic
   within one filesystem and raises ``EXDEV`` across them;
-* the target's **mode is preserved** -- neither tightened (``mkstemp``'s 0600)
-  nor loosened (the process umask);
+* an **existing target's mode is preserved** -- neither tightened
+  (``mkstemp``'s 0600) nor loosened (the process umask);
+* a **target that does not exist yet** gets the mode a plain ``open()`` would
+  have given it (``0o666`` masked by the umask), not ``mkstemp``'s 0600;
 * **no temp file is left behind** when the body raises;
 * the **original file is intact** when the body raises.
 """
@@ -110,13 +115,35 @@ class TestAtomicWritePathHelper:
         assert _mode(target) == mode
 
     def test_missing_target_still_works(self, tmp_path):
-        """A target that does not exist yet has no mode to copy; do not fail."""
+        """A target that does not exist yet has no mode to copy; do not fail.
+
+        It still gets a mode, just not one copied from a target -- see
+        ``test_a_fresh_target_gets_the_mode_a_plain_open_would`` below for
+        what that mode is.
+        """
         target = tmp_path / "new.sdf"
 
         with atomic_write_path(str(target)) as tmp:
             Path(tmp).write_text("new\n")
 
         assert target.read_text() == "new\n"
+
+    def test_a_fresh_target_gets_the_mode_a_plain_open_would(self, tmp_path):
+        """A target that does not exist yet must not inherit ``mkstemp``'s 0600.
+
+        Before this, a first write through ``atomic_write_path`` came out 0600
+        -- tighter than a plain ``open()`` would have left it (``0o666``
+        masked by the process umask) -- because nothing ever reset the mode
+        when ``os.stat(target)`` raised ``FileNotFoundError``. An existing
+        target is unaffected: it keeps inheriting its own mode, as
+        ``test_target_mode_is_preserved`` above pins.
+        """
+        target = tmp_path / "fresh.sdf"
+        with atomic_write_path(target) as tmp:
+            Path(tmp).write_text("x")
+        umask = os.umask(0)
+        os.umask(umask)
+        assert stat.S_IMODE(target.stat().st_mode) == (0o666 & ~umask)
 
     def test_exception_leaves_no_temp_file_and_the_original_intact(self, tmp_path):
         target = tmp_path / "out.sdf"
@@ -257,3 +284,63 @@ class TestAnnotateAndRewritePreservesMode:
         rewritten = [m for m in Chem.SDMolSupplier(str(out), removeHs=False) if m is not None]
         assert len(rewritten) == 1
         assert rewritten[0].GetProp("E_tot(Hartree)") == "-1.5"
+
+
+def _write_ranker_input(path) -> None:
+    """Write one converged, energy-tagged conformer -- enough for
+    ``ConformerRanker.run()`` to select something and produce output."""
+    from Auto3D.domain.energy import set_e_tot_from_ev
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+    mol.SetProp("_Name", "mol_1")
+    mol.SetProp("Converged", "true")
+    set_e_tot_from_ev(mol, -10.0)
+    with _real_sdwriter(str(path)) as w:
+        w.write(mol)
+
+
+class TestRankedOutputPreservesMode:
+    """The fourth ``atomic_write_path`` call site: ``ConformerRanker._write_results``.
+
+    Unlike the other three call sites above (each an in-place rewrite of a
+    file it has just read), the ranked write may target a path that does not
+    exist yet -- it is the only one of the four that can reach the
+    fresh-target branch. Both halves of the mode contract get a row here,
+    the same shape the other three call-site classes use: an existing output
+    keeps its mode, and a fresh one gets the mode a plain ``open()`` would
+    have given it.
+    """
+
+    @pytest.mark.parametrize("mode", [0o600, 0o640, 0o644])
+    def test_an_existing_output_keeps_its_mode(self, tmp_path, mode):
+        from Auto3D.domain.ranking import ConformerRanker
+
+        input_path = tmp_path / "input.sdf"
+        out_path = tmp_path / "ranked.sdf"
+        _write_ranker_input(input_path)
+        out_path.write_text("stale\n")
+        os.chmod(out_path, mode)
+
+        ConformerRanker(str(input_path), str(out_path), 0.3, k=1, overwrite=True).run()
+
+        assert _mode(out_path) == mode, (
+            f"the ranked write changed the output file's mode from {mode:04o} "
+            f"to {_mode(out_path):04o}"
+        )
+        # Positive control: the mode assertion above must not pass vacuously.
+        assert out_path.read_text() != "stale\n"
+
+    def test_a_fresh_output_gets_the_mode_a_plain_open_would(self, tmp_path):
+        from Auto3D.domain.ranking import ConformerRanker
+
+        input_path = tmp_path / "input.sdf"
+        out_path = tmp_path / "ranked.sdf"
+        _write_ranker_input(input_path)
+        assert not out_path.exists(), "test premise"
+
+        ConformerRanker(str(input_path), str(out_path), 0.3, k=1, overwrite=True).run()
+
+        umask = os.umask(0)
+        os.umask(umask)
+        assert _mode(out_path) == (0o666 & ~umask)
