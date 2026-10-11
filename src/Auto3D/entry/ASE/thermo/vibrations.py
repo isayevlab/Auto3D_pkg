@@ -739,14 +739,16 @@ def analyze_vibrations(
     Then three corrections are applied, in this order:
 
     1. **Invert** every imaginary mode below ``imag_cutoff_cm``, keeping it at
-       ``|nu|``. This is the Gaussian/ORCA convention for a numerical
-       artifact, and the reason is mode counting rather than the size of any
-       one number: a nonlinear molecule has exactly ``3N-6`` vibrational
-       degrees of freedom, so deleting an artifact would give a species with
-       one artifact a ``3N-7``-mode partition function and a species with none
-       a ``3N-6``-mode one. Those two free energies are not the same
-       thermodynamic quantity, and the difference does not cancel in the
-       comparison a user runs thermochemistry to make.
+       ``|nu|`` rather than deleting it, following the GoodVibes ``--invert``
+       option and the xtb program's practice for a numerical artifact --
+       Gaussian and ORCA instead exclude such modes from the thermochemistry.
+       The reason Auto3D inverts rather than excludes is mode counting rather
+       than the size of any one number: a nonlinear molecule has exactly
+       ``3N-6`` vibrational degrees of freedom, so deleting an artifact would
+       give a species with one artifact a ``3N-7``-mode partition function
+       and a species with none a ``3N-6``-mode one. Those two free energies
+       are not the same thermodynamic quantity, and the difference does not
+       cancel in the comparison a user runs thermochemistry to make.
     2. **Remove** every imaginary mode at or above ``imag_cutoff_cm``. That is
        a genuine reaction coordinate: the rigid-rotor/harmonic partition
        function has no expression for it, and the standard treatment is to
@@ -777,14 +779,18 @@ def analyze_vibrations(
     and are all evaluated at the floor, contributing identically.
 
     One classification detail deliberately does NOT match ASE: this function
-    calls a mode imaginary when ``imag(v) != 0``, while ``_clean_vib_energies``
-    keeps a mode only when ``real(v) > 0``, i.e. it treats ``real(v) <= 0`` as
-    imaginary. The two agree everywhere except for an exactly-zero mode
+    calls a mode imaginary when ``imag(v) != 0``, while ``_clean_vib_energies``,
+    with ``ignore_imag_modes=True``, as the driver passes, keeps a mode only
+    when ``real(v) > 0``, i.e. it treats ``real(v) <= 0`` as imaginary. The
+    two agree everywhere except for an exactly-zero mode
     (``complex(0, 0)``), which this function calls real. With the
     quasi-harmonic floor in force such a mode is raised to the floor and the
-    difference is moot; with the floor disabled it is passed through as a zero
-    energy, which is a genuinely singular mode (a dissociated fragment with no
-    restoring force) and is reported rather than silently deleted.
+    difference is moot; with the floor disabled this function still passes it
+    through at zero energy, but ``_clean_vib_energies``'s strict ``> 0`` test
+    then drops it once ``IdealGasThermo`` is built, since zero does not
+    satisfy it -- a genuinely singular mode (a dissociated fragment with no
+    restoring force) silently removed by ASE rather than reported. The
+    driver's own mode-count check catches the resulting mismatch and logs it.
 
     Args:
         vib_energies: Complex vibrational energies in eV -- exactly the

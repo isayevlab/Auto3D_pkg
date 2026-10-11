@@ -291,8 +291,6 @@ def test_resolve_multiplicity_closed_shell_is_singlet():
 
     m = Chem.MolFromSmiles("CCO")
     assert _resolve_multiplicity(m) == 1
-    # Derived multiplicity is recorded on the mol.
-    assert m.GetUnsignedProp("multiplicity") == 1
 
 
 def test_resolve_multiplicity_radical_is_doublet():
@@ -302,7 +300,33 @@ def test_resolve_multiplicity_radical_is_doublet():
 
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
     assert _resolve_multiplicity(m) == 2
-    assert m.GetUnsignedProp("multiplicity") == 2
+
+
+def test_resolve_multiplicity_open_shell_warning_names_the_molecule(caplog):
+    """The open-shell warning is the one sibling in this function that did
+    not name the record; every other warning here passes ``_mol_name(mol)``.
+    """
+    import logging
+
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
+    m.SetProp("_Name", "my_radical")
+    with caplog.at_level(logging.WARNING, logger="Auto3D.entry.ASE.thermo"):
+        assert _resolve_multiplicity(m) == 2
+    assert any("my_radical" in r.message for r in caplog.records), caplog.text
+
+
+def test_resolve_multiplicity_does_not_write_the_derived_value_back():
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")  # methyl radical, as the doublet case above
+    assert _resolve_multiplicity(m) == 2
+    assert not m.HasProp("multiplicity")
 
 
 def test_resolve_multiplicity_respects_explicit_property():
@@ -313,6 +337,36 @@ def test_resolve_multiplicity_respects_explicit_property():
     m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
     m.SetUnsignedProp("multiplicity", 4)  # ... but an explicit value wins
     assert _resolve_multiplicity(m) == 4
+    # A valid explicit property is the one actually used, so it stays.
+    assert m.GetUnsignedProp("multiplicity") == 4
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["0", "99", "7", "two"],
+    ids=["below_1", "above_electron_bound", "wrong_parity", "unparseable"],
+)
+def test_resolve_multiplicity_invalid_property_is_dropped_from_the_record(value):
+    """Every one of the four rejection branches must drop the invalid
+    'multiplicity' property from the record once the radical-derived value
+    is used instead: a record carrying a multiplicity that was never fed
+    into G would be advertising a number nothing used.
+
+    The methyl radical is a 9-electron (odd) species: the valid range is
+    1 to n_electrons + 1 = 10, and parity must be even (2S+1 requires even
+    multiplicity for an odd-electron species). The four ``value``s each land
+    in one rejection branch: "0" is below 1, "99" is above the 10-electron
+    bound, "7" is odd and so fails parity, and "two" is unparseable.
+    """
+    from rdkit import Chem
+
+    from Auto3D.entry.ASE.thermo.properties import _electron_count, _resolve_multiplicity
+
+    m = Chem.MolFromSmiles("[CH3]")
+    assert _electron_count(m) == 9, "test premise: a 9-electron, odd-electron species"
+    m.SetProp("multiplicity", value)
+    assert _resolve_multiplicity(m) == 2
+    assert not m.HasProp("multiplicity")
 
 
 def test_do_mol_thermo_default_temperature_is_298_15():
@@ -322,6 +376,23 @@ def test_do_mol_thermo_default_temperature_is_298_15():
     from Auto3D.entry.ASE.thermo.driver import do_mol_thermo
 
     assert inspect.signature(do_mol_thermo).parameters["T"].default == 298.15
+
+
+def test_do_mol_thermo_prints_nothing_to_stdout(monkeypatch, capsys):
+    """``IdealGasThermo.get_enthalpy``/``get_entropy``/``get_gibbs_energy`` all
+    default to ``verbose=True``, which prints a component table to stdout on
+    every call; ``_gibbs_terms`` must pass ``verbose=False`` on each of them.
+    """
+    from tests.helpers_vibrations import atoms_for, drive_do_mol_thermo, fake_vib_for, probe_mol
+
+    mol = probe_mol("O", "water")
+    atoms = atoms_for(mol, potential_energy=0.0)
+    # A clean spectrum: no imaginary modes, nothing for the floor to raise.
+    vib = fake_vib_for(
+        atoms, [1595.0, 3657.0, 3756.0], (1.6, -3.2, 3.4, -3.5, 3.7, -4.1), "nonlinear"
+    )
+    drive_do_mol_thermo(mol, atoms, vib, monkeypatch)
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.slow

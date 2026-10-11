@@ -254,12 +254,21 @@ def _electron_count(mol: Chem.Mol) -> int:
 def _resolve_multiplicity(mol: Chem.Mol) -> int:
     """Spin multiplicity (2S+1) for IdealGasThermo's electronic-degeneracy term.
 
-    Uses an explicit integer 'multiplicity' molecule property when present.
-    Otherwise derives it from the radical-electron count
-    (multiplicity = unpaired electrons + 1) and records it on the mol, instead of
-    silently assuming a closed-shell singlet -- which would zero the electronic
-    entropy term for every radical. The NNP *energy* stays closed-shell
-    regardless (AIMNet2 takes only coords/species/charge, no spin), so warn for
+    Uses an explicit integer 'multiplicity' molecule property when present
+    and valid. An invalid one (unparseable, out of bounds, or the wrong
+    parity for the record's electron count) is dropped from ``mol`` with a
+    warning rather than left in place, so the record never advertises a
+    multiplicity that was not the one actually used. Otherwise derives it
+    from the radical-electron count (multiplicity = unpaired electrons + 1),
+    instead of silently assuming a closed-shell singlet -- which would zero
+    the electronic entropy term for every radical. This assumes high-spin
+    coupling of those radical electrons: an open-shell singlet (the same
+    radical count, but paired into S = 0, e.g. some diradicals) needs an
+    explicit 'multiplicity' property to override the high-spin default. The
+    derived value is returned but not written back onto ``mol``: no energy
+    engine reads the property, so recording it would only be a value a
+    re-run recomputes anyway. The NNP *energy* stays closed-shell regardless
+    (AIMNet2 takes only coords/species/charge, no spin), so warn for
     open-shell species that the energy is an approximation.
 
     The property is parsed with plain Python ``int()`` rather than RDKit's
@@ -291,9 +300,11 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
         except (ValueError, TypeError):
             logger.warning(
                 "Molecule %s has an unparseable 'multiplicity' property; "
-                "deriving it from the radical-electron count instead.",
+                "deriving it from the radical-electron count instead and "
+                "dropping the property from the output record.",
                 _mol_name(mol),
             )
+            mol.ClearProp("multiplicity")
         else:
             n_electrons = _electron_count(mol)
             max_multiplicity = n_electrons + 1
@@ -301,32 +312,38 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
                 logger.warning(
                     "Molecule %s has an invalid 'multiplicity' property (%d); "
                     "multiplicity must be >= 1 (2S+1 for spin S >= 0). "
-                    "Deriving it from the radical-electron count instead.",
+                    "Deriving it from the radical-electron count instead and "
+                    "dropping the property from the output record.",
                     _mol_name(mol),
                     value,
                 )
+                mol.ClearProp("multiplicity")
             elif value > max_multiplicity:
                 logger.warning(
                     "Molecule %s has an invalid 'multiplicity' property (%d); "
                     "a %d-electron species cannot exceed multiplicity %d "
                     "(2S+1 with every electron unpaired). Deriving it from "
-                    "the radical-electron count instead.",
+                    "the radical-electron count instead and dropping the "
+                    "property from the output record.",
                     _mol_name(mol),
                     value,
                     n_electrons,
                     max_multiplicity,
                 )
+                mol.ClearProp("multiplicity")
             elif value % 2 == n_electrons % 2:
                 logger.warning(
                     "Molecule %s has an invalid 'multiplicity' property (%d); "
                     "its parity is inconsistent with a %d-electron species "
                     "(2S+1 requires odd multiplicity for an even-electron "
                     "species, even multiplicity for an odd-electron one). "
-                    "Deriving it from the radical-electron count instead.",
+                    "Deriving it from the radical-electron count instead and "
+                    "dropping the property from the output record.",
                     _mol_name(mol),
                     value,
                     n_electrons,
                 )
+                mol.ClearProp("multiplicity")
             else:
                 return value
     n_radical = sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
@@ -356,11 +373,12 @@ def _resolve_multiplicity(mol: Chem.Mol) -> int:
             multiplicity,
             n_electrons,
         )
-    mol.SetUnsignedProp("multiplicity", int(multiplicity))
     if n_radical > 0:
         logger.warning(
-            "Open-shell species detected (%d unpaired electron(s), "
-            "multiplicity %d); the NNP energy is a closed-shell approximation.",
+            "Molecule %s: open-shell species detected (%d unpaired "
+            "electron(s), multiplicity %d); the NNP energy is a closed-shell "
+            "approximation.",
+            _mol_name(mol),
             n_radical,
             multiplicity,
         )

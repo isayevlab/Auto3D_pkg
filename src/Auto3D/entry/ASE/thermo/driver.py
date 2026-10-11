@@ -90,12 +90,14 @@ def _warn_imaginary_modes(analysis, name, vib_e) -> None:
         logger.warning(
             "%d imaginary vibrational mode(s) for %s, largest %.0f cm-1; "
             "%d below the %.0f cm-1 saddle-point threshold are kept at |nu| "
-            "(the Gaussian/ORCA convention for a numerical artifact) rather "
-            "than deleted, so the partition function keeps all %d vibrational "
-            "modes. Deleting one instead removes that mode's entire "
-            "contribution to G -- dominated by -T*S_vib, which diverges as "
-            "1/nu -- and the resulting mode-count mismatch does not cancel "
-            "between two species with different artifact counts.",
+            "rather than deleted, following the GoodVibes --invert option "
+            "and the xtb program's practice (Gaussian and ORCA instead "
+            "exclude such modes from the thermochemistry), so the partition "
+            "function keeps all %d vibrational modes. Deleting one instead "
+            "removes that mode's entire contribution to G -- dominated by "
+            "-T*S_vib, which diverges as 1/nu -- and the resulting "
+            "mode-count mismatch does not cancel between two species with "
+            "different artifact counts.",
             analysis.n_imag,
             name,
             analysis.max_imag_cm,
@@ -199,7 +201,7 @@ def _gibbs_terms(
             len(vib_e),
             len(vib_e) - n_used,
         )
-    H = thermo.get_enthalpy(temperature=T) * EV_TO_HARTREE
+    H = thermo.get_enthalpy(temperature=T, verbose=False) * EV_TO_HARTREE
     # ASE's get_entropy returns entropy in eV/K, so this value is Hartree/K, not
     # Hartree. Name the property accordingly so a downstream G = H - T*S
     # reconstruction is not off by a factor of T.
@@ -215,8 +217,11 @@ def _gibbs_terms(
     # R*ln(1.01325) = 0.026 cal/mol/K and G is HIGHER by R*T*ln(1.01325) =
     # +0.0078 kcal/mol at 298.15 K. get_enthalpy takes no pressure argument at
     # all: H is pressure independent and identical either way.
-    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
-    G = thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE) * EV_TO_HARTREE
+    S = thermo.get_entropy(temperature=T, pressure=STANDARD_PRESSURE, verbose=False) * EV_TO_HARTREE
+    G = (
+        thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE, verbose=False)
+        * EV_TO_HARTREE
+    )
     return H, S, G
 
 
@@ -590,7 +595,8 @@ def _thermo_one_record(
         # "transition_state" for a confirmed saddle point, whose
         # rigid-rotor/harmonic thermochemistry is not a minimum's and must
         # not pass the documented success filter. calc_thermo routes on that
-        # single property, the same way the stationary-point gate above does.
+        # single property, the same way the not-converged gate inside
+        # _thermo_one_record (above) does.
         return mol
     except (
         RuntimeError,
@@ -836,7 +842,8 @@ def calc_thermo(
         # "transition_state" for a confirmed saddle point, whose
         # rigid-rotor/harmonic thermochemistry is not a minimum's and must
         # not pass the documented success filter. Route on that single
-        # property, the same way the stationary-point gate above does.
+        # property, the same way the stationary-point gate inside
+        # _thermo_one_record does.
         if mol.GetProp(THERMO_FAILED_PROP):
             mols_failed.append(mol)
         else:
