@@ -276,6 +276,12 @@ def require_selector(k: int | bool | None, window: float | bool | None) -> None:
         raise ConfigurationError(
             "Either k or window needs to be specified.",
             hint="Setting k=1 keeps the lowest-energy conformer per molecule.",
+            # The hint above stays flag-free for a direct reader of
+            # `exc.hint`. `cli.errors.get_error_hint`'s hint-key table has
+            # its own, CLI-flag-bearing sentence ("Append --k=1 ...") for
+            # this key, and checks that table before the `hint` above, so
+            # the CLI still shows the flag-bearing version.
+            hint_key="k_one_for_single_conformer",
         )
 
 

@@ -88,6 +88,15 @@ Auto3D supports three neural network potentials:
    speed ratio between them is quoted anywhere -- treat the ordering as
    unmeasured and time your own workload before choosing.
 
+   The shipped ``ANI2xt`` checkpoint (``ani2xt_no_repulsion.pt``) was retrained
+   without the standalone pairwise repulsion term the earlier ANI2xt variant
+   added on top of the network, so its short-range wall is learned rather than
+   analytic -- and torchani's stock ``ANI2x``, which the ``ANI2x`` engine
+   builds, carries no repulsion term either (torchani ships pairwise repulsion
+   only in its ``ANI2xr``/``ANI2dr`` variants), so on either ANI engine a
+   clashing or badly embedded geometry is network extrapolation that can relax
+   into a short contact instead of being pushed apart.
+
 Select a model with ``--engine``:
 
 .. code:: console

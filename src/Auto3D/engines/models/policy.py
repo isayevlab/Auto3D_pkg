@@ -126,9 +126,13 @@ def check_gpu_requested(use_gpu: bool) -> None:
 
         if not torch.cuda.is_available():
             raise GPUError(
-                "No cuda device was detected, but use_gpu=True was requested. "
-                "Pass --no-gpu on the CLI (or set use_gpu=False in the Python "
-                "API) to run on CPU."
+                "No cuda device was detected, but use_gpu=True was requested; "
+                "set use_gpu=False to run on the CPU.",
+                # The CLI's "--no-gpu" flag spelling lives in
+                # cli.errors.get_error_hint's hint-key table, not here --
+                # this message stays usable from the Python API, which has
+                # no CLI flags to spell.
+                hint_key="gpu_unavailable",
             )
 
 

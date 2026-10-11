@@ -61,6 +61,7 @@ from Auto3D.foundation.constants import (
     LOW_FREQUENCY_CUTOFF_CM,
     STANDARD_PRESSURE,
     STANDARD_STATE_LABEL,
+    STANDARD_TEMPERATURE_K,
 )
 from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
@@ -230,7 +231,7 @@ def do_mol_thermo(
     atoms: ase.Atoms,
     adapter: ModelAdapter,
     device=torch.device("cpu"),
-    T=298.15,
+    T=STANDARD_TEMPERATURE_K,
     *,
     low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
 ):
@@ -534,7 +535,7 @@ def _thermo_one_record(
 
     if mol_info_func is None:
         idx = mol.GetProp("_Name").strip()
-        T = 298.15
+        T = STANDARD_TEMPERATURE_K
     else:
         idx, T = mol_info_func(mol)
 

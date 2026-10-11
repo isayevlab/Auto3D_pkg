@@ -18,23 +18,36 @@ class Auto3DError(Exception):
             same spirit as ``DependencyError.dependency_name``. Three states,
             and the difference between the last two matters:
 
-            - ``None`` (the default) -- unset; the hint for this exception
-              *class* is used.
+            - ``None`` (the default) -- unset; ``hint_key`` (if it names an
+              entry) or the hint for this exception *class* is used instead.
             - a non-empty string -- shown instead of the class hint.
             - ``""`` -- shown instead of the class hint, and that is nothing.
               Used where the class hint would be a non-sequitur and the
-              message already says what to do (the output-overwrite refusal
-              is a ``ConfigurationError``, but "run ``auto3d config init``"
-              is no help at all for an ``-o`` collision).
+              message already says what to do (the end-of-run
+              ``auto3d validate`` failure is an ``InputValidationError``, but
+              "run ``auto3d validate <file>``" is absurd advice to print
+              right after that command already ran and showed what is
+              wrong).
 
             Not preserved across pickling: ``BaseException.__reduce__``
             replays only ``args``. Hints are a CLI presentation concern and
             the CLI catches in-process, so nothing depends on it surviving.
+        hint_key: A short, per-raise-site reason (e.g. ``"gpu_unavailable"``,
+            ``"output_exists"``) that ``cli.errors.get_error_hint`` looks up
+            as ``(type(error), hint_key)`` in its own table, before falling
+            back to ``hint`` and the class hint. Lets more than one raise
+            site of the same exception class carry its own CLI-flag-specific
+            hint (a bare ``GPUError`` message never spells ``--no-gpu`` or
+            ``--gpu-idx``; the table does) without that flag text leaking
+            into the message or ``hint`` a Python-API caller sees.
+            ``None`` (the default) skips the table. Not preserved across
+            pickling, for the same reason ``hint`` is not.
     """
 
-    def __init__(self, *args: object, hint: str | None = None) -> None:
+    def __init__(self, *args: object, hint: str | None = None, hint_key: str | None = None) -> None:
         super().__init__(*args)
         self.hint = hint
+        self.hint_key = hint_key
 
 
 class ConfigurationError(Auto3DError):
@@ -129,8 +142,9 @@ class DependencyError(Auto3DError):
         dependency_name: str | None = None,
         *,
         hint: str | None = None,
+        hint_key: str | None = None,
     ) -> None:
-        super().__init__(message, hint=hint)
+        super().__init__(message, hint=hint, hint_key=hint_key)
         self.dependency_name = dependency_name or "unknown"
 
 

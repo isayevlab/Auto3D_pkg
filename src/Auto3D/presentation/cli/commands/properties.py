@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from Auto3D.foundation.constants import LOW_FREQUENCY_CUTOFF_CM
 from Auto3D.foundation.exceptions import ConfigurationError, DependencyError
 from Auto3D.foundation.utils.output_guard import check_output_not_input, check_output_overwrite
 from Auto3D.presentation.cli.console import emit_json, print_success
@@ -57,6 +58,7 @@ def _report(output_path: str, command: str, json_output: bool) -> None:
 
 def execute_energy(
     input_file: Path,
+    *,
     engine: str,
     gpu: bool,
     gpu_idx: int,
@@ -97,6 +99,7 @@ def execute_energy(
 
 def execute_optimize(
     input_file: Path,
+    *,
     engine: str,
     gpu: bool,
     gpu_idx: int,
@@ -140,6 +143,7 @@ def execute_optimize(
 
 def execute_thermo(
     input_file: Path,
+    *,
     engine: str,
     gpu: bool,
     gpu_idx: int,
@@ -152,6 +156,7 @@ def execute_thermo(
     verbose: int = 0,
     force: bool = False,
     relative_gibbs: bool = False,
+    low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
 ) -> None:
     """Thermochemistry (H/S/G): wraps calc_thermo. Requires the `ase` extra.
 
@@ -186,6 +191,7 @@ def execute_thermo(
             out_path=str(output) if output else None,
             overwrite=force,
             relative_gibbs=relative_gibbs,
+            low_freq_cutoff_cm=low_freq_cutoff_cm,
         )
         _report(out, "thermo", json_output)
     except Exception as e:  # noqa: BLE001

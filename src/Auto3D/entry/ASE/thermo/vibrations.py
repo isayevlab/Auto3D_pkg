@@ -30,6 +30,7 @@ from Auto3D.foundation.constants import (
     LINEARITY_MAX_PERP_ANGSTROM,
     LOW_FREQUENCY_CUTOFF_CM,
     PROJECTION_RESIDUAL_FRACTION,
+    STANDARD_TEMPERATURE_K,
 )
 from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger
@@ -270,7 +271,7 @@ def project_vibrations(
     geometry: str,
     *,
     name: str = "molecule",
-    temperature_k: float = 298.15,
+    temperature_k: float = STANDARD_TEMPERATURE_K,
 ) -> Projection:
     """Vibrational energies with translation and rotation projected out.
 
@@ -625,7 +626,7 @@ def projected_vibrations(
     geometry: str,
     *,
     name: str = "molecule",
-    temperature_k: float = 298.15,
+    temperature_k: float = STANDARD_TEMPERATURE_K,
 ) -> list[complex]:
     """``project_vibrations(...).energies``: the list alone, length not guaranteed.
 

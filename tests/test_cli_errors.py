@@ -329,6 +329,24 @@ def test_overwrite_refusal_does_not_suggest_config_init(capsys, tmp_path):
     assert "config init" not in err
 
 
+def test_missing_selector_refusal_shows_the_k_one_hint(capsys):
+    """Raised by the real guard, not hand-built: pins that `require_selector`'s
+    `hint_key` actually reaches the CLI panel as the flag-bearing sentence,
+    not the flag-free one `exc.hint` carries for a direct Python caller."""
+    from Auto3D.foundation.config import require_selector
+
+    try:
+        require_selector(None, None)
+    except ConfigurationError as e:
+        with pytest.raises(SystemExit) as exc_info:
+            handle_error(e, verbose=0)
+    assert exc_info.value.code == 2
+
+    err = _flat(capsys.readouterr().err)
+    assert "--k=1" in err
+    assert "lowest-energy conformer" not in err
+
+
 def test_a_configuration_error_with_no_hint_still_gets_the_class_hint(capsys):
     """Control: the class hints are unchanged for every raise site that does
     not opt out, so this must keep printing exactly what it always did."""

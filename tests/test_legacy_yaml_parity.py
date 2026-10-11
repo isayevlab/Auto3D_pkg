@@ -93,7 +93,9 @@ def _verdict_modern(input_file: Path, yaml_path: Path, monkeypatch) -> tuple[str
     _spy_on(monkeypatch, run_mod, seen)
 
     with pytest.raises(SystemExit) as exc_info:
-        run_mod.execute_run(input_file=input_file, config_file=yaml_path, quiet=True)
+        run_mod.execute_run(
+            input_file=input_file, options=run_mod.RunOptions(), config_file=yaml_path, quiet=True
+        )
 
     assert seen, "the modern path exited without routing through handle_error"
     return type(seen[-1]).__name__, exc_info.value.code

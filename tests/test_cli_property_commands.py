@@ -710,3 +710,15 @@ def test_tautomers_force_allows_the_overwrite(smi, tmp_path):
     assert res.exit_code == 0, res.output
     assert m.called
     assert precious.read_bytes() == b"NEW RESULTS\n"
+
+
+def test_execute_optimize_rejects_a_positional_call(tmp_path):
+    """`execute_optimize` is keyword-only after `input_file`; a flat
+    positional call -- the shape every argument used to be accepted in --
+    must now raise `TypeError` instead of silently working."""
+    from Auto3D.presentation.cli.commands.properties import execute_optimize
+
+    with pytest.raises(TypeError):
+        execute_optimize(
+            str(tmp_path / "in.sdf"), "ANI2xt", False, 0, None, 0.01, 2000, 1024, False, False
+        )

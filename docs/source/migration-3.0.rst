@@ -1470,8 +1470,8 @@ behind:
 .. code:: console
 
    $ auto3d energy mols.sdf --no-gpu -o results.sdf
-   Error: results.sdf already exists.
-   Hint: pass --force/-f to overwrite, or choose a different -o path.
+   Error: results.sdf already exists and will not be overwritten.
+   Hint: pass --force (-f) to overwrite, or -o for another output path.
    $ echo $?
    2
 
