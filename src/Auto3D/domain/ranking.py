@@ -22,12 +22,11 @@ from Auto3D.domain.energy import (
     G_HARTREE_PROP,
     G_REL_KCAL_PROP,
     e_tot_ev,
-    ev2kcalpermol,
     try_gibbs_ev,
 )
 from Auto3D.domain.filtering import FilterResult, filter_conformers, validity_drop_reason
 from Auto3D.foundation.config import SELECTOR_FIELDS, check_selectors_mutually_exclusive
-from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW
+from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW, EV_TO_KCAL_PER_MOL
 from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.logging_config import get_logger
@@ -36,13 +35,16 @@ from Auto3D.foundation.utils.output_guard import check_output_not_input, check_o
 logger = get_logger(__name__)
 
 #: Select on the electronic energy -- the default, and the only basis available
-#: for an optimizer output.
-RANK_BY_ELECTRONIC = "E_tot"
+#: for an optimizer output. The literal value is E_TOT_PROP's -- "E_tot" -- so
+#: this is defined FROM it rather than restating the string, per PR 17's
+#: single-source rule (each literal is defined once in src/).
+RANK_BY_ELECTRONIC = E_TOT_PROP
 #: Select on the Gibbs free energy. Only a ``calc_thermo`` output carries one,
 #: and producing it costs a Hessian per conformer, so this is never a default.
 #: A population goes as ``exp(-dG/RT)``, and the lowest-G conformer need not be
 #: the lowest-E one, so this is the better basis once the cost is already paid.
-RANK_BY_GIBBS = "G_hartree"
+#: The literal value is G_HARTREE_PROP's -- "G_hartree" -- for the same reason.
+RANK_BY_GIBBS = G_HARTREE_PROP
 
 #: Basis -> (reader returning eV, source property, published relative property).
 _RANK_BASES: dict[str, tuple] = {
@@ -425,11 +427,11 @@ class ConformerRanker:
         Returns:
             List of RDKit Mol objects within the energy window.
         """
-        window = window / ev2kcalpermol  # convert energy window into eV unit
+        window = window / EV_TO_KCAL_PER_MOL  # convert energy window into eV unit
         names = list(df_group["names"])
         if window < 0:
             raise ConfigurationError(
-                f"window must be non-negative, got: {window * ev2kcalpermol} kcal/mol", hint=""
+                f"window must be non-negative, got: {window * EV_TO_KCAL_PER_MOL} kcal/mol", hint=""
             )
         name = self._check_name_uniformity(names)
 
@@ -608,7 +610,7 @@ class ConformerRanker:
                 # electronic property's name.
                 mol.SetProp(
                     self._rel_prop,
-                    str(float(mol.GetProp("E_rel(eV)")) * ev2kcalpermol),
+                    str(float(mol.GetProp("E_rel(eV)")) * EV_TO_KCAL_PER_MOL),
                 )
                 mol.ClearProp("E_rel(eV)")
                 # Strip the trailing <isomer>_<conformer> suffix, keeping the

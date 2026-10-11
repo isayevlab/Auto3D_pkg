@@ -439,59 +439,71 @@ def _classify(name: str) -> str | None:
     return None
 
 
-def _check_forward_signature(model: Any, source: str) -> None:
-    """Reject a ``forward`` that cannot be called as ``(species, coords, charges)``.
+def _stub_inherited(model: Any) -> bool:
+    """True if ``model`` relies on ``torch.nn.Module``'s unimplemented ``forward``.
 
-    Skips silently when the signature is not introspectable or the parameter
-    names carry no ordering information -- a false rejection would break a
-    working model, which is worse than a missed diagnosis.
+    `getattr(model, "forward", None) is None` never fires for an nn.Module:
+    torch supplies `Module.forward = _forward_unimplemented(*input)`, which is
+    a real callable, so the attribute always exists. Worse, its signature is
+    VAR_POSITIONAL, so :func:`_introspect_params`'s ``*args`` early-return
+    would then ACCEPT it -- a saved module with valid padding attributes and
+    no forward of its own would load clean and raise NotImplementedError deep
+    inside the optimization loop, which is exactly the failure this validator
+    exists to move to load time. Compare the class attribute against
+    Module's own to tell "inherited the stub" from "defined a real forward".
+
+    ScriptModule is excluded and the access is guarded: a
+    RecursiveScriptModule's class attribute is a `_CachedForward` descriptor
+    that raises AttributeError on this lookup, and a scripted module always
+    has a real forward anyway (it could not have been scripted otherwise).
+    Rejecting one here would break every valid TorchScript archive.
     """
-    # `getattr(model, "forward", None) is None` never fires for an nn.Module:
-    # torch supplies `Module.forward = _forward_unimplemented(*input)`, which is
-    # a real callable, so the attribute always exists. Worse, its signature is
-    # VAR_POSITIONAL, so the `*args` early-return below would then ACCEPT it --
-    # a saved module with valid padding attributes and no forward of its own
-    # would load clean here and raise NotImplementedError deep inside the
-    # optimization loop, which is exactly the failure this validator exists to
-    # move to load time. Compare the class attribute against Module's own to
-    # tell "inherited the stub" from "defined a real forward".
-    # ScriptModule is excluded and the access is guarded: a
-    # RecursiveScriptModule's class attribute is a `_CachedForward` descriptor
-    # that raises AttributeError on this lookup, and a scripted module always
-    # has a real forward anyway (it could not have been scripted otherwise).
-    # Rejecting one here would break every valid TorchScript archive.
-    if isinstance(model, torch.nn.Module) and not isinstance(model, torch.jit.ScriptModule):
-        try:
-            inherits_stub = type(model).forward is torch.nn.Module.forward
-        except AttributeError:
-            inherits_stub = False
-        if inherits_stub:
-            raise ModelLoadError(
-                f"Custom NNP at {source} defines no forward method of its own "
-                f"(it inherits torch.nn.Module's placeholder, which raises "
-                f"NotImplementedError when called). Expected {EXPECTED_SIGNATURE}."
-            )
+    if not (isinstance(model, torch.nn.Module) and not isinstance(model, torch.jit.ScriptModule)):
+        return False
+    try:
+        return type(model).forward is torch.nn.Module.forward
+    except AttributeError:
+        return False
 
-    forward = getattr(model, "forward", None)
-    if forward is None:
-        raise ModelLoadError(
-            f"Custom NNP at {source} defines no forward method. Expected {EXPECTED_SIGNATURE}."
-        )
 
+#: Returned by :func:`_introspect_params` for a ``forward`` nothing further
+#: can or should be checked against -- see that function's docstring.
+_NOTHING_TO_CHECK = None
+
+
+def _introspect_params(forward: Any) -> inspect.Signature | None:
+    """``forward``'s signature, or the sentinel ``None`` if there is nothing to check.
+
+    Returns :data:`_NOTHING_TO_CHECK` for two cases the caller must treat
+    identically -- accept the model, since a false rejection would break a
+    working one, which is worse than a missed diagnosis:
+
+    * The signature is not introspectable at all. A TorchScript
+      RecursiveScriptModule's forward is a pybind11 builtin with no Python
+      signature, so ``inspect.signature`` raises ``ValueError``; the
+      REQUIRED_ATTRIBUTES check still applies regardless.
+    * ``forward(*args)`` -- VAR_POSITIONAL -- accepts any arity and names
+      nothing, so the order and arity :func:`_check_arity_order` would apply
+      are unknowable. This early return is what keeps that check from ever
+      seeing such a signature.
+    """
     try:
         signature = inspect.signature(forward)
-        parameters = list(signature.parameters.values())
     except (ValueError, TypeError):
-        # A TorchScript RecursiveScriptModule's forward is a pybind11 builtin
-        # with no Python signature, so inspect.signature raises ValueError. Skip
-        # the signature check for such models rather than reject a valid
-        # TorchScript archive; the REQUIRED_ATTRIBUTES check still applies.
-        return
+        return _NOTHING_TO_CHECK
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in signature.parameters.values()):
+        return _NOTHING_TO_CHECK
+    return signature
 
-    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
-        # forward(*args) accepts any arity and names nothing; nothing to check.
-        return
 
+def _check_arity_order(signature: inspect.Signature, source: str) -> None:
+    """Reject ``signature`` if it cannot be called as ``(species, coords, charges)``.
+
+    Only reached for a signature :func:`_introspect_params` found
+    introspectable and not ``forward(*args)`` -- so parameter order and count
+    are both knowable here.
+    """
+    parameters = list(signature.parameters.values())
     positional = [
         p
         for p in parameters
@@ -529,6 +541,38 @@ def _check_forward_signature(model: Any, source: str) -> None:
             f"derives forces from them by autograd. Reorder the parameters or "
             f"wrap the model."
         )
+
+
+def _check_forward_signature(model: Any, source: str) -> None:
+    """Reject a ``forward`` that cannot be called as ``(species, coords, charges)``.
+
+    Three steps, in order, each its own importable function: :func:`_stub_inherited`
+    (did this model define a forward of its own at all), :func:`_introspect_params`
+    (can/should its signature be checked further), :func:`_check_arity_order`
+    (does that signature accept three positional arguments in the right order).
+
+    Skips silently when the signature is not introspectable or the parameter
+    names carry no ordering information -- a false rejection would break a
+    working model, which is worse than a missed diagnosis.
+    """
+    if _stub_inherited(model):
+        raise ModelLoadError(
+            f"Custom NNP at {source} defines no forward method of its own "
+            f"(it inherits torch.nn.Module's placeholder, which raises "
+            f"NotImplementedError when called). Expected {EXPECTED_SIGNATURE}."
+        )
+
+    forward = getattr(model, "forward", None)
+    if forward is None:
+        raise ModelLoadError(
+            f"Custom NNP at {source} defines no forward method. Expected {EXPECTED_SIGNATURE}."
+        )
+
+    signature = _introspect_params(forward)
+    if signature is _NOTHING_TO_CHECK:
+        return
+
+    _check_arity_order(signature, source)
 
 
 def validate_custom_nnp(model: Any, source: str) -> None:

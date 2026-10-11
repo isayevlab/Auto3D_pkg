@@ -24,10 +24,10 @@ from rdkit.Chem import AllChem
 
 from Auto3D.domain.energy import (
     E_REL_KCAL_PROP,
-    ev2kcalpermol,
     set_e_tot_from_ev,
     set_relative_energies,
 )
+from Auto3D.foundation.constants import EV_TO_KCAL_PER_MOL
 
 
 def _conformer(name: str, energy_ev: float, smiles: str = "CCO") -> Chem.Mol:
@@ -71,9 +71,9 @@ class TestGrouping:
 
         rel = [float(m.GetProp(E_REL_KCAL_PROP)) for m in mols]
         assert rel[0] == pytest.approx(0.0)
-        assert rel[1] == pytest.approx(0.5 * ev2kcalpermol)
+        assert rel[1] == pytest.approx(0.5 * EV_TO_KCAL_PER_MOL)
         assert rel[2] == pytest.approx(0.0), "group b used group a's reference"
-        assert rel[3] == pytest.approx(1.0 * ev2kcalpermol)
+        assert rel[3] == pytest.approx(1.0 * EV_TO_KCAL_PER_MOL)
 
     def test_the_minimum_is_chosen_not_the_first_record(self):
         """Order must not decide the reference; the relaxation can reorder."""
@@ -82,7 +82,7 @@ class TestGrouping:
         set_relative_energies(mols)
 
         assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
-        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(2.0 * ev2kcalpermol)
+        assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(2.0 * EV_TO_KCAL_PER_MOL)
 
     def test_relative_energies_are_never_negative(self):
         mols = [_conformer("m", e) for e in (-8.0, -12.0, -10.0)]
@@ -169,11 +169,11 @@ class TestGuards:
 
         # First diastereomer's pair: referenced to its own minimum (-10.0).
         assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
-        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.5 * ev2kcalpermol)
+        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.5 * EV_TO_KCAL_PER_MOL)
         # Second diastereomer's pair: referenced to ITS OWN minimum (-8.0),
         # not to the first pair's -10.0.
         assert float(mols[2].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
-        assert float(mols[3].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * ev2kcalpermol)
+        assert float(mols[3].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * EV_TO_KCAL_PER_MOL)
 
     def test_records_without_a_name_are_left_alone(self):
         """An untitled SDF must not become one giant group."""
@@ -201,7 +201,7 @@ class TestGuards:
         set_relative_energies(mols)
 
         assert float(mols[0].GetProp(E_REL_KCAL_PROP)) == pytest.approx(0.0)
-        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * ev2kcalpermol)
+        assert float(mols[1].GetProp(E_REL_KCAL_PROP)) == pytest.approx(1.0 * EV_TO_KCAL_PER_MOL)
 
     def test_a_stale_value_on_a_mixed_title_is_replaced_per_identity(self):
         """I3 (R49): a title spanning two compounds no longer keeps a stale
@@ -294,7 +294,7 @@ class TestRelativeGibbsEnergies:
 
         assert float(mols[0].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(0.0)
         assert float(mols[1].GetProp(energy_mod.G_REL_KCAL_PROP)) == pytest.approx(
-            0.5 * energy_mod.hartree2kcalpermol
+            0.5 * energy_mod.HARTREE_TO_KCAL_PER_MOL
         )
 
     def test_the_gibbs_reference_is_independent_of_the_electronic_one(self):

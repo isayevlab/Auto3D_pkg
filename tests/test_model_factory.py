@@ -119,15 +119,29 @@ class TestModelFactory:
         assert isinstance(aimnet_model, AIMNet2Adapter)
         assert aimnet_model.model_name == "aimnet2"
 
+    @patch.object(Path, "stat")
     @patch.object(Path, "exists")
     @patch.object(torch.jit, "load")
-    def test_create_custom_model_from_path(self, mock_load, mock_exists):
+    def test_create_custom_model_from_path(self, mock_load, mock_exists, mock_stat):
         """Test that custom model paths are loaded correctly."""
         from Auto3D.engines.models.adapter import CustomModelAdapter
 
+        # The custom path is now cached (P-m17), keyed in part on this literal
+        # path string; another test in this module uses the identical one, so
+        # clear any stale entry before it has a chance to be returned here.
+        ModelFactory.clear_cache()
         mock_exists.return_value = True
+        # The custom-path cache key reads the file's mtime (P-m17); the path
+        # does not really exist, so Path.stat() must be stubbed too.
+        mock_stat.return_value.st_mtime_ns = 0
         mock_model = MagicMock()
         mock_model.parameters.return_value = iter([])
+        # `load_custom_nnp` puts everything it returns in eval mode, then
+        # smoke-tests the forward on a one-molecule probe batch; a real
+        # nn.Module answers .eval() with itself and its forward with a
+        # (batch,)-shaped tensor, so the double must too.
+        mock_model.eval.return_value = mock_model
+        mock_model.return_value = torch.zeros(1)
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")
@@ -240,13 +254,21 @@ class TestFactoryReturnsAdapter:
         assert isinstance(model, ANI2xAdapter)
         assert model.species_pad == -1
 
+    @patch.object(Path, "stat")
     @patch.object(Path, "exists")
     @patch.object(torch.jit, "load")
-    def test_factory_returns_custom_adapter(self, mock_load, mock_exists):
+    def test_factory_returns_custom_adapter(self, mock_load, mock_exists, mock_stat):
         """Factory should return CustomModelAdapter for custom model paths."""
         from Auto3D.engines.models.adapter import CustomModelAdapter
 
+        # The custom path is now cached (P-m17), keyed in part on this literal
+        # path string; another test in this module uses the identical one, so
+        # clear any stale entry before it has a chance to be returned here.
+        ModelFactory.clear_cache()
         mock_exists.return_value = True
+        # The custom-path cache key reads the file's mtime (P-m17); the path
+        # does not really exist, so Path.stat() must be stubbed too.
+        mock_stat.return_value.st_mtime_ns = 0
         mock_model = MagicMock()
         mock_model.parameters.return_value = iter([])
         mock_model.coord_pad = 1.5
@@ -254,6 +276,10 @@ class TestFactoryReturnsAdapter:
         # `load_custom_nnp` puts everything it returns in eval mode; a real
         # nn.Module answers .eval() with itself, so the double must too.
         mock_model.eval.return_value = mock_model
+        # `load_custom_nnp` also smoke-tests the loaded forward on a one-
+        # molecule probe batch, so the double's call must answer with a real
+        # (batch,)-shaped tensor rather than an auto-generated MagicMock.
+        mock_model.return_value = torch.zeros(1)
         mock_load.return_value = mock_model
 
         device = torch.device("cpu")

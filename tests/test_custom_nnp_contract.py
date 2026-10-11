@@ -18,6 +18,7 @@ import inspect
 
 import pytest
 import torch
+import torch.nn as nn
 
 from Auto3D.engines.models.contract import validate_custom_nnp
 from Auto3D.engines.models.loading import load_custom_nnp
@@ -167,6 +168,25 @@ class OrderRecordingNNP(torch.nn.Module):
     def forward(self, species, coords, charges):
         self.seen_ranks = [species.dim(), coords.dim(), charges.dim()]
         return (coords**2).sum(dim=(1, 2))
+
+
+class ScalarEnergyNNP(nn.Module):
+    """Contract-conforming attributes and arity, but returns a bare scalar.
+
+    ``calls`` counts invocations of ``forward``, so a test can assert that
+    loading this model touches it zero times (R52: ``load_custom_nnp`` no
+    longer runs a synthetic forward at load time)."""
+
+    coord_pad = 0.0
+    species_pad = -1
+
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def forward(self, species, coords, charges):
+        self.calls += 1
+        return coords.pow(2).sum()  # a scalar, not (batch,)
 
 
 def _save(model, tmp_path, name):
@@ -329,6 +349,32 @@ def test_wrong_arity_too_many_required_args_is_rejected_at_load(tmp_path):
     with pytest.raises(ModelLoadError, match="three positional arguments") as excinfo:
         load_custom_nnp(path, CPU)
     assert "cutoff" in str(excinfo.value)
+
+
+def test_a_model_returning_a_scalar_energy_is_rejected_on_the_first_forward(tmp_path):
+    """A model that satisfies the attribute and arity checks but returns a
+    bare scalar (not one energy per molecule) loads cleanly: ``load_custom_nnp``
+    no longer runs a synthetic probe forward to catch this (R52) -- executing
+    the user's model has side effects the loader cannot bound (a real custom
+    NNP's calculator can lazily build persistent per-instance state sized off
+    whatever geometry it is first called with, and a degenerate load-time
+    probe left that state mis-sized for every real molecule that followed).
+    The wrong shape is instead caught at the adapter's first real forward,
+    naming the shape, before any force is derived from it."""
+    from Auto3D.engines.models.adapter import CustomModelAdapter
+
+    path = tmp_path / "scalar.pt"
+    torch.save(ScalarEnergyNNP(), path)
+
+    loaded = load_custom_nnp(str(path), torch.device("cpu"))
+    assert loaded.calls == 0, "load_custom_nnp must not call the model's forward"
+
+    adapter = CustomModelAdapter(str(path), torch.device("cpu"))
+    coords = torch.randn(2, 3, 3)
+    species = torch.tensor([[1, 6, 8], [1, 6, -1]])
+    charges = torch.zeros(2)
+    with pytest.raises(ModelLoadError, match="shape"):
+        adapter.forward(coords, species, charges)
 
 
 # --- acceptance (a false rejection is a regression) -------------------------
@@ -639,6 +685,29 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
             f"{module_name}.userNNP2 dropped the R-group (Z=0) atom, so it "
             "scored a different molecule than the one submitted"
         )
+
+
+# --- P-m22: the signature check is three named steps, not one long function ---
+
+
+def test_check_forward_signature_is_three_named_steps():
+    """``_check_forward_signature`` is composed from three importable helpers.
+
+    Not a behavior test -- every behavior these three implement is already
+    pinned by the rejection/acceptance tests above, byte-identical message for
+    byte-identical message. This is the change detector for the split itself:
+    a future edit that re-inlines the three steps back into one function body
+    goes red here even if every other test in this file still passes.
+    """
+    from Auto3D.engines.models.contract import (
+        _check_arity_order,
+        _introspect_params,
+        _stub_inherited,
+    )
+
+    assert callable(_stub_inherited)
+    assert callable(_introspect_params)
+    assert callable(_check_arity_order)
 
 
 # --- the contract is derived from the Protocol, not retyped next to it ------

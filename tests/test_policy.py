@@ -134,6 +134,37 @@ class TestOpenShellWarningIsBatchedOncePerCall:
         assert "open-shell" in caplog.text.lower()
 
 
+class TestZwitterionWarning:
+    """A net-zero zwitterion passes the charge/element/radical gate (its net
+    formal charge is 0), so it reaches ANI2x/ANI2xt silently -- the ANI
+    networks take no total-charge input and were parameterized on
+    net-neutral, closed-shell molecules, so a zwitterion's internal charge
+    separation is an extrapolation for them (R54)."""
+
+    def test_net_zero_zwitterion_under_ani_warns(self, caplog):
+        mol = _mol("[NH3+]CC(=O)[O-]")
+        with caplog.at_level(logging.WARNING):
+            check_engine_supports_molecules(mol, "ANI2x")
+        assert "zwitterion" in caplog.text.lower()
+
+    @pytest.mark.parametrize(
+        "smiles",
+        [
+            "[O-][N+](=O)c1ccccc1",  # nitrobenzene: the cation is bonded to the anion
+            "[O-][n+]1ccccc1",  # pyridine N-oxide: same adjacency, aromatic
+        ],
+    )
+    def test_a_charge_pair_drawn_on_adjacent_atoms_is_not_a_zwitterion(self, caplog, smiles):
+        """A cation directly bonded to an anion is one functional group drawn
+        with formal charges, not two charge-separated sites (R54, chemistry
+        review I1/M3): each has a directly-bonded neighbor of the opposite
+        sign, so neither is "free" and the warning must stay silent."""
+        mol = _mol(smiles)
+        with caplog.at_level(logging.WARNING):
+            check_engine_supports_molecules(mol, "ANI2x")
+        assert caplog.text == ""
+
+
 class TestHasDummyAtoms:
     """N-M3: an R-group placeholder (``*``, ``[3*]``) is not a species.
 

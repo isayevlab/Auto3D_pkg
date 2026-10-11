@@ -38,12 +38,24 @@ def load_custom_nnp(
     returned, so a model with the wrong ``forward`` argument order or missing
     ``coord_pad``/``species_pad`` is refused here with a message naming the
     expected signature -- rather than producing a nonsense energy and failing
-    deep inside ``torch.autograd.grad`` many steps later.
+    deep inside ``torch.autograd.grad`` many steps later. The signature check
+    cannot see the return VALUE, so it cannot catch a model that returns the
+    wrong SHAPE (a bare scalar, say, rather than one energy per molecule) --
+    that is caught at the model's first real forward instead (R52; see
+    :meth:`Auto3D.engines.models.adapter.custom.CustomModelAdapter._energy_graph`),
+    not here. A synthetic forward at load time used to catch it here, on a
+    degenerate two-atom probe geometry, but a real custom NNP's own calculator
+    can build persistent per-instance state (neighbor lists, D3/Coulomb
+    buffers) sized off whatever it is first called with, so that probe left
+    such a calculator mis-sized for every real molecule that followed --
+    trading one silent-corruption bug for another. Executing the user's model
+    at all has side effects this loader cannot bound, so it no longer does.
 
     Args:
         model_path: Path to the model file.
         device: Target device for the loaded model.
-        double: If True, cast the returned module to float64.
+        double: If True, cast the returned module to float64 before it is
+            returned.
 
     Returns:
         The loaded model as an ``nn.Module`` on ``device``.
@@ -83,4 +95,6 @@ def load_custom_nnp(
     # that; a model author must call `.eval()` before tracing.
     model = model.eval()
     validate_custom_nnp(model, model_path)
-    return model.double() if double else model
+    if double:
+        model = model.double()
+    return model

@@ -383,25 +383,20 @@ def _load_hessian_model(model_name: str, device) -> ModelAdapter:
     including alias resolution ("AIMNET" -> the registry default), so the name is
     passed through unchanged.
 
-    Two things the branch below still decides, and both are about dtype, not
-    about how the model is called:
+    One thing the branch below still decides, and it is about dtype, not about
+    how the model is called: ANI2xt / ANI2x / custom models are differentiated
+    by ``torch.autograd.functional.hessian``, on the fp64 geometry
+    ``vib_hessian`` builds, so this requests the adapter at ``double=True``.
+    AIMNet2 does not: whole-graph fp64 through it is false precision, and its
+    Hessian is analytic anyway.
 
-    * **fp64 for the autograd path.** ANI2xt / ANI2x / custom models are
-      differentiated by ``torch.autograd.functional.hessian``, on the fp64
-      geometry ``vib_hessian`` builds, so the module is upcast in place.
-      AIMNet2 is not: whole-graph fp64 through it is false precision, and its
-      Hessian is analytic anyway.
-    * **``use_cache=False`` where that upcast happens.** ``.double()`` mutates
-      the wrapped module in place, and ``ModelFactory``'s cache is shared with
-      the fp32 adapter ``model_name2model_calculator`` builds for the
-      optimization half of the SAME ``calc_thermo`` call. Reusing a cached entry
-      here would silently upcast that instance too, leaving one run optimizing at
-      one precision and differentiating at another with nothing logged. The
-      AIMNET branch keeps the cache (it mutates nothing), which is also what
-      stops ``calc_thermo`` paying for two full AIMNet2 loads. For a custom model
-      path ``ModelFactory.create`` returns a fresh adapter before consulting the
-      cache at all, so ``use_cache`` has no observable effect there; it is passed
-      for one uniform call, not because that branch needs it.
+    ``double`` is part of ``ModelFactory``'s cache key (P-m16), so this never
+    returns -- and never upcasts in place -- the fp32 adapter
+    ``model_name2model_calculator`` builds for the optimization half of the
+    SAME ``calc_thermo`` call: the two calls key to two different cache
+    entries and this one's fp64 instance is cached and reused on its own,
+    rather than rebuilt (and reloaded from disk) on every call, the way the
+    pre-``double`` workaround's ``use_cache=False`` required.
     """
     # Case-folded, because every other engine-name gate in Auto3D folds case --
     # ModelFactory.create (name.upper()), resolve_engine_name and
@@ -415,17 +410,14 @@ def _load_hessian_model(model_name: str, device) -> ModelAdapter:
     # filesystem paths are case-sensitive on most platforms.
     if model_name.upper() in ("ANI2XT", "ANI2X") or Path(model_name).exists():
         # compile_model=False: torch.compile guards on dtype, and nothing in
-        # this autograd-Hessian path benefits from it anyway.
-        adapter = create_model(model_name, device, compile_model=False, use_cache=False)
-        # In place, through the contract rather than past it. This was
-        # `adapter.model.double()`, which reached the module only
-        # BaseModelAdapter happens to store -- so an otherwise conforming
-        # structural adapter raised AttributeError here, and mypy's report of it
-        # was one of the errors `|| true` discarded. The operation underneath is
-        # unchanged (see BaseModelAdapter.to_double), so no reported frequency
-        # moves.
-        adapter.to_double()
-        return adapter
+        # this autograd-Hessian path benefits from it anyway. double=True asks
+        # the factory for the fp64 form through the contract rather than past
+        # it -- this used to be `adapter.model.double()` against a
+        # `use_cache=False` instance, reaching a module only BaseModelAdapter
+        # happens to store; now the cache key itself carries the dtype, so the
+        # fp32 optimization adapter the SAME calc_thermo call holds is a
+        # different cache entry and is never the one upcast.
+        return create_model(model_name, device, compile_model=False, double=True)
     # AIMNET or any aimnet registry alias: ModelFactory resolves the "AIMNET"
     # legacy alias to the registry default internally (see
     # ModelFactory.create step 3), so model_name is passed through unchanged.

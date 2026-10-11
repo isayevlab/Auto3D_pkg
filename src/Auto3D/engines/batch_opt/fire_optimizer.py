@@ -166,7 +166,7 @@ class FIRE:
 
         return coord + dr
 
-    def clean(self, idx: torch.Tensor) -> bool:
+    def clean(self, idx: torch.Tensor) -> None:
         """Subset optimizer state to keep only the molecules at ``idx``.
 
         Used to drop molecules that have left the active set, so subsequent
@@ -187,9 +187,6 @@ class FIRE:
                 and silently permute the optimizer state -- so the dtype is
                 checked instead.
 
-        Returns:
-            Always returns True to indicate success.
-
         Raises:
             ValueError: ``idx`` is not int64.
         """
@@ -203,4 +200,3 @@ class FIRE:
         self.Nsteps = self.Nsteps.index_select(0, idx)
         self.dt = self.dt.index_select(0, idx)
         self.a = self.a.index_select(0, idx)
-        return True
