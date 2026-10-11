@@ -11,6 +11,7 @@ import torch
 
 from Auto3D.engines.models.adapter.base import BaseModelAdapter
 from Auto3D.engines.models.loading import load_custom_nnp
+from Auto3D.foundation.exceptions import ModelLoadError
 
 
 class CustomModelAdapter(BaseModelAdapter):
@@ -63,6 +64,7 @@ class CustomModelAdapter(BaseModelAdapter):
         # guaranteed present here. Reading them directly (rather than through
         # getattr defaults that disagreed with BaseModelAdapter's) is what keeps
         # one padding value in play instead of two.
+        self._model_path = model_path
         model = load_custom_nnp(model_path, device)
         # TorchScript archives are already a compiled graph, so `torch.compile`
         # has nothing to add; an eager `nn.Module` -- which `load_custom_nnp`
@@ -89,5 +91,26 @@ class CustomModelAdapter(BaseModelAdapter):
 
     def _energy_graph(self, coords, species, charges, atom_mask=None):
         """The published contract is ``forward(species, coords, charges)`` -- species FIRST;
-        ``charges`` follows ``coords``' dtype so a model that concatenates them does not mismatch."""
-        return self.model(species, coords, charges.to(coords.dtype))
+        ``charges`` follows ``coords``' dtype so a model that concatenates them does not mismatch.
+
+        The returned shape is checked here, on every call, rather than with a
+        synthetic forward at load time (R52): executing the user's model has
+        side effects this adapter cannot bound -- a real custom NNP's
+        calculator can lazily build persistent per-instance state (adaptive
+        neighbor lists, D3/Coulomb buffers) sized off whatever it is first
+        called with, so a degenerate load-time probe geometry left that state
+        mis-sized for every real molecule that followed. Checking here costs
+        one shape comparison per call and catches the same defect a probe
+        was meant to -- a bare scalar, say, which would otherwise sum over the
+        batch and silently move every molecule by one shared, wrong force --
+        before autograd ever sees it, and before the model has been asked to
+        answer for any geometry but the caller's own.
+        """
+        energies = self.model(species, coords, charges.to(coords.dtype))
+        batch = coords.shape[0]
+        if tuple(energies.shape) != (batch,):
+            raise ModelLoadError(
+                f"Custom NNP at {self._model_path} must return one energy per "
+                f"molecule, shape ({batch},); got {tuple(energies.shape)}."
+            )
+        return energies

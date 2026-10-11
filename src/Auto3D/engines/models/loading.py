@@ -39,26 +39,30 @@ def load_custom_nnp(
     ``coord_pad``/``species_pad`` is refused here with a message naming the
     expected signature -- rather than producing a nonsense energy and failing
     deep inside ``torch.autograd.grad`` many steps later. The signature check
-    cannot see the return VALUE, so a smoke forward on a one-molecule,
-    two-atom probe batch runs after it, refusing a model that returns
-    anything other than one energy per molecule -- a bare scalar, say, which
-    would otherwise sum over the batch and move every molecule by one shared,
-    wrong force deep inside the optimization loop.
+    cannot see the return VALUE, so it cannot catch a model that returns the
+    wrong SHAPE (a bare scalar, say, rather than one energy per molecule) --
+    that is caught at the model's first real forward instead (R52; see
+    :meth:`Auto3D.engines.models.adapter.custom.CustomModelAdapter._energy_graph`),
+    not here. A synthetic forward at load time used to catch it here, on a
+    degenerate two-atom probe geometry, but a real custom NNP's own calculator
+    can build persistent per-instance state (neighbor lists, D3/Coulomb
+    buffers) sized off whatever it is first called with, so that probe left
+    such a calculator mis-sized for every real molecule that followed --
+    trading one silent-corruption bug for another. Executing the user's model
+    at all has side effects this loader cannot bound, so it no longer does.
 
     Args:
         model_path: Path to the model file.
         device: Target device for the loaded model.
-        double: If True, cast the returned module to float64 before the smoke
-            forward, so the probe exercises the model at the dtype it will
-            actually run at.
+        double: If True, cast the returned module to float64 before it is
+            returned.
 
     Returns:
         The loaded model as an ``nn.Module`` on ``device``.
 
     Raises:
         ModelLoadError: If the file cannot be loaded as either supported form,
-            if the loaded module violates the custom-NNP contract, or if its
-            smoke forward does not return one energy per molecule.
+            or if the loaded module violates the custom-NNP contract.
     """
     try:
         model: torch.nn.Module = torch.jit.load(model_path, map_location=device)
@@ -93,32 +97,4 @@ def load_custom_nnp(
     validate_custom_nnp(model, model_path)
     if double:
         model = model.double()
-
-    # Smoke-test the loaded forward: a model that satisfies the attribute and
-    # arity checks above can still return the wrong SHAPE -- a bare scalar
-    # summed over every molecule in the batch, say -- which the signature
-    # check cannot see (it inspects parameter names, never the return value)
-    # and which only breaks later, deep inside the FIRE loop's per-molecule
-    # bookkeeping, far from the model that caused it. Two carbons so a model
-    # whose per-element branch only covers one species still runs; a zero
-    # charge and padding-free coordinates so nothing here depends on the
-    # caller's own padding convention. The probe reads the dtype off the
-    # model's own parameters -- already settled by the ``double`` cast above,
-    # or by whatever dtype the checkpoint was saved at -- rather than
-    # imposing float32 unconditionally, which would be a cast the caller
-    # never asked for.
-    try:
-        probe_dtype = next(model.parameters()).dtype
-    except StopIteration:
-        probe_dtype = torch.float64 if double else torch.float32
-    species_probe = torch.tensor([[6, 6]], dtype=torch.long, device=device)
-    coords_probe = torch.zeros((1, 2, 3), dtype=probe_dtype, device=device)
-    charges_probe = torch.zeros((1,), dtype=probe_dtype, device=device)
-    with torch.no_grad():
-        energies = model(species_probe, coords_probe, charges_probe)
-    if tuple(energies.shape) != (1,):
-        raise ModelLoadError(
-            f"Custom NNP at {model_path} must return one energy per molecule, "
-            f"shape (batch,); got {tuple(energies.shape)}."
-        )
     return model

@@ -171,12 +171,21 @@ class OrderRecordingNNP(torch.nn.Module):
 
 
 class ScalarEnergyNNP(nn.Module):
-    """Contract-conforming attributes and arity, but returns a bare scalar."""
+    """Contract-conforming attributes and arity, but returns a bare scalar.
+
+    ``calls`` counts invocations of ``forward``, so a test can assert that
+    loading this model touches it zero times (R52: ``load_custom_nnp`` no
+    longer runs a synthetic forward at load time)."""
 
     coord_pad = 0.0
     species_pad = -1
 
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
     def forward(self, species, coords, charges):
+        self.calls += 1
         return coords.pow(2).sum()  # a scalar, not (batch,)
 
 
@@ -342,16 +351,30 @@ def test_wrong_arity_too_many_required_args_is_rejected_at_load(tmp_path):
     assert "cutoff" in str(excinfo.value)
 
 
-def test_a_model_returning_a_scalar_energy_is_rejected_at_load(tmp_path):
+def test_a_model_returning_a_scalar_energy_is_rejected_on_the_first_forward(tmp_path):
     """A model that satisfies the attribute and arity checks but returns a
-    bare scalar (not one energy per molecule) must still be refused: calling
-    it inside the FIRE loop would silently sum over the batch dimension,
-    moving every molecule by one shared, wrong force. A smoke forward at
-    load time, not a signature inspection, is what catches this."""
+    bare scalar (not one energy per molecule) loads cleanly: ``load_custom_nnp``
+    no longer runs a synthetic probe forward to catch this (R52) -- executing
+    the user's model has side effects the loader cannot bound (a real custom
+    NNP's calculator can lazily build persistent per-instance state sized off
+    whatever geometry it is first called with, and a degenerate load-time
+    probe left that state mis-sized for every real molecule that followed).
+    The wrong shape is instead caught at the adapter's first real forward,
+    naming the shape, before any force is derived from it."""
+    from Auto3D.engines.models.adapter import CustomModelAdapter
+
     path = tmp_path / "scalar.pt"
     torch.save(ScalarEnergyNNP(), path)
+
+    loaded = load_custom_nnp(str(path), torch.device("cpu"))
+    assert loaded.calls == 0, "load_custom_nnp must not call the model's forward"
+
+    adapter = CustomModelAdapter(str(path), torch.device("cpu"))
+    coords = torch.randn(2, 3, 3)
+    species = torch.tensor([[1, 6, 8], [1, 6, -1]])
+    charges = torch.zeros(2)
     with pytest.raises(ModelLoadError, match="shape"):
-        load_custom_nnp(str(path), torch.device("cpu"))
+        adapter.forward(coords, species, charges)
 
 
 # --- acceptance (a false rejection is a regression) -------------------------

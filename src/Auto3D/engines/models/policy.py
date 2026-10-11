@@ -197,34 +197,53 @@ def _requires_aimnet(mol: Chem.Mol) -> bool:
 
 
 def _is_zwitterion(mol: Chem.Mol) -> bool:
-    """True if `mol` carries both a positively- and a negatively-charged atom
-    while its NET formal charge is zero.
+    """True if `mol` is net-neutral but carries charge separated across its
+    skeleton, rather than merely depicted with formal charges on one bond.
 
     A zwitterion (e.g. the amino-acid form ``[NH3+]CC(=O)[O-]``) passes
     ``_requires_aimnet``'s charge test unchanged -- the net charge really is
-    zero -- so it reaches ANI2x/ANI2xt silently today. Both networks were
-    trained on neutral, closed-shell molecules whose charge sits on no atom
-    at all; a zwitterion's charge-separated electron distribution is outside
-    that training set even though its net charge agrees with it, which is a
-    different failure mode from the charged/out-of-set/radical cases
-    ``_requires_aimnet`` already catches -- and why this is a warning rather
-    than the same hard error.
+    zero -- so it reaches ANI2x/ANI2xt silently today. Both networks take no
+    total-charge input and were parameterized on net-neutral, closed-shell
+    molecules, so a zwitterion's internal charge separation is an
+    extrapolation for them (AIMNET takes the molecular charge as an input and
+    supports charged and net-neutral zwitterionic species, so it needs no
+    such warning).
+
+    The required/forbidden distinction (R54, chemistry review I1/M3): a
+    cation directly bonded to an anion is one functional group drawn with
+    formal charges rather than two separated sites, so nitro
+    (``[O-][N+](=O)...``), N-oxides, sulfoxides written with formal charges,
+    azides and diazo compounds -- where the opposite charges sit on bonded
+    neighbors -- must stay silent. Flagging requires BOTH a cation with no
+    directly-bonded anionic neighbor AND an (not necessarily the same) anion
+    with no directly-bonded cationic neighbor: each is a charge with nothing
+    adjacent to balance it locally, the actual charge-separated-across-the-
+    skeleton shape glycine, betaine and taurine have.
 
     Args:
         mol: An RDKit molecule.
 
     Returns:
-        True if at least one atom carries a positive formal charge and at
-        least one (other) atom carries a negative formal charge, while the
-        molecule's net formal charge is zero.
+        True if the molecule's net formal charge is zero and it carries at
+        least one "free" cation (no directly-bonded anionic neighbor) and at
+        least one "free" anion (no directly-bonded cationic neighbor).
     """
     # Deferred for the same reason as _requires_aimnet's.
     from rdkit import Chem
 
     if Chem.rdmolops.GetFormalCharge(mol) != 0:
         return False
-    charges = [a.GetFormalCharge() for a in mol.GetAtoms()]
-    return any(c > 0 for c in charges) and any(c < 0 for c in charges)
+    cations = [a for a in mol.GetAtoms() if a.GetFormalCharge() > 0]
+    anions = [a for a in mol.GetAtoms() if a.GetFormalCharge() < 0]
+    if not cations or not anions:
+        return False
+    free_cation = any(
+        not any(nbr.GetFormalCharge() < 0 for nbr in cation.GetNeighbors()) for cation in cations
+    )
+    free_anion = any(
+        not any(nbr.GetFormalCharge() > 0 for nbr in anion.GetNeighbors()) for anion in anions
+    )
+    return free_cation and free_anion
 
 
 def check_engine_supports_molecules(
@@ -257,9 +276,10 @@ def check_engine_supports_molecules(
 
     A net-zero zwitterion requested on ANI2x/ANI2xt is not an error either --
     its net charge really is zero, so ``_requires_aimnet`` does not flag it --
-    but it is still outside the neutral, charge-localized training set those
-    networks were built on, so it gets the same one-warning-per-call treatment
-    (see :func:`_is_zwitterion`).
+    but those networks take no total-charge input and were parameterized on
+    net-neutral, closed-shell molecules, so a zwitterion's internal charge
+    separation is an extrapolation for them; it gets the same
+    one-warning-per-call treatment (see :func:`_is_zwitterion`).
 
     Args:
         mols: A single RDKit Mol or an iterable of them, read from the
@@ -314,14 +334,15 @@ def check_engine_supports_molecules(
 
     # Every molecule here passed _requires_aimnet (net charge zero, in-set
     # elements, no radical), so a zwitterion among them is not an error -- but
-    # it is still outside what ANI2x/ANI2xt were trained on (see
-    # _is_zwitterion). Batched into ONE warning per call, same reasoning as
-    # the AIMNET/custom-NNP branch's radical warning above.
+    # it is still an extrapolation for ANI2x/ANI2xt (see _is_zwitterion).
+    # Batched into ONE warning per call, same reasoning as the AIMNET/
+    # custom-NNP branch's radical warning above.
     if any(_is_zwitterion(mol) for mol in mol_list):
         logger.warning(
-            "Net-zero zwitterion(s) detected among the input molecules; %s "
-            "was trained on neutral, closed-shell molecules whose charge sits "
-            "on no atom, and a zwitterion -- net-neutral but charge-separated "
-            "-- is outside that training set.",
-            optimizing_engine,
+            "Net-zero zwitterion(s) detected among the input molecules; the "
+            "ANI networks take no total-charge input and were parameterized "
+            "on net-neutral closed-shell molecules, so a zwitterion's "
+            "internal charge separation is an extrapolation; AIMNET takes "
+            "the molecular charge as an input and supports charged and "
+            "net-neutral zwitterionic species.",
         )

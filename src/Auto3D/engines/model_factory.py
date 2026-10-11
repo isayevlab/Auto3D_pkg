@@ -155,9 +155,11 @@ class ModelFactory:
 
     # Model instance cache. Built-in/aimnet keys:
     # (name, device_str, compile_model, double). Custom-path keys:
-    # (resolved_path, mtime_ns, device_str, compile_model, double) -- the
-    # mtime makes a rewritten file invalidate its own cache entry rather than
-    # silently handing back the model built from the file's previous contents.
+    # (resolved_path, (mtime_ns, size, inode), device_str, compile_model,
+    # double) -- the stamp makes a rewritten file invalidate its own cache
+    # entry rather than silently handing back the model built from the
+    # file's previous contents; `create` additionally evicts the stale
+    # entry on a rewrite rather than merely shadowing it (M1).
     _cache: dict[tuple, ModelAdapter] = {}
 
     @classmethod
@@ -202,9 +204,10 @@ class ModelFactory:
             use_cache: Whether to cache and reuse model instances. Default True.
                 Set False to force creating a new model instance. A
                 custom-model path is cached too (P-m17), keyed on its
-                resolved path and the file's mtime, so a rewrite of the file
-                invalidates the entry rather than silently reusing the model
-                built from the previous contents.
+                resolved path and the file's mtime/size/inode, so a rewrite
+                of the file both invalidates and evicts the stale entry
+                (M1, M2) rather than silently reusing -- or merely
+                shadowing -- the model built from the previous contents.
             double: Whether to promote the fresh adapter's weights to float64
                 (via :meth:`~Auto3D.engines.models.contract.ModelAdapter.to_double`)
                 before it is cached. Part of the cache key, so a
@@ -296,19 +299,24 @@ class ModelFactory:
         # 2. Existing path on disk -> custom NNP (file/custom model
         #    selection). Keyed on the RESOLVED path (so two spellings of the
         #    same file, e.g. a relative and an absolute path, share one
-        #    entry) and the file's mtime (so a rewrite -- the file replaced
-        #    with a new checkpoint under the same name -- invalidates the
-        #    entry instead of silently handing back the model built from the
-        #    previous contents).
+        #    entry) and the file's on-disk stamp (so a rewrite -- the file
+        #    replaced with a new checkpoint under the same name --
+        #    invalidates the entry instead of silently handing back the
+        #    model built from the previous contents, and is evicted below
+        #    rather than merely shadowed).
         if Path(name).exists():
             stat = Path(name).stat()
-            cache_key = (
-                str(Path(name).resolve()),
-                stat.st_mtime_ns,
-                str(device),
-                compile_model,
-                double,
-            )
+            # The file's IDENTITY (path, device, compile, double) sits apart
+            # from its on-disk STAMP in the key, so a rewrite is recognizable
+            # as the same identity with a different stamp -- which is what
+            # lets the eviction below find and drop the stale entry a plain
+            # `cache[key] = adapter` never would (M1). mtime alone can miss a
+            # same-tick rewrite on a coarse-grained filesystem (NFS/CIFS);
+            # size and inode -- `stat()` is already in hand -- catch what
+            # mtime cannot (M2).
+            stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+            resolved = str(Path(name).resolve())
+            cache_key = (resolved, stamp, str(device), compile_model, double)
             if use_cache and cache_key in cls._cache:
                 return cls._cache[cache_key]
             adapter = CustomModelAdapter(name, device, compile_model=compile_model)
@@ -320,6 +328,20 @@ class ModelFactory:
             if double:
                 adapter.to_double()
             if use_cache:
+                # Drop any entry for this SAME identity but a DIFFERENT
+                # stamp: without this, a rewrite grows the cache rather than
+                # replacing the stale model it holds -- on GPU, a retained
+                # device allocation per rewrite until clear_cache() (M1).
+                stale_keys = [
+                    k
+                    for k in cls._cache
+                    if len(k) == len(cache_key)
+                    and k[0] == resolved
+                    and k[2:] == cache_key[2:]
+                    and k[1] != stamp
+                ]
+                for stale_key in stale_keys:
+                    del cls._cache[stale_key]
                 cls._cache[cache_key] = adapter
             return adapter
 
@@ -378,7 +400,7 @@ def create_model(
             Optimization* in ``docs/source/advanced_usage.rst``.
         use_cache: Whether to cache and reuse model instances. Default True.
             A custom-model path is cached too, keyed on its resolved path and
-            the file's mtime; see :meth:`ModelFactory.create`.
+            the file's mtime/size/inode; see :meth:`ModelFactory.create`.
         double: Promote the fresh adapter's weights to float64 before it is
             cached. See :meth:`ModelFactory.create`, which this delegates to
             and which documents the cache-key and ``NotImplementedError``

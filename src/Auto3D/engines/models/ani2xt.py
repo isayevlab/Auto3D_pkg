@@ -205,14 +205,7 @@ def _atom_energies(
 
 
 class ANI2xt(nn.Module):
-    def __init__(self, device, state_dict=ani_2xt_dict, periodic_table_index=False):
-        # periodic_table_index: accepted and unused. Every construction site
-        # passes (or defaults to) False -- species.py:3 documents that this is
-        # the only convention ANI2xt supports -- so there is nothing left to
-        # branch on; forward()'s old periodic_table_index=True remap and its
-        # own error path were dead code and are gone (P-m52). Kept as a
-        # parameter rather than removed outright so a caller that still passes
-        # periodic_table_index=False explicitly does not get a TypeError.
+    def __init__(self, device, state_dict=ani_2xt_dict):
         super().__init__()
         # torchani is an optional dependency, imported lazily so that merely
         # importing this module (e.g. via Auto3D.entry.ASE.thermo, which only
@@ -299,10 +292,9 @@ class ANI2xt(nn.Module):
 
         Args:
             species: Tensor of shape (batch, num_atoms) with 0-based network
-                     indices (0=H, 1=C, 2=N, 3=O, 4=F, 5=S, 6=Cl). Every
-                     construction site builds this class with
-                     periodic_table_index=False (species.py:3 documents the
-                     convention), so forward never sees raw atomic numbers.
+                     indices (0=H, 1=C, 2=N, 3=O, 4=F, 5=S, 6=Cl), never raw
+                     atomic numbers -- this is the only species convention
+                     ANI2xt supports (species.py:3).
             coords: Tensor of shape (batch, num_atoms, 3) with atomic coordinates
             elem_index: Optional per-element row indices on the flattened atom
                 axis, as returned by :func:`element_indices`. Species are
@@ -337,9 +329,9 @@ class ANI2xt(nn.Module):
             as float64 and forces as float32 (the autograd grad w.r.t. the
             float32 coords), matching the AIMNet2 adapter's output contract.
         """
-        # Every construction site uses periodic_table_index=False (species.py:3
-        # documents the convention), so species already carries 0-based network
-        # indices and needs no remap here.
+        # species already carries 0-based network indices (species.py:3
+        # documents the convention -- it is the only one ANI2xt supports), so
+        # it needs no remap here.
         species_idx = species
 
         # Padded atoms carry species == species_pad == -1 (set by the batch

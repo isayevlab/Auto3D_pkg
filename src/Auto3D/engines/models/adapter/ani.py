@@ -72,9 +72,9 @@ class ANI2xtAdapter(BaseModelAdapter):
         # module (which includes torchani's AEVComputer) gives energies off by
         # hundreds of eV with no error raised (P-C1). The AEV stays eager.
         #
-        # P-m21 (attempted, not landed -- see task-12-report.md): each
-        # distinct element-presence pattern across a run 0/1-specializes
-        # `element_indices`'s seven per-element row-index tensors, so past
+        # P-m21 (attempted, not landed): each distinct element-presence
+        # pattern across a run 0/1-specializes `element_indices`'s seven
+        # per-element row-index tensors, so past
         # `torch._dynamo.config.recompile_limit` of those patterns the frame
         # silently falls back to eager (measured: total 9, ok 8).
         # `torch._dynamo.mark_dynamic` on `aev_flat` and each `elem_index[i]`

@@ -52,6 +52,16 @@ class TestAni2xtMapping:
         assert "Na" in message, "error must name the element symbol"
         assert "ANI2xt" in message, "error must name the model"
 
+    def test_ani2xt_no_longer_accepts_periodic_table_index(self):
+        """I2 (GPU review): P-m52 removed the dead ``periodic_table_index``
+        parameter outright rather than leaving it accepted-but-silently-wrong,
+        so passing it is a ``TypeError`` from argument binding -- never torch-
+        ani's own construction, hence no ``importorskip`` needed here."""
+        from Auto3D.engines.models.ani2xt import ANI2xt
+
+        with pytest.raises(TypeError):
+            ANI2xt("cpu", periodic_table_index=True)
+
 
 class TestTheNameKeyedConverterIsGone:
     """A change detector, and deliberately one.

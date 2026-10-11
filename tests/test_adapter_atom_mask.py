@@ -53,19 +53,13 @@ class _RecordingCalculator:
     def __init__(self) -> None:
         self.numbers: torch.Tensor | None = None
         self.mol_idx: torch.Tensor | None = None
-        #: One entry per call, in order. Records every keyword the adapter
-        #: passed through (currently just ``validate_species``), so a test can
-        #: see WHICH call got which value without the adapter exposing any
-        #: state of its own.
-        self.calls: list[dict] = []
 
-    def __call__(self, data: dict, forces: bool = False, **kwargs) -> dict:
+    def __call__(self, data: dict, forces: bool = False) -> dict:
         coord = data["coord"]
         numbers = data["numbers"]
         mol_idx = data["mol_idx"]
         self.numbers = numbers.clone()
         self.mol_idx = mol_idx.clone()
-        self.calls.append({"validate_species": kwargs.get("validate_species", True)})
 
         n_mols = int(mol_idx.max().item()) + 1 if mol_idx.numel() else 0
         per_atom = torch.full((numbers.shape[0],), -1.0, dtype=torch.float)
@@ -176,33 +170,6 @@ class TestRealPaddingIsStillExcluded:
         # Water's 6 padded slots keep zero force; its 3 real atoms do not.
         assert torch.all(forces[1, 3:] == 0.0)
         assert torch.all(forces[1, :3, 0] == 1.0)
-
-
-def _padded_two_molecule_batch():
-    """A genuinely padded two-molecule batch, built exactly as
-    ``TestRealPaddingIsStillExcluded`` does: one molecule carries a dummy
-    (``*``) atom and the other does not, so the mask is required."""
-    big = _embed("*CCO", "rgroup")  # 9 atoms
-    small = _embed("O", "water")  # 3 atoms
-    return pad_from_mols([big, small], _aimnet_padding(), torch.device("cpu"))
-
-
-class TestSpeciesValidatedOncePerInstance:
-    """P-m20 (R16): species validation is a second line, not the first.
-
-    Auto3D's own engine-policy gate (``models.policy.check_engine_supports_molecules``)
-    already checks elements and charge before any optimization starts, so
-    paying the calculator's own species validation on every single forward
-    -- thousands of them per optimization -- is redundant after the first.
-    """
-
-    def test_forward_validates_species_on_the_first_call_only(self):
-        calc = _RecordingCalculator()
-        adapter = _stub_adapter(calc)
-        batch = _padded_two_molecule_batch()
-        adapter.forward(*batch)
-        adapter.forward(*batch)
-        assert [c["validate_species"] for c in calc.calls] == [True, False]
 
 
 class TestUnpaddedCallersNeedNoMask:

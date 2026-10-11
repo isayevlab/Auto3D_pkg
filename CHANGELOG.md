@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - A custom NNP whose `forward` returns a wrong energy shape (not one energy
-  per molecule) is refused at load, with a smoke forward on a probe batch,
-  instead of failing deep inside the optimization loop.
+  per molecule) is refused at its first use, with the shape named, instead
+  of failing deep inside the optimization loop.
 - `check_engine_supports_molecules` now warns (once per call) when a
-  net-zero zwitterion is requested on ANI2x/ANI2xt: its net charge is zero,
-  so it is not rejected, but it is still outside the neutral, charge-local
-  training set those networks were built on.
+  net-zero zwitterion -- a cation with no directly-bonded anionic neighbor
+  and an anion with no directly-bonded cationic neighbor, net formal charge
+  zero -- is requested on ANI2x/ANI2xt: those networks take no total-charge
+  input and were parameterized on net-neutral, closed-shell molecules, so a
+  zwitterion's internal charge separation is an extrapolation for them.
+  Nitro, N-oxide, sulfoxide, azide and diazo groups, whose opposite charges
+  sit on bonded neighbors, are not flagged.
 - `create_model`/`ModelFactory.create` gain a `double` keyword to request an
   fp64 adapter; it is part of the model cache key, so a `double=True` request
   never returns, or mutates in place, a cached fp32 instance.

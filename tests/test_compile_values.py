@@ -138,11 +138,14 @@ def test_ani2xt_compiled_matches_eager_on_cpu():
         "P-m21 is not fixed: on torch 2.9.1+cu128, mark_dynamic does not stop "
         "Dynamo's 0/1 specialization once seven simultaneously varying, "
         "frequently 0/1-sized index tensors are involved (measured: total 9, "
-        "ok 8), and neither does stacking backed_size_oblivious, "
-        "use_duck_shape=False or joint_graph_constant_folding=False -- each "
-        "only trades the failure for a different internal guard. strict=True "
-        "so this flips loudly once a real fix lands (a torch upgrade, or a "
-        "working alternative to mark_dynamic). See task-12-report.md."
+        "ok 8); mark_unbacked instead raises GuardOnDataDependentSymNode "
+        "inside Inductor's constant-folding pass; and stacking "
+        "backed_size_oblivious=True with use_duck_shape=False and "
+        "joint_graph_constant_folding=False only trades that failure for a "
+        "broadcast-lowering guard on the same size-1 question -- three "
+        "compounding specialization mechanisms, no combination of which "
+        "removes it. strict=True so this flips loudly once a real fix lands "
+        "(a torch upgrade, or a working alternative to mark_dynamic)."
     ),
 )
 def test_ani2xt_compile_does_not_hit_the_recompile_limit():
@@ -161,13 +164,23 @@ def test_ani2xt_compile_does_not_hit_the_recompile_limit():
     import torch._dynamo
     from torch._dynamo.utils import counters
 
-    adapter = create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)
-    before = dict(counters["frames"])
-    for mols in _element_pattern_batches(torch._dynamo.config.recompile_limit + 2):
-        coord, species, charges, mask = pad_from_mols(mols, adapter, torch.device("cpu"))
-        adapter.forward(coord, species, charges, atom_mask=mask)
-    after = counters["frames"]
-    assert after["total"] - before.get("total", 0) == after["ok"] - before.get("ok", 0)
+    # M3 (GPU review): this test deliberately exhausts recompile_limit for
+    # `_atom_energies`'s code object, which every ANI2xtAdapter in the
+    # interpreter shares, and contributes to the process-global
+    # accumulated_recompile_limit. Reset before AND after (the latter in a
+    # finally) so neither a prior test's compiles nor this one's leak into
+    # whichever test runs next under pytest-randomly.
+    torch._dynamo.reset()
+    try:
+        adapter = create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)
+        before = dict(counters["frames"])
+        for mols in _element_pattern_batches(torch._dynamo.config.recompile_limit + 2):
+            coord, species, charges, mask = pad_from_mols(mols, adapter, torch.device("cpu"))
+            adapter.forward(coord, species, charges, atom_mask=mask)
+        after = counters["frames"]
+        assert after["total"] - before.get("total", 0) == after["ok"] - before.get("ok", 0)
+    finally:
+        torch._dynamo.reset()
 
 
 def test_ani2x_adapter_compile_hook_returns_model_unchanged(caplog):
