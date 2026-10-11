@@ -6,7 +6,7 @@ import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.engines.batch_opt.optimization_engine import n_steps, optimization_counts
 from Auto3D.foundation.exceptions import NumericalError
 from tests.helpers_adapter import FakeAdapter
@@ -63,7 +63,7 @@ def _state(adapter, batch=4, atoms=3):
         "coord": coord,
         "numbers": numbers,
         "charges": torch.zeros(batch, dtype=torch.float),
-        "nn": EnForce_ANI(adapter, 1024),
+        "nn": BatchedEnergyForce(adapter, 1024),
         "converged_mask": torch.zeros(batch, dtype=torch.bool),
         "fmax": torch.full((batch,), 999.0),
         "energy": torch.full((batch,), 999.0, dtype=torch.double),
@@ -91,7 +91,7 @@ def test_non_finite_row_is_dropped_and_the_rest_converge():
 
 def test_energy_batched_still_raises_on_non_finite():
     adapter = _validating(FakeAdapter(energy_fn=_nan_on_tagged_row))
-    nn = EnForce_ANI(adapter, 1024)
+    nn = BatchedEnergyForce(adapter, 1024)
     coords = torch.randn(4, 3, 3)
     species = torch.ones(4, 3, dtype=torch.long)
     species[1] = 2
@@ -100,7 +100,7 @@ def test_energy_batched_still_raises_on_non_finite():
 
 
 def test_optimizing_run_writes_non_finite_row_not_converged(tmp_path):
-    """End to end: `optimizing.run` on a two-record SDF, one record poisoned.
+    """End to end: `Optimizer.run` on a two-record SDF, one record poisoned.
 
     The first record (Converged=True) and the second (Converged=False,
     Optimization_failed=non_finite_energy, no E_tot) are the R65 contract
@@ -108,7 +108,7 @@ def test_optimizing_run_writes_non_finite_row_not_converged(tmp_path):
     land in.
     """
     from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP
-    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.engines.batch_opt.batchopt import Optimizer
 
     methane = Chem.AddHs(Chem.MolFromSmiles("C"))
     AllChem.EmbedMolecule(methane, randomSeed=1)
@@ -124,7 +124,7 @@ def test_optimizing_run_writes_non_finite_row_not_converged(tmp_path):
 
     adapter = _validating(FakeAdapter(energy_fn=_nan_on_oxygen))
     out = tmp_path / "out.sdf"
-    opt = optimizing(
+    opt = Optimizer(
         str(inp),
         str(out),
         adapter=adapter,

@@ -6,14 +6,14 @@ unbounded), every conformer padded to the chunk's largest molecule and
 sub-batched by ``batchsize_atoms`` as production does. The production value
 of ``BUCKET_SIZE_FACTOR`` is now 4.0 (this benchmark's own ADOPT verdict,
 R60), between these two policies rather than equal to either; see
-``Auto3D.engines.batch_opt.batchopt.optimizing.BUCKET_SIZE_FACTOR``.
+``Auto3D.engines.batch_opt.batchopt.Optimizer.BUCKET_SIZE_FACTOR``.
 
-Drives ``Auto3D.engines.batch_opt.batchopt.optimizing`` end to end on an SDF of the
+Drives ``Auto3D.engines.batch_opt.batchopt.Optimizer`` end to end on an SDF of the
 bench's 24 molecules x N_CONFS conformers, REPS times per policy per engine,
 alternating policies so drift hits both equally. The first run per engine is an
 unrecorded warm-up, in the same policy order as rep 0, so first-call CUDA
 context/allocator/kernel-selection cost lands there rather than in a timed rep.
-Wall clock is the whole ``optimizing.run()``; outcomes (converged count,
+Wall clock is the whole ``Optimizer.run()``; outcomes (converged count,
 per-conformer energies) are compared under the per-engine gate of
 ``bench_optimization_perf``. The number this prints is a time: it needs an idle
 card, and the note must say which card and when.
@@ -65,7 +65,7 @@ def run_once(engine: str, policy: str, in_f: Path, out_f: Path, device) -> dict:
 
     from Auto3D.domain.convergence import converged_or_unfiltered
     from Auto3D.domain.energy import try_e_tot_ev
-    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.engines.batch_opt.batchopt import Optimizer
     from Auto3D.engines.model_factory import create_model
     from Auto3D.foundation.config import OptimizationConfig
 
@@ -73,9 +73,9 @@ def run_once(engine: str, policy: str, in_f: Path, out_f: Path, device) -> dict:
     config = OptimizationConfig(
         opt_steps=2000, convergence_threshold=0.01, patience=250, batchsize_atoms=1024 * 16
     )
-    engine_obj = optimizing(str(in_f), str(out_f), adapter=model, device=device, config=config)
-    old_factor = optimizing.BUCKET_SIZE_FACTOR
-    optimizing.BUCKET_SIZE_FACTOR = POLICIES[policy]
+    engine_obj = Optimizer(str(in_f), str(out_f), adapter=model, device=device, config=config)
+    old_factor = Optimizer.BUCKET_SIZE_FACTOR
+    Optimizer.BUCKET_SIZE_FACTOR = POLICIES[policy]
     try:
         n_buckets = len(
             engine_obj._make_buckets([m for m in Chem.SDMolSupplier(str(in_f), removeHs=False)])
@@ -88,7 +88,7 @@ def run_once(engine: str, policy: str, in_f: Path, out_f: Path, device) -> dict:
             torch.cuda.synchronize(device)
         wall = time.perf_counter() - start
     finally:
-        optimizing.BUCKET_SIZE_FACTOR = old_factor
+        Optimizer.BUCKET_SIZE_FACTOR = old_factor
     energies, converged = {}, 0
     for mol in Chem.SDMolSupplier(str(out_f), removeHs=False):
         energies[mol.GetProp("_Name")] = try_e_tot_ev(mol)

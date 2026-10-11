@@ -91,7 +91,7 @@ class Calculator(ase.calculators.calculator.Calculator):
         Args:
             adapter: The model, satisfying
                 :class:`Auto3D.engines.models.contract.ModelAdapter`. Checked here, for
-                the same reason ``EnForce_ANI`` checks it: a category error (a
+                the same reason ``BatchedEnergyForce`` checks it: a category error (a
                 raw ``nn.Module``, a third-party calculator, a leftover engine
                 name) is named at construction instead of surfacing as an
                 ``AttributeError`` inside ASE's optimizer loop, several frames
@@ -277,7 +277,7 @@ def model_name2model_calculator(model_name: str, device=torch.device("cpu"), cha
     """
     model_adapter = create_model(model_name, device)
 
-    # The adapter goes straight in. It used to be wrapped in an EnForce_ANI
+    # The adapter goes straight in. It used to be wrapped in a BatchedEnergyForce
     # first, which only forwarded one unpadded single-molecule call through to
     # `adapter.forward(coord, numbers, charges, atom_mask=None)` -- exactly what
     # Calculator now does itself -- while hiding the adapter from the calculator,

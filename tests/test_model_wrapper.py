@@ -1,7 +1,7 @@
 # tests/test_model_wrapper.py
 """Unit tests for the model_wrapper module.
 
-Tests for the EnForce_ANI class which wraps model adapters
+Tests for the BatchedEnergyForce class which wraps model adapters
 and provides batched forward functionality.
 """
 
@@ -12,21 +12,21 @@ from unittest.mock import MagicMock
 
 import torch
 
-from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 
 
 class TestEnForceANIForward:
-    """Tests for EnForce_ANI forward method."""
+    """Tests for BatchedEnergyForce forward method."""
 
     def test_enforce_ani_forward_delegates_to_adapter(self):
-        """EnForce_ANI.forward should delegate to model adapter's forward method."""
+        """BatchedEnergyForce.forward should delegate to model adapter's forward method."""
         mock_adapter = MagicMock()
         mock_adapter.forward.return_value = (
             torch.tensor([1.0, 2.0]),
             torch.randn(2, 5, 3),
         )
 
-        wrapper = EnForce_ANI(mock_adapter)
+        wrapper = BatchedEnergyForce(mock_adapter)
         coord = torch.randn(2, 5, 3)
         numbers = torch.ones(2, 5, dtype=torch.long)
         charges = torch.zeros(2)
@@ -38,32 +38,32 @@ class TestEnForceANIForward:
         mock_adapter.forward.assert_called_once()
 
     def test_enforce_ani_forward_with_batchsize_kwarg(self):
-        """EnForce_ANI should accept batchsize_atoms as keyword argument."""
+        """BatchedEnergyForce should accept batchsize_atoms as keyword argument."""
         mock_adapter = MagicMock()
         mock_adapter.forward.return_value = (
             torch.tensor([1.0]),
             torch.randn(1, 5, 3),
         )
 
-        wrapper = EnForce_ANI(mock_adapter, batchsize_atoms=512)
+        wrapper = BatchedEnergyForce(mock_adapter, batchsize_atoms=512)
 
         assert wrapper.batchsize_atoms == 512
 
     def test_enforce_ani_forward_with_int_second_arg(self):
-        """EnForce_ANI should accept int as second argument for batchsize."""
+        """BatchedEnergyForce should accept int as second argument for batchsize."""
         mock_adapter = MagicMock()
         mock_adapter.forward.return_value = (
             torch.tensor([1.0]),
             torch.randn(1, 5, 3),
         )
 
-        wrapper = EnForce_ANI(mock_adapter, 256)
+        wrapper = BatchedEnergyForce(mock_adapter, 256)
 
         assert wrapper.batchsize_atoms == 256
 
 
 class TestEnForceANIForwardBatched:
-    """Tests for EnForce_ANI forward_batched method."""
+    """Tests for BatchedEnergyForce forward_batched method."""
 
     def test_enforce_ani_forward_batched_splits_large_batches(self):
         """forward_batched should split large batches based on batchsize_atoms."""
@@ -76,7 +76,7 @@ class TestEnForceANIForwardBatched:
         mock_adapter.forward.side_effect = mock_forward
 
         # Set small batchsize_atoms to force multiple batches
-        wrapper = EnForce_ANI(mock_adapter, batchsize_atoms=10)
+        wrapper = BatchedEnergyForce(mock_adapter, batchsize_atoms=10)
 
         # 4 molecules * 5 atoms = 20 atoms total > 10 batchsize_atoms
         coord = torch.randn(4, 5, 3)
@@ -99,7 +99,7 @@ class TestEnForceANIForwardBatched:
         )
 
         # Large batchsize_atoms so all molecules fit in one batch
-        wrapper = EnForce_ANI(mock_adapter, batchsize_atoms=10000)
+        wrapper = BatchedEnergyForce(mock_adapter, batchsize_atoms=10000)
 
         coord = torch.randn(3, 5, 3)
         numbers = torch.ones(3, 5, dtype=torch.long)
@@ -122,7 +122,7 @@ class TestEnForceANIForwardBatched:
         mock_adapter.forward.side_effect = mock_forward
 
         # batchsize_atoms = 10, atoms_per_mol = 5, so 2 mols per batch exactly
-        wrapper = EnForce_ANI(mock_adapter, batchsize_atoms=10)
+        wrapper = BatchedEnergyForce(mock_adapter, batchsize_atoms=10)
 
         # 4 molecules should fit into exactly 2 batches
         coord = torch.randn(4, 5, 3)
@@ -146,7 +146,7 @@ class TestEnForceANIForwardBatched:
         mock_adapter.forward.side_effect = mock_forward
 
         # Very small batchsize_atoms (1) with large molecule (10 atoms)
-        wrapper = EnForce_ANI(mock_adapter, batchsize_atoms=1)
+        wrapper = BatchedEnergyForce(mock_adapter, batchsize_atoms=1)
 
         coord = torch.randn(3, 10, 3)  # 3 molecules with 10 atoms each
         numbers = torch.ones(3, 10, dtype=torch.long)
@@ -161,43 +161,43 @@ class TestEnForceANIForwardBatched:
 
 
 class TestEnForceANIImportPath:
-    """``model_wrapper`` is the one home of ``EnForce_ANI``.
+    """``model_wrapper`` is the one home of ``BatchedEnergyForce``.
 
     A companion test used to assert the same class was reachable as
-    ``from Auto3D.engines.batch_opt.batchopt import EnForce_ANI``, which pinned the
+    ``from Auto3D.engines.batch_opt.batchopt import BatchedEnergyForce``, which pinned the
     compat barrel in place. ``batchopt`` still imports the class -- it uses it --
     but no first-party module may reach it through there, which
     ``tests/test_import_boundaries.py`` now enforces statically.
     """
 
     def test_enforce_ani_import_from_model_wrapper(self):
-        """EnForce_ANI should be importable from model_wrapper."""
-        from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI as EnForce_ANI_wrapper
+        """BatchedEnergyForce should be importable from model_wrapper."""
+        from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce as EnForce_ANI_wrapper
 
-        assert EnForce_ANI_wrapper is EnForce_ANI
+        assert EnForce_ANI_wrapper is BatchedEnergyForce
 
 
 class TestEnForceANIModule:
-    """Tests for EnForce_ANI as a PyTorch module."""
+    """Tests for BatchedEnergyForce as a PyTorch module."""
 
     def test_enforce_ani_is_nn_module(self):
-        """EnForce_ANI should be a torch.nn.Module."""
+        """BatchedEnergyForce should be a torch.nn.Module."""
         mock_adapter = MagicMock()
-        wrapper = EnForce_ANI(mock_adapter)
+        wrapper = BatchedEnergyForce(mock_adapter)
 
         assert isinstance(wrapper, torch.nn.Module)
 
     def test_enforce_ani_stores_model(self):
-        """EnForce_ANI should store the model adapter."""
+        """BatchedEnergyForce should store the model adapter."""
         mock_adapter = MagicMock()
-        wrapper = EnForce_ANI(mock_adapter)
+        wrapper = BatchedEnergyForce(mock_adapter)
 
         assert wrapper.model is mock_adapter
 
     def test_enforce_ani_default_batchsize(self):
-        """EnForce_ANI should use default batchsize_atoms of 16384."""
+        """BatchedEnergyForce should use default batchsize_atoms of 16384."""
         mock_adapter = MagicMock()
-        wrapper = EnForce_ANI(mock_adapter)
+        wrapper = BatchedEnergyForce(mock_adapter)
 
         assert wrapper.batchsize_atoms == 1024 * 16  # 16384
 
@@ -208,14 +208,14 @@ def test_forward_batched_retries_on_oom():
     larger than 1 molecule and succeeds at batch size 1."""
     import torch
 
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from tests.helpers_adapter import FakeAdapter
 
     class _OOMAdapter(FakeAdapter):
         """Conforms to the contract (inherited), then OOMs on purpose.
 
         Subclassing the shared double rather than re-declaring an ad-hoc one is
-        what keeps ``EnForce_ANI``'s contract gate tightenable: a hand-rolled
+        what keeps ``BatchedEnergyForce``'s contract gate tightenable: a hand-rolled
         stub listing only the members this test happens to exercise goes red for
         a reason that has nothing to do with OOM retry.
         """
@@ -225,7 +225,7 @@ def test_forward_batched_retries_on_oom():
                 raise torch.cuda.OutOfMemoryError("CUDA out of memory (simulated)")
             return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)
 
-    wrapper = EnForce_ANI(_OOMAdapter(), batchsize_atoms=10_000)
+    wrapper = BatchedEnergyForce(_OOMAdapter(), batchsize_atoms=10_000)
     coord = torch.randn(2, 3, 3)
     numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
     charges = torch.zeros(2)
@@ -263,7 +263,7 @@ def test_empty_cache_runs_with_exception_context_cleared(monkeypatch):
                 raise torch.cuda.OutOfMemoryError("simulated OOM")
             return coord.pow(2).sum(dim=(1, 2)), torch.zeros_like(coord)
 
-    wrapper = EnForce_ANI(_OOMAdapter(), batchsize_atoms=10_000)
+    wrapper = BatchedEnergyForce(_OOMAdapter(), batchsize_atoms=10_000)
 
     real_empty_cache = torch.cuda.empty_cache
 
@@ -306,7 +306,7 @@ def test_bsize_shrinkage_persists_for_remainder_of_batch():
     # 8 molecules, batchsize_atoms=12 // 3 atoms/mol -> initial bsize=4,
     # splitting the 8 molecules into two top-level size-4 slices. Both
     # top-level slices OOM (size 4 > 2) under the *original* size.
-    wrapper = EnForce_ANI(_OOMAdapter(), batchsize_atoms=12)
+    wrapper = BatchedEnergyForce(_OOMAdapter(), batchsize_atoms=12)
     coord = torch.randn(8, 3, 3)
     numbers = torch.tensor([[1, 6, -1]] * 8)
     charges = torch.zeros(8)
@@ -329,16 +329,16 @@ def test_a_model_name_in_the_batchsize_slot_is_rejected():
     warned it would be "removed in Auto3D v2.0". The package reached 3.0.0 with it
     still there and no caller in `src/` ever passing one, so it is gone.
 
-    With the union removed and nothing else added, `EnForce_ANI(adapter, "AIMNET")`
+    With the union removed and nothing else added, `BatchedEnergyForce(adapter, "AIMNET")`
     would have assigned a string to `batchsize_atoms` and failed much later inside
     batching, as a comparison error naming neither the parameter nor the removal.
     """
     import pytest
 
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 
     with pytest.raises(TypeError, match="batchsize_atoms"):
-        EnForce_ANI(MagicMock(), "AIMNET")
+        BatchedEnergyForce(MagicMock(), "AIMNET")
 
 
 class TestEnForceANIRejectsNonAdapters:
@@ -361,7 +361,7 @@ class TestEnForceANIRejectsNonAdapters:
         import pytest
 
         with pytest.raises(TypeError) as excinfo:
-            EnForce_ANI(torch.nn.Linear(1, 1))
+            BatchedEnergyForce(torch.nn.Linear(1, 1))
         message = str(excinfo.value)
         assert "ModelAdapter" in message
         # The missing members must be enumerated, not merely alluded to.
@@ -374,7 +374,7 @@ class TestEnForceANIRejectsNonAdapters:
         import pytest
 
         with pytest.raises(TypeError, match="ModelAdapter"):
-            EnForce_ANI("AIMNET")
+            BatchedEnergyForce("AIMNET")
 
     def test_a_conforming_double_is_accepted(self):
         """The gate must not reject a structural (non-subclass) adapter --
@@ -383,7 +383,7 @@ class TestEnForceANIRejectsNonAdapters:
         from tests.helpers_adapter import FakeAdapter, padded_batch
 
         adapter = FakeAdapter()
-        wrapper = EnForce_ANI(adapter)
+        wrapper = BatchedEnergyForce(adapter)
         coords, species, charges, atom_mask = padded_batch()
         e, f = wrapper.forward(coords, species, charges, atom_mask=atom_mask)
         assert e.shape == (2,)
@@ -400,7 +400,7 @@ class TestEnForceANIRejectsNonAdapters:
             pass
 
         with pytest.raises(TypeError) as excinfo:
-            EnForce_ANI(NothingAtAll())
+            BatchedEnergyForce(NothingAtAll())
         message = str(excinfo.value)
         for name in ModelAdapter.__annotations__:
             assert name in message
@@ -409,7 +409,7 @@ class TestEnForceANIRejectsNonAdapters:
 def test_oom_shrunk_bsize_persists_across_calls():
     """P-M3: the halved sub-batch size must be remembered for the next step,
     not recomputed from batchsize_atoms on every forward_batched call."""
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from tests.helpers_adapter import FakeAdapter
 
     calls = {"oom": 0}
@@ -422,7 +422,7 @@ def test_oom_shrunk_bsize_persists_across_calls():
             return super().forward(coord, numbers, charges, atom_mask)
 
     B, N = 64, 5
-    nn_ = EnForce_ANI(_OOMAdapter(), batchsize_atoms=B * N)  # bsize starts at 64
+    nn_ = BatchedEnergyForce(_OOMAdapter(), batchsize_atoms=B * N)  # bsize starts at 64
     coord = torch.zeros(B, N, 3)
     numbers = torch.ones(B, N, dtype=torch.long)
     charges = torch.zeros(B)
@@ -445,7 +445,7 @@ def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
     once; the sub-batch size for the rest of the run must be 2 (4 // 2), not
     1 (2 // 2).
     """
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from tests.helpers_adapter import FakeAdapter
 
     sizes = []
@@ -465,7 +465,7 @@ def test_a_transient_oom_on_a_short_tail_does_not_persist_a_tiny_bsize():
             return super().forward(coord, numbers, charges, atom_mask)
 
     B, N = 6, 3
-    wrapper = EnForce_ANI(_OneTransientOOM(), batchsize_atoms=4 * N)  # bsize = 4
+    wrapper = BatchedEnergyForce(_OneTransientOOM(), batchsize_atoms=4 * N)  # bsize = 4
     coord = torch.zeros(B, N, 3)
     numbers = torch.ones(B, N, dtype=torch.long)
     charges = torch.zeros(B)
@@ -494,7 +494,7 @@ def test_an_oom_far_below_the_sub_batch_size_does_not_walk_bsize_down_by_halves(
     Five molecules, ``bsize`` 204, memory enough for two: one retry at 5 (the
     transient-OOM allowance), then a halving to 2, which sticks.
     """
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from tests.helpers_adapter import FakeAdapter
 
     sizes = []
@@ -507,7 +507,7 @@ def test_an_oom_far_below_the_sub_batch_size_does_not_walk_bsize_down_by_halves(
             return super().forward(coord, numbers, charges, atom_mask)
 
     B, N = 5, 20
-    wrapper = EnForce_ANI(_CappedAdapter(), batchsize_atoms=4096)  # bsize = 204
+    wrapper = BatchedEnergyForce(_CappedAdapter(), batchsize_atoms=4096)  # bsize = 204
     coord = torch.zeros(B, N, 3)
     numbers = torch.ones(B, N, dtype=torch.long)
     charges = torch.zeros(B)
@@ -534,7 +534,7 @@ def test_nan_bisection_does_not_contaminate_bsize_for_a_later_oom():
     what the OOM policy alone would set from THAT slice's real size (8 -> 4),
     not at some smaller value contaminated by the NaN episode's cap.
     """
-    from Auto3D.engines.batch_opt.model_wrapper import EnForce_ANI
+    from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
     from Auto3D.foundation.exceptions import NumericalError
     from tests.helpers_adapter import FakeAdapter
 
@@ -552,7 +552,7 @@ def test_nan_bisection_does_not_contaminate_bsize_for_a_later_oom():
             return super().forward(coord, numbers, charges, atom_mask)
 
     B, N = 8, 3
-    wrapper = EnForce_ANI(_NanThenOOMAdapter(), batchsize_atoms=B * N)  # bsize = 8
+    wrapper = BatchedEnergyForce(_NanThenOOMAdapter(), batchsize_atoms=B * N)  # bsize = 8
     coord = torch.randn(B, N, 3)
     numbers = torch.ones(B, N, dtype=torch.long)
     numbers[0] = 2  # tags row 0 so the poison follows it through any slice

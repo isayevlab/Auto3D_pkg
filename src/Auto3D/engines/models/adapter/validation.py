@@ -19,7 +19,7 @@ def _raise_for_energy(energy: torch.Tensor) -> None:
 
     Split out so the energy-only path
     (:func:`validate_energies`, reached from
-    :meth:`Auto3D.engines.batch_opt.model_wrapper.EnForce_ANI.energy_batched`) and the
+    :meth:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce.energy_batched`) and the
     energy-and-forces path (:func:`_validate_outputs`) emit the SAME message for
     the same defect instead of two near-identical copies. Returns normally if
     the energy is finite after all, leaving the caller to decide what that means.

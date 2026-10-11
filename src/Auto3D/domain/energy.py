@@ -5,7 +5,7 @@ the unit README, ``docs/legacy-v2/source/usage.rst`` and ``main()``'s own
 "Energy unit: Hartree if implicit." log line have always claimed, and the unit
 ``Auto3D.entry.tautomer.select_tautomers`` has always read.
 
-Until 3.0.0 it was only *sometimes* true. ``batch_opt.optimizing.run`` wrote
+Until 3.0.0 it was only *sometimes* true. ``batch_opt.Optimizer.run`` wrote
 ``E_tot`` in eV and ``ASE/geometry.opt_geometry`` converted the same tag to
 Hartree afterwards, so the identical property name carried two units depending
 on which entry point produced the file -- and the five in-package consumers

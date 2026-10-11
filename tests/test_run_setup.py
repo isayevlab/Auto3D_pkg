@@ -277,13 +277,13 @@ def _prepare_spe(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(spe_mod, "create_model", lambda *a, **k: FakeAdapter(species_pad=0))
-    monkeypatch.setattr(spe_mod, "EnForce_ANI", _FakeEnForce)
+    monkeypatch.setattr(spe_mod, "BatchedEnergyForce", _FakeEnForce)
     monkeypatch.setattr(spe_mod, "pad_from_mols", _fake_pad)
     return spe_mod, spe_mod.calc_spe, _one_good_record(tmp_path)
 
 
 def _prepare_geometry(monkeypatch, tmp_path):
-    """``opt_geometry`` with ``optimizing`` stubbed, as test_ase_geometry.py stubs it."""
+    """``opt_geometry`` with ``Optimizer`` stubbed, as test_ase_geometry.py stubs it."""
     from rdkit import Chem
 
     import Auto3D.entry.ASE.geometry as geo
@@ -300,12 +300,12 @@ def _prepare_geometry(monkeypatch, tmp_path):
             mols = [m for m in Chem.SDMolSupplier(str(self._in_path), removeHs=False) if m]
             with Chem.SDWriter(str(self._out_path)) as writer:
                 for mol in mols:
-                    mol.SetProp("E_tot", "-1.0")  # Hartree, as optimizing.run() writes it
+                    mol.SetProp("E_tot", "-1.0")  # Hartree, as Optimizer.run() writes it
                     writer.write(mol)
             return True
 
     monkeypatch.setattr(geo, "create_model", lambda *a, **k: FakeAdapter())
-    monkeypatch.setattr(geo, "optimizing", _FakeOptimizing)
+    monkeypatch.setattr(geo, "Optimizer", _FakeOptimizing)
     return geo, geo.opt_geometry, path
 
 

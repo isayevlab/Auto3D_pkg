@@ -274,7 +274,7 @@ def _step_active_subset(
     #
     # `forward_batched`'s `tolerate_non_finite=True` already turns a
     # non-finite row into a NaN-energy, zero-force placeholder before this
-    # point (`EnForce_ANI._non_finite_placeholder`), so `fmax` above is
+    # point (`BatchedEnergyForce._non_finite_placeholder`), so `fmax` above is
     # already 0 for such a row and `fmax > opttol` would already be False --
     # the explicit `& finite` term below is not load-bearing for THAT
     # placeholder, but makes the exclusion a property of the output itself
@@ -434,7 +434,7 @@ def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
     this recompute (R67): its geometry is frozen at the exact pre-failure
     point that produced the ``NumericalError`` the first time, so including
     it would deterministically re-bisect and re-placeholder it -- paying the
-    bisection cost a second time and firing ``EnForce_ANI``'s non-finite
+    bisection cost a second time and firing ``BatchedEnergyForce``'s non-finite
     warning a second time for no new information. Its
     ``state["energy"]``/``state["fmax"]`` already hold the NaN-energy,
     zero-force placeholder ``_scatter_back`` wrote during the loop, and are
@@ -501,7 +501,7 @@ def n_steps(
             - numbers: Atomic numbers, shape (batch, n_atoms)
             - charges: Molecular charges, shape (batch,)
             - coord: Coordinates, shape (batch, n_atoms, 3)
-            - nn: Neural network model wrapper (EnForce_ANI)
+            - nn: Neural network model wrapper (BatchedEnergyForce)
             - converged_mask: Boolean convergence mask, shape (batch,)
             - fmax: Maximum force per molecule, shape (batch,)
             - energy: Energy per molecule, shape (batch,)

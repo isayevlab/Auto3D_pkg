@@ -28,11 +28,11 @@ logger = get_logger(__name__)
 # Ceiling for the memory-scaled `batchsize_atoms` multiplier (audit M36). A
 # bare `batchsize_atoms * memory_gb` has no upper bound: on an 80 GB GPU the
 # documented default (1024 atoms/GB) scales to 81,920 atoms in a single NN
-# forward call, which -- combined with `optimizing.BUCKET_MAX_COUNT = 1024`
+# forward call, which -- combined with `Optimizer.BUCKET_MAX_COUNT = 1024`
 # molecules per bucket -- can mean one flattened AIMNet2 call over an entire
-# max-size bucket. 1024 * 16 matches `EnForce_ANI`'s own default
+# max-size bucket. 1024 * 16 matches `BatchedEnergyForce`'s own default
 # `batchsize_atoms` (batch_opt/model_wrapper.py), i.e. the ceiling already
-# considered a safe single-call size everywhere else `EnForce_ANI` is
+# considered a safe single-call size everywhere else `BatchedEnergyForce` is
 # constructed without an explicit override.
 _MAX_SCALED_BATCHSIZE_ATOMS = 1024 * 16
 

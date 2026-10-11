@@ -8,7 +8,7 @@ model wrapper, or the bucketing logic in ``Auto3D.batch_opt``.
 
 It builds a fixed set of drug-like conformers (RDKit ETKDG, fixed seed so the
 geometries are identical run-to-run), then times a single
-``optimizing(...).run()`` pass for a fixed number of optimization steps and
+``Optimizer(...).run()`` pass for a fixed number of optimization steps and
 reports wall-time, throughput, and peak memory.
 
 Examples::
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import torch
 
-    from Auto3D.engines.batch_opt.batchopt import optimizing
+    from Auto3D.engines.batch_opt.batchopt import Optimizer
     from Auto3D.foundation.config import OptimizationConfig
 
     device = torch.device(args.device)
@@ -133,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         # the one-time weight load are not part of the optimization hot loop and
         # would otherwise dominate small runs.
         print(f"Loading engine={args.engine} on device={device} ...", flush=True)
-        opt = optimizing(in_sdf, out_sdf, args.engine, device, config)
+        opt = Optimizer(in_sdf, out_sdf, args.engine, device, config)
 
         if is_cuda:
             torch.cuda.reset_peak_memory_stats(device)

@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from Auto3D.foundation.results import WorkflowResult
     from Auto3D.orchestration.workflow_workers import ProgressEvent
 
-from Auto3D.domain.ranking import ranking
-from Auto3D.engines.batch_opt.batchopt import optimizing
+from Auto3D.domain.ranking import ConformerRanker
+from Auto3D.engines.batch_opt.batchopt import Optimizer
 from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
 from Auto3D.engines.models.preflight import preflight_model
@@ -239,7 +239,7 @@ def smiles2mols(
         check_input(args)
 
         # Resolve the engine name and verify the model is obtainable HERE
-        # (C8/M22), before the `optimizing` step below constructs its own copy
+        # (C8/M22), before the `Optimizer` step below constructs its own copy
         # for real work. A cold cache with no network, a corrupted cached
         # file, or an unwritable cache directory would otherwise surface only
         # deep inside ranking/optimization as an opaque failure.
@@ -302,7 +302,7 @@ def smiles2mols(
         # boundary here, but see `Auto3D.orchestration.workflow_workers.optim_rank_wrapper`
         # for why construction must never be hoisted past the frame that works.
         adapter = create_model(args.optimizing_engine, device)
-        opt_engine = optimizing(
+        opt_engine = Optimizer(
             meta["enumerated_sdf"],
             meta["optimized_og"],
             adapter=adapter,
@@ -311,10 +311,10 @@ def smiles2mols(
         )
         wrote_output = opt_engine.run()
 
-        # optimizing.run() returns False (and does not write
+        # Optimizer.run() returns False (and does not write
         # meta["optimized_og"]) when meta["enumerated_sdf"] is missing, empty,
         # or contains no parseable record -- which happens here when every
-        # input SMILES failed to embed a 3D conformer. Unguarded, ranking()
+        # input SMILES failed to embed a 3D conformer. Unguarded, ConformerRanker()
         # below would then read a nonexistent path (inside a TemporaryDirectory
         # that is still open at this point, but gone by the time the resulting
         # OSError is seen by a caller working with the returned path) and the
@@ -328,7 +328,7 @@ def smiles2mols(
             )
 
         # Ranking step
-        rank_engine = ranking(
+        rank_engine = ConformerRanker(
             meta["optimized_og"], meta["output"], args.threshold, k=k, window=window
         )
         _ = rank_engine.run()

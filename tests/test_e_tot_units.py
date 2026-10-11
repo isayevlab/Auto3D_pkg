@@ -1,6 +1,6 @@
 """``E_tot`` is Hartree at every writer, and every reader agrees.
 
-Before this, ``batch_opt.optimizing.run`` wrote ``E_tot`` in **eV** and
+Before this, ``batch_opt.Optimizer.run`` wrote ``E_tot`` in **eV** and
 ``ASE/geometry.opt_geometry`` rewrote the same tag in **Hartree**, while the
 in-package consumers (``ranking`` and both filters in ``filtering``) all
 hard-coded eV. The property name meant two different things depending on which
@@ -14,10 +14,10 @@ where the truth is 1.000, and the ranker's own eV->Hartree conversion runs on
 an already-Hartree number, dividing by 27.211 twice.
 
 No neural network potential is loaded: ``ensemble_opt`` is stubbed and the
-adapter is a conforming double, so the real padder, the real ``optimizing.run``
+adapter is a conforming double, so the real padder, the real ``Optimizer.run``
 writer, the real ``_annotate_and_rewrite`` and the real ranker all execute.
 
-``optimizing`` no longer builds its own adapter (audit M41), so the direct tests
+``Optimizer`` no longer builds its own adapter (audit M41), so the direct tests
 inject one and the ``opt_geometry`` tests stub ``create_model`` where
 ``opt_geometry`` itself reads it -- ``Auto3D.entry.ASE.geometry`` -- rather than at a
 seam inside ``batch_opt``.
@@ -57,7 +57,7 @@ def _stub_model_boundary(monkeypatch, energies_ev):
     """Replace the NNP with a table of energies; everything else stays real.
 
     Returns the conforming adapter double, for callers that construct
-    ``optimizing`` directly. ``Auto3D.entry.ASE.geometry.create_model`` is stubbed to
+    ``Optimizer`` directly. ``Auto3D.entry.ASE.geometry.create_model`` is stubbed to
     hand back the same object, because that is where ``opt_geometry`` now builds
     the adapter it injects.
     """
@@ -73,7 +73,7 @@ def _stub_model_boundary(monkeypatch, energies_ev):
 
 
 class TestOptimizerWritesHartree:
-    """``optimizing.run`` is the first writer; it owns the conversion."""
+    """``Optimizer.run`` is the first writer; it owns the conversion."""
 
     def test_e_tot_is_the_model_energy_in_hartree(self, tmp_path, monkeypatch):
         import Auto3D.engines.batch_opt.batchopt as bo
@@ -83,7 +83,7 @@ class TestOptimizerWritesHartree:
         out = tmp_path / "out.sdf"
         _write_input(inp, ["spec_0_0", "spec_0_1", "spec_0_2"])
 
-        bo.optimizing(
+        bo.Optimizer(
             str(inp),
             str(out),
             adapter=adapter,
@@ -195,7 +195,7 @@ class TestTautomerSelectionReadsTheSameUnit:
         inp = tmp_path / "in.sdf"
         out = tmp_path / "opt.sdf"
         _write_input(inp, ["id1@taut0_0_0", "id1@taut1_0_0"])
-        bo.optimizing(
+        bo.Optimizer(
             str(inp),
             str(out),
             adapter=adapter,

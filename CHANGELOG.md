@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its force-convergence key `opttol` rather than `convergence_threshold`;
   doing so now emits a `DeprecationWarning`, and the legacy key is removed
   in 4.0.
+- `batch_opt.batchopt.optimizing`, `batch_opt.model_wrapper.EnForce_ANI` and
+  `domain.ranking.ranking` are renamed `Optimizer`, `BatchedEnergyForce` and
+  `ConformerRanker`; the old lowercase names stay importable for one release
+  through a module `__getattr__` that emits a `DeprecationWarning`, and are
+  removed in 4.0.
 
 ## [3.2.0] - 2026-10-09
 

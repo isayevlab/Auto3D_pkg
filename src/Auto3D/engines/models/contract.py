@@ -22,7 +22,7 @@ cannot be read separately.
   :class:`Auto3D.engines.models.adapter.BaseModelAdapter`, which supplies
   working defaults for every member). Users never do. Enforced by
   :func:`missing_adapter_members`, which
-  :class:`Auto3D.engines.batch_opt.model_wrapper.EnForce_ANI` consults on construction.
+  :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce` consults on construction.
 
 Contract B is what every model *invocation* inside Auto3D goes through, and that
 is deliberate. ``Auto3D.entry.ASE.thermo`` used to reach a model four different ways
@@ -212,7 +212,7 @@ class ModelAdapter(Protocol):
 
     This Protocol IS ``@runtime_checkable``, and unlike before it is actually
     consulted: :func:`missing_adapter_members` is called by
-    :class:`Auto3D.engines.batch_opt.model_wrapper.EnForce_ANI`. Be clear about what that
+    :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce`. Be clear about what that
     buys, because overselling it is how the decorator became decorative in the
     first place: a presence check catches a **category error** (a raw
     ``nn.Module``, a third-party calculator, an engine-name string), NOT a
@@ -295,7 +295,7 @@ class ModelAdapter(Protocol):
 
         A conforming adapter must reject a non-finite result itself (raise, as
         every in-tree adapter's ``forward`` does via ``_validate_outputs``),
-        not return it quietly: ``EnForce_ANI._step_active_subset`` derives its
+        not return it quietly: ``BatchedEnergyForce._step_active_subset`` derives its
         own non-finite flag from BOTH ``energies`` and ``forces`` as a second
         line of defense (R38/R69), not as the only gate -- a finite energy
         paired with non-finite forces that reaches it undetected is scored as

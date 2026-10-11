@@ -13,7 +13,7 @@ emits explicit H), or carrying a dummy atom (an R-group placeholder is not a
 species, N-M3). :func:`classify_records` applies it to one read of a file and
 returns the partition (:class:`ClassifiedRecords`) without logging anything.
 Two views report-and-keep over that one partition: :func:`iter_conformer_records`
-(callers: ``tautomer.select_tautomers`` and ``batch_opt.batchopt.optimizing.run``)
+(callers: ``tautomer.select_tautomers`` and ``batch_opt.batchopt.Optimizer.run``)
 and ``entry._run_setup.prepare_single_file_run`` (callers: ``SPE.calc_spe``,
 ``ASE.geometry.opt_geometry``, and ``ASE.thermo.driver.calc_thermo``, the last
 passing its own partial ``skip_messages`` table so a defective record is
@@ -320,7 +320,7 @@ def classify_records(path: str) -> ClassifiedRecords:
 def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     """Yield the SDF records at ``path`` a per-record consumer can process.
 
-    ``tautomer.select_tautomers`` and ``batch_opt.batchopt.optimizing.run``
+    ``tautomer.select_tautomers`` and ``batch_opt.batchopt.Optimizer.run``
     each used to inline their own copy of this filter by hand -- some only the
     None/conformerless half, with nothing pinning them in agreement, and none
     of them skipping an implicit-hydrogens or dummy-atom record. This is the

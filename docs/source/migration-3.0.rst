@@ -789,11 +789,11 @@ different parameter and is unchanged.
 .. code:: python
 
    # before
-   opt = optimizing(in_f, out_f, "AIMNET", device, config)
+   opt = Optimizer(in_f, out_f, "AIMNET", device, config)
 
    # 3.0
    from Auto3D.model_factory import create_model
-   opt = optimizing(in_f, out_f, adapter=create_model("AIMNET", device),
+   opt = Optimizer(in_f, out_f, adapter=create_model("AIMNET", device),
                     device=device, config=config)
 
 ``optimizing`` no longer resolves a model name itself -- ``batch_opt`` does not
@@ -884,8 +884,10 @@ a logged warning instead of disappearing from the output with no trace.
 ``ConformerRanker`` on a file Auto3D's optimizer did not write
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``ConformerRanker`` (aliased ``Auto3D.ranking.ranking``) is public and
-documented, and only ``batch_opt`` writes the ``Converged`` SD property. The
+``ConformerRanker`` is public and documented. (The lowercase ``ranking`` alias
+in ``Auto3D.domain.ranking`` is deprecated in favor of
+``Auto3D.domain.ranking.ConformerRanker`` and is removed in 4.0.) Only
+``batch_opt`` writes the ``Converged`` SD property. The
 three convergence filters treated a missing ``Converged`` as "did not
 converge", so ranking an ``opt_geometry`` output, an ORCA/Gaussian export or a
 hand-built conformer set dropped **every** record: ``[]`` returned, a
