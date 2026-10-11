@@ -23,10 +23,11 @@ def hide_optional_dependency(monkeypatch, name: str, *, reset_model_cache: bool 
     parent). ``reset_model_cache`` swaps ``ModelFactory._cache`` for an empty
     dict so a model built by an earlier test cannot satisfy a request without
     reaching the import; monkeypatch restores the populated cache afterwards.
-    Without it, the command succeeds and the test fails asserting the
-    dependency error -- but only when the suite happens to run a model build
-    first, which is why this surfaced as an intermittent failure under
-    ``pytest-randomly`` rather than a reliable one.
+    Without it, a cached model resolves the request without ever reaching the
+    blocked import, so a test asserting the dependency error fails -- but
+    only when the suite happens to run a model build first, which is why this
+    surfaced as an intermittent failure under ``pytest-randomly`` rather than
+    a reliable one.
     """
     for cached in [m for m in sys.modules if m == name or m.startswith(name + ".")]:
         monkeypatch.delitem(sys.modules, cached)

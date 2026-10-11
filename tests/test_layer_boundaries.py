@@ -214,10 +214,15 @@ def test_no_module_imports_a_higher_layer(module_scope_only):
         f"a lower layer imports a higher one ({scope}); move the code or add a "
         "dated entry to UPWARD_EXEMPTIONS saying what removes it:\n  " + "\n  ".join(unexpected)
     )
-    assert not stale, (
-        f"these UPWARD_EXEMPTIONS no longer correspond to a real edge ({scope}) "
-        f"-- delete them: {sorted(stale)}"
-    )
+    if not module_scope_only:
+        # Checked only here, not at module scope: an exemption is stale only
+        # when no edge in ANY scope still needs it, and the module-scope run
+        # cannot see a function-scope edge, so it would flag one that is
+        # actually still live.
+        assert not stale, (
+            f"these UPWARD_EXEMPTIONS no longer correspond to a real edge -- "
+            f"delete them: {sorted(stale)}"
+        )
 
 
 def test_no_two_packages_import_each_other():

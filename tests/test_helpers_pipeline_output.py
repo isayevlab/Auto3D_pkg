@@ -81,7 +81,7 @@ def _annotate_ranked(
 
 
 def _annotate_optimized(mol: Chem.Mol, name: str) -> Chem.Mol:
-    """Stamp a molecule with the properties ``batch_opt.optimizing`` writes."""
+    """Stamp a molecule with the properties ``Optimizer`` writes."""
     out = Chem.Mol(mol)
     out.SetProp("_Name", name)
     value = _plausible_energy(mol)
