@@ -18,6 +18,7 @@ the whole ``Auto3D.engines.models`` package. The overwrite guards live in
 from __future__ import annotations
 
 import collections
+import os
 import re
 from collections.abc import Iterable
 
@@ -89,7 +90,7 @@ def iter_smi_records(path, *, on_malformed="skip"):
         yield line_no, parts[0], parts[1]
 
 
-def write_smi_records(path: str, records: Iterable[tuple[str, str]]) -> None:
+def write_smi_records(path: str | os.PathLike[str], records: Iterable[tuple[str, str]]) -> None:
     """Write ``(smiles, mol_id)`` pairs as a ``.smi`` file, one per line.
 
     The writer side of :func:`iter_smi_records` (P-m28, R20): a ``smiles id``
@@ -105,7 +106,9 @@ def write_smi_records(path: str, records: Iterable[tuple[str, str]]) -> None:
     intend to replace.
 
     Args:
-        path: Output ``.smi`` path.
+        path: Output ``.smi`` path -- a plain string or a ``Path``-like
+            object (``ChunkManager``'s one real caller passes a
+            ``pathlib.Path``).
         records: ``(smiles, mol_id)`` pairs, in the order to write them.
     """
     with open(path, "w") as f:

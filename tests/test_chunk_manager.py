@@ -190,6 +190,34 @@ class TestCalculateMemoryAndChunks:
         memory_gb, _, _ = manager.calculate_memory_and_chunks()
         assert memory_gb == 4
 
+    def test_cpu_memory_never_drops_below_one_gb(self, monkeypatch, tmp_path, smi_input):
+        """R55: the CPU branch's memory_gb must floor at 1 GB, matching the
+        GPU branch's own floor (`_gpu_free_memory_gb`'s `max(1, ...)` and the
+        nvidia-smi-fallback's explicit `memory_gb = 1`) -- under 1 GiB
+        available (or an equally tight cgroup limit), `int(available /
+        1024**3)` truncates to 0, which would collapse chunk sizing (and the
+        batchsize_atoms scaling derived from it) to its unscaled floor."""
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "CGROUP_MEMORY_MAX_PATH", tmp_path / "absent"
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager, "CGROUP_V1_LIMIT_PATH", tmp_path / "absent-v1"
+        )
+        monkeypatch.setattr(
+            Auto3D.orchestration.chunk_manager.psutil,
+            "virtual_memory",
+            lambda: MagicMock(total=16 * 1024**3, available=int(0.5 * 1024**3)),
+        )
+        manager = ChunkManager(
+            config=Auto3DOptions(path=str(smi_input), k=1, use_gpu=False),
+            input_path=smi_input,
+            input_format="smi",
+            job_dir=tmp_path,
+            workflow_logger=None,
+        )
+        memory_gb, _, _ = manager.calculate_memory_and_chunks()
+        assert memory_gb == 1
+
     def test_chunk_size_includes_capacity_multiplier(self, tmp_path):
         """Chunk size should be memory_gb * capacity."""
         config = Auto3DOptions(path="test.smi", k=1, memory=4, capacity=100)

@@ -21,7 +21,7 @@ longer pay for a cost anyone is measuring today. They stay regardless: they are
 what keeps a future module-scope import of this module from L5 cheap, and
 removing them would make that cost reappear silently, in whichever command
 imported it. Each function defers its own import, with a comment saying why --
-see ``check_gpu_requested`` and ``_requires_aimnet`` /
+see ``check_gpu_requested`` and ``requires_aimnet`` /
 ``check_engine_supports_molecules`` below. The ``Chem.Mol`` annotations still
 type-check without a runtime rdkit import because ``from __future__ import
 annotations`` (PEP 563) makes every annotation a string that is never
@@ -139,7 +139,7 @@ def has_dummy_atoms(mol: Chem.Mol) -> bool:
     The predicate itself lives in ``foundation`` because ``utils/sdf_io.py``
     applies it per SDF record and ``foundation`` may not import ``engines``.
     It is surfaced here as well because it is a *model* precondition of the
-    same kind as :func:`_requires_aimnet`: a model-layer caller asking "can the
+    same kind as :func:`requires_aimnet`: a model-layer caller asking "can the
     engine represent this molecule" should find it next to the other answer
     rather than in a graph-properties helper.
 
@@ -207,7 +207,7 @@ def _is_zwitterion(mol: Chem.Mol) -> bool:
     skeleton, rather than merely depicted with formal charges on one bond.
 
     A zwitterion (e.g. the amino-acid form ``[NH3+]CC(=O)[O-]``) passes
-    ``_requires_aimnet``'s charge test unchanged -- the net charge really is
+    ``requires_aimnet``'s charge test unchanged -- the net charge really is
     zero -- so it reaches ANI2x/ANI2xt silently today. Both networks take no
     total-charge input and were parameterized on net-neutral, closed-shell
     molecules, so a zwitterion's internal charge separation is an
@@ -234,7 +234,7 @@ def _is_zwitterion(mol: Chem.Mol) -> bool:
         least one "free" cation (no directly-bonded anionic neighbor) and at
         least one "free" anion (no directly-bonded cationic neighbor).
     """
-    # Deferred for the same reason as _requires_aimnet's.
+    # Deferred for the same reason as requires_aimnet's.
     from rdkit import Chem
 
     if Chem.rdmolops.GetFormalCharge(mol) != 0:
@@ -265,7 +265,7 @@ def check_engine_supports_molecules(
     #10).
 
     `check_input` already runs the element/charge/radical half of this check
-    (via check_smi_format / check_sdf_format, which call `_requires_aimnet`
+    (via check_smi_format / check_sdf_format, which call `requires_aimnet`
     above) for main() and smiles2mols. calc_spe, opt_geometry and calc_thermo
     take an SDF path directly and never go through check_input, so they call
     this function themselves instead.
@@ -281,7 +281,7 @@ def check_engine_supports_molecules(
     points, which never reach that code, were missing entirely).
 
     A net-zero zwitterion requested on ANI2x/ANI2xt is not an error either --
-    its net charge really is zero, so ``_requires_aimnet`` does not flag it --
+    its net charge really is zero, so ``requires_aimnet`` does not flag it --
     but those networks take no total-charge input and were parameterized on
     net-neutral, closed-shell molecules, so a zwitterion's internal charge
     separation is an extrapolation for them; it gets the same
@@ -300,9 +300,9 @@ def check_engine_supports_molecules(
             one molecule is charged, open-shell, or contains an element
             outside the ANI training set.
     """
-    # Deferred for the same reason as _requires_aimnet's: this module sits on
+    # Deferred for the same reason as requires_aimnet's: this module sits on
     # the CLI's `--help` path, and only the isinstance check below (plus
-    # whatever _requires_aimnet needs, imported separately there) actually
+    # whatever requires_aimnet needs, imported separately there) actually
     # touches rdkit.
     from rdkit import Chem
 
@@ -338,7 +338,7 @@ def check_engine_supports_molecules(
             "(radical) electrons."
         )
 
-    # Every molecule here passed _requires_aimnet (net charge zero, in-set
+    # Every molecule here passed requires_aimnet (net charge zero, in-set
     # elements, no radical), so a zwitterion among them is not an error -- but
     # it is still an extrapolation for ANI2x/ANI2xt (see _is_zwitterion).
     # Batched into ONE warning per call, same reasoning as the AIMNET/

@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   size divides the chunk size evenly.
 - `ChunkManager`'s CPU-only chunk sizing now uses the host's *available*
   memory instead of *total*, and is further clamped to this process'
-  cgroup memory limit (v1 or v2) when one is set; the figure used is logged.
+  cgroup memory limit (v1 or v2) when one is set, never below 1 GB; the
+  figure used is logged.
 - `ChunkManager`'s `num_jobs` now reflects every GPU listed in `--gpu-idx`
   even when `--memory` is also given explicitly; it previously collapsed
   back to a single job in that combination.

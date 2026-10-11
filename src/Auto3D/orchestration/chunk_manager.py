@@ -280,19 +280,33 @@ class ChunkManager:
             # sizing -- and the batchsize_atoms scaling derived from it --
             # wildly optimistic. Further clamped to this process' cgroup
             # memory limit, if any: a container or shared box can confine it
-            # to far less than psutil reports for the whole machine.
+            # to far less than psutil reports for the whole machine. Floored
+            # at 1 GB either way (R55), matching the GPU branch's own floor
+            # (`_gpu_free_memory_gb`'s `max(1, ...)` and the nvidia-smi
+            # fallback's explicit `memory_gb = 1`): under 1 GiB, the raw
+            # `int(bytes / 1024**3)` truncates to 0, which would collapse
+            # chunk sizing -- and the batchsize_atoms scaling derived from
+            # it -- to its unscaled floor instead of merely being
+            # conservative.
             available = psutil.virtual_memory().available
             limit = _cgroup_memory_limit_bytes()
             if limit is not None and limit < available:
+                raw_gb = int(limit / (1024**3))
+                memory_gb = max(1, raw_gb)
+                floor_note = " (floored to 1 GB; R55)" if raw_gb < 1 else ""
                 self._log_info(
                     f"cgroup memory limit ({int(limit / 1024**3)} GB) is lower "
                     f"than the host's available memory "
-                    f"({int(available / 1024**3)} GB); using the cgroup limit."
+                    f"({int(available / 1024**3)} GB); using the cgroup "
+                    f"limit{floor_note}."
                 )
-                memory_gb = int(limit / (1024**3))
             else:
-                self._log_info(f"Using the host's available memory: {int(available / 1024**3)} GB.")
-                memory_gb = int(available / (1024**3))
+                raw_gb = int(available / (1024**3))
+                memory_gb = max(1, raw_gb)
+                floor_note = " (floored to 1 GB; R55)" if raw_gb < 1 else ""
+                self._log_info(
+                    f"Using the host's available memory: {int(available / 1024**3)} GB{floor_note}."
+                )
 
         # Clamp to at least 1: a fractional/zero capacity would otherwise make
         # data_size // chunk_size explode num_chunks or raise ZeroDivisionError.
