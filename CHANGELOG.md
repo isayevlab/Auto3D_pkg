@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The isomer-enumeration log line now spells out "cis/trans" correctly
+  (previously logged as "cis/tran").
+
 ### Changed
 - An out-of-range `--gpu-idx` now exits 4 (`GPUError`) from `auto3d run` and
   from `main()`/`smiles2mols`, matching the documented exit-code table;

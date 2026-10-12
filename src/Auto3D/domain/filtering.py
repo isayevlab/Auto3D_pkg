@@ -1,21 +1,20 @@
 #!/usr/bin/env python
 """The one conformer filter: duplicate removal with hierarchical RMSD comparison.
 
-Auto3D carried two implementations of this until 3.0.0 -- this energy-clustered
-one and a legacy all-pairs ``filter_unique``, selected by
-``ConformerRanker(use_optimized_filtering=...)``. They applied the identical
-duplicate criterion and were kept side by side so each could act as the other's
-oracle, but a boolean kwarg that swaps one filter for another is two behaviors
-to keep in step, and they had already drifted on malformed input: the legacy one
-tolerated a record with no usable ``E_tot`` while this one raised ``KeyError``
-from its sort key. The survivor tolerates it (see :func:`_energy_sort_key`), and
-the flag and the duplicate implementation are gone.
+:func:`filter_conformers` (which :func:`filter_unique_optimized` wraps for
+callers that want only the survivors) sorts by energy and only
+RMSD-compares molecules close enough in energy to be duplicates at all,
+which avoids comparing all pairs without changing which molecules survive.
+A pair counts as a duplicate only when the two are the same compound
+(:func:`Auto3D.domain.stereo_check.species_key`), their heavy-atom RMSD is
+under ``rmsd_threshold``, and their energies agree within
+``DEFAULT_DUPLICATE_ENERGY_TOL`` -- or, when either record has no usable
+``E_tot`` (see :func:`_energy_sort_key`), that energy term cannot apply and
+the filter falls back to comparing all pairs, so verdicts stay consistent
+regardless of how the rest is partitioned.
 
 The filter reports **why** it dropped things, not just what survived
-(:class:`FilterResult`). ``ranking`` used to log "No structure converged" for a
-species whose conformers were all dropped for *stereochemistry* -- a message
-that sent the reader to the optimizer settings for a problem in the input's
-stereo definitions.
+(:class:`FilterResult`).
 """
 
 from __future__ import annotations
@@ -190,7 +189,7 @@ def filter_conformers(
     be duplicates at all, which avoids comparing all pairs **without changing
     which molecules survive** -- the partitioning is chosen so that no duplicate
     pair can be separated by it. See the comment on the split rule below for why
-    that holds; it did not hold before 3.0.0.
+    that holds.
 
     A pair counts as a duplicate only when all three of these agree: the two are
     the same compound (:func:`Auto3D.domain.stereo_check.species_key`), their
@@ -229,8 +228,8 @@ def filter_conformers(
     # record of any SDF batchopt did not write.
     #
     # Checked in this order, one reason attributed per record, so a structure
-    # that fails several is reported under the first -- the same short-circuit
-    # order the single `and` chain here used to have, hence the same verdicts.
+    # that fails several is reported under the first, matching short-circuit
+    # evaluation order.
     valid_mols: list[Chem.Mol] = []
     for mol in mols:
         if mol is None:
@@ -272,18 +271,18 @@ def filter_conformers(
     #
     # `energy_cluster_window` is honored as a lower bound on the split gap, since
     # splitting on LARGER gaps is always safe (it only merges runs and compares
-    # more pairs). It therefore stays a performance knob and can no longer become
-    # a correctness hole. Runs are no longer width-bounded, so a dense energy
-    # ladder degrades to comparing all pairs -- the price of the guarantee, on
+    # more pairs). Runs are not width-bounded; the knob is a performance
+    # control only, never a correctness one -- a dense energy
+    # ladder degrades to comparing all pairs, the price of the guarantee, on
     # conformer counts that are tens per species.
     #
     # That entire argument rests on every record HAVING an energy. As soon as one
     # does not, no gap proves anything about it: `_filter_within_cluster` falls
     # back to RMSD-only for a pair where either side's energy is missing, so such
     # a record can be a duplicate of any same-species structure at any energy.
-    # The honest response is to stop partitioning and compare all pairs, which is
-    # exactly what the legacy all-pairs filter did with this input -- so the
-    # survivor keeps its verdicts. Malformed input is rare and reaches here only
+    # On a record missing E_tot the filter falls back to comparing all pairs,
+    # so verdicts stay consistent regardless of how the rest is partitioned.
+    # Malformed input is rare and reaches here only
     # through a direct API call (`ConformerRanker` refuses a record with no
     # 'E_tot' up front), so the quadratic cost is paid where it is warranted.
     if any(energy is None for energy in energies):

@@ -46,9 +46,10 @@ def select_tautomers(
             ``<dir(sdf)>/<stem>_top_tautomers.sdf``. Keyword-only, and
             defaults to False because that name is one Auto3D *derives* rather
             than one the caller chose: ``Chem.SDWriter`` truncates on open, so
-            ``select_tautomers("/data/results.sdf", k=1)`` used to replace an
-            existing ``/data/results_top_tautomers.sdf`` with this call's
-            selection, silently. Auto3D's own routes are unaffected --
+            ``select_tautomers("/data/results.sdf", k=1)`` would otherwise
+            silently replace an existing
+            ``/data/results_top_tautomers.sdf`` with this call's selection.
+            Auto3D's own routes are unaffected --
             ``get_stable_tautomers`` passes ``main()``'s output, which lives in
             a job directory created fresh for that run, and ``auto3d
             tautomers`` additionally gates its ``-o`` with
@@ -82,10 +83,10 @@ def select_tautomers(
     # it is, rather than reported as no selector given at all.
     if (k is not None) and (k < 1):
         raise ConfigurationError(f"tauto_k must be >= 1, got {k}")
-    # require_selector is called here, not inside the grouping loop below: a
-    # check placed inside the loop cannot fire for an input that yields no
-    # groups, so a zero-record SDF used to write an empty output and return
-    # its path for a call that specified no selection at all.
+    # Checked here rather than inside the grouping loop below, because a
+    # loop-scoped check cannot fire for an input that yields no groups at
+    # all; a zero-record SDF needs the same explicit no-selection rejection
+    # as any other input.
     require_selector(k, window)
 
     # Resolved and gated up front, before the input is read and grouped:
@@ -102,7 +103,7 @@ def select_tautomers(
     # two report-and-keep views over `classify_records`, and
     # `record_skip_reason` is the one statement of which records are
     # defective -- calc_spe and opt_geometry apply the identical guard for the
-    # identical reason (N-C1), through the other view,
+    # identical reason, through the other view,
     # `entry._run_setup.prepare_single_file_run`, rather than through this
     # function. Two of those reasons bite particularly hard here: a record
     # with implicit hydrogens is a heavy-atom skeleton, and one carrying a
@@ -117,12 +118,12 @@ def select_tautomers(
     titles = [mol.GetProp("_Name") for mol in mols]
     # Tautomers of one input molecule are named "id@tautN"; strip_taut_suffix
     # is the single owner of that parse (Auto3D.foundation.utils.smi_io) --
-    # this used to split on a bare '@' by hand, which also truncates a user ID
-    # that legitimately contains '@' (an email-style ID, say), the same drift
-    # bug M-audit found in foundation/results.py.
-    # .strip() FIRST, then strip_taut_suffix: the regex is end-anchored
-    # (Chem-M5), so trailing whitespace after a "@tautN" suffix would
-    # otherwise stop it from matching at all (fix round 2; the same order
+    # splitting on a bare '@' by hand would also truncate a user ID that
+    # legitimately contains '@' (an email-style ID, say), the same drift
+    # risk as foundation/results.py.
+    # .strip() FIRST, then strip_taut_suffix: the regex is end-anchored,
+    # so trailing whitespace after a "@tautN" suffix would
+    # otherwise stop it from matching at all (the same order
     # id_mapping.decode_ids already uses).
     ids = [strip_taut_suffix(title.strip()) for title in titles]
     energies = [e_tot_hartree(mol) * HARTREE_TO_KCAL_PER_MOL for mol in mols]

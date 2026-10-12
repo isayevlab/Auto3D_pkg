@@ -98,9 +98,10 @@ def vib_hessian(
     coord = torch.tensor(atoms.get_positions()).to(device).unsqueeze(0)
     num_atoms = coord.shape[1]
     # The species convention comes from the adapter, so ANI2xt's 0-based network
-    # indices are built here exactly as they are for the optimization batch. This
-    # used to be raw atomic numbers, remapped (or not) further down inside a
-    # name-keyed helper -- one more place the convention could disagree.
+    # indices are built here exactly as they are for the optimization batch,
+    # rather than as raw atomic numbers remapped (or not) further down inside
+    # a name-keyed helper -- which would be one more place the convention
+    # could disagree.
     numbers = torch.tensor([adapter.to_species([a.GetAtomicNum() for a in mol.GetAtoms()])]).to(
         device
     )
@@ -286,9 +287,9 @@ def project_vibrations(
     mass-weighted Hessian and returns all ``3N`` eigenvalues; six of them (five
     for a linear molecule) are the translations and rotations, which are exact
     zero modes only at a stationary point in exact arithmetic and in practice
-    land at small positive or negative values. Auto3D used to hand that full
-    ``3N`` list to ``IdealGasThermo`` and let ASE decide which entries were
-    vibrations. That is not a stable interface: ASE 3.23.0-3.27.x sort the list
+    land at small positive or negative values. Handing that full
+    ``3N`` list to ``IdealGasThermo`` and letting ASE decide which entries are
+    vibrations is not a stable interface: ASE 3.23.0-3.27.x sort the list
     by ``np.abs`` and keep the last ``3N-6``; ASE 3.28.0 and later sort by
     ``(f**2).real`` and keep the last ``3N-6`` (``vib_selection='highest'``,
     the default). The two rules disagree whenever any vibrational mode is
@@ -316,7 +317,7 @@ def project_vibrations(
     point: identical to 0.00 cm-1); where it does not, this is the only
     correct answer.
 
-    **A bent stationary point inside the linearity window** (N-M4). ``_detect_geometry``
+    **A bent stationary point inside the linearity window**. ``_detect_geometry``
     calls a molecule linear while every atom sits within ``LINEARITY_MAX_PERP_ANGSTROM``
     of the principal axis, because an optimizer leaves a linear molecule a few degrees
     off axis. But calc_thermo reaches this function only past the stationary-point
@@ -359,7 +360,7 @@ def project_vibrations(
     phantom is itself the smallest kept eigenvalue of the linear projection, so a
     comparison against that set can never fire.
 
-    **The rotor is bounded separately** (R27). Dropping the phantom and switching to
+    **The rotor is bounded separately**. Dropping the phantom and switching to
     the nonlinear rotor are two decisions, and only the first is always right. ASE's
     nonlinear rotational entropy is the classical
     ``R/2 ln(pi T^3 / (Theta_A Theta_B Theta_C))``, which needs ``Theta_A << T``; a
@@ -466,7 +467,7 @@ def project_vibrations(
         # min(|.|), not min(): a signed minimum would pick a reaction
         # coordinate's large negative eigenvalue, make the right-hand side of
         # the comparison negative, and leave a BENT SADDLE POINT inside the
-        # window unreclassifiable at any curvature -- which is the N-M4 case for
+        # window unreclassifiable at any curvature, the case for
         # a transition state. What the absolute value costs is that a near-zero
         # mode of either sign within ~4.5x of the phantom in frequency blocks
         # the test, conservatively: the molecule then stays linear.
@@ -725,12 +726,13 @@ def analyze_vibrations(
     molecule, ``3N-5`` for a linear one, none for a monatomic -- as
     ``projected_vibrations`` returns them, and raises ``ValueError`` on any
     other length. It does **not** select modes: translation and rotation were
-    already removed by projection, so there is nothing here to cut, and the
-    magnitude-sorted slice this function used to perform (to mirror what ASE
-    would do internally) is gone. Mirroring was never safe -- ASE changed that
-    rule in 3.28.0, after which Auto3D's reported ``N_imaginary_modes`` and
-    ``Is_transition_state`` described a different mode set from the one that
-    produced ``G_hartree``.
+    already removed by projection, so there is nothing here to cut, and this
+    function does not try to mirror ASE's own internal magnitude-sorted
+    selection. Mirroring would not be safe: ASE changed its own
+    selection rule in 3.28.0, so code that tried to replicate it would score
+    ``N_imaginary_modes`` and ``Is_transition_state`` from a different mode
+    set than the one that produced ``G_hartree``, depending on which ASE
+    version is installed.
 
     The three diagnostics -- ``n_imag``, ``max_imag_cm`` and
     ``is_transition_state`` -- are computed first, on the untouched input.
@@ -767,7 +769,7 @@ def analyze_vibrations(
        handing a single floored list to ``IdealGasThermo`` does. That
        simplification is measured, not assumed: at 298 K a mode below the
        floor carries ``ZPE + dH_vib`` of 0.594 kcal/mol at 30 cm-1 and 0.604
-       at 100 cm-1 -- the zero-point rise is cancelled by the thermal-enthalpy
+       at 100 cm-1 -- the zero-point rise is canceled by the thermal-enthalpy
        fall -- so raising everywhere differs from raising inside the entropy
        only by 0.010-0.012 kcal/mol per mode.
 

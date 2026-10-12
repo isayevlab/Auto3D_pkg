@@ -29,11 +29,10 @@ logger = get_logger(__name__)
 def _annotate_and_rewrite(outpath: str) -> None:
     """Add the unit-labeled ``E_tot(Hartree)`` sibling in-place, atomically.
 
-    This function used to CONVERT ``E_tot`` from eV to Hartree, because
-    ``Optimizer.run()`` wrote eV. It no longer does: ``Optimizer.run()``
-    writes ``E_tot`` in Hartree like every other Auto3D writer (see
-    ``Auto3D.domain.energy``), so converting again here would divide by 27.211
-    a second time. Two jobs remain, and neither is a no-op: this pass DROPS
+    ``E_tot`` is already in Hartree here: ``Optimizer.run()`` writes
+    ``E_tot`` in Hartree like every other Auto3D writer (see
+    ``Auto3D.domain.energy``), so no conversion happens in this function.
+    Two jobs remain, and neither is a no-op: this pass DROPS
     records that failed to re-parse or carry no ``E_tot`` (so ``opt_geometry``
     output contains only usable energies), and it guarantees the unit-labeled
     ``E_tot(Hartree)`` sibling regardless of what the optimizer wrote -- the
@@ -45,7 +44,7 @@ def _annotate_and_rewrite(outpath: str) -> None:
     ``Optimizer.run()`` has already written its only copy of the optimized
     geometries to ``outpath``. Opening ``Chem.SDWriter(outpath)`` directly
     would truncate that file, so a failure partway through the rewrite would
-    destroy a completed optimization run (C14). Stage into a sibling temp file
+    destroy a completed optimization run. Stage into a sibling temp file
     and ``os.replace`` it into position instead -- which is what
     :func:`Auto3D.foundation.utils.atomic_io.atomic_write_path` does, for this
     and Auto3D's other three callers (two more in-place rewrites, plus the
@@ -117,7 +116,7 @@ def opt_geometry(
             consecutive steps. Defaults to None, which folds to opt_steps and
             so disables oscillation dropping entirely on this entry point --
             unlike ``Auto3DOptions``, whose default is the 250-step
-            ``DEFAULT_PATIENCE``. Must be >= 1 (N-m21); an explicit value at
+            ``DEFAULT_PATIENCE``. Must be >= 1; an explicit value at
             or above opt_steps -- which can never trigger before opt_steps's
             own step limit does -- is accepted but logged as a WARNING.
         batchsize_atoms: Number of atoms per optimization batch, used **as
@@ -145,7 +144,7 @@ def opt_geometry(
         Path to output SDF file with optimized geometries.
 
     Raises:
-        ConfigurationError: if ``patience < 1`` (N-m21): below that bound a
+        ConfigurationError: if ``patience < 1``: below that bound a
             structure is dropped as "oscillating" before the optimizer does
             any useful work, with no error naming why -- raised before any
             model is loaded.
@@ -183,8 +182,8 @@ def opt_geometry(
     )
     # If every record of `path` was skipped as defective there is nothing to
     # optimize, and that is a defect in the INPUT -- an InputValidationError
-    # (exit 2), not the OptimizationError (exit 7) this used to raise, which
-    # names the optimizer for a file the optimizer never saw. Checked here
+    # (exit 2), not an OptimizationError (exit 7), which would name the
+    # optimizer for a file the optimizer never saw. Checked here
     # rather than relying on `Optimizer.run()`'s own "input file is empty"/"no
     # valid molecules" early returns, which would load the model for nothing.
     setup.require_records(path)
@@ -195,7 +194,7 @@ def opt_geometry(
     # limit always ends the run first (batch_opt.optimization_engine's loop
     # stops at opt_steps regardless of each structure's own
     # non-improving-step count), so this is almost certainly a mistake rather
-    # than an intentional "never drop as oscillating". `>=`, not `>` (M3): the
+    # than an intentional "never drop as oscillating". `>=`, not `>`: the
     # oscillation counter starts at 0 and the step-1 force is always a
     # reduction (smallest_fmax0 seeded at +inf, optimization_engine.py), so it
     # can reach at most opt_steps - 1 after opt_steps steps -- `not_oscillating
@@ -219,14 +218,14 @@ def opt_geometry(
         patience=patience if patience is not None else opt_steps,
         batchsize_atoms=batchsize_atoms,
     )
-    # Built here, in the process that runs the optimization. `Optimizer` no
-    # longer constructs its own adapter (audit M41); see the note at
+    # Built here, in the process that runs the optimization: `Optimizer`
+    # does not construct its own adapter; see the note at
     # `Auto3D.orchestration.workflow_workers.optim_rank_wrapper` about why construction must
     # not be hoisted past the frame that does the work.
     adapter = create_model(model_name, device)
     # `Optimizer` (Auto3D.engines.batch_opt.batchopt) reads `path` itself
     # through `iter_conformer_records`, which is the same `classify_records`
-    # policy the prologue above applied (N-C1), so the two agree on what counts
+    # policy the prologue above applied, so the two agree on what counts
     # as a record without this function having to re-derive or re-write anything
     # for it -- which is why `setup.records` is only counted here, never passed
     # on.
@@ -256,6 +255,6 @@ def opt_geometry(
 
     # `Optimizer.run()` already wrote E_tot in Hartree; this pass only adds
     # the unit-labeled sibling, staged through a temp file so a failed rewrite
-    # cannot destroy the completed optimization (C14)
+    # cannot destroy the completed optimization
     _annotate_and_rewrite(outpath)
     return outpath

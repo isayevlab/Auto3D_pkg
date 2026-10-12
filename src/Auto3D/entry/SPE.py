@@ -66,8 +66,7 @@ def calc_spe(
         tag="E",
     )
     # calc_spe computes over the whole set at once (one padded batch), so a file
-    # with no usable record is an input error, not an empty output file: this
-    # used to write a 0-byte SDF and return its path with exit code 0.
+    # with no usable record is an input error, not an empty output file.
     setup.require_records(path)
     mols = setup.records
     outpath = Path(setup.out_path)
@@ -83,16 +82,16 @@ def calc_spe(
     # atom mask is forwarded to the model: an adapter that flattens a padded
     # batch (AIMNet2) must be told which slots are real rather than inferring
     # it from `species == species_pad`, which deletes a legitimate atomic
-    # number 0 (an R-group `*` atom) along with the padding (audit C13).
+    # number 0 (an R-group `*` atom) along with the padding.
     # One argument, one source: the adapter supplies the species convention AND
-    # both pad values. This call used to hand over `model_name` alongside the
-    # adapter's two pads, so the remap and the sentinel came from different
-    # places and could contradict each other (audit C3/C4).
+    # both pad values, so the remap and the sentinel cannot come from
+    # different places and contradict each other, the way handing over
+    # `model_name` alongside the adapter's two pads separately would allow.
     coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(mols, model_adapter, device)
 
-    # Energies only. This used to call `forward_batched` and discard the forces
-    # it returned, so every single-point energy ran a full backward pass for a
-    # tensor nobody read (audit M39). `energy_batched` splits into exactly the
+    # Energies only. Calling `forward_batched` and discarding the forces it
+    # returns would run a full backward pass for every single-point energy,
+    # for a tensor nobody reads. `energy_batched` splits into exactly the
     # same sub-batches -- memory behavior is unchanged -- and goes through
     # `ModelAdapter.energy`, which is energy-only.
     #

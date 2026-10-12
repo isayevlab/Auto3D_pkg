@@ -218,8 +218,8 @@ class BaseModelAdapter(ABC, nn.Module):
         :class:`AIMNet2Adapter`, whose calculator computes forces itself,
         overrides :meth:`forward` wholesale instead and supplies its own
         one-line ``_energy_graph`` returning ``forward``'s first output --
-        the same shape its ``energy`` used to be, just stated here instead of
-        as a conditional default.
+        the same shape its ``energy`` would otherwise be as a conditional
+        default, just stated here directly instead.
 
         The rule for subclasses, stated once here: override this hook, or
         override :meth:`forward` wholesale (and also this hook if ``energy``
@@ -294,7 +294,7 @@ class BaseModelAdapter(ABC, nn.Module):
             atom_mask: Boolean (batch, n_atoms), True for real atoms, threaded
                 through from :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`
                 to the backend; most backends ignore it because their padding
-                index is their own dummy-atom sentinel (audit C13).
+                index is their own dummy-atom sentinel.
 
         Returns:
             Tuple of (energies, forces); energies (batch,), forces

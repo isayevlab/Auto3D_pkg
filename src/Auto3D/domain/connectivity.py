@@ -28,8 +28,8 @@ __all__ = ["UFF_BOND_RADII", "check_connectivity", "amend_mol", "get_mol_connect
 #: distinction matters: UFF also tabulates ``H_b`` (bridging hydrogen, the
 #: three-center B-H-B bond) at 0.460 A, larger than the ``H_`` 0.354 A used
 #: here, but ``H_b`` is irrelevant to druglike input and adopting it would
-#: loosen every X-H broken-bond threshold by 0.13 A (N-m26 rulings Q2/R50;
-#: the hydrogen qualification). Every other tabulated element's value here
+#: loosen every X-H broken-bond threshold by 0.13 A (the hydrogen
+#: qualification). Every other tabulated element's value here
 #: already is its largest type (verified against an independent
 #: transcription of Table 1): C_3 > C_R, N_3 > N_R, O_R > O_3, S_R > S_3+2,
 #: P_3+3 > P_3+5, B_3 > B_2, and F/Cl/Br/I/Ge/As/Se/Sb/Te have one type each.
@@ -42,18 +42,18 @@ __all__ = ["UFF_BOND_RADII", "check_connectivity", "amend_mol", "get_mol_connect
 #:
 #: Exposed at module level (rather than local to check_connectivity) so
 #: clash_relief.relieve_clash can scale its own bonded-pair floor by the
-#: same per-element reference length (C1/NEW-1, ruling R51) instead of
+#: same per-element reference length instead of
 #: carrying a second, independently-maintained copy of these numbers.
 UFF_BOND_RADII: dict[int, float] = {
     1: 0.354,
     5: 0.838,
     6: 0.757,
     7: 0.700,
-    8: 0.680,  # UFF O_R (resonant/aromatic oxygen); was 0.658 (O_3), not the largest (Q2/M1).
+    8: 0.680,  # UFF O_R (resonant/aromatic oxygen); was 0.658 (O_3), not the largest.
     9: 0.668,
     14: 1.117,
-    15: 1.101,  # UFF P_3+3 (trivalent phosphorus); was 1.117, a copy of Si's radius (N-m26).
-    16: 1.077,  # UFF S_R (aromatic sulfur); was 1.064 (S_3+2), not the largest (Q2/M1).
+    15: 1.101,  # UFF P_3+3 (trivalent phosphorus); was 1.117, a copy of Si's radius.
+    16: 1.077,  # UFF S_R (aromatic sulfur); was 1.064 (S_3+2), not the largest.
     17: 1.044,
     32: 1.197,
     33: 1.211,
@@ -65,7 +65,7 @@ UFF_BOND_RADII: dict[int, float] = {
 }
 
 #: Atomic numbers already named by :func:`check_connectivity`'s untabulated-element
-#: warning in this process (N-m27).
+#: warning in this process.
 #:
 #: Module state, deliberately: the skip lives in an O(n^2) atom-pair loop, and a
 #: run optimizes the same species thousands of times, so a per-pair -- or even
@@ -141,7 +141,7 @@ def check_connectivity(mol: Chem.Mol) -> bool:
             # salts/metal complexes) have no reference radius. Skip such pairs
             # ("no opinion") rather than indexing the dict blindly, which would
             # raise KeyError and crash the whole filtering pass -- but say so
-            # once per element (N-m27), because "no opinion" on every pair means
+            # once per element, because "no opinion" on every pair means
             # this function returns True for a geometry it never checked.
             if atomic_num_i not in Radii or atomic_num_j not in Radii:
                 for z in (atomic_num_i, atomic_num_j):
@@ -215,10 +215,10 @@ def amend_mol(
     except (ValueError, RuntimeError, KeyError) as e:
         # ValueError: from RDKit SanitizeMol validation errors
         # RuntimeError: from RDKit internal errors during molecule processing
-        # KeyError: defensive only. check_connectivity no longer raises KeyError
-        #   for unknown elements (it now skips them); retained to swallow any
-        #   stray dict-lookup error from RDKit internals rather than crash the
-        #   amendment of a single molecule.
+        # KeyError: `check_connectivity` never raises `KeyError`; this `except`
+        #   is defensive-only, to swallow any stray dict-lookup error from
+        #   RDKit internals rather than crash the amendment of a single
+        #   molecule.
         logger.debug(f"Molecule amendment failed: {type(e).__name__}: {e}")
         return None
 

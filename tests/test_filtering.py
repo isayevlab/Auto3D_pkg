@@ -471,7 +471,7 @@ class TestMissingEnergyPropertyMustNotCrash:
 
         No energy gap can prove a pair is not a duplicate when one side has no
         energy, so the partitioning that makes the filter sub-quadratic has no
-        licence to separate such a record from anything. The legacy all-pairs
+        license to separate such a record from anything. The legacy all-pairs
         filter compared it to every survivor; so must this one.
         """
         with_energy = _create_mol_with_energy("CCO", -100.0)

@@ -78,8 +78,7 @@ class RDKitSdfIsomer:
 
         Thin alias for :func:`Auto3D.domain.stereochemistry.count_unspecified_stereo`,
         which owns the predicate so this path and ``check_smi_format`` cannot
-        drift apart on what counts as unspecified (they did: the SMILES path
-        used to count atom centers only and never saw an unspecified C=C).
+        drift apart on what counts as unspecified.
         """
         return _count_unspecified_stereo(mol)
 
@@ -131,13 +130,13 @@ class RDKitSdfIsomer:
         """Enumerate stereoisomers and conformers into the output SDF file.
 
         Reads through the shared :func:`~Auto3D.foundation.utils.sdf_io.classify_records`
-        policy (P-m27) rather than its own ``SDMolSupplier`` loop and inline
+        policy rather than its own ``SDMolSupplier`` loop and inline
         ``has_dummy_atoms`` check: an implicit-hydrogen record (a heavy-atom
         skeleton) and a conformerless one are both still legitimate input
         here -- this method calls ``Chem.AddHs`` and embeds every record it
         keeps regardless of what hydrogens or coordinates the input carried
         -- so both reasons are passed in ``keep``. Only an unparseable record
-        and a dummy-atom one (an R-group placeholder, N-M3 -- not a species
+        and a dummy-atom one (an R-group placeholder -- not a species
         any caller can process) are still skipped, each logged once by
         :meth:`~Auto3D.foundation.utils.sdf_io.ClassifiedRecords.log_skipped`.
 

@@ -46,8 +46,8 @@ class RDKitIsomer:
         enumerate_isomers: Whether to enumerate R/S and cis/trans isomers.
         use_parallel_embedding: Whether to use parallel conformer embedding.
             Off in this signature, which is the constructor default only: the
-            product default (``Auto3DOptions.use_parallel_embedding``) is ON
-            since 3.2.0, and both orchestrators pass it explicitly, so this
+            product default (``Auto3DOptions.use_parallel_embedding``) is ON,
+            and both orchestrators pass it explicitly, so this
             default is reached by direct callers alone.
         parallel_embedding_threshold: Fewest species (after stereoisomer
             enumeration) to trigger parallel embedding. Default 10.
@@ -167,7 +167,7 @@ class RDKitIsomer:
 
         Also returns None for a SMILES carrying a dummy atom (atomic number 0):
         an R-group placeholder is not a species, and AIMNet2 would score it
-        with its padding embedding rather than refuse it (N-M3). The serial
+        with its padding embedding rather than refuse it. The serial
         loop's warning names both possibilities, so the two cases share one
         return value rather than needing a second sentinel.
         """
@@ -194,7 +194,7 @@ class RDKitIsomer:
             Path to the enumerated SDF file.
         """
         if self.enumerate_isomers:
-            logger.info("Enumerating cis/tran isomers for unspecified double bonds...")
+            logger.info("Enumerating cis/trans isomers for unspecified double bonds...")
             logger.info("Enumerating R/S isomers for unspecified atomic centers...")
             smiles_og = self.read(self.input_f)
             for name, smiles in smiles_og.items():
@@ -277,8 +277,7 @@ class RDKitIsomer:
                     # The species is silently absent from the output either
                     # way and never reaches ranking, so not even "No structure
                     # converged" would appear for it -- named here, once, in
-                    # either case. N-m9: the two causes are distinguishable
-                    # and the old message named only one of them.
+                    # either case, since the two causes are distinguishable.
                     # `mol.GetNumConformers() == 0` means embedding itself
                     # produced nothing (ETKDG could not embed it), so clash
                     # relief never ran -- it is wrong to blame the message on

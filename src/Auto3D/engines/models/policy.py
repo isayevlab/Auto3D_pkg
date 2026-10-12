@@ -10,17 +10,16 @@ validating command-line input in order to ask whether a GPU exists.
 
 Layering: ``torch`` and ``rdkit`` are NOT imported at module scope here, even
 though every function below eventually needs one or the other. Both third-party
-packages are the expensive ones: this module used to sit on the CLI's ``--help``
-path (``Auto3D.presentation.cli.app`` -> ``commands/properties.py`` -> here), a
-bare ``import Auto3D.presentation.cli.app`` cost ~1.9s and pulled in both
-(issue #14), for a command that may do nothing more than print usage. That path
-is gone -- ``commands/properties.py`` no longer imports this module at all,
-since the guards it ran moved into the entry points' shared prologue
-(``Auto3D.entry._run_setup.prepare_single_file_run``) -- so the deferrals no
-longer pay for a cost anyone is measuring today. They stay regardless: they are
-what keeps a future module-scope import of this module from L5 cheap, and
-removing them would make that cost reappear silently, in whichever command
-imported it. Each function defers its own import, with a comment saying why --
+packages are the expensive ones, and importing either at module scope would
+charge that cost to every future caller that imports this module from L5,
+even one that only wants a name it exports and never calls a function that
+needs torch or rdkit. ``commands/properties.py`` does not import this
+module at all; the guards it needs run in the entry points' shared prologue
+(``Auto3D.entry._run_setup.prepare_single_file_run``). The module-scope
+importers today are ``_run_setup.py``, ``commands/models.py``,
+``workflow_workers.py`` and ``pipeline/input_checks.py``, and the
+deferrals are what keep those imports -- and any future L5 importer --
+cheap. Each function defers its own import, with a comment saying why --
 see ``check_gpu_requested`` and ``requires_aimnet`` /
 ``check_engine_supports_molecules`` below. The ``Chem.Mol`` annotations still
 type-check without a runtime rdkit import because ``from __future__ import
@@ -64,26 +63,10 @@ def check_gpu_requested(use_gpu: bool) -> None:
     """Raise if GPU was requested but no CUDA device is visible.
 
     Single source of truth for Auto3D's GPU policy: **fatal, not a silent
-    fallback**. Before this function existed, ``use_gpu=True`` on a CPU-only
-    box produced three different behaviors depending on the entry point
-    (M23):
-
-    - ``main()`` (via ``WorkflowOrchestrator._validate_input`` ->
-      ``check_valid_configuration``) raised ``ConfigurationError``, which
-      shows the CLI's "run 'auto3d config init'" hint -- unrelated to a GPU
-      problem.
-    - ``smiles2mols`` reached ``check_input``'s own inline check and raised
-      ``GPUError`` (the right exception, right hint), but with different
-      wording than ``check_valid_configuration``'s message.
-    - ``auto3d energy``/``optimize``/``thermo`` (``calc_spe``/
-      ``opt_geometry``/``calc_thermo``) never checked at all: they fell back
-      to CPU through ``model_factory.get_device`` with no error and no
-      warning.
-
-    A scripted user who set ``use_gpu=True`` and silently got CPU has no way
-    to know their "GPU" results were actually computed on CPU -- possibly
-    orders of magnitude slower than they assumed, with no signal anything
-    was wrong. This function is called as the *first* check everywhere GPU
+    fallback**. A scripted user who sets ``use_gpu=True`` and silently gets
+    CPU has no way to know their "GPU" results were actually computed on
+    CPU -- possibly orders of magnitude slower than they assumed, with no
+    signal anything was wrong. This function is called as the *first* check everywhere GPU
     use is decided -- ``check_input`` and ``check_valid_configuration`` for
     ``main()``/``smiles2mols``, the shared prologue
     ``Auto3D.entry._run_setup.prepare_single_file_run`` (its second step) for
@@ -102,11 +85,9 @@ def check_gpu_requested(use_gpu: bool) -> None:
     # Deferred: this is the ONLY torch user in the module (verified -- every
     # other function below needs rdkit, not torch), and it is reached on every
     # run that decides anything about a GPU. Importing torch at module scope
-    # charged that cost unconditionally, regardless of whether use_gpu was even
-    # True (issue #14) -- and charged it to `auto3d --help` too, back when
-    # commands/properties.py imported this module at module scope. It no longer
-    # does, so the deferral now protects any future L5 importer rather than a
-    # path that exists today.
+    # would charge that cost unconditionally, regardless of whether use_gpu
+    # was even True (issue #14), to every future caller that imports this
+    # module from L5, not just the ones that need it.
     #
     # Genuinely conditional on `use_gpu`, not merely relocated: this function
     # is called FIRST inside `check_input` for every run, `use_gpu=False`
@@ -174,13 +155,12 @@ def requires_aimnet(mol: Chem.Mol) -> bool:
     nonzero net formal charge, or any unpaired (radical) electron.
     ANI2x/ANI2xt have no notion of spin state -- a radical routed through
     either is silently scored as its closed-shell counterpart, wrong energy
-    AND wrong geometry, with nothing in the output to notice by (issue #10;
-    same failure shape as the charge/element cases C11 already covers, which
-    at least raise). Single implementation of this test -- check_smi_format
-    and check_sdf_format used to each inline the element/charge half as their
-    own copy of the identical {1, 6, 7, 8, 9, 16, 17} literal, which is
-    exactly how the two would silently drift apart (C11); the radical term
-    lives here for the same reason rather than being added at each call site.
+    AND wrong geometry, with nothing in the output to notice by (issue #10) --
+    the same failure shape as the charge/element cases already covered,
+    which at least raise. Single implementation of this test, covering the
+    element/charge half as well as the radical term, so ``check_smi_format``
+    and ``check_sdf_format`` cannot each carry their own copy of the
+    identical {1, 6, 7, 8, 9, 16, 17} literal and silently drift apart.
 
     Args:
         mol: An RDKit molecule.
@@ -200,7 +180,7 @@ def requires_aimnet(mol: Chem.Mol) -> bool:
     return (not elements.issubset(ANI_ELEMENTS)) or charge != 0 or n_radical_electrons != 0
 
 
-# Back-compat alias (P-m31): every pre-existing in-module and test call site
+# Back-compat alias: every pre-existing in-module and test call site
 # spells this name with the leading underscore; `requires_aimnet` above is
 # the public name new callers (orchestration's input checks) should use.
 _requires_aimnet = requires_aimnet
@@ -219,7 +199,7 @@ def _is_zwitterion(mol: Chem.Mol) -> bool:
     supports charged and net-neutral zwitterionic species, so it needs no
     such warning).
 
-    The required/forbidden distinction (R54, chemistry review I1/M3): a
+    The required/forbidden distinction: a
     cation directly bonded to an anion is one functional group drawn with
     formal charges rather than two separated sites, so nitro
     (``[O-][N+](=O)...``), N-oxides, sulfoxides written with formal charges,
@@ -265,8 +245,7 @@ def check_engine_supports_molecules(
     from {H, C, N, O, F, S, Cl}. A charged, out-of-set, or open-shell species
     handed to either is silently evaluated as a different, neutral,
     closed-shell, in-set species -- tens of kcal/mol wrong energy and wrong
-    forces, so a downstream "optimized" geometry is wrong too (C11, issue
-    #10).
+    forces, so a downstream "optimized" geometry is wrong too (issue #10).
 
     `check_input` already runs the element/charge/radical half of this check
     (via check_smi_format / check_sdf_format, which call `requires_aimnet`

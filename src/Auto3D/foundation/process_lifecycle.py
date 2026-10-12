@@ -6,15 +6,15 @@ Auto3D imports. That is the whole reason this module exists separately from
 ``Auto3D.orchestration.workflow_workers``:
 ``multiprocessing.managers.BaseManager.start(initializer=...)`` pickles the
 initializer by module-qualified reference, and the server process unpickles
-it by importing that module. When the initializer used to be
-``workflow_workers._exit_when_parent_dies``,
-every ``SyncManager`` server process -- including the ones that only ever
-hold a queue, such as the chunk queue and the logging queue in
-``Auto3D.orchestration.workflow`` -- paid for importing ``workflow_workers``,
-which pulls in ``batch_opt``/``model_factory`` and therefore torch and rdkit,
-just to be able to unpickle a function it never otherwise needed (I1,
-2026-09-24: Manager start 0.05s -> 1.79s, RSS 22MB -> 638MB on the measuring
-box). Living here instead means the server only ever imports this module.
+it by importing that module, so this module stays import-light precisely so
+that import is cheap. If the initializer were
+``workflow_workers._exit_when_parent_dies`` instead, every ``SyncManager``
+server process -- including the ones that only ever hold a queue, such as
+the chunk queue and the logging queue in ``Auto3D.orchestration.workflow``
+-- would pay for importing ``workflow_workers``, which pulls in
+``batch_opt``/``model_factory`` and therefore torch and rdkit, just to be
+able to unpickle a function it never otherwise needed. Living here instead
+means the server only ever imports this module.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 def _exit_when_parent_dies() -> None:
     """Make this worker die with its parent.
 
-    Two mechanisms, because neither alone covers every case (P-C2):
+    Two mechanisms, because neither alone covers every case:
 
     * On Linux, ``prctl(PR_SET_PDEATHSIG, SIGTERM)`` asks the kernel to send
       SIGTERM when the parent *thread* that created us exits. It is delivered
@@ -74,7 +74,7 @@ def _exit_when_parent_dies() -> None:
         # so a missing or refused prctl costs nothing a user needs to act on --
         # but a bare `pass` left no way to tell "the fast path is armed" from
         # "only the watchdog is" when diagnosing a worker that outlived its
-        # parent for longer than expected (C-12).
+        # parent for longer than expected.
         try:
             PR_SET_PDEATHSIG = 1
             libc = ctypes.CDLL("libc.so.6")

@@ -17,22 +17,21 @@ cannot be read separately.
 * **Contract B -- the adapter interface** (:class:`ModelAdapter`). Its
   consumer half -- ``forward(coords, species, charges, atom_mask=None) ->
   (energies, forces)``, ``energy`` and ``to_species`` -- is public and frozen
-  for callers of ``create_model`` (decision D4, 3.2.0). Only Auto3D's own
+  for callers of ``create_model``. Only Auto3D's own
   adapters implement it (via
   :class:`Auto3D.engines.models.adapter.BaseModelAdapter`, which supplies
   working defaults for every member). Users never do. Enforced by
   :func:`missing_adapter_members`, which
   :class:`Auto3D.engines.batch_opt.model_wrapper.BatchedEnergyForce` consults on construction.
 
-Contract B is what every model *invocation* inside Auto3D goes through, and that
-is deliberate. ``Auto3D.entry.ASE.thermo`` used to reach a model four different ways
-on the thermochemistry path -- three of them keyed on an engine-name string, one
-of them (``aimnet_hessian_helper``) a fifth calling convention with a per-engine
-argument order and its own Hartree->eV factor. Each duplicated knowledge an
-adapter already owns, and an aimnet registry alias such as ``aimnet2-2025``
-matched none of the branches. The members below are what those call sites ask
-for instead, which is why ``to_species``, ``energy`` and ``analytic_hessian``
-are here and not just ``forward``.
+Contract B is what every model *invocation* inside Auto3D goes through, and
+that is deliberate: a thermochemistry path keyed on an engine-name string, or
+calling through a per-engine convention with its own argument order and
+Hartree->eV factor, would each duplicate knowledge an adapter already owns,
+and an aimnet registry alias such as ``aimnet2-2025`` would match none of
+the branches. The members below are what such call sites need instead,
+which is why ``to_species``, ``energy`` and ``analytic_hessian`` are here
+and not just ``forward``.
 
 Note that the two take ``species`` and ``coords`` in *opposite* order, and that
 this is deliberate rather than an accident awaiting cleanup: Contract A's order
@@ -185,7 +184,7 @@ REQUIRED_ATTRIBUTES = _protocol_data_members(CustomNNP)
 class ModelAdapter(Protocol):
     """Contract B: the interface Auto3D's own model adapters present.
 
-    Public surface (decision D4, 3.2.0): ``forward``, ``energy`` and
+    Public surface: ``forward``, ``energy`` and
     ``to_species`` are public and frozen for callers of ``create_model``; any
     member added later is supplied by ``BaseModelAdapter`` and never required
     of an implementer. See ``docs/source/api.rst``.
@@ -233,9 +232,9 @@ class ModelAdapter(Protocol):
         The species convention is a property of the *model*, so it lives on the
         same object that supplies ``species_pad``. That is what makes it
         impossible for the remap and the padding sentinel to come from two
-        different sources and contradict each other -- the shape of audit
-        findings C3/C4, where a name-keyed converter and an adapter-supplied pad
-        disagreed about which slots were padding.
+        different sources and contradict each other, the way a name-keyed
+        converter and an adapter-supplied pad could otherwise disagree about
+        which slots were padding.
 
         Args:
             atomic_numbers: Atomic numbers, one per atom.
@@ -265,7 +264,7 @@ class ModelAdapter(Protocol):
                 :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`. Required from
                 any caller that passes a PADDED batch; ``None`` means every
                 slot holds a real atom. An adapter must never re-derive this by
-                comparing ``species`` against ``species_pad`` (audit C13).
+                comparing ``species`` against ``species_pad``.
 
         Returns:
             Tuple of (energies, forces) where energies has shape (batch,)
@@ -297,7 +296,7 @@ class ModelAdapter(Protocol):
         every in-tree adapter's ``forward`` does via ``_validate_outputs``),
         not return it quietly: ``BatchedEnergyForce._step_active_subset`` derives its
         own non-finite flag from BOTH ``energies`` and ``forces`` as a second
-        line of defense (R38/R69), not as the only gate -- a finite energy
+        line of defense, not as the only gate -- a finite energy
         paired with non-finite forces that reaches it undetected is scored as
         a real, converged structure.
         """
@@ -389,7 +388,7 @@ class ModelAdapter(Protocol):
         the caller can choose, but choosing fp64 is only real once the weights
         follow. This member is how the caller says so.
 
-        It exists because the caller previously said it as
+        Without it, the caller would have to say
         ``adapter.model.double()``, reaching past this contract to an attribute
         only :class:`~Auto3D.engines.models.adapter.BaseModelAdapter` happens to define.
         Every structural adapter -- test doubles, and anything a downstream user

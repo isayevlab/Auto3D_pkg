@@ -32,9 +32,7 @@ from Auto3D.domain.stereo_check import apply_optimized_coords
 # `BatchedEnergyForce` and `n_steps` are imported because this module uses them
 # (`ensemble_opt`'s annotation and `Optimizer.run`'s construction; the step
 # loop), NOT as re-exports. Their homes are `batch_opt.model_wrapper` and
-# `batch_opt.optimization_engine`; import them from there. `print_stats` used to
-# be imported here purely to re-export -- nothing in this file called it -- and
-# is gone.
+# `batch_opt.optimization_engine`; import them from there.
 from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.engines.batch_opt.optimization_engine import n_steps
 from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
@@ -90,7 +88,7 @@ def ensemble_opt(
             for padded slots. Forwarded to n_steps so forces on padded atom
             slots are ignored by the force-convergence check. Deriving this
             from a species sentinel value breaks for any model whose padding
-            value collides with a real species index (audit C13), so an
+            value collides with a real species index, so an
             explicit mask is required instead. Defaults to None, which is a
             no-op (every atom treated as real) for unpadded batches or any
             caller that omits it.
@@ -107,7 +105,7 @@ def ensemble_opt(
               ``non_finite`` below -- such a structure is never True here).
             - oscillating_count: Oscillation counter per structure
             - non_finite: Boolean, True for a structure whose energy came
-              back non-finite mid-optimization (R38) and therefore left the
+              back non-finite mid-optimization and therefore left the
               active set without converging; ``batchopt.run`` writes such a
               record ``Converged=False`` with ``Optimization_failed`` set,
               no ``E_tot``/``fmax``, instead of the normal result.
@@ -215,10 +213,10 @@ class Optimizer:
             out_f: Output SDF file path.
             adapter: A ready model adapter satisfying
                 :class:`Auto3D.engines.models.contract.ModelAdapter`, built by the
-                caller. This used to be a model NAME that this class handed to
-                ``Auto3D.engines.model_factory.create_model`` itself -- the numerical
-                layer importing upward into the construction layer and building
-                its own dependency (audit M41).
+                caller, not a model NAME handed to
+                ``Auto3D.engines.model_factory.create_model`` by this class itself --
+                that would be the numerical layer importing upward into the
+                construction layer and building its own dependency.
 
                 **The caller must construct it inside the process that will run
                 the optimization.** See the comments at the two production call
@@ -230,10 +228,8 @@ class Optimizer:
             config: OptimizationConfig dataclass or legacy dict with parameters.
             progress_cb: Optional per-step progress callback.
 
-        Everything after ``out_f`` is keyword-only on purpose: the third
-        positional slot used to be the engine name, and a stale positional caller
-        would otherwise bind a string silently into the slot that now supplies the
-        padding values.
+        Everything after ``out_f`` is keyword-only so a stray positional
+        argument cannot silently bind into the padding-values slot.
         """
         self.in_f = in_f
         self.out_f = out_f
@@ -262,9 +258,9 @@ class Optimizer:
     #
     # 1.25 (the 3.1.x default) assumed serial size buckets saved wall clock by
     # avoiding padded-atom compute; the production path is launch-bound at
-    # every batch size it reaches instead (perf review 2026-09-21, M2/M4), so
+    # every batch size it reaches instead, so
     # splitting cost wall clock rather than saving it -- measured end to end
-    # on the production path (Task 29, WS6/R37-R38):
+    # on the production path:
     # ``benchmarks/results-notes/2026-10-09-bucket-policy.md`` found merging
     # seven size buckets into one cut AIMNet2 240-conformer wall clock from
     # 33.9 s to 8.1 s and ANI2xt's from 21.0 s to 5.1 s (one NVIDIA L40S),
@@ -293,7 +289,7 @@ class Optimizer:
         sorted ascending) -- the bound on within-bucket padding waste is set
         by ``BUCKET_SIZE_FACTOR`` (see its comment for the measurement behind
         the current value). A NaN molecule no longer takes its bucket down
-        (``BatchedEnergyForce.forward_batched``'s ``tolerate_non_finite``, R38).
+        (``BatchedEnergyForce.forward_batched``'s ``tolerate_non_finite``).
 
         Args:
             mols: List of RDKit Mol objects.
@@ -378,12 +374,7 @@ class Optimizer:
         # `tautomer.select_tautomers` through this same function, and
         # `calc_spe`/`opt_geometry`/`calc_thermo` through the other view,
         # `entry._run_setup.prepare_single_file_run`. It also names
-        # every record it skips, not just the all-failed case: a single bad
-        # record among a thousand used to leave the output file shorter than
-        # the input with nothing said about which one -- for `opt_geometry`
-        # that was an output SDF with fewer records, the path returned, and
-        # exit 0, with only RDKit's own C++ parse error on stderr (which names
-        # a file offset, not a molecule) as a trace.
+        # every record it skips, not just the all-failed case.
         mols = list(iter_conformer_records(self.in_f))
 
         if not mols:
@@ -474,7 +465,7 @@ class Optimizer:
                 mol = mols[i]
                 idx = mol.GetProp("_Name")
                 if non_finite_flags[i]:
-                    # The energy never stabilized to a finite value (R38):
+                    # The energy never stabilized to a finite value:
                     # written Converged=False with the reason, and neither
                     # `E_tot` nor `fmax` (both are NaN at this row -- see
                     # `BatchedEnergyForce._non_finite_placeholder` and
@@ -539,7 +530,7 @@ class Optimizer:
         if non_finite_ids:
             # Same reasoning as n_stereo_changed above: the module logger is
             # not an ancestor of "auto3d" and this warning must reach the run
-            # log (R38 names the molecule ids and the count explicitly).
+            # log, naming the molecule ids and the count explicitly.
             logging.getLogger("auto3d").warning(
                 f"{len(non_finite_ids)} conformer(s) had a non-finite energy and are "
                 f"written Converged=False (Optimization_failed=non_finite_energy) "

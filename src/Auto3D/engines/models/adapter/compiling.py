@@ -38,8 +38,8 @@ def _try_compile(model: Callable[..., Any] | nn.Module, mode: str = "default") -
             The optimization batch shrinks every step as conformers converge, and
             bucketing produces variable sub-batch sizes, so shapes are not static.
             "reduce-overhead" (CUDA graphs) requires static shapes and would
-            trigger constant recompilation/guard failures here (review finding
-            #24); dynamic default mode avoids that.
+            trigger constant recompilation/guard failures here; dynamic
+            default mode avoids that.
 
     Returns:
         The compiled model, of whatever kind ``torch.compile`` hands back for
@@ -135,17 +135,18 @@ def _warn_if_compile_fell_back_to_eager(adapter: _CompileTrackedAdapter) -> None
     ``compile_model`` goes to ``AIMNet2Calculator`` instead), and it logs
     once per *increase* in the suppressed count (``_compile_suppressed_seen``).
 
-    This used to be gated to a single check, on the premise that whether a
-    compiled frame falls back "cannot change after the first observation".
-    That premise is false, and measurably so (T-2): Dynamo 0/1-specializes
+    Checked on every forward rather than once, because whether a compiled
+    frame falls back can change after the first observation: Dynamo
+    0/1-specializes
     the seven per-element index tensors ``ANI2xt`` builds, so each distinct
     element-presence pattern is a fresh recompile, and once
     ``torch._dynamo.config.recompile_limit`` is reached the frame runs
     eager for the rest of the process (measured on CPU: total 9, ok 8).
-    The one allowed observation, meanwhile, was spent on the
+    The one allowed observation, meanwhile, is spent on the
     compiled-vs-eager probe forward ``create_model`` runs at construction
     -- a frame that by construction compiles cleanly -- so the real
-    fallback, hundreds of steps later, was never reported at all. The
+    fallback, hundreds of steps later, would never be reported by a single
+    check. The
     factory re-baselines ``_compile_frame_stats_before`` and this count
     after that probe, so the probe's own frame is excluded from these
     deltas.

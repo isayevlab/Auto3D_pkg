@@ -60,7 +60,7 @@ def _reference_atom_energies(networks, species_idx, aev):
     """The pre-M7 loop: guard, boolean-mask read, boolean-mask write.
 
     Reimplemented here rather than imported, so bit-identity is measured against
-    an independent statement of the old behaviour.
+    an independent statement of the old behavior.
     """
     batch, atoms = species_idx.shape
     out = torch.zeros(batch, atoms, device=aev.device, dtype=torch.float64)
@@ -111,7 +111,7 @@ class TestElementIndices:
         """Same indices, same order, for every species pattern that can occur.
 
         Padded slots (``-1``) and out-of-range species get their own buckets and
-        are dropped, rather than being clamped into a neighbouring element's
+        are dropped, rather than being clamped into a neighboring element's
         network -- which is what would silently feed a stray atom to the wrong
         MLP.
         """

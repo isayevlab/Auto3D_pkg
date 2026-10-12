@@ -25,11 +25,10 @@ __all__ = ["check_output_not_input", "check_output_overwrite"]
 def check_output_not_input(path: str, out_path: str | None) -> None:
     """Refuse to write the output over the input file.
 
-    ``auto3d energy mols.sdf -o mols.sdf`` used to open ``mols.sdf`` for
-    writing while the run was still reading from it, so the user's input was
-    destroyed -- and, if the run then failed part-way, replaced by a truncated
-    file with no surviving copy of either the input or the result (C14). The
-    Phase 6 tmp+``os.replace`` staging fixes the *crash* half of C14 (a failed
+    Writing output over the input while the run is still reading it would
+    destroy the user's input, and a run that then fails partway would
+    replace it with a truncated file with no surviving copy of either. The
+    tmp+``os.replace`` staging fixes the *crash* half (a failed
     rewrite no longer leaves a partial file), but it cannot fix this half: a
     successful same-file run still deliberately overwrites the input, and no
     amount of atomicity brings the original back.
@@ -93,21 +92,26 @@ def check_output_not_input(path: str, out_path: str | None) -> None:
 def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: bool) -> None:
     """Refuse to write over a file that already exists.
 
-    ``auto3d energy junk.sdf --no-gpu -o precious.sdf`` used to exit 0, print
-    "Wrote precious.sdf", and leave ``precious.sdf`` at **0 bytes**: every
-    writer below opens ``Chem.SDWriter(outpath)``, which truncates on open,
-    and ``calc_spe`` takes an early-return branch that opens the writer and
-    writes nothing when every record in the input fails to parse.
+    Without this guard, overwriting an existing output can silently destroy
+    it: every writer below opens ``Chem.SDWriter(outpath)``, which truncates
+    on open, and ``calc_spe`` takes an early-return branch that opens the
+    writer and writes nothing when every record in the input fails to
+    parse -- so ``auto3d energy junk.sdf --no-gpu -o precious.sdf`` would
+    exit 0, print "Wrote precious.sdf", and leave ``precious.sdf`` at
+    **0 bytes**.
 
-    Be precise about *when* the destruction happened, because it is not what
-    "truncates on open" suggests: all four writers open their output only
-    after the compute is finished (``SPE.py:161``, ``ASE/thermo.py:878``,
-    ``batch_opt/batchopt.py:323`` for ``opt_geometry``, ``ranking.py:287``),
-    so a run that failed part-way left the user's file untouched. What
-    destroyed it was a run that *succeeded*, or -- for the 0-byte case above
-    -- one that had nothing to write. This guard exists because both of those
-    are silent: nothing warned that the path was occupied. ``auto3d config init`` has refused to
-    clobber an existing file since it shipped; the calculators did not.
+    Be precise about *when* the destruction would happen, because it is not
+    what "truncates on open" suggests: all four writers open their output
+    only after the compute is finished (``SPE.calc_spe``,
+    ``ASE.thermo.driver._write_thermo_output`` for ``calc_thermo``,
+    ``batch_opt.batchopt.Optimizer.run`` for ``opt_geometry``,
+    ``domain.ranking.ConformerRanker._write_results``), so a run that fails
+    part-way leaves the user's file untouched. What would destroy it is a
+    run that *succeeds*, or -- for the 0-byte case above -- one that has
+    nothing to write. This guard exists because both of those are silent:
+    nothing would warn that the path was occupied.
+    ``auto3d config init`` already refuses to clobber an existing file; this
+    brings the calculators to the same policy.
 
     Single source of truth for that policy, in the same spirit as
     ``check_output_not_input`` directly above: ``calc_spe``, ``opt_geometry``,

@@ -11,8 +11,8 @@ in the loop therefore goes through **one** ``torch.nonzero`` per step, whose
 int64 result feeds ``index_select`` (reads) and ``index_copy_`` (writes) --
 neither of which synchronizes.
 
-The loop used to subset with boolean masks instead, which on CUDA is 18 syncs
-per step: ATen has to ``nonzero()`` each mask and copy the element count to the
+Subsetting with boolean masks instead would cost 18 syncs per step: ATen has
+to ``nonzero()`` each mask and copy the element count to the
 host to size the output, once per masked read and once per masked write, six of
 each here plus four more inside ``FIRE.clean``. Reusing a single ``nonzero``
 result across all twelve gathers and scatters takes that to **2 per step** --
@@ -84,8 +84,8 @@ def optimization_counts(state: dict[str, Any], patience: int) -> tuple[int, int,
     """Return (total, converged, dropped, active) structure counts from state.
 
     ``converged`` excludes structures dropped for oscillation; ``active`` is the
-    number still being optimized -- which excludes a row retired non-finite
-    (R38/R65): such a row has ``converged_mask=False`` by design (it did not
+    number still being optimized -- which excludes a row retired non-finite:
+    such a row has ``converged_mask=False`` by design (it did not
     converge), but it also left the active set for good, so counting it
     "active" here would have `print_stats`/the live-progress callback report
     a retired row as still running for the rest of the budget. Performs a
@@ -182,7 +182,7 @@ class _StepResult(NamedTuple):
         smallest_fmax: Running per-molecule force minimum, ``(active, 1)``.
         oscillating_count: Steps since that minimum last improved, ``(active,)``.
         non_finite: True for a molecule whose energy came back non-finite this
-            step (R38/R65), ``(active,)``. Such a molecule is also False in
+            step, ``(active,)``. Such a molecule is also False in
             ``still_active`` (it takes no further step), but needs its own
             flag because ``_scatter_back`` must NOT report it ``converged_mask
             = True`` the way every other row leaving ``still_active`` is --
@@ -234,8 +234,8 @@ def _step_active_subset(
     coord.requires_grad_(True)
     # atom_mask goes to the model too, not just to the force reduction below:
     # an adapter that has to flatten a padded batch (AIMNet2) needs to know
-    # which slots are real, and deriving that from a species sentinel is what
-    # audit C13 forbids.
+    # which slots are real, and deriving that from a species sentinel is not
+    # reliable.
     e, f = state["nn"].forward_batched(
         coord,
         numbers,
@@ -247,7 +247,7 @@ def _step_active_subset(
     # Zero forces on padded atom slots so convergence is independent of how the
     # model treats ghost atoms. atom_mask is True for real atoms. Deriving this
     # from a sentinel value (numbers == species_pad) broke for any model whose
-    # species_pad collides with a real index (audit C13). Masking before the
+    # species_pad collides with a real index. Masking before the
     # optimizer step also keeps padded atoms from drifting.
     #
     # `.detach()` HERE, not only on `stepped` below (issue #22): `f` is what
@@ -266,7 +266,7 @@ def _step_active_subset(
     # per-molecule convergence measure.
     fmax = f.norm(dim=-1).max(dim=-1)[0]
 
-    # A molecule whose energy OR forces came back non-finite (R38/R69) is
+    # A molecule whose energy OR forces came back non-finite is
     # finished: it took no FIRE step (folded into `not_converged_post1`
     # below, so `coord` stays at the pre-step geometry) and is retired from
     # the active set, but it is NOT "converged" -- `_scatter_back` reads
@@ -298,6 +298,13 @@ def _step_active_subset(
     non_finite = ~finite
 
     # The force-convergence test runs BEFORE the FIRE step, and must stay there.
+    # Otherwise a structure would take one more FIRE step after the force that
+    # declared it converged, so `Converged` would describe the pre-step
+    # geometry while the `fmax` that `n_steps` recomputes at the end describes
+    # the post-step one -- both written onto the same record, so a consumer
+    # filtering on `fmax <= opt_tol` and one filtering on `Converged == "True"`
+    # get different sets from one file (measured at up to 6.9x the tolerance
+    # on a stiff harmonic potential; a soft test case hides it entirely).
     not_converged_post1 = (fmax > opttol) & finite
     # Detach the optimizer's own OUTPUT (the stepped geometry) so the next
     # step starts from a leaf tensor -- `coord`'s graph history from THIS
@@ -308,7 +315,7 @@ def _step_active_subset(
     # about, and the loop is robust to both (otherwise the next
     # `requires_grad_` would error, or `self.v` would grow a graph forever).
     #
-    # P-m12: a CUDA out-of-memory here is NOT a `_run_in_sub_batches` forward
+    # A CUDA out-of-memory here is NOT a `_run_in_sub_batches` forward
     # failure -- that halving loop has already returned by this point -- so
     # it would otherwise surface as a bare CUDA error with no actionable
     # next step. Converted to the same `OptimizationError` a single molecule
@@ -330,18 +337,6 @@ def _step_active_subset(
         ) from exc
     # A structure that has just met the force criterion keeps the geometry its
     # force was measured at; only the ones still moving take the step.
-    #
-    # The convergence test above and the step used to run in the other order,
-    # so every structure took one more FIRE step *after* the force that
-    # declared it converged. `Converged` then described the geometry before
-    # that step while the reported `fmax` (recomputed at the end of n_steps)
-    # described the geometry after it -- and `batchopt` writes both onto the
-    # same record. A consumer filtering on `fmax <= opt_tol` and one filtering
-    # on `Converged == "True"` got different sets from one file. Measured on a
-    # hermetic harmonic potential before this change: fmax up to 6.9x the
-    # tolerance beside `Converged=True`. The discrepancy grows with stiffness,
-    # so a soft test case hides it entirely -- which is how it survived being
-    # looked at twice.
     #
     # Structures leaving the active set as oscillating are stepped like any
     # other: they are reported `Converged=False`, so no consistency is claimed
@@ -377,7 +372,7 @@ def _step_active_subset(
     # `not_converged_post1` is `fmax > opttol`, so the term was the identity
     # of `&` wherever it was consulted and false-dominated elsewhere -- it
     # could never change an outcome, including at the `fmax == opttol`
-    # boundary where both comparisons are false (audit M1).
+    # boundary where both comparisons are false.
     still_active = not_converged_post1 & not_oscillating
 
     # Second nonzero of the step: `still_active` is indexed within the active
@@ -421,7 +416,7 @@ def _scatter_back(
     # -- that is also how an oscillation-dropped row is marked, with
     # `batchopt` distinguishing the two downstream via `oscillating_count`.
     # A non-finite row must NOT take that path: `& ~result.non_finite` is
-    # what keeps `converged_mask` False for it (R38/R65), rather than True
+    # what keeps `converged_mask` False for it, rather than True
     # with the failure visible only in a separate flag nobody who reads
     # `converged_mask` alone would see.
     state["converged_mask"].index_copy_(
@@ -450,10 +445,10 @@ def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
     one FIRE step after measuring forces). Recompute both once at the end so
     ``state['energy']`` and ``state['fmax']`` correspond to the reported
     ``state['coord']``. The adapters differentiate internally for forces, so
-    grad must be enabled; the forces themselves were previously discarded.
+    grad must be enabled.
 
-    A row already flagged ``state["non_finite"]`` (R38/R65) is EXCLUDED from
-    this recompute (R67): its geometry is frozen at the exact pre-failure
+    A row already flagged ``state["non_finite"]`` is EXCLUDED from
+    this recompute: its geometry is frozen at the exact pre-failure
     point that produced the ``NumericalError`` the first time, so including
     it would deterministically re-bisect and re-placeholder it -- paying the
     bisection cost a second time and firing ``BatchedEnergyForce``'s non-finite
@@ -484,7 +479,7 @@ def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
     state["energy"].index_copy_(0, finite_idx, e_final.detach().to(state["energy"].dtype))
     # Zero padded-atom force slots before the reduction, matching the in-loop
     # convergence check, so reported fmax is independent of how the model treats
-    # ghost atoms. atom_mask is True for real atoms (audit C13).
+    # ghost atoms. atom_mask is True for real atoms.
     f_final = f_final.detach().masked_fill(~atom_mask.unsqueeze(-1), 0.0)
     fmax_final = f_final.norm(dim=-1).max(dim=-1)[0].to(state["fmax"].dtype)
     state["fmax"].index_copy_(0, finite_idx, fmax_final)
@@ -539,8 +534,8 @@ def n_steps(
             each step. Deriving this mask from a species sentinel value
             (``numbers == species_pad``) breaks whenever a custom NNP's
             padding value collides with a real species index -- the exact
-            convention Auto3D itself uses for ANI2xt, where 0 is hydrogen
-            (audit C13). Defaults to None, which is a no-op (every atom
+            convention Auto3D itself uses for ANI2xt, where 0 is hydrogen.
+            Defaults to None, which is a no-op (every atom
             treated as real) for unpadded batches or any caller that omits it.
         progress_cb: Optional callback invoked every 10 steps and once at the
             end with a dict of step/total/converged/dropped/active counts.
@@ -566,7 +561,7 @@ def n_steps(
     # `.to()`; dtype (float32, via `torch.float`) and shape (`len(coord), 1`)
     # are unchanged.
     #
-    # Seeded at +inf, not a hardcoded finite sentinel (N-m8): a finite
+    # Seeded at +inf, not a hardcoded finite sentinel: a finite
     # sentinel like the old 999.0 is only "larger than any real fmax" by
     # assumption, and a first-step fmax that happened to exceed it (an
     # unconverged, far-from-equilibrium starting geometry) made
@@ -581,7 +576,7 @@ def n_steps(
     # so use torch.long rather than float for a quantity that is conceptually
     # an integer count.
     state["oscillating_count"] = torch.zeros(len(coord), dtype=torch.long, device=coord.device)
-    # True once a row's energy has come back non-finite (R38/R65); see
+    # True once a row's energy has come back non-finite; see
     # `_scatter_back`. Allocated here, beside `oscillating_count`, for the
     # same reason: nothing before the loop can produce one.
     state["non_finite"] = torch.zeros(len(coord), dtype=torch.bool, device=coord.device)
@@ -599,7 +594,7 @@ def n_steps(
     for istep in range(1, n + 1):
         # `~state["non_finite"]` is required here, not merely defensive:
         # `_scatter_back` deliberately leaves `converged_mask` False for a
-        # non-finite row (R38/R65), so without this term `not_converged`
+        # non-finite row, so without this term `not_converged`
         # would stay True for it forever and `active_idx` would reselect it
         # every remaining step -- re-running the model on an unchanged,
         # already-failed geometry for the rest of the budget.

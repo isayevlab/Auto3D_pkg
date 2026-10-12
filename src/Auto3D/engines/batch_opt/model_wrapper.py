@@ -14,10 +14,9 @@ from typing import TypeVar
 import torch
 import torch.nn as nn
 
-# The CONTRACT, not the construction layer. This module used to name
-# `Auto3D.engines.model_factory.BaseModelAdapter` -- the numerical layer reaching up into
-# the factory for a type that is actually defined below it, and reaching for the
-# implementation base class rather than the interface. A runtime (not
+# The CONTRACT, not the construction layer: `ModelAdapter` lives in
+# contract.py, the interface, not `Auto3D.engines.model_factory`, which
+# builds adapters but does not define their type. A runtime (not
 # TYPE_CHECKING) import because the gate below consults it; contract.py costs
 # nothing beyond torch, which this module already imports.
 from Auto3D.engines.models.adapter import validate_energies
@@ -129,12 +128,6 @@ class BatchedEnergyForce(nn.Module):
         Raises:
             TypeError: ``model_adapter`` is missing contract members, or
                 ``batchsize_atoms`` is not an int.
-
-        The second parameter used to be ``name_or_batchsize: str | int | None``,
-        type-switched between a model name (the pre-adapter API) and a batch size.
-        Passing a string warned that it would be "removed in Auto3D v2.0"; the
-        package reached 3.0.0 with it still in place, and no caller in ``src/``
-        ever passed one. Removed, so the parameter has one meaning.
         """
         super().__init__()
         # What this catches is a CATEGORY ERROR -- a raw nn.Module, a third-party
@@ -181,8 +174,7 @@ class BatchedEnergyForce(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate the energies and forces for input molecules.
 
-        Delegates to the model adapter's forward method, or uses legacy
-        logic for backward compatibility with raw models.
+        Delegates to the model adapter's forward method.
 
         Note on torch.inference_mode():
             This method CANNOT use torch.inference_mode() because force
@@ -202,7 +194,7 @@ class BatchedEnergyForce(nn.Module):
                 :class:`Auto3D.engines.batch_opt.padding.PaddedBatch` that
                 :func:`Auto3D.engines.batch_opt.padding.pad_from_mols` returns.
                 Forwarded to the adapter so it never has to re-derive padding
-                from a species sentinel (audit C13). ``None`` means the batch is
+                from a species sentinel. ``None`` means the batch is
                 unpadded, and an adapter that cannot verify that claim from the
                 tensors alone may refuse it (``AIMNet2Adapter`` does).
 
@@ -228,7 +220,7 @@ class BatchedEnergyForce(nn.Module):
             tolerate_non_finite: If True, a ``NumericalError`` from ``compute``
                 bisects the failing sub-batch instead of propagating, isolating
                 the offending row(s) at size 1 and substituting
-                :meth:`_non_finite_placeholder` for just that row (R38).
+                :meth:`_non_finite_placeholder` for just that row.
                 :meth:`forward_batched` passes True; :meth:`energy_batched`
                 does not, so the ``calc_spe`` path keeps raising (its exit-5
                 diagnosis must survive).
@@ -249,7 +241,7 @@ class BatchedEnergyForce(nn.Module):
         # Caps the slice size ONLY while actively bisecting one failing
         # sub-batch; `None` means "no cap, slice at `bsize`". Kept as its OWN
         # local variable -- never written into `bsize` or `self._bsize_by_n`,
-        # which stay the OOM policy's alone (R68/GPU review F2): without this
+        # which stay the OOM policy's alone: without this
         # separation, a NaN bisection earlier in this same call could leave a
         # later, unrelated CUDA OOM halving from an already-shrunk `bsize`
         # instead of from the size that actually exhausted memory, silently
@@ -259,7 +251,7 @@ class BatchedEnergyForce(nn.Module):
         # offered to `compute` at the full, OOM-policy `bsize` rather than
         # staying permanently shrunk by an already-resolved failure.
         nan_cap: int | None = None
-        # Rows whose energy came back non-finite even at size 1 (R38); logged
+        # Rows whose energy came back non-finite even at size 1; logged
         # once, after the loop, rather than once per bisection level.
         failed_rows: list[int] = []
 
@@ -269,13 +261,12 @@ class BatchedEnergyForce(nn.Module):
         # raise a clear, actionable error instead of crashing opaquely.
         #
         # `bsize` SHRINKS and STAYS SHRUNK for the rest of this call once an OOM
-        # is observed (audit M37): the old code recursed on just the failing
-        # slice at a halved size but kept splitting every OTHER remaining slice
-        # at the original `bsize`, repeating the same OOM-and-recurse cycle for
-        # each one. The `while` loop over `remaining` (re-queuing the failed
-        # slice at the front instead of recursing) makes the smaller size the new
-        # default for everything that has not run yet -- and, since the P-M3
-        # fix, for every later call on this instance too, via `_bsize_by_n`.
+        # is observed: recursing per-slice at a halved size while leaving every
+        # other remaining slice at the original size would repeat the same
+        # OOM-and-retry cycle for each one; re-queuing the failed slice at the
+        # front of this `while` loop instead makes the smaller size apply to
+        # everything not yet run -- and, via `_bsize_by_n`, to every later
+        # call on this instance too.
         while remaining.numel() > 0:
             step = bsize if nan_cap is None else min(bsize, nan_cap)
             sub, remaining = remaining[:step], remaining[step:]
@@ -286,7 +277,7 @@ class BatchedEnergyForce(nn.Module):
                 # `torch.cuda.OutOfMemoryError` is itself a `RuntimeError`
                 # subclass, so this one clause covers both the typed
                 # exception and the bare-`RuntimeError` form `is_oom`
-                # recognizes by message (P-m12); anything else re-raises
+                # recognizes by message; anything else re-raises
                 # unchanged.
                 if not is_oom(exc):
                     raise
@@ -337,7 +328,7 @@ class BatchedEnergyForce(nn.Module):
                 # of the failed forward -- including its activations --
                 # reachable. empty_cache() can only release already-free
                 # blocks, so calling it there could not reclaim the memory
-                # the retry needed (audit M37). CPython clears the
+                # the retry needed. CPython clears the
                 # currently-handled exception as soon as the `except`
                 # clause is left, which happens above (no `continue`/
                 # `raise` inside it), so by the time control reaches here
@@ -357,7 +348,7 @@ class BatchedEnergyForce(nn.Module):
                 #   slice is short since the batch ran out, not since memory
                 #   did. With `bsize` 4 and two molecules left, the old
                 #   arithmetic published 1 molecule per forward for the rest of
-                #   the process through `_bsize_by_n` (P-M3), on the evidence of
+                #   the process through `_bsize_by_n`, on the evidence of
                 #   one -- possibly transient -- failure at the one slice that
                 #   was smaller than every other slice in the batch.
                 # * `min(..., sub.numel())`, because a new size ABOVE the
@@ -390,7 +381,7 @@ class BatchedEnergyForce(nn.Module):
 
         if failed_rows:
             # Once per `_run_in_sub_batches` call, not once per bisection
-            # level. A count only, not the row indices (R67): `failed_rows`
+            # level. A count only, not the row indices: `failed_rows`
             # is local to whichever subset was handed to THIS call --
             # positions within the active subset during the step loop, or
             # within the whole bucket during
@@ -447,7 +438,7 @@ class BatchedEnergyForce(nn.Module):
     def _retry_once_on_oom(build: Callable[[], _T]) -> _T:
         """Run ``build`` (expected to call a single ``torch.cat``), retrying
         once after ``torch.cuda.empty_cache()`` if it raises an out-of-memory
-        error (P-m12).
+        error.
 
         A concatenation that assembles every sub-batch's result is itself one
         GPU allocation sized by the WHOLE batch -- not by ``batchsize_atoms``
@@ -466,8 +457,8 @@ class BatchedEnergyForce(nn.Module):
 
         The cache release and the retry both run AFTER this method's own
         ``except`` block has been left, never inside it, for the same reason
-        ``_run_in_sub_batches`` above follows that rule (audit M37, see the
-        comment there): while an ``except`` clause is executing, the OOM'd
+        ``_run_in_sub_batches`` above follows that rule: while an ``except``
+        clause is executing, the OOM'd
         exception is still ``sys.exc_info()``'s "currently handled exception",
         and its traceback keeps every local of the failed ``build()`` call
         reachable, so ``empty_cache()`` could not yet reclaim any of it.
@@ -527,8 +518,8 @@ class BatchedEnergyForce(nn.Module):
 
         Raises:
             NumericalError: Never for a non-finite energy -- that is exactly
-                what ``tolerate_non_finite=True`` below absorbs (R38: a NaN
-                molecule leaves the bucket rather than aborting it). Can still
+                what ``tolerate_non_finite=True`` below absorbs: a NaN
+                molecule leaves the bucket rather than aborting it. Can still
                 raise for other reasons ``_run_in_sub_batches`` does not
                 catch.
         """
@@ -551,7 +542,7 @@ class BatchedEnergyForce(nn.Module):
             _compute,
             tolerate_non_finite=True,
         )
-        # Retried separately (P-m12 fix round 1): a single `build` covering
+        # Retried separately: a single `build` covering
         # both concatenations would re-do the energies concat (small) every
         # time the forces concat (the large allocation, and so the one
         # likely to OOM in practice) needed a retry.
@@ -570,8 +561,8 @@ class BatchedEnergyForce(nn.Module):
 
         :meth:`forward_batched` derives forces unconditionally, because every
         adapter's ``forward`` does. A single-point energy never reads them, so
-        ``calc_spe`` used to pay for a full backward pass per sub-batch and then
-        discard the result (audit M39). This routes through
+        calling it here would pay for a full backward pass per sub-batch only
+        to discard the result. This routes through
         :meth:`Auto3D.engines.models.contract.ModelAdapter.energy` instead, which is
         energy-only and never answers narrower than the dtype of ``coords`` (a
         backend that computes wider, such as AIMNet2, may return wider).

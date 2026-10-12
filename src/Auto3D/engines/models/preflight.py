@@ -2,15 +2,17 @@
 
 Everything here runs in the process that parses the configuration, before any
 worker is spawned. A name resolved here produces an error the user sees with a
-traceback and a suggestion; the same failure inside a worker is swallowed by
-``optim_rank_wrapper``'s per-chunk handler and surfaces, if at all, as a run
-that quietly produced nothing. Resolving a name and checking a cached model
+traceback and a suggestion; the same failure inside a worker instead surfaces
+at model construction, before any chunk is processed -- the worker dies
+there, and the run's exit code is then decided by output reconciliation, so
+it reports a convergence failure rather than naming the real cause directly.
+Resolving a name and checking a cached model
 are both done by reading aimnet's registry YAML and hashing a file directly
 (``_registry_path``, ``_load_registry``, ``_cached_model_is_valid``), without
 importing ``aimnet.calculators`` or ``aimnet.models`` -- that import builds
 the calculator stack, which loads torch, warp and the CUDA runtime, in the
 parent process, before any worker exists, for what is otherwise a dictionary
-lookup (P-M8). ``aimnet.calculators`` is imported only as a fallback: a cold
+lookup. ``aimnet.calculators`` is imported only as a fallback: a cold
 cache, a checksum mismatch, or a registry file that is missing or not in the
 expected shape.
 """
@@ -66,9 +68,9 @@ def _registry_path() -> Path:
     ``import aimnet`` is cheap (the package ``__init__`` imports nothing heavy;
     0.07 s measured) and is all this needs. ``aimnet.calculators`` is NOT
     imported: its ``__init__`` builds the calculator module, which loads torch,
-    warp and the CUDA runtime -- 17 s on the 2026-10-09 box, 7.7 s in the
-    2026-09-21 review -- in the parent process, before any worker exists, for
-    what is a dictionary lookup (P-M8).
+    warp and the CUDA runtime -- 17 s on one box, 7.7 s on another -- in the
+    parent process, before any worker exists, for what is a dictionary
+    lookup.
     """
     import aimnet
 
@@ -222,25 +224,24 @@ def resolve_engine_name(name: str) -> str:
 def preflight_model(engine: str) -> None:
     """Resolve the engine name and verify the model is obtainable, before any fork.
 
-    This used to *construct* the full model here (see git history), which
-    reliably converted the same three failure modes into diagnosable errors
-    but paid for it with a real model build -- ~9s and hundreds of MB, six
-    times over in the fast test suite alone once tests started reaching this
-    path unmocked (wall time 20s -> 75s, peak RSS 1.38GB on a 2GB box). The
-    three failure modes it exists to catch -- a cold cache with no network, a
-    cached file whose checksum no longer matches, and a cache directory that
-    cannot be written -- are all raised by obtaining the model's on-disk path
+    The three failure modes this function exists to catch -- a cold cache
+    with no network, a cached file whose checksum no longer matches, and a
+    cache directory that cannot be written -- are all raised by obtaining
+    the model's on-disk path
     (``aimnet.calculators.model_registry.get_registry_model_path``, which
     downloads on a cache miss, verifies the checksum, and returns the path),
-    without ever loading the checkpoint into a model. The warm case -- the
-    artifact already on disk with the digest the registry expects -- is now
-    checked with a local file hash (``_cached_model_is_valid``), so a warm
-    cache never imports ``aimnet.calculators``; that import, and this
-    function's call into it, happen only on a cold cache or a mismatch.
-    Inside a worker each of these is caught by ``optim_rank_wrapper``'s
-    per-chunk handler and reported as "no 3D structure converged", which names
-    none of them -- this function's job is to catch them here instead, in the
-    parent, before any worker is forked.
+    without ever loading the checkpoint into a model, which costs seconds
+    and hundreds of MB per call. The warm case -- the artifact already on
+    disk with the digest the registry expects -- is now checked with a
+    local file hash (``_cached_model_is_valid``), so a warm cache never
+    imports ``aimnet.calculators``; that import, and this function's call
+    into it, happen only on a cold cache or a mismatch.
+    Inside a worker each of these instead surfaces at model construction,
+    before any chunk is processed, which stops that worker; the run's exit
+    code is then decided by output reconciliation and reported as "no 3D
+    structure converged" rather than naming any of them -- this function's
+    job is to catch them here instead, in the parent, before any worker is
+    forked.
 
     ANI2x, ANI2xt, and custom NNP paths are not aimnet registry models, so
     there is no cache/download/checksum step to preflight for them: ANI2xt's
@@ -259,8 +260,8 @@ def preflight_model(engine: str) -> None:
     torch cannot actually load (a truncated write that still happens to match
     a stale checksum, an incompatible pickle protocol, etc.). That failure
     mode only surfaces once a worker actually loads the checkpoint. Accepted
-    here because C8 (cold cache/network) and M22 (checksum mismatch) are both
-    about obtaining the file, not about what is inside it.
+    here because a cold cache/network failure and a checksum mismatch are
+    both about obtaining the file, not about what is inside it.
 
     Args:
         engine: The configured ``optimizing_engine`` value.
@@ -280,7 +281,7 @@ def preflight_model(engine: str) -> None:
 
     # Warm cache: the artifact is on disk with the digest the registry
     # expects, so there is nothing aimnet's own path would do except import
-    # the calculator stack to find that out (P-M8). Cold cache, a mismatch or
+    # the calculator stack to find that out. Cold cache, a mismatch or
     # an unreadable directory fall through to aimnet, which downloads, repairs
     # or raises, and the handlers below translate what it raises.
     registry = _load_registry()
@@ -291,14 +292,13 @@ def preflight_model(engine: str) -> None:
 
     # Deferred: only needed on this call path, and keeps the module's other
     # (pure, offline) functions importable without pulling in the model stack.
-    # `requests` is now also declared directly in pyproject.toml (previously
-    # it arrived only transitively, via aimnet's own `requests>=2.32.3`), but
-    # deferring the import here still matters on its own: `resolve_engine_name`
-    # is a pure offline dict read that config validation calls on every run, and
-    # it must not require a network library to be importable. (The original
-    # reason was narrower and no longer applies: `import Auto3D.foundation.utils` used to
-    # reach this module through a module-scope import in utils/validation.py,
-    # which audit M43 deferred into the two functions that use it.)
+    # `requests` is declared directly in pyproject.toml, but deferring the
+    # import here still matters on its own: `resolve_engine_name` is a pure
+    # offline dict read that config validation calls on every run, and it
+    # must not require a network library to be importable.
+    # `import Auto3D.foundation.utils` does not reach this module's call
+    # sites today, so no circularity constraint governs where this import
+    # lives.
     import requests
 
     # Deliberately redundant defense-in-depth: resolve_engine_name (above) already

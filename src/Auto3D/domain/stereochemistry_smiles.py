@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Stereoisomer enumeration by SMILES string surgery (P-m29).
+"""Stereoisomer enumeration by SMILES string surgery.
 
 Split out of ``Auto3D.domain.stereochemistry``, which kept both halves of
 "stereochemistry utilities" even though they share no code and differ in
@@ -72,8 +72,8 @@ def get_stereo_info(smi: str) -> OrderedDict[int, str]:
         (@SP, @TH, @OH, @TB, @AL for square-planar/tetrahedral-explicit/
         octahedral/trigonal-bipyramidal/allene centers) are deliberately
         excluded: create_enantiomer can only invert plain @/@@ by string
-        surgery, and treating @SP1 as a bare @ used to splice it into the
-        invalid token @@SP1, silently aborting the molecule's enumeration.
+        surgery -- treating @SP1 as a bare @ would splice the invalid token
+        @@SP1 and silently abort the molecule's enumeration.
 
     Example:
         >>> get_stereo_info('C[C@H](O)[C@@H](F)Cl')
@@ -118,9 +118,7 @@ def no_enantiomer(smi: str, smiles: list[str]) -> bool:
             stereo_infoj = list(get_stereo_info(tar).values())
             # A different number of stereo markers means a different set of
             # stereocenters, so the two cannot be enantiomers. Skip rather than
-            # calling no_enantiomer_helper, which raises on a length mismatch --
-            # that ValueError used to bubble up and make amend_configuration
-            # abandon the whole molecule's enumeration.
+            # calling no_enantiomer_helper, which raises on a length mismatch.
             if len(stereo_infoi) != len(stereo_infoj):
                 continue
             if no_enantiomer_helper(stereo_infoi, stereo_infoj):
@@ -158,14 +156,8 @@ def create_enantiomer(smi: str) -> str:
     # marker just consumed. The tail after the last key is emitted once,
     # after the loop, from the final cursor position.
     #
-    # This replaces two copies of the same logic that used to disagree in
-    # shape: a `len(keys) == 1` branch handled one stereo center, and a
-    # general loop handled two or more by reading `key2`/`val2` (set inside
-    # the loop's `else` branch) *after* the `for` -- correct only because
-    # Python does not scope loop variables to the loop body, so `key2` still
-    # held the last iteration's value. That accident breaks the moment
-    # `keys` can be empty going into the tail read, which is exactly what the
-    # `len(keys) == 1` branch existed to avoid (M60).
+    # The loop below never reaches the tail read with an empty `keys`: the
+    # early return above when `keys` is empty guarantees it.
     inverted = {"@": "@@", "@@": "@"}
     new_smi = ""
     cursor = 0
@@ -228,7 +220,7 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
         For input "N=C1OC(CN2CC(C)OC(C)C2)CN1", if some stereo configurations
         are missing, this function will attempt to add them.
     """
-    # iter_smi_records is the single parser for this format (M59). The
+    # iter_smi_records is the single parser for this format. The
     # `tuple(line.strip().split())` this replaced required EXACTLY 2 tokens
     # (a third raised "too many values to unpack") and had no blank/comment
     # handling at all; "raise" preserves the fail-fast behavior for a
@@ -240,7 +232,7 @@ def amend_configuration(smis: str) -> dict[str, list[str]]:
         # See the matching note in remove_enantiomers (domain.stereochemistry):
         # strip only the trailing isomer-index component, not everything
         # after the first underscore, so a disambiguated id like "KEY_2" is
-        # not merged back onto "KEY" here (M17).
+        # not merged back onto "KEY" here.
         idx = mol_id.rsplit("_", 1)[0]
         dct[idx].append(smi)
 
@@ -295,7 +287,7 @@ def amend_configuration_w(smi: str) -> None:
         ranked SDF write (not a rewrite). Opening ``smi`` for writing directly
         would truncate it, so a failure partway through the loop below would
         destroy the input this function just read and leave nothing to
-        recover from (C14).
+        recover from.
     """
     dct = amend_configuration(smi)
 

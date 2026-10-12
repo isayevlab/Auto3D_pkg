@@ -87,7 +87,7 @@ class FinalizeMixin:
         # shutil.copyfileobj byte-chunk copy would have to guard against
         # separately to answer the same question.
         #
-        # N-m30: the check is no longer "any line, across every chunk,
+        # The check is not simply "any line, across every chunk,
         # stripped, equal to '$$$$'" -- an SD property VALUE can legitimately
         # contain such a line (a user- or tool-written string happens to
         # match the terminator), which must not count. The same `saw_m_end`
@@ -148,7 +148,7 @@ class FinalizeMixin:
         self._log_timing(start_time)
 
         # Reorder and decode IDs. reorder_sdf's returned records still carry
-        # their PRE-decode (encoded) names, but P-m26's counts only need
+        # their PRE-decode (encoded) names, but these counts only need
         # distinct-name counting, which `decode_ids` -- a per-encoded-id
         # dict lookup, never a merge -- cannot change: two records share a
         # base id before decoding if and only if they still share one after.
@@ -157,12 +157,12 @@ class FinalizeMixin:
         # instead of leaving every caller to recompute them from a file that
         # may later be moved or deleted.
         ordered_mols = reorder_sdf(str(path_combined), str(self.input_path)) or []
-        # task-M1: strip whitespace from `_Name` before counting, matching
+        # Strip whitespace from `_Name` before counting, matching
         # the lazy `count_output` path (`results.py`) -- without it, a
         # `_Name` carrying incidental whitespace would compare unequal to
         # the same id written without it, and the two counts could silently
-        # disagree. `.strip()` FIRST, then `strip_taut_suffix` (fix round
-        # 2): the regex is now end-anchored (Chem-M5), so whitespace
+        # disagree. `.strip()` FIRST, then `strip_taut_suffix`: the regex is
+        # end-anchored, so whitespace
         # trailing a "@tautN" suffix would otherwise stop it from matching
         # at all -- the same order id_mapping.decode_ids already uses.
         self.output_counts = (
@@ -176,7 +176,7 @@ class FinalizeMixin:
 
         self._log_both(f"Output path: {path_output}")
 
-        # Reconcile inputs against outputs (C7): a molecule that vanished
+        # Reconcile inputs against outputs: a molecule that vanished
         # mid-pipeline must leave a trace. Compare the ORIGINAL input
         # (self.config.path -- untouched, user-facing IDs) against the
         # DECODED output (path_output), not self.input_path (the encoded temp
@@ -191,7 +191,7 @@ class FinalizeMixin:
         return path_output
 
     def _reconcile_output(self, path_output: str) -> None:
-        """Compare the original input against the final output SDF (C7).
+        """Compare the original input against the final output SDF.
 
         Populates ``self.failures`` with every input molecule ID absent from
         ``path_output``, and logs them (both to the module logger and, when

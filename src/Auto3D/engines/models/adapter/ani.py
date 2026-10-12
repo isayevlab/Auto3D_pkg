@@ -27,13 +27,11 @@ class ANI2xtAdapter(BaseModelAdapter):
     Uses indexed species (H=0, C=1, N=2, O=3, F=4, S=5, Cl=6).
 
     ``compile_model=True`` compiles the per-element network evaluation only; the
-    AEV computer stays eager because compiling it corrupts the energies (P-C1,
-    2026-09-21). Before this change, ``compile_model=True`` compiled all of
-    ``forward``, including torchani's AEV computer -- that compiled
-    *successfully* and returned energies off by hundreds of eV with no error
-    raised (P-C1, 2026-09-21). Now only ``_atom_energies_fn`` -- the
-    per-element loop, separately rewritten (M7) to be free of the
-    data-dependent branch that used to make it uncompilable on its own -- is
+    AEV computer stays eager because compiling it would corrupt the energies:
+    torchani's AEV computer compiles *successfully* under ``torch.compile``,
+    but returns energies off by hundreds of eV with no error raised. Only
+    ``_atom_energies_fn`` -- the per-element loop, free of a data-dependent
+    branch that would otherwise make it uncompilable on its own -- is
     compiled (``tests/test_ani2xt_atom_energies.py``). Whether that is a
     wall-clock win, and by how much, is a GPU measurement this repository does
     not make; see ``benchmarks/bench_optimization_perf.py``. No speedup figure
@@ -56,9 +54,9 @@ class ANI2xtAdapter(BaseModelAdapter):
         # ANI2xt.forward for it to be compilable at all: element_indices has a
         # data-dependent output shape, and a graph break inside forward's
         # per-element loop makes Dynamo skip the whole frame rather than split
-        # it, which is why compile_model=True used to produce zero subgraphs for
-        # this model. Bound as instance attributes here (both are already
-        # imported at module scope, above) so `_call_model`'s `getattr(self,
+        # it, which is why compile_model=True would otherwise produce zero
+        # subgraphs for this model. Bound as instance attributes here (both
+        # are already imported at module scope, above) so `_call_model`'s `getattr(self,
         # "_element_indices", None)` can tell a real ANI2xt apart from the toy
         # models several tests substitute by bypassing __init__ -- see
         # `_call_model`'s docstring.
@@ -70,9 +68,9 @@ class ANI2xtAdapter(BaseModelAdapter):
     def _compile(self, model: nn.Module) -> nn.Module:
         # Compile only the per-element MLP evaluation. Compiling the whole
         # module (which includes torchani's AEVComputer) gives energies off by
-        # hundreds of eV with no error raised (P-C1). The AEV stays eager.
+        # hundreds of eV with no error raised. The AEV stays eager.
         #
-        # P-m21 (attempted, not landed): each distinct element-presence
+        # Attempted, not landed: each distinct element-presence
         # pattern across a run 0/1-specializes `element_indices`'s seven
         # per-element row-index tensors, so past
         # `torch._dynamo.config.recompile_limit` of those patterns the frame
@@ -98,13 +96,13 @@ class ANI2xtAdapter(BaseModelAdapter):
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
         """Remap atomic numbers to ANI2xt's 0-based network indices.
 
-        ANI2xt is built with ``periodic_table_index=False`` everywhere, so its
-        ``forward`` expects H=0, C=1, N=2, O=3, F=4, S=5, Cl=6 -- not atomic
-        numbers. The remap lives on the adapter (rather than in a name-keyed free
-        function the caller had to remember to invoke) so it cannot be omitted at
-        one call site and applied at another; that omission is audit findings
-        C3/C4, where thermo and the CLI health check silently scored a different
-        molecule than the one submitted.
+        ANI2xt's species mapping is fixed to atomic-number order with no
+        periodic-table option, so its ``forward`` expects H=0, C=1, N=2, O=3,
+        F=4, S=5, Cl=6 -- not atomic numbers. The remap lives on the adapter
+        (rather than in a name-keyed free function the caller had to
+        remember to invoke) so it cannot be omitted at one call site and
+        applied at another, where thermo and the CLI health check could
+        then silently score a different molecule than the one submitted.
 
         Raises:
             ValueError: An atomic number outside ANI2xt's element set.
@@ -153,7 +151,7 @@ class ANI2xAdapter(BaseModelAdapter):
     Requires torchani to be installed.
 
     ``compile_model=True`` is ignored with a warning: torch.compile of
-    torchani's AEV path corrupts energies (P-C1, 2026-09-21).
+    torchani's AEV path corrupts energies.
     """
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
@@ -172,7 +170,7 @@ class ANI2xAdapter(BaseModelAdapter):
         # torchani's ANI2x has no separable network module at the top level
         # (children: neighborlist, energy_shifter, species_converter,
         # potentials), and compiling the whole model corrupts energies by
-        # thousands of eV (P-C1, 2026-09-21). Refuse rather than risk it.
+        # thousands of eV. Refuse rather than risk it.
         logger.warning(
             "compile_model=True is not supported for ANI2x; running eager. "
             "torch.compile of torchani's AEV path produces wrong energies."

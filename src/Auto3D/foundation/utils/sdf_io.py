@@ -7,13 +7,13 @@ those), and nothing here decides pipeline layout (``Auto3D.orchestration.job_lay
 policy (``Auto3D.domain.id_mapping``).
 
 :func:`record_skip_reason` is the one definition of which SDF records a
-per-record consumer cannot process (N-C1): unparseable, conformerless,
+per-record consumer cannot process: unparseable, conformerless,
 carrying implicit hydrogens (a heavy-atom skeleton -- every Auto3D writer
 emits explicit H), or carrying a dummy atom (an R-group placeholder is not a
-species, N-M3). :func:`classify_records` applies it to one read of a file and
+species). :func:`classify_records` applies it to one read of a file and
 returns the partition (:class:`ClassifiedRecords`), without logging anything,
 treating every reason in its optional ``keep`` tuple as acceptable rather
-than defective (P-m27) -- a consumer that does not need this policy's default
+than defective -- a consumer that does not need this policy's default
 answer for some reason (unparseable and dummy-atom records are never
 keepable; they have no conformer, no connectivity, or no species to work
 with) passes the reasons IT can still use. Two views report-and-keep over
@@ -104,7 +104,7 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     with open(sdf) as f:
         data = f.readlines()
     chunk: list[str] = []
-    # N-m30: an SD property VALUE can legitimately contain a line that is
+    # An SD property VALUE can legitimately contain a line that is
     # itself "$$$$" (a user- or tool-written string happens to match the
     # terminator), which must not split or end a record. `saw_m_end` is set
     # once the molblock's own `M  END` line is seen and `prev_stripped` is
@@ -117,7 +117,7 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
     # inside an open property value, so a `$$$$` line there is data, not a
     # terminator.
     saw_m_end = False
-    # Chem-M8: `saw_m_end` is cleared on every accepted terminator, so it
+    # `saw_m_end` is cleared on every accepted terminator, so it
     # cannot answer "was there ever an `M  END` in this file at all?" --
     # `ever_saw_m_end` is the one flag that is only ever set, never cleared,
     # for exactly that question below.
@@ -138,8 +138,8 @@ def SDF2chunks(sdf: str) -> list[list[str]]:
         prev_stripped = stripped
     # A final record lacking the '$$$$' terminator leaves residual lines in
     # `chunk`. Preserve it as the last chunk rather than silently dropping it
-    # (the fallback behavior is unchanged by chem-M8 below; only which
-    # warning fires changes).
+    # (the fallback behavior is unchanged by the ``ever_saw_m_end`` check
+    # below; only which warning fires changes).
     if any(line.strip() for line in chunk):
         if not ever_saw_m_end:
             # Under the M  END gate above, a file with no M  END line at all
@@ -204,7 +204,7 @@ def skip_message(reason: str) -> str:
 def record_skip_reason(mol: Chem.Mol | None) -> str | None:
     """Classify why a parsed SDF record cannot be processed, or ``None`` if it can.
 
-    The single definition of "what is wrong with this record" (N-C1), so every
+    The single definition of "what is wrong with this record", so every
     reader judges a record the same way instead of carrying its own copy of
     the checks. :func:`classify_records` applies this to every record it
     reads and partitions on the result; ``ASE.thermo.driver.calc_thermo`` is
@@ -230,7 +230,7 @@ def record_skip_reason(mol: Chem.Mol | None) -> str | None:
         model would score C2O for "ethanol" while the electron count says
         C2H6O.
         ``"dummy_atoms"`` for a record carrying a dummy atom (atomic number 0:
-        ``*``, ``[3*]``), an R-group placeholder rather than a species (N-M3) --
+        ``*``, ``[3*]``), an R-group placeholder rather than a species --
         AIMNet2 uses embedding index 0 as its padding slot and would score the
         placeholder as a zero-feature ghost instead of refusing it, and ASE
         cannot even build an ``Atoms`` object for it. Checked last, after
@@ -353,12 +353,12 @@ def classify_records(path: str, keep: tuple[str, ...] = ()) -> ClassifiedRecords
         path: Path to the SDF file to read.
         keep: Reasons (:func:`record_skip_reason`'s return values) to treat
             as acceptable rather than defective for THIS caller, moving a
-            record into ``kept`` instead of ``skipped`` (P-m27). The default
+            record into ``kept`` instead of ``skipped``. The default
             ``()`` reproduces today's behavior for every existing caller --
             only a reason of ``None`` is kept. ``"unparseable"`` and
             ``"dummy_atoms"`` are not meaningful here regardless: an
             unparseable record has no connectivity to keep, and a dummy atom
-            (an R-group placeholder, N-M3) is not a species no caller can
+            (an R-group placeholder) is not a species no caller can
             legitimately process.
 
     Returns:
@@ -386,10 +386,8 @@ def iter_conformer_records(path: str) -> Iterator[Chem.Mol]:
     """Yield the SDF records at ``path`` a per-record consumer can process.
 
     ``tautomer.select_tautomers`` and ``batch_opt.batchopt.Optimizer.run``
-    each used to inline their own copy of this filter by hand -- some only the
-    None/conformerless half, with nothing pinning them in agreement, and none
-    of them skipping an implicit-hydrogens or dummy-atom record. This is the
-    one implementation both now call, and it is itself only
+    both call this one implementation, skipping the None/conformerless,
+    implicit-hydrogens, and dummy-atom cases alike. It is itself only
     :func:`classify_records` plus :meth:`ClassifiedRecords.log_skipped`: the
     "report everything and keep the rest" view of the one partition.
     ``SPE.calc_spe``, ``ASE.geometry.opt_geometry``, and
@@ -500,9 +498,7 @@ def reorder_sdf(sdf: str, source: str) -> list[Chem.Mol]:
     # atomically replace the original only on success (crash-safe in-place
     # overwrite). `atomic_write_path` owns that staging for this and three
     # other callers (two more in-place rewrites, plus the ranked SDF write,
-    # which is not a rewrite); this one used to do it by hand through a
-    # predictable `<name>.reorder.tmp` and without copying `sdf`'s permission
-    # bits, so a 0600 file came back at whatever the umask allows.
+    # which is not a rewrite).
     ordered_mols: list[Chem.Mol] = []
     written_ids: set[str] = set()
     with atomic_write_path(sdf, suffix=".sdf") as tmp_path, Chem.SDWriter(tmp_path) as f:

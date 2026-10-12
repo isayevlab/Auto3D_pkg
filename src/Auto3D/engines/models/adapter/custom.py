@@ -69,7 +69,7 @@ class CustomModelAdapter(BaseModelAdapter):
         # TorchScript archives are already a compiled graph, so `torch.compile`
         # has nothing to add; an eager `nn.Module` -- which `load_custom_nnp`
         # also accepts, and which every AIMNet2-derived custom model is -- does
-        # benefit. Honouring the flag only in that case is what stops
+        # benefit. Honoring the flag only in that case is what stops
         # `compile_model=True` from being silently ignored on the one adapter a
         # user supplies the model for.
         compile_custom = compile_model and not isinstance(model, torch.jit.ScriptModule)
@@ -94,12 +94,12 @@ class CustomModelAdapter(BaseModelAdapter):
         ``charges`` follows ``coords``' dtype so a model that concatenates them does not mismatch.
 
         The returned shape is checked here, on every call, rather than with a
-        synthetic forward at load time (R52): executing the user's model has
+        synthetic forward at load time: executing the user's model has
         side effects this adapter cannot bound -- a real custom NNP's
         calculator can lazily build persistent per-instance state (adaptive
         neighbor lists, D3/Coulomb buffers) sized off whatever it is first
-        called with, so a degenerate load-time probe geometry left that state
-        mis-sized for every real molecule that followed. Checking here costs
+        called with, so a degenerate load-time probe geometry would leave
+        that state mis-sized for every real molecule that followed. Checking here costs
         one shape comparison per call and catches the same defect a probe
         was meant to -- a bare scalar, say, which would otherwise sum over the
         batch and silently move every molecule by one shared, wrong force --

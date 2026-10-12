@@ -29,13 +29,14 @@ def _mol_name(mol: Chem.Mol, default: str = "molecule") -> str:
     """The molecule's ``_Name`` property, or ``default`` when it has none.
 
     Every diagnostic/warning site in this module needs a human-readable
-    identifier for a mol that may or may not carry ``_Name``, and used to
-    repeat ``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``
-    verbatim at each site (M64). The default itself is NOT hardcoded here to
-    a single value: most callers want the generic ``"molecule"``, but
-    ``iter_thermo_records`` identifies an unnamed record by its position in
-    the file (``f"record {position}"``) instead, so that case is still
-    threaded through explicitly.
+    identifier for a mol that may or may not carry ``_Name``, rather than
+    repeating
+    ``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``
+    verbatim at each site. The default itself is NOT hardcoded here to
+    a single value: some callers want the generic ``"molecule"`` default;
+    the position-based fallback (see
+    :func:`Auto3D.foundation.utils.sdf_io._display_name`, ``f"record
+    {position}"``) is threaded through explicitly for those.
     """
     return mol.GetProp("_Name") if mol.HasProp("_Name") else default
 
@@ -71,7 +72,7 @@ def _is_collinear(atoms: ase.Atoms) -> bool:
     window that check always drops the phantom near-axis mode (3N-6 modes),
     but it hands ``IdealGasThermo`` the nonlinear rotor only when the smallest
     principal moment is above the classical-rotor floor -- below it the linear
-    rotor is kept, which is the quantum limit for Theta_A >> T (N-M4, R27).
+    rotor is kept, which is the quantum limit for Theta_A >> T.
     """
     if len(atoms) <= 2:
         return True
@@ -150,14 +151,14 @@ def _symmetry_number(mol: Chem.Mol) -> int:
             )
             return 1
         else:
-            # A parseable but impossible value used to be clamped by
+            # A parseable but impossible value would otherwise be clamped by
             # `max(1, ...)` in silence, while every other invalid value in this
-            # function warns: symmetry_number="0" and "-3" both became sigma=1
-            # with nothing logged. And there was no upper bound at all, so
-            # "1000000" was accepted unchecked and shifted Gibbs energy by
+            # function warns: symmetry_number="0" and "-3" would both become
+            # sigma=1 with nothing logged. And with no upper bound at all,
+            # "1000000" would be accepted unchecked and shift Gibbs energy by
             # R*T*ln(1e6) = 8.2 kcal/mol at 298 K -- a silent 8 kcal/mol from one
-            # mistyped property. _resolve_multiplicity two functions below already
-            # bounds and parity-checks its property; this one did neither.
+            # mistyped property. _resolve_multiplicity two functions below
+            # bounds and parity-checks its property the same way.
             #
             # The upper bound is the highest external rotational symmetry number
             # of any real molecule: 60 for the icosahedral point groups (I, Ih --

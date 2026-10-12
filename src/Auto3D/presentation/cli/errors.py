@@ -49,7 +49,7 @@ EXIT_CODES: dict[type, int] = {
     GPUError: 4,
     ModelError: 5,  # includes ModelLoadError / NumericalError
     # Raised when no 3D structure converges for any molecule (see
-    # WorkflowOrchestrator._run_pipeline). Previously unmapped, so it fell
+    # WorkflowOrchestrator._run_pipeline). Left unmapped, this would fall
     # through to the generic code 1 -- indistinguishable from an internal
     # crash to a calling shell script, even though it is a recognized,
     # documented Auto3DError with its own hint-worthy cause.
@@ -60,8 +60,10 @@ EXIT_CODES: dict[type, int] = {
 # so `auto3d run ...; echo $?` after Ctrl-C answers what every other well-behaved
 # program answers. Deliberately not folded into EXIT_CODES: that table maps
 # *exception classes* through exit_code_for, and KeyboardInterrupt is a
-# BaseException that never reaches an `except Exception` handler -- which is
-# exactly why an interrupted run used to report nothing at all.
+# BaseException that bypasses `execute_run`'s `except Exception` and the
+# legacy runner's equally, so without a dedicated exit path the user would
+# see a bare prompt with no idea how far the run got or whether anything
+# reached disk.
 #
 # The value is not novel for the Typer commands: typer/core.py already turns an
 # escaping KeyboardInterrupt into click's Exit(130). Naming it here is what lets
@@ -81,8 +83,8 @@ def exit_code_for(error: Exception) -> int:
 
 # Per-raise-site hints, keyed on (exception class, hint_key) rather than the
 # class alone -- see get_error_hint. Each entry is the CLI-flag-bearing
-# sentence the matching raise site's own message and `hint` no longer spell,
-# so the flag text lives in exactly one place instead of drifting across the
+# sentence that does not appear in the matching raise site's own message and
+# `hint`, so the flag text lives in exactly one place instead of drifting across the
 # CLI presentation layer and the engine/domain raise site.
 #
 # get_error_hint matches a key's class with isinstance, the same way
@@ -185,7 +187,7 @@ def handle_error(error: Exception, verbose: int = 0, json_output: bool = False) 
             -- that panel *is* the intended, actionable presentation. Any
             value above 0 additionally prints a full traceback to stderr, so
             an internal failure (a bare ``KeyError('ID')`` from a missing SDF
-            property, say) is debuggable without editing source (M30).
+            property, say) is debuggable without editing source.
         json_output: The command was invoked with ``--json``. The human panel
             below still goes to stderr -- diagnostics belong there and a
             terminal user must not lose them -- but stdout additionally gets a
@@ -275,10 +277,11 @@ def handle_interrupt(
 ) -> None:
     """Report what is known about a Ctrl-C'd run, then exit :data:`EXIT_INTERRUPTED`.
 
-    An interrupted run used to print nothing whatsoever -- ``KeyboardInterrupt``
-    is a ``BaseException``, so neither ``execute_run``'s ``except Exception`` nor
-    the legacy runner's saw it, and the user was left with a bare prompt, no idea
-    how far the run had got and no idea whether anything reached disk.
+    ``KeyboardInterrupt``
+    is a ``BaseException`` that bypasses ``execute_run``'s ``except Exception``
+    and the legacy runner's equally, so without this panel the user would see a
+    bare prompt with no idea
+    how far the run got and no idea whether anything reached disk.
 
     Every field is optional and omitted when unknown, because the point of this
     panel is to state what is known and nothing else:
@@ -289,9 +292,9 @@ def handle_interrupt(
         batch: The most recent optimizer progress counts, if any arrived --
             ``{"converged", "active", "dropped", "step"}``. These describe the
             batch that was in the optimizer, not the whole run (see
-            ``Auto3D.presentation.cli.progress.OptimizationDisplay``), and are labelled that
+            ``Auto3D.presentation.cli.progress.OptimizationDisplay``), and are labeled that
             way; claiming them as run totals would be the same defect this
-            module's neighbours were just cleared of.
+            module's neighbors were just cleared of.
         elapsed_seconds: Wall-clock time before the signal arrived.
 
     Raises:

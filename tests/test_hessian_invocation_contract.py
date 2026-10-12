@@ -214,7 +214,7 @@ class TestAnalyticVersusAutograd:
         assert "analytic_hessian" in adapter.calls
         assert "energy" not in adapter.calls, (
             "the native analytic Hessian was computed AND then discarded in "
-            "favour of differentiating energy()"
+            "favor of differentiating energy()"
         )
         assert np.allclose(vib.get_hessian_2d(), native.reshape(n_atoms * 3, n_atoms * 3).numpy())
 

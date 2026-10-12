@@ -95,21 +95,19 @@ def main(
     # restructure.
     from Auto3D.foundation.results import WorkflowResult
 
-    # No start-method call here, deliberately. This used to be
-    # `mp.set_start_method("spawn", force=True)`: a global mutation performed by
-    # a library on behalf of a caller who never asked for it, changing the
-    # default start method for every other pool in the host program for the rest
-    # of the process's life.
+    # No start-method call here, deliberately: a library should not globally
+    # mutate multiprocessing's start method on behalf of a caller who never
+    # asked for it, changing the default for every other pool in the host
+    # program.
     #
-    # The requirement it served is real and unchanged -- the workers run PyTorch,
-    # and forking a process that has already initialized a CUDA context yields a
-    # broken context in the child, so the run produces no output (surfacing as
-    # "no 3D structure converged"). It is now met by starting those processes
+    # The requirement is real -- the workers run PyTorch, and forking a
+    # process that has already initialized a CUDA context yields a broken
+    # context in the child, so the run produces no output (surfacing as
+    # "no 3D structure converged"). It is met by starting those processes
     # from an explicit spawn context (WorkflowOrchestrator.mp_context) rather
-    # than by reconfiguring the interpreter, which also disposes of the reason
-    # `force=True` was mandatory: a default-context pool that had already locked
-    # the global method to 'fork' can no longer affect us, because we no longer
-    # read the global method.
+    # than by reconfiguring the interpreter: a default-context pool that has
+    # already locked the global method to 'fork' cannot affect us, because we
+    # never read the global method.
 
     orchestrator = WorkflowOrchestrator(args, progress_callback=progress_callback)
     output_path = orchestrator.run()
@@ -117,7 +115,7 @@ def main(
     # CLI already does for n_molecules/n_conformers (cli/commands/run.py), so
     # a test/mock that swaps in a bare stand-in for the orchestrator (e.g.
     # test_mp_start_method.py) still gets a valid WorkflowResult instead of an
-    # AttributeError. P-m26: output_counts, when present, are the eager
+    # AttributeError. output_counts, when present, are the eager
     # (n_molecules, n_conformers) FinalizeMixin._finalize_output already
     # computed from the run's own record list; its absence (the same stand-in
     # case) falls back to WorkflowResult's lazy, computed-from-disk count.
@@ -197,15 +195,15 @@ def smiles2mols(
         )
 
     # Copy the caller's config up front: smiles2mols must not mutate the
-    # object it was given (M15). Every assignment below (path, input_format)
-    # lands on this private copy; `args` no longer refers to the caller's
-    # object for the rest of this function.
+    # object it was given. Every assignment below (path, input_format)
+    # lands on this private copy; `args` names the private copy, not the
+    # caller's object, for the rest of this function.
     args = args.replace()
 
     # smiles2mols has no tautomer-enumeration step and hardcodes the RDKit
     # isomer engine below (mode_oe only ever affects the omega engine, so it
     # has no effect here regardless) -- silently ignoring these three options
-    # was M15. Raise instead of letting the caller believe they took effect.
+    # would let the caller believe they took effect. Raise instead.
     if args.enumerate_tautomer:
         raise ConfigurationError(
             "smiles2mols does not support enumerate_tautomer=True: it has no "
@@ -236,16 +234,16 @@ def smiles2mols(
 
         # Fail fast on an invalid configuration (notably an out-of-range
         # gpu_idx) the same way main() does via WorkflowOrchestrator --
-        # check_input alone does not catch this, so it used to only surface
-        # opaquely deep inside optimization.
+        # check_input alone does not catch this, so without it the error
+        # would only surface opaquely deep inside optimization.
         config_errors = check_valid_configuration(args)
         if config_errors:
             raise ConfigurationError("Invalid configuration:\n  - " + "\n  - ".join(config_errors))
 
         check_input(args)
 
-        # Resolve the engine name and verify the model is obtainable HERE
-        # (C8/M22), before the `Optimizer` step below constructs its own copy
+        # Resolve the engine name and verify the model is obtainable HERE,
+        # before the `Optimizer` step below constructs its own copy
         # for real work. A cold cache with no network, a corrupted cached
         # file, or an unwritable cache directory would otherwise surface only
         # deep inside ranking/optimization as an opaque failure.
@@ -276,7 +274,7 @@ def smiles2mols(
         # single-process, so only the first index is ever used. Resolved
         # through model_factory.get_device -- the single owner of gpu_idx ->
         # torch.device -- rather than re-building the `cuda:{idx}` string
-        # here, which used to bypass get_device's own out-of-range GPUError
+        # here, which would bypass get_device's own out-of-range GPUError
         # entirely (defense in depth: check_valid_configuration above already
         # range-checks gpu_idx for this entry point, but get_device is where
         # every other caller, incl. calc_spe/opt_geometry/calc_thermo, gets
@@ -285,10 +283,8 @@ def smiles2mols(
         device = get_device(idx, use_gpu=args.use_gpu)
         # `batchsize_atoms` on the config is a per-gigabyte figure, so this
         # entry point measures memory and scales it exactly as main() does --
-        # through the same ChunkManager measurement and the same rule. It used
-        # to read the field as an absolute count, which made the identical
-        # config optimize in batches up to 16x smaller here than through main()
-        # (P-M11). There is no chunking to do (one process, one input file), so
+        # through the same ChunkManager measurement and the same rule. There
+        # is no chunking to do (one process, one input file), so
         # only the memory figure is taken from the manager.
         memory_gb, _, _ = ChunkManager(
             args, Path(path0), "smi", Path(tmpdirname)
@@ -336,7 +332,7 @@ def smiles2mols(
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)
 
-        # Reconcile inputs against outputs (C7): smiles2mols never runs
+        # Reconcile inputs against outputs: smiles2mols never runs
         # encode_ids/decode_ids -- path0 already holds the same (InChIKey-based)
         # ids that ranking/reorder_sdf wrote to meta["output"] -- so this is
         # already the right pair to compare, no decoding needed. This call's

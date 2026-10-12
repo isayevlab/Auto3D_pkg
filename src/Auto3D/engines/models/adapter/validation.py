@@ -41,8 +41,8 @@ def _raise_for_energy(energy: torch.Tensor) -> None:
 def validate_energies(energy: torch.Tensor) -> None:
     """Reject a non-finite energy on a path that computed no forces.
 
-    ``forward``'s :func:`_validate_outputs` used to be the only NaN gate a
-    single-point energy passed through, so an energy-only path that skipped it
+    This is the NaN gate a single-point energy path needs: without it, an
+    energy-only path that skips ``forward``'s :func:`_validate_outputs`
     would turn ``auto3d energy``'s exit-5 diagnosis into an SDF full of ``nan``.
 
     Args:

@@ -3,15 +3,12 @@
 Two constructors, deliberately asymmetric:
 
 * :meth:`IsomerEngineFactory.create` is the only supported way to build an
-  isomer engine. A module-level ``create_isomer_engine`` wrapper existed
-  alongside it until 3.0.0 and was deleted: it had zero ``src/`` callers (both
-  production sites -- ``auto3D.py`` and ``workflow_workers.py`` -- call the
-  classmethod), was documented at no public path, and had already *diverged*
-  from what it wrapped by omitting ``input_format``, so it could not express the
-  ``rdkit`` -> ``rdkit_sdf`` auto-selection below. A second spelling of the one
-  documented public path (``Auto3D.engines.isomers.IsomerEngineFactory``) that no
-  production code used and could no longer reach the full surface was maintenance
-  with no consumer.
+  isomer engine: both production sites (``auto3D.py`` and
+  ``workflow_workers.py``) call the classmethod directly. A second spelling
+  of the one documented path (``Auto3D.engines.isomers.IsomerEngineFactory``)
+  would be maintenance with no consumer: nothing calls it, and it cannot
+  express the ``rdkit`` -> ``rdkit_sdf`` auto-selection below, so it is not
+  provided.
 
 * :func:`create_tautomer_engine` stays, because it is not a duplicate of
   anything. It is the *only* constructor for a tautomer engine -- there is no
@@ -52,7 +49,7 @@ _ENGINES.register("rdkit_sdf", RDKitSdfIsomer)
 _ENGINES.register("omega", oe_isomer)
 
 #: Names :func:`create_tautomer_engine` accepts, both resolving to the same
-#: class (P-m13): the engine dispatches on `mode` internally rather than
+#: class: the engine dispatches on `mode` internally rather than
 #: needing two registered types. Registered anyway, rather than a
 #: hand-written `if/else` with its own "Supported types" message, so an
 #: unknown tautomer engine name is reported through the one Registry message
@@ -158,8 +155,8 @@ class IsomerEngineFactory:
             mode: Omega mode ('classic', 'macrocycle', etc.) for omega engine.
             use_parallel_embedding: Use parallel conformer embedding (rdkit only).
                 Off in this signature, which is the constructor default only: the
-                product default (``Auto3DOptions.use_parallel_embedding``) is ON
-                since 3.2.0, and both orchestrators pass it explicitly, so this
+                product default (``Auto3DOptions.use_parallel_embedding``) is ON,
+                and both orchestrators pass it explicitly, so this
                 default is reached by direct callers alone.
             parallel_embedding_threshold: Fewest species (after stereoisomer
                 enumeration) worth embedding in parallel.
@@ -276,7 +273,7 @@ def create_tautomer_engine(
     """
     engine_type = engine_type.lower()
 
-    # Raises ConfigurationError naming the alternatives (P-m13) -- the same
+    # Raises ConfigurationError naming the alternatives -- the same
     # Registry message `IsomerEngineFactory.create` already produces for an
     # unknown isomer engine name.
     engine_cls = _TAUTOMER_ENGINES.resolve(engine_type)

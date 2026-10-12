@@ -18,17 +18,17 @@ something a caller composes.
 
 Why this order, and not another:
 
-* ``resolve_engine_name`` first, because an unrecognized name is the cheapest
-  mistake to catch and the most expensive to catch late -- it used to surface
-  from inside model construction, after a download (M21/C11). Pure offline
-  registry lookup: no network, no model load.
-* ``check_gpu_requested`` next: the three entry points reach ``get_device``
-  directly, which silently returns CPU, so a scripted ``use_gpu=True`` on a
-  CPU-only box used to compute on CPU with no signal at all, while ``auto3d
-  run``/``smiles2mols`` raised (M23). This is the single owner of that policy.
+* ``resolve_engine_name`` first, because an unrecognized engine name is
+  cheapest to catch here and most expensive caught later, from inside model
+  construction after a download. Pure offline registry lookup: no network,
+  no model load.
+* ``check_gpu_requested`` next, because ``get_device`` silently falls back to
+  CPU; without this check a scripted ``use_gpu=True`` on a CPU-only box would
+  compute on CPU with no signal at all, unlike ``auto3d run``/``smiles2mols``,
+  which raise. This is the single owner of that policy.
 * ``check_output_not_input`` before anything reads or writes: ``-o`` pointing at
   the input destroys the user's file, and no amount of atomic staging brings it
-  back (C14).
+  back.
 * ``configure_torch`` before any tensor work, so ``allow_tf32`` applies to this
   path too (all three ignored it before).
 * ``default_output_path`` is the single owner of the
@@ -39,16 +39,16 @@ Why this order, and not another:
   overwrite the first run's results with no ``-o`` in sight.
 * ``classify_records`` + ``log_skipped`` before the engine gate and the device:
   reading the file needs neither, and every defective record is reported here,
-  by the one classifier (N-C1) -- ``opt_geometry`` additionally hands the same
+  by the one classifier -- ``opt_geometry`` additionally hands the same
   path to ``Optimizer``, which reports it a second time through
   ``iter_conformer_records``; de-duplicating that would mean the prologue
   passing its records on, which ``geometry.py`` deliberately does not do.
   ``calc_thermo`` passes its own wording for the reasons it marks rather than
   drops.
 * ``check_engine_supports_molecules`` on the KEPT records only: ANI2x/ANI2xt
-  silently evaluate a charged or out-of-set species as a different, neutral one
-  (C11), and a record this run is dropping or marking must not get a vote on
-  whether the engine can do the rest (D2).
+  silently evaluate a charged or out-of-set species as a different, neutral one,
+  and a record this run is dropping or marking must not get a vote on
+  whether the engine can do the rest.
 * ``get_device`` last, because it is the first step that touches the GPU, and
   everything above can refuse the run without it.
 
@@ -125,14 +125,11 @@ class RunSetup:
     def require_records(self, path: str) -> None:
         """Refuse the run when no record of ``path`` can be computed.
 
-        ``calc_spe`` and ``opt_geometry`` need at least one usable record: both
-        compute over the whole set at once (a padded batch, a bucketed
-        optimization), and neither has anything to write for a record it cannot
-        read. ``calc_spe`` used to log a warning, write a 0-byte SDF and return
-        its path -- exit code 0 and an output file a pipeline would read as "no
-        molecules", indistinguishable from a genuinely empty input; and
-        ``opt_geometry`` raised ``OptimizationError`` (exit 7, "nothing
-        converged"), which pointed at the optimizer for a defect in the input.
+        ``calc_spe``/``opt_geometry`` need at least one usable record because
+        each computes over the whole set at once (a padded batch, a bucketed
+        optimization) and has nothing to write for a record it cannot read;
+        this raises explicitly instead of a misleading 0-byte "success" or a
+        confusing optimizer-side error.
 
         Raises:
             InputValidationError: ``records`` is empty. The message names the
@@ -151,7 +148,7 @@ class RunSetup:
         """Refuse the run only when ``path`` yielded no ``Mol`` at all.
 
         ``calc_thermo``'s verdict. A defective record is something to mark, not
-        a reason to refuse the file (D2): it writes that record with
+        a reason to refuse the file: it writes that record with
         ``Thermo_failed`` set, so a file of nothing but defective records still
         produces the output a caller filtering on that property expects. Only a
         file that yielded no record at all leaves it with nothing to write.

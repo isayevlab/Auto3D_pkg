@@ -41,10 +41,10 @@ class Calculator(ase.calculators.calculator.Calculator):
     The first argument is a :class:`Auto3D.engines.models.contract.ModelAdapter` and it
     is the ONLY model-dependent input: it supplies the energy/force call *and*
     the species convention (:meth:`~Auto3D.engines.models.contract.ModelAdapter.to_species`).
-    Until 3.0.0 it took an engine-name string alongside the model and fed that
-    name to a name-keyed species converter, so ``Calculator.model_name`` and the
-    model actually wrapped could disagree about which convention was in force --
-    the C3/C4 defect class, on a path where ANI2xt's 0-based network indices and
+    Taking an engine-name string alongside the model and feeding that
+    name to a name-keyed species converter instead would let ``Calculator.model_name``
+    and the model actually wrapped disagree about which convention is in force --
+    on a path where ANI2xt's 0-based network indices and
     raw atomic numbers are both plausible-looking integers. Asking one object
     makes the disagreement unrepresentable rather than merely absent.
 
@@ -61,14 +61,14 @@ class Calculator(ase.calculators.calculator.Calculator):
     ASE decides whether a cached ``energy``/``forces`` may be reused by calling
     ``check_state``, which delegates to ``compare_atoms`` and compares only
     positions, atomic numbers, cell and pbc -- the charge is invisible to it.
-    Reassigning the charge without discarding the cache therefore let two
-    records with the SAME geometry and DIFFERENT formal charge share one
+    Reassigning the charge without invalidating the cache would therefore let
+    two records with the SAME geometry and DIFFERENT formal charge share one
     result: a vertical IP/EA input (one geometry, two charges) is the ordinary
-    case, and it silently reported the neutral energy for the ion. Downstream
-    that is the entire electron affinity, tens of kcal/mol, with no warning --
-    and because the cached FORCES were reused too, ``BFGS`` "converged" in zero
-    steps on the previous molecule's gradient and the stationary-point gate
-    passed.
+    case, and it would silently report the neutral energy for the ion.
+    Downstream that is the entire electron affinity, tens of kcal/mol, with
+    no warning -- and because the cached FORCES would be reused too,
+    ``BFGS`` would "converge" in zero steps on the previous molecule's
+    gradient and the stationary-point gate would pass.
 
     ``discard_results_on_any_change`` makes ASE's own ``Calculator.set`` call
     ``reset()`` whenever a parameter actually changes, so routing the charge
@@ -140,13 +140,14 @@ class Calculator(ase.calculators.calculator.Calculator):
         else:
             # Param-less custom model (e.g. one that builds its NNP backend
             # lazily) and no device from the caller. CPU is the only answer
-            # that cannot violate Auto3D's GPU policy: this branch used to read
-            # torch.cuda.is_available() and seize cuda:0 even when the caller
-            # had asked for use_gpu=False, which check_gpu_requested/get_device
-            # had already resolved to CPU. That made one calc_thermo call run
+            # that cannot violate Auto3D's GPU policy: reading
+            # torch.cuda.is_available() and seizing cuda:0 here would run on
+            # GPU even when the caller asked for use_gpu=False, which
+            # check_gpu_requested/get_device already resolved to CPU. That
+            # would make one calc_thermo call run
             # on two devices -- BFGS and the ASE energy on cuda:0, the fmax
-            # pre-check and the Hessian on cpu -- and ignored gpu_idx entirely
-            # (always device 0). Nothing was logged, so nobody could find out.
+            # pre-check and the Hessian on cpu -- and ignore gpu_idx entirely
+            # (always device 0), with nothing logged to find out.
             self.device = torch.device("cpu")
         if dtype is not None:
             self.dtype = dtype
@@ -208,7 +209,7 @@ class Calculator(ase.calculators.calculator.Calculator):
         # symbol table, so any aimnet-supported element incl. Pd works).
         # ANI2xt consumes 0-based network indices, not atomic numbers; every
         # other engine passes through. The ADAPTER decides which, so this site
-        # cannot drift out of sync with batch_opt/padding.py (audit C3).
+        # cannot drift out of sync with batch_opt/padding.py.
         species = torch.tensor(
             self.adapter.to_species(self.atoms.get_atomic_numbers().tolist()),
             dtype=torch.long,
@@ -232,9 +233,9 @@ def mol2aimnet_input(mol: Chem.Mol, device=torch.device("cpu"), *, adapter: Mode
         mol: RDKit molecule with exactly one conformer.
         device: Device the returned tensors live on.
         adapter: The model this input is being built for. It supplies the
-            species convention (:meth:`ModelAdapter.to_species`); this used to
-            be an engine-name string, which is what allowed the convention here
-            to disagree with the one the wrapped model actually wanted.
+            species convention (:meth:`ModelAdapter.to_species`) directly,
+            rather than through an engine-name string that could disagree
+            with the one the wrapped model actually wants.
 
     Returns:
         ``dict(coord=..., numbers=..., charge=...)``, batch dimension 1.
@@ -266,8 +267,8 @@ def model_name2model_calculator(model_name: str, device=torch.device("cpu"), cha
             well, so the ASE-facing tensors land on the same device as the
             rest of the call rather than on whatever the calculator would
             infer. A custom NNP with no parameters has no device to infer
-            from, and inferring one is how ``use_gpu=False`` used to end up
-            running on cuda:0.
+            from, and inferring one is how ``use_gpu=False`` could otherwise
+            end up running on cuda:0.
         charge: Molecular charge for the calculator.
 
     Returns:
@@ -277,11 +278,11 @@ def model_name2model_calculator(model_name: str, device=torch.device("cpu"), cha
     """
     model_adapter = create_model(model_name, device)
 
-    # The adapter goes straight in. It used to be wrapped in a BatchedEnergyForce
-    # first, which only forwarded one unpadded single-molecule call through to
+    # The adapter goes straight in: wrapping it in a BatchedEnergyForce
+    # first would only forward one unpadded single-molecule call through to
     # `adapter.forward(coord, numbers, charges, atom_mask=None)` -- exactly what
-    # Calculator now does itself -- while hiding the adapter from the calculator,
-    # so the species convention had to be re-supplied as a separate name string.
+    # Calculator does itself -- while hiding the adapter from the calculator,
+    # so the species convention would have to be re-supplied as a separate name string.
     calculator = Calculator(model_adapter, charge, device=device)
 
     return model_adapter, calculator

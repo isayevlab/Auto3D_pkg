@@ -112,16 +112,16 @@ def housekeeping(job_name: str, folder: str, optimized_structures: str) -> None:
     or, when that is unavailable (the cluster path), plainly ``os.remove``s
     it. Whatever ends up in ``folder`` is therefore *deleted*.
 
-    This function used to additionally sweep ``oeomega_*`` and ``flipper_*``
-    out of the **process working directory**, which for an ordinary
-    ``cd ~/project && auto3d run mols.smi --k 1`` is the user's own directory:
-    a file named e.g. ``~/project/oeomega_settings.txt`` was moved into the
-    run's ``verbose`` folder and then destroyed with it, unrecoverably on the
-    ``os.remove`` path. That loop ran on *every* run, not only OpenEye ones.
-    The OpenEye logfiles it existed to collect now land inside the chunk
-    directory instead -- ``isomer_engine.oe_isomer`` runs the OpenEye section
+    The OpenEye logfiles (``oeomega_*``, ``flipper_*``) land inside the chunk
+    directory -- ``isomer_engine.oe_isomer`` runs the OpenEye section
     with its working directory set to the directory it owns -- so the loop
-    below collects them like any other metadata file.
+    below collects them like any other metadata file, rather than sweeping
+    the **process working directory** (which for an ordinary
+    ``cd ~/project && auto3d run mols.smi --k 1`` is the user's own
+    directory, where a file named e.g. ``~/project/oeomega_settings.txt``
+    would otherwise be moved into the run's ``verbose`` folder and destroyed
+    with it, unrecoverably on the ``os.remove`` path, on *every* run, not
+    only OpenEye ones).
 
     Each move is guarded individually: a single file that cannot be moved
     (permissions, a vanished file) must not abandon the rest of the sweep and

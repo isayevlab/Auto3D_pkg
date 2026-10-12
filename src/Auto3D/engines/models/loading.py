@@ -41,15 +41,15 @@ def load_custom_nnp(
     deep inside ``torch.autograd.grad`` many steps later. The signature check
     cannot see the return VALUE, so it cannot catch a model that returns the
     wrong SHAPE (a bare scalar, say, rather than one energy per molecule) --
-    that is caught at the model's first real forward instead (R52; see
+    that is caught at the model's first real forward instead (see
     :meth:`Auto3D.engines.models.adapter.custom.CustomModelAdapter._energy_graph`),
-    not here. A synthetic forward at load time used to catch it here, on a
-    degenerate two-atom probe geometry, but a real custom NNP's own calculator
+    not here. A synthetic forward at load time, on a
+    degenerate two-atom probe geometry, would not be safe here: a real custom NNP's own calculator
     can build persistent per-instance state (neighbor lists, D3/Coulomb
-    buffers) sized off whatever it is first called with, so that probe left
+    buffers) sized off whatever it is first called with, so that probe would leave
     such a calculator mis-sized for every real molecule that followed --
     trading one silent-corruption bug for another. Executing the user's model
-    at all has side effects this loader cannot bound, so it no longer does.
+    at all has side effects this loader cannot bound, so it does not.
 
     Args:
         model_path: Path to the model file.

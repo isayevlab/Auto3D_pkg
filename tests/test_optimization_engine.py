@@ -354,7 +354,7 @@ class _ConstantForceNN:
     whole run regardless of how far FIRE moves the atoms.
 
     ``energy_stable=True`` reports the same energy at every call (a perfectly
-    stable energy -- the most favourable possible input for an energy-based
+    stable energy -- the most favorable possible input for an energy-based
     convergence criterion); ``False`` shifts it by 1 eV per call, far above
     any plausible energy tolerance.
 

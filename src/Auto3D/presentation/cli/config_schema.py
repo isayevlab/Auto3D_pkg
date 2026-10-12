@@ -34,35 +34,31 @@ OPTIONS_ONLY_FIELDS: dict[str, str] = {
 def build_cli_config(**kwargs: Any) -> Auto3DOptions:
     """Construct an ``Auto3DOptions``, translating any failure into ``ConfigurationError``.
 
-    This is the one construction path every site that builds a ``CLIConfig``
-    from external data (a YAML file, merged CLI overrides, a bare CLI
-    invocation) should call instead of ``CLIConfig(...)`` directly. Before
-    this helper existed, that translation lived only inside `merge_configs`
-    -- so a bad value reaching CLIConfig through `load_yaml_config` (a
-    config-file value, never merged with any CLI override) raised a raw
-    pydantic `ValidationError` that `cli/commands/run.py`'s `except
-    Auto3DError` clause does not catch. It fell through to the generic
-    "Unexpected Error" panel at exit code 1 instead of the ConfigurationError
-    panel (exit 2, "run auto3d config init" hint) every other invalid-
-    configuration path produces -- e.g. `auto3d run in.smi -c cfg.yaml` with
-    `cfg.yaml` setting `k: 0`. Concentrating the translation here, rather than
-    duplicating the try/except at each construction site, is what keeps every
-    site in sync with no second edit.
+    This is the one construction path every site that builds an
+    ``Auto3DOptions`` from external data (a YAML file, merged CLI overrides,
+    a bare CLI invocation) should call, rather than constructing
+    ``Auto3DOptions`` directly. Concentrating the translation here, rather
+    than duplicating a try/except at each construction site, keeps every
+    site in sync with no second edit: a bad value reaching ``Auto3DOptions``
+    always raises ``ConfigurationError`` and so always reaches the same
+    panel (exit 2, "run auto3d config init" hint) -- e.g. `auto3d run
+    in.smi -c cfg.yaml` with `cfg.yaml` setting `k: 0` -- rather than a raw
+    pydantic ``ValidationError`` escaping to the generic "Unexpected Error"
+    panel at exit code 1.
 
-    ``ValidationError`` is not the only way ``CLIConfig(...)`` can fail.
+    ``ValidationError`` is not the only way construction can fail.
     Pydantic converts a ``ValueError``/``AssertionError`` raised inside a
     validator into a field-named ``ValidationError``, but it re-raises any
     other exception unchanged -- and ``parse_gpu_idx`` above calls ``int(x)``,
     which raises ``TypeError`` on a value that is neither a string, a number,
     nor a list (``auto3d run in.smi -c cfg.yaml`` with ``gpu_idx: {a: 1}``).
-    Translating only ``ValidationError`` let that ``TypeError`` escape to
+    Catching only ``ValidationError`` would let that ``TypeError`` escape to
     ``cli/commands/run.py``'s ``except Exception`` clause, producing the
-    generic "Unexpected Error" panel at exit code 1 -- precisely the outcome
-    this helper exists to eliminate, and for the same class of input (a bad
-    value in a config file) it already handles correctly everywhere else. A
-    malformed configuration value is a configuration error whichever layer
-    notices it, so it exits 2 with the "run auto3d config init" hint like
-    every other one.
+    generic "Unexpected Error" panel at exit code 1 for the same class of
+    input (a bad value in a config file) this function otherwise handles
+    correctly. A malformed configuration value is a configuration error
+    whichever layer notices it, so it exits 2 with the "run auto3d config
+    init" hint like every other one.
     """
     try:
         config = Auto3DOptions(**kwargs)
@@ -77,12 +73,12 @@ def build_cli_config(**kwargs: Any) -> Auto3DOptions:
     # Engine-name resolution happens HERE, not on the model, and the reason is
     # not only layering. `resolve_engine_name` lives in `Auto3D.engines.models`, so a
     # validator on `Auto3DOptions` (foundation layer) would point upward at the
-    # engine layer -- the edge PR #159 removed. It would also run on *every*
+    # engine layer. It would also run on *every*
     # construction, and resolving a registry name can reach the model
     # registry. A config object validates values; whether a name resolves
     # against a registry is a question for the layer that owns the registry.
     #
-    # Doing it at this boundary keeps what CLIConfig's validator bought: a typo
+    # Doing it at this boundary means a typo
     # in `--engine` or a config file is refused while the user is still looking
     # at their terminal, rather than inside a worker where the error is
     # swallowed. `check_valid_configuration` checks it again on the run path.
@@ -98,10 +94,9 @@ def require_input_path(config: Auto3DOptions) -> Auto3DOptions:
 
     ``path`` is optional so a reusable config file -- settings only, input named
     per run -- is valid; ``auto3d run in.smi -c cfg.yaml`` supplies the input on
-    the command line. But a config with no input is not runnable, and that
-    obligation used to be discharged inside ``CLIConfig.to_auto3d_options``.
-    With one class there is no conversion step to hang it on, so it is a
-    function the entry points that need a runnable config call by name.
+    the command line. But a config with no input is not runnable, so the
+    entry points that need a runnable config call this function by name to
+    enforce that.
 
     Returns ``config`` unchanged, so it reads as a gate at the call site.
 
@@ -140,11 +135,11 @@ def load_yaml_config(yaml_path: Path) -> Auto3DOptions:
         raise ConfigurationError(f"{yaml_path} is not valid YAML: {exc}") from exc
 
     # An empty file parses to None, and a top-level list or scalar parses to a
-    # non-mapping. Both used to reach `data.items()` and surface as
+    # non-mapping. Checked explicitly here, rather than reaching `data.items()`
+    # and surfacing as an internal-looking
     # `AttributeError: 'NoneType' object has no attribute 'items'` under the
-    # generic "Unexpected Error" panel at exit 1 -- an internal-looking crash
-    # for an ordinary mistake, and precisely the outcome build_cli_config
-    # exists to prevent.
+    # generic "Unexpected Error" panel at exit 1, for what is an ordinary
+    # mistake.
     if data is None:
         raise ConfigurationError(
             f"{yaml_path} is empty. A config file must contain a YAML mapping "
@@ -173,12 +168,7 @@ def merge_configs(base: Auto3DOptions, overrides: dict[str, Any]) -> Auto3DOptio
     `window`; see `Auto3D.foundation.config.check_selectors_mutually_exclusive`): an
     explicit `--k`/`--window` on the CLI is the user choosing *which*
     strategy to use, substituting for whatever the config file set -- not
-    requesting both at once. Before this fix, `auto3d run in.smi -c cfg.yaml
-    --k 1` with `cfg.yaml`'s `window: 5.0` left both `k=1` (the override) and
-    `window=5.0` (the file's, still sitting in `base_dict`) in the merged
-    result, which the mutual-exclusion guard then rejected -- even though
-    substituting one selector for the other is exactly what a CLI override is
-    for. When the CLI explicitly sets one selector and leaves the rest alone,
+    requesting both at once. When the CLI explicitly sets one selector and leaves the rest alone,
     every other selector is cleared here so only the explicit one survives;
     if the CLI explicitly sets more than one selector at once (a genuine
     conflict, not a merge artifact), none are cleared and the mutual-exclusion

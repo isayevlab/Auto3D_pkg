@@ -18,7 +18,8 @@ constructs ``Process(target=logger_process, ...)``, and ``logger_process``
 must not be imported into ``run_logging.py`` (that would risk a cycle once a
 later change makes ``workflow_workers.py`` import ``run_logging``);
 ``_start_manager`` is shared by both ``_setup_logging`` and ``_run_pipeline``
-and stays here by ruling, not because anything patches it.
+and stays here for consistency with the functions above, not because
+anything patches it.
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ def _raise_on_sigterm(signum: int, frame: object) -> None:
     the shell's own convention for "killed by SIGTERM", so a caller that reads
     the exit code sees exactly what it would have seen from the default
     disposition -- the difference is only that the workers were terminated on
-    the way out (P-C2).
+    the way out.
     """
     raise SystemExit(EXIT_TERMINATED)
 
@@ -84,7 +85,7 @@ def _sigterm_raises() -> Iterator[None]:
     The default disposition for SIGTERM kills the process outright: no
     ``finally`` runs, so ``_run_pipeline``'s worker-termination block never
     executes and the optimizer workers are left to finish the whole remaining
-    queue on the GPU (P-C2, P-M12). Raising instead gives the parent an
+    queue on the GPU. Raising instead gives the parent an
     ordinary unwind, which is all that block needs.
 
     Two conditions, and the block is a no-op unless BOTH hold:
@@ -132,8 +133,8 @@ def _sigterm_raises() -> Iterator[None]:
 class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
     """Orchestrates the Auto3D conformer generation pipeline.
 
-    This class encapsulates the workflow logic previously in the main() function,
-    providing better separation of concerns and testability. The implementation
+    This class encapsulates the workflow logic, providing better separation
+    of concerns and testability. The implementation
     is composed from ``RunLoggingMixin``, ``SupervisorMixin`` and
     ``FinalizeMixin`` (see the module docstring); this class itself keeps only
     ``__init__``, ``run`` and the setup/teardown sequencing around them.
@@ -167,22 +168,17 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         #: Explicit rather than global. The workers run PyTorch, and forking a
         #: process that has already initialized a CUDA context yields a broken
         #: context in the child -- the worker crashes and the run produces no
-        #: output ("no 3D structure converged"). ``main()`` used to guarantee
-        #: spawn by calling ``mp.set_start_method("spawn", force=True)``, which
-        #: reconfigured the *caller's* interpreter for the rest of its life, and
-        #: needed ``force=True`` because a default-context pool elsewhere may
-        #: already have locked the global method to the platform default.
-        #:
-        #: Reading the context from here instead makes both problems go away at
-        #: once: the guarantee is local, and what the global method happens to be
-        #: is no longer any of this class's business.
+        #: output ("no 3D structure converged"). Reading the context here keeps
+        #: the guarantee local: this class does not depend on whatever the
+        #: process-global multiprocessing start method happens to be, and does
+        #: not need to reconfigure the caller's interpreter to get it.
         self.mp_context = mp.get_context("spawn")
         self.job_name: str = ""
         self.job_dir: Path = Path()
         self.input_path: Path = Path()
         self.id_mapping: dict[str, str] = {}
-        # Input molecule IDs reconciled away as missing from the final output
-        # (C7), populated by _finalize_output. Read by main() to build the
+        # Input molecule IDs reconciled away as missing from the final output,
+        # populated by _finalize_output. Read by main() to build the
         # WorkflowResult.failures carrier.
         self.failures: list[str] = []
         self.logging_queue: Queue[LogRecord | None] | None = None
@@ -208,7 +204,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
             FileFormatError: If input file format is not supported.
             OptimizationError: If no structures converge.
         """
-        # Copy the caller's config once, up front (M16). _validate_input
+        # Copy the caller's config once, up front. _validate_input
         # below mutates self.config (job_name, input_format); without this
         # copy those mutations land on the exact object the caller still
         # holds, so a second main(args) call with the same config in one
@@ -329,7 +325,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         # raises FileFormatError (not a generic ValueError from encode_ids) and
         # no encoded temp file is written for input we are about to reject. The
         # encoded file keeps the source suffix, so this format is authoritative.
-        # casefold (M7): a chemically valid `mols.SDF` or `mols.SMI` must not
+        # casefold: a chemically valid `mols.SDF` or `mols.SMI` must not
         # be refused the way `mols.xyz` is.
         input_format = Path(self.config.path).suffix[1:].casefold()  # Remove leading dot
         if input_format not in ("smi", "sdf"):
@@ -360,7 +356,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         check_input(self.config)
 
         # Resolve the engine name and verify the model is obtainable HERE, in
-        # the parent, before any worker is forked (C8/M22). Every worker
+        # the parent, before any worker is forked. Every worker
         # builds its own copy of the model regardless (spawned processes
         # share no memory with the parent), so this is purely diagnostic: a
         # cold cache with no network, a corrupted cached file, or an
@@ -402,17 +398,16 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
 
         The pipeline replaces every molecule ID with a dense integer index and
         works on that copy (``decode_ids`` restores the originals at the end).
-        That copy used to be written beside the user's input as
-        ``<stem>_encoded.<ext>`` -- a name the user may already be using --
-        with no existence check, and ``run()``'s ``finally`` then unlinked it.
-        A user with ``mols_encoded.smi`` next to ``mols.smi`` lost it: silently
-        overwritten, then deleted.
+        Writing this copy into ``self.job_dir`` -- rather than beside the
+        user's input as ``<stem>_encoded.<ext>``, a name the user may already
+        be using -- avoids two risks at once: silently overwriting an
+        existing same-named file, and ``run()``'s ``finally`` later unlinking
+        a file that belongs to the user, not this run.
 
-        Writing into ``self.job_dir`` fixes both halves at once, and does it
-        without refusing any run the user could previously make: the directory
-        was created by ``_setup_job_directory``'s bare ``mkdir()`` immediately
-        before this call, so it is provably new and nothing in it can belong
-        to the user.
+        It does so without refusing any run the user could otherwise make:
+        the directory was created by ``_setup_job_directory``'s bare
+        ``mkdir()`` immediately before this call, so it is provably new and
+        nothing in it can belong to the user.
         """
         encoded_path, self.id_mapping = encode_ids(self.config.path, out_dir=self.job_dir)
         self.input_path = Path(encoded_path)
@@ -430,12 +425,12 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         A Manager server otherwise has no death detection of any kind (unlike
         the workers, which call ``_exit_when_parent_dies`` themselves), so a
         SIGKILLed parent left its Manager processes serving a queue nobody
-        would ever read again -- the last orphans of a killed run (P-C2).
+        would ever read again -- the last orphans of a killed run.
         ``_exit_when_parent_dies`` returns immediately when there is no parent
         process, so it is inert if this is ever called in-process.
 
         Imported from ``Auto3D.foundation.process_lifecycle``, not from
-        ``workflow_workers`` (I1): under ``spawn`` the server unpickles the
+        ``workflow_workers``: under ``spawn`` the server unpickles the
         initializer by importing its defining module, so a reference into
         ``workflow_workers`` dragged torch and rdkit into every Manager
         server process just to be able to call this one stdlib-only
@@ -517,7 +512,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         # `to_optimization_config()` refusing the scaled batch size,
         # `Process(...)` construction itself raising) still reaches the
         # `finally` with whatever was actually created so far, instead of
-        # leaking it (M3). `_terminate_workers` tolerates both being empty.
+        # leaking it. `_terminate_workers` tolerates both being empty.
         managers: list[SyncManager] = []
         # Every process that actually started, so the `finally` below only ever
         # touches processes it can legally join: Process.join() asserts on one
@@ -548,15 +543,11 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
 
             # The optimizer's configuration, carrying the ABSOLUTE batch size
             # for this run: built once, here, in the only process that measured
-            # the memory it was scaled by. The workers used to be handed an
-            # Auto3DOptions copy with the scaled number written back into the
-            # per-gigabyte `batchsize_atoms` field, and each then rebuilt this
-            # object per chunk from that copy -- a field whose documented
-            # meaning no longer held inside a worker, and a measurement no
-            # worker could repeat (P-M11, R4). self.config (itself already a
-            # private copy made at the top of run(), see M16) keeps the
-            # per-gigabyte value, and so does every copy of it that crosses the
-            # spawn boundary below.
+            # the memory it was scaled by, and never mutated per-worker
+            # afterward, so no worker needs to reinterpret a scaled value out
+            # of context. self.config (itself already a private copy made at
+            # the top of run()) keeps the per-gigabyte value, and so does
+            # every copy of it that crosses the spawn boundary below.
             opt_config = self.config.to_optimization_config(
                 batchsize_atoms=self.scaled_batchsize_atoms
             )
@@ -641,7 +632,7 @@ class WorkflowOrchestrator(RunLoggingMixin, SupervisorMixin, FinalizeMixin):
         Runs on every exit from ``_run_pipeline``, including SIGTERM (via the
         handler ``run()`` installs), KeyboardInterrupt, and any exception
         between stages. Without it a dead parent left the optimizer workers
-        running through the whole remaining queue on the GPU (P-C2, P-M12).
+        running through the whole remaining queue on the GPU.
 
         A no-op on the ordinary path: every process has already been joined by
         the time this runs, so ``is_alive()`` is False for all of them and the

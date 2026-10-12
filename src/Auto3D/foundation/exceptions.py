@@ -127,10 +127,9 @@ class DependencyError(Auto3DError):
         dependency_name: A short key identifying the missing dependency
             (e.g. ``"openeye"``, ``"torchani"``, ``"ase"``). ``cli.errors.
             get_error_hint`` looks this up in its own hints map to show an
-            install command; before this attribute existed it was read via
+            install command, read via
             ``getattr(error, "dependency_name", "unknown")`` on every raise
-            site, so every dependency failure showed the same
-            "Install the missing dependency: unknown" hint (M26). Defaults to
+            site. Defaults to
             ``"unknown"`` so a caller that raises ``DependencyError(msg)``
             without naming a dependency still gets a (generic) hint rather
             than a crash in the hint lookup.

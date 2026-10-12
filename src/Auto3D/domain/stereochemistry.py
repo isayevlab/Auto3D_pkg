@@ -3,10 +3,9 @@
 
 This module answers questions about a molecule's *configuration* by asking
 RDKit: enantiomer detection and filtering, and stereo center enumeration.
-The other half of what used to live here -- enumerating stereoisomers by
-editing a SMILES string's ``@``/``@@`` tokens directly -- is
-``Auto3D.domain.stereochemistry_smiles`` (split in P-m29; the two share no
-code).
+``Auto3D.domain.stereochemistry_smiles`` instead enumerates stereoisomers by
+editing a SMILES string's ``@``/``@@`` tokens directly; the two modules
+share no code.
 """
 
 from __future__ import annotations
@@ -199,14 +198,13 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
         If enantiomer removal fails for a molecule, all original SMILES
         are kept and a message is printed.
     """
-    # iter_smi_records is the single parser for this format (M59). The loop
+    # iter_smi_records is the single parser for this format. The loop
     # this replaced built `vals = line.split()` and indexed vals[0]/vals[1]
     # with no guard, so a blank line in `inpath` raised a bare IndexError;
     # "raise" keeps that fail-fast behavior (as an InputValidationError naming
     # the line, not a crash) for any genuinely malformed row while blank lines
-    # -- which should never appear in a file this module itself wrote, but
-    # previously crashed the whole function if one did -- are now skipped like
-    # every other consumer of this format.
+    # -- which should never appear in a file this module itself wrote -- are
+    # skipped like every other consumer of this format.
     smiles: dict[str, list[str]] = defaultdict(lambda: [])
     for _line_no, smi, mol_id in iter_smi_records(inpath, on_malformed="raise"):
         # Strip only the trailing isomer-index component write_enumerated_smi
@@ -215,7 +213,7 @@ def remove_enantiomers(inpath: str, out: str) -> dict[str, list[str]]:
         # duplicate InChIKey (utils/smi_io.py), kept distinct from "KEY"
         # specifically so it is not dropped -- must survive this grouping
         # intact, or it silently merges back onto "KEY" here before ranking
-        # ever sees it (M17).
+        # ever sees it.
         name = mol_id.rsplit("_", 1)[0]
         smiles[name].append(smi)
 

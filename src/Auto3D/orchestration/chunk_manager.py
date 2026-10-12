@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Where this process' cgroup memory limit, if any, is published (N-m33): v2
+# Where this process' cgroup memory limit, if any, is published: v2
 # (the unified hierarchy) first, with the v1 layout as a fallback for hosts
 # that have not migrated. Module-level `Path` constants, not inline literals,
 # so a test can point either at a controlled file instead of the real
@@ -71,7 +71,7 @@ def _cgroup_memory_limit_bytes() -> int | None:
     return _read_cgroup_limit_bytes(CGROUP_V1_LIMIT_PATH)
 
 
-# Ceiling for the memory-scaled `batchsize_atoms` multiplier (audit M36). A
+# Ceiling for the memory-scaled `batchsize_atoms` multiplier. A
 # bare `batchsize_atoms * memory_gb` has no upper bound: on an 80 GB GPU the
 # documented default (1024 atoms/GB) scales to 81,920 atoms in a single NN
 # forward call, which -- combined with `Optimizer.BUCKET_MAX_COUNT = 1024`
@@ -95,9 +95,9 @@ def scaled_batchsize_atoms(batchsize_atoms: int, memory_gb: int) -> int:
     between them. A module-level function rather than a ``ChunkManager`` method
     because ``smiles2mols`` needs the same rule and has no chunking step to hang
     it off -- it read the field absolutely instead, which left the two entry
-    points up to 16x apart on one config (P-M11).
+    points up to 16x apart on one config.
 
-    The product is clamped to ``_MAX_SCALED_BATCHSIZE_ATOMS`` (audit M36) but
+    The product is clamped to ``_MAX_SCALED_BATCHSIZE_ATOMS`` but
     never to below the caller's own unscaled ``batchsize_atoms``: the cap bounds
     what memory-scaling can produce, it does not second-guess an explicit,
     already-large user setting that made no use of scaling at all (e.g. a fixed
@@ -239,7 +239,7 @@ class ChunkManager:
             Tuple of (memory_gb, chunk_size, num_jobs).
         """
         # num_jobs reflects every GPU the caller listed, independent of which
-        # branch below ends up supplying memory_gb (N-m32): an explicit
+        # branch below ends up supplying memory_gb: an explicit
         # --memory must not collapse several listed GPUs back down to a
         # single job just because memory_gb no longer needs measuring.
         if self.config.use_gpu and isinstance(self.config.gpu_idx, list):
@@ -261,8 +261,8 @@ class ChunkManager:
                 # non-NVIDIA GPU, minimal container). Fall back to a
                 # conservative default instead of reaching for torch.cuda,
                 # which would trade an unmeasured multiplier for the exact
-                # parent-process CUDA context this function exists to avoid
-                # (audit M36). 1 GB keeps batchsize_atoms/chunk_size at their
+                # parent-process CUDA context this function exists to avoid.
+                # 1 GB keeps batchsize_atoms/chunk_size at their
                 # unscaled defaults, matching what an explicit --memory=1
                 # would do.
                 self._log_info(
@@ -275,13 +275,13 @@ class ChunkManager:
             else:
                 memory_gb = free_gb
         else:
-            # `available`, not `total` (N-m33): `total` ignores every other
+            # `available`, not `total`: `total` ignores every other
             # process already resident on a shared box, which makes chunk
             # sizing -- and the batchsize_atoms scaling derived from it --
             # wildly optimistic. Further clamped to this process' cgroup
             # memory limit, if any: a container or shared box can confine it
             # to far less than psutil reports for the whole machine. Floored
-            # at 1 GB either way (R55), matching the GPU branch's own floor
+            # at 1 GB either way, matching the GPU branch's own floor
             # (`_gpu_free_memory_gb`'s `max(1, ...)` and the nvidia-smi
             # fallback's explicit `memory_gb = 1`): under 1 GiB, the raw
             # `int(bytes / 1024**3)` truncates to 0, which would collapse
@@ -324,15 +324,15 @@ class ChunkManager:
         # Scale batchsize by available memory. Store on the manager rather than
         # mutating self.config: the config is shared with the caller and the
         # optimization workers, and mutating it in place would compound the
-        # multiplier on repeated main() calls (review findings #35/#36). The
+        # multiplier on repeated main() calls. The
         # rule itself is `scaled_batchsize_atoms` above, which smiles2mols --
         # which never chunks, so never reaches this method -- calls directly.
         self.scaled_batchsize_atoms = scaled_batchsize_atoms(self.config.batchsize_atoms, memory_gb)
 
         # Read input data
         if self.input_format == "smi":
-            # iter_smi_records is the single parser for this format (P-m28,
-            # R20): the same one `auto3d validate` and the run pipeline use,
+            # iter_smi_records is the single parser for this format: the
+            # same one `auto3d validate` and the run pipeline use,
             # so an already-ID-encoded `.smi` cannot be read one way here and
             # a different way everywhere else. on_malformed left at its
             # lenient default ("skip") matches what the previous pandas read
@@ -344,7 +344,7 @@ class ChunkManager:
             records = SDF2chunks(str(self.input_path))
 
         data_size = len(records)
-        # math.ceil, not `data_size // chunk_size + 1` (N-m35): the "+1" added
+        # math.ceil, not `data_size // chunk_size + 1`: the "+1" added
         # an extra chunk even when data_size divides chunk_size evenly, which
         # _create_chunk_files' empty-chunk skip then dropped -- but only after
         # it had already been allocated and counted toward num_chunks, one

@@ -31,12 +31,11 @@ def _package_version() -> str:
 
     Used only for the run-log banner (see ``_log_banner``). This duplicates
     ``Auto3D.__init__._detect_version`` rather than reading
-    ``Auto3D.__version__`` off the package -- the orchestrator (core layer)
-    used to do ``import Auto3D`` purely to reach that one attribute, which
-    was flagged as a needless self-import of this module's own package root
-    (review Minor #35). ``importlib.metadata`` is the single source of truth
-    either way; this just reads it directly instead of through the parent
-    package's namespace.
+    ``Auto3D.__version__`` off the package: doing ``import Auto3D`` purely to
+    reach that one attribute would be a needless self-import of this
+    module's own package root. ``importlib.metadata`` is the single source
+    of truth either way; this just reads it directly instead of through the
+    parent package's namespace.
     """
     try:
         return _dist_version("Auto3D")
@@ -171,7 +170,8 @@ class RunLoggingMixin:
         """Emit ``msg`` to both the module logger and this run's Auto3D.log.
 
         ``self.logger`` (the per-run file logger ``_setup_logging`` attaches)
-        is ``None`` until logging starts, so every call site used to guard the
+        is ``None`` until logging starts, so without this method, every call
+        site would have to guard the
         per-run copy with its own ``if self.logger:`` right next to an
         identical module-level call -- four times (``_finalize_output``,
         ``_reconcile_output``, and twice in ``_log_timing``), three at

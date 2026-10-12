@@ -3,7 +3,7 @@
 ``main()`` returns a :class:`WorkflowResult`, a ``str`` subclass that *is* the
 output SDF path (so every existing caller -- ``Path(out)``, ``open(out)``,
 ``print(out)``, string ops -- keeps working unchanged) but also exposes the
-molecule/conformer counts of the run. Since P-m26, ``WorkflowOrchestrator``
+molecule/conformer counts of the run. ``WorkflowOrchestrator``
 passes those counts in eagerly (computed once, at the end of the run, from
 the record list ``reorder_sdf`` already produced) rather than leaving every
 caller to recompute them by re-reading the output path -- which silently
@@ -14,7 +14,7 @@ the path pays nothing, and this remains the fallback whenever the eager
 counts are omitted (``n_molecules=None``/``n_conformers=None``, the default).
 
 It also carries ``failures``: the input molecule IDs that ``WorkflowOrchestrator``
-reconciled away against the output SDF and found missing (C7). Unlike the
+reconciled away against the output SDF and found missing. Unlike the
 counts, this cannot be recomputed lazily from the output path alone -- it
 depends on the original input, which the orchestrator already compared during
 ``_finalize_output`` -- so it is passed in explicitly at construction.
@@ -38,10 +38,10 @@ def count_output(output_path: str) -> tuple[int, int]:
     optionally followed by one ``_<isomer>_<conformer>`` pair, and removes
     the match -- never a bare ``"@"``) so an input id that legitimately
     contains ``@`` (an email-style id, say) is not truncated into a
-    different, wrong id -- splitting on bare ``"@"`` was a real drift bug
-    here, previously out of sync with
+    different, wrong id -- splitting on bare ``"@"`` would drift out of sync
+    with
     ``reconciliation.find_smiles_not_in_sdf``/``find_ids_not_in_sdf``, which
-    already used the correct ``"@taut"`` split. A missing/unreadable file
+    use the correct ``"@taut"`` split. A missing/unreadable file
     yields ``(0, 0)``.
     """
     from rdkit import Chem
@@ -56,8 +56,8 @@ def count_output(output_path: str) -> tuple[int, int]:
             if mol is None:
                 continue
             conformers += 1
-            # .strip() FIRST, then strip_taut_suffix: the regex is now
-            # end-anchored (Chem-M5), so trailing whitespace after a
+            # .strip() FIRST, then strip_taut_suffix: the regex is
+            # end-anchored, so trailing whitespace after a
             # "@tautN" suffix would otherwise stop it from matching at all,
             # the same order id_mapping.decode_ids already uses.
             ids.add(strip_taut_suffix(mol.GetProp("_Name").strip()))
@@ -68,8 +68,8 @@ class WorkflowResult(str):
     """Output SDF path annotated with the run's molecule/conformer counts.
 
     Subclasses ``str`` (value = the output path) so it is a drop-in for the path
-    string the pipeline historically returned. ``n_molecules`` / ``n_conformers``
-    prefer the eager counts passed at construction (P-m26); when omitted, they
+    string ``main()`` returns. ``n_molecules`` / ``n_conformers``
+    prefer the eager counts passed at construction; when omitted, they
     are read from the output SDF lazily and cached.
     """
 

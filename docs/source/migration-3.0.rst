@@ -24,7 +24,7 @@ This release corrects defects that produced silently wrong results. Read the
    earlier iterations of this work, recorded in the CHANGELOG as ``[3.0.0-dev]``
    and ``[3.5.0-dev]``, were never published to either index.
 
-   Code examples below are labelled ``# before`` and ``# 3.0`` rather than by
+   Code examples below are labeled ``# before`` and ``# 3.0`` rather than by
    version number, because "before" covers both 2.3.1 and those unpublished dev
    iterations. Where a change applies *only* to someone who installed from an
    unpublished tag, it says so.
@@ -425,7 +425,7 @@ the same input produced on ASE 3.27.
 3.0 removes translation and rotation by Eckart/Sayvetz projection
 (``Auto3D.ASE.thermo.vibrations.projected_vibrations``) before anything else looks at the
 spectrum: mass-weight the Hessian, build the translation and
-infinitesimal-rotation vectors, orthonormalise them to ``V``, and diagonalise
+infinitesimal-rotation vectors, orthonormalize them to ``V``, and diagonalize
 ``P H P`` with ``P = I - V V'``. The external subspace is a null space by
 construction, so exactly ``3N-6`` (``3N-5``, or none) modes reach
 ``IdealGasThermo``, which is told to consume them verbatim. At a converged
@@ -531,7 +531,7 @@ The floor is applied to the zero-point and enthalpy sums as well as to the
 entropy. At 298 K that differs from raising inside the entropy alone by
 0.010-0.012 kcal/mol per mode, because a sub-floor mode's ``ZPE + dH_vib`` is
 nearly independent of ``nu`` (0.594 kcal/mol at 30 cm-1, 0.604 at 100) -- the
-zero-point rise is cancelled by the thermal-enthalpy fall.
+zero-point rise is canceled by the thermal-enthalpy fall.
 
 A transition state no longer passes the ``Thermo_failed`` filter
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -3,8 +3,8 @@
 
 A function of the graph alone (no coordinates, no force field, no energy),
 which is what separates it from ``Auto3D.domain.geometry`` and
-``Auto3D.domain.connectivity``. The conformer budget used to live here too;
-it is domain policy, so it moved to ``Auto3D.domain.conformer_budget``.
+``Auto3D.domain.connectivity``. The conformer budget is domain policy, and
+lives in ``Auto3D.domain.conformer_budget``.
 
 :func:`has_dummy_atoms` lives here rather than beside the other model
 precondition in ``engines/models/policy.py`` because ``utils/sdf_io.py`` needs
@@ -23,7 +23,7 @@ def has_dummy_atoms(mol: Chem.Mol) -> bool:
     """True if any atom has atomic number 0 (``*``, ``[3*]``: an R-group placeholder).
 
     A dummy atom is not a species. AIMNet2 uses index 0 as its embedding
-    padding and would score it as a zero-feature ghost (N-M3); ANI refuses
+    padding and would score it as a zero-feature ghost; ANI refuses
     it as out-of-set. Records containing one are skipped at every seam
     that consumes records, with a warning, and reported by reconciliation.
 

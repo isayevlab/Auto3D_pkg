@@ -76,8 +76,8 @@ def species_id(name: str) -> str:
     dropped. An unconditional ``rsplit(..., 2)`` is also wrong, the other
     way: it shortens ANY name with two or more underscores, trailing isomer
     and conformer indices or not, so ``"aspirin_analog_3"`` -- one
-    underscore-bearing input name, no suffix ever appended to it -- used to
-    come back as ``"aspirin"`` (N-m4). The strip is applied only when the
+    underscore-bearing input name, no suffix ever appended to it -- would
+    come back as ``"aspirin"``. The strip is applied only when the
     name actually ends in two integer groups (``re.search(r"_\\d+_\\d+$",
     name)``); anything else is returned unchanged, intact underscores and
     all, so conformers of one species still group together, a disambiguated
@@ -105,11 +105,11 @@ def species_id(name: str) -> str:
 #: Selector field (from :data:`Auto3D.foundation.config.SELECTOR_FIELDS`) -> the
 #: ``ConformerRanker`` method that implements it.
 #:
-#: ``run`` used to dispatch with a hand-written ``if self.k: ... elif
-#: self.window: ...``, which meant a third selector added to ``SELECTOR_FIELDS``
-#: was accepted by ``Auto3DOptions``, accepted by ``CLIConfig``, accepted by
-#: ``check_selectors_mutually_exclusive`` -- and then silently ignored here,
-#: falling through to the "Either k or window needs to be specified" error
+#: A hand-written ``if self.k: ... elif self.window: ...`` dispatch in
+#: ``run`` would let a third selector added to ``SELECTOR_FIELDS`` be
+#: accepted by ``Auto3DOptions`` and by ``check_selectors_mutually_exclusive``,
+#: then silently ignored here, falling through to the "Either k or window
+#: needs to be specified" error
 #: even though the user had specified one. The registry plus the import-time
 #: equality check below turns that into an ImportError at the moment the field
 #: list and this table disagree.
@@ -176,13 +176,12 @@ class ConformerRanker:
                 None (or False) to disable.
         energy_cluster_window: Energy width in eV below which molecules are
             RMSD-compared to each other. A performance knob only -- see
-            ``Auto3D.domain.filtering.filter_conformers``, which is the single
-            conformer filter now that ``use_optimized_filtering`` and the
-            legacy all-pairs implementation it selected are gone. Defaults to
+            ``Auto3D.domain.filtering.filter_conformers``, which is Auto3D's
+            one conformer filter. Defaults to
             ``Auto3D.foundation.constants.DEFAULT_ENERGY_CLUSTER_WINDOW``.
         overwrite: Allow writing over an existing `out_path`. Defaults to
-            True, which is the historical behavior every caller was written
-            against -- including Auto3D's own pipeline, which always writes
+            True, matching what every caller already assumes
+            -- including Auto3D's own pipeline, which always writes
             into a job directory it just created. A direct caller pointing
             `out_path` at a file worth keeping can pass False.
     """
@@ -198,7 +197,7 @@ class ConformerRanker:
         overwrite: bool = True,
         rank_by: str = RANK_BY_ELECTRONIC,
     ) -> None:
-        # Same C14 guard the three API entry points run. ConformerRanker is a
+        # Same guard the three API entry points run. ConformerRanker is a
         # documented public writer that reads `input_path` and, in `run()`,
         # eventually replaces `self.out_path` (via `_write_results` ->
         # `atomic_write_path` -> `os.replace`), so the same-file case
@@ -231,7 +230,7 @@ class ConformerRanker:
         #: detection is deliberately NOT switched with it -- that filter asks
         #: whether two records are the same structure, which is a question
         #: about the electronic energy and the geometry, not about which is
-        #: favoured at temperature.
+        #: favored at temperature.
         self.rank_by = rank_by
         self._read_energy_ev, self._energy_prop, self._rel_prop = _RANK_BASES[rank_by]
         #: Run-level drop tally, keyed by ``Auto3D.domain.filtering.DROP_REASONS``.
@@ -276,14 +275,14 @@ class ConformerRanker:
     def _log_nothing_selected(self, name: str, result: FilterResult) -> None:
         """Say WHY a species contributed no structure to the output.
 
-        This used to be an unconditional "No structure converged for X." --
-        which is what a reader saw when every conformer of X was dropped for
-        *stereochemistry* (an optimization that inverted a center, so the
-        geometry no longer matches the title) or for *connectivity* (a
-        structure that fell apart). Both point at the input or the chemistry,
-        and both were reported as an optimizer convergence problem, sending the
-        reader to ``--opt-steps`` and ``--convergence-threshold`` for something
-        neither could fix.
+        An unconditional "No structure converged for X." would mislead a
+        reader when every conformer of X was dropped for *stereochemistry*
+        (an optimization that inverted a center, so the geometry no longer
+        matches the title) or for *connectivity* (a structure that fell
+        apart): both point at the input or the chemistry, not at an
+        optimizer convergence problem, so that wording would send the
+        reader to ``--opt-steps`` and ``--convergence-threshold`` for
+        something neither could fix.
 
         The literal wording survives for the one case where it was true --
         convergence being the sole reason -- because it is the message users
@@ -313,7 +312,7 @@ class ConformerRanker:
     def _sort_by_energy(self, df_group: pd.DataFrame) -> pd.DataFrame:
         """Sort ``df_group`` by the ``energies`` column, ascending and stably.
 
-        ``kind="stable"`` (N-m4): the default (quicksort) is not stable, so
+        ``kind="stable"``: the default (quicksort) is not stable, so
         two exactly-tied conformers -- the same energy to the precision it is
         stored at -- could come out in either order, nondeterministic with
         respect to input order even though nothing about the input changed.
@@ -328,21 +327,21 @@ class ConformerRanker:
         Takes the relative energy rather than computing it, so a caller that
         must inspect ``rel_energy`` BEFORE deciding whether to stamp it at
         all can do so -- ``top_window`` must not stamp the molecule that
-        breaks its loop (R36), and computing-then-maybe-stamping is the only
+        breaks its loop, and computing-then-maybe-stamping is the only
         way to keep that decision in the caller.
 
         The reference this is relative to (``ref_energy`` in the two callers
         below) is the group's single minimum, where the group is everything
         sharing one ``species_id`` -- every enumerated stereoisomer of one
-        input, not just one identity (I2). That is a DIFFERENT convention
+        input, not just one identity. That is a DIFFERENT convention
         from ``domain.energy._comparable_groups``/``set_relative_energies``/
         ``set_relative_gibbs_energies``, which reference each
-        ``(species_key, charge)`` identity to its own minimum (I3). Both
+        ``(species_key, charge)`` identity to its own minimum. Both
         writers publish the same property name under these two different
         references, by design: unifying them would change this ranker's
         reference structure, which is a larger change than either finding
-        on its own. This applies to EITHER basis this ranker selects on
-        (NEW-4): with ``rank_by=RANK_BY_ELECTRONIC`` the shared property is
+        on its own. This applies to EITHER basis this ranker selects on:
+        with ``rank_by=RANK_BY_ELECTRONIC`` the shared property is
         ``E_rel(kcal/mol)``; with ``rank_by=RANK_BY_GIBBS`` it is
         ``G_rel(kcal/mol)`` -- the one a Boltzmann population actually
         divides by RT, so the cross-stereoisomer reference matters most for
@@ -600,10 +599,8 @@ class ConformerRanker:
         ):
             for mol in results:
                 # E_tot arrives in Hartree and leaves in Hartree: every Auto3D
-                # writer stores this property in Hartree now (see
-                # Auto3D.domain.energy). This used to divide by hartree2ev here,
-                # which was correct only because batch_opt wrote eV -- so the
-                # same division was applied twice to an opt_geometry output.
+                # writer stores this property in Hartree (see
+                # Auto3D.domain.energy).
                 # Unit-labeled sibling so consumers can't misread E_tot's units
                 # (E_tot is kept unlabeled for backward compatibility).
                 mol.SetProp(E_TOT_HARTREE_PROP, mol.GetProp(E_TOT_PROP))
@@ -634,7 +631,7 @@ class ConformerRanker:
                 both are (top-k and energy-window selection are alternatives,
                 not composable -- only one is ever consulted below, so
                 setting both would silently make one of them inert; callers
-                reaching here through Auto3DOptions/CLIConfig already had
+                reaching here through Auto3DOptions already had
                 this caught earlier, at construction time, with
                 ConfigurationError -- this is the same guard, raising the
                 same exception type, for callers that construct
@@ -645,17 +642,15 @@ class ConformerRanker:
                 bare ``KeyError('E_tot')`` from inside RDKit.
         """
         logger.info("Begin to select structures that satisfy the requirements...")
-        # Delegated to Auto3D.foundation.config rather than re-implemented here. This was
-        # the third site that knew the k/window pair by name -- after
-        # Auto3DOptions and CLIConfig, both of which reach the same check via
-        # check_field_bounds -- and the copy had already drifted: its message
-        # read "got k=1 and window=5.0" where the shared one reads
-        # "got k=1, window=5.0", so the same misconfiguration was reported two
-        # different ways depending on whether the caller came through a config
-        # class or constructed ConformerRanker directly. Reading the field
-        # names from SELECTOR_FIELDS also means a third selector added to that
-        # tuple is rejected here too, instead of being accepted by
-        # ConformerRanker(...) alone while both config classes refuse it.
+        # Delegated to Auto3D.foundation.config rather than re-implemented
+        # here: Auto3DOptions already enforces this same check via
+        # check_field_bounds, so this is one definition instead of a second
+        # copy that could drift from it and report the same misconfiguration
+        # two different ways depending on whether the caller came through a
+        # config object or constructed ConformerRanker directly. Reading the
+        # field names from SELECTOR_FIELDS also means a third selector added
+        # to that tuple is rejected here too, instead of being accepted by
+        # ConformerRanker(...) alone while Auto3DOptions refuses it.
         check_selectors_mutually_exclusive(
             {name: getattr(self, name, None) for name in SELECTOR_FIELDS}
         )
@@ -674,12 +669,10 @@ class ConformerRanker:
             # and above on stderr even for a caller who never ran
             # configure_logging, which is every direct API caller.
             #
-            # The reasons are the ones that actually fired. This used to read
-            # "N record(s) are marked Converged=false and the rest were dropped
-            # by the connectivity, stereochemistry or energy-window filters" --
-            # a hand-maintained list of everything it MIGHT have been, which
-            # left the reader to work out which, and which had to be edited by
-            # hand every time a filter was added. `_drop_totals` is the tally
+            # The reasons are the ones that actually fired, not a
+            # hand-maintained list of everything it MIGHT have been, which
+            # would leave the reader to work out which, and which would have
+            # to be edited by hand every time a filter was added. `_drop_totals` is the tally
             # `top_k`/`top_window` fed as they ran; the two counts below are
             # the drops `run` itself made, before grouping, which never reach a
             # filter and so are not double-counted.

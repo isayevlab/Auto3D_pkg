@@ -48,7 +48,7 @@ def find_smiles_not_in_sdf(smi: str, sdf: str) -> list[tuple[str, str]]:
     for _line_no, smiles_str, mol_id in iter_smi_records(smi, on_malformed="skip"):
         smi_names.append((smiles_str, mol_id))
 
-    # Get all molecule names from SDF. removeHs=False (P-m27): the same
+    # Get all molecule names from SDF. removeHs=False: the same
     # setting `find_ids_not_in_sdf`'s own source-SDF supplier below already
     # uses, and the one every other reader of an Auto3D output SDF uses --
     # not because a vanilla explicit-H record fails to parse or changes
@@ -126,8 +126,8 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
     # so the record was in neither `source_ids` nor the output, could not appear
     # in `failures`, and `_exit_if_incomplete` saw `failed_count == 0`. The run
     # printed a success summary and exited 0 having processed fewer molecules than
-    # the file contained -- exactly what this reconciliation exists to prevent
-    # (audit C7). It has no `_Name` to report, so it is named by position.
+    # the file contained -- exactly what this reconciliation exists to
+    # prevent. It has no `_Name` to report, so it is named by position.
     #
     # Only the SDF path needed this. `encode_ids` reads `.smi` input with
     # `on_malformed="raise"`, so a malformed SMILES line aborts the run with
@@ -150,7 +150,7 @@ def find_ids_not_in_sdf(source_sdf: str, sdf: str) -> list[str]:
             continue
         source_ids.append(mol.GetProp("_Name").strip())
 
-    # Get all molecule names from the output SDF. removeHs=False (P-m27),
+    # Get all molecule names from the output SDF. removeHs=False,
     # same reason as find_smiles_not_in_sdf's output-SDF supplier above.
     sdf_ids: set[str] = set()
     mols = Chem.SDMolSupplier(sdf, removeHs=False)

@@ -97,7 +97,7 @@ def classify(func: object, args: tuple, kwargs: dict) -> str | None:
             return None
         val = args[2] if len(args) > 2 else None
         # canDispatchToMaskedFill: a CPU scalar value with numel()==1 lowers to
-        # masked_fill_, which does not sync. Modelling this exception is what
+        # masked_fill_, which does not sync. Modeling this exception is what
         # keeps `oscillating_count[mask] = 0` from being miscounted.
         if isinstance(val, torch.Tensor) and val.numel() == 1 and val.device.type == "cpu":
             return None

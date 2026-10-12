@@ -27,7 +27,7 @@ class PaddedBatch(NamedTuple):
     loose tensors that must stay aligned on their leading axis is a shape that
     invites one of them to be indexed differently from the rest -- and the one
     most easily left behind is ``atom_mask``, the tensor whose whole purpose is
-    to say which slots are real atoms (audit C13). :meth:`sub` indexes all four
+    to say which slots are real atoms. :meth:`sub` indexes all four
     together so a sub-batch cannot be built half-sliced. Today ``sub`` serves
     callers that already hold a ``PaddedBatch`` and slice it themselves; the two
     sites that hand-index four aligned tensors the way ``sub`` would --
@@ -117,13 +117,12 @@ def pad_from_mols(
             (``adapter.to_species``) and both fill values (``adapter.coord_pad``,
             ``adapter.species_pad``).
 
-            This used to be a model-name *string* plus the two pad values as
-            separate arguments, so both call sites (``SPE.py``,
-            ``batch_opt/batchopt.py``) handed over a name AND an adapter's pads:
-            the remap came from one source and the sentinel from another, and
-            nothing structurally stopped them from contradicting each other.
-            That is the C3/C4 failure class, and taking the adapter is what makes
-            it impossible rather than merely absent.
+            Taking the adapter itself, rather than a model-name *string* plus
+            the two pad values as separate arguments, means the remap and
+            the sentinel cannot come from two different sources and
+            contradict each other -- a failure mode a name-plus-pads
+            signature would structurally allow at either call site
+            (``SPE.py``, ``batch_opt/batchopt.py``).
         device: Target device for tensors (CPU or CUDA).
 
     Returns:
@@ -141,7 +140,7 @@ def pad_from_mols(
           index (e.g. Auto3D's own ANI2xt convention maps hydrogen to index 0,
           the same value some adapters use as ``species_pad``), which would
           silently zero and exclude real atoms from the force-convergence
-          check (audit C13).
+          check.
     """
     from rdkit.Chem import rdmolops
 
@@ -201,6 +200,6 @@ def pad_from_mols(
     # already require grad. Setting it True unconditionally therefore built an
     # autograd graph for every SPE sub-batch through the full model -- for
     # ANI2x's 8-model ensemble, activations saved for a backward that
-    # `energy_batched` (M39) deliberately never calls -- roughly doubling peak
+    # `energy_batched` deliberately never calls -- roughly doubling peak
     # memory for no benefit.
     return PaddedBatch(coords_tensor, species_tensor, charges_tensor, atom_mask)
