@@ -3,12 +3,8 @@
 
 Owns the ``"<input_stem>_<engine-or-userNNP>_<tag>.sdf"`` convention shared by
 ``SPE.calc_spe`` (tag ``"E"``), ``ASE.geometry.opt_geometry`` (tag ``"opt"``)
-and ``ASE.thermo.calc_thermo`` (tag ``"G"``). Each of the three used to
-re-derive it by hand -- basename splitting, a ``Path(model_name).exists()``
-custom-NNP check, and the join back to the input's directory -- three copies
-that could (and did) drift apart on spelling (flagged by the 2026-07-30 audit,
-never applied). :func:`default_output_path` is the single implementation now;
-the three call sites just name their tag.
+and ``ASE.thermo.calc_thermo`` (tag ``"G"``). :func:`default_output_path` is
+the single implementation; the three call sites just name their tag.
 """
 
 from __future__ import annotations

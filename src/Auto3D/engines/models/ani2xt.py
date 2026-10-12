@@ -129,9 +129,9 @@ def self_atomic_energies(
     """Per-molecule self-atomic energy shifts, in Hartree.
 
     A pure function of ``species_idx``, so it is constant for a whole bucket of
-    conformers and does not belong in the hot path -- it used to be recomputed on
-    every forward, costing roughly ``4 * num_elements`` kernel launches per step
-    for a value that never changed. Precompute it once and pass it to
+    conformers and does not belong in the hot path: recomputing it on every
+    forward would cost roughly ``4 * num_elements`` kernel launches per step
+    for a value that never changes. Precompute it once and pass it to
     ``ANI2xt.forward``.
 
     Summation order over elements is preserved, so the result is bit-identical to
@@ -281,8 +281,8 @@ class ANI2xt(nn.Module):
         # The per-element network evaluation, as an instance attribute so an
         # adapter can install a torch.compile'd version of it WITHOUT compiling
         # the AEV computer: compiling torchani's AEVComputer produces wrong
-        # energies (hundreds of eV) on CPU and GPU alike (2026-09-21 review,
-        # P-C1), while compiling only this function is exact to ~1e-6 eV.
+        # energies (hundreds of eV) on CPU and GPU alike, while compiling
+        # only this function is exact to ~1e-6 eV.
         self._atom_energies_fn = _atom_energies
 
     def forward(self, species, coords, elem_index=None, self_energies=None):

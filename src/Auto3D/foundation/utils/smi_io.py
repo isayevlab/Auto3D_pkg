@@ -42,8 +42,8 @@ def iter_smi_records(path, *, on_malformed="skip"):
     (comments) -- matching cli.commands.validate.validate_smiles_file, so
     `auto3d validate` and every consumer of this function (encode_ids and so
     the whole run pipeline, plus the isomer/tautomer engines and the
-    input/output reconciliation helpers) agree on what a comment line is
-    (M25). A real SMILES token can never start with '#' (it is a bond symbol
+    input/output reconciliation helpers) agree on what a comment line is.
+    A real SMILES token can never start with '#' (it is a bond symbol
     between two atoms, never a leading character), so this cannot misclassify
     a legitimate SMILES as a comment. on_malformed controls lines with fewer
     than 2 whitespace tokens:
@@ -93,7 +93,7 @@ def iter_smi_records(path, *, on_malformed="skip"):
 def write_smi_records(path: str | os.PathLike[str], records: Iterable[tuple[str, str]]) -> None:
     """Write ``(smiles, mol_id)`` pairs as a ``.smi`` file, one per line.
 
-    The writer side of :func:`iter_smi_records` (P-m28, R20): a ``smiles id``
+    The writer side of :func:`iter_smi_records`: a ``smiles id``
     line, fields separated by a single space, each line ending in ``\\n``.
     This is the one place that writes an already-ID-encoded ``.smi`` file --
     ``ChunkManager`` uses it for its chunk files, so the parser and the writer
@@ -125,11 +125,9 @@ def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:
 
     An input carrying a dummy atom (atomic number 0: an R-group placeholder such
     as ``*`` or ``[3*]``) is named in a WARNING and omitted from the output, the
-    same rule every other record seam applies (N-M3). It is skipped *before*
+    same rule every other record seam applies. It is skipped *before*
     minting, because ``MolToInchiKey`` returns the empty string for such a
-    molecule: it used to be written with an empty id, which distinct
-    placeholders then collided on and which made the downstream parser refuse
-    the whole file for a "missing molecule ID".
+    molecule.
 
     Args:
         smiles: List of SMILES strings to convert.
@@ -178,7 +176,7 @@ def smiles2smi(smiles: list[str], path: str, *, overwrite: bool = True) -> str:
             # that file to `check_input`, whose parser refused the whole call
             # with "Line 1 is missing a molecule ID", naming an id problem
             # instead of the dummy atom and losing the healthy molecules too.
-            # Skipping here makes this seam behave like every other one (N-M3):
+            # Skipping here makes this seam behave like every other one:
             # warn, drop that record, keep the rest.
             logger.warning(
                 "Skipping input SMILES %r at index %d: it contains a dummy atom "
@@ -296,8 +294,8 @@ def strip_taut_suffix(name: str) -> str:
 
     The pattern -- ``@taut`` followed by at least one digit, optionally
     followed by exactly one ``_<digits>_<digits>`` isomer/conformer pair,
-    then end of string -- matches exactly those two shapes and nothing else
-    (N-m29, tightened per chem review M5). In particular it leaves alone:
+    then end of string -- matches exactly those two shapes and nothing else.
+    In particular it leaves alone:
 
     - a legitimate id that merely contains ``@`` (an email-style ID, say);
     - the literal text ``"@taut"`` with no following digit (e.g.

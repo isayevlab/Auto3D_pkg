@@ -31,7 +31,7 @@ def _shortest_bonded_ratio(
 ) -> float:
     """Minimum, over every bonded pair, of distance / UFF reference length.
 
-    The radius-scaled form of the bonded floor (C1, ruling R51): each bond
+    The radius-scaled form of the bonded floor: each bond
     is judged against ITS OWN reference length (``r_i + r_j`` from
     ``domain.connectivity.UFF_BOND_RADII``), not a single flat distance, so
     a bond between heavier elements -- whose reference length is longer --
@@ -68,8 +68,8 @@ def relieve_clash(
     A conformer is considered "clashing" when its minimum pairwise
     NON-BONDED interatomic distance is below ``min_distance``, or when any
     BONDED pair's distance is below ``MIN_BONDED_FRACTION`` of that bond's
-    own UFF reference length (C1/R51) -- bonded pairs are excluded from the
-    first test (N-m1) but still need a floor of their own, scaled per bond
+    own UFF reference length -- bonded pairs are excluded from the
+    first test but still need a floor of their own, scaled per bond
     rather than flat, or a physically impossible bond length (a crushed
     embedding) would pass through unchecked. Such conformers are relaxed
     with MMFF; when the molecule lacks full MMFF parameters (elements like
@@ -124,13 +124,13 @@ def relieve_clash(
         survived unchanged; False if it still fails either test or if the
         relaxation changed its configuration.
     """
-    # A bonded pair is not a NON-BONDED clash candidate (N-m1): H2's
+    # A bonded pair is not a NON-BONDED clash candidate: H2's
     # equilibrium bond length (0.741 A) sits below MIN_ATOM_DISTANCE and is
     # not a clash. But excluding bonded pairs outright would leave them with
     # no floor at all, and a bonded pair at a physically impossible length
     # (a crushed embedding) is exactly the geometry this guard exists to
-    # catch (C1) -- so a bonded pair still has its own floor, scaled by its
-    # own UFF reference length (MIN_BONDED_FRACTION, R51) and tested
+    # catch -- so a bonded pair still has its own floor, scaled by its
+    # own UFF reference length (MIN_BONDED_FRACTION) and tested
     # alongside the non-bonded one. The exclusion set is read off the
     # molecular graph once per call rather than cached, since relieve_clash
     # can be called again after the force field has changed the geometry
@@ -146,7 +146,7 @@ def relieve_clash(
     positions = mol.GetConformer(conf_id).GetPositions()
     # Closing the dead band: a conformer exactly AT the bonded threshold is
     # kept (0.6 and the UFF radii involved are all exactly representable).
-    # The non-bonded comparison is not exact the same way (NEW-5):
+    # The non-bonded comparison is not exact the same way:
     # min_pairwise_distance casts to float32, so an exact 0.9 A separation
     # comes back as 0.8999999761581421 -- just under min_distance -- and
     # goes to the force field rather than being kept outright. Harmless in

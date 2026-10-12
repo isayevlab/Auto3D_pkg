@@ -75,11 +75,9 @@ class ProgressEvent(TypedDict):
     (``supervisor.py``'s ``_supervise_with_progress``/``_emit_progress``) and
     hands to the caller's ``progress_callback``.
 
-    Review Minor #40: this schema used to be restated in three separate
-    docstrings (``auto3D.py``, ``workflow.py``, ``optimization_engine.py``)
-    with nothing pinning them to agree. This TypedDict is the one place that
-    now does; ``optimization_engine.py``'s own dict literal is out of this
-    module's ownership and still untyped at the point it is constructed, but
+    This schema is declared once, here; ``optimization_engine.py``'s own
+    dict literal is out of this module's ownership and still untyped at the
+    point it is constructed, but
     every consumer downstream of this module (``supervisor.py``, and this
     module's own queue) is typed against it.
     """
@@ -199,7 +197,7 @@ def isomer_wrapper(
         logging_queue: Queue for centralized logging.
     """
     with _worker_stdout_to_stderr():
-        # First, before anything else: never outlive the parent (P-C2).
+        # First, before anything else: never outlive the parent.
         _exit_when_parent_dies()
 
         # prepare logging
@@ -247,7 +245,7 @@ def isomer_wrapper(
         except KeyboardInterrupt:
             # Ctrl-C reached this worker directly (process-group SIGINT). Exit
             # quietly with the conventional code instead of printing a
-            # traceback per worker (P-M12). The `finally` below still runs, so
+            # traceback per worker. The `finally` below still runs, so
             # every optimizer is still woken.
             raise SystemExit(130)
         except Exception:
@@ -284,21 +282,19 @@ def optim_rank_wrapper(
     spawn boundary. ``args`` is the run's ``Auto3DOptions`` -- ``allow_tf32``,
     ``use_gpu``, ``optimizing_engine`` and the rest. ``opt_config`` is the
     optimizer's own settings, including the **absolute** ``batchsize_atoms``
-    the parent computed from the memory it measured. This function used to
-    rebuild the second from the first, once per chunk, which read
-    ``args.batchsize_atoms`` -- a per-gigabyte figure -- as if it were absolute
-    and so undid the scaling the parent had already done (P-M11, R4). Only the
-    parent measures memory; this process optimizes with what it was handed.
+    the parent computed from the memory it measured. Only the parent measures
+    memory; this process optimizes with what it was handed, never rebuilding
+    or rescaling it from ``args.batchsize_atoms`` (a per-gigabyte figure).
     """
     with _worker_stdout_to_stderr():
-        # First, before anything else: never outlive the parent (P-C2).
+        # First, before anything else: never outlive the parent.
         _exit_when_parent_dies()
         # torch.backends.* is process-global and this is a fresh spawned
-        # interpreter: the parent's configure_torch never reached here (N-M8).
+        # interpreter: the parent's configure_torch never reached here.
         configure_torch(TorchConfig(allow_tf32=args.allow_tf32))
         # The fatal-not-fallback GPU policy was enforced only in the parent;
         # get_device below would silently return CPU if CUDA failed to
-        # initialize in this process (P-m18).
+        # initialize in this process.
         check_gpu_requested(args.use_gpu)
 
         # prepare logging
@@ -313,14 +309,14 @@ def optim_rank_wrapper(
             # compile probe (or a bad checksum, or a missing weight file)
             # downgraded to "chunk skipped" for EVERY chunk in turn, and the
             # run ended with an empty or partial SDF reported as a
-            # convergence failure instead of naming the real cause (C-2). This
+            # convergence failure instead of naming the real cause. This
             # `raise` kills the worker, which is what the parent's
             # reconciliation is there to notice.
             #
             # HARD CONSTRAINT: the adapter is built HERE, inside the spawned
-            # worker, and must stay here. `Optimizer` used to construct it
-            # itself; hoisting construction out to this function keeps it in the
-            # same process, but hoisting it any further -- to `workflow.py`,
+            # worker, and must stay here. Building it in this function rather
+            # than inside `Optimizer` itself keeps it in the same process
+            # either way, but hoisting it any further -- to `workflow.py`,
             # which drives the pool, where these duplicated `create_model` calls
             # would look like an obvious cleanup -- pushes a device-resident
             # nn.Module, and for AIMNET a live AIMNet2Calculator, across the
@@ -331,7 +327,7 @@ def optim_rank_wrapper(
             # `device` is resolved through model_factory.get_device -- the single
             # owner of gpu_idx -> torch.device (see entry/auto3D.py's smiles2mols
             # for the same rationale) -- rather than rebuilding the
-            # `cuda:{idx}` string by hand, which used to bypass get_device's own
+            # `cuda:{idx}` string by hand, which would bypass get_device's own
             # out-of-range GPUError entirely. `gpu_idx` here is already a single
             # resolved index (this worker's own assignment from
             # optimizer_worker_indices, see the spawn loop in workflow.py), so no
@@ -454,7 +450,7 @@ def optim_rank_wrapper(
         except KeyboardInterrupt:
             # Ctrl-C reached this worker directly (process-group SIGINT). Exit
             # quietly with the conventional code instead of printing a
-            # traceback per worker (P-M12).
+            # traceback per worker.
             raise SystemExit(130)
 
 
@@ -483,7 +479,7 @@ def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
     """
     # The third spawned worker in this file, and it blocks on queue.get() for
     # the whole run: without this it survives a SIGKILLed parent forever,
-    # waiting on an orphaned logging queue (P-C2).
+    # waiting on an orphaned logging queue.
     _exit_when_parent_dies()
     logger = logging.getLogger("auto3d")
     logger.addHandler(logging.FileHandler(logging_path))
@@ -502,5 +498,5 @@ def logger_process(queue: Queue[LogRecord | None], logging_path: str) -> None:
         # pipeline workers already convert it into a clean exit code; without
         # the same clause here, the one process whose whole job is to keep the
         # run's diagnostics readable was itself printing
-        # "Process SpawnProcess-N: Traceback ..." across them (C-3a, P-M12).
+        # "Process SpawnProcess-N: Traceback ..." across them.
         raise SystemExit(130)

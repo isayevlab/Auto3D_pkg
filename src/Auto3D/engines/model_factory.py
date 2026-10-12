@@ -31,9 +31,9 @@ if TYPE_CHECKING:
     # Annotation-only. Every signature here promises the CONTRACT
     # (Auto3D.engines.models.contract.ModelAdapter), not the implementation base class;
     # `_adapters` is the sole exception, because it really is a registry of
-    # Auto3D's own classes. Kept behind TYPE_CHECKING so
-    # `Auto3D.engines.model_factory.BaseModelAdapter` is no longer an incidental
-    # re-export -- import it from Auto3D.engines.models.adapter, which defines it
+    # Auto3D's own classes. Import `BaseModelAdapter` from
+    # Auto3D.engines.models.adapter (which defines it); this TYPE_CHECKING
+    # block only re-exports it for annotations
     # (`Auto3D.engines.models` re-exports nothing).
     from Auto3D.engines.models.adapter import BaseModelAdapter
     from Auto3D.engines.models.contract import ModelAdapter
@@ -61,7 +61,7 @@ def _verify_compiled_adapter(
     """Raise NumericalError if ``compiled`` and ``eager`` disagree on a probe batch.
 
     torch.compile can return numerically wrong results without raising
-    (2026-09-21 review, P-C1: hundreds of eV on ANI2xt/ANI2x). This runs
+    (hundreds of eV on ANI2xt/ANI2x). This runs
     once per compiled adapter, at construction, so a wrong compilation never
     reaches the optimizer. The probe also triggers the (lazy) compilation, so
     its cost is the compile the caller asked for plus two tiny forwards.
@@ -159,7 +159,7 @@ class ModelFactory:
     # double) -- the stamp makes a rewritten file invalidate its own cache
     # entry rather than silently handing back the model built from the
     # file's previous contents; `create` additionally evicts the stale
-    # entry on a rewrite rather than merely shadowing it (M1).
+    # entry on a rewrite rather than merely shadowing it.
     _cache: dict[tuple, ModelAdapter] = {}
 
     @classmethod
@@ -203,16 +203,16 @@ class ModelFactory:
                 Optimization* in ``docs/source/advanced_usage.rst``.
             use_cache: Whether to cache and reuse model instances. Default True.
                 Set False to force creating a new model instance. A
-                custom-model path is cached too (P-m17), keyed on its
+                custom-model path is cached too, keyed on its
                 resolved path and the file's mtime/size/inode, so a rewrite
                 of the file both invalidates and evicts the stale entry
-                (M1, M2) rather than silently reusing -- or merely
+                rather than silently reusing -- or merely
                 shadowing -- the model built from the previous contents.
             double: Whether to promote the fresh adapter's weights to float64
                 (via :meth:`~Auto3D.engines.models.contract.ModelAdapter.to_double`)
                 before it is cached. Part of the cache key, so a
                 ``double=True`` request never returns -- and never upcasts in
-                place -- an fp32 instance some other caller is holding (P-m16).
+                place -- an fp32 instance some other caller is holding.
                 AIMNet2 has no fp64 form and raises ``NotImplementedError``
                 here; that propagates, and nothing is cached for the attempt.
 
@@ -236,7 +236,7 @@ class ModelFactory:
                 probe found the compiled adapter disagreeing with an eager one
                 by more than ``COMPILE_PROBE_TOLERANCE_EV``. torch.compile can
                 return numerically wrong results without raising anything
-                (P-C1: hundreds of eV on the torchani AEV path), so this is the
+                (hundreds of eV on the torchani AEV path), so this is the
                 gate that keeps a silently wrong compilation out of the
                 optimizer. Not reachable with `compile_model=False`, and not
                 reachable for AIMNet2, whose compilation happens inside
@@ -257,11 +257,7 @@ class ModelFactory:
         #    name (e.g. "ANI2xt") must always resolve to its built-in adapter,
         #    even if the working directory happens to contain a same-named
         #    file: name resolution cannot be hijacked by cwd contents, while a
-        #    Path.exists() check can. (This used to be justified by agreement
-        #    with Auto3D.entry.ASE.thermo.aimnet_hessian_helper, which resolved by
-        #    name first; that helper is gone -- the Hessian path takes a
-        #    ModelAdapter now -- so this factory is the only name resolver
-        #    left, and the reason above stands on its own.)
+        #    Path.exists() check can.
         if name_upper in cls._engines and cls._engines.resolve(name_upper) is not None:
             cache_key = (name_upper, str(device), compile_model, double)
             if use_cache and cache_key in cls._cache:
@@ -310,10 +306,10 @@ class ModelFactory:
             # from its on-disk STAMP in the key, so a rewrite is recognizable
             # as the same identity with a different stamp -- which is what
             # lets the eviction below find and drop the stale entry a plain
-            # `cache[key] = adapter` never would (M1). mtime alone can miss a
+            # `cache[key] = adapter` never would. mtime alone can miss a
             # same-tick rewrite on a coarse-grained filesystem (NFS/CIFS);
             # size and inode -- `stat()` is already in hand -- catch what
-            # mtime cannot (M2).
+            # mtime cannot.
             stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
             resolved = str(Path(name).resolve())
             cache_key = (resolved, stamp, str(device), compile_model, double)
@@ -331,7 +327,7 @@ class ModelFactory:
                 # Drop any entry for this SAME identity but a DIFFERENT
                 # stamp: without this, a rewrite grows the cache rather than
                 # replacing the stale model it holds -- on GPU, a retained
-                # device allocation per rewrite until clear_cache() (M1).
+                # device allocation per rewrite until clear_cache().
                 stale_keys = [
                     k
                     for k in cls._cache
@@ -442,11 +438,12 @@ def get_device(gpu_idx: int | None = None, use_gpu: bool = True) -> torch.device
 
     Raises:
         GPUError: `use_gpu` is True, CUDA is available, and `gpu_idx` names a
-            device that does not exist. This function used to return
-            ``torch.device("cuda:99")`` unchecked on an 8-device box, deferring
-            the failure into CUDA itself -- a driver-level error raised at the
-            first tensor move, far from the option that caused it, and mapped
-            to the generic exit code 1 because it is not an ``Auto3DError``.
+            device that does not exist. Without this check, an out-of-range
+            index would return ``torch.device("cuda:99")`` unchecked on an
+            8-device box, deferring the failure into CUDA itself -- a
+            driver-level error raised at the first tensor move, far from the
+            option that caused it, and mapped to the generic exit code 1
+            because it is not an ``Auto3DError``.
             ``check_valid_configuration`` already range-checked ``gpu_idx``,
             but only for ``main()``/``smiles2mols``; ``calc_spe``,
             ``opt_geometry``, ``calc_thermo`` and ``auto3d models test`` reach

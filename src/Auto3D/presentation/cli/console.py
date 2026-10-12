@@ -25,8 +25,8 @@ if TYPE_CHECKING:
 #
 # `auto3d ... --json` promises a stdout stream carrying nothing but the JSON
 # document, and `--quiet` promises no chatter. Neither promise is ours alone to
-# keep. Resolving an engine name (cli/config_schema.py's `_validate_engine`,
-# which runs while the configuration is being built -- before any output
+# keep. Resolving an engine name (`resolve_engine_name`,
+# engines/models/preflight.py; which runs while the configuration is being built -- before any output
 # decision is made) imports `aimnet.calculators`, which pulls in `warp`, which
 # prints a 734-byte device banner to *stdout* at import time. There is no
 # Auto3D `print` to put a `if not json_output` in front of: the write is not

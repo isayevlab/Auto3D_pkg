@@ -79,8 +79,8 @@ def execute_energy(
         # Engine-name resolution and the GPU policy are the first two things
         # `calc_spe`/`opt_geometry`/`calc_thermo` do, inside
         # `Auto3D.entry._run_setup.prepare_single_file_run`, before any file is
-        # read and any model is constructed -- so this wrapper no longer carries
-        # its own copy of either (M21/C11, M23).
+        # read and any model is constructed -- so this wrapper does not
+        # duplicate either.
         from Auto3D.entry.SPE import calc_spe
 
         out = calc_spe(

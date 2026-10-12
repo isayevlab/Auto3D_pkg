@@ -143,10 +143,10 @@ def configure_torch(config: TorchConfig | None = None) -> None:
         np.random.seed(config.random_seed)
 
     # Written only when the caller says which way they want it. An explicit
-    # False still turns determinism back off (these flags used to be
-    # write-once-sticky, so a process that enabled a reproducible run could
-    # never restore fast mode), but the default None no longer reaches in and
-    # disables determinism the caller set for their own reasons.
+    # False still turns determinism back off -- these flags are not
+    # write-once-sticky, so a process that enabled a reproducible run can
+    # still restore fast mode -- but the default None does not reach in and
+    # disable determinism the caller set for their own reasons.
     if config.deterministic is not None:
         torch.use_deterministic_algorithms(
             config.deterministic, warn_only=config.deterministic_warn_only

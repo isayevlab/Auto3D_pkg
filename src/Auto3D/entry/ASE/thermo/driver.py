@@ -248,9 +248,9 @@ def do_mol_thermo(
         adapter: The Hessian model, satisfying
             :class:`Auto3D.engines.models.contract.ModelAdapter`. Passed straight to
             ``vib_hessian``, which asks it for the species convention and for
-            either a native or an autograd Hessian. The engine-name argument
-            this used to carry alongside is gone: the adapter answers both
-            questions, so there was nothing left for a name to select.
+            either a native or an autograd Hessian. The adapter answers both
+            questions, so no separate engine-name argument is needed
+            alongside it.
         T: Temperature in kelvin. Must be positive: it is a denominator in
             the classical-rotor floor ``project_vibrations`` applies, where a
             non-positive value is a ``ZeroDivisionError`` or a silently wrong
@@ -296,7 +296,7 @@ def do_mol_thermo(
         atoms, vib.get_hessian_2d(), geometry, name=name, temperature_k=T
     )
     # The projection may overrule the geometry (a bent stationary point inside
-    # the linearity window, N-M4), and it reports the answer as TWO geometries
+    # the linearity window), and it reports the answer as TWO geometries
     # because they can differ. `mode_geometry` is what the mode count is
     # 3N - external of, so it is what `analyze_vibrations` checks against;
     # `geometry` is the rotor handed to IdealGasThermo. They split in the
@@ -376,12 +376,8 @@ def do_mol_thermo(
 def _load_hessian_model(model_name: str, device) -> ModelAdapter:
     """Return the Hessian model for ``vib_hessian``, as an adapter.
 
-    ONE return type. This used to return either a bare fp64 ``nn.Module``
-    (ANI2xt / ANI2x / custom) or an ``aimnet.calculators.AIMNet2Calculator``
-    (AIMNET and the registry aliases), reached through an ``AIMNet2Adapter``
-    property published for exactly that purpose, and ``vib_hessian`` then had to
-    tell the two apart with ``isinstance``. The analytic-Hessian capability is on
-    the contract now (``ModelAdapter.analytic_hessian``), so the caller needs no
+    ONE return type: the analytic-Hessian capability is on the contract
+    (``ModelAdapter.analytic_hessian``), so the caller needs no
     type test and no engine name, and a third-party calculator type no longer
     appears in Auto3D's control flow.
 
@@ -396,7 +392,7 @@ def _load_hessian_model(model_name: str, device) -> ModelAdapter:
     AIMNet2 does not: whole-graph fp64 through it is false precision, and its
     Hessian is analytic anyway.
 
-    ``double`` is part of ``ModelFactory``'s cache key (P-m16), so this never
+    ``double`` is part of ``ModelFactory``'s cache key, so this never
     returns -- and never upcasts in place -- the fp32 adapter
     ``model_name2model_calculator`` builds for the optimization half of the
     SAME ``calc_thermo`` call: the two calls key to two different cache
@@ -406,23 +402,23 @@ def _load_hessian_model(model_name: str, device) -> ModelAdapter:
     """
     # Case-folded, because every other engine-name gate in Auto3D folds case --
     # ModelFactory.create (name.upper()), resolve_engine_name and
-    # check_engine_supports_molecules were all verified to -- and this one did
-    # not. `calc_thermo(path, "ani2x")` and `auto3d thermo -e ani2x` passed every
-    # one of those gates and then fell through to the branch below, which at the
-    # time returned `.calculator` -- an attribute an ANI2xAdapter does not have --
-    # so the run died in the generic "Unexpected Error" panel at exit 1, after
-    # paying for model construction. `auto3d run -e ani2x` worked, because
-    # CLIConfig.to_auto3d_options normalizes there. A path is left unfolded:
-    # filesystem paths are case-sensitive on most platforms.
+    # check_engine_supports_molecules all do. Without the fold,
+    # `calc_thermo(path, "ani2x")` and `auto3d thermo -e ani2x` would pass
+    # every one of those gates and then fall through to the branch below,
+    # which returns `.calculator` -- an attribute an ANI2xAdapter does not
+    # have -- so the run would die in the generic "Unexpected Error" panel
+    # at exit 1, after paying for model construction. `auto3d run -e ani2x`
+    # is unaffected: `build_cli_config`/`Auto3DOptions` normalizes the name
+    # before it reaches here. A path is left unfolded: filesystem paths are
+    # case-sensitive on most platforms.
     if model_name.upper() in ("ANI2XT", "ANI2X") or Path(model_name).exists():
         # compile_model=False: torch.compile guards on dtype, and nothing in
         # this autograd-Hessian path benefits from it anyway. double=True asks
-        # the factory for the fp64 form through the contract rather than past
-        # it -- this used to be `adapter.model.double()` against a
-        # `use_cache=False` instance, reaching a module only BaseModelAdapter
-        # happens to store; now the cache key itself carries the dtype, so the
-        # fp32 optimization adapter the SAME calc_thermo call holds is a
-        # different cache entry and is never the one upcast.
+        # the factory for the fp64 form through the contract rather than
+        # reaching past it to `adapter.model.double()` against a module only
+        # BaseModelAdapter happens to store. The cache key itself carries the
+        # dtype, so the fp32 optimization adapter the SAME calc_thermo call
+        # holds is a different cache entry and is never the one upcast.
         return create_model(model_name, device, compile_model=False, double=True)
     # AIMNET or any aimnet registry alias: ModelFactory resolves the "AIMNET"
     # legacy alias to the registry default internally (see
@@ -433,11 +429,11 @@ def _load_hessian_model(model_name: str, device) -> ModelAdapter:
 def relax_to_stationary_point(atoms, *, fmax: float, steps: int, name: str) -> bool:
     """Relax ``atoms`` and report whether it reached a stationary point.
 
-    ``BFGS.run`` returns True when it converged, and nothing used to read that.
-    A structure that exhausted its step budget therefore received a Hessian and
+    ``BFGS.run`` returns True when it converged. Without checking it, a
+    structure that exhausted its step budget would receive a Hessian and
     a Gibbs energy indistinguishable from a converged one -- but the harmonic
-    approximation is only defined at a stationary point, so those numbers are
-    not thermochemistry.
+    approximation is only defined at a stationary point, so those numbers
+    would not be thermochemistry.
 
     Args:
         atoms: ASE atoms with a calculator attached. Relaxed in place.
@@ -565,9 +561,6 @@ def _thermo_one_record(
         fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
 
         # Gate on the documented threshold, not a hardcoded 0.01.
-        # opt_tol was previously reachable only from the ValueError
-        # fallback, so constants.py's tighter value never applied to
-        # the primary path.
         converged = fmax <= opt_tol
         if not converged:
             logger.info(
@@ -749,10 +742,10 @@ def calc_thermo(
 
         The vibrational spectrum comes from an Eckart/Sayvetz-projected
         Hessian (``project_vibrations``), so exactly 3N-6 / 3N-5 modes reach
-        ``IdealGasThermo`` and ASE's own mode selection is disabled. Since
-        3.0.0 only the projected modes are passed; previously the full 3N list
-        was passed and ASE chose, and that choice changed in ASE 3.28.0, so the
-        same input gave different Gibbs energies on different ASE versions.
+        ``IdealGasThermo`` and ASE's own mode selection is disabled: passing
+        the full 3N list and letting ASE choose would make the same input
+        give different Gibbs energies on different ASE versions, since that
+        selection rule changed in ASE 3.28.0.
 
     Raises:
         InputValidationError: if no record of ``path`` could be parsed at all. A

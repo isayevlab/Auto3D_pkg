@@ -30,15 +30,15 @@ except ImportError:
 
 logger = get_logger(__name__)
 
-#: Matches a title already carrying a trailing ``_<digits>`` isomer index
-#: (NEW-2): the ``enumerate_isomers`` branch's premise is that
+#: Matches a title already carrying a trailing ``_<digits>`` isomer index:
+#: the ``enumerate_isomers`` branch's premise is that
 #: ``OEFlipperOptions.SetWarts(True)`` (below) always gives each enumerated
 #: isomer one, by the time ``remove_enantiomers`` has rewritten the title a
 #: second time -- but neither is re-verified anywhere downstream, so a
 #: molecule that reaches the main loop without one would otherwise get only
 #: a conformer index (one trailing integer group, not the two
 #: ``species_id`` requires), silently reproducing the per-conformer-group
-#: defect I1 fixed for the non-enumerating paths.
+#: defect also fixed for the non-enumerating paths.
 _TRAILING_ISOMER_INDEX_RE = re.compile(r"_\d+$")
 
 
@@ -78,10 +78,10 @@ def oe_isomer(
     The OpenEye toolkit's application-options machinery writes ``oeomega_*``
     and ``flipper_*`` logfiles into the **process working directory**, which
     for an ordinary ``cd ~/project && auto3d run mols.smi`` is the user's own
-    directory. ``job_layout.housekeeping`` used to sweep those names out
-    of the cwd and into the run's ``verbose`` folder, which is tarred and then
-    deleted -- so a user file named ``oeomega_settings.txt`` in the cwd was
-    destroyed by an ordinary run. The fix is on this side rather than on the
+    directory. ``job_layout.housekeeping`` would otherwise sweep those names
+    out of the cwd and into the run's ``verbose`` folder, which is tarred and
+    then deleted -- destroying a user file named ``oeomega_settings.txt`` in
+    the cwd. The fix is on this side rather than on the
     sweep's: the OpenEye section below runs with the working directory set to
     the directory this call already owns (``output``'s parent, i.e. the
     per-chunk directory Auto3D created for this job), so the logfiles land
@@ -219,7 +219,7 @@ def _oe_isomer_in_owned_cwd(
     for mol in tqdm(ifs.GetOEMols(), disable=should_disable_progress_bars()):
         # species_id's producer contract (domain.ranking) is
         # "<id>_<isomer>_<conformer>", two trailing integer groups appended
-        # by every producer (I1). A run with no enumeration --
+        # by every producer. A run with no enumeration --
         # enumerate_isomers=False on SMILES input, or any SDF input, since
         # the SDF branch never reaches the Flipper code at all -- has only
         # one isomer and so always needs an explicit "_0" appended
@@ -230,7 +230,7 @@ def _oe_isomer_in_owned_cwd(
         # (OEFlipperOptions.SetWarts above, reinforced by
         # remove_enantiomers's own re-indexing), but neither is re-verified
         # here, so a title that reaches this point WITHOUT one still gets
-        # "_0" (NEW-2) -- checked, not assumed, and only in this branch:
+        # "_0" -- checked, not assumed, and only in this branch:
         # unlike the non-enumerating title, this one has already been
         # rewritten by remove_enantiomers, so a trailing digit here really
         # is an isomer index, not user content.

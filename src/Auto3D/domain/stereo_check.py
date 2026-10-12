@@ -52,7 +52,7 @@ def _assign_pnictogen_tags(work: Chem.Mol, conf_id: int = -1) -> None:
     none of this: neither ``AssignStereochemistryFrom3D`` nor
     ``AssignAtomChiralTagsFromStructure`` tags a degree-3 P or As, and with no tag
     there is no label for ``rdCIPLabeler`` to compute either, so the
-    configuration has to be derived here (finding N-M10).
+    configuration has to be derived here.
 
     The lone pair occupies the fourth vertex, which makes the sign of the
     signed volume of the three bond vectors a complete description of the
@@ -173,7 +173,7 @@ def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescri
 
     Scope:
         Chiral tags, not ``_CIPCode``: the CIP property is populated only by
-        RDKit's legacy stereo perception, a process-global setting (N-M9); tags
+        RDKit's legacy stereo perception, a process-global setting; tags
         are assigned by ``AssignStereochemistryFrom3D`` under both modes and
         flip on mirroring. Reading tags also widens coverage slightly, in the
         right direction: a ring diastereocenter (the 1,4-disubstituted
@@ -194,7 +194,7 @@ def stereo_descriptors_from_3d(mol: Chem.Mol, conf_id: int = -1) -> StereoDescri
 
         Covered, then, are atoms RDKit tags from the coordinates -- plus
         pyramidal trivalent phosphorus and arsenic, which it does not tag and
-        :func:`_assign_pnictogen_tags` supplies (N-M10) -- and bonds it
+        :func:`_assign_pnictogen_tags` supplies -- and bonds it
         assigns a non-``STEREONONE`` label (defined double bonds). Trivalent
         (sp3) nitrogen receives no chiral tag from
         ``AssignStereochemistryFrom3D`` under either perception mode, so an
@@ -272,7 +272,7 @@ def species_key(mol: Chem.Mol) -> str:
     which is therefore excluded -- but with no tag they canonicalize to the same
     SMILES, so a duplicate filter reads them as conformers of one species and,
     for a pair whose heavy-atom RMSD can fall below the threshold on a rigid
-    scaffold, drops the higher-energy one silently (finding N-M10). That
+    scaffold, drops the higher-energy one silently. That
     collapse is a guarded case rather than a demonstrated one for small
     tertiary phosphines: measured over MMFF-relaxed conformer pools, the
     closest cross pair of a diastereomeric P epimer pair is 0.73 A heavy-atom

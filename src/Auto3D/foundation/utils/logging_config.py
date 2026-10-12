@@ -71,8 +71,7 @@ def configure_logging(verbose: bool = False) -> None:
 
 
 def should_disable_progress_bars() -> bool:
-    """P-m14 (first half, R18): True when a worker-side ``tqdm`` bar would be
-    noise rather than feedback.
+    """True when a worker-side ``tqdm`` bar would be noise rather than feedback.
 
     A carriage-return progress bar is only useful when something is actually
     watching it redraw in place. Two cases: ``sys.stderr`` is missing or not
@@ -80,8 +79,7 @@ def should_disable_progress_bars() -> bool:
     caller has set ``AUTO3D_PROGRESS=off`` -- an explicit escape hatch for a
     caller that knows better than ``isatty()`` can, e.g. a parent process
     that is rendering its own progress panel and does not want a worker's
-    bar interleaved with it (the second half of P-m14, landing in a later PR,
-    sets exactly this).
+    bar interleaved with it.
 
     Every worker-side ``tqdm(...)`` call in the codebase passes
     ``disable=should_disable_progress_bars()`` rather than caching the

@@ -4,11 +4,7 @@ This package is a **namespace, not a barrel**: it re-exports nothing, and
 ``__init__.py`` deliberately contains no code at all. Import each name from the
 module that defines it -- ``from Auto3D.foundation.utils.atomic_io import
 atomic_write_path``, not ``from Auto3D.foundation.utils import atomic_write_path``.
-The barrel that used to live here listed 41 names drawn from five of the
-then-eight modules, so the three it omitted (``energy``, ``convergence``,
-``stereo_check``) had no way in, and the same function was reached by two
-different paths in sibling modules. See ``docs/source/api.rst`` for the rule
-and the CHANGELOG for the full old-to-new mapping.
+See ``docs/source/api.rst`` for the rule.
 
 Nothing here is public API. ``api.rst`` documents no ``Auto3D.foundation.utils`` name;
 these modules exist for Auto3D's own use and may move.
@@ -23,7 +19,7 @@ What each module owns:
     Logging setup and the logger factory every module calls.
 ``molprops``
     The dummy-atom predicate, read off an RDKit mol's graph. (The
-    conformer-count heuristic that used to live here moved to
+    conformer-count heuristic lives in
     ``Auto3D.domain.conformer_budget``.)
 ``output_guard``
     Output-path gates (overwrite, and output-is-not-input). Split out of

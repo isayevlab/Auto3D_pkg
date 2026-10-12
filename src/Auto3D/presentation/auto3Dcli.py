@@ -112,35 +112,23 @@ def _run_legacy_yaml(yaml_path: str) -> None:
             raise InputValidationError(f"Config file not found: {yaml_path}")
 
         # `load_yaml_config` is THE YAML ingestion path -- the same function
-        # `auto3d run -c` calls (cli/commands/run.py). This entry point used to
-        # carry its own `yaml.safe_load` plus its own "None"-string loop, which
-        # shared every *value* validator with the modern path (both ended in
-        # `build_cli_config`) but none of the three *shape* guards: an empty
-        # file, a non-mapping top level, or a YAML syntax error reached
-        # `parameters.items()` here and surfaced as AttributeError/TypeError/
-        # yaml.YAMLError under the generic "Unexpected Error" panel at exit 1,
-        # while the identical file through `-c` gave a ConfigurationError at
-        # exit 2 with a hint. Two exit codes for one file is precisely what
-        # build_cli_config's docstring says it exists to prevent, so the
-        # duplicate ingestion is gone rather than patched -- see
-        # tests/test_legacy_yaml_parity.py, which asserts both entry points
-        # report the same exception class and the same exit code for each shape.
+        # `auto3d run -c` calls (cli/commands/run.py), so an empty file, a
+        # non-mapping top level, or a YAML syntax error gets the same
+        # ConfigurationError at exit 2 with a hint through either entry
+        # point -- see tests/test_legacy_yaml_parity.py, which asserts both
+        # entry points report the same exception class and the same exit
+        # code for each shape.
         config = load_yaml_config(Path(yaml_path))
 
         # Logging and the banner are derived from the VALIDATED config, not
-        # from the raw dict. They used to run before validation, reading
-        # `parameters.get(...)` with its own per-key defaults ("AIMNET",
-        # gpu_idx 0, use_gpu True) -- a fourth place option defaults were
-        # written, and one that could print a banner for a configuration about
-        # to be rejected. Nothing logs between the old and new positions, so no
-        # log line is lost; the error panel comes from `handle_error`, not from
-        # logging, so a pre-validation failure still reports normally.
+        # from the raw dict: the error panel comes from `handle_error`, not
+        # from logging, so a pre-validation failure still reports normally.
         verbose = 1 if config.verbose else 0
         configure_logging(verbose=config.verbose)
 
         # Before the banner: a settings-only config file (valid for
         # `auto3d run INPUT -c`, unrunnable here -- this form has no other
-        # source of an input path) is refused by `to_auto3d_options` with a
+        # source of an input path) is refused by `require_input_path` with a
         # ConfigurationError naming the missing key, and announcing a run that
         # cannot start would be worse than not announcing it.
         options = require_input_path(config)
@@ -163,15 +151,10 @@ def _run_legacy_yaml(yaml_path: str) -> None:
         result = main(options)
 
         # The same reconciliation `auto3d run` does, on the same data, ending in
-        # the same exit code. This entry point used to print an unconditional
-        # green "OK Output: <path>" and return, never once consulting
-        # `result.failures` -- so `auto3d params.yaml` reported success and
-        # exited 0 on a run that silently dropped molecules, while `auto3d run`
-        # on the identical result named them and exited 6. The C6/C7/C8 fix
-        # reached only the modern path; this is it reaching the legacy one.
+        # the same exit code.
         #
         # `getattr` (not attribute access) because a caller or test may still
-        # hand back the plain path string the pipeline returned historically --
+        # hand back the plain path string the pipeline can return --
         # exactly the graceful default `execute_run` keeps for the same reason.
         missing_ids: list[str] = list(getattr(result, "failures", None) or [])
         results = RunSummary(

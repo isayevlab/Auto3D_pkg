@@ -125,12 +125,7 @@ class SupervisorMixin:
             p2.join()
 
     def _check_exit(self, proc: BaseProcess, label: str) -> None:
-        """Log a worker's abnormal exit to both the console and the run log.
-
-        This used to go through the bare module ``logger`` alone, so a
-        run's own Auto3D.log never recorded a worker crash a user would
-        only have seen if they had kept the live console output.
-        """
+        """Log a worker's abnormal exit to both the console and the run log."""
         if proc.exitcode not in (0, None):
             self._log_both(
                 f"{label} process exited with code {proc.exitcode}; output may be incomplete.",

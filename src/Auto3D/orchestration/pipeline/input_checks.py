@@ -84,7 +84,7 @@ def check_input(args: Any) -> None:
 
     # Check --use_gpu. Delegates to check_gpu_requested so this and
     # check_valid_configuration can never drift onto different wording or a
-    # different exception type again (M23).
+    # different exception type again.
     check_gpu_requested(args.use_gpu)
 
     isomer_engine = args.isomer_engine
@@ -108,12 +108,6 @@ def check_input(args: Any) -> None:
         # ANI2xt needs torchani too -- its AEV computer is built from
         # torchani.AEVComputer (engines/models/ani2xt.py), it just does not
         # need torchani's pretrained ensemble weights the way ANI2x does.
-        # This used to probe only "ANI2x", so an ANI2xt run with torchani
-        # missing sailed through both this check and preflight_model, then
-        # failed inside every chunk's worker -- caught by
-        # optim_rank_wrapper's blanket per-chunk `except Exception`, which
-        # swallows the real DependencyError and leaves the run ending in a
-        # misleading OptimizationError at exit 1 instead of exit 3.
         # args.optimizing_engine is already canonicalized (ENGINE_CANONICAL_CASE,
         # applied upstream) by the time it reaches here, so this exact-match
         # is safe against case variants like "ani2xt".
@@ -142,7 +136,7 @@ def check_input(args: Any) -> None:
     # No opt_steps check here any more. It hand-wrote `< 10` while
     # Auto3D.foundation.config.FIELD_BOUNDS declared ("ge", 1) -- two minimums for one
     # option (see that table's comment). FIELD_BOUNDS now declares 10 and is
-    # enforced by Auto3DOptions.__post_init__ and CLIConfig's _check_bounds, so
+    # enforced by Auto3DOptions.__post_init__'s call to check_field_bounds, so
     # every entry point rejects opt_steps=5 at construction, before this
     # function is reached and before any banner prints.
 
@@ -185,7 +179,7 @@ _MAX_DUMMY_IDS_REPORTED = 5
 
 
 def _warn_about_dummy_atom_records(ids: list[str]) -> None:
-    """Announce, once per input check, the records a dummy atom will cost (N-M3).
+    """Announce, once per input check, the records a dummy atom will cost.
 
     Deliberately a warning and not an exception: every seam that consumes a
     record skips a dummy-atom record on its own, so the rest of the file still
@@ -194,8 +188,8 @@ def _warn_about_dummy_atom_records(ids: list[str]) -> None:
     rather than scattered through its log.
 
     Shared by :func:`check_smi_format` and :func:`check_sdf_format` so the two
-    formats cannot drift into reporting the same defect differently (the C11
-    lesson, which is also why ``has_dummy_atoms`` itself has one definition).
+    formats cannot drift into reporting the same defect differently
+    (which is also why ``has_dummy_atoms`` itself has one definition).
 
     Args:
         ids: Input IDs of the records carrying a dummy atom. Empty means
@@ -212,10 +206,8 @@ def _warn_about_dummy_atom_records(ids: list[str]) -> None:
 
 def _warn_about_unspecified_stereo_records(records: list[tuple[str, str, int]]) -> None:
     """One ``UserWarning`` per input check for every record left with
-    unspecified stereo under ``enumerate_isomers=False`` (P-m32), instead of
-    one warning per record -- a file where most inputs share the same open
-    stereo defect used to put one near-identical warning on the console per
-    record.
+    unspecified stereo under ``enumerate_isomers=False``, instead of
+    one warning per record.
 
     For exactly one record the wording is the pre-existing single-record
     message, unchanged: four tests in ``tests/test_smiles_stereo_warning.py``
@@ -277,14 +269,14 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     """
     ANI = True
 
-    # iter_smi_records is the single parser for this format (M59): it already
+    # iter_smi_records is the single parser for this format: it already
     # skips blank lines and '#'-prefixed comments the same way
     # cli.commands.validate.validate_smiles_file does, and its on_malformed
-    # ("raise") gives the same InputValidationError this loop used to raise by
-    # hand for a line missing an ID, so `auto3d validate` and this check
-    # cannot silently disagree about what a well-formed line looks like
-    # (M25). The parser also tolerates ragged rows (extra whitespace columns
-    # beyond SMILES+ID), matching the chunk loader's usecols=[0, 1].
+    # ("raise") gives the same InputValidationError for a line missing an ID,
+    # so `auto3d validate` and this check cannot silently disagree about
+    # what a well-formed line looks like. The parser also tolerates ragged
+    # rows (extra whitespace columns beyond SMILES+ID), matching the chunk
+    # loader's usecols=[0, 1].
     # Kept as (SMILES, ID) pairs, read once: the dummy-atom warning below has to
     # name the records the way the user wrote them, and a second pass over the
     # file to recover the IDs could disagree with this one.
@@ -294,16 +286,15 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
     ]
     logger.info(f"\tThere are {len(smi_records)} SMILES in the input file {args.path}.")
 
-    # One pass, one parse per record. The open-stereo warning and the
-    # engine/dummy-atom classification used to be two loops that each called
-    # MolFromSmiles on every line: twice the parsing, and two places that could
-    # come to different conclusions about the same record -- which is exactly
-    # what happened, since only the second one learned about dummy atoms.
+    # One pass, one parse per record: the open-stereo warning and the
+    # engine/dummy-atom classification both read off this same loop, so there
+    # is one place to come to a conclusion about a given record, not two
+    # that could disagree.
     #
     # The stereo half warns about every stereo element the input leaves open --
-    # tetrahedral centers AND double-bond geometry. It used to call
-    # CalcNumUnspecifiedAtomStereoCenters, which sees only ATOM centers, so an
-    # unspecified C=C passed silently: with enumerate_isomers=False,
+    # tetrahedral centers AND double-bond geometry: checking only ATOM centers
+    # (via CalcNumUnspecifiedAtomStereoCenters) would let an
+    # unspecified C=C pass silently. With enumerate_isomers=False,
     # "OC(=O)C=CC(=O)O" embeds as fumaric AND maleic acid (~5 kcal/mol apart)
     # under one species id, and "CC=CC" embeds as cis-2-butene alone with the
     # trans isomer absent -- in both cases the user gets a molecule they did
@@ -326,7 +317,7 @@ def check_smi_format(args: Any) -> tuple[bool, list[str]]:
             # Not folded into the engine question: atomic number 0 is outside
             # ANI_ELEMENTS, so counting this record would make check_input raise
             # "Only AIMNET can handle: [...]" for an ANI run, the opposite of
-            # the N-M3 contract (warned about and skipped, never fatal), and it
+            # the dummy-atom contract (warned about and skipped, never fatal), and it
             # must not decide anything on behalf of the records that stay.
             #
             # And not warned about for open stereo either: "set
@@ -391,9 +382,8 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
     """
     # `classify_records` (Auto3D.foundation.utils.sdf_io) owns the one read and
     # the one partition, so this check and every per-record reader judge a
-    # record by the same predicate (N-C1) instead of each hand-rolling a None
-    # test of its own -- this one used to report an unreadable record in
-    # wording no other reader used.
+    # record by the same predicate instead of each hand-rolling a None
+    # test of its own.
     classified = classify_records(args.path)
 
     # Only the unparseable records are reported here, deliberately -- NOT
@@ -422,7 +412,7 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
         mol_id = mol.GetProp("_Name")
         if has_dummy_atoms(mol):
             # Same reasoning as check_smi_format's branch: collected for the
-            # one up-front warning, excluded from the engine question (N-M3).
+            # one up-front warning, excluded from the engine question.
             #
             # Asked of the record, NOT read off `classified.skipped` filtered
             # to "dummy_atoms". `record_skip_reason` checks implicit hydrogens
@@ -458,18 +448,12 @@ def check_sdf_format(args: Any) -> tuple[bool, list[str]]:
 def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     """Validate an ``Auto3DOptions`` for things its own construction cannot check.
 
-    Takes the configuration **object**, not a copy of its field names. The
-    previous signature re-declared ten option names *and their own defaults*
-    (``optimizing_engine="AIMNET"``, ``isomer_engine="rdkit"``,
-    ``tauto_engine="rdkit"``, ``opt_steps=2000`` written as a literal rather
-    than ``DEFAULT_OPT_STEPS``, ...), which made this function a third
-    configuration schema alongside ``Auto3DOptions`` and ``CLIConfig`` -- one
-    that could disagree with both about what an unspecified option means, and
-    that silently never looked at the other eighteen fields. It also forced two
-    byte-identical ten-keyword marshalling blocks at its only two call sites
-    (``auto3D.py``'s ``smiles2mols`` and ``workflow.py``'s
-    ``WorkflowOrchestrator._validate_input``), both of which read every value
-    straight off an ``Auto3DOptions`` they already had.
+    Takes the configuration **object**, not a copy of its field names, so
+    there is nothing here that can disagree with ``Auto3DOptions`` about
+    what an unspecified option means, and nothing here that fails to see
+    every other field. Both call sites (``auto3D.py``'s ``smiles2mols`` and
+    ``workflow.py``'s ``WorkflowOrchestrator._validate_input``) read every
+    value straight off an ``Auto3DOptions`` they already have.
 
     ``Auto3DOptions`` is the authoritative schema, so what belongs here is only
     what a dataclass cannot decide for itself: whether the input file exists,
@@ -492,11 +476,11 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     Raises:
         GPUError: `use_gpu` is True and no CUDA device is visible, or
             `use_gpu` is True and `gpu_idx` names a device that does not
-            exist (P-m33). Both are raised immediately (not folded into the
+            exist. Both are raised immediately (not folded into the
             returned `errors` list) so every caller of this function --
             main() via WorkflowOrchestrator._validate_input, and
             smiles2mols -- gets the same fatal GPUError that check_input
-            (the no-CUDA case, M23) and get_device (the out-of-range case)
+            (the no-CUDA case) and get_device (the out-of-range case)
             already raise for the identical condition. See
             check_gpu_requested for the no-CUDA rationale.
     """
@@ -530,7 +514,7 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     # Checked the same way as the GPU-availability guard just above --
     # raised immediately, not folded into `errors` -- so an out-of-range
     # --gpu-idx exits 4 (GPUError) on every entry point instead of 2
-    # (ConfigurationError) on this one (P-m33, R20). Wording copies
+    # (ConfigurationError) on this one. Wording copies
     # get_device's own out-of-range GPUError (model_factory.py) exactly, for
     # the same upper-bound check (get_device also rejects a negative index,
     # which this function has never checked and still does not -- out of
@@ -559,21 +543,20 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
                         hint_key="gpu_index_out_of_range",
                     )
 
-    # Resolve rather than prefix-match: `aimnet2-2025x` starts with "aimnet2"
-    # and so used to pass here, then failed inside a worker where
-    # optim_rank_wrapper's per-chunk handler swallowed it. The registry lookup
-    # is a pure offline dict read against a bundled YAML, so validating costs
-    # nothing.
+    # Resolve rather than prefix-match: `aimnet2-2025x` starts with "aimnet2",
+    # so a prefix-match here would wrongly pass an unregistered name through,
+    # only to fail inside a worker where optim_rank_wrapper's per-chunk
+    # handler swallows it. The registry lookup is a pure offline dict read
+    # against a bundled YAML, so validating costs nothing.
     try:
         resolve_engine_name(options.optimizing_engine)
     except ConfigurationError as exc:
         errors.append(str(exc))
 
-    # No isomer_engine/tauto_engine whitelist here any more: both are in
-    # Auto3D.foundation.config.ENGINE_CHOICES and enforced by Auto3DOptions.__post_init__,
-    # so an unrecognized value cannot reach this function. The two local
-    # `valid_*_engines` sets that used to stand here were the third and fourth
-    # hand-written copies of those whitelists.
+    # Both isomer_engine and tauto_engine are validated against
+    # Auto3D.foundation.config.ENGINE_CHOICES and enforced by
+    # Auto3DOptions.__post_init__, so an unrecognized value cannot reach this
+    # function; no separate whitelist is needed here.
     #
     # The license checks below stay: they are about the *environment*, not about
     # the value, so no amount of construction-time validation can answer them.

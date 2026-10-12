@@ -31,20 +31,14 @@ __version__ = _detect_version()
 # --help`, a build script reading `__version__`, a tool that merely lists
 # installed distributions -- and none of them need torch or rdkit.
 #
-# This file used to end with three eager optional-dependency probes (openeye,
-# torchani, and `from Auto3D.engines.batch_opt.ANI2xt_no_rep import ANI2xt`) wrapped in
-# `warnings.catch_warnings()`. Nothing consumed any of them, and the third one
-# defeated the `_LAZY_API` mechanism below outright: it reached ANI2xt_no_rep ->
-# the Auto3D.foundation.utils barrel -> utils.validation -> Auto3D.engines.models.* + torch, which
-# turned `import Auto3D` into 1175 modules and 1.35 s and eagerly loaded 20
-# Auto3D submodules. Every probe is already duplicated where it is load-bearing
-# and where its result is actually used:
+# Each optional dependency is checked where it is load-bearing and where
+# its result is actually used, not here:
 #   * openeye  -> isomers/omega.py and isomers/tautomers.py (names used at
 #                 call time) and pipeline/input_checks.py (raises
 #                 DependencyError with a hint)
 #   * torchani -> pipeline/input_checks.py (same) and models/ani2xt.py
 #   * ANI2xt   -> constructed only through model_factory / models.adapter
-# Do not reintroduce a probe here. A dependency is checked where it is needed.
+# Do not add a probe here. A dependency is checked where it is needed.
 
 __all__ = [
     "__version__",

@@ -5,8 +5,7 @@ Four call sites in Auto3D stage a write through this module. Three rewrite a
 file they have just read -- ``reorder_sdf``, ``ASE.geometry._annotate_and_rewrite``
 and ``domain.stereochemistry_smiles.amend_configuration_w`` -- where opening the
 target directly truncates it, so a failure partway through the rewrite leaves
-a half-written file and no copy of what was there before (the crash half of
-audit C14). The fourth, ``ranking.ConformerRanker._write_results``, writes a
+a half-written file and no copy of what was there before. The fourth, ``ranking.ConformerRanker._write_results``, writes a
 ranked output that may not exist yet; it is not a rewrite, but staging
 through the same helper gets it the same all-or-nothing guarantee.
 

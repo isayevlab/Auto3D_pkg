@@ -39,9 +39,9 @@ def encode_ids(
     The encoded file is named ``<stem>_encoded.<ext>``. That name is derived
     from the input, so it can collide with a file the user already owns:
     ``mols_encoded.smi`` sitting beside ``mols.smi`` is a perfectly ordinary
-    thing for a user to have, and this function used to overwrite it without
-    a word (``WorkflowOrchestrator`` then ``unlink()``ed it at the end of the
-    run, so the file was destroyed twice over). Two things prevent that now:
+    thing for a user to have, and overwriting it without a word here (with
+    ``WorkflowOrchestrator`` then ``unlink()``ing it at the end of the run)
+    would destroy the file twice over. Two things prevent that:
     ``out_dir`` lets the caller redirect the encoded file somewhere it owns
     -- ``WorkflowOrchestrator`` passes its freshly created job directory --
     and the collision check below refuses to write over an existing file for
@@ -53,9 +53,9 @@ def encode_ids(
             input file's own directory.
         overwrite: Allow replacing an existing file at the encoded path.
             Keyword-only, defaults to False -- Auto3D derives this name, so it
-            belongs to whoever already owns it. This used to refuse
-            *unconditionally*, with no way for a caller who meant it to say so;
-            the keyword and its default now match ``decode_ids`` and
+            belongs to whoever already owns it; a caller who means to replace
+            an existing file can say so.
+            The keyword and its default match ``decode_ids`` and
             ``tautomer.select_tautomers``, and all three raise through the same
             ``utils.output_guard.check_output_overwrite``.
 
@@ -77,7 +77,7 @@ def encode_ids(
         {'mol_A': 0, 'mol_B': 1, 'mol_C': 2}
     """
     path_obj = Path(path).resolve()
-    # casefold (M7), not lower(): a chemically valid `mols.SDF` or `mols.SMI`
+    # casefold, not lower(): a chemically valid `mols.SDF` or `mols.SMI`
     # must not be refused the way `mols.xyz` is. The canonical lowercase
     # form is used from here on -- for the output filename below and for
     # every comparison in this function -- so a caller never has to handle
@@ -184,11 +184,11 @@ def decode_ids(path: str, mapping: dict[str, int], *, overwrite: bool = False) -
                 logger.warning("Skipping molecule at index %d: failed to parse", i)
                 continue
             name = mol.GetProp("_Name").strip()
-            # strip_taut_suffix is the single owner of the "@tautN" parse
-            # (N-m29); its pattern -- "@taut" followed by at least one digit,
-            # then everything after -- replaces this function's own
-            # `"@taut" in name` / `name.split("@taut")`, which treated the
-            # bare substring anywhere in the id as the separator (matching
+            # strip_taut_suffix is the single owner of the "@tautN" parse:
+            # its pattern -- "@taut" followed by at least one digit,
+            # then everything after -- avoids treating the bare substring
+            # anywhere in the id as the separator, the way this function's
+            # own `"@taut" in name` / `name.split("@taut")` would (matching
             # e.g. "sample@tautonomy_1", which has no digit after "taut" and
             # is not a hashed suffix at all).
             base = strip_taut_suffix(name)

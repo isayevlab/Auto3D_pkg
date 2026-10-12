@@ -83,7 +83,7 @@ InputFile = Annotated[
 # Same `-v/--verbose` convention as `run`: repeatable count, 0 by default.
 # Threaded explicitly into handle_error (rather than a global/Typer-context)
 # so an unexpected internal error can show a traceback here too, not just in
-# `run` (M30).
+# `run`.
 VerboseOption = Annotated[
     int,
     typer.Option(
@@ -163,7 +163,7 @@ EnumerateIsomersFlag = Annotated[
         help="Enumerate cis/trans and R/S isomers.",
     ),
 ]
-#: Deprecated spelling of ``EnumerateIsomersFlag`` (P-m15), hidden from
+#: Deprecated spelling of ``EnumerateIsomersFlag``, hidden from
 #: ``--help`` but still accepted for one release; ``execute_run`` warns and
 #: renames it.
 EnumerateIsomerFlagDeprecated = Annotated[
@@ -189,7 +189,7 @@ IsomerThreadsOption = Annotated[
     int | None,
     typer.Option("--isomer-threads", help="CPU threads used for isomer generation."),
 ]
-#: Deprecated spelling of ``IsomerThreadsOption`` (P-m15), hidden from
+#: Deprecated spelling of ``IsomerThreadsOption``, hidden from
 #: ``--help`` but still accepted for one release; ``execute_run`` warns and
 #: renames it.
 MpiNpOptionDeprecated = Annotated[

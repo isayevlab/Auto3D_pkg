@@ -52,13 +52,11 @@ PRESETS: dict[str, dict[str, Any]] = {
         "opt_steps": 2000,
     },
     "thorough": {
-        # k=10 only -- NOT also window=5.0 (M28). Both were set here before;
-        # ConformerRanker.run tested k before window, so k always won and
-        # window was silently inert -- and is now rejected outright by
-        # Auto3DOptions/CLIConfig if both are set. Kept k rather than
-        # switching to window because that is the value every user of this
-        # preset has actually been getting since it shipped; picking window
-        # instead would be a silent behavior change dressed up as a bug fix.
+        # k=10 only -- NOT also window=5.0: Auto3DOptions rejects a config
+        # that sets both. Kept k rather than switching to window because
+        # that is the value every user of this preset has actually been
+        # getting; picking window instead would be a silent behavior change
+        # dressed up as a bug fix.
         "k": 10,
         "opt_steps": 5000,
     },
@@ -188,19 +186,13 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
 
     The exit code must be the one ``auto3d run -c <config_file>`` would give
     for the same file, because predicting that run is this command's only
-    purpose. It used to answer every rejection with a hard-coded
-    ``SystemExit(1)``, so the identical ``k: 0`` file produced 1 here and 2
-    from the run -- a script gating on 2 got the wrong answer from the
-    checker. Routing through ``handle_error`` means the exception the runner
+    purpose. Routing through ``handle_error`` means the exception the runner
     would raise picks the code here too, whatever it is.
 
     A config file with no ``path`` key is valid here, because it is valid to
     ``auto3d run INPUT -c <file>``: every modern entry point supplies the
     input on the command line and overrides whatever ``path`` the file
-    carries. This command used to reject exactly that shape -- the reusable,
-    settings-only config -- with ``path / Field required``, so the natural way
-    to write a config validated as invalid and then ran fine. See
-    ``CLIConfig.path``.
+    carries.
     """
     try:
         # Unreachable from the CLI (Typer's `exists=True` on the argument
@@ -211,9 +203,7 @@ def execute_config_validate(config_file: Path, verbose: int = 0) -> None:
         config = load_yaml_config(config_file)
 
         # Conformer selection is required by every entry point, so a config
-        # missing both is invalid, not merely incomplete. This used to be a
-        # warning saying "using k=1", which was true only of `auto3d run` --
-        # and is now true of nothing, since run refuses too. A pre-flight
+        # missing both is invalid, not merely incomplete. A pre-flight
         # checker that predicts success for a config the runner rejects is
         # worse than no checker. require_selector is the one place this
         # error is worded, shared with every other entry point; its hint

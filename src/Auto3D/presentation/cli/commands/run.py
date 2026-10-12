@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 # raised, a summary was printed, and the run is still incomplete. Reusing exit
 # code 1 would make that indistinguishable from a genuine crash to a calling
 # shell script (`auto3d run --json && next_step`), which is exactly the
-# silent-partial-run defect (C6/B8) this constant closes. 6 extends the
+# silent-partial-run defect this constant closes. 6 extends the
 # existing convention with the next unused code rather than inventing an
 # unrelated scheme.
 EXIT_PARTIAL_SUCCESS = 6
@@ -165,7 +165,7 @@ def execute_run(
     """
     start_time = time.time()
 
-    # P-m15: the deprecated flags reach here as separate RunOptions fields
+    # The deprecated flags reach here as separate RunOptions fields
     # (Typer binds `--enumerate-isomer`/`--mpi-np` to their own hidden
     # options, not to the new ones), so they are reconciled here rather than
     # inside Auto3DOptions -- by the time a value reaches `merge_configs`
@@ -241,12 +241,10 @@ def execute_run(
                 config, {key: val for key, val in overrides.items() if val is not None}
             )
 
-            # Conformer selection is required, exactly as it is for main(),
-            # smiles2mols and the legacy `auto3d config.yaml` form. This used to
-            # inject k=1 with a warning, which made `auto3d run` the only entry
-            # point that would pick a scientific parameter on the user's behalf --
-            # a user who forgot --k silently got one conformer per molecule while
-            # every other surface refused. Checked here rather than left to
+            # Conformer selection is required here too, exactly as for main(),
+            # smiles2mols and the legacy `auto3d config.yaml` form: a missing
+            # `--k` raises explicitly rather than silently defaulting to one
+            # conformer. Checked here rather than left to
             # check_valid_configuration inside main() so it fails before the banner
             # prints (which would otherwise render "window=None") and before any
             # work starts. require_selector is the one place this error is
@@ -318,16 +316,15 @@ def execute_run(
             # back a plain str instead of a WorkflowResult.
             molecules = getattr(output_path, "n_molecules", 0)
             conformers = getattr(output_path, "n_conformers", 0)
-            # `failures` is Task 3's reconciliation carrier: the input molecule
+            # `failures` is the reconciliation carrier: the input molecule
             # IDs that WorkflowOrchestrator._finalize_output could not find in
-            # the output SDF. This replaces the old `max(0, input_count -
-            # molecules)` derivation, which was wrong two ways: the `max(0, ...)`
-            # silently floored to zero whenever tautomer enumeration made
-            # `molecules` legitimately exceed the input count (more outputs than
-            # inputs is not a failure), and even when the arithmetic was right it
-            # was only ever a count -- it could never say *which* molecule was
-            # lost, so `results.failures` was hardcoded to `[]` regardless.
-            # `missing_ids` is one entry per input molecule absent from the
+            # the output SDF. A `max(0, input_count - molecules)` derivation
+            # would be wrong two ways: it would silently floor to zero
+            # whenever tautomer enumeration made `molecules` legitimately
+            # exceed the input count (more outputs than inputs is not a
+            # failure), and even when the arithmetic was right it would only
+            # ever be a count -- it could never say *which* molecule was
+            # lost. `missing_ids` is one entry per input molecule absent from the
             # output, independent of how many conformers it would have produced,
             # so a molecule that generated 3 conformers is still exactly one
             # success and never appears here.
@@ -349,7 +346,7 @@ def execute_run(
 
             # Output results before deciding whether to exit non-zero, so a
             # --json consumer always receives a parseable document -- even on a
-            # run that is about to signal partial failure (C6/B8).
+            # run that is about to signal partial failure.
             if json_output:
                 output_json(results)
             elif not quiet:

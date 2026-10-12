@@ -30,7 +30,7 @@ def min_pairwise_distance(points: np.ndarray, exclude: set[frozenset[int]] | Non
             in 3D space.
         exclude: Index pairs to leave out of the minimum, each written as a
             two-element ``frozenset`` of the two points' positions in
-            ``points``. A bonded pair is not a clash candidate (N-m1): a
+            ``points``. A bonded pair is not a clash candidate: a
             diatomic whose only pair is excluded has no pair left to compare,
             and returns ``inf``, the same as the single-atom guard below.
             This module stays RDKit-free, so the caller (``clash_relief``)
@@ -75,7 +75,7 @@ def min_pairwise_distance(points: np.ndarray, exclude: set[frozenset[int]] | Non
         # vectorized mask avoids a Python-level `frozenset in exclude` test
         # inside the loop that produced `upp_indices`.
         #
-        # No bounds guard (M6): an index beyond `n` is a caller error -- a
+        # No bounds guard: an index beyond `n` is a caller error -- a
         # pair from a different molecule, or a conformer with a different
         # atom count -- and silently dropping it out of the mask would
         # *weaken* the clash test rather than report the mistake, which is
@@ -107,7 +107,7 @@ def min_distance_among(points: np.ndarray, pairs: set[frozenset[int]]) -> float:
     function finds the minimum over every pair NOT named, this finds it only
     over the pairs that ARE named. ``clash_relief`` uses it to ask about
     bonded pairs specifically -- the ones ``min_pairwise_distance`` excludes
-    from its own, non-bonded test (C1): excluding a bonded pair from the
+    from its own, non-bonded test: excluding a bonded pair from the
     clash test is right, but a bonded pair still needs its OWN floor, or a
     physically impossible bond length (a crushed embedding) passes through
     with no check at all.

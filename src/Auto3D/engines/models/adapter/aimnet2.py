@@ -78,10 +78,9 @@ class AIMNet2Adapter(BaseModelAdapter):
         output signalling it -- which is why this override exists rather than
         letting the base class's ``None`` send AIMNet2 down the autograd path.
 
-        This method replaced the ``calculator`` property this class used to
-        publish purely so ``Auto3D.entry.ASE.thermo._load_hessian_model`` could hand
-        the raw ``AIMNet2Calculator`` back to a caller that then dispatched on
-        ``isinstance(model, AIMNet2Calculator)``. The capability now lives on the
+        This method exists so ``Auto3D.entry.ASE.thermo._load_hessian_model`` can
+        get AIMNet2's analytic Hessian without a caller ever dispatching on
+        ``isinstance(model, AIMNet2Calculator)``: the capability lives on the
         contract, so the third-party type no longer appears in Auto3D's control
         flow and ``_load_hessian_model`` has one return type instead of two.
 
@@ -163,8 +162,8 @@ class AIMNet2Adapter(BaseModelAdapter):
                 molecules that contains a slot equal to ``species_pad`` (0).
                 Such a slot is either padding or a dummy atom and this adapter
                 cannot tell which, so both readings are refused instead of one
-                being guessed: treating it as padding deletes a real atom
-                (audit C13), and treating it as an atom feeds AIMNet2 a ghost
+                being guessed: treating it as padding deletes a real atom,
+                and treating it as an atom feeds AIMNet2 a ghost
                 at the origin, which returns NaN. A caller with a padded batch
                 has the mask -- the padder returned it alongside the other three
                 tensors. This is the one place the sentinel VALUE is read, and it
@@ -174,7 +173,7 @@ class AIMNet2Adapter(BaseModelAdapter):
                 "Two or more molecules" is a deliberate concession, not an
                 oversight, and dropping the ``> 1`` clause would break working
                 callers. A SINGLE molecule may legitimately contain a species-0
-                dummy ``*`` atom -- that is the whole R-group case audit C13 is
+                dummy ``*`` atom -- that is the whole R-group case this check is
                 about -- and whether such a molecule is scored at all is the
                 engine policy's decision (``models.policy._requires_aimnet``
                 routes it here on purpose), not this method's. Four production
@@ -192,7 +191,7 @@ class AIMNet2Adapter(BaseModelAdapter):
                 molecule -- but ``PaddedBatch.sub(slice(i, i + 1))`` with the mask
                 dropped by hand can). Nothing stronger is available from the
                 tensors alone without putting a sentinel comparison back into the
-                arithmetic, which is what audit C13 forbids.
+                arithmetic, which this check forbids.
 
         The real-atom mask is the caller's explicit ``atom_mask``, NEVER
         ``species != self.species_pad``. This adapter's ``species_pad`` is 0
@@ -202,7 +201,7 @@ class AIMNet2Adapter(BaseModelAdapter):
         For ``*CCO`` the padder reported 9 real atoms and this adapter scored
         8: the energy belonged to a different species, and the dummy atom got
         exactly zero force and stayed frozen for the whole optimization. That
-        is the collision class ``padding.pad_from_mols`` documents (audit C13).
+        is the collision class ``padding.pad_from_mols`` documents.
         """
         if atom_mask is None and species.shape[0] > 1 and bool((species == self.species_pad).any()):
             raise ValueError(
@@ -247,9 +246,9 @@ class AIMNet2Adapter(BaseModelAdapter):
         """``forward``'s first output: the only way to reach AIMNet2's energy.
 
         This does not recurse: ``forward`` above is self-contained (it never
-        calls ``_energy_graph``), so this one-line hook just states, on the
-        subclass that needs it, the fallback the base class's default used to
-        apply conditionally. The energy it returns is an fp64 upcast (see the
+        calls ``_energy_graph``), so this one-line hook explicitly provides
+        what the base class's default only supplies when a subclass's
+        ``forward`` routes through ``_energy_graph``. The energy it returns is an fp64 upcast (see the
         class docstring), not a dtype-preserving pass-through.
         """
         return self.forward(coords, species, charges, atom_mask)[0]

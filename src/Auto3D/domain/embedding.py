@@ -48,8 +48,9 @@ logger = get_logger(__name__)
 #:    isomer stage, before the optimization workers -- which do run PyTorch, and
 #:    which get a broken CUDA context if forked. That ordering is why ``main()``
 #:    had to call ``set_start_method("spawn", force=True)`` rather than the
-#:    best-effort form. Taking an explicit context means this pool no longer
-#:    touches the global method at all, and nothing downstream has to fight it.
+#:    best-effort form. An explicit context makes the pool caller-owned, so it
+#:    never touches the global method at all, and nothing downstream has to
+#:    fight it.
 #: 2. Under ``main()`` this pool has always in fact run under spawn, because that
 #:    global force preceded it. Leaving it on the default context would have
 #:    quietly switched it to fork in a process where torch may already hold
@@ -97,7 +98,7 @@ def _embedding_worker_init() -> None:
       queue's *write* end as well as its read end, so the parent's death never
       produces EOF, and SIGTERM/SIGKILL to the parent runs none of the ``with``
       block's shutdown sentinels either. An idle worker then blocks on
-      ``get()`` forever and a busy one keeps burning a core on ETKDG (P-C2).
+      ``get()`` forever and a busy one keeps burning a core on ETKDG.
       A no-op when there is no parent process, and every failure path inside it
       is caught and logged at DEBUG, so it cannot break the pool.
     * ``CoordsAsDouble`` -- RDKit pickles conformer coordinates as float32
@@ -149,7 +150,7 @@ def resolve_embedding_workers(
     affinity mask (``os.sched_getaffinity``), not the machine's raw core
     count, so a run confined to a cgroup/cpuset cap does not oversubscribe
     the cores it was actually given. A fixed default of 4 left 124 of 128
-    cores idle on the 2026-09-21 bench (P-C3), and no class default can do
+    cores idle on the benchmark, and no class default can do
     better, because the useful number depends on the box, on how many
     species this particular run enumerated, and on how many threads each
     worker will use. So the resolution happens here, called at dispatch by
@@ -257,8 +258,8 @@ def embed_with_retry(
     Returns the number embedded.
 
     ETKDG's default initial coordinates can fail on strained systems that
-    random initial coordinates still solve, which is what the retry recovers
-    (N-m2). That is a statement about the *starting geometry*, not about time:
+    random initial coordinates still solve, which is what the retry recovers.
+    That is a statement about the *starting geometry*, not about time:
     an attempt that produced nothing because it burned the whole cap says the
     species is slow, and random coordinates would get no more time than the
     first attempt had.
@@ -270,7 +271,7 @@ def embed_with_retry(
     seconds and the remainder is rounded up). Given a full cap each instead,
     the per-species worst case was ``2 * timeout_s``: 120 s at the shipped
     default, against the ~67 s one impossible stereoisomer measured serially on
-    the 2026-09-21 bench set -- the number the cap exists to bound (P-C3), and
+    the benchmark set -- the number the cap exists to bound, and
     spent twice on exactly the species that triggers the retry.
     """
     params = embed_params(
@@ -346,7 +347,7 @@ def _embed_single(
         # much the user was told.
         raise SpeciesSkipped(f"failed to parse {smi!r}")
     if has_dummy_atoms(mol_noh):
-        # N-M3: an R-group placeholder is not a species. Clash relief happens
+        # An R-group placeholder is not a species. Clash relief happens
         # to reject every conformer of such a molecule today (neither MMFF nor
         # UFF can type atom `*`), so it already disappeared -- but silently and
         # for an unrelated reason. Named and skipped here instead, before any
@@ -427,18 +428,15 @@ def embed_conformers_parallel(
         # order is deterministic and matches the serial path; all futures are
         # already running concurrently, so this costs no parallelism.
         #
-        # try/finally (P-m3): this is a generator, and `yield from conformers`
+        # try/finally: this is a generator, and `yield from conformers`
         # below is a point a caller can stop at -- an early `break`, a closed
         # `itertools.islice`, or an explicit `.close()` -- which raises
         # GeneratorExit right here and unwinds the `for` loop without running
-        # its remaining iterations. Before this fix that left every future the
-        # loop had not yet reached still running (or queued) inside the pool
-        # the `with` block was about to tear down out from under them. The
-        # `finally` below cancels every future regardless of where the unwind
-        # happened; `cancel()` on one already consumed or already running is a
-        # harmless no-op (its return value is not meaningful here either way,
-        # so it is ignored), and this still runs before the `with` block's own
-        # shutdown.
+        # its remaining iterations. The `finally` below cancels every future
+        # regardless of where the unwind happened; `cancel()` on one already
+        # consumed or already running is a harmless no-op (its return value is
+        # not meaningful here either way, so it is ignored), and this still
+        # runs before the `with` block's own shutdown.
         try:
             for future in futures:
                 smi, name = futures[future]

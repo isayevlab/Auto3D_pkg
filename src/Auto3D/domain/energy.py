@@ -107,10 +107,11 @@ def set_e_tot_from_ev(mol: Chem.Mol, energy_ev: float, *, labeled: bool = True) 
 def set_e_hartree_from_ev(mol: Chem.Mol, energy_ev: float) -> None:
     """Write ``E_hartree`` from an energy the model produced in eV.
 
-    ``SPE.calc_spe`` and ``ASE.thermo.do_mol_thermo`` both publish this, and
-    both used to do the multiply by hand. That is two raw conversions of the
-    same quantity outside the module that owns what the unit is -- the shape of
-    the defect this module's docstring opens with, one property over.
+    ``SPE.calc_spe`` and ``ASE.thermo.do_mol_thermo`` both publish this
+    through here rather than each doing the multiply by hand, which would be
+    two raw conversions of the same quantity outside the module that owns
+    what the unit is -- the shape of the defect this module's docstring
+    opens with, one property over.
     """
     mol.SetProp(E_HARTREE_PROP, str(float(energy_ev) / HARTREE_TO_EV))
 
@@ -186,7 +187,7 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
     group whose members are not all the same compound -- judged by
     ``stereo_check.species_key`` and formal charge, see
     :func:`_comparable_groups` -- is split into one reference per identity
-    instead (I3): reusing a title across unrelated molecules is ordinary in
+    instead: reusing a title across unrelated molecules is ordinary in
     a hand-built file, and two enumerated stereoisomers sharing a title is
     ordinary in an Auto3D one, but each identity's own conformers are still
     genuinely comparable to each other even when another identity shares
@@ -239,8 +240,8 @@ def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
     temperatures is a thermal term, not a conformational preference, and for a
     druglike molecule it is tens of kcal/mol.
 
-    "A group" here is whatever ``_comparable_groups`` yields, which since I3
-    is one per IDENTITY under a title, not one per title (NEW-7): the
+    "A group" here is whatever ``_comparable_groups`` yields, which
+    is one per IDENTITY under a title, not one per title: the
     temperature check below runs once per identity subgroup, so a title
     whose two identities each span their own mismatched temperatures logs
     the WARNING twice, with each subgroup's own (smaller) record count --
@@ -309,13 +310,13 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
 
     A titled group that spans more than one **identity** --
     ``(species_key(mol), Chem.GetFormalCharge(mol))`` -- is split into one
-    yielded group per identity instead of being withheld outright (I3/R49):
-    each identity is referenced to its own minimum, and a one-record identity
+    yielded group per identity instead of being withheld outright: each
+    identity is referenced to its own minimum, and a one-record identity
     gets 0, the same as a lone conformer under an unshared title. This is not
-    only the all-or-nothing case the module used to refuse (two unrelated
-    compounds sharing a reused title in a hand-built SDF, where reusing a
-    title across molecules is ordinary); the common, Auto3D-produced case is
-    narrower and still real (N-m28, Q3): ``ranking.species_id`` strips
+    only the all-or-nothing case of two unrelated compounds sharing a reused
+    title in a hand-built SDF, where reusing a title across molecules is
+    ordinary; the common, Auto3D-produced case is narrower and still real:
+    ``ranking.species_id`` strips
     ``<isomer>_<conformer>``, so two enumerated stereoisomers of one input
     routinely share one title, and ``species_key`` -- which perceives
     configuration from the 3D coordinates -- reads them as two distinct
@@ -323,14 +324,14 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
     deliberate and unchanged (a diastereomer pair has no thermal pathway to
     interconvert at 298 K, so one Boltzmann distribution over both is not
     physical; an enantiomer pair cannot arise this way at all -- Auto3D
-    removes enantiomers during enumeration, see M5). What changes is that
+    removes enantiomers during enumeration). What changes is that
     each identity's OWN conformers, which really are comparable to each
     other, are no longer collateral damage of the other identity's presence
     under the same title. See
     ``tests/test_thermo_relative_energies.py::TestGuards::test_stereoisomers_sharing_a_title_get_relative_energies_within_their_own_identity``
     and ``docs/source/usage.rst``'s thermo section.
 
-    Note for ``ranking.ConformerRanker``'s own ``E_rel(kcal/mol)`` (I2): the
+    Note for ``ranking.ConformerRanker``'s own ``E_rel(kcal/mol)``: the
     ranked SDF's relative energy is NOT this function's convention. The
     ranker groups on ``species_id`` (which strips the isomer component) and
     references every member of that group -- all enumerated stereoisomers of
@@ -370,7 +371,7 @@ def _comparable_groups(mols: Sequence[Chem.Mol], prop: str) -> Iterator[list[Che
             subgroups.setdefault(identity, []).append(mol)
 
         if len(subgroups) > 1:
-            # INFO, not WARNING (I3): this is routine for an Auto3D output
+            # INFO, not WARNING: this is routine for an Auto3D output
             # (enumerated stereoisomers sharing a title), not a defect in the
             # input, and each subgroup below still gets its own reference --
             # nothing is withheld because of this split.

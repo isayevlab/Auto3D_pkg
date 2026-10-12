@@ -32,12 +32,7 @@ _ANI_ELEMENT_STRING = format_elements(ANI_ELEMENTS)
 def check_dependency_status(name: str) -> tuple[bool, str]:
     """Report whether an optional dependency is importable, and its version.
 
-    The probe is by import, for whatever name it is handed. This used to
-    special-case ``"torchani"`` and return an unconditional
-    ``(True, "Available")`` for anything else -- an answer arrived at without
-    looking. That was unreachable while torchani was the only optional engine,
-    but it made the next entry in the engine table silently report itself
-    installed.
+    The probe is by import, for whatever name it is handed.
     """
     try:
         module = importlib.import_module(name)
@@ -290,8 +285,7 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose
     file -- instead of having them surface deep inside a run.
     """
     # handle_error is already imported at module level (used identically by
-    # execute_models_info above); this used to re-import it locally too, a
-    # dead duplicate of the same binding.
+    # execute_models_info above).
     from Auto3D.presentation.cli.console import print_success
 
     try:
@@ -304,10 +298,10 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose
         # `energy`/`optimize`/`thermo` get this for free: their API functions
         # run it as the second step of the shared prologue
         # (Auto3D.entry._run_setup.prepare_single_file_run) before doing any
-        # work. `models test` calls no API function, so it keeps its own call --
-        # it reached model_factory.get_device directly and silently fell back to
-        # CPU on a CPU-only box instead of failing the same way, the last M23
-        # gap.
+        # work. `models test` calls no API function, so it keeps its own call:
+        # without it, it would reach model_factory.get_device directly and
+        # silently fall back to CPU on a CPU-only box instead of failing the
+        # same way as the other entry points.
         check_gpu_requested(gpu)
         device = get_device(gpu_idx, use_gpu=gpu)
         with console.status(f"[bold]Loading {engine} on {device}..."):
@@ -328,10 +322,11 @@ def execute_models_test(engine: str, gpu: bool = True, gpu_idx: int = 0, verbose
                 device=device,
             )
             # Build species in the engine's own convention, asked of the
-            # adapter that will consume them. Passing raw atomic numbers made the
-            # ANI2xt check evaluate a Cl+4C species and report success (audit
-            # C4); asking a name-keyed helper instead of the model left the
-            # convention and the model as two independently-resolved things.
+            # adapter that will consume them. Passing raw atomic numbers would
+            # make the ANI2xt check evaluate a Cl+4C species and report
+            # success; asking a name-keyed helper instead of the model would
+            # leave the convention and the model as two independently-resolved
+            # things.
             species = torch.tensor([adapter.to_species([6, 1, 1, 1, 1])], device=device)
             charges = torch.tensor([0.0], device=device)
             energy, forces = adapter.forward(coords, species, charges)

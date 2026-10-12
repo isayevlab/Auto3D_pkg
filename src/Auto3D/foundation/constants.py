@@ -7,21 +7,17 @@ HARTREE_TO_EV = 27.211386245988  # 1 Hartree in eV
 # 1 eV in kcal/mol = e*N_A/4184, exact under the 2019 SI with the
 # thermochemical calorie (4.184 J).
 EV_TO_KCAL_PER_MOL = 23.060547830619026
-# 1 Hartree in kcal/mol. Computed from the two factors above (N-m22), the same
+# 1 Hartree in kcal/mol. Computed from the two factors above, the same
 # derivation pattern EV_TO_HARTREE below uses, rather than carried as its own
-# independent literal that could drift from the product of the two. This
-# moves the value by 6.9e-7 kcal/mol (1.1e-9 relative) from the prior
-# 627.50947337481 -- not an observable change to anything that reads it.
+# independent literal that could drift from the product of the two.
 HARTREE_TO_KCAL_PER_MOL = HARTREE_TO_EV * EV_TO_KCAL_PER_MOL
 # 1 eV in Hartree. Computed from HARTREE_TO_EV (not an independent literal), so
-# the two can never drift apart. Previously defined independently -- misspelled
-# as `ev2hatree`, and via the identical expression `1 / hartree2ev` -- in both
-# ASE/thermo.py and SPE.py (M62); this is the single, correctly spelled owner
-# both now import instead of recomputing their own copy.
+# the two can never drift apart; this is the single, correctly spelled owner
+# ASE/thermo.py and SPE.py both import instead of recomputing their own copy.
 EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 
 # Geometry thresholds
-# Å, minimum allowed interatomic distance between a NON-BONDED pair (N-m1).
+# Å, minimum allowed interatomic distance between a NON-BONDED pair.
 # H2 (and its isotopologues HD/D2) is essentially the only ordinary covalent
 # bond below this -- H-F 0.917, O-H 0.958, N-H 1.012, C-H 1.087 (NIST CCCBDB
 # equilibrium values) are all above it -- so clash_relief.relieve_clash
@@ -30,21 +26,20 @@ EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 # and this constant answers neither half of it: for a BONDED pair,
 # domain.connectivity.check_connectivity tests only whether it is too LONG
 # (broken, > 1.25x the UFF reference length) -- its too-short test
-# (< 1.1x) applies to NON-bonded pairs only (NEW-1) -- so the only check a
-# too-short bonded pair meets at all is MIN_BONDED_FRACTION below (C1/R51).
+# (< 1.1x) applies to NON-bonded pairs only -- so the only check a
+# too-short bonded pair meets at all is MIN_BONDED_FRACTION below.
 MIN_ATOM_DISTANCE = 0.9
 
 # Dimensionless, minimum allowed fraction of a BONDED pair's own UFF
-# reference length (C1, revised R51: radius-scaled, not a flat floor).
+# reference length: radius-scaled, not a flat floor.
 # Excluding bonded pairs from MIN_ATOM_DISTANCE's non-bonded test leaves a
-# bonded pair with no floor at all: a crushed embedding (e.g. a 0.35 A C-H
-# from a degenerate or interpenetrating random-coordinates retry) used to be
-# caught by the old, unconditional clash test and sent through MMFF; after
-# N-m1 it passed through untouched. A flat 0.5 A floor (R47) caught that
-# case but left bonds between heavier elements -- whose reference length is
-# longer -- undercovered in the same relative sense (NEW-1): below this
-# fraction of its own ``domain.connectivity.UFF_BOND_RADII``-derived
-# reference length (r_i + r_j), a bonded pair is a crushed embedding; H-H
+# bonded pair with no floor at all, so a crushed embedding (e.g. a 0.35 A C-H
+# from a degenerate or interpenetrating random-coordinates retry) would pass
+# through unchecked. A flat floor would also undercover bonds between
+# heavier elements -- whose reference length is longer -- in the same
+# relative sense, so the floor instead scales with each bond's own
+# ``domain.connectivity.UFF_BOND_RADII``-derived reference length (r_i + r_j):
+# a bonded pair below this fraction of it is a crushed embedding; H-H
 # 0.425 A, C-H 0.667 A, C-C 0.908 A, so H2 at its 0.741 A equilibrium length
 # still passes (0.741 > 0.425).
 MIN_BONDED_FRACTION = 0.6
@@ -73,7 +68,7 @@ CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 # EmbedParameters.timeout, set by Auto3D.domain.embedding.embed_params). The
 # random-coordinates retry runs on whatever the first attempt leaves of this
 # number rather than on a fresh copy of it, so the two attempts together stay
-# inside one cap -- see embed_with_retry. Measured on the 2026-09-21 bench set:
+# inside one cap -- see embed_with_retry. Measured on a benchmark set:
 # a geometrically impossible stereoisomer (fused-ring steroid) burned ~67 s per
 # species failing to embed, while possible ones took seconds.
 EMBED_TIMEOUT_S = 60
@@ -87,8 +82,8 @@ EMBED_TIMEOUT_S = 60
 # whatever the extra processes contribute. It is the last of the three terms in
 # ``min(cores // threads per worker, species, PARALLEL_EMBED_MAX_WORKERS)``, so
 # on a large box it is usually the one that binds. It is also, for that reason,
-# roughly a memory ceiling: a warm spawned embedding worker measured ~85 MiB RSS
-# on the 2026-10-02 box, so 32 of them is about 2.5 GiB, held at the same time
+# roughly a memory ceiling: a warm spawned embedding worker measures ~85 MiB
+# RSS, so 32 of them is about 2.5 GiB, held at the same time
 # as the optimizer workers' own torch/CUDA footprint. A caller who wants more
 # passes an explicit ``parallel_workers``.
 PARALLEL_EMBED_MAX_WORKERS = 32
@@ -98,7 +93,7 @@ PARALLEL_EMBED_MAX_WORKERS = 32
 # 143 = 128 + SIGTERM, the shell's convention for "terminated by SIGTERM", so a
 # caller reading the exit code of a SIGTERMed `auto3d run` sees exactly what the
 # default disposition would have produced -- the only difference being that
-# Auto3D's workers were terminated on the way out (P-C2). Lives here rather than
+# Auto3D's workers were terminated on the way out. Lives here rather than
 # in `presentation/cli/errors.py` next to EXIT_INTERRUPTED because its user is
 # `orchestration/workflow._raise_on_sigterm`, and L3 may not import L5.
 #
@@ -114,15 +109,15 @@ INITIAL_ENERGY_SENTINEL = 999.0  # Initial value for energy (unconverged)
 
 # eV. A compiled adapter must reproduce the eager adapter's energies on a
 # two-molecule probe batch to within this tolerance, or create_model refuses
-# it. fp32 compile-vs-eager reordering is ~1e-5 eV; the P-C1 defect was
-# hundreds of eV. Set well above the former and far below the latter.
+# it. fp32 compile-vs-eager reordering is ~1e-5 eV; a known miscompilation
+# defect was hundreds of eV. Set well above the former and far below the latter.
 COMPILE_PROBE_TOLERANCE_EV = 1e-3
 
 # Thermodynamics
 STANDARD_PRESSURE = 101325  # Pa
 # What Thermo_standard_state and Thermo_convention call STANDARD_PRESSURE. ASE's
 # internal reference is 1 bar; do_mol_thermo applies the -kB*T*ln(P/P_ref)
-# correction to report at 1 atm like ORCA and Gaussian (m17), and the record
+# correction to report at 1 atm like ORCA and Gaussian, and the record
 # says so because the two differ: against 1 bar, S is lower by R*ln(1.01325) =
 # 0.026 cal/mol/K and G is higher by R*T*ln(1.01325) = 0.0078 kcal/mol at 298 K
 # (H is pressure independent).
@@ -188,9 +183,10 @@ DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
 DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
 DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
-# DEFAULT_ENERGY_TOL / DEFAULT_ENERGY_PATIENCE were removed in 3.0.0 along with
-# the optimizer's energy-stability criterion, which could never fire (audit M1).
-# Tuning the tolerance -- for fp32 noise or anything else -- changed nothing.
+# No ``energy_tol``/``energy_patience`` constant exists: either would reach
+# an optimizer energy-stability criterion that can never fire, i.e. a knob
+# that changes nothing -- tuning it, for fp32 noise or anything else, would
+# change nothing either.
 
 # A linear molecule has one vanishing principal moment of inertia; a bent one
 # has two comparable large moments and a much smaller third. This is the
@@ -320,7 +316,7 @@ LOW_FREQUENCY_CUTOFF_CM = 100.0
 #
 # It is also the threshold project_vibrations uses to call the curvature along
 # the near-axis rotation negligible against the smallest remaining mode of the
-# would-be nonlinear projection (N-M4). Both quantities are EIGENVALUES of the
+# would-be nonlinear projection. Both quantities are EIGENVALUES of the
 # mass-weighted Hessian, in eV/(A^2 amu) and proportional to omega^2, so 0.05
 # here is a frequency ratio of sqrt(0.05) = 0.2236, i.e. a 4.47x split: because
 # the six-vector projection removes exactly the near-axis direction, the
