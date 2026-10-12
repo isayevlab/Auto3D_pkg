@@ -247,10 +247,14 @@ class AIMNet2Adapter(BaseModelAdapter):
 
         This does not recurse: ``forward`` above is self-contained (it never
         calls ``_energy_graph``), so this one-line hook is how this adapter
-        satisfies the hook every adapter must provide --
-        ``BaseModelAdapter._energy_graph`` raises ``NotImplementedError``, and
-        ``energy`` goes through it, so an adapter that overrides ``forward``
-        wholesale has to state it directly. The energy it returns is an fp64
-        upcast (see the class docstring), not a dtype-preserving pass-through.
+        keeps ``energy`` working -- ``BaseModelAdapter.__init_subclass__``
+        only requires overriding ``forward`` or ``_energy_graph``, but
+        ``BaseModelAdapter.energy`` unconditionally calls
+        ``self._energy_graph``, whose base body raises
+        ``NotImplementedError``. An adapter that overrides ``forward``
+        wholesale, as this one does, still needs ``_energy_graph`` for
+        ``energy`` to work, so it has to state it directly. The energy it
+        returns is an fp64 upcast (see the class docstring), not a
+        dtype-preserving pass-through.
         """
         return self.forward(coords, species, charges, atom_mask)[0]

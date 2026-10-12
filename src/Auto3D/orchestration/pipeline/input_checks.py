@@ -109,9 +109,11 @@ def check_input(args: Any) -> None:
         # torchani.AEVComputer (engines/models/ani2xt.py), it just does not
         # need torchani's pretrained ensemble weights the way ANI2x does.
         # Caught here, in the parent, rather than left for a worker to hit:
-        # inside a worker, optim_rank_wrapper's per-chunk handler would report
-        # a missing torchani import as a convergence failure (OptimizationError,
-        # exit 7) rather than a dependency error (exit 3).
+        # inside a worker the missing import surfaces at model construction
+        # (create_model raises DependencyError), which stops that worker,
+        # and the run's exit code is then decided by output reconciliation
+        # -- so it ends as a convergence failure (OptimizationError, exit 7)
+        # rather than a dependency error (exit 3).
         # args.optimizing_engine is already canonicalized (ENGINE_CANONICAL_CASE,
         # applied upstream) by the time it reaches here, so this exact-match
         # is safe against case variants like "ani2xt".
@@ -140,9 +142,8 @@ def check_input(args: Any) -> None:
     # No opt_steps check here any more. It hand-wrote `< 10` while
     # Auto3D.foundation.config.FIELD_BOUNDS declared ("ge", 1) -- two minimums for one
     # option (see that table's comment). FIELD_BOUNDS now declares 10 and is
-    # enforced by Auto3DOptions._normalize_and_validate's call to
-    # check_field_bounds, so
-    # every entry point rejects opt_steps=5 at construction, before this
+    # enforced by Auto3DOptions._normalize_and_validate's call to check_field_bounds,
+    # so every entry point rejects opt_steps=5 at construction, before this
     # function is reached and before any banner prints.
 
     # Check the input format

@@ -106,10 +106,10 @@ def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: b
     ``ASE.thermo.driver._write_thermo_output`` for ``calc_thermo``,
     ``batch_opt.batchopt.Optimizer.run`` for ``opt_geometry``,
     ``domain.ranking.ConformerRanker._write_results``), so a run that fails
-    part-way leaves the user's file untouched. What
-    would destroy it is a run that *succeeds*, or -- for the 0-byte case
-    above -- one that has nothing to write. This guard exists because both
-    of those are silent: nothing would warn that the path was occupied.
+    part-way leaves the user's file untouched. What would destroy it is a
+    run that *succeeds*, or -- for the 0-byte case above -- one that has
+    nothing to write. This guard exists because both of those are silent:
+    nothing would warn that the path was occupied.
     ``auto3d config init`` already refuses to clobber an existing file; this
     brings the calculators to the same policy.
 

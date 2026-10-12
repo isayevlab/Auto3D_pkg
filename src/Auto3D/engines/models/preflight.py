@@ -2,9 +2,11 @@
 
 Everything here runs in the process that parses the configuration, before any
 worker is spawned. A name resolved here produces an error the user sees with a
-traceback and a suggestion; the same failure inside a worker is swallowed by
-``optim_rank_wrapper``'s per-chunk handler and surfaces, if at all, as a run
-that quietly produced nothing. Resolving a name and checking a cached model
+traceback and a suggestion; the same failure inside a worker instead surfaces
+at model construction, before any chunk is processed -- the worker dies
+there, and the run's exit code is then decided by output reconciliation, so
+it reports a convergence failure rather than naming the real cause directly.
+Resolving a name and checking a cached model
 are both done by reading aimnet's registry YAML and hashing a file directly
 (``_registry_path``, ``_load_registry``, ``_cached_model_is_valid``), without
 importing ``aimnet.calculators`` or ``aimnet.models`` -- that import builds
@@ -229,15 +231,17 @@ def preflight_model(engine: str) -> None:
     (``aimnet.calculators.model_registry.get_registry_model_path``, which
     downloads on a cache miss, verifies the checksum, and returns the path),
     without ever loading the checkpoint into a model, which costs seconds
-    and hundreds of MB per call. The warm case -- the
-    artifact already on disk with the digest the registry expects -- is now
-    checked with a local file hash (``_cached_model_is_valid``), so a warm
-    cache never imports ``aimnet.calculators``; that import, and this
-    function's call into it, happen only on a cold cache or a mismatch.
-    Inside a worker each of these is caught by ``optim_rank_wrapper``'s
-    per-chunk handler and reported as "no 3D structure converged", which names
-    none of them -- this function's job is to catch them here instead, in the
-    parent, before any worker is forked.
+    and hundreds of MB per call. The warm case -- the artifact already on
+    disk with the digest the registry expects -- is now checked with a
+    local file hash (``_cached_model_is_valid``), so a warm cache never
+    imports ``aimnet.calculators``; that import, and this function's call
+    into it, happen only on a cold cache or a mismatch.
+    Inside a worker each of these instead surfaces at model construction,
+    before any chunk is processed, which stops that worker; the run's exit
+    code is then decided by output reconciliation and reported as "no 3D
+    structure converged" rather than naming any of them -- this function's
+    job is to catch them here instead, in the parent, before any worker is
+    forked.
 
     ANI2x, ANI2xt, and custom NNP paths are not aimnet registry models, so
     there is no cache/download/checksum step to preflight for them: ANI2xt's

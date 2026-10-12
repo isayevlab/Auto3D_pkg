@@ -5,8 +5,7 @@
 callers that want only the survivors) sorts by energy and only
 RMSD-compares molecules close enough in energy to be duplicates at all,
 which avoids comparing all pairs without changing which molecules survive.
-A pair counts
-as a duplicate only when the two are the same compound
+A pair counts as a duplicate only when the two are the same compound
 (:func:`Auto3D.domain.stereo_check.species_key`), their heavy-atom RMSD is
 under ``rmsd_threshold``, and their energies agree within
 ``DEFAULT_DUPLICATE_ENERGY_TOL`` -- or, when either record has no usable
