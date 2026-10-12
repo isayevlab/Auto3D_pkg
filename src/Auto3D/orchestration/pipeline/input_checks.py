@@ -108,6 +108,10 @@ def check_input(args: Any) -> None:
         # ANI2xt needs torchani too -- its AEV computer is built from
         # torchani.AEVComputer (engines/models/ani2xt.py), it just does not
         # need torchani's pretrained ensemble weights the way ANI2x does.
+        # Caught here, in the parent, rather than left for a worker to hit:
+        # inside a worker, optim_rank_wrapper's per-chunk handler would report
+        # a missing torchani import as a convergence failure (OptimizationError,
+        # exit 7) rather than a dependency error (exit 3).
         # args.optimizing_engine is already canonicalized (ENGINE_CANONICAL_CASE,
         # applied upstream) by the time it reaches here, so this exact-match
         # is safe against case variants like "ani2xt".
@@ -136,7 +140,8 @@ def check_input(args: Any) -> None:
     # No opt_steps check here any more. It hand-wrote `< 10` while
     # Auto3D.foundation.config.FIELD_BOUNDS declared ("ge", 1) -- two minimums for one
     # option (see that table's comment). FIELD_BOUNDS now declares 10 and is
-    # enforced by Auto3DOptions.__post_init__'s call to check_field_bounds, so
+    # enforced by Auto3DOptions._normalize_and_validate's call to
+    # check_field_bounds, so
     # every entry point rejects opt_steps=5 at construction, before this
     # function is reached and before any banner prints.
 
@@ -463,8 +468,8 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
     environment. Everything checkable from the values alone -- numeric bounds
     (``FIELD_BOUNDS``, including ``opt_steps >= 10``), the isomer/tautomer
     engine whitelists (``ENGINE_CHOICES``), and selector mutual exclusion --
-    has already run in ``__post_init__``, so re-checking it here would be the
-    duplicate this change removes.
+    has already run in ``Auto3DOptions._normalize_and_validate``, so
+    re-checking it here would be the duplicate this change removes.
 
     Args:
         options: The configuration to check. Any object exposing
@@ -555,7 +560,7 @@ def check_valid_configuration(options: Auto3DOptions) -> list[str]:
 
     # Both isomer_engine and tauto_engine are validated against
     # Auto3D.foundation.config.ENGINE_CHOICES and enforced by
-    # Auto3DOptions.__post_init__, so an unrecognized value cannot reach this
+    # Auto3DOptions._normalize_and_validate, so an unrecognized value cannot reach this
     # function; no separate whitelist is needed here.
     #
     # The license checks below stay: they are about the *environment*, not about

@@ -72,7 +72,8 @@ def get_stereo_info(smi: str) -> OrderedDict[int, str]:
         (@SP, @TH, @OH, @TB, @AL for square-planar/tetrahedral-explicit/
         octahedral/trigonal-bipyramidal/allene centers) are deliberately
         excluded: create_enantiomer can only invert plain @/@@ by string
-        surgery.
+        surgery -- treating @SP1 as a bare @ would splice the invalid token
+        @@SP1 and silently abort the molecule's enumeration.
 
     Example:
         >>> get_stereo_info('C[C@H](O)[C@@H](F)Cl')

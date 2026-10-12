@@ -102,9 +102,11 @@ def check_output_overwrite(out_path: str | os.PathLike[str] | None, overwrite: b
 
     Be precise about *when* the destruction would happen, because it is not
     what "truncates on open" suggests: all four writers open their output
-    only after the compute is finished (``SPE.py:161``, ``ASE/thermo.py:878``,
-    ``batch_opt/batchopt.py:323`` for ``opt_geometry``, ``ranking.py:287``),
-    so a run that fails part-way leaves the user's file untouched. What
+    only after the compute is finished (``SPE.calc_spe``,
+    ``ASE.thermo.driver._write_thermo_output`` for ``calc_thermo``,
+    ``batch_opt.batchopt.Optimizer.run`` for ``opt_geometry``,
+    ``domain.ranking.ConformerRanker._write_results``), so a run that fails
+    part-way leaves the user's file untouched. What
     would destroy it is a run that *succeeds*, or -- for the 0-byte case
     above -- one that has nothing to write. This guard exists because both
     of those are silent: nothing would warn that the path was occupied.

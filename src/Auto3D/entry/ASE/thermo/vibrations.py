@@ -727,8 +727,8 @@ def analyze_vibrations(
     ``projected_vibrations`` returns them, and raises ``ValueError`` on any
     other length. It does **not** select modes: translation and rotation were
     already removed by projection, so there is nothing here to cut, and this
-    function does not attempt the magnitude-sorted slice ASE performs
-    internally to mirror it. Mirroring would not be safe: ASE changed its own
+    function does not try to mirror ASE's own internal magnitude-sorted
+    selection. Mirroring would not be safe: ASE changed its own
     selection rule in 3.28.0, so code that tried to replicate it would score
     ``N_imaginary_modes`` and ``Is_transition_state`` from a different mode
     set than the one that produced ``G_hartree``, depending on which ASE

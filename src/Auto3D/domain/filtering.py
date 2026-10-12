@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 """The one conformer filter: duplicate removal with hierarchical RMSD comparison.
 
-:func:`filter_unique_optimized` sorts by energy and only RMSD-compares
-molecules close enough in energy to be duplicates at all, which avoids
-comparing all pairs without changing which molecules survive. A pair counts
+:func:`filter_conformers` (which :func:`filter_unique_optimized` wraps for
+callers that want only the survivors) sorts by energy and only
+RMSD-compares molecules close enough in energy to be duplicates at all,
+which avoids comparing all pairs without changing which molecules survive.
+A pair counts
 as a duplicate only when the two are the same compound
 (:func:`Auto3D.domain.stereo_check.species_key`), their heavy-atom RMSD is
 under ``rmsd_threshold``, and their energies agree within

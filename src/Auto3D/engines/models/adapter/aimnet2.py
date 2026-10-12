@@ -246,9 +246,11 @@ class AIMNet2Adapter(BaseModelAdapter):
         """``forward``'s first output: the only way to reach AIMNet2's energy.
 
         This does not recurse: ``forward`` above is self-contained (it never
-        calls ``_energy_graph``), so this one-line hook explicitly provides
-        what the base class's default only supplies when a subclass's
-        ``forward`` routes through ``_energy_graph``. The energy it returns is an fp64 upcast (see the
-        class docstring), not a dtype-preserving pass-through.
+        calls ``_energy_graph``), so this one-line hook is how this adapter
+        satisfies the hook every adapter must provide --
+        ``BaseModelAdapter._energy_graph`` raises ``NotImplementedError``, and
+        ``energy`` goes through it, so an adapter that overrides ``forward``
+        wholesale has to state it directly. The energy it returns is an fp64
+        upcast (see the class docstring), not a dtype-preserving pass-through.
         """
         return self.forward(coords, species, charges, atom_mask)[0]

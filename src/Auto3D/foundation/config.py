@@ -117,10 +117,11 @@ SELECTOR_FIELDS: tuple[str, ...] = ("k", "window")
 # The permitted values for the two enumerable engine fields, in one table, for
 # the same reason FIELD_BOUNDS holds the numeric bounds: the alternative is the
 # same whitelist hand-written once per validator, drifting silently.
-# This table is the one copy: ``cli/config_schema.py`` builds its CLI schema
-# from it rather than declaring its own ``Literal``s, and
-# ``check_valid_configuration`` (utils/validation.py) reads it rather than
-# hand-rolling a local whitelist.
+# This table is the one copy: ``Auto3DOptions._normalize_and_validate`` checks
+# every enumerable field against it (via ``check_engine_choices``), and no
+# other site carries a whitelist -- ``check_valid_configuration``
+# (``orchestration/pipeline/input_checks.py``) relies on that instead of its
+# own.
 #
 # Checked by Auto3DOptions._normalize_and_validate below, which already
 # lowercases both fields, so both entry points get the check rather than only
@@ -135,7 +136,7 @@ ENGINE_CHOICES: dict[str, tuple[str, ...]] = {
 }
 
 # Built-in engine names mapped to the exact spelling the model factory compares
-# against, so `--engine ani2x` and `--engine ANI2X` both store "ANI2x". Came
+# against, so `--engine ani2x` and `--engine ANI2X` both store "ANI2x".
 # Applied by ``Auto3DOptions._normalize_and_validate``, so it is a
 # normalization both entry points get, like the two engine fields'
 # lowercasing.

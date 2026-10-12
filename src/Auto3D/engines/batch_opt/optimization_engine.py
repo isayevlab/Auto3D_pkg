@@ -298,6 +298,13 @@ def _step_active_subset(
     non_finite = ~finite
 
     # The force-convergence test runs BEFORE the FIRE step, and must stay there.
+    # Otherwise a structure would take one more FIRE step after the force that
+    # declared it converged, so `Converged` would describe the pre-step
+    # geometry while the `fmax` that `n_steps` recomputes at the end describes
+    # the post-step one -- both written onto the same record, so a consumer
+    # filtering on `fmax <= opt_tol` and one filtering on `Converged == "True"`
+    # get different sets from one file (measured at up to 6.9x the tolerance
+    # on a stiff harmonic potential; a soft test case hides it entirely).
     not_converged_post1 = (fmax > opttol) & finite
     # Detach the optimizer's own OUTPUT (the stepped geometry) so the next
     # step starts from a leaf tensor -- `coord`'s graph history from THIS

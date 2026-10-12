@@ -228,7 +228,8 @@ def preflight_model(engine: str) -> None:
     the model's on-disk path
     (``aimnet.calculators.model_registry.get_registry_model_path``, which
     downloads on a cache miss, verifies the checksum, and returns the path),
-    without ever loading the checkpoint into a model. The warm case -- the
+    without ever loading the checkpoint into a model, which costs seconds
+    and hundreds of MB per call. The warm case -- the
     artifact already on disk with the digest the registry expects -- is now
     checked with a local file hash (``_cached_model_is_valid``), so a warm
     cache never imports ``aimnet.calculators``; that import, and this

@@ -14,12 +14,12 @@ packages are the expensive ones, and importing either at module scope would
 charge that cost to every future caller that imports this module from L5,
 even one that only wants a name it exports and never calls a function that
 needs torch or rdkit. ``commands/properties.py`` does not import this
-module at module scope; it imports lazily where needed, and the guards it
-runs live in the entry points' shared prologue
-(``Auto3D.entry._run_setup.prepare_single_file_run``). The deferrals are
-what keeps a future module-scope import of this module from L5 cheap, and
-removing them would make that cost reappear silently, in whichever command
-imported it. Each function defers its own import, with a comment saying why --
+module at all; the guards it needs run in the entry points' shared prologue
+(``Auto3D.entry._run_setup.prepare_single_file_run``). The module-scope
+importers today are ``_run_setup.py``, ``commands/models.py``,
+``workflow_workers.py`` and ``pipeline/input_checks.py``, and the
+deferrals are what keep those imports -- and any future L5 importer --
+cheap. Each function defers its own import, with a comment saying why --
 see ``check_gpu_requested`` and ``requires_aimnet`` /
 ``check_engine_supports_molecules`` below. The ``Chem.Mol`` annotations still
 type-check without a runtime rdkit import because ``from __future__ import
