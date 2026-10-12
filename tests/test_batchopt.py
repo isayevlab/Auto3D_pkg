@@ -348,6 +348,75 @@ def test_optimizing_preserves_input_order(tmp_path, monkeypatch):
     assert names == ["0", "1", "2"]  # original input order
 
 
+@pytest.fixture
+def two_bucket_run(tmp_path, monkeypatch):
+    """A full ``Optimizer.run()`` over two molecules sized far enough apart
+    that ``_make_buckets`` splits them into two buckets (methane vs. a
+    20-carbon ring, well past ``BUCKET_SIZE_FACTOR``), using the fake
+    ``ensemble_opt`` double so no model is loaded. Returns a no-argument
+    callable that performs the run, so a caller can monkeypatch
+    ``torch.cuda`` and ``Optimizer.EMPTY_CACHE_PER_BUCKET`` first.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    import Auto3D.engines.batch_opt.batchopt as bo
+    from tests.helpers_batchopt import make_fake_ensemble_opt
+
+    monkeypatch.setattr(bo, "ensemble_opt", make_fake_ensemble_opt())
+
+    sizes = ["C", "C1CCCCCCCCCCCCCCCCCCC1"]  # methane vs. a 20-carbon ring
+    inp = tmp_path / "two_bucket_in.sdf"
+    mols = []
+    with Chem.SDWriter(str(inp)) as w:
+        for i, s in enumerate(sizes):
+            m = Chem.AddHs(Chem.MolFromSmiles(s))
+            AllChem.EmbedMolecule(m, randomSeed=1)
+            m.SetProp("_Name", str(i))
+            w.write(m)
+            mols.append(m)
+
+    eng = bo.Optimizer(
+        str(inp),
+        str(tmp_path / "two_bucket_out.sdf"),
+        adapter=FakeAdapter(),
+        device=torch.device("cpu"),
+        config={
+            "opt_steps": 1,
+            "convergence_threshold": 0.01,
+            "patience": 1,
+            "batchsize_atoms": 1024,
+        },
+    )
+    assert len(eng._make_buckets(mols)) == 2  # this run must exercise two buckets
+
+    return eng.run
+
+
+def test_per_bucket_empty_cache_is_skipped_when_the_switch_is_off(monkeypatch, two_bucket_run):
+    calls = {"n": 0}
+    # This test must also pass on a host with no CUDA at all, where both
+    # guards read ``is_available() == False``; patch it True so either call
+    # can fire regardless of what hardware is actually present.
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.__setitem__("n", calls["n"] + 1))
+    monkeypatch.setattr(Optimizer, "EMPTY_CACHE_PER_BUCKET", False)
+    two_bucket_run()  # the file's smallest run that produces two buckets on CPU
+    assert calls["n"] == 1  # the per-chunk call at the end still runs
+
+
+def test_per_bucket_empty_cache_fires_once_per_bucket_when_the_switch_is_on(
+    monkeypatch, two_bucket_run
+):
+    calls = {"n": 0}
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.__setitem__("n", calls["n"] + 1))
+    assert Optimizer.EMPTY_CACHE_PER_BUCKET is True  # the default; nothing to monkeypatch
+    two_bucket_run()
+    # 2 buckets x 1 per-bucket call each, plus the 1 per-chunk call at the end.
+    assert calls["n"] == 3
+
+
 class TestBatchOptDependsDownwards:
     """``batch_opt`` must depend on ``models/``, never on ``model_factory``.
 
