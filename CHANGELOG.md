@@ -66,9 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to `Auto3D.domain.conformer_budget` (`has_dummy_atoms` stayed in
   `Auto3D.foundation.utils.molprops`). None of these paths was ever
   documented public API. `ChunkMeta` and the `OptionsDict` alias are gone.
-- `OptimizationConfig.to_dict()` names `convergence_threshold`; the batch
-  optimizer reads that key and, until 4.0, still accepts `opttol` with a
-  `DeprecationWarning`.
+- `OptimizationConfig.to_dict()` now names its force-convergence key
+  `convergence_threshold`.
 - The ranked output file is staged through a temporary sibling and renamed
   into place, so the target is all-or-nothing: a worker that fails or is
   killed mid-write leaves the target exactly as it was (a killed process can
@@ -83,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The broken-bond threshold for every P-X bond drops by 0.02 A (P-C: 2.3425
   to 2.3225 A).
 - The O and S radii follow their aromatic UFF types, moving the broken-bond
-  threshold by +0.027 A (C-O) and +0.017 A (C-S).
+  threshold by +0.028 A (C-O) and +0.016 A (C-S).
 - `ConformerRanker`'s `k`/`window` parameters default to `None`; `False` is
   still accepted.
 - The SMILES-surgery half of `Auto3D.domain.stereochemistry` moved to
@@ -170,7 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The missing-selector error (neither `k` nor `window` given) now has one
   wording everywhere it is raised -- the CLI, YAML validation, the Python
   API and the ranker's own guard -- and its hint no longer spells a CLI
-  flag.
+  flag; the CLI's own hint table still renders flag-bearing advice for it.
 - An existing job directory (a `--job-name` collision) is now a
   configuration error (exit 2) naming the directory, instead of an
   unhandled `FileExistsError` traceback.
@@ -207,13 +206,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quasi-harmonic floor), forwarded to `calc_thermo`'s `low_freq_cutoff_cm`;
   previously only the Python API could change it.
 - `Auto3DError` gains `hint_key`, a per-raise-site reason that
-  `cli.errors.get_error_hint` looks up before the per-class hint. The GPU
-  index/availability checks, the output-overwrite refusal and the
-  missing-selector error no longer spell a CLI flag in their own message or
-  `hint`; the CLI hint sentence at each of those four sites is reworded, and
-  the missing-selector error gains a flag-bearing `--k=1` CLI hint it did
-  not have before. A Python-API caller that prints the exception's message
-  or `hint` no longer sees a CLI flag spelling at any of the four.
+  `cli.errors.get_error_hint` looks up in the CLI's own hint table before the
+  per-class hint. The GPU index/availability checks, the output-overwrite
+  refusal and the missing-selector error no longer spell a CLI flag in their
+  own message or `hint`; the CLI hint sentence at each of those four sites is
+  reworded, and the missing-selector error gains a flag-bearing `--k=1` CLI
+  hint it did not have before. A Python-API caller that prints the exception's
+  message or `hint` no longer sees a CLI flag spelling at any of the four.
 
 ### Deprecated
 - Dict-style access on `Auto3DOptions` (`options["field"]`, `options["field"]
@@ -226,11 +225,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its force-convergence key `opttol` rather than `convergence_threshold`;
   doing so now emits a `DeprecationWarning`, and the legacy key is removed
   in 4.0.
-- `batch_opt.batchopt.optimizing`, `batch_opt.model_wrapper.EnForce_ANI` and
-  `domain.ranking.ranking` are renamed `Optimizer`, `BatchedEnergyForce` and
-  `ConformerRanker`; the old lowercase names stay importable for one release
-  through a module `__getattr__` that emits a `DeprecationWarning`, and are
-  removed in 4.0.
+- `Auto3D.engines.batch_opt.batchopt.optimizing`,
+  `Auto3D.engines.batch_opt.model_wrapper.EnForce_ANI` and
+  `Auto3D.domain.ranking.ranking` are renamed `Optimizer`,
+  `BatchedEnergyForce` and `ConformerRanker`; the old lowercase names stay
+  importable for one release through a module `__getattr__` that emits a
+  `DeprecationWarning`, and are removed in 4.0.
 - `Auto3DOptions(enumerate_isomer=...)` and `Auto3DOptions(mpi_np=...)` (and
   the matching CLI flags `--enumerate-isomer/--no-enumerate-isomer` and
   `--mpi-np`) still work, with a `DeprecationWarning` naming the replacement
