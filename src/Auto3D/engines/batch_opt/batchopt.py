@@ -277,6 +277,9 @@ class Optimizer:
     # descriptor compute.
     BUCKET_SIZE_FACTOR = 4.0
 
+    EMPTY_CACHE_PER_BUCKET: bool = True
+    """Per-bucket ``empty_cache()`` switch; ``benchmarks/measure_empty_cache.py`` measures it on and off."""
+
     def _make_buckets(self, mols):
         """Group molecule indices into size-homogeneous buckets.
 
@@ -430,8 +433,10 @@ class Optimizer:
 
             # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
             # or fragment across many buckets. The final empty_cache() in run()
-            # still runs after all output is written.
-            if torch.cuda.is_available():
+            # still runs after all output is written. EMPTY_CACHE_PER_BUCKET
+            # gates this call so benchmarks/measure_empty_cache.py can measure
+            # it on and off against the production path.
+            if self.EMPTY_CACHE_PER_BUCKET and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
         return _OptimizationResults(
