@@ -60,6 +60,7 @@ __all__ = [
     "e_tot_ev",
     "try_e_tot_ev",
     "try_gibbs_ev",
+    "gibbs_hartree",
     # Conversion factors
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
@@ -160,6 +161,16 @@ def try_gibbs_ev(mol: Chem.Mol) -> float | None:
     return None if value is None else value * HARTREE_TO_EV
 
 
+def gibbs_hartree(mol: Chem.Mol) -> float:
+    """Return ``G_hartree`` in Hartree, the unit it is stored in.
+
+    Raises:
+        KeyError: The molecule has no ``G_hartree`` property.
+        ValueError: The property is not a number.
+    """
+    return float(mol.GetProp(G_HARTREE_PROP))
+
+
 def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
     """Write ``E_rel(kcal/mol)`` per conformer group, against the group minimum.
 
@@ -205,16 +216,22 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
             group member, and must not be the reference either.
     """
     for group in _comparable_groups(mols, E_REL_KCAL_PROP):
-        with_energy = [(mol, try_e_tot_ev(mol)) for mol in group]
+        with_energy = [(mol, _try_float_prop(mol, E_TOT_PROP)) for mol in group]
         usable = [(mol, e) for mol, e in with_energy if e is not None]
         # A record with no readable E_tot cannot carry a relative one either.
         _clear_prop((mol for mol, e in with_energy if e is None), E_REL_KCAL_PROP)
         if not usable:
             continue
 
+        # Formed in Hartree, the stored unit, and converted once: two stored
+        # energies within a factor of two of each other subtract exactly in
+        # binary floating point, so the only rounding is the final product.
+        # Converting each absolute energy to eV first lost about ten digits to
+        # cancellation (the terms are the size of the absolute energy, the
+        # difference a few hundredths of an eV).
         reference = min(e for _, e in usable)
         for mol, energy in usable:
-            mol.SetProp(E_REL_KCAL_PROP, str((energy - reference) * EV_TO_KCAL_PER_MOL))
+            mol.SetProp(E_REL_KCAL_PROP, str((energy - reference) * HARTREE_TO_KCAL_PER_MOL))
 
 
 def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:

@@ -24,10 +24,11 @@ from rdkit.Chem import AllChem
 
 from Auto3D.domain.energy import (
     E_REL_KCAL_PROP,
+    e_tot_hartree,
     set_e_tot_from_ev,
     set_relative_energies,
 )
-from Auto3D.foundation.constants import EV_TO_KCAL_PER_MOL
+from Auto3D.foundation.constants import EV_TO_KCAL_PER_MOL, HARTREE_TO_KCAL_PER_MOL
 
 
 def _conformer(name: str, energy_ev: float, smiles: str = "CCO") -> Chem.Mol:
@@ -37,6 +38,25 @@ def _conformer(name: str, energy_ev: float, smiles: str = "CCO") -> Chem.Mol:
     mol.SetProp("_Name", name)
     set_e_tot_from_ev(mol, energy_ev)
     return mol
+
+
+def _record(name: str, e_tot_hartree_value: float) -> Chem.Mol:
+    """A record with ``E_tot`` stored directly in Hartree, no unit conversion."""
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+    mol.SetProp("_Name", name)
+    mol.SetProp("E_tot", repr(e_tot_hartree_value))
+    return mol
+
+
+def test_relative_energies_are_formed_in_hartree_before_the_unit_conversion():
+    ref = -2000.0
+    low = _record("same", ref)
+    high = _record("same", ref + 1.0 / HARTREE_TO_KCAL_PER_MOL)
+    set_relative_energies([low, high])
+    expected = (e_tot_hartree(high) - e_tot_hartree(low)) * HARTREE_TO_KCAL_PER_MOL
+    assert float(high.GetProp("E_rel(kcal/mol)")) == expected
+    assert float(low.GetProp("E_rel(kcal/mol)")) == 0.0
 
 
 def _finalize_thermo_records_source() -> str:

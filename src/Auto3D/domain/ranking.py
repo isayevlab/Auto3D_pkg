@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import warnings
 from collections.abc import Iterator
@@ -21,8 +22,8 @@ from Auto3D.domain.energy import (
     E_TOT_PROP,
     G_HARTREE_PROP,
     G_REL_KCAL_PROP,
-    e_tot_ev,
-    try_gibbs_ev,
+    e_tot_hartree,
+    gibbs_hartree,
 )
 from Auto3D.domain.filtering import FilterResult, filter_conformers, validity_drop_reason
 from Auto3D.foundation.config import (
@@ -30,7 +31,12 @@ from Auto3D.foundation.config import (
     check_selectors_mutually_exclusive,
     require_selector,
 )
-from Auto3D.foundation.constants import DEFAULT_ENERGY_CLUSTER_WINDOW, EV_TO_KCAL_PER_MOL
+from Auto3D.foundation.constants import (
+    DEFAULT_ENERGY_CLUSTER_WINDOW,
+    EV_TO_KCAL_PER_MOL,
+    HARTREE_TO_EV,
+    HARTREE_TO_KCAL_PER_MOL,
+)
 from Auto3D.foundation.exceptions import ConfigurationError, InputValidationError
 from Auto3D.foundation.utils.atomic_io import atomic_write_path
 from Auto3D.foundation.utils.logging_config import get_logger
@@ -50,10 +56,12 @@ RANK_BY_ELECTRONIC = E_TOT_PROP
 #: The literal value is G_HARTREE_PROP's -- "G_hartree" -- for the same reason.
 RANK_BY_GIBBS = G_HARTREE_PROP
 
-#: Basis -> (reader returning eV, source property, published relative property).
+#: Basis -> (reader returning Hartree, source property, published relative property).
+#: Both bases are stored in Hartree; the readers raise ValueError on a garbled
+#: value so `_read_input` can refuse the record instead of carrying None.
 _RANK_BASES: dict[str, tuple] = {
-    RANK_BY_ELECTRONIC: (e_tot_ev, E_TOT_PROP, E_REL_KCAL_PROP),
-    RANK_BY_GIBBS: (try_gibbs_ev, G_HARTREE_PROP, G_REL_KCAL_PROP),
+    RANK_BY_ELECTRONIC: (e_tot_hartree, E_TOT_PROP, E_REL_KCAL_PROP),
+    RANK_BY_GIBBS: (gibbs_hartree, G_HARTREE_PROP, G_REL_KCAL_PROP),
 }
 
 
@@ -232,7 +240,7 @@ class ConformerRanker:
         #: about the electronic energy and the geometry, not about which is
         #: favored at temperature.
         self.rank_by = rank_by
-        self._read_energy_ev, self._energy_prop, self._rel_prop = _RANK_BASES[rank_by]
+        self._read_energy_hartree, self._energy_prop, self._rel_prop = _RANK_BASES[rank_by]
         #: Run-level drop tally, keyed by ``Auto3D.domain.filtering.DROP_REASONS``.
         #: ``top_k``/``top_window`` add their per-species counts here (see
         #: ``_account``) so ``run``'s "selected 0 structures" warning can state
@@ -261,7 +269,7 @@ class ConformerRanker:
             one. That order is only the RANKING order when ``rank_by`` is
             RANK_BY_ELECTRONIC; callers that select on another basis (e.g.
             ``top_k``/``top_window`` on RANK_BY_GIBBS) must re-sort ``kept``
-            on ``self._read_energy_ev`` before truncating or referencing
+            on ``self._read_energy_hartree`` before truncating or referencing
             ``kept[0]`` as the minimum -- see the re-sort in ``top_k`` and
             ``top_window`` below. Also returns the per-reason drop counts the
             "nothing survived" messages below need.
@@ -321,11 +329,15 @@ class ConformerRanker:
         """
         return df_group.sort_values(by=["energies"], kind="stable")
 
-    def _stamp_e_rel(self, mol: Chem.Mol, rel_energy: float) -> None:
-        """Write the already-computed ``rel_energy`` onto ``mol`` as ``E_rel(eV)``.
+    def _stamp_e_rel(self, mol: Chem.Mol, rel_hartree: float) -> None:
+        """Write ``rel_hartree`` (Hartree) onto ``mol`` as ``E_rel(eV)``.
+
+        The argument is a difference of two stored Hartree values, exact in
+        floating point; the eV conversion here and the kcal/mol conversion in
+        ``run`` are the only roundings.
 
         Takes the relative energy rather than computing it, so a caller that
-        must inspect ``rel_energy`` BEFORE deciding whether to stamp it at
+        must inspect ``rel_hartree`` BEFORE deciding whether to stamp it at
         all can do so -- ``top_window`` must not stamp the molecule that
         breaks its loop, and computing-then-maybe-stamping is the only
         way to keep that decision in the caller.
@@ -347,7 +359,7 @@ class ConformerRanker:
         divides by RT, so the cross-stereoisomer reference matters most for
         exactly that property, not the electronic one.
         """
-        mol.SetProp("E_rel(eV)", str(rel_energy))
+        mol.SetProp("E_rel(eV)", str(rel_hartree * HARTREE_TO_EV))
 
     def top_k(self, df_group: pd.DataFrame, k: int = 1) -> list[Chem.Mol]:
         """Select top-k lowest-energy structures from a group.
@@ -394,11 +406,11 @@ class ConformerRanker:
             # ranking order only when `self.rank_by` is RANK_BY_ELECTRONIC; on
             # the Gibbs basis `result.kept` is sorted on the wrong quantity, so
             # `[:k]` below would truncate on E_tot and drop the true G-minimum.
-            # Re-sorting on `self._read_energy_ev` fixes both bases at once: for
+            # Re-sorting on `self._read_energy_hartree` fixes both bases at once: for
             # the electronic basis `result.kept` is already in that order (this
             # sort is then a no-op, `sorted` being stable), so the default path
             # is unchanged.
-            ranked = sorted(result.kept, key=self._read_energy_ev)
+            ranked = sorted(result.kept, key=self._read_energy_hartree)
             # Truncation to k is selection, not a filter drop: those conformers
             # are valid and unique, they just lost the ranking, so they are not
             # counted among `dropped` (nothing is "missing" to explain).
@@ -411,13 +423,12 @@ class ConformerRanker:
             self._log_nothing_selected(name.strip(), result)
         else:
             # Adding relative energies
-            # Both sides are eV: the readers convert from whatever unit the
-            # source property is stored in (E_tot is Hartree, G_hartree is
-            # Hartree), so `E_rel(eV)` is eV whichever basis is selected.
-            ref_energy = self._read_energy_ev(out_mols[0])
+            # Both sides are Hartree: the readers return the source property's
+            # own unit (E_tot and G_hartree are both stored in Hartree), so
+            # the difference is formed before any unit conversion.
+            ref_energy = self._read_energy_hartree(out_mols[0])
             for mol in out_mols:
-                rel_energy = self._read_energy_ev(mol) - ref_energy
-                self._stamp_e_rel(mol, rel_energy)
+                self._stamp_e_rel(mol, self._read_energy_hartree(mol) - ref_energy)
         return out_mols
 
     def top_window(self, df_group: pd.DataFrame, window: float = 1.0) -> list[Chem.Mol]:
@@ -430,11 +441,10 @@ class ConformerRanker:
         Returns:
             List of RDKit Mol objects within the energy window.
         """
-        window = window / EV_TO_KCAL_PER_MOL  # convert energy window into eV unit
         names = list(df_group["names"])
         if window < 0:
             raise ConfigurationError(
-                f"window must be non-negative, got: {window * EV_TO_KCAL_PER_MOL} kcal/mol", hint=""
+                f"window must be non-negative, got: {window} kcal/mol", hint=""
             )
         name = self._check_name_uniformity(names)
 
@@ -447,10 +457,9 @@ class ConformerRanker:
             # top_k above.
             self._log_nothing_selected(name.strip(), result)
         else:
-            # `window` was converted from kcal/mol to eV above, and E_tot is
-            # stored in Hartree, so both sides of the comparison are eV here.
-            # Reading the Hartree number as if it were eV is what made the
-            # window 27.2x too wide for an opt_geometry-produced input.
+            # `window` is kcal/mol, the unit it is documented in; E_tot and
+            # G_hartree are both stored in Hartree, so the comparison below
+            # forms the difference in Hartree and converts to kcal/mol once.
             #
             # `result.kept` is sorted on the ELECTRONIC energy unconditionally
             # (`filter_conformers` always sorts by `try_e_tot_ev`, since
@@ -460,15 +469,24 @@ class ConformerRanker:
             # `result.kept[0]` as the reference and breaking out of `kept`'s
             # order picked the lowest-E conformer as the zero of a G_rel window
             # and could stop before every in-window conformer had been seen.
-            # Re-sorting on `self._read_energy_ev` fixes both: for the
+            # Re-sorting on `self._read_energy_hartree` fixes both: for the
             # electronic basis `result.kept` is already in that order (a
             # no-op, `sorted` being stable), so the default path is unchanged.
-            ranked = sorted(result.kept, key=self._read_energy_ev)
-            ref_energy = self._read_energy_ev(ranked[0])
+            ranked = sorted(result.kept, key=self._read_energy_hartree)
+            ref_energy = self._read_energy_hartree(ranked[0])
+            # The difference is formed in Hartree (exact for two stored values
+            # within a factor of two of each other) and converted once. The
+            # tolerance is the resolution of the stored energies themselves,
+            # two ulps of the reference in kcal/mol: a conformer the file
+            # cannot represent as more than an ulp above the window is inside
+            # it. Converting each absolute energy to eV before subtracting
+            # cancelled about ten digits and put a conformer exactly `window`
+            # above the reference 2e-15 to 5e-12 eV outside an inclusive window.
+            boundary_tol = 2.0 * math.ulp(abs(ref_energy)) * HARTREE_TO_KCAL_PER_MOL
             for mol in ranked:
-                rel_energy = self._read_energy_ev(mol) - ref_energy
-                if rel_energy <= window:
-                    self._stamp_e_rel(mol, rel_energy)
+                rel_hartree = self._read_energy_hartree(mol) - ref_energy
+                if rel_hartree * HARTREE_TO_KCAL_PER_MOL <= window + boundary_tol:
+                    self._stamp_e_rel(mol, rel_hartree)
                     out_mols.append(mol)
                 else:
                     break
@@ -523,8 +541,8 @@ class ConformerRanker:
                     continue
                 if not has_convergence_flag(mol):
                     n_unflagged += 1
+                name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
                 if not mol.HasProp(self._energy_prop):
-                    name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
                     hint = (
                         f"Add {E_TOT_PROP!r} (Hartree) to every record, or "
                         "rank a file produced by Auto3D's optimizer."
@@ -544,7 +562,7 @@ class ConformerRanker:
                     )
                 mols.append(mol)
                 names.append(species_id(mol.GetProp("_Name")))
-                energies.append(self._read_energy_ev(mol))
+                energies.append(self._energy_or_refuse(mol, position, name))
         if n_unflagged:
             logger.info(
                 "%d of %d record(s) in %s carry no 'Converged' property; they "
@@ -559,6 +577,30 @@ class ConformerRanker:
             n_records=n_records, n_unparsed=n_unparsed, n_unconverged=n_unconverged
         )
         return df, counts
+
+    def _energy_or_refuse(self, mol: Chem.Mol, position: int, name: str) -> float:
+        """The ranking-basis energy in Hartree, or an InputValidationError.
+
+        A present but unreadable value (a Fortran overflow field such as
+        ``*********`` is the realistic form) used to parse to None on the Gibbs
+        basis, sort last, and then fail inside the selection with a bare
+        TypeError for k>1 and window while k=1 silently returned another
+        record. The electronic basis already refused early; both do now.
+        """
+        raw = mol.GetProp(self._energy_prop)
+        try:
+            value = self._read_energy_hartree(mol)
+        except ValueError:
+            value = math.nan
+        if not math.isfinite(value):
+            raise InputValidationError(
+                f"Record {position} {'(' + name + ') ' if name else ''}of "
+                f"{self.input_path} has an unreadable {self._energy_prop!r} "
+                f"value {raw!r}. ConformerRanker selects by energy, so every "
+                "record needs a finite numeric one.",
+                hint="Fix or remove the record before ranking the file.",
+            )
+        return value
 
     def _iterate_groups(self, df: pd.DataFrame) -> Iterator[tuple[str, pd.DataFrame]]:
         """Yield ``(group_name, df_group)`` for each distinct species in ``df``."""
