@@ -31,7 +31,7 @@ lowest-energy conformer within a tolerance.
 Fitting `conformers = a * rotatable_bonds ** b` by several recipes, against both of the
 deposit's two rotor-count columns:
 
-| Fit recipe | Wider rotor count: a, b | Narrower rotor count: a, b |
+| Fit recipe | RDKit default (strict) count: a, b | RDKit non-strict count: a, b |
 |---|---|---|
 | Per-molecule least squares on raw counts, every molecule with at least one rotatable bond | 8.608, 1.618 | 7.853, 1.548 |
 | Group means weighted by group size, 1 to 20 rotatable bonds | 8.607, 1.618 | 7.853, 1.548 |
@@ -41,22 +41,22 @@ deposit's two rotor-count columns:
 | Log-log line through every molecule | 3.05, 1.833 | 2.70, 1.745 |
 | Log-log line through the 75th percentile of each group | 9.50, 1.621 | 9.40, 1.513 |
 
-The first three recipes land within about 2 percent of both implemented constants (8.481 and
-1.642) against the wider rotor count; none of the last four come close in both parameters at
-once, and none of the seven come as close against the narrower rotor count. So the implemented
-constants are the paper's own fitted numbers, not a refit performed for this package, and the
-independent variable they were fit against is the wider of the deposit's two rotor-bond counts.
+The first three recipes land within about 1.5 percent of both implemented constants (8.481 and
+1.642) against RDKit's default (strict) rotatable-bond count; none of the last four come close in
+both parameters at once, and none of the seven come as close against RDKit's non-strict count,
+where the same three recipes return 7.853 and 1.548 instead. The implemented constants are
+consistent with being the paper's fitted numbers, reproduced to 1.5% from the deposit; the
+residual is far outside the fit's statistical uncertainty on 114,678 points, so the exact sample
+or recipe was not recovered.
 
 Re-descriptoring 1,500 randomly sampled deposited molecules with the installed RDKit identifies
 which of RDKit's rotatable-bond options the two deposited columns correspond to: the deposit's
-narrower column matches RDKit's default (strict) count, which does not count amide C-N or ester
-C-O single bonds as rotatable, and the deposit's wider column matches RDKit's permissive count,
-which does count them. `calculate_conformer_count` uses RDKit's default (strict, amide-and-ester-
-excluding) count, which is the narrower of the two -- the count the fit was less accurate against.
-This makes the budget conservative for amide- and ester-containing molecules: the formula's
-independent variable in the paper counted one more rotor for such bonds than the count used here,
-so the request this package makes for such a molecule is, if anything, an underestimate of what
-the paper's own fit would recommend for it.
+`NumRotorsStrict` column matches RDKit's default (strict) count, which does not count amide C-N
+or ester C-O single bonds as rotatable (`NumRotors >= NumRotorsStrict` on every row; 2,551
+molecules have zero rotatable bonds under the strict count, against 1,867 under the non-strict
+one), and the deposit's `NumRotors` column matches RDKit's non-strict count, which does count
+them. `calculate_conformer_count` uses RDKit's default (strict) count -- the same count the fit
+above reproduces the implemented constants against.
 
 ## The rotor-free regime
 
@@ -66,9 +66,9 @@ The deposited data shows that rotor-free molecules are not low-conformer molecul
 
 | Rotor count | Molecules | Mean retained conformers | Median | 75th percentile | 90th percentile |
 |---|---|---|---|---|---|
-| 0 (wider rotor count) | 2,551 | 25.1 | 5.0 | 15.0 | 36.0 |
-| 0 (narrower rotor count) | 1,867 | 31.0 | 7.0 | 19.0 | 42.0 |
-| 1 (wider rotor count) | 11,002 | 14.7 | 4.0 | 13.0 | 32.0 |
+| 0 (RDKit default, strict count) | 2,551 | 25.1 | 5.0 | 15.0 | 36.0 |
+| 0 (RDKit non-strict count) | 1,867 | 31.0 | 7.0 | 19.0 | 42.0 |
+| 1 (RDKit default, strict count) | 11,002 | 14.7 | 4.0 | 13.0 | 32.0 |
 
 A molecule with no rotatable bonds retains, on average, more distinct low-energy conformers than
 one with a single rotatable bond, because the fit's independent variable cannot see ring puckering
@@ -121,7 +121,7 @@ drug-like molecules in this package's optimization benchmark changes the request
 of them -- the five with no rotatable bonds under either rotor-count convention -- and leaves the
 other nineteen unchanged, because at one rotatable bond the formula already requests 16 or more:
 
-| Molecule set | SMILES | Heavy atoms | Rotatable bonds (amide- and ester-excluding) | Rotatable bonds (amide- and ester-including) | Previous budget | New budget |
+| Molecule set | SMILES | Heavy atoms | Rotatable bonds (RDKit default, strict) | Rotatable bonds (RDKit non-strict) | Previous budget | New budget |
 |---|---|---|---|---|---|---|
 | small | `CCO` | 3 | 0 | 0 | 3 | 16 |
 | small | `c1ccccc1O` | 7 | 0 | 0 | 7 | 16 |

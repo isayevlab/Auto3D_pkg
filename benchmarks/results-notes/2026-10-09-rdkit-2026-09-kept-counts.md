@@ -39,7 +39,10 @@
 the figures above are unchanged.)
 
 CC=CC (2-butene, heavy-atom budget 4 / kept 1): double-bond geometries among kept
-conformers — `{STEREOZ}` only.
+conformers — `{STEREOZ}` only. (Since 2026-10-14 the default budget for a rotor-free,
+two-or-more-heavy-atom molecule such as 2-butene is 16, not 4, wherever this note gives
+4 as its requested count for it below; see
+`benchmarks/results-notes/2026-10-14-conformer-budget-provenance.md`.)
 
 These numbers match the ones recorded in `Auto3D.domain.conformer_budget`'s docstring and
 the Unreleased/3.2.0 CHANGELOG bullet (glycerol 9 of 52/238; alpha-D-glucopyranose 12 of 16,

@@ -67,24 +67,22 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     ZINC, curated and peptide sets): a power-law least-squares fit over every
     molecule with at least one rotatable bond returns 8.608 and 1.618 for the
     mean number of distinct conformers retained within the widest energy window
-    that deposit records (about 5-6 kcal/mol), counted against the
-    amide-including rotatable-bond definition. So the published expression
-    estimates **how many low-energy conformers a molecule has**, not how many
-    embedding attempts recover them, and its independent variable counts one
-    more rotor per amide than the `Default`/`Strict` count used here -- which
-    makes this request conservative for amides. The factor of 2 is Auto3D's:
-    against that same deposited data it turns the fit's mean into a cover of
-    roughly the 90th percentile of the per-molecule spread (86-93% of molecules
-    at 2-12 rotors), and it is canceled by the 1000 cap from 12 rotatable
-    bonds up, where the cap alone decides the budget; the unmultiplied fit
-    itself exceeds the cap at 19 rotatable bonds. The constant minimum of 16 is
-    the budget the expression already gives a one-rotor molecule, extended down
-    to the rotor-free case because ring puckering is not a rotatable bond: in
-    that deposited data a molecule with no rotatable bonds averages 25 retained
-    conformers, more than a one-rotor molecule's 15. The heavy-atom term is
-    Auto3D's too and keeps large rigid polycyclics above the constant floor.
-    The 1000 cap is an operational ceiling, not a chemical one; pass
-    `max_confs` for a larger pool. The refit is recorded in
+    that deposit records (about 5-6 units, almost certainly kcal/mol), counted
+    against RDKit's default (strict) rotatable-bond definition, the same count
+    used here. So the published expression estimates **how many low-energy
+    conformers a molecule has**, not how many embedding attempts recover them.
+    The factor of 2 is Auto3D's: against that same deposited data it turns the
+    fit's mean into a cover of roughly the 90th percentile of the per-molecule
+    spread (86-91% of molecules at 2-12 rotors), and it is canceled by the 1000
+    cap from 12 rotatable bonds up, where the cap alone decides the budget; the
+    unmultiplied fit itself exceeds the cap at 19 rotatable bonds. The constant
+    minimum of 16 is the budget the expression already gives a one-rotor
+    molecule, extended down to the rotor-free case because ring puckering is
+    not a rotatable bond: in that deposited data a molecule with no rotatable
+    bonds averages 25 retained conformers, more than a one-rotor molecule's 15.
+    The heavy-atom term is Auto3D's too and keeps large rigid polycyclics above
+    the constant floor. The 1000 cap is an operational ceiling, not a chemical
+    one; pass `max_confs` for a larger pool. The refit is recorded in
     `benchmarks/results-notes/2026-10-14-conformer-budget-provenance.md`.
 
     Args:

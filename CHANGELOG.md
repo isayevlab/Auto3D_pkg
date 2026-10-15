@@ -71,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   molecules. The budget's documentation now states what the published constants
   estimate (how many low-energy conformers a molecule has, checked against the
   authors' deposited data) and which parts of the expression are Auto3D's own.
+  A small rotor-free molecule with an unspecified stereo element and
+  stereoisomer enumeration disabled is now more likely to embed both
+  configurations among its conformers (2-butene does from 5 requests up; it
+  requested 4 before), so a `k=1` result for such an input can change; the
+  existing warning about unspecified stereo already covers it.
 
 ## [3.2.1] - 2026-10-11
 
