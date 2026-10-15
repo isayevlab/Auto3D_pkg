@@ -1,0 +1,11 @@
+# Monthly and grouped: one pull request a month at most, so the SHA pins in
+# .github/workflows/ get bumped without adding runs.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
