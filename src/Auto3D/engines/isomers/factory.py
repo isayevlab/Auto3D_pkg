@@ -252,6 +252,7 @@ def create_tautomer_engine(
     input_path: str,
     output_path: str,
     pka_norm: bool = True,
+    expand_cleared_stereo: bool = False,
 ) -> TautomerEngine:
     """Create a tautomer engine based on the specified type.
 
@@ -260,6 +261,10 @@ def create_tautomer_engine(
         input_path: Path to input SMI file.
         output_path: Path for output SMI file.
         pka_norm: Normalize ionization to pH ~7.4 (oechem only).
+        expand_cleared_stereo: Write a tautomer whose stereo the enumeration
+            left unspecified once per configuration rather than once with the
+            element open (rdkit only). For callers that have switched
+            stereoisomer enumeration off downstream.
 
     Returns:
         Configured tautomer engine instance.
@@ -282,4 +287,5 @@ def create_tautomer_engine(
         input_f=input_path,
         out=output_path,
         pKaNorm=pka_norm,
+        expand_cleared_stereo=expand_cleared_stereo,
     )

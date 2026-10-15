@@ -100,7 +100,10 @@ def test_tautomer_processor_uses_facade(monkeypatch, tmp_path):
         def run(self):
             calls["ran"] = True
 
-    def fake_create(engine_type, input_path, output_path, pka_norm=True):
+    # **kwargs so a keyword the processor forwards and this test does not pin
+    # (expand_cleared_stereo) is accepted rather than raising TypeError here;
+    # the tuple below still pins the four arguments this test is about.
+    def fake_create(engine_type, input_path, output_path, pka_norm=True, **kwargs):
         calls["args"] = (engine_type, input_path, output_path, pka_norm)
         return _Eng()
 
