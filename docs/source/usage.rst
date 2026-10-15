@@ -590,9 +590,12 @@ A ``calc_thermo`` output carries more, and two of them are relative:
 
 - **G_hartree** / **H_hartree** / **S_hartree_per_K** / **T_K**: absolute
   thermochemistry at the recorded temperature
-- **ZPE_hartree**: the zero-point vibrational energy that entered *H* and *G*,
-  from the same corrected frequency list, so the quasi-harmonic floor moves it
-  by design; it was previously obtainable from no output.
+- **ZPE_hartree**: the unscaled harmonic zero-point vibrational energy, one
+  half the sum of *hcν* over the modes ``Thermo_vib_modes`` counts, in
+  Hartree. It is already inside *H* and *G*; do not add it again.
+  ``E_tot(Hartree)`` plus ``ZPE_hartree`` is the sum of electronic and
+  zero-point energies other programs report. It comes from the corrected
+  frequency list, so the quasi-harmonic floor raises it by design.
 - **E_tot** / **E_tot(Hartree)** and **E_rel(kcal/mol)**: recomputed for the
   relaxed geometry, since ``calc_thermo`` relaxes to a tighter threshold than
   conformer generation uses
@@ -621,10 +624,13 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   labeled atom gets its own isotope's mass, every other atom still the most
   abundant isotope, and which atoms differ is recoverable from the record's atom
   block. The token describes the masses the thermochemistry used, read from the
-  atoms object itself: a caller who hands ``calc_thermo`` an ``Atoms`` built with
-  standard atomic weights gets ``standard atomic weights``, and masses matching
-  no convention get ``caller-supplied masses``. Two files are comparable only
-  when this string, ``T_K`` and
+  atoms object itself. ``calc_thermo`` always builds its ``Atoms`` through
+  ``mol2atoms``, so it reports one of the first two; a caller of
+  ``do_mol_thermo`` who hands it an ``Atoms`` built outside ``mol2atoms`` with
+  standard atomic weights (RDKit's table or ASE's ``atomic_masses``, which an
+  ``Atoms`` built with ASE's defaults carries) gets ``standard atomic
+  weights``, and masses matching no convention get ``caller-supplied masses``.
+  Two files are comparable only when this string, ``T_K`` and
   ``Symmetry_number`` all agree and the spin multiplicity used for
   ``R ln(2S+1)`` -- an explicit ``multiplicity`` property when the input
   carried a valid one, otherwise unpaired electrons + 1 from the record's own

@@ -515,7 +515,10 @@ carries:
 - ``N_raised_modes`` -- how many modes were evaluated at the floor.
 - ``Thermo_vib_modes`` -- how many modes the partition function actually used:
   ``3N-6`` for a nonlinear minimum, ``3N-5`` for a linear one, ``0`` for a
-  monatomic species, or ``3N-7`` for a confirmed saddle point.
+  monatomic species, or ``3N-7`` for a confirmed saddle point. Under plain
+  RRHO (``low_freq_cutoff_cm=0.0``) an exactly-zero mode is dropped from the
+  count, so a nonlinear minimum can report 3N-7; ``Is_transition_state`` is
+  the verdict on a saddle point, not this count.
 
 **Opt out** with ``low_freq_cutoff_cm=0.0``:
 

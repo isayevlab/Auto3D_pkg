@@ -90,8 +90,11 @@ class _GibbsTerms(NamedTuple):
     """What ``_gibbs_terms`` returns: the three energies in Hartree (``S`` in
     Hartree/K), the zero-point energy in Hartree, and the number of vibrational
     modes ``IdealGasThermo`` actually used -- the count the record reports,
-    which can be one short of the list Auto3D handed it (an exactly-zero mode
-    is dropped by ASE's own cleaning)."""
+    which can be short by the number of exactly-zero modes in the list Auto3D
+    handed it, dropped by ASE's own cleaning. This only happens under plain
+    RRHO (``low_freq_cutoff_cm=0.0``): with the default quasi-harmonic floor a
+    zero mode is raised to the floor and counted in ``N_raised_modes``
+    instead, so ASE never sees it to drop."""
 
     H: float
     S: float
@@ -154,7 +157,7 @@ def _warn_imaginary_modes(analysis, name, vib_e) -> None:
         )
 
 
-def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry, atoms) -> None:
+def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry, atoms: ase.Atoms) -> None:
     """Write the vibrational-analysis SD properties, including the verdict, onto ``mol``."""
     mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
     mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
@@ -741,14 +744,18 @@ def calc_thermo(
         than on their presence.
 
         A record that reaches ``G_hartree`` also carries ``ZPE_hartree``, the
-        zero-point energy that entered *H* and *G*, written alongside them --
-        a record that fails inside ``IdealGasThermo`` carries neither. The
-        mass convention named in ``Thermo_convention`` is one of four tokens
-        (``most-abundant-isotope masses``, ``isotope-labeled masses``,
-        ``standard atomic weights`` or ``caller-supplied masses``), read from
-        the masses the thermochemistry actually used rather than inferred
-        from ``mol``'s isotope labels alone, so a caller-supplied ``Atoms``
-        built from other masses is reported as what it is.
+        zero-point energy that entered *H* and *G*, and ``Thermo_vib_modes``,
+        the number of modes that entered them, written alongside them; a
+        record that fails inside ``IdealGasThermo`` carries none of the
+        three. The mass convention named in ``Thermo_convention`` is one of
+        four tokens (``most-abundant-isotope masses``, ``isotope-labeled
+        masses``, ``standard atomic weights`` or ``caller-supplied masses``),
+        read from the masses the thermochemistry actually used rather than
+        inferred from ``mol``'s isotope labels alone. Through this function
+        the ``Atoms`` always comes from ``mol2atoms``, so the token is one of
+        the first two; ``do_mol_thermo`` accepts a caller-built ``Atoms`` and
+        reports its masses as what they are (standard weights from RDKit's or
+        ASE's table, or caller-supplied).
 
         ``RRHO+quasiharmonic(100cm-1)`` is Truhlar's raising (Ribeiro,
         Marenich, Cramer and Truhlar, *J. Phys. Chem. B* 2011, 115, 14556):

@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `calc_thermo` records: `Thermo_vib_modes` now counts the vibrational modes
-  that entered *G* (ASE drops an exactly-zero mode from the list Auto3D hands
-  it, and the record used to report the longer list); every record carries
-  `ZPE_hartree`, the zero-point energy that entered *H* and *G*; and the mass
-  token in `Thermo_convention` describes the masses the thermochemistry used,
-  read from the atoms object itself, so a caller-supplied `Atoms` with other
-  masses is reported as `standard atomic weights` or `caller-supplied masses`
-  instead of the default token.
+  that entered *G* (under plain RRHO, `low_freq_cutoff_cm=0.0`, ASE drops an
+  exactly-zero mode from the list Auto3D hands it, and the record used to
+  report the longer list; a record that fails inside `IdealGasThermo` no
+  longer carries `Thermo_vib_modes` at all, since it never carried a usable
+  G); every record carries `ZPE_hartree`, the zero-point energy that entered
+  *H* and *G*; and the mass token in `Thermo_convention` describes the masses
+  the thermochemistry used, read from the atoms object itself, so a
+  caller-supplied `Atoms` with other masses is reported as `standard atomic
+  weights` or `caller-supplied masses` instead of the default token.
 - `ConformerRanker` refuses a record whose ranking-basis energy (`E_tot` or
   `G_hartree`) is present but not a finite number, with the same kind of
   input-validation error a missing property raises, instead of carrying it
