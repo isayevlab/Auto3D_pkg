@@ -56,6 +56,7 @@ def test_relative_energies_are_formed_in_hartree_before_the_unit_conversion():
     set_relative_energies([low, high])
     expected = (e_tot_hartree(high) - e_tot_hartree(low)) * HARTREE_TO_KCAL_PER_MOL
     assert float(high.GetProp("E_rel(kcal/mol)")) == expected
+    assert float(high.GetProp("E_rel(kcal/mol)")) == pytest.approx(1.0, abs=1e-9)
     assert float(low.GetProp("E_rel(kcal/mol)")) == 0.0
 
 

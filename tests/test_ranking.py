@@ -464,7 +464,7 @@ class TestConformerRankerTopWindow:
 
         The second conformer sits exactly 1.000 kcal/mol above the reference,
         as closely as a stored Hartree value can place it. Converting both
-        absolute energies to eV before subtracting cancelled about ten digits
+        absolute energies to eV before subtracting canceled about ten digits
         and put this conformer a few 1e-12 eV outside a 1.0 kcal/mol window at
         every magnitude except the unphysical 0; it must be kept, and the third
         conformer, 2.000 kcal/mol above, dropped.
@@ -495,6 +495,43 @@ class TestConformerRankerTopWindow:
         assert len(kept) == 2, kept
         assert kept == sorted(kept)
         assert kept[1] == pytest.approx(1.0, abs=1e-9)
+
+
+@pytest.mark.parametrize("raw_value", ["*********", "nan", "inf"])
+@pytest.mark.parametrize(
+    "selector", [{"k": 1}, {"k": 2}, {"window": 5.0}], ids=["k1", "k2", "window"]
+)
+def test_a_garbled_or_non_finite_electronic_energy_is_refused_at_read_time(
+    tmp_path, selector, raw_value
+):
+    """A present but unreadable or non-finite ``E_tot`` is an input error, on every selector.
+
+    The electronic-basis counterpart of the Gibbs-basis guard in
+    ``tests/test_ranking_by_gibbs.py``: a Fortran overflow field
+    (``*********``) does not parse at all, while ``nan`` and ``inf`` parse
+    but are not finite -- both forms must be refused before a non-finite
+    value can reach the selection.
+    """
+    from Auto3D.domain.ranking import ConformerRanker
+    from Auto3D.foundation.exceptions import InputValidationError
+
+    good1 = _create_mol_with_energy("CCO", -10.0, "mol_0_0")
+    good2 = _create_mol_with_energy("CCO", -10.1, "mol_0_1")
+    bad = _create_mol_with_energy("CCO", -10.2, "mol_0_2")
+    bad.SetProp("E_tot", raw_value)
+
+    input_path = str(tmp_path / "input.sdf")
+    output_path = str(tmp_path / "output.sdf")
+    _write_mols_to_sdf([good1, good2, bad], input_path)
+
+    ranker = ConformerRanker(
+        input_path=input_path,
+        out_path=output_path,
+        threshold=0.3,
+        **selector,
+    )
+    with pytest.raises(InputValidationError, match="unreadable 'E_tot'"):
+        ranker.run()
 
 
 def test_k_and_window_default_to_none_and_false_still_means_unset(tmp_path, three_conformers_sdf):

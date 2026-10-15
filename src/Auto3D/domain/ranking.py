@@ -333,8 +333,12 @@ class ConformerRanker:
         """Write ``rel_hartree`` (Hartree) onto ``mol`` as ``E_rel(eV)``.
 
         The argument is a difference of two stored Hartree values, exact in
-        floating point; the eV conversion here and the kcal/mol conversion in
-        ``run`` are the only roundings.
+        floating point; the eV conversion here and the eV -> kcal/mol
+        conversion in ``_write_results`` (called by ``run``) are the only
+        roundings; the published kcal/mol value agrees with a direct
+        Hartree -> kcal/mol conversion to within 1e-15 kcal/mol because
+        ``HARTREE_TO_KCAL_PER_MOL`` is defined as the product of the two
+        factors.
 
         Takes the relative energy rather than computing it, so a caller that
         must inspect ``rel_hartree`` BEFORE deciding whether to stamp it at
@@ -476,12 +480,17 @@ class ConformerRanker:
             ref_energy = self._read_energy_hartree(ranked[0])
             # The difference is formed in Hartree (exact for two stored values
             # within a factor of two of each other) and converted once. The
-            # tolerance is the resolution of the stored energies themselves,
-            # two ulps of the reference in kcal/mol: a conformer the file
-            # cannot represent as more than an ulp above the window is inside
-            # it. Converting each absolute energy to eV before subtracting
-            # cancelled about ten digits and put a conformer exactly `window`
-            # above the reference 2e-15 to 5e-12 eV outside an inclusive window.
+            # tolerance is two ulps of the reference energy, converted: one
+            # ulp is the resolution of the stored values (the reference is
+            # the minimum, so every other stored energy carries at most that
+            # much representation error), the second is headroom for the
+            # rounding of the final multiply. Both are far below any physical
+            # energy difference, 2.9e-10 kcal/mol at -2000 Ha. At a reference
+            # of exactly 0 Ha the tolerance degenerates to zero; no molecule
+            # has that energy. Converting each absolute energy to eV before
+            # subtracting canceled about ten digits and put a conformer
+            # exactly `window` above the reference 2e-15 to 5e-12 eV outside
+            # an inclusive window.
             boundary_tol = 2.0 * math.ulp(abs(ref_energy)) * HARTREE_TO_KCAL_PER_MOL
             for mol in ranked:
                 rel_hartree = self._read_energy_hartree(mol) - ref_energy
@@ -678,7 +687,9 @@ class ConformerRanker:
                 ConfigurationError -- this is the same guard, raising the
                 same exception type, for callers that construct
                 ConformerRanker directly).
-            InputValidationError: If a record carries no ``E_tot`` property.
+            InputValidationError: If a record carries no ``E_tot`` property,
+                or carries a ranking-basis energy (``E_tot`` or
+                ``G_hartree``) that is present but not a finite number.
                 Ranking is selection by energy; a record with no energy
                 cannot be ranked, and refusing the file beats emitting a
                 bare ``KeyError('E_tot')`` from inside RDKit.

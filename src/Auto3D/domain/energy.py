@@ -19,9 +19,12 @@ twice.
 The fix is one unit for the property and one conversion boundary. Writers call
 :func:`set_e_tot_from_ev` (models produce eV); readers call :func:`e_tot_ev` /
 :func:`try_e_tot_ev` and get eV back, so every in-package energy tolerance
-(``DEFAULT_DUPLICATE_ENERGY_TOL``, ``DEFAULT_ENERGY_CLUSTER_WINDOW``, the
-kcal/mol -> eV window conversion in ``ranking``) keeps its documented eV
-meaning. Writers additionally set :data:`E_TOT_HARTREE_PROP`, the unit-labeled
+(``DEFAULT_DUPLICATE_ENERGY_TOL``, ``DEFAULT_ENERGY_CLUSTER_WINDOW``) keeps
+its documented eV meaning. The ranker is the one deliberate exception: it
+reads the stored Hartree values through :func:`e_tot_hartree` /
+:func:`gibbs_hartree`, forms each relative energy as a Hartree difference and
+converts that difference, so its kcal/mol window is compared in kcal/mol.
+Writers additionally set :data:`E_TOT_HARTREE_PROP`, the unit-labeled
 sibling, so a file states its own unit.
 """
 
@@ -152,10 +155,11 @@ def try_e_tot_ev(mol: Chem.Mol) -> float | None:
 def try_gibbs_ev(mol: Chem.Mol) -> float | None:
     """``G_hartree`` in eV, or None when the record has no usable one.
 
-    eV, not Hartree, so a caller can compare it against the same thresholds it
-    already applies to :func:`e_tot_ev` -- the kcal/mol energy window in
-    ``ranking`` converts to eV once and must not care which basis it is
-    measuring. ``Auto3D.entry.ASE.thermo`` writes the underlying property.
+    Kept as a public name. Nothing in the package calls it since the ranker
+    started reading Gibbs energies in Hartree (:func:`gibbs_hartree`); a
+    caller that compares Gibbs energies against the eV thresholds it applies
+    to :func:`e_tot_ev` can still use it. ``Auto3D.entry.ASE.thermo`` writes
+    the underlying property.
     """
     value = _try_float_prop(mol, G_HARTREE_PROP)
     return None if value is None else value * HARTREE_TO_EV
