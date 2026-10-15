@@ -299,25 +299,49 @@ def warn_if_occupied(state: dict | None, when: str) -> None:
     )
 
 
+def positive_int(text: str) -> int:
+    """An ``argparse`` type for a count that has to be at least one.
+
+    ``--reps 0`` would write a record whose results are an empty list and
+    ``--limit 0`` an empty bench set; both are a mistake at the command line,
+    and both are cheaper to hear about there than after the model has loaded.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, got {value}")
+    return value
+
+
 def bench_arg_parser(
     description: str, *, reps: int, limit_help: str, sets: str | None = None
 ) -> argparse.ArgumentParser:
     """The argument parser every measurement script in this directory shares.
 
-    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` mean the
-    same thing in each of them, and a script that spelled one of them its own
-    way would make two runs harder to compare than the measurements they
-    report. ``reps`` and ``limit_help`` are per script; ``sets``, when given,
-    adds ``--sets`` with that default.
+    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` are
+    spelled once here, so two runs of two scripts are invoked alike and a
+    script cannot drift into its own spelling or its own type for one of them.
+    ``reps`` and ``limit_help`` are per script; ``sets``, when given, adds
+    ``--sets`` with that default.
+
+    ``--limit`` is the one flag whose UNIT is per script, which is why its help
+    text is a parameter rather than a sentence written here: it keeps the first
+    N molecules of the flattened bench set in ``measure_fire_constants.py`` and
+    ``measure_empty_cache.py``, and the first N of EACH size group in
+    ``measure_batch_noise.py``, whose three arrangements need more than one
+    group to stay distinct. Both counts are positive, so a run cannot start
+    with nothing to measure.
     """
     parser = argparse.ArgumentParser(
         description=description, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--engines", default="AIMNET,ANI2xt")
-    parser.add_argument("--reps", type=int, default=reps)
+    parser.add_argument("--reps", type=positive_int, default=reps)
     parser.add_argument("--out", required=True, help="JSON file to write")
-    parser.add_argument("--limit", type=int, default=None, help=limit_help)
+    parser.add_argument("--limit", type=positive_int, default=None, help=limit_help)
     if sets is not None:
         parser.add_argument(
             "--sets", default=sets, help="comma-separated FIRE constant set names to compare"
@@ -723,8 +747,11 @@ def main() -> None:
         help="Comma-separated. Append '+compile' for torch.compile.",
     )
     parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--steps", type=int, default=N_STEPS_TIMED)
-    parser.add_argument("--reps", type=int, default=N_REPS)
+    # Through `positive_int` for the same reason the shared parser uses it:
+    # zero steps or zero repeats measures nothing and is a typing mistake, not
+    # a run.
+    parser.add_argument("--steps", type=positive_int, default=N_STEPS_TIMED)
+    parser.add_argument("--reps", type=positive_int, default=N_REPS)
     parser.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
     args = parser.parse_args()
 

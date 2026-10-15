@@ -107,9 +107,10 @@ def build_groups(limit: int | None = None) -> dict[str, list]:
     own starting geometry (``pad_from_mols`` reads ``mol.GetConformer()``, which
     would otherwise take conformer 0 ten times over).
 
-    ``limit`` applies to the flattened small/medium/large order, as the sibling
-    scripts' ``--limit`` does, so a small enough limit returns fewer groups
-    rather than empty ones.
+    ``limit`` applies to the flattened small/medium/large order, as
+    ``measure_empty_cache.py``'s does, so a small enough limit returns fewer
+    groups rather than empty ones. (``measure_batch_noise.py`` cuts each size
+    group instead, for the reason its own helper gives.)
     """
     from rdkit import Chem
     from rdkit.Chem import AllChem
@@ -291,7 +292,14 @@ def main() -> None:
 
     from Auto3D.engines.batch_opt.optimization_engine import n_steps
     from Auto3D.engines.model_factory import ModelFactory, create_model
+    from Auto3D.engines.torch_config import TorchConfig, configure_torch
     from Auto3D.foundation.constants import FIRE_CONSTANT_SETS
+
+    # The step counts and the final energies are measured under the precision
+    # flags a production run applies when the user passes nothing: TF32 off for
+    # matmul and for cuDNN (where torch leaves it on by default), with
+    # determinism and the cuDNN autotuner left exactly as this process had them.
+    configure_torch(TorchConfig(allow_tf32=False))
 
     device = torch.device(args.device)
     is_cuda = device.type == "cuda"

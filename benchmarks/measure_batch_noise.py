@@ -15,7 +15,16 @@ duplicate-conformer energy tolerance has to cover. ``--reps`` repeats that
 whole arrangement set, and the engine's noise floor is the largest spread any
 row reached in any repeat -- a floor read from a single pass is one draw of a
 stochastic quantity, and two earlier samples of this measurement on this bench
-set disagreed by up to a factor of five.
+set disagreed by up to a factor of five. One further pass per engine runs
+before the repeats and is discarded, so repeat 0 is not the only repeat paying
+this engine's first-call costs.
+
+A row has a spread only if every arrangement returned a finite energy for it.
+The optimization loop's final-energy recompute writes what the model returns
+for each row it did not retire, so a row can arrive flagged converged with a
+non-finite energy among its arrangements; it is reported with a null spread and
+is not counted as converged, since a NaN spread would pass every threshold
+below silently and would make the floor itself NaN.
 
 Each engine's floor is then read against
 ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``, the single
@@ -36,8 +45,8 @@ inclusive:
 * ``"within five to twenty times"`` -- it does, and it is not so far above
   that floor as to raise the next question.
 * ``"above twenty times the floor"`` -- the tolerance stands far above the
-  noise it exists to cover for this engine, and it also merges two genuinely
-  different minima whose energies agree within it.
+  noise it exists to cover for this engine, and it also risks merging two
+  genuinely different minima whose energies agree within it.
 
 Each engine is read on its own floor, and this script never carries one
 engine's number across to another: the floor is a property of that engine's
@@ -45,9 +54,12 @@ kernels and of where its forces leave the convergence gate.
 
 This script measures energies, not time, so another process on the card does
 not by itself invalidate a GPU run. The record still stores an ``nvidia-smi``
-snapshot of the card at the start and at the end of the run, and the script
-warns on stderr if someone else holds it at either point, so a reader can see
-what the card was doing while the floor was measured.
+snapshot of the card at the start of the run, one per engine as that engine
+finishes, and one at the end, and the script warns on stderr if someone else
+holds the card at the start or the end, so a reader can see what the card was
+doing while each engine's floor was measured. Both the floor and the
+single-point spreads are measured under the precision flags a production run
+applies when the user passes nothing.
 
 Pass ``--device cpu`` for a smoke run of the script's plumbing only: the model
 still loads and the whole arrangement set still runs, but it is NOT a
@@ -70,6 +82,8 @@ Usage::
 
 from __future__ import annotations
 
+import gc
+import math
 import sys
 import time
 from pathlib import Path
@@ -105,6 +119,42 @@ N_REPEATS = 3
 GATE_RATIO, LOOSE_RATIO = 5.0, 20.0
 
 
+def finite_or_none(value: float) -> float | None:
+    """``value``, or ``None`` when it is not finite.
+
+    ``json`` writes a NaN or an infinity as the bare ``NaN``/``Infinity``
+    token, which is not JSON and which a strict reader rejects, so no
+    non-finite number reaches the record as itself.
+    """
+    return value if math.isfinite(value) else None
+
+
+def spread_or_none(values) -> float | None:
+    """``max - min`` of ``values``, or ``None`` if any of them is not finite.
+
+    A NaN propagates through the subtraction and then compares False against
+    everything, so a spread taken over a non-finite energy is a number that
+    passes every threshold test in this script without saying anything. Such a
+    row has no spread to report.
+    """
+    values = list(values)
+    if any(not math.isfinite(v) for v in values):
+        return None
+    return max(values) - min(values)
+
+
+def ulp32_or_none(value: float) -> float | None:
+    """The float32 spacing at ``abs(value)``, or ``None`` when it is not finite.
+
+    The spacing is what separates a real energy difference from one the storage
+    format cannot represent, which is the comparison the single-point rows and
+    the post-optimization rows both want next to their spread.
+    """
+    if not math.isfinite(value):
+        return None
+    return float(np.spacing(np.float32(abs(value))))
+
+
 def _single_point(model, batch, device) -> list[float]:
     from Auto3D.engines.batch_opt.padding import pad_from_mols
 
@@ -113,7 +163,7 @@ def _single_point(model, batch, device) -> list[float]:
     return [float(x) for x in energies.detach().double().cpu()]
 
 
-def single_point_rows(model, groups, device) -> tuple[list[dict], list[float]]:
+def single_point_rows(model, groups, device) -> tuple[list[dict], list[float | None]]:
     everything = [m for g in groups.values() for m in g]
     largest = max(everything, key=lambda m: m.GetNumAtoms())
     alone = [_single_point(model, [m], device)[0] for m in everything]
@@ -129,14 +179,12 @@ def single_point_rows(model, groups, device) -> tuple[list[dict], list[float]]:
             {
                 "name": mol.GetProp("_Name"),
                 "atoms": mol.GetNumAtoms(),
-                "e_alone": alone[i],
-                "spread": max(values) - min(values),
-                "ulp32": float(np.spacing(np.float32(abs(alone[i])))),
+                "e_alone": finite_or_none(alone[i]),
+                "spread": spread_or_none(values),
+                "ulp32": ulp32_or_none(alone[i]),
             }
         )
-    rerun = [
-        max(r[i] for r in repeats) - min(r[i] for r in repeats) for i in range(len(everything))
-    ]
+    rerun = [spread_or_none([r[i] for r in repeats]) for i in range(len(everything))]
     return rows, rerun
 
 
@@ -176,6 +224,34 @@ def _heavy_atom_rmsd(mol_a, mol_b) -> float:
     return float(rdMolAlign.GetBestRMS(Chem.RemoveHs(mol_a), Chem.RemoveHs(mol_b)))
 
 
+def post_opt_row(name: str, atoms: int, values: list[float], converged: list[bool]) -> dict:
+    """One post-optimization row: the spread over the arrangements, and whether
+    this molecule converged in every one of them.
+
+    ``values`` and ``converged`` are in arrangement order, the whole-set
+    arrangement first -- that is the energy ``e_all`` reports and the one
+    ``ulp32`` is taken at.
+
+    A row the optimizer flagged as converged can still carry a non-finite final
+    energy: the loop recomputes the energy at the reported geometry for every
+    row it did not retire, with the model asked to tolerate a non-finite
+    result, and copies back what it gets. Such a row is not a converged
+    measurement of anything, so ``spread`` is ``None`` and
+    ``converged_everywhere`` is ``False`` whatever the flags say -- otherwise
+    its NaN spread would be summarized into this engine's floor, where every
+    comparison against it silently reads False.
+    """
+    spread = spread_or_none(values)
+    return {
+        "name": name,
+        "atoms": atoms,
+        "converged_everywhere": bool(spread is not None and all(converged)),
+        "spread": spread,
+        "e_all": finite_or_none(values[0]),
+        "ulp32": ulp32_or_none(values[0]),
+    }
+
+
 def post_opt_rows(
     model, groups, device, save_geometries: bool = False
 ) -> tuple[list[dict], dict, dict | None]:
@@ -203,17 +279,15 @@ def post_opt_rows(
         e_rev, c_rev = _optimize(model, everything[::-1], device)
         coords_rev = None
     e_rev, c_rev = e_rev[::-1], c_rev[::-1]
-    rows = []
-    for i, mol in enumerate(everything):
-        values = [e_all[i], e_grp[i], e_rev[i]]
-        rows.append(
-            {
-                "name": mol.GetProp("_Name"),
-                "atoms": mol.GetNumAtoms(),
-                "converged_everywhere": bool(c_all[i] and c_grp[i] and c_rev[i]),
-                "spread": max(values) - min(values),
-            }
+    rows = [
+        post_opt_row(
+            mol.GetProp("_Name"),
+            mol.GetNumAtoms(),
+            [e_all[i], e_grp[i], e_rev[i]],
+            [c_all[i], c_grp[i], c_rev[i]],
         )
+        for i, mol in enumerate(everything)
+    ]
     worst_geometry_check = None
     if save_geometries:
         # Only a row that converged in all three arrangements can be chosen: an
@@ -249,11 +323,25 @@ def post_opt_rows(
 
 
 def summarize(spreads) -> dict:
-    a = np.asarray(list(spreads), dtype=float)
+    """Median, p90 and maximum over the spreads that are present and finite.
+
+    A spread is ``None`` for a row no finite energy was returned for in some
+    arrangement (see :func:`spread_or_none`), and such a row has no number to
+    take a statistic over: it is counted in ``dropped_non_finite`` and left out
+    of the rest, rather than making the median, the p90 and the maximum NaN --
+    and the maximum is the floor this script reports. ``n`` is therefore what
+    the statistics were taken over, which a reader can compare against the row
+    count.
+    """
+    values = list(spreads)
+    kept = [v for v in values if v is not None and math.isfinite(v)]
+    dropped = len(values) - len(kept)
+    a = np.asarray(kept, dtype=float)
     if a.size == 0:
-        return {"n": 0}
+        return {"n": 0, "dropped_non_finite": dropped}
     return {
         "n": int(a.size),
+        "dropped_non_finite": dropped,
         "median": float(np.median(a)),
         "p90": float(np.percentile(a, 90)),
         "max": float(a.max()),
@@ -275,12 +363,14 @@ def tolerance_check(post_opt_summary: dict) -> dict:
     ``Infinity`` token, which is not JSON and which a strict reader rejects, so
     the ratio is recorded as null in both cases and ``floor_ev`` says which
     case it was. A zero floor is still in the top band: the tolerance stands
-    above every spread such a run measured.
+    above every spread such a run measured. A non-finite maximum is read as no
+    floor as well; ``summarize`` cannot produce one, and this function is the
+    last place a NaN could enter the verdict.
     """
     from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 
     floor = post_opt_summary.get("max")
-    if floor is None:
+    if floor is None or not math.isfinite(floor):
         return {
             "floor_ev": None,
             "tolerance_ev": DEFAULT_DUPLICATE_ENERGY_TOL,
@@ -345,7 +435,14 @@ def main() -> None:
     if args.save_geometries and args.skip_post_opt:
         parser.error("--save-geometries needs the post-optimization pass; drop --skip-post-opt")
 
-    from Auto3D.engines.model_factory import create_model
+    from Auto3D.engines.model_factory import ModelFactory, create_model
+    from Auto3D.engines.torch_config import TorchConfig, configure_torch
+
+    # The floor and the spreads are measured under the precision flags a
+    # production run applies when the user passes nothing: TF32 off for matmul
+    # and for cuDNN (where torch leaves it on by default), with determinism and
+    # the cuDNN autotuner left exactly as this process had them.
+    configure_torch(TorchConfig(allow_tf32=False))
 
     device = torch.device(args.device)
     is_smoke = device.type != "cuda"
@@ -376,6 +473,21 @@ def main() -> None:
             "same_composition_rerun_summary": summarize(rerun),
         }
         if not args.skip_post_opt:
+            # Untimed warm-up, one per engine before the first repeat: one
+            # whole arrangement set whose rows are discarded. It pays this
+            # engine's first-call costs (CUDA context, allocator, kernel
+            # selection, any compile) and reaches every padded width the
+            # repeats will ask for, so repeat 0 is not the one repeat carrying
+            # them. The rows are dropped rather than summarized: a pass that
+            # paid those costs is not one of the repeats being compared.
+            print(
+                f"{engine}: warm-up starting -- one discarded pass over every arrangement; "
+                "this prints nothing until it ends.",
+                file=sys.stderr,
+            )
+            post_opt_rows(model, groups, device)
+            print(f"{engine}: warm-up done.", file=sys.stderr)
+
             # Every repeat's rows are kept, each tagged with its repeat, and
             # the summary (and so the floor) runs over all of them together:
             # the quantity the tolerance has to cover is the worst any repeat
@@ -409,9 +521,18 @@ def main() -> None:
             if args.save_geometries:
                 entry["worst_geometry_check"] = geometry_checks
         entry["seconds"] = time.perf_counter() - started
+        # What the card looked like as this engine finished, so a reader can
+        # tell which engine's numbers were measured beside a co-tenant.
+        entry["gpu_state"] = gpu_state(device)
         per_engine[engine] = entry
+        # Between engines: drop every reference to this engine's adapter (the
+        # model and ModelFactory's cache -- create_model caches by default) so
+        # the next engine does not run on memory this one still holds.
         del model
+        ModelFactory.clear_cache()
+        gc.collect()
         if device.type == "cuda":
+            torch.cuda.synchronize(device)
             torch.cuda.empty_cache()
 
     gpu_state_end = gpu_state(device)

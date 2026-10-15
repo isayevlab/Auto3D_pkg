@@ -12,11 +12,20 @@ decision rule puts them.
 """
 
 import ast
+import json
+import math
+import sys
 from pathlib import Path
+
+import pytest
 
 from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 
 REPO = Path(__file__).resolve().parent.parent
+# The benchmark scripts are not part of the installed package. This is the
+# route tests/test_conformer_budget.py already takes into `benchmarks/`, taken
+# once here instead of once per call inside the helper below.
+sys.path.insert(0, str(REPO / "benchmarks"))
 
 
 def test_bench_optimizer_builds_the_optimizer_with_keywords():
@@ -71,13 +80,14 @@ def test_measure_empty_cache_builds_the_optimizer_with_keywords():
 def test_measure_batch_noise_builds_its_parser_through_the_shared_helper():
     """The batch-noise script does not spell the shared arguments its own way.
 
-    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` mean the
-    same thing in every measurement script here and come from
-    ``bench_optimization_perf.bench_arg_parser``, so two runs of two scripts
-    are invoked alike. A local ``add_argument`` for one of them would be free
-    to drift -- a different default, a missing ``type=int`` -- with nothing to
-    catch it until someone compared two records that were not measured the
-    same way.
+    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` are
+    spelled once, in ``bench_optimization_perf.bench_arg_parser``, so two runs
+    of two scripts are invoked alike. (What ``--limit`` counts is per script:
+    the first N molecules of each size group here, the first N of the flattened
+    bench set in the sibling scripts, which is why its help text is a
+    parameter.) A local ``add_argument`` for one of them would be free to drift
+    -- a different default, a missing type -- with nothing to catch it until
+    someone compared two records that were not measured the same way.
     """
     tree = ast.parse((REPO / "benchmarks" / "measure_batch_noise.py").read_text())
     calls = [
@@ -106,13 +116,10 @@ def test_measure_batch_noise_builds_its_parser_through_the_shared_helper():
 def _batch_noise_module():
     """Import the batch-noise script, which lives outside the package.
 
-    The same route ``tests/test_conformer_budget.py`` takes into
-    ``benchmarks/``, by absolute path so it does not depend on the directory
-    pytest was started from.
+    The import is inside the function, not at module level, so collecting this
+    file does not pull in torch and the bench set for the tests that only parse
+    a script.
     """
-    import sys
-
-    sys.path.insert(0, str(REPO / "benchmarks"))
     import measure_batch_noise
 
     return measure_batch_noise
@@ -174,3 +181,100 @@ def test_the_batch_noise_tolerance_verdict_writes_no_unreadable_ratio():
         "ratio": None,
         "verdict": "above twenty times the floor",
     }
+
+
+def test_the_batch_noise_row_refuses_a_non_finite_energy():
+    """A row whose arrangements did not all return a finite energy has no spread.
+
+    The optimizer's final-energy recompute writes what the model returns for
+    every row it did not retire, so a row can arrive here flagged converged in
+    all three arrangements with a non-finite energy among them. Taken at face
+    value that row's spread is NaN, every comparison against NaN is False, and
+    the floor, the ratio and the verdict are all quietly NaN while the record
+    carries a token no strict reader accepts.
+    """
+    module = _batch_noise_module()
+
+    good = module.post_opt_row("mol", 9, [-1.0, -1.5, -1.25], [True, True, True])
+    assert good["converged_everywhere"] is True
+    assert good["spread"] == 0.5
+    assert good["e_all"] == -1.0
+    assert good["ulp32"] > 0
+
+    for bad_value in (float("nan"), float("inf"), float("-inf")):
+        row = module.post_opt_row("mol", 9, [-1.0, bad_value, -1.25], [True, True, True])
+        assert row["converged_everywhere"] is False, bad_value
+        assert row["spread"] is None, bad_value
+
+    # The non-finite value is the one the row reports `e_all` and `ulp32` from.
+    first_bad = module.post_opt_row("mol", 9, [float("nan"), -1.5, -1.25], [True, True, True])
+    assert first_bad["e_all"] is None
+    assert first_bad["ulp32"] is None
+
+
+def test_the_batch_noise_summary_and_verdict_never_carry_a_non_finite_number():
+    """The summary, the verdict and the record stay readable around a NaN.
+
+    ``summarize`` takes its statistics over the finite spreads only and counts
+    what it dropped, so a single non-finite row cannot move the median or the
+    floor; ``tolerance_check`` reads a missing or non-finite floor as no floor
+    at all rather than dividing by it; and the whole record then survives
+    ``json.dumps(..., allow_nan=False)``, which is what a strict reader does.
+    """
+    module = _batch_noise_module()
+
+    assert module.spread_or_none([1.0, 1.5, 1.25]) == 0.5
+    assert module.spread_or_none([1.0, float("nan")]) is None
+    assert module.finite_or_none(float("inf")) is None
+    assert module.ulp32_or_none(float("nan")) is None
+
+    summary = module.summarize([None, float("nan"), 2e-3, 1e-3])
+    assert summary["n"] == 2
+    assert summary["dropped_non_finite"] == 2
+    assert summary["max"] == 2e-3
+    assert math.isfinite(summary["median"])
+
+    no_floor = module.tolerance_check({"n": 1, "max": float("nan")})
+    assert no_floor["floor_ev"] is None
+    assert no_floor["ratio"] is None
+    assert no_floor["verdict"] == "no floor measured (no row converged in every arrangement)"
+
+    record = {
+        "engines": {
+            "ANI2xt": {
+                "single_point": [
+                    {
+                        "e_alone": module.finite_or_none(float("nan")),
+                        "spread": module.spread_or_none([1.0, float("nan")]),
+                        "ulp32": module.ulp32_or_none(float("nan")),
+                    }
+                ],
+                "post_opt": [module.post_opt_row("mol", 9, [float("nan"), -1.0], [True, True])],
+                "post_opt_summary": summary,
+                "tolerance_check": no_floor,
+            }
+        }
+    }
+    # Raises ValueError on a NaN or an Infinity anywhere in the structure.
+    json.dumps(record, allow_nan=False)
+
+
+def test_the_shared_bench_parser_takes_only_positive_reps_and_limit():
+    """``--reps 0`` and ``--limit 0`` are command-line errors, not empty runs.
+
+    Zero repeats writes a record with no measurement in it and zero molecules
+    an empty bench set; both are worth hearing about before the model loads
+    rather than after.
+    """
+    from bench_optimization_perf import bench_arg_parser
+
+    parser = bench_arg_parser("a measurement script", reps=3, limit_help="how many molecules")
+    for flag in ("--reps", "--limit"):
+        for value in ("0", "-1"):
+            with pytest.raises(SystemExit):
+                parser.parse_args(["--out", "out.json", flag, value])
+
+    args = parser.parse_args(["--out", "out.json", "--reps", "1", "--limit", "1"])
+    assert args.reps == 1
+    assert args.limit == 1
+    assert parser.parse_args(["--out", "out.json"]).reps == 3
