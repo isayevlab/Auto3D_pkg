@@ -310,6 +310,20 @@ def test_the_thermo_calculator_sends_what_ases_own_set_wrote():
     assert torch.equal(adapter.calls[-1]["mults"], torch.tensor([2.0]))
 
 
+def test_the_thermo_calculator_sends_the_charge_ases_own_set_wrote():
+    """The charge is built from its ASE parameter for the same reason the
+    multiplicity is: ``calc.set(charge=...)`` never reaches the setter."""
+    from Auto3D.entry.ASE.thermo.calculator import Calculator, mol2atoms
+
+    adapter = FakeAdapter()
+    calc = Calculator(adapter, charge=0)
+    atoms = mol2atoms(_embedded("CC(=O)[O-]"))
+    atoms.calc = calc
+    calc.set(charge=-1)  # ASE's own parameter write, not calc.charge = -1
+    atoms.get_potential_energy()
+    assert torch.equal(adapter.calls[-1]["charges"], torch.tensor([-1.0]))
+
+
 def test_vib_hessian_hands_the_multiplicity_to_a_native_hessian():
     from Auto3D.entry.ASE.thermo.vibrations import vib_hessian
 

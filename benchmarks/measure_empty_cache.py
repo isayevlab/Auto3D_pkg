@@ -74,12 +74,8 @@ Usage::
 
 from __future__ import annotations
 
-import argparse
 import gc
-import json
-import os
 import statistics
-import subprocess
 import sys
 import tempfile
 import time
@@ -88,7 +84,20 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench_optimization_perf import SEED, SMILES, env_block  # noqa: E402
+# After the sys.path insert. `bench_optimization_perf` owns the helpers every
+# measurement script here shares: the bench set, the environment block, the
+# card snapshot, the common parser and the smoke notices.
+from bench_optimization_perf import (  # noqa: E402
+    SEED,
+    SMILES,
+    bench_arg_parser,
+    env_block,
+    gpu_state,
+    smoke_notice,
+    smoke_verdict_notice,
+    warn_if_occupied,
+    write_record,
+)
 
 N_CONFS = 10
 
@@ -116,113 +125,11 @@ def write_input(path: Path, limit: int | None = None) -> int:
     return n
 
 
-def _nvidia_smi_id(device: torch.device) -> str:
-    """Map ``device.index`` to the ``--id`` ``nvidia-smi`` needs.
-
-    ``nvidia-smi --id=N`` addresses physical enumeration and knows nothing
-    about ``CUDA_VISIBLE_DEVICES``, while torch's ``device.index`` is an
-    index into whatever ``CUDA_VISIBLE_DEVICES`` exposed. Without this, a run
-    launched the way the sibling scripts document
-    (``CUDA_VISIBLE_DEVICES=<idle> ... --device cuda:0``) would snapshot
-    physical card 0 while torch, and ``env_block``, are actually using the
-    idle card named in ``CUDA_VISIBLE_DEVICES`` -- silently inconsistent.
-    Entries in ``CUDA_VISIBLE_DEVICES`` may be plain indices or ``GPU-...``
-    UUIDs; ``nvidia-smi --id=`` accepts either.
-    """
-    index = device.index if device.index is not None else 0
-    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible:
-        entries = [e.strip() for e in visible.split(",") if e.strip()]
-        if 0 <= index < len(entries):
-            return entries[index]
-    return str(index)
-
-
-def gpu_state(device: torch.device) -> dict | None:
-    """Snapshot this card's driver, utilization, clocks, temperature and
-    memory, plus the other processes holding it (pids and memory only, no
-    process names), via ``nvidia-smi``. ``None`` on a CPU run. The resolved
-    ``nvidia-smi`` id (see :func:`_nvidia_smi_id`, which accounts for
-    ``CUDA_VISIBLE_DEVICES``) is stored too, so a reader can audit which
-    physical card was actually queried. An ``nvidia-smi`` failure (not
-    installed, no permission, ...) is reported as an ``"error"`` key rather
-    than raised, since this is a diagnostic snapshot, not something the
-    measurement should abort on by itself.
-    """
-    if device.type != "cuda":
-        return None
-    smi_id = _nvidia_smi_id(device)
-    try:
-        gpu_line = subprocess.check_output(
-            [
-                "nvidia-smi",
-                f"--id={smi_id}",
-                "--query-gpu=driver_version,utilization.gpu,clocks.sm,clocks.mem,"
-                "temperature.gpu,memory.used",
-                "--format=csv,noheader",
-            ],
-            text=True,
-        ).strip()
-        driver, util, clock_sm, clock_mem, temp, mem_used = (s.strip() for s in gpu_line.split(","))
-        apps_text = subprocess.check_output(
-            [
-                "nvidia-smi",
-                f"--id={smi_id}",
-                "--query-compute-apps=pid,used_memory",
-                "--format=csv,noheader",
-            ],
-            text=True,
-        ).strip()
-        own_pid = os.getpid()
-        other_processes = []
-        if apps_text:
-            for line in apps_text.splitlines():
-                pid_s, used_s = (s.strip() for s in line.split(","))
-                if int(pid_s) == own_pid:
-                    continue  # this script's own CUDA context, not an "other" process
-                other_processes.append({"pid": int(pid_s), "used_memory": used_s})
-    except Exception as exc:  # nvidia-smi missing, no permission, parse surprise, ...
-        return {"error": f"{type(exc).__name__}: {exc}"}
-    return {
-        "nvidia_smi_id": smi_id,
-        "driver_version": driver,
-        "utilization_gpu": util,
-        "clocks_sm": clock_sm,
-        "clocks_mem": clock_mem,
-        "temperature_gpu": temp,
-        "memory_used": mem_used,
-        "other_processes": other_processes,
-    }
-
-
-def _warn_if_occupied(state: dict | None, when: str) -> None:
-    """Print a one-line stderr warning if ``state`` (from :func:`gpu_state`)
-    shows another process already holding the card at ``when`` ("start" or
-    "end") -- the idle-card claim the whole measurement rests on.
-    """
-    if not state or "error" in state or not state.get("other_processes"):
-        return
-    print(
-        f"WARNING: {len(state['other_processes'])} other process(es) on the GPU at "
-        f"{when} of this run: {state['other_processes']}; the idle-card assumption "
-        "does not hold for this run.",
-        file=sys.stderr,
-    )
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--engines", default="AIMNET,ANI2xt")
-    parser.add_argument("--reps", type=int, default=3)
-    parser.add_argument("--out", required=True, help="JSON file to write")
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help=(
+    parser = bench_arg_parser(
+        __doc__,
+        reps=3,
+        limit_help=(
             "restrict the bench set to the first N molecules of SMILES "
             "(default: all); a small enough N collapses the set to one "
             "bucket, which exercises zero per-bucket calls and is only a "
@@ -243,15 +150,13 @@ def main() -> None:
     engines = args.engines.split(",")
 
     if is_smoke:
-        print(
-            "SMOKE RUN -- NOT A MEASUREMENT: --device is not CUDA, so every "
-            "CUDA memory statistic is skipped and the numbers below check "
-            "only that the script runs end to end.",
-            file=sys.stderr,
+        smoke_notice(
+            "--device is not CUDA, so every CUDA memory statistic is skipped "
+            "and the numbers below check only that the script runs end to end."
         )
 
     gpu_state_start = gpu_state(device)
-    _warn_if_occupied(gpu_state_start, "start")
+    warn_if_occupied(gpu_state_start, "start")
 
     config = OptimizationConfig(
         opt_steps=2000, convergence_threshold=0.01, patience=250, batchsize_atoms=1024 * 16
@@ -362,7 +267,7 @@ def main() -> None:
                 torch.cuda.reset_peak_memory_stats(device)
 
     gpu_state_end = gpu_state(device)
-    _warn_if_occupied(gpu_state_end, "end")
+    warn_if_occupied(gpu_state_end, "end")
 
     record = {
         "env": env_block(device),
@@ -374,12 +279,7 @@ def main() -> None:
         "gpu_state": {"start": gpu_state_start, "end": gpu_state_end},
         "results": results,
     }
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(record, indent=1))
-
-    if is_smoke:
-        print("SMOKE RUN -- NOT A MEASUREMENT (see above)", file=sys.stderr)
+    out = write_record(args.out, record, is_smoke=is_smoke)
 
     # flush=True throughout this block: stdout is block-buffered once it is
     # not a tty (e.g. redirected to a log file), so without it this whole
@@ -427,11 +327,7 @@ def main() -> None:
         )
     print(f"wrote {out}", flush=True)
 
-    if is_smoke:
-        print(
-            "SMOKE RUN -- NOT A MEASUREMENT: do not use these numbers for the decision.",
-            file=sys.stderr,
-        )
+    smoke_verdict_notice(is_smoke)
 
 
 if __name__ == "__main__":

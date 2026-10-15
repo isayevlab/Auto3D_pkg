@@ -462,6 +462,22 @@ def test_n_steps_records_the_step_each_row_converged_at():
     assert state["converged_step"].tolist() == [2, 5]
 
 
+def test_n_steps_rejects_an_unknown_fire_constant_set():
+    """A legacy param dict bypasses ``OptimizationConfig``'s own check, so the
+    loop names the bad value itself instead of raising a bare ``KeyError``."""
+    state = {
+        "numbers": torch.ones(1, 4, dtype=torch.long),
+        "charges": torch.zeros(1, dtype=torch.long),
+        "coord": torch.zeros(1, 4, 3),
+        "nn": _ScheduledForceNN({1: 1}),
+        "converged_mask": torch.zeros(1, dtype=torch.bool),
+        "fmax": torch.full((1,), 999.0),
+        "energy": torch.full((1,), 999.0, dtype=torch.double),
+    }
+    with pytest.raises(ValueError, match="fire_constants must be one of"):
+        n_steps(state, n=1, opttol=0.01, patience=10, fire_constants="verlet")
+
+
 def test_convergence_outcome_never_depends_on_energy_stability():
     """Energy stability alone can never converge a structure (audit M1).
 

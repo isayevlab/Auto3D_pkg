@@ -177,8 +177,8 @@ class Calculator(ase.calculators.calculator.Calculator):
             # calc_thermo call.
             self.dtype = torch.float32
         # Goes through the setters below, so each value lands in
-        # `self.parameters` -- which is what invalidates ASE's cache, and what
-        # `calculate()` reads the multiplicity from.
+        # `self.parameters` -- which is what invalidates ASE's cache, and the
+        # one place the tensors `calculate()` sends are built from.
         self.charge = charge
         self.mult = mult
 
@@ -189,8 +189,17 @@ class Calculator(ase.calculators.calculator.Calculator):
         Kept as a tensor (rather than an int) because ``calculate`` hands it
         straight to the model, and aimnet's AIMNet2 requires a 1-D per-molecule
         charge tensor.
+
+        Built from ``self.parameters['charge']`` on every read rather than kept
+        as its own attribute, for the reason given on :attr:`mult`: ASE's own
+        ``calc.set(charge=...)`` writes the parameter without passing through
+        the setter below, and a stored tensor would then be sent to the model
+        while the parameter -- the value ASE invalidates its cache on -- said
+        something else.
         """
-        return self._charge
+        return torch.tensor(
+            [float(self.parameters["charge"])], dtype=torch.float, device=self.device
+        )
 
     @charge.setter
     def charge(self, value) -> None:
@@ -202,7 +211,6 @@ class Calculator(ase.calculators.calculator.Calculator):
             scalar = int(value.reshape(-1)[0].item())
         else:
             scalar = int(value)
-        self._charge = torch.tensor([scalar], dtype=torch.float, device=self.device)
         # ASE's own parameter bookkeeping: with
         # discard_results_on_any_change=True this calls reset() -- dropping the
         # cached energy AND forces -- exactly when the value actually changes.

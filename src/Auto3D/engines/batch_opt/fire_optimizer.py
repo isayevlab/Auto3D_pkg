@@ -179,12 +179,6 @@ class FIRE:
         past_nmin = self.Nsteps > self.Nmin
         speedup = progressing & past_nmin
 
-        # ASE runs no progress test on the first step (v is zero, so v.f is
-        # zero): under that rule dt, a and Nsteps keep their values this step.
-        hold = (
-            self.first_step if self.skip_first_progress_test else torch.zeros_like(self.first_step)
-        )
-
         # Velocity mix toward normalized force direction (computed for every
         # molecule; selected below). Matches the original mixing expression.
         a3 = self.a.unsqueeze(-1).unsqueeze(-1)
@@ -221,14 +215,21 @@ class FIRE:
         nsteps_prog = torch.where(nsteps_inc, self.Nsteps + 1, self.Nsteps)
         nsteps_new = torch.where(progressing, nsteps_prog, torch.zeros_like(self.Nsteps))
 
-        # The three updates above are what this step would do under the
-        # progress test; `hold` is what keeps a first step from applying them.
-        # It is all-False unless the selected set asks for ASE's rule, so the
-        # default path computes exactly the values it always did.
-        self.dt = torch.where(hold, self.dt, dt_new)
-        self.a = torch.where(hold, self.a, a_new)
-        self.Nsteps = torch.where(hold, self.Nsteps, nsteps_new)
-        self.first_step = torch.zeros_like(self.first_step)
+        # ASE runs no progress test on the first step (v is zero, so v.f is
+        # zero): under that rule dt, a and Nsteps keep their values there,
+        # which is what the first branch selects per row. The branch is on a
+        # Python bool attribute, so the default path below assigns the three
+        # updates straight through and executes exactly the operations it did
+        # before this argument existed -- no extra tensor, no extra select.
+        if self.skip_first_progress_test:
+            self.dt = torch.where(self.first_step, self.dt, dt_new)
+            self.a = torch.where(self.first_step, self.a, a_new)
+            self.Nsteps = torch.where(self.first_step, self.Nsteps, nsteps_new)
+            self.first_step = torch.zeros_like(self.first_step)
+        else:
+            self.dt = dt_new
+            self.a = a_new
+            self.Nsteps = nsteps_new
 
         # Semi-implicit (symplectic) Euler update
         dt = self.dt.unsqueeze(-1).unsqueeze(-1)
@@ -276,6 +277,7 @@ class FIRE:
         self.dt = self.dt.index_select(0, idx)
         self.a = self.a.index_select(0, idx)
         # Subset on every path, not only when the first-step rule is in use:
-        # this tensor is one of the operands of the `torch.where` calls in the
-        # step, so a stale full-batch shape here would not stay inert.
+        # the rule is a property of the instance, while this tensor is one row
+        # per molecule, and it has to stay aligned with the rows the rest of
+        # the state keeps whether or not the step currently reads it.
         self.first_step = self.first_step.index_select(0, idx)

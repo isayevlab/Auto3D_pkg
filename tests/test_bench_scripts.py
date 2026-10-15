@@ -40,7 +40,12 @@ def test_measure_fire_constants_calls_n_steps_with_a_named_set():
     ]
     assert calls  # both the warm-up call and the timed arm
     for call in calls:
-        assert "fire_constants" in {k.arg for k in call.keywords}
+        keywords = {k.arg: k.value for k in call.keywords}
+        assert "fire_constants" in keywords
+        # A name, not a literal: a hardcoded "auto3d" here would label an arm
+        # one way and run it the other, which is the failure this test exists
+        # for -- and it would satisfy a mere "the keyword is present" check.
+        assert isinstance(keywords["fire_constants"], ast.Name)
 
 
 def test_measure_empty_cache_builds_the_optimizer_with_keywords():

@@ -459,11 +459,19 @@ def _scatter_back(
     # non-finite is the one exception, left at -1 on the same grounds as its
     # `converged_mask=False` above: it reached no geometry a step count would
     # describe, and `non_finite` is what reports it.
-    converged_step = state["converged_step"].index_select(0, active_idx)
+    #
+    # Writing -1 back for a row that is still active is not a read-modify-write
+    # of an unknown value, it restates the one value such a row can hold: a row
+    # is in `active_idx` only while `~converged_mask & ~non_finite`, and a step
+    # is stamped here exactly where `converged_mask` becomes True, so a row
+    # arriving in this call still carries the -1 it was allocated with. That
+    # makes the index_select of the old column unnecessary.
     state["converged_step"].index_copy_(
         0,
         active_idx,
-        torch.where(left_active, torch.full_like(converged_step, istep), converged_step),
+        torch.where(
+            left_active, torch.full_like(active_idx, istep), torch.full_like(active_idx, -1)
+        ),
     )
     state["fmax"].index_copy_(0, active_idx, result.fmax.to(state["fmax"].dtype))
     state["energy"].index_copy_(0, active_idx, result.energy.to(state["energy"].dtype))
@@ -591,7 +599,8 @@ def n_steps(
             (``Auto3D.foundation.constants.FIRE_CONSTANT_SETS``). Defaults to
             the set every release has run, so an omitted keyword is the
             shipped optimizer; the other set exists for
-            ``benchmarks/measure_fire_constants.py``.
+            ``benchmarks/measure_fire_constants.py``. A name no set answers to
+            raises ``ValueError``.
 
     Besides the keys it reads, this allocates three of its own in ``state``:
     ``oscillating_count``, ``non_finite`` and ``converged_step`` (full-batch
@@ -607,6 +616,16 @@ def n_steps(
 
     # Validate input state tensors before processing
     _validate_state(state)
+
+    # Checked here as well as in `OptimizationConfig.__post_init__`, because a
+    # caller handing `ensemble_opt` a hand-written param dict never passes
+    # through that class: without this the name would surface as a bare
+    # KeyError from the subscript below, naming neither the argument nor the
+    # names it accepts.
+    if fire_constants not in FIRE_CONSTANT_SETS:
+        raise ValueError(
+            f"fire_constants must be one of {sorted(FIRE_CONSTANT_SETS)}, got {fire_constants!r}"
+        )
 
     # The constants come from the named set, never from literals here: the
     # defaults of `FIRE.__init__` are the "auto3d" set, so this spelling and

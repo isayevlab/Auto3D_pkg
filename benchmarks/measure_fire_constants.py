@@ -9,8 +9,9 @@ zero. This script drives the production optimization loop
 (``Auto3D.engines.batch_opt.optimization_engine.n_steps``) at production
 settings (2000 steps, 0.01 eV/Angstrom, patience 250) once per set per
 repeat, and records how many steps each conformer needed, how many conformers
-were dropped as oscillating, how many never converged, the converged energy of
-each, and the wall clock of each arm.
+were dropped as oscillating, how many never converged, how many were retired
+with a non-finite energy, the converged energy of each, and the wall clock of
+each arm.
 
 What is compared is the optimization loop and nothing above it: the
 ``Optimizer``'s bucketing, its file reading and writing, and conformer
@@ -19,21 +20,20 @@ in the same order, padded the same way, so the only difference between two
 arms of one engine is the five constants and the first-step rule. The arm
 order alternates repeat to repeat (``auto3d`` first on even repeats, second on
 odd) so clock or thermal drift over the run, and any co-tenant arriving on the
-card, hit both arms equally.
+card, hit both arms equally. ``--reps`` therefore defaults to an even number:
+an odd count would leave one set leading once more often than the other, which
+is the asymmetry the alternation exists to remove.
 
 The comparison is within one engine only. AIMNet2 and ANI2xt differ in how
 they treat padded atom slots and in how their forces are shaped, so a number
 carried across engines would not mean anything, and this script never
 computes one.
 
-Decision rule (applied in the results note, not by this script): the default set
-changes only if, for each engine and across every repeat, the published set
-leaves no more conformers dropped as oscillating and no more unconverged than
-the current set does, its converged energies agree with the current set's
-within that engine's measured noise floor
-(``benchmarks/measure_batch_noise.py``), and its steps-to-convergence
-quantiles are lower by more than the spread across repeats. Otherwise the
-default stays as it is and nothing in ``src/`` changes.
+Decision rule (applied in the results note, not by this script): adopt the
+published set only if steps to convergence do not rise beyond the repeat
+spread, no conformer newly drops or fails to converge, and final energies agree
+within the engine's measured noise floor; otherwise the current set stays and
+its docstring cites the note.
 
 The GPU run needs a card with no other process on it: wall-clock numbers
 measured on a shared card reflect whatever else is running, not this loop.
@@ -54,18 +54,16 @@ size groups those N do not reach.
 Usage::
 
     PYTHONPATH=src python benchmarks/measure_fire_constants.py \
-        --device cuda:0 --engines AIMNET,ANI2xt --reps 3 \
+        --device cuda:0 --engines AIMNET,ANI2xt --reps 4 \
         --out benchmarks/results-notes/<date>-fire-constants.json
 
     PYTHONPATH=src python benchmarks/measure_fire_constants.py \
-        --device cpu --limit 2 --reps 1 --engines ANI2xt --out /tmp/smoke.json
+        --device cpu --limit 2 --reps 2 --engines ANI2xt --out /tmp/smoke.json
 """
 
 from __future__ import annotations
 
-import argparse
 import gc
-import json
 import math
 import statistics
 import sys
@@ -75,10 +73,21 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-# After the sys.path insert, which is what makes the two sibling scripts
-# importable at all.
-from bench_optimization_perf import SEED, SMILES, build_mols, env_block, make_state  # noqa: E402
-from measure_empty_cache import _warn_if_occupied, gpu_state  # noqa: E402
+# After the sys.path insert. `bench_optimization_perf` owns the helpers every
+# measurement script here shares: the bench set, the environment block, the
+# padded state, the card snapshot, the common parser and the smoke notices.
+from bench_optimization_perf import (  # noqa: E402
+    SEED,
+    SMILES,
+    bench_arg_parser,
+    env_block,
+    gpu_state,
+    make_state,
+    smoke_notice,
+    smoke_verdict_notice,
+    warn_if_occupied,
+    write_record,
+)
 
 # Ten conformers per molecule at one seed, as bench_bucket_policy.py's input
 # writer builds them: one conformer per molecule would measure a single
@@ -160,7 +169,8 @@ def run_arm(mols_by_group: dict[str, list], set_name: str, device, model, is_cud
     converged_step: list[int] = []
     converged: list[bool] = []
     dropped: list[bool] = []
-    energy: list[float] = []
+    non_finite: list[bool] = []
+    energy: list[float | None] = []
     wall_total = 0.0
 
     for size, mols in mols_by_group.items():
@@ -183,20 +193,28 @@ def run_arm(mols_by_group: dict[str, list], set_name: str, device, model, is_cud
 
         # `converged_mask` is True for an oscillation-dropped row too (the
         # optimizer marks every row that leaves the active set and leaves
-        # `oscillating_count` to tell the two apart), so "converged" here is
-        # the mask minus the dropped rows, and "unconverged" is neither.
-        group_dropped = (state["oscillating_count"] >= PATIENCE).tolist()
+        # `oscillating_count` to tell the two apart), so a dropped row is the
+        # mask AND the counter -- the same conjunction `batchopt._write_results`
+        # writes `Dropped_Oscillating` from, which also keeps a row retired
+        # non-finite (never in the mask) out of this column. Converged is then
+        # the mask minus those, and unconverged is a row in none of the three.
         group_mask = state["converged_mask"].tolist()
-        group_converged = [m and not d for m, d in zip(group_mask, group_dropped, strict=True)]
+        group_oscillating = (state["oscillating_count"] >= PATIENCE).tolist()
+        group_dropped = [m and o for m, o in zip(group_mask, group_oscillating, strict=True)]
+        group_converged = [m and not o for m, o in zip(group_mask, group_oscillating, strict=True)]
         group_steps = state["converged_step"].tolist()
+        group_non_finite = state["non_finite"].tolist()
         per_group[size] = {
             "wall_s": wall,
             "n_conformers": len(mols),
             "converged": sum(group_converged),
             "dropped": sum(group_dropped),
             "unconverged": sum(
-                1 for c, d in zip(group_converged, group_dropped, strict=True) if not c and not d
+                1
+                for c, d, bad in zip(group_converged, group_dropped, group_non_finite, strict=True)
+                if not c and not d and not bad
             ),
+            "non_finite": sum(group_non_finite),
             "steps": step_quantiles(
                 [s for s, c in zip(group_steps, group_converged, strict=True) if c]
             ),
@@ -204,7 +222,16 @@ def run_arm(mols_by_group: dict[str, list], set_name: str, device, model, is_cud
         converged_step.extend(group_steps)
         converged.extend(group_converged)
         dropped.extend(group_dropped)
-        energy.extend(state["energy"].tolist())
+        non_finite.extend(group_non_finite)
+        # A row retired non-finite carries the loop's NaN placeholder, and
+        # `json.dump` would write that as the bare `NaN` token, which is not
+        # JSON and which a strict reader rejects. Such a row has no energy to
+        # report, so it is recorded as null and the `non_finite` column says
+        # why.
+        energy.extend(
+            None if bad else value
+            for value, bad in zip(state["energy"].tolist(), group_non_finite, strict=True)
+        )
 
     return {
         "set": set_name,
@@ -213,6 +240,7 @@ def run_arm(mols_by_group: dict[str, list], set_name: str, device, model, is_cud
         "converged_step": converged_step,
         "converged": converged,
         "dropped": dropped,
+        "non_finite": non_finite,
         "energy": energy,
     }
 
@@ -228,37 +256,27 @@ def arm_counts(rows: list[dict]) -> dict:
     n_conformers = sum(len(row["converged"]) for row in rows)
     n_converged = sum(sum(row["converged"]) for row in rows)
     n_dropped = sum(sum(row["dropped"]) for row in rows)
+    n_non_finite = sum(sum(row["non_finite"]) for row in rows)
     return {
         "n_conformers": n_conformers,
         "converged": n_converged,
         "dropped": n_dropped,
-        "unconverged": n_conformers - n_converged - n_dropped,
+        "non_finite": n_non_finite,
+        "unconverged": n_conformers - n_converged - n_dropped - n_non_finite,
         "steps": step_quantiles(steps),
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--engines", default="AIMNET,ANI2xt")
-    parser.add_argument("--reps", type=int, default=3)
-    parser.add_argument("--out", required=True, help="JSON file to write")
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help=(
+    parser = bench_arg_parser(
+        __doc__,
+        reps=4,
+        limit_help=(
             "restrict the bench set to the first N molecules of SMILES "
             "(default: all); a small enough N leaves only the small group and "
             "is a smoke check of the script, not a measurement"
         ),
-    )
-    parser.add_argument(
-        "--sets",
-        default="auto3d,bitzek2006",
-        help="comma-separated FIRE constant set names to compare",
+        sets="auto3d,bitzek2006",
     )
     args = parser.parse_args()
 
@@ -276,38 +294,41 @@ def main() -> None:
         raise SystemExit(f"unknown constant set(s) {unknown}; known: {sorted(FIRE_CONSTANT_SETS)}")
 
     if is_smoke:
-        print(
-            "SMOKE RUN -- NOT A MEASUREMENT: --device is not CUDA, so the "
-            "numbers below check only that the script runs end to end.",
-            file=sys.stderr,
+        smoke_notice(
+            "--device is not CUDA, so the numbers below check only that the script runs end to end."
         )
 
     gpu_state_start = gpu_state(device)
-    _warn_if_occupied(gpu_state_start, "start")
+    warn_if_occupied(gpu_state_start, "start")
 
     groups = build_groups(args.limit)
     n_confs = sum(len(mols) for mols in groups.values())
-    warmup_mols = build_mols()["small"]
 
     results: dict[str, list[dict]] = {e: [] for e in engines}
     for engine in engines:
         model = create_model(engine, device)
 
-        # Untimed warm-up, one per engine, before the first timed arm, on the
-        # full step budget rather than a few steps: besides this engine's
-        # first-call costs (CUDA context, allocator, kernel selection, any
-        # compile), it has to reach the narrowing batch widths the loop
-        # produces as rows converge, since an engine that compiles per shape
-        # would otherwise pay for every one of them inside the first timed arm.
-        warm_state, warm_mask, _ = make_state(warmup_mols, len(warmup_mols), device, model)
-        n_steps(
-            warm_state,
-            MAX_STEPS,
-            OPTTOL,
-            PATIENCE,
-            atom_mask=warm_mask,
-            fire_constants=sets[0],
-        )
+        # Untimed warm-up, one per engine, before the first timed arm: over
+        # every size group the run uses, on the full step budget. Besides this
+        # engine's first-call costs (CUDA context, allocator, kernel
+        # selection, any compile), that reaches every padded width the timed
+        # arms will ask for, including the narrowing ones the loop produces as
+        # rows converge -- an engine that compiles per shape would otherwise
+        # pay for all of them inside whichever arm happens to run first.
+        # Named rather than written `sets[0]` at the call: every `n_steps` call
+        # in this script names the set it is running through a variable, which
+        # is what `tests/test_bench_scripts.py` checks.
+        warmup_set = sets[0]
+        for warmup_mols in groups.values():
+            warm_state, warm_mask, _ = make_state(warmup_mols, len(warmup_mols), device, model)
+            n_steps(
+                warm_state,
+                MAX_STEPS,
+                OPTTOL,
+                PATIENCE,
+                atom_mask=warm_mask,
+                fire_constants=warmup_set,
+            )
 
         for rep in range(args.reps):
             # Alternate which set goes first each repeat, as
@@ -323,9 +344,14 @@ def main() -> None:
                     f"{sum(row['converged'])} converged, {sum(row['dropped'])} dropped",
                     flush=True,
                 )
+                # Deliberately no `empty_cache()` between arms: releasing
+                # the allocator's segments would make the next arm regrow them
+                # from cold, which is host-side work charged to a wall clock
+                # this script already declares non-decisive. The between-engine
+                # release below is a different question -- there the point is
+                # that one engine's memory not reach the next.
                 if is_cuda:
                     torch.cuda.synchronize(device)
-                    torch.cuda.empty_cache()
 
         # Between engines: drop every reference to this engine's adapter (the
         # model and ModelFactory's cache -- create_model caches by default) so
@@ -338,7 +364,7 @@ def main() -> None:
             torch.cuda.empty_cache()
 
     gpu_state_end = gpu_state(device)
-    _warn_if_occupied(gpu_state_end, "end")
+    warn_if_occupied(gpu_state_end, "end")
 
     record = {
         "env": env_block(device),
@@ -354,22 +380,18 @@ def main() -> None:
         "gpu_state": {"start": gpu_state_start, "end": gpu_state_end},
         "results": results,
     }
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(record, indent=1))
-
-    if is_smoke:
-        print("SMOKE RUN -- NOT A MEASUREMENT (see above)", file=sys.stderr)
+    out = write_record(args.out, record, is_smoke=is_smoke)
 
     # flush=True throughout: stdout is block-buffered once it is not a tty, so
     # without it the table would print only at process exit, after the
     # unbuffered stderr notices that follow it in the source.
     print(
         "| engine | set | conformers | converged | dropped | unconverged "
-        "| steps median | steps p90 | steps p99 | steps max | wall mean +/- sd (s) |",
+        "| non-finite | steps median | steps p90 | steps p99 | steps max "
+        "| wall mean +/- sd (s) |",
         flush=True,
     )
-    print("|---|---|---|---|---|---|---|---|---|---|---|", flush=True)
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|", flush=True)
     for engine in engines:
         for set_name in sets:
             rows = [r for r in results[engine] if r["set"] == set_name]
@@ -385,7 +407,8 @@ def main() -> None:
             print(
                 f"| {engine} | {set_name} | {counts['n_conformers']} "
                 f"| {counts['converged']} | {counts['dropped']} "
-                f"| {counts['unconverged']} | {' | '.join(cells)} "
+                f"| {counts['unconverged']} | {counts['non_finite']} "
+                f"| {' | '.join(cells)} "
                 f"| {statistics.mean(walls):.3f} +/- {statistics.pstdev(walls):.3f} |",
                 flush=True,
             )
@@ -404,11 +427,7 @@ def main() -> None:
             )
     print(f"wrote {out}", flush=True)
 
-    if is_smoke:
-        print(
-            "SMOKE RUN -- NOT A MEASUREMENT: do not use these numbers for the decision.",
-            file=sys.stderr,
-        )
+    smoke_verdict_notice(is_smoke)
 
 
 if __name__ == "__main__":
