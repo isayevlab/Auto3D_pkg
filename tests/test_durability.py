@@ -381,7 +381,7 @@ class TestSameFileGuard:
             numbers = torch.zeros(n, 1, dtype=torch.long)
             charges = torch.zeros(n, dtype=torch.long)
             atom_mask = torch.ones(n, 1, dtype=torch.bool)
-            return coords, numbers, charges, atom_mask
+            return coords, numbers, charges, torch.ones(n), atom_mask
 
         monkeypatch.setattr(spe_mod, "pad_from_mols", fake_pad)
 
@@ -856,6 +856,7 @@ class TestOutputOverwriteGuard:
                 torch.zeros(n, 1, 3),
                 torch.zeros(n, 1, dtype=torch.long),
                 torch.zeros(n, dtype=torch.long),
+                torch.ones(n),
                 torch.ones(n, 1, dtype=torch.bool),
             )
 

@@ -41,7 +41,7 @@ N_REPEATS = 3
 def _single_point(model, batch, device) -> list[float]:
     from Auto3D.engines.batch_opt.padding import pad_from_mols
 
-    coord, numbers, charges, mask = pad_from_mols(batch, model, device)
+    coord, numbers, charges, _mults, mask = pad_from_mols(batch, model, device)
     energies = model.forward(coord, numbers, charges, atom_mask=mask)[0]
     return [float(x) for x in energies.detach().double().cpu()]
 

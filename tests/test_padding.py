@@ -46,7 +46,7 @@ class TestPadFromMols:
         mols = [mol1, mol2]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
+        c, s, q, _mults, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         # Methane has 5 atoms (1C + 4H), water has 3 atoms (1O + 2H)
         assert c.shape == (2, 5, 3)  # max_atoms = 5
@@ -63,7 +63,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
+        c, s, q, _mults, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         # Carbon is atomic number 6, Hydrogen is 1
         species_list = s[0].tolist()
@@ -78,7 +78,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, _ani2xt_like(), device)
+        c, s, q, _mults, mask = pad_from_mols(mols, _ani2xt_like(), device)
 
         # ANI2xt mapping: H->0, C->1, N->2, O->3, F->4, S->5, Cl->6
         species_list = s[0].tolist()
@@ -97,7 +97,7 @@ class TestPadFromMols:
         mols = [mol1, mol2]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
+        c, s, q, _mults, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         assert q[0].item() == 0  # Methane is neutral
         assert q[1].item() == -1  # Hydroxide has -1 charge
@@ -108,7 +108,7 @@ class TestPadFromMols:
         AllChem.EmbedMolecule(mol, randomSeed=42)
         device = torch.device("cpu")
 
-        _, _, q_mols, _ = pad_from_mols([mol], _aimnet_like(), device)
+        _, _, q_mols, _mults, _ = pad_from_mols([mol], _aimnet_like(), device)
         assert q_mols.dtype == torch.float32
 
     def test_coords_match_conformer(self):
@@ -119,7 +119,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
+        c, s, q, _mults, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         # Get positions from RDKit
         conf = mol.GetConformer()
@@ -151,7 +151,7 @@ class TestPadFromMols:
         mols = [mol]
         device = torch.device("cpu")
 
-        c, s, q, mask = pad_from_mols(mols, _aimnet_like(), device)
+        c, s, q, _mults, mask = pad_from_mols(mols, _aimnet_like(), device)
 
         assert c.requires_grad is False
         assert c.is_leaf
@@ -197,7 +197,7 @@ class TestAtomMaskIsExplicit:
             return m
 
         small, large = _mol("CCO"), _mol("c1ccccc1CCCCO")
-        _, _, _, atom_mask = pad_from_mols([small, large], _aimnet_like(), device)
+        _, _, _, _mults, atom_mask = pad_from_mols([small, large], _aimnet_like(), device)
 
         assert atom_mask.shape == (2, large.GetNumAtoms())
         assert atom_mask[0].sum().item() == small.GetNumAtoms()
@@ -220,7 +220,7 @@ class TestAtomMaskIsExplicit:
         small, large = _mol("CCO"), _mol("c1ccccc1CCCCO")
         # species_pad=0 collides with ANI2xt's hydrogen index. The mask must be
         # derived from atom counts, so the collision cannot matter.
-        _, species, _, atom_mask = pad_from_mols(
+        _, species, _, _mults, atom_mask = pad_from_mols(
             [small, large], _ani2xt_like(species_pad=0), device
         )
 
@@ -263,7 +263,7 @@ class TestThePadderCannotDisagreeWithTheAdapter:
 
         # Deliberately not any real engine's convention: H -> 77, C -> 88, O -> 99.
         adapter = FakeAdapter(coord_pad=-5.5, species_pad=-42, species_map={1: 77, 6: 88, 8: 99})
-        coords, species, charges, mask = pad_from_mols(
+        coords, species, charges, _mults, mask = pad_from_mols(
             self._molecules(), adapter, torch.device("cpu")
         )
 
@@ -283,7 +283,7 @@ class TestThePadderCannotDisagreeWithTheAdapter:
         assert parameters == ["mols", "adapter", "device"], parameters
 
 
-# The padder's four return values are one object with names (`PaddedBatch`), not
+# The padder's five return values are one object with names (`PaddedBatch`), not
 # four loose tensors. These two are module-level rather than in a class because
 # they pin the RETURN TYPE and its one behavior, not a padding rule: every class
 # above groups assertions about what the tensors CONTAIN.
@@ -312,8 +312,8 @@ def test_pad_from_mols_returns_a_padded_batch_with_named_fields(device):
 
     batch = pad_from_mols(_two_small_mols(), _aimnet_like(), device)
     assert isinstance(batch, PaddedBatch) and isinstance(batch, tuple)
-    assert batch.coords is batch[0] and batch.atom_mask is batch[3]
-    coords, species, charges, atom_mask = batch  # unpacking is unchanged
+    assert batch.coords is batch[0] and batch.atom_mask is batch[4]
+    coords, species, charges, mults, atom_mask = batch  # the five-way unpack
     assert batch.n_mols == 2 and coords.shape[0] == 2
 
 
@@ -325,13 +325,14 @@ def test_sub_indexes_every_field_the_same_way(device):
         part.atom_mask, batch.atom_mask[[0, 2]]
     )
     assert torch.equal(part.charges, batch.charges[[0, 2]])
+    assert torch.equal(part.mults, batch.mults[[0, 2]])
 
 
 def test_sub_refuses_a_scalar_index(device):
     """A scalar index would delete the molecule axis instead of restricting it.
 
     ``sub(0)`` used to hand back a ``PaddedBatch`` of ``(N, 3)``/``(N,)``/``()``/
-    ``(N,)`` tensors, whose ``n_mols`` then confidently reported the ATOM count
+    ``()``/``(N,)`` tensors, whose ``n_mols`` then confidently reported the ATOM count
     and whose ``atom_mask`` had no molecule axis left for ``coords[mask]`` to line
     up against, so the first symptom appeared far from the cause. A 0-d index
     tensor is the same mistake spelled differently, and a tuple is multi-axis
@@ -365,10 +366,12 @@ def test_sub_restricts_every_field_consistently_for_all_three_forms(device):
         assert torch.equal(part.coords, batch.coords[index]), index
         assert torch.equal(part.species, batch.species[index]), index
         assert torch.equal(part.charges, batch.charges[index]), index
+        assert torch.equal(part.mults, batch.mults[index]), index
         assert torch.equal(part.atom_mask, batch.atom_mask[index]), index
-        # Every field kept the molecule axis, and all four agree on its length.
+        # Every field kept the molecule axis, and all five agree on its length.
         assert part.n_mols == 2, index
         assert part.coords.shape == (2, n_atoms, 3), index
         assert part.species.shape == (2, n_atoms), index
         assert part.charges.shape == (2,), index
+        assert part.mults.shape == (2,), index
         assert part.atom_mask.shape == (2, n_atoms), index

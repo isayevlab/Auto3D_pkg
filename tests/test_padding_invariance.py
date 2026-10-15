@@ -69,7 +69,7 @@ class TestPaddingInvariance:
         # which deletes a real atomic number 0 along with the padding
         # (audit C13). Without it a padded AIMNET batch reaches the model with
         # Z=0 ghosts at the origin and returns NaN.
-        c1, s1, q1, m1 = pad_from_mols([small], model, device)
+        c1, s1, q1, _mult1, m1 = pad_from_mols([small], model, device)
         e_alone = model.forward(c1, s1, q1, atom_mask=m1)[0][0]
 
         if atol is None:
@@ -77,7 +77,7 @@ class TestPaddingInvariance:
             atol = 4 * float(np.spacing(np.float32(abs(float(e_alone)))))
 
         # Batched with a larger molecule: `small` is now padded to `large`'s size.
-        c2, s2, q2, m2 = pad_from_mols([small, large], model, device)
+        c2, s2, q2, _mult2, m2 = pad_from_mols([small, large], model, device)
         e_padded = model.forward(c2, s2, q2, atom_mask=m2)[0][0]
 
         delta = abs(float(e_alone) - float(e_padded))

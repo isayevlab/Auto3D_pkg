@@ -42,11 +42,12 @@ def _slice(
     :meth:`BatchedEnergyForce.energy_batched`, whose per-sub-batch ``compute``
     closures differ only in which call they make with the sliced arguments.
 
-    The other owner of this "index all four together" rule is
+    The other owner of this "index every per-molecule tensor together" rule is
     :meth:`Auto3D.engines.batch_opt.padding.PaddedBatch.sub`, which cannot be
-    delegated to here: it indexes ``self.atom_mask`` unconditionally, while the
-    four loose tensors this module holds have an ``atom_mask`` that may be
-    ``None``.
+    delegated to here: it indexes ``self.atom_mask`` and ``self.mults``
+    unconditionally, while the loose tensors this module holds have an
+    ``atom_mask`` that may be ``None`` -- and a ``mults`` that may be, which is
+    why each caller slices that one itself right beside this call.
 
     Returns:
         ``(coord[sub], numbers[sub], charges[sub], atom_mask[sub])``, with the
@@ -171,6 +172,8 @@ class BatchedEnergyForce(nn.Module):
         numbers: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate the energies and forces for input molecules.
 
@@ -197,12 +200,23 @@ class BatchedEnergyForce(nn.Module):
                 from a species sentinel. ``None`` means the batch is
                 unpadded, and an adapter that cannot verify that claim from the
                 tensors alone may refuse it (``AIMNet2Adapter`` does).
+            mults: Spin multiplicity per molecule, shape (B,), or ``None`` when
+                every molecule is a singlet. A singlet is never passed on: with
+                ``None`` the adapter is called without the keyword, which is
+                both what every model assumes and what an adapter written
+                before the keyword existed accepts.
 
         Returns:
             Tuple of (energies, forces) where energies has shape (B,) and
             forces has shape (B, N, 3).
         """
-        return self.model.forward(coord, numbers, charges, atom_mask=atom_mask)
+        return self.model.forward(
+            coord,
+            numbers,
+            charges,
+            atom_mask=atom_mask,
+            **({} if mults is None else {"mults": mults}),
+        )
 
     def _run_in_sub_batches(
         self, coord: torch.Tensor, compute, *, tolerate_non_finite: bool = False
@@ -492,6 +506,8 @@ class BatchedEnergyForce(nn.Module):
         numbers: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Calculate the energies and forces for input molecules in batches.
 
@@ -511,6 +527,10 @@ class BatchedEnergyForce(nn.Module):
                 call receives the mask for exactly its own molecules, which is
                 what :meth:`PaddedBatch.sub` does for a caller slicing by hand.
                 ``None`` means the batch is unpadded.
+            mults: Spin multiplicity per molecule, shape (B,), or ``None`` when
+                every molecule is a singlet. Sliced with the same molecule
+                indices as the other per-molecule tensors, and omitted from the
+                adapter call entirely when ``None``.
 
         Returns:
             Tuple of (energies, forces) concatenated across batches.
@@ -535,7 +555,14 @@ class BatchedEnergyForce(nn.Module):
         # does not need to re-sort anything.
         def _compute(sub: torch.Tensor):
             coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
-            return self(coord_s, numbers_s, charges_s, atom_mask=mask_s)
+            mults_s = None if mults is None else mults[sub]
+            return self(
+                coord_s,
+                numbers_s,
+                charges_s,
+                atom_mask=mask_s,
+                **({} if mults_s is None else {"mults": mults_s}),
+            )
 
         results = self._run_in_sub_batches(
             coord,
@@ -556,6 +583,8 @@ class BatchedEnergyForce(nn.Module):
         numbers: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Energies only, in the same sub-batches, with no backward pass.
 
@@ -592,6 +621,9 @@ class BatchedEnergyForce(nn.Module):
                 :class:`Auto3D.engines.batch_opt.padding.PaddedBatch`'s
                 ``atom_mask`` field, sliced per sub-batch exactly as in
                 :meth:`forward_batched`. ``None`` means unpadded.
+            mults: Spin multiplicity per molecule, shape (B,), or ``None`` when
+                every molecule is a singlet -- sliced and omitted exactly as in
+                :meth:`forward_batched`.
 
         Returns:
             Energies, shape (B,), in eV, **detached**. Unlike
@@ -631,7 +663,14 @@ class BatchedEnergyForce(nn.Module):
         # wants the graph either way.
         def _compute(sub: torch.Tensor):
             coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
-            return self.model.energy(coord_s, numbers_s, charges_s, atom_mask=mask_s).detach()
+            mults_s = None if mults is None else mults[sub]
+            return self.model.energy(
+                coord_s,
+                numbers_s,
+                charges_s,
+                atom_mask=mask_s,
+                **({} if mults_s is None else {"mults": mults_s}),
+            ).detach()
 
         results = self._run_in_sub_batches(
             coord,

@@ -297,8 +297,9 @@ def check_engine_supports_molecules(
         # Batched into ONE warning for the whole call instead of one per
         # molecule -- a run over a large SDF must not turn into a wall of
         # near-identical log lines -- phrased like
-        # ASE/thermo/properties.py:319-325's per-molecule warning so the two
-        # read as the same policy stated at two different granularities.
+        # `Auto3D.domain.multiplicity.resolve_multiplicity`'s per-record
+        # open-shell warning so the two read as the same policy stated at two
+        # different granularities.
         if any(a.GetNumRadicalElectrons() > 0 for mol in mol_list for a in mol.GetAtoms()):
             logger.warning(
                 "Open-shell species detected among the input molecules; %s "

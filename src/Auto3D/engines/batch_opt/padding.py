@@ -21,16 +21,16 @@ if TYPE_CHECKING:
 class PaddedBatch(NamedTuple):
     """What :func:`pad_from_mols` returns.
 
-    A ``tuple``, so ``coords, species, charges, atom_mask = pad_from_mols(...)``
-    keeps working and every existing caller is unchanged; the names are for the
-    callers that slice or forward the batch rather than consume it whole. Four
+    A ``tuple``, so ``coords, species, charges, mults, atom_mask =
+    pad_from_mols(...)`` unpacks it; the names are for the callers that slice or
+    forward the batch rather than consume it whole. Five
     loose tensors that must stay aligned on their leading axis is a shape that
     invites one of them to be indexed differently from the rest -- and the one
     most easily left behind is ``atom_mask``, the tensor whose whole purpose is
-    to say which slots are real atoms. :meth:`sub` indexes all four
+    to say which slots are real atoms. :meth:`sub` indexes all five
     together so a sub-batch cannot be built half-sliced. Today ``sub`` serves
     callers that already hold a ``PaddedBatch`` and slice it themselves; the two
-    sites that hand-index four aligned tensors the way ``sub`` would --
+    sites that hand-index the same aligned tensors the way ``sub`` would --
     ``optimization_engine.py``'s FIRE state dict and
     ``model_wrapper.py``'s per-sub-batch forward -- hold those tensors some
     other way today and would be the ones to adopt it if their state were
@@ -40,6 +40,7 @@ class PaddedBatch(NamedTuple):
     coords: torch.Tensor  # (B, N, 3) float32, leaf, requires_grad False
     species: torch.Tensor  # (B, N) long
     charges: torch.Tensor  # (B,) float32
+    mults: torch.Tensor  # (B,) float32, spin multiplicity per molecule (1.0 for a closed shell)
     atom_mask: torch.Tensor  # (B, N) bool, True for real atoms
 
     @property
@@ -57,12 +58,12 @@ class PaddedBatch(NamedTuple):
                 accepted and reinterpreted; see ``Raises``.
 
         Returns:
-            A :class:`PaddedBatch` whose four fields were all indexed with the
-            SAME ``index``. ``charges`` is one-dimensional and the other three
-            are not, which is exactly why writing the four index expressions out
-            by hand at a call site is worth removing.
+            A :class:`PaddedBatch` whose five fields were all indexed with the
+            SAME ``index``. ``charges`` and ``mults`` are one-dimensional and
+            the other three are not, which is exactly why writing the five index
+            expressions out by hand at a call site is worth removing.
 
-            A slice returns four VIEWS sharing storage with this batch, while a
+            A slice returns five VIEWS sharing storage with this batch, while a
             bool mask or an index tensor copies (that is PyTorch's rule for basic
             versus advanced indexing, not a choice made here), so an in-place
             update of a slice-derived sub-batch -- the shape the FIRE loop's
@@ -75,7 +76,7 @@ class PaddedBatch(NamedTuple):
             TypeError: ``index`` is a scalar (an ``int``, a ``bool`` or a 0-d
                 tensor) or a tuple. A scalar indexes the molecule axis AWAY
                 instead of restricting it, which would hand back a ``PaddedBatch``
-                of ``(N, 3)``/``(N,)``/``()``/``(N,)`` tensors whose ``n_mols``
+                of ``(N, 3)``/``(N,)``/``()``/``()``/``(N,)`` tensors whose ``n_mols``
                 then reports the atom count -- confidently wrong, and first
                 visible somewhere downstream. A tuple is multi-axis indexing,
                 which this single-axis method never means.
@@ -95,6 +96,7 @@ class PaddedBatch(NamedTuple):
             self.coords[index],
             self.species[index],
             self.charges[index],
+            self.mults[index],
             self.atom_mask[index],
         )
 
@@ -106,8 +108,8 @@ def pad_from_mols(
 ) -> PaddedBatch:
     """Pad molecular data directly from RDKit Mol objects.
 
-    Builds the padded coordinate, species, charge, and atom-mask tensors in a
-    single pass, avoiding intermediate per-molecule list creation.
+    Builds the padded coordinate, species, charge, multiplicity and atom-mask
+    tensors in a single pass, avoiding intermediate per-molecule list creation.
 
     Args:
         mols: List of RDKit Mol objects with conformers.
@@ -126,13 +128,20 @@ def pad_from_mols(
         device: Target device for tensors (CPU or CUDA).
 
     Returns:
-        A :class:`PaddedBatch` of (coords, species, charges, atom_mask). It is a
-        ``NamedTuple``, so positional unpacking is unchanged; the fields are:
+        A :class:`PaddedBatch` of (coords, species, charges, mults,
+        atom_mask). It is a ``NamedTuple``, so it unpacks positionally; the
+        fields are:
         - coords: Shape (batch, max_atoms, 3), dtype float32. Leaf, with
           ``requires_grad=False`` -- grad state is the CALLER'S to set, not
           this function's (see the comment at the return statement below).
         - species: Shape (batch, max_atoms), dtype long
         - charges: Shape (batch,), dtype float32 (see note below)
+        - mults: Shape (batch,), dtype float32, one spin multiplicity per
+          molecule from ``Auto3D.domain.multiplicity.resolve_multiplicity``
+          (1.0 for a closed shell). Resolved with ``warn_open_shell=False``:
+          this runs for every conformer record of a run, and the open-shell
+          notice belongs to the caller that knows how many records there are
+          (``batchopt.Optimizer`` reports it once per run).
         - atom_mask: Shape (batch, max_atoms), dtype bool, True for real atoms
           and False for padded slots. Callers must use this mask to identify
           padding rather than comparing species against ``species_pad``: a
@@ -143,6 +152,8 @@ def pad_from_mols(
           check.
     """
     from rdkit.Chem import rdmolops
+
+    from Auto3D.domain.multiplicity import resolve_multiplicity
 
     batch_size = len(mols)
     max_atoms = max(mol.GetNumAtoms() for mol in mols)
@@ -158,6 +169,7 @@ def pad_from_mols(
     species_tensor = torch.full((batch_size, max_atoms), adapter.species_pad, dtype=torch.long)
     atom_mask = torch.zeros((batch_size, max_atoms), dtype=torch.bool)
     charges = []
+    mults = []
 
     # Fill in actual values -- CPU tensors throughout this loop, no device
     # traffic yet.
@@ -171,19 +183,25 @@ def pad_from_mols(
         atom_mask[i, :n] = True
 
         charges.append(rdmolops.GetFormalCharge(mol))
+        mults.append(float(resolve_multiplicity(mol, warn_open_shell=False)))
 
     # Float (not long) to match the ASE Calculator path (ASE/thermo.py) and the
     # dtype the AIMNet2 adapter casts charges to internally; formal charges are
     # integers exactly representable in float32, and ANI models ignore charge.
     charges_tensor = torch.tensor(charges, dtype=torch.float32)
+    # Float for the same reason, and because aimnet's spin-aware models declare
+    # their `mult` input float: an integer multiplicity is exactly
+    # representable, and a model without a spin input never reads it.
+    mults_tensor = torch.tensor(mults, dtype=torch.float32)
 
     # The one H2D copy per tensor promised above. A no-op (same tensor
     # returned) when `device` is CPU, which is every fast-tier test in this
-    # repository -- the four transfers only exist when `device` is CUDA.
+    # repository -- the five transfers only exist when `device` is CUDA.
     coords_tensor = coords_tensor.to(device)
     species_tensor = species_tensor.to(device)
     atom_mask = atom_mask.to(device)
     charges_tensor = charges_tensor.to(device)
+    mults_tensor = mults_tensor.to(device)
 
     # Grad state is deliberately NOT set here (issue #18). Both production
     # callers own it themselves and neither needed this: `ensemble_opt`
@@ -202,4 +220,4 @@ def pad_from_mols(
     # ANI2x's 8-model ensemble, activations saved for a backward that
     # `energy_batched` deliberately never calls -- roughly doubling peak
     # memory for no benefit.
-    return PaddedBatch(coords_tensor, species_tensor, charges_tensor, atom_mask)
+    return PaddedBatch(coords_tensor, species_tensor, charges_tensor, mults_tensor, atom_mask)

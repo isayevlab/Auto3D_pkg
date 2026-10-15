@@ -253,6 +253,7 @@ def do_mol_thermo(
     T=STANDARD_TEMPERATURE_K,
     *,
     low_freq_cutoff_cm: float = LOW_FREQUENCY_CUTOFF_CM,
+    multiplicity: int | None = None,
 ):
     """For a RDKit mol object, calculate its thermochemistry properties.
 
@@ -280,6 +281,10 @@ def do_mol_thermo(
             ``analyze_vibrations``). 0.0 disables it and gives plain RRHO.
             Whichever value is used is recorded in the record's
             ``Thermo_convention`` property.
+        multiplicity: Spin multiplicity of this record, for the Hessian and the
+            electronic-entropy term. ``None`` resolves it from the record
+            here; ``_thermo_one_record`` passes the value it already resolved
+            so the resolver (and any warning it emits) runs once per record.
 
     Raises:
         ConfigurationError: if ``T`` is not positive.
@@ -295,14 +300,18 @@ def do_mol_thermo(
     # them via the explicit `positions=` argument, not from mol's conformer),
     # so nothing here depends on mol's conformer being in sync yet.
     coord = atoms.get_positions()
+    # Resolved BEFORE the Hessian: a spin-aware model needs the multiplicity to
+    # build it, so the frequencies and the electronic-entropy term below are
+    # the same spin state rather than two.
+    if multiplicity is None:
+        multiplicity = resolve_multiplicity(mol)
     # atoms.get_calculator() is deprecated since ase 3.22.1; use `.calc`
     # (Minor 6, same rationale as the set_calculator() call above).
-    vib = vib_hessian(mol, atoms.calc, adapter, device, positions=coord)
+    vib = vib_hessian(mol, atoms.calc, adapter, device, positions=coord, multiplicity=multiplicity)
     e = atoms.get_potential_energy()
     geometry = _detect_geometry(atoms)
     symmetry = _symmetry_number(mol)
 
-    multiplicity = resolve_multiplicity(mol)
     spin = (multiplicity - 1) / 2.0
 
     name = record_name(mol)
@@ -545,9 +554,13 @@ def _thermo_one_record(
     # object -- otherwise the optimization and the Hessian/thermo stages
     # would silently disagree on atomic mass for isotopically labeled input.
     charge = rdmolops.GetFormalCharge(mol)
+    # Resolved once here and threaded into do_mol_thermo, so a record whose
+    # 'multiplicity' property is defective is reported once rather than twice.
+    multiplicity = resolve_multiplicity(mol)
     atoms = mol2atoms(mol)
 
     calculator.set_charge(charge)
+    calculator.set_mult(multiplicity)
     # atoms.set_calculator() is deprecated since ase 3.22.1; use `.calc`
     # (Minor 6, same rationale as vib_hessian's call above).
     atoms.calc = calculator
@@ -606,7 +619,13 @@ def _thermo_one_record(
             return mol
 
         mol = do_mol_thermo(
-            mol, atoms, hessian_adapter, device, T, low_freq_cutoff_cm=low_freq_cutoff_cm
+            mol,
+            atoms,
+            hessian_adapter,
+            device,
+            T,
+            low_freq_cutoff_cm=low_freq_cutoff_cm,
+            multiplicity=multiplicity,
         )
         # do_mol_thermo writes the verdict: "" for a minimum, or
         # "transition_state" for a confirmed saddle point, whose

@@ -56,8 +56,9 @@ class Calculator(ase.calculators.calculator.Calculator):
     both arguments reads them off the model's own parameters, and falls back
     to CPU/float32 for a model that has none.
 
-    The molecular charge is part of the calculator's own ASE state
-    (``self.parameters['charge']``), not a bare attribute the caller mutates.
+    The molecular charge and the spin multiplicity are part of the calculator's
+    own ASE state (``self.parameters['charge']``, ``self.parameters['mult']``),
+    not bare attributes the caller mutates.
     ASE decides whether a cached ``energy``/``forces`` may be reused by calling
     ``check_state``, which delegates to ``compare_atoms`` and compares only
     positions, atomic numbers, cell and pbc -- the charge is invisible to it.
@@ -78,14 +79,15 @@ class Calculator(ase.calculators.calculator.Calculator):
     """
 
     implemented_properties = ["energy", "forces"]
-    #: A change to any parameter (there is exactly one, ``charge``) makes every
-    #: cached result stale, so let ASE's ``Calculator.set`` call ``reset()``.
+    #: A change to any parameter (there are two, ``charge`` and ``mult``) makes
+    #: every cached result stale, so let ASE's ``Calculator.set`` call
+    #: ``reset()``.
     discard_results_on_any_change = True
-    #: Declared so ``self.parameters`` always carries a charge entry, even
-    #: before the first assignment in ``__init__``.
-    default_parameters = {"charge": 0}
+    #: Declared so ``self.parameters`` always carries a charge and a
+    #: multiplicity entry, even before the first assignment in ``__init__``.
+    default_parameters = {"charge": 0, "mult": 1}
 
-    def __init__(self, adapter: ModelAdapter, charge=0, *, device=None, dtype=None):
+    def __init__(self, adapter: ModelAdapter, charge=0, mult=1, *, device=None, dtype=None):
         """Wrap a model adapter as an ASE calculator.
 
         Args:
@@ -98,6 +100,9 @@ class Calculator(ase.calculators.calculator.Calculator):
                 and one relaxation later.
             charge: Molecular charge. See the class docstring for why this is
                 ASE parameter state and not a bare attribute.
+            mult: Spin multiplicity (2S+1). ASE parameter state for the same
+                reason the charge is: two records with the same geometry and
+                different spin states must not share one cached result.
             device: Device for the ASE-facing tensors. ``None`` reads it off the
                 model's parameters, falling back to CPU.
             dtype: dtype for the ASE-facing tensors. ``None`` reads it off the
@@ -160,9 +165,10 @@ class Calculator(ase.calculators.calculator.Calculator):
             # precision and built the Hessian on it at another, inside a single
             # calc_thermo call.
             self.dtype = torch.float32
-        # Goes through the `charge` setter below, so `self.parameters['charge']`
-        # and the tensor `calculate()` reads are populated from one place.
+        # Goes through the setters below, so `self.parameters` and the tensors
+        # `calculate()` reads are each populated from one place.
         self.charge = charge
+        self.mult = mult
 
     @property
     def charge(self) -> torch.Tensor:
@@ -198,6 +204,41 @@ class Calculator(ase.calculators.calculator.Calculator):
         """
         self.charge = charge
 
+    @property
+    def mult(self) -> torch.Tensor:
+        """Spin multiplicity as a ``(1,)`` float tensor on ``self.device``.
+
+        A tensor for the same reason the charge is one: ``calculate`` hands it
+        straight to the model, and a spin-aware AIMNet2 model wants a 1-D
+        per-molecule value.
+        """
+        return self._mult
+
+    @mult.setter
+    def mult(self, value) -> None:
+        # Accepts an int/float or a tensor, as the charge setter does, so every
+        # assignment reaches `self.parameters` and invalidates the cache.
+        if isinstance(value, torch.Tensor):
+            scalar = int(value.reshape(-1)[0].item())
+        else:
+            scalar = int(value)
+        self._mult = torch.tensor([float(scalar)], dtype=torch.float, device=self.device)
+        # Same ASE bookkeeping as the charge: with
+        # discard_results_on_any_change=True this drops the cached energy AND
+        # forces when the value actually changes. Geometry alone does not
+        # distinguish a doublet from a singlet, so without this a radical and
+        # its closed-shell shadow would share one result.
+        self.set(mult=scalar)
+
+    def set_mult(self, mult: int) -> None:
+        """Set the spin multiplicity, discarding any result cached at the old one.
+
+        The sibling of :meth:`set_charge`, and necessary for the same reason:
+        ASE's cache-validity test looks at positions, numbers, cell and pbc, so
+        a changed spin state is invisible to it.
+        """
+        self.mult = mult
+
     def calculate(
         self, atoms=None, properties=None, system_changes=ase.calculators.calculator.all_changes
     ):
@@ -221,7 +262,10 @@ class Calculator(ase.calculators.calculator.Calculator):
         species = species.unsqueeze(0)
         coordinates = coordinates.unsqueeze(0)
 
-        energy, forces = self.adapter.forward(coordinates, species, self.charge)
+        # A singlet is never passed: multiplicity 1 is what every model assumes,
+        # so the keyword is omitted and this call is the one it always was.
+        extra = {} if int(self._mult.item()) == 1 else {"mults": self._mult}
+        energy, forces = self.adapter.forward(coordinates, species, self.charge, **extra)
         self.results["energy"] = energy.item()
         self.results["forces"] = forces.squeeze(0).to("cpu").numpy()
 

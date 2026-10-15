@@ -87,7 +87,9 @@ def calc_spe(
     # both pad values, so the remap and the sentinel cannot come from
     # different places and contradict each other, the way handing over
     # `model_name` alongside the adapter's two pads separately would allow.
-    coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(mols, model_adapter, device)
+    coord_padded, numbers_padded, charges, _mults, atom_mask = pad_from_mols(
+        mols, model_adapter, device
+    )
 
     # Energies only. Calling `forward_batched` and discarding the forces it
     # returns would run a full backward pass for every single-point energy,

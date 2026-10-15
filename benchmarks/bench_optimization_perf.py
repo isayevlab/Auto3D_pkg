@@ -204,7 +204,7 @@ def make_state(
     from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 
     picked = [mols[i % len(mols)] for i in range(batch)]
-    coord, numbers, charges, atom_mask = pad_from_mols(picked, model, device)
+    coord, numbers, charges, _mults, atom_mask = pad_from_mols(picked, model, device)
     coord = coord.detach().to(dtype=torch.float, device=device)
     size = coord.shape[0]
     state = {

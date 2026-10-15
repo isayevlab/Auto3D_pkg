@@ -208,6 +208,7 @@ class BaseModelAdapter(ABC, nn.Module):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """The backend's energies, graph-connected to ``coords``, at the dtype it produces.
 
@@ -228,6 +229,11 @@ class BaseModelAdapter(ABC, nn.Module):
         ``_energy_graph`` override must not call ``self.forward()`` unless
         ``forward`` is also overridden, because the base ``forward`` calls this
         hook and the cycle recurses with no diagnosis.
+
+        ``mults`` is the spin multiplicity per molecule. A backend that READS it
+        must accept the keyword; one that has no spin input accepts and ignores
+        it, because ``energy`` and ``forward`` above pass it on whenever their
+        own caller supplied one.
         """
         raise NotImplementedError(
             f"{type(self).__name__} must override _energy_graph (the backend's "
@@ -242,6 +248,8 @@ class BaseModelAdapter(ABC, nn.Module):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Energies only, graph-connected; never narrower than ``coords``' dtype.
 
@@ -262,8 +270,18 @@ class BaseModelAdapter(ABC, nn.Module):
         ``torch.autograd.grad`` call to compute forces that a pure energy
         request never asked for. No ``no_grad`` either: a Hessian caller
         needs the graph; a caller that does not wraps its own call site.
+
+        Args:
+            coords: Atomic coordinates (batch, n_atoms, 3).
+            species: Atomic numbers or indexed species (batch, n_atoms).
+            charges: Molecular charges (batch,).
+            atom_mask: Boolean (batch, n_atoms), True for real atoms.
+            mults: spin multiplicity per molecule, (batch,), or None when every
+                molecule is a singlet; backends without a spin input ignore it.
         """
-        return self._energy_graph(coords, species, charges, atom_mask)
+        return self._energy_graph(
+            coords, species, charges, atom_mask, **({} if mults is None else {"mults": mults})
+        )
 
     def forward(
         self,
@@ -271,6 +289,8 @@ class BaseModelAdapter(ABC, nn.Module):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Energies and forces: the one tail every backend shares.
 
@@ -295,6 +315,8 @@ class BaseModelAdapter(ABC, nn.Module):
                 through from :func:`Auto3D.engines.batch_opt.padding.pad_from_mols`
                 to the backend; most backends ignore it because their padding
                 index is their own dummy-atom sentinel.
+            mults: spin multiplicity per molecule, (batch,), or None when every
+                molecule is a singlet; backends without a spin input ignore it.
 
         Returns:
             Tuple of (energies, forces); energies (batch,), forces
@@ -303,7 +325,16 @@ class BaseModelAdapter(ABC, nn.Module):
         input_dtype = coords.dtype
         coords_in, charges_in = self._model_inputs(coords, charges)
         coords_in = coords_in.requires_grad_(True)
-        energy = self._energy_graph(coords_in, species, charges_in, atom_mask)
+        # A singlet is never passed on: with `mults is None` the hook is called
+        # without the keyword, so a backend hook written before the keyword
+        # existed still works unchanged.
+        energy = self._energy_graph(
+            coords_in,
+            species,
+            charges_in,
+            atom_mask,
+            **({} if mults is None else {"mults": mults}),
+        )
         # create_graph=False (default): no second-order graph.
         grad = torch.autograd.grad([energy.sum()], [coords_in], create_graph=False)[0]
         forces = -grad
@@ -316,6 +347,8 @@ class BaseModelAdapter(ABC, nn.Module):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor | None:
         """No native second derivative: differentiate :meth:`energy` instead.
 
@@ -328,6 +361,11 @@ class BaseModelAdapter(ABC, nn.Module):
 
         See :meth:`Auto3D.engines.models.contract.ModelAdapter.analytic_hessian`: this
         must never be used to swallow a failed native Hessian into ``None``.
+
+        ``mults`` is accepted here, where it is unused, so a spin-aware
+        subclass can use it without the Hessian caller having to ask which
+        adapter it holds: the capability query and the spin input travel
+        together or not at all.
         """
         return None
 

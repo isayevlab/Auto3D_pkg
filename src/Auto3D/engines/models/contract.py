@@ -251,6 +251,8 @@ class ModelAdapter(Protocol):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies and forces.
 
@@ -265,6 +267,13 @@ class ModelAdapter(Protocol):
                 any caller that passes a PADDED batch; ``None`` means every
                 slot holds a real atom. An adapter must never re-derive this by
                 comparing ``species`` against ``species_pad``.
+            mults: Spin multiplicity per molecule (batch,), or ``None`` when
+                every molecule is a singlet -- which is what every model
+                assumes, so a caller with no spin state to declare passes
+                nothing and a backend with no spin input accepts and ignores
+                the keyword. Added in 3.2.2: an adapter written against the
+                3.2.1 signature is still a conforming consumer for a caller
+                that does not pass it.
 
         Returns:
             Tuple of (energies, forces) where energies has shape (batch,)
@@ -308,6 +317,8 @@ class ModelAdapter(Protocol):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute energies only, graph-connected and never narrower than ``coords``' dtype.
 
@@ -328,6 +339,7 @@ class ModelAdapter(Protocol):
             species: Species in this adapter's own convention (batch, n_atoms).
             charges: Molecular charges (batch,).
             atom_mask: As for :meth:`forward`.
+            mults: As for :meth:`forward`.
 
         Returns:
             Energies, shape (batch,), in eV.
@@ -339,6 +351,8 @@ class ModelAdapter(Protocol):
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor | None:
         """This model's own analytic Hessian, or ``None``.
 

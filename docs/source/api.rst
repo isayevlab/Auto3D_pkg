@@ -87,12 +87,15 @@ starts:
 
 The second is what :func:`~Auto3D.engines.model_factory.create_model` returns.
 Its **consumer half** is public and frozen: ``forward(coords, species, charges,
-atom_mask=None)`` returning ``(energies, forces)`` in eV, ``energy(coords,
-species, charges, atom_mask=None)`` returning graph-connected energies never
-narrower than the dtype of ``coords`` (no silent downcast -- a backend that
-computes wider may still return wider; AIMNet2 returns float64 energies
-whatever dtype it is handed), and ``to_species(atomic_numbers)``. Code that
-calls a model Auto3D built may rely on those three. Every other member
+atom_mask=None, mults=None)`` returning ``(energies, forces)`` in eV,
+``energy(coords, species, charges, atom_mask=None, mults=None)`` returning
+graph-connected energies never narrower than the dtype of ``coords`` (no
+silent downcast -- a backend that computes wider may still return wider;
+AIMNet2 returns float64 energies whatever dtype it is handed), and
+``to_species(atomic_numbers)``. Code that calls a model Auto3D built may rely
+on those three. ``mults`` (3.2.2) is the spin multiplicity per molecule, or
+``None`` when every molecule is a singlet; a backend without a spin input
+ignores it, and a caller written against 3.2.1 is unaffected. Every other member
 (``analytic_hessian``, ``to_double``, the two padding attributes) is supplied by
 ``Auto3D.engines.models.adapter.BaseModelAdapter`` and may change between
 releases; only Auto3D's own adapters implement the interface.

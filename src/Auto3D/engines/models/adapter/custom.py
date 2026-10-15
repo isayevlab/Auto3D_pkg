@@ -89,9 +89,13 @@ class CustomModelAdapter(BaseModelAdapter):
         # internally (class docstring). energy() does not pass through here.
         return coords.float(), charges.float()
 
-    def _energy_graph(self, coords, species, charges, atom_mask=None):
+    def _energy_graph(self, coords, species, charges, atom_mask=None, mults=None):
         """The published contract is ``forward(species, coords, charges)`` -- species FIRST;
         ``charges`` follows ``coords``' dtype so a model that concatenates them does not mismatch.
+
+        ``atom_mask`` and ``mults`` are unused: the published custom-NNP
+        contract has three inputs, so a custom model is never handed a spin
+        multiplicity and evaluates every molecule the way it always did.
 
         The returned shape is checked here, on every call, rather than with a
         synthetic forward at load time: executing the user's model has

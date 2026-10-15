@@ -73,8 +73,14 @@ def test_module_all_declared():
 
 
 CONSUMER_HALF = {
-    "forward": (["self", "coords", "species", "charges", "atom_mask"], {"atom_mask": None}),
-    "energy": (["self", "coords", "species", "charges", "atom_mask"], {"atom_mask": None}),
+    "forward": (
+        ["self", "coords", "species", "charges", "atom_mask", "mults"],
+        {"atom_mask": None, "mults": None},
+    ),
+    "energy": (
+        ["self", "coords", "species", "charges", "atom_mask", "mults"],
+        {"atom_mask": None, "mults": None},
+    ),
     "to_species": (["self", "atomic_numbers"], {}),
 }
 

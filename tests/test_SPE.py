@@ -350,6 +350,7 @@ def test_calc_spe_uses_model_factory(tmp_path, monkeypatch):
             torch.zeros(n, 1, 3),
             torch.zeros(n, 1, dtype=torch.long),
             torch.zeros(n, dtype=torch.long),
+            torch.ones(n),
             torch.ones(n, 1, dtype=torch.bool),
         )
 

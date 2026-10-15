@@ -10,6 +10,9 @@ import torch
 from Auto3D.engines.models.adapter.base import BaseModelAdapter
 from Auto3D.engines.models.adapter.validation import _validate_outputs
 from Auto3D.engines.models.availability import require_aimnet
+from Auto3D.foundation.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class AIMNet2Adapter(BaseModelAdapter):
@@ -62,12 +65,44 @@ class AIMNet2Adapter(BaseModelAdapter):
         calc = AIMNet2Calculator(model_name, device=device, compile_model=compile_model)
         super().__init__(calc.model, device, coord_pad=0.0, species_pad=0, compile_model=False)
         self._calc = calc
+        # One warning per adapter instance when an open-shell molecule reaches a
+        # one-channel model; see _with_spin.
+        self._warned_open_shell = False
+
+    def _with_spin(self, data: dict, mults: torch.Tensor | None) -> dict:
+        """Add aimnet's ``mult`` input for an NSE model; warn once if a one-channel model is asked for an open shell.
+
+        An NSE model (two charge channels) requires ``mult`` and raises without
+        it, so a batch of singlets is filled with ones. A one-channel model never
+        reads ``mult``, so it is not sent; a multiplicity above 1 there means the
+        molecule is evaluated as a closed shell, which the warning says once.
+        ``mult`` takes the dtype and device of the ``charge`` entry already in
+        ``data``, whatever the caller built it from.
+        """
+        charge = data["charge"]
+        if self._calc.is_nse:
+            mult = (
+                torch.ones_like(charge)
+                if mults is None
+                else mults.to(device=charge.device, dtype=charge.dtype)
+            )
+            data["mult"] = mult
+        elif mults is not None and not self._warned_open_shell and bool((mults > 1.0).any()):
+            self._warned_open_shell = True
+            logger.warning(
+                "%s has one charge channel and evaluates an open-shell molecule as a closed shell; "
+                "select aimnet2-nse to use the spin multiplicity.",
+                self.model_name,
+            )
+        return data
 
     def analytic_hessian(
         self,
         coords: torch.Tensor,
         species: torch.Tensor,
         charges: torch.Tensor,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """AIMNet2's native analytic Hessian, through the FULL energy pipeline.
 
@@ -94,13 +129,17 @@ class AIMNet2Adapter(BaseModelAdapter):
                 received (no dtype coercion): the calculator prepares its own
                 input tensors, and casting here would change the numbers this
                 path has always produced.
+            mults: spin multiplicity, (1,), or None when the molecule is a
+                singlet. A spin-aware model builds its Hessian at this
+                multiplicity, so the vibrational frequencies of an open-shell
+                record belong to the same spin state as its energy.
 
         Returns:
             Hessian in eV/A^2, shape ``(n_atoms, 3, n_atoms, 3)`` as aimnet
             returns it.
         """
         result = self._calc(
-            {"coord": coords, "numbers": species, "charge": charges},
+            self._with_spin({"coord": coords, "numbers": species, "charge": charges}, mults),
             hessian=True,
         )
         return result["hessian"]
@@ -137,6 +176,8 @@ class AIMNet2Adapter(BaseModelAdapter):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        *,
+        mults: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute energies (eV) and forces (eV/A) for a padded batch.
 
@@ -152,6 +193,12 @@ class AIMNet2Adapter(BaseModelAdapter):
                 a real atom, which is what the unpadded single-molecule callers
                 (``ASE/thermo.py``'s ASE Calculator, ``auto3d models test``)
                 want.
+            mults: spin multiplicity per molecule, (batch,), or ``None`` when
+                every molecule is a singlet. A spin-aware model (two charge
+                channels) receives this value, filled with ones when it is
+                ``None``, because it requires one; a one-channel model receives
+                nothing and evaluates the molecule as a closed shell. See
+                :meth:`_with_spin`.
 
         Returns:
             (energy[batch], forces[batch, n_atoms, 3]) in eV and eV/A. Padded
@@ -220,12 +267,15 @@ class AIMNet2Adapter(BaseModelAdapter):
         mol_idx = torch.arange(b, device=species.device).unsqueeze(1).expand(b, n)[mask]  # (M,)
 
         result = self._calc(
-            {
-                "coord": coord_flat,
-                "numbers": numbers_flat,
-                "charge": charges.to(coord_flat.dtype),
-                "mol_idx": mol_idx,
-            },
+            self._with_spin(
+                {
+                    "coord": coord_flat,
+                    "numbers": numbers_flat,
+                    "charge": charges.to(coord_flat.dtype),
+                    "mol_idx": mol_idx,
+                },
+                mults,
+            ),
             forces=True,
         )
         energy = result["energy"].reshape(-1).to(torch.double)  # (B,)
@@ -242,6 +292,7 @@ class AIMNet2Adapter(BaseModelAdapter):
         species: torch.Tensor,
         charges: torch.Tensor,
         atom_mask: torch.Tensor | None = None,
+        mults: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """``forward``'s first output: the only way to reach AIMNet2's energy.
 
@@ -256,5 +307,9 @@ class AIMNet2Adapter(BaseModelAdapter):
         ``energy`` to work, so it has to state it directly. The energy it
         returns is an fp64 upcast (see the class docstring), not a
         dtype-preserving pass-through.
+
+        ``mults`` goes straight on to ``forward``, which is what gives
+        ``energy`` -- and so the autograd Hessian path and the single-point
+        energy -- the same spin state the optimizer's forces were computed at.
         """
-        return self.forward(coords, species, charges, atom_mask)[0]
+        return self.forward(coords, species, charges, atom_mask, mults=mults)[0]

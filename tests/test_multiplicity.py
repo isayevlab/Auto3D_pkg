@@ -197,7 +197,8 @@ class TestDerivedMultiplicityIsAlsoChecked:
     derived from the radical-electron count was returned unchecked -- and 2S+1
     requires odd multiplicity for an even-electron species, even for an odd-electron
     one, which the radical count can violate when the drawing hides an open shell.
-    Getting it wrong is worth R*ln 3 = 0.65 kcal/mol in T*S_elec.
+    Getting it wrong is worth RT ln((m+1)/m) or RT ln(m/(m-1)) in T*S_elec --
+    0.41 kcal/mol at 298 K for a doublet taken for a singlet.
 
     RDKit re-derives radical electrons on sanitization and is self-consistent for
     every ordinary species (checked: CH2, CH3, O2, N, ethanol), which is why this

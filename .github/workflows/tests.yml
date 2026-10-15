@@ -175,6 +175,7 @@ jobs:
           from Auto3D.engines.model_factory import create_model
           try:
               create_model("AIMNET", torch.device("cpu"))
+              create_model("aimnet2-nse", torch.device("cpu"))
           except Exception as exc:
               print(f"::warning::AIMNet2 model unavailable on this attempt: {exc}")
               sys.exit(1)

@@ -109,8 +109,9 @@ class ANI2xtAdapter(BaseModelAdapter):
         """
         return to_ani2xt_species(atomic_numbers)
 
-    def _energy_graph(self, coords, species, charges, atom_mask=None):
-        """ANI2xt's float64 totals; ``charges`` and ``atom_mask`` are unused (its padding index is -1)."""
+    def _energy_graph(self, coords, species, charges, atom_mask=None, mults=None):
+        """ANI2xt's float64 totals; ``charges``, ``atom_mask`` and ``mults`` are unused
+        (its padding index is -1, and it has no spin input)."""
         return self._call_model(species, coords)
 
     def _call_model(self, species: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
@@ -183,7 +184,10 @@ class ANI2xAdapter(BaseModelAdapter):
         # energy() still answers a float64 request in float64 (issue #5).
         return coords.float(), charges.float()
 
-    def _energy_graph(self, coords, species, charges, atom_mask=None):
+    def _energy_graph(self, coords, species, charges, atom_mask=None, mults=None):
         """torchani's energies in eV at the dtype it produces: its float32 self-energy
-        buffer, so a total above |E| ~ 2e4 eV is quantized at 2-4e-3 eV (torchani 2.8.4)."""
+        buffer, so a total above |E| ~ 2e4 eV is quantized at 2-4e-3 eV (torchani 2.8.4).
+
+        ``charges``, ``atom_mask`` and ``mults`` are unused: ANI2x has no charge
+        and no spin input, and its padding index is -1."""
         return self.model((species, coords)).energies * HARTREE_TO_EV

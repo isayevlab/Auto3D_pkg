@@ -54,7 +54,7 @@ class FakeAdapter:
         self.species_map = species_map
         self._energy_fn = energy_fn
         self._hessian = hessian
-        #: Recorded ``(coords_dtype, species, charges)`` per forward/energy call.
+        #: Recorded ``(coords_dtype, atom_mask, mults)`` per forward/energy call.
         self.calls: list[dict] = []
 
     # -- the species half of the contract ---------------------------------
@@ -69,21 +69,25 @@ class FakeAdapter:
             return self._energy_fn(coords, species, charges)
         return coords.pow(2).sum(dim=(1, 2))
 
-    def forward(self, coords, species, charges, atom_mask=None):
-        self.calls.append({"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "forward"})
+    def forward(self, coords, species, charges, atom_mask=None, *, mults=None):
+        self.calls.append(
+            {"dtype": coords.dtype, "atom_mask": atom_mask, "mults": mults, "kind": "forward"}
+        )
         coords = coords if coords.requires_grad else coords.detach().requires_grad_(True)
         energy = self._energies(coords, species, charges)
         grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
         return energy, -grad
 
-    def energy(self, coords, species, charges, atom_mask=None):
+    def energy(self, coords, species, charges, atom_mask=None, *, mults=None):
         """Energies at the dtype of ``coords`` -- deliberately no downcast."""
-        self.calls.append({"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "energy"})
+        self.calls.append(
+            {"dtype": coords.dtype, "atom_mask": atom_mask, "mults": mults, "kind": "energy"}
+        )
         return self._energies(coords, species, charges)
 
-    def analytic_hessian(self, coords, species, charges):
+    def analytic_hessian(self, coords, species, charges, *, mults=None):
         """The Hessian capability, ``None`` unless one was supplied."""
-        self.calls.append({"dtype": coords.dtype, "kind": "analytic_hessian"})
+        self.calls.append({"dtype": coords.dtype, "mults": mults, "kind": "analytic_hessian"})
         return self._hessian
 
     def to_double(self) -> None:
@@ -148,12 +152,14 @@ class AdapterModuleMixin:
 def padded_batch(n_mols: int = 2, n_atoms: int = 3) -> PaddedBatch:
     """A :class:`~Auto3D.engines.batch_opt.padding.PaddedBatch` of the right shapes.
 
-    The real :class:`PaddedBatch` rather than a bare 4-tuple, so a caller that
+    The real :class:`PaddedBatch` rather than a bare tuple, so a caller that
     reads ``.atom_mask`` or calls ``.sub()`` behaves here as it does in
-    production; unpacking it positionally works identically either way.
+    production; unpacking it positionally works identically either way. Every
+    molecule is a singlet, which is what a batch of ordinary closed-shell
+    records resolves to.
     """
     coords = torch.zeros(n_mols, n_atoms, 3)
     species = torch.ones(n_mols, n_atoms, dtype=torch.long)
     charges = torch.zeros(n_mols)
     atom_mask = torch.ones(n_mols, n_atoms, dtype=torch.bool)
-    return PaddedBatch(coords, species, charges, atom_mask)
+    return PaddedBatch(coords, species, charges, torch.ones(len(charges)), atom_mask)
