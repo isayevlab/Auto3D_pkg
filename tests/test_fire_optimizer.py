@@ -55,6 +55,45 @@ class TestFIREInitialization:
         assert optimizer.astart == 0.1
         assert optimizer.fa == 0.99
 
+    def test_the_published_constant_set_matches_bitzek_2006_and_ase(self):
+        from Auto3D.foundation.constants import FIRE_CONSTANT_SETS
+
+        coord = torch.zeros(2, 4, 3)
+        optimizer = FIRE(coord, **FIRE_CONSTANT_SETS["bitzek2006"])
+        assert (
+            optimizer.dt_max,
+            optimizer.maxstep,
+            optimizer.finc,
+            optimizer.fdec,
+            optimizer.astart,
+        ) == (1.0, 0.2, 1.1, 0.5, 0.1)
+        # dt_init, not dt_max; approx because dt is a float32 tensor.
+        assert optimizer.dt.tolist() == pytest.approx([0.1, 0.1])
+        assert FIRE_CONSTANT_SETS["auto3d"] == {
+            "dt_max": 0.1,
+            "maxstep": 0.1,
+            "finc": 1.5,
+            "fdec": 0.7,
+            "astart": 0.1,
+            "dt_init": 0.1,
+            "skip_first_progress_test": False,
+        }
+
+    def test_the_published_set_leaves_dt_alone_on_the_first_step(self):
+        """ASE's FIRE runs no progress test on the first step (v is zero, so
+        v.f is zero and would count as "not progressing"); the current set
+        decrements dt there, which the trajectory test pins. Both are pinned."""
+        from Auto3D.foundation.constants import FIRE_CONSTANT_SETS
+
+        coord = torch.zeros(1, 2, 3)
+        forces = torch.ones(1, 2, 3)
+        published = FIRE(coord, **FIRE_CONSTANT_SETS["bitzek2006"])
+        published(coord, forces)
+        assert published.dt.item() == pytest.approx(0.1)
+        current = FIRE(coord)
+        current(coord, forces)
+        assert current.dt.item() == pytest.approx(0.1 * 0.7)
+
 
 class TestFIREStep:
     """Tests for FIRE optimizer step function."""

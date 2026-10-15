@@ -296,6 +296,20 @@ def test_the_thermo_calculator_passes_the_multiplicity_only_above_one():
     assert torch.equal(adapter.calls[-1]["mults"], torch.tensor([2.0]))
 
 
+def test_the_thermo_calculator_sends_what_ases_own_set_wrote():
+    """``calc.set(mult=...)`` bypasses the property setter, so the tensor
+    ``calculate`` sends has to come from the parameter, not from a copy."""
+    from Auto3D.entry.ASE.thermo.calculator import Calculator, mol2atoms
+
+    adapter = FakeAdapter()
+    calc = Calculator(adapter, charge=0)
+    atoms = mol2atoms(_embedded("[CH3]"))
+    atoms.calc = calc
+    calc.set(mult=2)  # ASE's own parameter write, not calc.mult = 2
+    atoms.get_potential_energy()
+    assert torch.equal(adapter.calls[-1]["mults"], torch.tensor([2.0]))
+
+
 def test_vib_hessian_hands_the_multiplicity_to_a_native_hessian():
     from Auto3D.entry.ASE.thermo.vibrations import vib_hessian
 
@@ -413,3 +427,38 @@ def test_a_species_drawn_closed_shell_is_reported_once_per_run(tmp_path, monkeyp
         engine.run()
     notices = [r for r in caplog.records if "drawn closed-shell" in r.getMessage()]
     assert len(notices) == 1, [r.getMessage() for r in caplog.records]
+
+
+def test_a_drawn_closed_shell_record_with_its_ground_state_set_is_not_reported(
+    tmp_path, monkeypatch, caplog
+):
+    """The notice names records optimized at the wrong state, so a record whose
+    'multiplicity' property already says 3 must not produce one."""
+    import Auto3D.engines.batch_opt.batchopt as bo
+    from tests.helpers_batchopt import make_fake_ensemble_opt
+
+    monkeypatch.setattr(bo, "ensemble_opt", make_fake_ensemble_opt())
+
+    sdf = tmp_path / "oxygen.sdf"
+    with Chem.SDWriter(str(sdf)) as writer:
+        mol = _embedded("O=O")
+        mol.SetProp("_Name", "o2_triplet")
+        mol.SetProp("multiplicity", "3")
+        writer.write(mol)
+
+    engine = bo.Optimizer(
+        str(sdf),
+        str(tmp_path / "oxygen_out.sdf"),
+        adapter=FakeAdapter(),
+        device=torch.device("cpu"),
+        config={
+            "opt_steps": 1,
+            "convergence_threshold": 0.01,
+            "patience": 1,
+            "batchsize_atoms": 1024,
+        },
+    )
+    with caplog.at_level(logging.WARNING):
+        engine.run()
+    notices = [r for r in caplog.records if "drawn closed-shell" in r.getMessage()]
+    assert notices == [], [r.getMessage() for r in caplog.records]

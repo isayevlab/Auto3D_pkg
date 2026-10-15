@@ -296,7 +296,18 @@ def test_to_dict_names_every_field_by_its_own_name():
         "convergence_threshold": 0.02,
         "patience": 5,
         "batchsize_atoms": 1024,
+        "fire_constants": "auto3d",
     }
+
+
+def test_optimization_config_carries_a_named_fire_constant_set():
+    from Auto3D.foundation.config import OptimizationConfig
+    from Auto3D.foundation.exceptions import ConfigurationError
+
+    assert OptimizationConfig().to_dict()["fire_constants"] == "auto3d"
+    assert OptimizationConfig(fire_constants="bitzek2006").fire_constants == "bitzek2006"
+    with pytest.raises(ConfigurationError, match="fire_constants"):
+        OptimizationConfig(fire_constants="verlet")
 
 
 def test_old_option_names_still_work_and_warn():

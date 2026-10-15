@@ -325,7 +325,9 @@ class TestNSteps:
         from Auto3D.foundation.exceptions import OptimizationError
 
         class _OOMFire:
-            def __init__(self, coord):
+            # The constant set reaches the real class as keywords, so the
+            # double has to accept them to stand in for it at all.
+            def __init__(self, coord, **constants):
                 pass
 
             def __call__(self, coord, forces):
@@ -419,6 +421,45 @@ def _run_constant_force(
     # would otherwise mask the effect under test.
     n_steps(state, n=20, opttol=opttol, patience=1000)
     return state["converged_mask"].tolist()
+
+
+class _ScheduledForceNN:
+    """Forces of 1.0 per atom until the call numbered ``converge_at[species]``, zero from then on.
+
+    Keyed on the species in column 0, as ``_ConstantForceNN`` above is, because
+    ``n_steps`` gathers a subset of the batch once a row converges, so a row's
+    position is not its identity.
+    """
+
+    def __init__(self, converge_at: dict[int, int]):
+        self.converge_at = converge_at
+        self.calls = 0
+
+    def forward_batched(self, coord, numbers, charges, atom_mask=None, **kwargs):
+        self.calls += 1
+        f = torch.zeros_like(coord)
+        for row in range(coord.shape[0]):
+            if self.calls < self.converge_at[int(numbers[row, 0])]:
+                f[row, :, 0] = 1.0
+        return torch.full((coord.shape[0],), -10.0, dtype=torch.float64), f
+
+
+def test_n_steps_records_the_step_each_row_converged_at():
+    numbers = torch.stack(
+        [torch.full((4,), 1, dtype=torch.long), torch.full((4,), 2, dtype=torch.long)]
+    )
+    state = {
+        "numbers": numbers,
+        "charges": torch.zeros(2, dtype=torch.long),
+        "coord": torch.zeros(2, 4, 3),
+        "nn": _ScheduledForceNN({1: 2, 2: 5}),
+        "converged_mask": torch.zeros(2, dtype=torch.bool),
+        "fmax": torch.full((2,), 999.0),
+        "energy": torch.full((2,), 999.0, dtype=torch.double),
+    }
+    n_steps(state, n=20, opttol=0.01, patience=1000)
+    assert state["converged_step"].dtype == torch.long
+    assert state["converged_step"].tolist() == [2, 5]
 
 
 def test_convergence_outcome_never_depends_on_energy_stability():

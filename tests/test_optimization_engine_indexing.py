@@ -356,11 +356,15 @@ def _reference_n_steps(state, n, opttol, patience, atom_mask=None):
         not_converged_post = not_converged_post1 & not_oscillating
 
         # The old FIRE.clean body, verbatim, so the reference does not depend on
-        # the new int64 signature.
+        # the new int64 signature. One row per state tensor the optimizer
+        # carries, `first_step` included: the step reads it on every path, so
+        # leaving it at the full-batch shape here would break the reference on
+        # shapes rather than on the indexing property under test.
         optimizer.v = optimizer.v[not_converged_post]
         optimizer.Nsteps = optimizer.Nsteps[not_converged_post]
         optimizer.dt = optimizer.dt[not_converged_post]
         optimizer.a = optimizer.a[not_converged_post]
+        optimizer.first_step = optimizer.first_step[not_converged_post]
 
         state["converged_mask"][not_converged] = ~not_converged_post
         state["fmax"][not_converged] = fmax
@@ -623,6 +627,7 @@ class TestDecomposedHelpers:
         state["atom_mask"] = torch.ones_like(state["numbers"], dtype=torch.bool)
         state["oscillating_count"] = torch.zeros(4, dtype=torch.long)
         state["non_finite"] = torch.zeros(4, dtype=torch.bool)
+        state["converged_step"] = torch.full((4,), -1, dtype=torch.long)
         # The keys `n_steps` normally adds on the way in, which these tests
         # skip by calling the pieces directly: `_validate_state` normalizes a
         # missing `mults` to None (every molecule a singlet), so a state built
@@ -682,6 +687,7 @@ class TestDecomposedHelpers:
                 oscillating_count=torch.tensor([0, 4]),
                 non_finite=torch.tensor([False, False]),
             ),
+            istep=6,
         )
 
         assert state["converged_mask"].tolist() == [False, False, False, True]
@@ -696,6 +702,10 @@ class TestDecomposedHelpers:
         # Converged=True had its energy gone non-finite instead of merely
         # oscillating -- see test_non_finite_rows.py for that case).
         assert state["non_finite"].tolist() == [False, False, False, False]
+        # Row 3 left the active set this step and is stamped with it; row 1 is
+        # still active and keeps the -1 it started at, as do the two rows this
+        # step never touched.
+        assert state["converged_step"].tolist() == [-1, -1, -1, 6]
 
     def test_scatter_back_casts_to_the_destination_dtype(self):
         """float64 sources land in float32 destinations without raising.
@@ -721,6 +731,7 @@ class TestDecomposedHelpers:
                 oscillating_count=torch.tensor([2], dtype=torch.int32),
                 non_finite=torch.tensor([False]),
             ),
+            istep=1,
         )
         assert state["coord"].dtype is torch.float32
         assert state["fmax"].dtype is torch.float32

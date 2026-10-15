@@ -27,6 +27,7 @@ from Auto3D.foundation.constants import (
     DEFAULT_OPT_STEPS,
     DEFAULT_PATIENCE,
     DEFAULT_RMSD_THRESHOLD,
+    FIRE_CONSTANT_SETS,
 )
 from Auto3D.foundation.exceptions import ConfigurationError
 
@@ -765,10 +766,12 @@ class OptimizationConfig:
     This dataclass encapsulates all parameters related to the FIRE optimizer
     and convergence criteria, replacing the previous untyped dict approach.
 
-    ``patience`` is the one field this dataclass validates itself:
+    ``patience`` and ``fire_constants`` are the two fields this dataclass
+    validates itself:
     ``__post_init__`` raises :class:`~Auto3D.foundation.exceptions.ConfigurationError`
     for ``patience < 1``, the same bound ``FIELD_BOUNDS`` applies on the
-    ``Auto3DOptions`` path. Every other field is trusted as given -- this
+    ``Auto3DOptions`` path, and for a ``fire_constants`` name that no
+    constant set answers to. Every other field is trusted as given -- this
     class has no pydantic validation layer of its own, unlike
     ``Auto3DOptions`` -- but ``patience < 1`` would otherwise silently drop
     every converged structure as "oscillating" on the optimizer's very first
@@ -803,12 +806,17 @@ class OptimizationConfig:
     nothing itself. Larger values use more GPU memory but may be faster.
     """
 
+    fire_constants: str = "auto3d"
+    """Name of the FIRE constant set (``FIRE_CONSTANT_SETS`` in
+    ``Auto3D.foundation.constants``); the default is the set every release has
+    run."""
+
     # No energy_tol/energy_patience field exists: either would reach an
     # optimizer criterion that can never fire, i.e. a knob that changes
     # nothing.
 
     def __post_init__(self) -> None:
-        """Reject ``patience < 1``.
+        """Reject ``patience < 1`` and an unknown ``fire_constants`` name.
 
         ``batch_opt.optimization_engine`` drops a structure as "oscillating"
         once its non-improving-step count reaches ``patience``
@@ -820,6 +828,15 @@ class OptimizationConfig:
         """
         if self.patience < 1:
             raise ConfigurationError(f"patience must be >= 1, got {self.patience!r}")
+        # Checked here rather than at the `FIRE_CONSTANT_SETS[name]` lookup in
+        # `n_steps`: an unknown name would otherwise surface as a KeyError
+        # inside an optimizer worker, after the spawn boundary, naming no
+        # field.
+        if self.fire_constants not in FIRE_CONSTANT_SETS:
+            raise ConfigurationError(
+                f"fire_constants must be one of {sorted(FIRE_CONSTANT_SETS)}, "
+                f"got {self.fire_constants!r}"
+            )
 
     def to_dict(self) -> dict:
         """Convert to dict for backward compatibility with existing code.
@@ -833,4 +850,5 @@ class OptimizationConfig:
             "convergence_threshold": self.convergence_threshold,
             "patience": self.patience,
             "batchsize_atoms": self.batchsize_atoms,
+            "fire_constants": self.fire_constants,
         }

@@ -9,6 +9,14 @@ Implementation based on:
     Gumbsch. "Structural relaxation made simple." Physical Review Letters 97,
     no. 17 (2006): 170201.
 
+The five adaptation constants are constructor arguments whose defaults are the
+set every Auto3D release has run; the named sets live in
+``Auto3D.foundation.constants.FIRE_CONSTANT_SETS`` and are selected by name
+(``OptimizationConfig.fire_constants``, ``n_steps(..., fire_constants=...)``).
+Nothing selects a non-default set in a shipped run: the second set exists so
+``benchmarks/measure_fire_constants.py`` can measure the two against each
+other before any default moves.
+
 Example:
     >>> import torch
     >>> from Auto3D.engines.batch_opt.fire_optimizer import FIRE
@@ -37,6 +45,24 @@ class FIRE:
     based on whether the optimization is making progress (forces aligned
     with velocities) or needs to be reset (forces opposing velocities).
 
+    Two named sets of the five adaptation constants exist
+    (``Auto3D.foundation.constants.FIRE_CONSTANT_SETS``), and the defaults
+    below are one of them:
+
+    * ``auto3d`` -- ``dt_max 0.1, maxstep 0.1, finc 1.5, fdec 0.7,
+      astart 0.1``, with the progress test applied on the first step. This is
+      the set every release has run and the default here.
+    * ``bitzek2006`` -- ``dt_max 1.0, maxstep 0.2, finc 1.1, fdec 0.5,
+      astart 0.1``, the constants of Bitzek et al. 2006 as ASE implements
+      them, with ``skip_first_progress_test=True`` because ASE runs no
+      progress test on the first step (the velocity is still zero there, so
+      the dot product of velocity and force is zero and the step would count
+      as "not progressing").
+
+    ``dt_init`` is a separate argument from ``dt_max``: the two are equal in
+    the ``auto3d`` set but not in general, so a different ``dt_max`` has to
+    come with its own starting time step rather than inherit it.
+
     Attributes:
         dt_max: Maximum time step (default: 0.1).
         Nmin: Minimum number of steps before increasing time step (default: 5).
@@ -45,34 +71,67 @@ class FIRE:
         fdec: Factor for decreasing time step (default: 0.7).
         astart: Starting value for mixing parameter (default: 0.1).
         fa: Factor for decreasing mixing parameter (default: 0.99).
+        skip_first_progress_test: Whether a molecule's first step leaves
+            ``dt``, ``a`` and ``Nsteps`` untouched (default: False).
         v: Velocities for each atom, shape (batch, n_atoms, 3).
         Nsteps: Number of consecutive successful steps per molecule.
         dt: Current time step per molecule.
         a: Current mixing parameter per molecule.
+        first_step: True per molecule until that molecule has taken a step,
+            shape (batch,).
     """
 
-    def __init__(self, coord: torch.Tensor) -> None:
+    def __init__(
+        self,
+        coord: torch.Tensor,
+        dt_max: float = 0.1,
+        maxstep: float = 0.1,
+        finc: float = 1.5,
+        fdec: float = 0.7,
+        astart: float = 0.1,
+        dt_init: float = 0.1,
+        skip_first_progress_test: bool = False,
+    ) -> None:
         """Initialize FIRE optimizer.
+
+        Every argument but ``coord`` is one constant of a named set; the
+        defaults are the ``auto3d`` set, so ``FIRE(coord)`` is exactly the
+        optimizer every release has run. A caller selecting a set spells it
+        ``FIRE(coord, **FIRE_CONSTANT_SETS[name])``.
 
         Args:
             coord: Initial coordinates, shape (batch, n_atoms, 3).
                    Used to initialize internal state tensors with proper
                    shape and device.
+            dt_max: Maximum time step.
+            maxstep: Maximum atomic displacement per step.
+            finc: Factor for increasing the time step.
+            fdec: Factor for decreasing the time step.
+            astart: Starting value for the mixing parameter, and the value it
+                resets to on a non-progressing step.
+            dt_init: Starting time step, which is not necessarily ``dt_max``.
+            skip_first_progress_test: Leave ``dt``, ``a`` and ``Nsteps``
+                untouched on a molecule's first step, as ASE's FIRE does.
         """
-        # Default FIRE parameters
-        self.dt_max: float = 0.1
+        # FIRE parameters, from the selected constant set
+        self.dt_max: float = dt_max
         self.Nmin: int = 5
-        self.maxstep: float = 0.1
-        self.finc: float = 1.5
-        self.fdec: float = 0.7
-        self.astart: float = 0.1
+        self.maxstep: float = maxstep
+        self.finc: float = finc
+        self.fdec: float = fdec
+        self.astart: float = astart
         self.fa: float = 0.99
+        self.skip_first_progress_test: bool = skip_first_progress_test
 
         # State tensors initialized based on input shape
         self.v = torch.zeros_like(coord)
         self.Nsteps = torch.zeros(coord.shape[0], dtype=torch.long, device=coord.device)
-        self.dt = torch.full(coord.shape[:1], 0.1, device=coord.device)
-        self.a = torch.full(coord.shape[:1], 0.1, device=coord.device)
+        self.dt = torch.full(coord.shape[:1], dt_init, device=coord.device)
+        self.a = torch.full(coord.shape[:1], astart, device=coord.device)
+        # Per molecule, not one scalar for the batch: molecules enter and leave
+        # the active set at different steps, and `clean` subsets this alongside
+        # the rest of the state, so each row's own first step is the one held.
+        self.first_step = torch.ones(coord.shape[0], dtype=torch.bool, device=coord.device)
 
     def __call__(self, coord: torch.Tensor, forces: torch.Tensor) -> torch.Tensor:
         """Move atoms based on forces using the FIRE algorithm.
@@ -120,6 +179,12 @@ class FIRE:
         past_nmin = self.Nsteps > self.Nmin
         speedup = progressing & past_nmin
 
+        # ASE runs no progress test on the first step (v is zero, so v.f is
+        # zero): under that rule dt, a and Nsteps keep their values this step.
+        hold = (
+            self.first_step if self.skip_first_progress_test else torch.zeros_like(self.first_step)
+        )
+
         # Velocity mix toward normalized force direction (computed for every
         # molecule; selected below). Matches the original mixing expression.
         a3 = self.a.unsqueeze(-1).unsqueeze(-1)
@@ -143,18 +208,27 @@ class FIRE:
         #   not progressing              -> dt * fdec  (reset)
         dt_speedup = (self.dt * self.finc).clamp(max=self.dt_max)
         dt_prog = torch.where(speedup, dt_speedup, self.dt)
-        self.dt = torch.where(progressing, dt_prog, self.dt * self.fdec)
+        dt_new = torch.where(progressing, dt_prog, self.dt * self.fdec)
 
         # a: same selection structure as dt.
         a_prog = torch.where(speedup, self.a * self.fa, self.a)
-        self.a = torch.where(progressing, a_prog, torch.full_like(self.a, self.astart))
+        a_new = torch.where(progressing, a_prog, torch.full_like(self.a, self.astart))
 
         # Nsteps:
         #   progressing     -> Nsteps + 1
         #   not progressing -> 0  (reset)
         nsteps_inc = progressing
         nsteps_prog = torch.where(nsteps_inc, self.Nsteps + 1, self.Nsteps)
-        self.Nsteps = torch.where(progressing, nsteps_prog, torch.zeros_like(self.Nsteps))
+        nsteps_new = torch.where(progressing, nsteps_prog, torch.zeros_like(self.Nsteps))
+
+        # The three updates above are what this step would do under the
+        # progress test; `hold` is what keeps a first step from applying them.
+        # It is all-False unless the selected set asks for ASE's rule, so the
+        # default path computes exactly the values it always did.
+        self.dt = torch.where(hold, self.dt, dt_new)
+        self.a = torch.where(hold, self.a, a_new)
+        self.Nsteps = torch.where(hold, self.Nsteps, nsteps_new)
+        self.first_step = torch.zeros_like(self.first_step)
 
         # Semi-implicit (symplectic) Euler update
         dt = self.dt.unsqueeze(-1).unsqueeze(-1)
@@ -201,3 +275,7 @@ class FIRE:
         self.Nsteps = self.Nsteps.index_select(0, idx)
         self.dt = self.dt.index_select(0, idx)
         self.a = self.a.index_select(0, idx)
+        # Subset on every path, not only when the first-step rule is in use:
+        # this tensor is one of the operands of the `torch.where` calls in the
+        # step, so a stale full-batch shape here would not stay inert.
+        self.first_step = self.first_step.index_select(0, idx)

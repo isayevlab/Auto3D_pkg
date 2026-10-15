@@ -176,8 +176,9 @@ class Calculator(ase.calculators.calculator.Calculator):
             # precision and built the Hessian on it at another, inside a single
             # calc_thermo call.
             self.dtype = torch.float32
-        # Goes through the setters below, so `self.parameters` and the tensors
-        # `calculate()` reads are each populated from one place.
+        # Goes through the setters below, so each value lands in
+        # `self.parameters` -- which is what invalidates ASE's cache, and what
+        # `calculate()` reads the multiplicity from.
         self.charge = charge
         self.mult = mult
 
@@ -222,8 +223,15 @@ class Calculator(ase.calculators.calculator.Calculator):
         A tensor for the same reason the charge is one: ``calculate`` hands it
         straight to the model, and a spin-aware AIMNet2 model wants a 1-D
         per-molecule value.
+
+        Built from ``self.parameters['mult']`` on every read rather than kept
+        as its own attribute: ASE's own ``calc.set(mult=...)`` writes the
+        parameter without passing through the setter below, so a stored tensor
+        could hold the previous multiplicity while the parameter -- which is
+        what ``calculate`` decides a singlet from -- held the new one, and the
+        model would be evaluated at the stale value. One source for both.
         """
-        return self._mult
+        return torch.tensor([float(self.parameters["mult"])], dtype=torch.float, device=self.device)
 
     @mult.setter
     def mult(self, value) -> None:
@@ -233,7 +241,6 @@ class Calculator(ase.calculators.calculator.Calculator):
             scalar = int(value.reshape(-1)[0].item())
         else:
             scalar = int(value)
-        self._mult = torch.tensor([float(scalar)], dtype=torch.float, device=self.device)
         # Same ASE bookkeeping as the charge: with
         # discard_results_on_any_change=True this drops the cached energy AND
         # forces when the value actually changes. Geometry alone does not
@@ -273,12 +280,14 @@ class Calculator(ase.calculators.calculator.Calculator):
         species = species.unsqueeze(0)
         coordinates = coordinates.unsqueeze(0)
 
-        # Decided from the ASE parameter, a host integer, rather than from the
-        # tensor: this runs once per BFGS step, and reading `self._mult` would
-        # be a device-to-host copy per step to learn a value that only changes
-        # when `set_mult` is called. `spin_kwargs` states why a singlet is not
-        # passed at all.
-        mults = None if int(self.parameters["mult"]) == 1 else self._mult
+        # Decided from the ASE parameter, a host integer, rather than from a
+        # tensor: this runs once per BFGS step, and reading a device tensor
+        # back would be a device-to-host copy per step to learn a value that
+        # only changes when the multiplicity is set. The `self.mult` property
+        # is built from that same parameter, so the value sent and the value
+        # the decision was made on cannot disagree. `spin_kwargs` states why a
+        # singlet is not passed at all.
+        mults = None if int(self.parameters["mult"]) == 1 else self.mult
         energy, forces = self.adapter.forward(
             coordinates, species, self.charge, **spin_kwargs(mults)
         )

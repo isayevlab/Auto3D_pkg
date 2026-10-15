@@ -296,7 +296,9 @@ def check_engine_supports_molecules(
         # Whether the spin state is honored is the MODEL's to decide -- Auto3D
         # resolves and sends a multiplicity either way -- and this function
         # holds only an engine name, never the adapter that knows, so the line
-        # states both outcomes. Batched into ONE warning for the whole call
+        # states every outcome, including that a model which is neither
+        # spin-aware nor an AIMNet2 model says nothing at all about it.
+        # Batched into ONE warning for the whole call
         # instead of one per molecule -- a run over a large SDF must not turn
         # into a wall of near-identical log lines -- phrased like
         # `Auto3D.domain.multiplicity.resolve_multiplicity`'s per-record
@@ -308,8 +310,9 @@ def check_engine_supports_molecules(
                 "resolves each record's spin multiplicity (an explicit "
                 "'multiplicity' property, otherwise unpaired electrons + 1) and "
                 "hands it to the model: a spin-aware model (aimnet2-nse) uses "
-                "it, a model without a spin input evaluates the molecule as a "
-                "closed shell and says so once.",
+                "it, a one-channel AIMNet2 model evaluates the molecule as a "
+                "closed shell and says so once, and other models without a "
+                "spin input are silent.",
                 optimizing_engine,
             )
         return
