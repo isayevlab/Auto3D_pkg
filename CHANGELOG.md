@@ -26,10 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tautomer. A stereo element that every proton-shift route to a tautomer must
   flatten is now emitted unspecified, so stereoisomer enumeration and enantiomer
   removal handle it, while elements the shift leaves untouched keep the
-  configuration the input gave them. Fewer tautomer ids are emitted for such
-  inputs and their `@tautN` numbering changes; when stereoisomer enumeration is
-  disabled, a tautomer whose element was cleared is written once per
-  configuration (mirror pairs collapsed) with a warning.
+  configuration the input gave them (a center flanked by two independent
+  carbonyl migrations is emitted unspecified as well, which costs its epimers
+  downstream and never a wrong configuration). Fewer tautomer ids are emitted
+  for such inputs and their `@tautN` numbering changes; when stereoisomer
+  enumeration is disabled, a tautomer whose element was cleared is written
+  once per configuration (mirror pairs collapsed) with a warning.
 - The `aimnet2-nse` engine runs. It was registered but raised on its first
   forward because the model needs each molecule's spin multiplicity, which
   Auto3D never sent; the optimizer, the single-point energies and the

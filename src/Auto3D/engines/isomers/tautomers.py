@@ -125,23 +125,28 @@ def _separates_shifted_regions(
     core: set[int],
     hydrogen_change: list[int],
 ) -> bool:
-    """True when a hydrogen migrated from one side of ``pivot`` to the other.
+    """True when a hydrogen may have migrated from one side of ``pivot`` to the other.
 
-    A pair of ``delta`` components is a candidate for one such migration when
-    one of them gained hydrogens and the other lost them, and when no third
-    shifted region lies between the two -- a pair with another shifted region
-    in the way is two shifts in series, not one hydrogen crossing from the one
-    region to the other. Each candidate pair is then asked the question the
-    pivot is actually on trial for: whether every route between the two inside
-    the tautomer core passes through it.
+    Two conditions together: every route inside the tautomer core between two
+    components of ``delta`` passes through ``pivot``, *and* one of those two
+    components gained hydrogens while the other lost them. The signs are what
+    keep two shifts that merely flank the element from being read as a
+    migration through it: a 1,3-diketone enolizing both of its outer methyls
+    moves a hydrogen only within each of its two shifted regions, so each net
+    change is zero and the center between the carbonyls keeps all four
+    substituents and its configuration.
 
-    All three conditions are needed. Without the signs, a 1,3-diketone that
-    enolizes both of its outer methyls would lose the center between the
-    carbonyls, although each shift moves a hydrogen only within its own region
-    and the center keeps all four substituents. Without the neighbor test, a
-    chain carrying two such independent 1,3-shifts, one at each end, would
-    lose the center between them, because the outermost gaining and losing
-    regions do flank it even though neither shift reaches it.
+    The pair is not asked to be the nearest such pair, which makes the test a
+    sufficient-looking but not exact reading of "a hydrogen crossed here": two
+    independent migrations, one on each side of an element, present a gaining
+    region on one side and a losing region on the other, and the element is
+    cleared although neither migration reaches it. That direction of error is
+    the safe one -- the element is emitted unspecified and the stereoisomer
+    step enumerates its configurations -- and it is the direction this rule
+    deliberately errs in, because the alternative screen that recognizes such
+    a pair also excuses an element that every route really does flatten,
+    which asserts a configuration no route produced. See the class docstring
+    for the exact criterion this approximates.
 
     ``hydrogen_change`` is the per-atom total hydrogen count in ``mol`` minus
     the count in the reference, over the shared atom indexing.
@@ -149,7 +154,7 @@ def _separates_shifted_regions(
     components = _components(mol, delta)
     if len(components) < 2:
         return False
-    reachable = core | delta
+    allowed = (core | delta) - pivot
     net = [sum(hydrogen_change[j] for j in component) for component in components]
     for i, a in enumerate(components):
         if net[i] == 0:
@@ -157,19 +162,7 @@ def _separates_shifted_regions(
         for j in range(i + 1, len(components)):
             if net[j] == 0 or (net[i] > 0) == (net[j] > 0):
                 continue
-            # Nearest neighbors first, with the pivot itself allowed: a route
-            # that has to cross a third shifted region to get from one of the
-            # pair to the other means the hydrogen did not travel between
-            # them, so the pivot is not on its way.
-            between = {
-                atom
-                for k, component in enumerate(components)
-                if k not in (i, j)
-                for atom in component
-            }
-            if not _connected_without(mol, a, components[j], reachable - between):
-                continue
-            if not _connected_without(mol, a - pivot, components[j] - pivot, reachable - pivot):
+            if not _connected_without(mol, a - pivot, components[j] - pivot, allowed):
                 return True
     return False
 
@@ -497,6 +490,19 @@ class RDKitOrOEChemTautomerEngine:
     double-bond geometry are covered; axial and planar chirality and the other
     non-tetrahedral classes are not perceived here and are emitted as the
     enumerator produces them.
+
+    That decision is made on the molecular graph and the per-atom hydrogen
+    counts, which is a proxy for "a hydrogen crossed this element on every
+    route to this tautomer", and the proxy errs toward clearing. A center
+    flanked by two independent carbonyl migrations, one on each side -- a
+    heptose with a terminal aldehyde at one end and a methyl ketone at the
+    other, whose tautomer moves both carbonyls inward -- is emitted
+    unspecified although no route flattens it, because a region that gained
+    hydrogens and a region that lost them do end up on opposite sides of it.
+    The cost is that its two epimers are enumerated downstream; the cost is
+    never a configuration the input did not give. The exact criterion the
+    proxy stands in for is reachability in the one-step tautomer graph over
+    the enumerated set, through states in which the element is sp3.
 
     Args:
         mode: Tautomer engine to use: 'rdkit' or 'oechem'.

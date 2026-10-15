@@ -363,21 +363,37 @@ def test_a_double_bond_whose_order_changed_loses_its_geometry():
 HEPTOSE = "O=C[C@H](O)[C@H](O)[C@H](C)[C@H](O)[C@H](O)C(C)=O"
 
 
-def test_two_independent_carbonyl_migrations_clear_only_the_centers_they_cross():
-    """Two 1,3-shifts in series, one at each end of a chain, called directly.
+def _specified_centers(smiles: str) -> list[int]:
+    mol = Chem.MolFromSmiles(smiles)
+    return [
+        element.centeredOn
+        for element in Chem.FindPotentialStereo(mol)
+        if element.type == Chem.StereoType.Atom_Tetrahedral
+        and element.specified == Chem.StereoSpecified.Specified
+    ]
+
+
+def test_two_independent_carbonyl_migrations_over_clear_the_center_between_them():
+    """The rule's known over-clear, pinned so it is a decision and not a surprise.
 
     The reference is a 4-methyl heptose with a terminal methyl ketone; the
-    tautomer moves the C1 aldehyde to C3 and the C7 ketone to C5. That leaves
-    four shifted regions: C1 gained two hydrogens, C3 and C5 each lost two,
-    C7 gained two. The left migration crosses C2 and the right one crosses C6,
-    so those two centers lose their configuration. C4 keeps its own: it sits
-    between the two *losing* regions, and the gaining region on either side of
-    it is separated from the losing region on the other by a third shifted
-    region, so no hydrogen travelled across C4.
+    tautomer moves the C1 aldehyde to C3 and the C7 ketone to C5. Four shifted
+    regions result: C1 gained two hydrogens, C3 and C5 each lost two, C7
+    gained two. The left migration crosses C2 and the right one crosses C6, so
+    those two centers genuinely lose their configuration. C4 does not -- no
+    hydrogen crosses it -- yet it is cleared too, because the test the rule
+    applies cannot tell two independent migrations flanking a center from one
+    migration through it: the outermost gaining and losing regions do sit on
+    opposite sides of C4.
 
-    The signs alone do not say this -- the outermost gaining and losing
-    regions do flank C4 with opposite signs -- which is why only nearest
-    neighbors are put on trial.
+    Clearing it is the error worth making. An over-cleared center costs its two
+    epimers to enumerate downstream, where an under-cleared one asserts a
+    configuration some route scrambled -- the wrong-identity defect this whole
+    rule exists to prevent. Screening the pair for adjacency removes this
+    over-clear but also excuses a center that every route really does flatten,
+    so the pairwise test stands. The exact criterion is reachability in the
+    one-step tautomer graph through states in which the element is sp3, and
+    that is a follow-up to this change.
     """
     from Auto3D.engines.isomers.tautomers import _destroyed_stereo
 
@@ -385,14 +401,14 @@ def test_two_independent_carbonyl_migrations_clear_only_the_centers_they_cross()
     tautomer = Chem.MolFromSmiles("OC[C@H](O)C(=O)[C@H](C)C(=O)[C@H](O)C(C)O")
     core = set(range(reference.GetNumAtoms()))
     atoms, bonds = _destroyed_stereo(reference, tautomer, core)
-    assert atoms == {2, 10}
+    assert atoms == {2, 6, 10}
     assert bonds == set()
 
 
-def test_the_heptose_3_5_diketone_keeps_the_center_between_the_two_migrations(job_dir):
-    """The same molecule end to end: the record is emitted with the center
-    between the two migrations intact and the two they crossed open, plus the
-    center the right-hand shift created."""
+def test_the_heptose_3_5_diketone_asserts_nothing_at_the_center_between_the_migrations(job_dir):
+    """The same molecule end to end: no record of that constitution claims a
+    configuration at the methyl-bearing C4, which the rule conservatively
+    clears."""
     out = _run_rd_taut(job_dir, HEPTOSE)
     diketone = Chem.MolToSmiles(
         Chem.MolFromSmiles("CC(C(=O)C(O)CO)C(=O)C(O)C(C)O"), isomericSmiles=False
@@ -400,21 +416,15 @@ def test_the_heptose_3_5_diketone_keeps_the_center_between_the_two_migrations(jo
     records = [
         s for s in out if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == diketone
     ]
-    assert len(records) == 1
-    assert _unspecified_centers(records[0]) == 3
-    mol = Chem.MolFromSmiles(records[0])
-    specified = [
-        element.centeredOn
-        for element in Chem.FindPotentialStereo(mol)
-        if element.type == Chem.StereoType.Atom_Tetrahedral
-        and element.specified == Chem.StereoSpecified.Specified
-    ]
-    assert len(specified) == 1
-    # The one center that keeps its configuration is the methyl-bearing C4.
-    kept = mol.GetAtomWithIdx(specified[0])
-    assert any(nb.GetSymbol() == "C" and nb.GetTotalNumHs() == 3 for nb in kept.GetNeighbors()), (
-        Chem.MolToSmiles(mol)
-    )
+    assert records
+    for record in records:
+        mol = Chem.MolFromSmiles(record)
+        methyl_bearing = {
+            atom.GetIdx()
+            for atom in mol.GetAtoms()
+            if any(nb.GetSymbol() == "C" and nb.GetTotalNumHs() == 3 for nb in atom.GetNeighbors())
+        }
+        assert not methyl_bearing & set(_specified_centers(record)), record
 
 
 def test_survivors_that_say_the_same_thing_are_merged_without_clearing_anything(job_dir, caplog):
@@ -430,3 +440,67 @@ def test_survivors_that_say_the_same_thing_are_merged_without_clearing_anything(
     messages = [r.getMessage() for r in caplog.records]
     assert any("stereo element" in m for m in messages), messages
     assert not [m for m in messages if "0 stereo element" in m], messages
+
+
+KETOHEXOSES = {
+    "3-keto": "O=C[C@H](O)C(=O)[C@H](O)[C@H](O)CO",
+    "4-keto": "O=C[C@H](O)[C@H](O)C(=O)[C@H](O)CO",
+}
+
+
+def test_a_migration_past_an_unchanged_region_still_clears_what_it_crosses():
+    """The guard against the other error: under-clearing.
+
+    The 3-keto-aldohexose reaches a 3,4-enediol dialdehyde by moving its C1
+    aldehyde all the way to C6. Three shifted regions result: C1 gained two
+    hydrogens, C6 lost two, and the C3/C4 enediol in the middle moved a
+    hydrogen only within itself, so its net change is zero. Both carbinol
+    centers, C2 and C5, lie between the gaining and the losing region and are
+    flattened on the way, so both must lose their configuration -- even though
+    an unchanged-on-balance region sits between the pair. Excusing a pair that
+    has a third region between it leaves these two tagged, and the record then
+    asserts the mirror image of the input at both.
+    """
+    from Auto3D.engines.isomers.tautomers import _destroyed_stereo
+
+    reference = Chem.MolFromSmiles(KETOHEXOSES["3-keto"])
+    tautomer = Chem.MolFromSmiles("OC[C@H](O)C(O)=C(O)[C@H](O)C=O")
+    core = set(range(reference.GetNumAtoms()))
+    assert _destroyed_stereo(reference, tautomer, core) == ({2, 8}, set())
+
+
+@pytest.mark.parametrize("name", sorted(KETOHEXOSES))
+def test_a_ketohexose_never_emits_the_mirror_of_its_own_configuration(job_dir, name):
+    """End to end for both ketohexoses: the 3,4-enediol constitution is emitted
+    once, carrying the input's own configuration at C2 and C5.
+
+    One route to it is a single enolization of the ketone, which touches only
+    C3 and C4 and so justifies both carbinol centers; the other is the long
+    migration above, whose record is cleared at both and says strictly less, so
+    it merges away. If the long migration is not cleared, the two records are
+    mirror images, the merge picks one by list order, and the emitted record
+    can be the enantiomer of the input -- the spelling asserted below as
+    absent.
+    """
+    out = _run_rd_taut(job_dir, KETOHEXOSES[name])
+    enediol = Chem.MolToSmiles(Chem.MolFromSmiles("O=CC(O)C(O)=C(O)C(O)CO"), isomericSmiles=False)
+    records = [
+        s for s in out if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == enediol
+    ]
+    assert len(records) == 1
+    assert Chem.MolToSmiles(Chem.MolFromSmiles(records[0])) == "O=C[C@H](O)C(O)=C(O)[C@H](O)CO"
+    mirror = Chem.MolToSmiles(Chem.MolFromSmiles("O=C[C@@H](O)C(O)=C(O)[C@@H](O)CO"))
+    assert mirror not in _canonical(out)
+
+
+def test_d_glucosone_emits_no_mirror_pair_within_or_across_its_tautomer_ids(job_dir):
+    """The species every emitted record expands to are all distinct under the
+    enantiomer key, so no tautomer id holds a mirror pair and no two ids are
+    mirror images of each other."""
+    out = _run_rd_taut(job_dir, "O=CC(=O)[C@@H](O)[C@H](O)[C@H](O)CO")
+    for record in out:
+        keys = [enantiomer_key(s) for s in _species([record])]
+        assert len(set(keys)) == len(keys), record
+    species = _species(out)
+    keys = [enantiomer_key(s) for s in species]
+    assert len(set(keys)) == len(keys)
