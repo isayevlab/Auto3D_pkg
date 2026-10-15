@@ -9,27 +9,11 @@ from rdkit import Chem
 from rdkit.Chem import rdmolops
 
 from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.molprops import record_name
 
 logger = get_logger(__name__)
 
-__all__ = ["resolve_multiplicity", "electron_count", "record_name"]
-
-
-def record_name(mol: Chem.Mol, default: str = "molecule") -> str:
-    """The molecule's ``_Name`` property, or ``default`` when it has none.
-
-    Every diagnostic/warning site in this module needs a human-readable
-    identifier for a mol that may or may not carry ``_Name``, rather than
-    repeating
-    ``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``
-    verbatim at each site. The default itself is NOT hardcoded here to
-    a single value: some callers want the generic ``"molecule"`` default;
-    the position-based fallback (see
-    :func:`Auto3D.foundation.utils.sdf_io._display_name`, ``f"record
-    {position}"``) is threaded through explicitly for those.
-    """
-    return mol.GetProp("_Name") if mol.HasProp("_Name") else default
-
+__all__ = ["resolve_multiplicity", "electron_count"]
 
 _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
 

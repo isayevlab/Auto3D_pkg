@@ -1,11 +1,11 @@
 """Molecular properties the thermochemistry needs, read off the molecule.
 
-Geometry class, symmetry number, spin multiplicity, the display name and the
-mass convention the record was built under -- all pure inspection of an RDKit
-``Mol`` or an ASE ``Atoms``, with no model, no calculator and no ASE
-thermochemistry involved. All but the last are the inputs ``IdealGasThermo`` is
-constructed from; the mass convention annotates the record instead, naming what
-``atoms`` actually carries rather than feeding ``IdealGasThermo`` itself.
+Geometry class, symmetry number and the mass convention the record was built
+under -- all pure inspection of an RDKit ``Mol`` or an ASE ``Atoms``, with no
+model, no calculator and no ASE thermochemistry involved. All but the last
+are the inputs ``IdealGasThermo`` is constructed from; the mass convention
+annotates the record instead, naming what ``atoms`` actually carries rather
+than feeding ``IdealGasThermo`` itself.
 """
 
 from __future__ import annotations
@@ -16,15 +16,12 @@ import numpy as np
 from ase.data import atomic_masses
 from rdkit import Chem
 
-# The resolver lives in the domain layer so the optimizer can share it.
-from Auto3D.domain.multiplicity import electron_count as _electron_count  # noqa: F401
-from Auto3D.domain.multiplicity import record_name as _mol_name
-from Auto3D.domain.multiplicity import resolve_multiplicity as _resolve_multiplicity  # noqa: F401
 from Auto3D.foundation.constants import (
     LINEARITY_MAX_PERP_ANGSTROM,
     LINEARITY_MOMENT_RATIO,
 )
 from Auto3D.foundation.utils.logging_config import get_logger
+from Auto3D.foundation.utils.molprops import record_name
 
 logger = get_logger(__name__)
 
@@ -134,7 +131,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
             logger.warning(
                 "Molecule %s has an unparseable 'symmetry_number' property "
                 "(%r); falling back to sigma=1.",
-                _mol_name(mol),
+                record_name(mol),
                 mol.GetProp("symmetry_number"),
             )
             return 1
@@ -145,7 +142,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
             # sigma=1 with nothing logged. And with no upper bound at all,
             # "1000000" would be accepted unchecked and shift Gibbs energy by
             # R*T*ln(1e6) = 8.2 kcal/mol at 298 K -- a silent 8 kcal/mol from one
-            # mistyped property. _resolve_multiplicity two functions below
+            # mistyped property. Auto3D.domain.multiplicity.resolve_multiplicity
             # bounds and parity-checks its property the same way.
             #
             # The upper bound is the highest external rotational symmetry number
@@ -157,7 +154,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
                     "(%d); it must be between 1 and %d (the largest external "
                     "rotational symmetry number of any real molecule, for the "
                     "icosahedral point groups). Falling back to sigma=1.",
-                    _mol_name(mol),
+                    record_name(mol),
                     value,
                     _MAX_SYMMETRY_NUMBER,
                 )
@@ -177,7 +174,7 @@ def _symmetry_number(mol: Chem.Mol) -> int:
             "12 for benzene) per record when comparing those. "
             "(Logged once per run; later molecules defaulting the same way are "
             "silent.)",
-            _mol_name(mol),
+            record_name(mol),
         )
         _symmetry_default_warned = True
     return 1

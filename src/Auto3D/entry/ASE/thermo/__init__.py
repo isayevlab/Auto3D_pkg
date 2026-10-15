@@ -9,8 +9,8 @@ condition under which the package-barrel rule permits one.
 This was a single 1895-line module. It is now four, split by what they need
 rather than by what they are about:
 
-    properties   molecular inspection -- geometry class, symmetry number,
-                 multiplicity. No model, no calculator, no ASE thermochemistry.
+    properties   molecular inspection -- geometry class, symmetry number.
+                 No model, no calculator, no ASE thermochemistry.
     calculator   the ASE calculator fronting an Auto3D model, and the
                  conversions into it.
     vibrations   Hessian, mode projection, and the frequencies that come out.
@@ -27,6 +27,10 @@ that capture on ``logger="Auto3D.entry.ASE.thermo"`` keep seeing warnings raised
 any of the four. Four siblings named ``thermo_properties`` would have silently
 broken every one of them -- silently, because a log-capture assertion that stops
 seeing records mostly fails by never firing.
+
+The spin-multiplicity resolver lives in ``Auto3D.domain.multiplicity`` and
+logs there, outside this tree; tests that assert on its warnings capture on
+that logger.
 """
 
 from __future__ import annotations

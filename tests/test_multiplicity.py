@@ -3,34 +3,36 @@
 These cover the pure-Python resolver in ``Auto3D.domain.multiplicity`` (moved
 here from ``tests/test_thermo_helpers.py`` when the resolver moved out of the
 thermochemistry layer so the optimizer, in the engines layer, could reach it
-too) and the re-export that keeps the thermo layer's old names working.
+too) and the identity check that the thermo layer calls this module's
+resolver directly and shares one record-naming helper with it.
 """
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from rdkit import Chem
 
+from Auto3D.domain.multiplicity import electron_count, resolve_multiplicity
 
-def test_the_resolver_is_public_in_the_domain_layer_and_the_thermo_name_still_binds():
+
+def test_the_thermo_modules_use_the_domain_resolver_and_the_shared_record_name():
     from Auto3D.domain import multiplicity
-    from Auto3D.entry.ASE.thermo import properties
+    from Auto3D.entry.ASE.thermo import driver, properties
+    from Auto3D.foundation.utils import molprops
 
-    assert properties._resolve_multiplicity is multiplicity.resolve_multiplicity
-    assert properties._electron_count is multiplicity.electron_count
-    assert properties._mol_name is multiplicity.record_name
+    assert driver.resolve_multiplicity is multiplicity.resolve_multiplicity
+    assert properties.record_name is molprops.record_name
+    assert multiplicity.record_name is molprops.record_name
 
 
 def test_resolve_multiplicity_closed_shell_is_singlet():
-    from Auto3D.domain.multiplicity import resolve_multiplicity
-
     m = Chem.MolFromSmiles("CCO")
     assert resolve_multiplicity(m) == 1
 
 
 def test_resolve_multiplicity_radical_is_doublet():
-    from Auto3D.domain.multiplicity import resolve_multiplicity
-
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
     assert resolve_multiplicity(m) == 2
 
@@ -39,10 +41,6 @@ def test_resolve_multiplicity_open_shell_warning_names_the_molecule(caplog):
     """The open-shell warning is the one sibling in this function that did
     not name the record; every other warning here passes ``record_name(mol)``.
     """
-    import logging
-
-    from Auto3D.domain.multiplicity import resolve_multiplicity
-
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, 1 unpaired electron
     m.SetProp("_Name", "my_radical")
     with caplog.at_level(logging.WARNING, logger="Auto3D.domain.multiplicity"):
@@ -51,16 +49,12 @@ def test_resolve_multiplicity_open_shell_warning_names_the_molecule(caplog):
 
 
 def test_resolve_multiplicity_does_not_write_the_derived_value_back():
-    from Auto3D.domain.multiplicity import resolve_multiplicity
-
     m = Chem.MolFromSmiles("[CH3]")  # methyl radical, as the doublet case above
     assert resolve_multiplicity(m) == 2
     assert not m.HasProp("multiplicity")
 
 
 def test_resolve_multiplicity_respects_explicit_property():
-    from Auto3D.domain.multiplicity import resolve_multiplicity
-
     m = Chem.MolFromSmiles("[CH3]")  # would derive 2 ...
     m.SetUnsignedProp("multiplicity", 4)  # ... but an explicit value wins
     assert resolve_multiplicity(m) == 4
@@ -85,21 +79,11 @@ def test_resolve_multiplicity_invalid_property_is_dropped_from_the_record(value)
     in one rejection branch: "0" is below 1, "99" is above the 10-electron
     bound, "7" is odd and so fails parity, and "two" is unparseable.
     """
-    from Auto3D.domain.multiplicity import electron_count, resolve_multiplicity
-
     m = Chem.MolFromSmiles("[CH3]")
     assert electron_count(m) == 9, "test premise: a 9-electron, odd-electron species"
     m.SetProp("multiplicity", value)
     assert resolve_multiplicity(m) == 2
     assert not m.HasProp("multiplicity")
-
-
-import logging  # noqa: E402
-
-from Auto3D.domain.multiplicity import (  # noqa: E402
-    electron_count,
-    resolve_multiplicity,
-)
 
 
 def _mol(smiles, **props):
@@ -204,3 +188,48 @@ class TestMultiplicity:
         with caplog.at_level(logging.WARNING, logger="Auto3D.domain.multiplicity"):
             assert resolve_multiplicity(mol) == 2
         assert not any("multiplicity" in r.message.lower() for r in caplog.records)
+
+
+class TestDerivedMultiplicityIsAlsoChecked:
+    """The bounds and parity checks only ever ran on a *supplied* multiplicity.
+
+    Both sit inside ``if mol.HasProp("multiplicity")``, so a multiplicity Auto3D
+    derived from the radical-electron count was returned unchecked -- and 2S+1
+    requires odd multiplicity for an even-electron species, even for an odd-electron
+    one, which the radical count can violate when the drawing hides an open shell.
+    Getting it wrong is worth R*ln 3 = 0.65 kcal/mol in T*S_elec.
+
+    RDKit re-derives radical electrons on sanitization and is self-consistent for
+    every ordinary species (checked: CH2, CH3, O2, N, ethanol), which is why this
+    needed a deliberately inconsistent molecule rather than a realistic one --
+    and why the check is worth having: the case it catches is precisely the one no
+    ordinary input produces.
+    """
+
+    def test_a_parity_inconsistent_derived_multiplicity_warns(self, caplog):
+        # CH3 has 9 electrons (odd), so 2S+1 must be even. Forcing two unpaired
+        # electrons makes the derived multiplicity 3 -- odd, and impossible.
+        mol = Chem.MolFromSmiles("[CH3]")
+        mol.GetAtomWithIdx(0).SetNumRadicalElectrons(2)
+        mol.SetProp("_Name", "impossible_radical")
+        assert electron_count(mol) % 2 == 1, "test premise: odd electrons"
+
+        with caplog.at_level(logging.WARNING, logger="Auto3D.domain.multiplicity"):
+            multiplicity = resolve_multiplicity(mol)
+
+        assert multiplicity == 3, "the derived value is still returned, not replaced"
+        assert any("parity" in r.message for r in caplog.records), (
+            f"an impossible derived multiplicity was returned with no warning: "
+            f"{[r.message for r in caplog.records]}"
+        )
+
+    def test_a_consistent_derived_multiplicity_is_not_warned_about(self, caplog):
+        """Every ordinary radical must stay quiet, or the check is noise."""
+        for smiles in ("[CH3]", "[CH2]", "CCO", "[N]"):
+            caplog.clear()
+            mol = Chem.MolFromSmiles(smiles)
+            with caplog.at_level(logging.WARNING, logger="Auto3D.domain.multiplicity"):
+                resolve_multiplicity(mol)
+            assert not any("parity" in r.message for r in caplog.records), (
+                f"{smiles} triggered a parity warning it should not have"
+            )

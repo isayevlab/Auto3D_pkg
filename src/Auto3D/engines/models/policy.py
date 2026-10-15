@@ -259,7 +259,7 @@ def check_engine_supports_molecules(
     open-shell molecule on that path gets a warning instead of the silent
     nothing it got before (issue #10): one warning per call, not one per
     molecule (calc_thermo separately warns per-molecule, in
-    ``Auto3D.entry.ASE.thermo.properties``, when it derives the
+    ``Auto3D.domain.multiplicity.resolve_multiplicity``, when it derives the
     electronic-entropy term -- this is the signal the OTHER three entry
     points, which never reach that code, were missing entirely).
 

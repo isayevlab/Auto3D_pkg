@@ -10,13 +10,16 @@ lives in ``Auto3D.domain.conformer_budget``.
 precondition in ``engines/models/policy.py`` because ``utils/sdf_io.py`` needs
 it too, and ``foundation`` may not import ``engines``. ``policy`` delegates
 to it, so both layers read one definition.
+
+:func:`record_name` lives here because every layer names records in
+diagnostics, and ``foundation`` is the one layer all of them can import.
 """
 
 from __future__ import annotations
 
 from rdkit import Chem
 
-__all__ = ["has_dummy_atoms"]
+__all__ = ["has_dummy_atoms", "record_name"]
 
 
 def has_dummy_atoms(mol: Chem.Mol) -> bool:
@@ -42,3 +45,15 @@ def has_dummy_atoms(mol: Chem.Mol) -> bool:
         False
     """
     return any(a.GetAtomicNum() == 0 for a in mol.GetAtoms())
+
+
+def record_name(mol: Chem.Mol, default: str = "molecule") -> str:
+    """The molecule's ``_Name`` property, or ``default`` when it has none.
+
+    The one definition of the record-label idiom for log lines and error
+    messages (``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``).
+    The default is a parameter, not a constant: some callers want the generic
+    ``"molecule"``, others thread a position-based fallback such as
+    ``f"record {position}"`` through explicitly.
+    """
+    return mol.GetProp("_Name") if mol.HasProp("_Name") else default
