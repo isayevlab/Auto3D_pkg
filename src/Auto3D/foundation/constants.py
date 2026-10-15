@@ -192,6 +192,33 @@ DEFAULT_OPT_STEPS = 2000  # Maximum optimization steps
 DEFAULT_PATIENCE = 250  # Steps before dropping oscillating conformer
 DEFAULT_BATCHSIZE_ATOMS = 1024  # Atoms per batch for GPU optimization
 DEFAULT_ENERGY_CLUSTER_WINDOW = 0.1  # eV, for RMSD clustering
+# FIRE constant sets, selected by name through OptimizationConfig.fire_constants.
+# "auto3d" is the set every release so far has run; "bitzek2006" is the set of
+# Bitzek, Koskinen, Gaehler, Moseler and Gumbsch (Phys. Rev. Lett. 2006, 97,
+# 170201) as ASE implements it, which also skips the progress test on the first
+# step, when the velocity is still zero. The benchmark
+# benchmarks/measure_fire_constants.py compares the two; the default changes
+# only on its results note.
+FIRE_CONSTANT_SETS: dict[str, dict[str, float | bool]] = {
+    "auto3d": {
+        "dt_max": 0.1,
+        "maxstep": 0.1,
+        "finc": 1.5,
+        "fdec": 0.7,
+        "astart": 0.1,
+        "dt_init": 0.1,
+        "skip_first_progress_test": False,
+    },
+    "bitzek2006": {
+        "dt_max": 1.0,
+        "maxstep": 0.2,
+        "finc": 1.1,
+        "fdec": 0.5,
+        "astart": 0.1,
+        "dt_init": 0.1,
+        "skip_first_progress_test": True,
+    },
+}
 # No ``energy_tol``/``energy_patience`` constant exists: either would reach
 # an optimizer energy-stability criterion that can never fire, i.e. a knob
 # that changes nothing -- tuning it, for fp32 noise or anything else, would

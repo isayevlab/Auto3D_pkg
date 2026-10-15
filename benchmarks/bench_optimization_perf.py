@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import statistics
 import subprocess
@@ -193,6 +194,169 @@ def env_block(device: torch.device | None = None) -> dict:
         # The A/B guard: if these match, both runs benchmarked the same code.
         "auto3d_path": str(Path(Auto3D.__file__).resolve().parent),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Shared by every measurement script in this directory (measure_empty_cache.py,
+# measure_fire_constants.py, and the batch-noise script next): the card's state,
+# the common argument parser, and the smoke-run notices. They live here, beside
+# `env_block` and `make_state`, because this module is already the one the
+# others import; a copy per script is how two of them drifted before.
+# --------------------------------------------------------------------------- #
+
+
+def _nvidia_smi_id(device: torch.device) -> str:
+    """Map ``device.index`` to the ``--id`` ``nvidia-smi`` needs.
+
+    ``nvidia-smi --id=N`` addresses physical enumeration and knows nothing
+    about ``CUDA_VISIBLE_DEVICES``, while torch's ``device.index`` is an
+    index into whatever ``CUDA_VISIBLE_DEVICES`` exposed. Without this, a run
+    launched the way these scripts document
+    (``CUDA_VISIBLE_DEVICES=<idle> ... --device cuda:0``) would snapshot
+    physical card 0 while torch, and ``env_block``, are actually using the
+    idle card named in ``CUDA_VISIBLE_DEVICES`` -- silently inconsistent.
+    Entries in ``CUDA_VISIBLE_DEVICES`` may be plain indices or ``GPU-...``
+    UUIDs; ``nvidia-smi --id=`` accepts either.
+    """
+    index = device.index if device.index is not None else 0
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible:
+        entries = [e.strip() for e in visible.split(",") if e.strip()]
+        if 0 <= index < len(entries):
+            return entries[index]
+    return str(index)
+
+
+def gpu_state(device: torch.device) -> dict | None:
+    """Snapshot this card's driver, utilization, clocks, temperature and
+    memory, plus the other processes holding it (pids and memory only, no
+    process names), via ``nvidia-smi``. ``None`` on a CPU run. The resolved
+    ``nvidia-smi`` id (see :func:`_nvidia_smi_id`, which accounts for
+    ``CUDA_VISIBLE_DEVICES``) is stored too, so a reader can audit which
+    physical card was actually queried. An ``nvidia-smi`` failure (not
+    installed, no permission, ...) is reported as an ``"error"`` key rather
+    than raised, since this is a diagnostic snapshot, not something the
+    measurement should abort on by itself.
+    """
+    if device.type != "cuda":
+        return None
+    smi_id = _nvidia_smi_id(device)
+    try:
+        gpu_line = subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={smi_id}",
+                "--query-gpu=driver_version,utilization.gpu,clocks.sm,clocks.mem,"
+                "temperature.gpu,memory.used",
+                "--format=csv,noheader",
+            ],
+            text=True,
+        ).strip()
+        driver, util, clock_sm, clock_mem, temp, mem_used = (s.strip() for s in gpu_line.split(","))
+        apps_text = subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={smi_id}",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader",
+            ],
+            text=True,
+        ).strip()
+        own_pid = os.getpid()
+        other_processes = []
+        if apps_text:
+            for line in apps_text.splitlines():
+                pid_s, used_s = (s.strip() for s in line.split(","))
+                if int(pid_s) == own_pid:
+                    continue  # this script's own CUDA context, not an "other" process
+                other_processes.append({"pid": int(pid_s), "used_memory": used_s})
+    except Exception as exc:  # nvidia-smi missing, no permission, parse surprise, ...
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "nvidia_smi_id": smi_id,
+        "driver_version": driver,
+        "utilization_gpu": util,
+        "clocks_sm": clock_sm,
+        "clocks_mem": clock_mem,
+        "temperature_gpu": temp,
+        "memory_used": mem_used,
+        "other_processes": other_processes,
+    }
+
+
+def warn_if_occupied(state: dict | None, when: str) -> None:
+    """Print a one-line stderr warning if ``state`` (from :func:`gpu_state`)
+    shows another process already holding the card at ``when`` ("start" or
+    "end") -- the idle-card claim the whole measurement rests on.
+    """
+    if not state or "error" in state or not state.get("other_processes"):
+        return
+    print(
+        f"WARNING: {len(state['other_processes'])} other process(es) on the GPU at "
+        f"{when} of this run: {state['other_processes']}; the idle-card assumption "
+        "does not hold for this run.",
+        file=sys.stderr,
+    )
+
+
+def bench_arg_parser(
+    description: str, *, reps: int, limit_help: str, sets: str | None = None
+) -> argparse.ArgumentParser:
+    """The argument parser every measurement script in this directory shares.
+
+    ``--device``, ``--engines``, ``--reps``, ``--out`` and ``--limit`` mean the
+    same thing in each of them, and a script that spelled one of them its own
+    way would make two runs harder to compare than the measurements they
+    report. ``reps`` and ``limit_help`` are per script; ``sets``, when given,
+    adds ``--sets`` with that default.
+    """
+    parser = argparse.ArgumentParser(
+        description=description, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--engines", default="AIMNET,ANI2xt")
+    parser.add_argument("--reps", type=int, default=reps)
+    parser.add_argument("--out", required=True, help="JSON file to write")
+    parser.add_argument("--limit", type=int, default=None, help=limit_help)
+    if sets is not None:
+        parser.add_argument(
+            "--sets", default=sets, help="comma-separated FIRE constant set names to compare"
+        )
+    return parser
+
+
+def smoke_notice(detail: str) -> None:
+    """Print the loud pre-run notice. Called only when the run IS a smoke run.
+
+    On stderr, which is unbuffered, so the notice appears even when stdout is
+    redirected to a file and block-buffered. The two streams then interleave
+    unpredictably, which is why each script repeats the notice after its table
+    instead of relying on this one line to be read first.
+    """
+    print(f"SMOKE RUN -- NOT A MEASUREMENT: {detail}", file=sys.stderr)
+
+
+def write_record(out: str, record: dict, *, is_smoke: bool) -> Path:
+    """Write the JSON record, creating its directory, and return its path.
+
+    Repeats the smoke notice immediately after writing, so a reader who finds
+    the file knows what is in it before the table is printed.
+    """
+    path = Path(out)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=1))
+    if is_smoke:
+        print("SMOKE RUN -- NOT A MEASUREMENT (see above)", file=sys.stderr)
+    return path
+
+
+def smoke_verdict_notice(is_smoke: bool) -> None:
+    """The last line of a smoke run, printed after the table it applies to."""
+    if is_smoke:
+        print(
+            "SMOKE RUN -- NOT A MEASUREMENT: do not use these numbers for the decision.",
+            file=sys.stderr,
+        )
 
 
 def make_state(

@@ -185,6 +185,10 @@ def ensemble_opt(
         param["patience"],
         atom_mask=atom_mask,
         progress_cb=progress_cb,
+        # `.get`, not `param["fire_constants"]`: a hand-written param dict
+        # (the tests here, and any direct caller predating the key) carries no
+        # such entry and means the set every release has run.
+        fire_constants=param.get("fire_constants", "auto3d"),
     )
 
     return dict(
@@ -364,14 +368,22 @@ class Optimizer:
                 "This run contains open-shell records; each record's spin multiplicity "
                 "(an explicit 'multiplicity' property, otherwise unpaired electrons + 1) "
                 "is resolved and handed to the model. A model with a spin input uses it; "
-                "a model without one evaluates the molecule as a closed shell and says "
-                "so once."
+                "a one-channel AIMNet2 model evaluates the molecule as a closed shell "
+                "and says so once; other models without a spin input are silent."
             )
         # A closed-shell drawing carries no radical electrons, so the line
         # above cannot see it and the resolver returns 1: the record is
         # optimized as a singlet, which for O=O is the wrong state.
+        #
+        # Gated on the resolved multiplicity, not on the drawing alone: a
+        # record that carries an explicit 'multiplicity' property IS optimized
+        # at its ground state, so warning about it would name a problem this
+        # run does not have. `mults` is the resolver's own output for these
+        # very records, in this order, which is why the two are zipped
+        # strictly.
         if not self._noted_drawn_closed_shell and any(
-            drawn_closed_shell_but_open_shell(m) for m in bucket_mols
+            mult == 1.0 and drawn_closed_shell_but_open_shell(m)
+            for m, mult in zip(bucket_mols, mults.tolist(), strict=True)
         ):
             self._noted_drawn_closed_shell = True
             logger.warning(

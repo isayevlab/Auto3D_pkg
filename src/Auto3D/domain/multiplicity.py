@@ -21,6 +21,15 @@ logger = get_logger(__name__)
 __all__ = ["resolve_multiplicity", "electron_count", "drawn_closed_shell_but_open_shell"]
 
 _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
+# Canonicalized once at import, not once per call: the predicate below is asked
+# about every record of a bucket until the optimizer's notice has fired, and
+# rebuilding this set each time parsed and canonicalized the same SMILES again
+# for about 0.1 ms per record. The inputs are this module's own literals, so
+# there is nothing here that can fail at import without the constant above
+# being wrong.
+_OPEN_SHELL_DRAWN_CLOSED_CANONICAL = frozenset(
+    Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in _OPEN_SHELL_DRAWN_CLOSED
+)
 
 
 def drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
@@ -42,7 +51,7 @@ def drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
         canonical = Chem.MolToSmiles(Chem.RemoveHs(mol))
     except (ValueError, RuntimeError):
         return False
-    return canonical in {Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in _OPEN_SHELL_DRAWN_CLOSED}
+    return canonical in _OPEN_SHELL_DRAWN_CLOSED_CANONICAL
 
 
 def electron_count(mol: Chem.Mol) -> int:
