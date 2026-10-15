@@ -107,9 +107,10 @@ def build_groups(limit: int | None = None) -> dict[str, list]:
     own starting geometry (``pad_from_mols`` reads ``mol.GetConformer()``, which
     would otherwise take conformer 0 ten times over).
 
-    ``limit`` applies to the flattened small/medium/large order, as the sibling
-    scripts' ``--limit`` does, so a small enough limit returns fewer groups
-    rather than empty ones.
+    ``limit`` applies to the flattened small/medium/large order, as
+    ``measure_empty_cache.py``'s does, so a small enough limit returns fewer
+    groups rather than empty ones. (``measure_batch_noise.py`` cuts each size
+    group instead, for the reason its own helper gives.)
     """
     from rdkit import Chem
     from rdkit.Chem import AllChem
@@ -227,9 +228,12 @@ def run_arm(mols_by_group: dict[str, list], set_name: str, device, model, is_cud
         # `json.dump` would write that as the bare `NaN` token, which is not
         # JSON and which a strict reader rejects. Such a row has no energy to
         # report, so it is recorded as null and the `non_finite` column says
-        # why.
+        # why. The value's own finiteness is tested as well: the final-energy
+        # recompute can hand back a non-finite energy for a row the loop
+        # counted as finite, and that value would reach the record as the same
+        # unreadable token.
         energy.extend(
-            None if bad else value
+            None if (bad or not math.isfinite(value)) else value
             for value, bad in zip(state["energy"].tolist(), group_non_finite, strict=True)
         )
 
@@ -279,10 +283,23 @@ def main() -> None:
         sets="auto3d,bitzek2006",
     )
     args = parser.parse_args()
+    if args.reps % 2:
+        print(
+            "WARNING: odd --reps: one set leads one more repeat than the other, which is "
+            "the asymmetry the alternating arm order exists to remove.",
+            file=sys.stderr,
+        )
 
     from Auto3D.engines.batch_opt.optimization_engine import n_steps
     from Auto3D.engines.model_factory import ModelFactory, create_model
+    from Auto3D.engines.torch_config import TorchConfig, configure_torch
     from Auto3D.foundation.constants import FIRE_CONSTANT_SETS
+
+    # The step counts and the final energies are measured under the precision
+    # flags a production run applies when the user passes nothing: TF32 off for
+    # matmul and for cuDNN (where torch leaves it on by default), with
+    # determinism and the cuDNN autotuner left exactly as this process had them.
+    configure_torch(TorchConfig(allow_tf32=False))
 
     device = torch.device(args.device)
     is_cuda = device.type == "cuda"
@@ -319,6 +336,11 @@ def main() -> None:
         # in this script names the set it is running through a variable, which
         # is what `tests/test_bench_scripts.py` checks.
         warmup_set = sets[0]
+        print(
+            f"{engine}: warm-up starting -- the full step budget over every size group "
+            f"with the {warmup_set} set; this prints nothing until it ends.",
+            file=sys.stderr,
+        )
         for warmup_mols in groups.values():
             warm_state, warm_mask, _ = make_state(warmup_mols, len(warmup_mols), device, model)
             n_steps(
@@ -329,6 +351,7 @@ def main() -> None:
                 atom_mask=warm_mask,
                 fire_constants=warmup_set,
             )
+        print(f"{engine}: warm-up done.", file=sys.stderr)
 
         for rep in range(args.reps):
             # Alternate which set goes first each repeat, as
