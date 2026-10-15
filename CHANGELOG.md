@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- CI: test and documentation jobs install the CPU build of torch and cache pip
+  downloads; the documentation link check runs weekly instead of on every pull
+  request and can fail again; the documentation build's error gate reads the
+  build's own log and fails on an autodoc import failure; the redundant py3.12
+  fast leg moved to a weekly run with the 3.13 interpreter; pull request runs
+  are not repeated on the merge commit (branch protection requires an
+  up-to-date branch instead); releases verify the tag, the merge gates and the
+  built wheel before publishing.
+
 ### Fixed
 - `ConformerRanker` refuses a record whose ranking-basis energy (`E_tot` or
   `G_hartree`) is present but not a finite number, with the same kind of

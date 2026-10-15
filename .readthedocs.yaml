@@ -7,9 +7,17 @@ build:
 
 python:
   install:
-    - requirements: docs/requirements.txt
+    # One resolution, from pyproject.toml's extras. The `docs/requirements.txt`
+    # that used to be installed first re-declared torch, rdkit, pandas, ase and
+    # torchani with floors that contradicted pyproject.toml, so Read the Docs
+    # and CI could build against different versions of the package they
+    # document.
     - method: pip
       path: .
+      extra_requirements:
+        - ase
+        - ani
+        - docs
 
 # conda:
 #   environment: installation.yml

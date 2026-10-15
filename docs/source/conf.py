@@ -43,6 +43,10 @@ intersphinx_mapping = {
 }
 intersphinx_disabled_domains = ['std']
 
+# External pages that rot. The weekly link check is allowed to be red; a pattern
+# goes here with the reason, never a suppression in the workflow.
+linkcheck_ignore: list[str] = []
+
 templates_path = ['_templates']
 
 # -- Autodoc settings --------------------------------------------------------
