@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `ConformerRanker` refuses a record whose ranking-basis energy (`E_tot` or
+  `G_hartree`) is present but not a finite number, with the same kind of
+  input-validation error a missing property raises, instead of carrying it
+  into the selection where `k>1` and `window` on the Gibbs basis crashed with
+  a bare `TypeError` and `k=1` silently returned another record.
+- The ranker forms relative energies (`E_rel(eV)`, `E_rel(kcal/mol)`,
+  `G_rel(kcal/mol)` on the Gibbs basis, and the energy window's comparison)
+  as a difference of the stored Hartree values rather than of their eV
+  conversions, so a conformer exactly `window` kcal/mol above the reference
+  is kept; converting each absolute energy to eV first lost about ten digits
+  to cancellation and placed such a conformer just outside an inclusive
+  window.
+
 ## [3.2.1] - 2026-10-11
 
 ### Fixed

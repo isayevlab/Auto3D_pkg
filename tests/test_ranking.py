@@ -11,6 +11,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from Auto3D.domain.energy import e_tot_ev, set_e_tot_from_ev
+from Auto3D.foundation.constants import HARTREE_TO_KCAL_PER_MOL
 
 
 def _create_mol_with_energy(
@@ -456,6 +457,81 @@ class TestConformerRankerTopWindow:
         assert len(results) == 2
         assert mol3 not in results
         assert not mol3.HasProp("E_rel(eV)"), "the molecule that broke the loop must not be stamped"
+
+    @pytest.mark.parametrize("ref_hartree", [-1.0, -40.0, -100.0, -500.0, -2000.0])
+    def test_a_conformer_exactly_at_the_window_boundary_is_kept(self, tmp_path, ref_hartree):
+        """The window is documented inclusive; it holds at the boundary itself.
+
+        The second conformer sits exactly 1.000 kcal/mol above the reference,
+        as closely as a stored Hartree value can place it. Converting both
+        absolute energies to eV before subtracting canceled about ten digits
+        and put this conformer a few 1e-12 eV outside a 1.0 kcal/mol window at
+        every magnitude except the unphysical 0; it must be kept, and the third
+        conformer, 2.000 kcal/mol above, dropped.
+        """
+        from Auto3D.domain.ranking import ConformerRanker
+
+        energies = (
+            ref_hartree,
+            ref_hartree + 1.0 / HARTREE_TO_KCAL_PER_MOL,
+            ref_hartree + 2.0 / HARTREE_TO_KCAL_PER_MOL,
+        )
+        mols = []
+        for i, energy in enumerate(energies):
+            mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(mol, randomSeed=42 + i)
+            mol.SetProp("_Name", f"boundary_0_{i}")
+            mol.SetProp("E_tot", repr(energy))
+            mol.SetProp("Converged", "True")
+            mols.append(mol)
+        input_path = str(tmp_path / "input.sdf")
+        output_path = str(tmp_path / "output.sdf")
+        _write_mols_to_sdf(mols, input_path)
+        ConformerRanker(
+            input_path=input_path, out_path=output_path, threshold=0.3, window=1.0
+        ).run()
+        with Chem.SDMolSupplier(output_path, removeHs=False) as supplier:
+            kept = [float(m.GetProp("E_rel(kcal/mol)")) for m in supplier]
+        assert len(kept) == 2, kept
+        assert kept == sorted(kept)
+        assert kept[1] == pytest.approx(1.0, abs=1e-9)
+
+
+@pytest.mark.parametrize("raw_value", ["*********", "nan", "inf"])
+@pytest.mark.parametrize(
+    "selector", [{"k": 1}, {"k": 2}, {"window": 5.0}], ids=["k1", "k2", "window"]
+)
+def test_a_garbled_or_non_finite_electronic_energy_is_refused_at_read_time(
+    tmp_path, selector, raw_value
+):
+    """A present but unreadable or non-finite ``E_tot`` is an input error, on every selector.
+
+    The electronic-basis counterpart of the Gibbs-basis guard in
+    ``tests/test_ranking_by_gibbs.py``: a Fortran overflow field
+    (``*********``) does not parse at all, while ``nan`` and ``inf`` parse
+    but are not finite -- both forms must be refused before a non-finite
+    value can reach the selection.
+    """
+    from Auto3D.domain.ranking import ConformerRanker
+    from Auto3D.foundation.exceptions import InputValidationError
+
+    good1 = _create_mol_with_energy("CCO", -10.0, "mol_0_0")
+    good2 = _create_mol_with_energy("CCO", -10.1, "mol_0_1")
+    bad = _create_mol_with_energy("CCO", -10.2, "mol_0_2")
+    bad.SetProp("E_tot", raw_value)
+
+    input_path = str(tmp_path / "input.sdf")
+    output_path = str(tmp_path / "output.sdf")
+    _write_mols_to_sdf([good1, good2, bad], input_path)
+
+    ranker = ConformerRanker(
+        input_path=input_path,
+        out_path=output_path,
+        threshold=0.3,
+        **selector,
+    )
+    with pytest.raises(InputValidationError, match="unreadable 'E_tot'"):
+        ranker.run()
 
 
 def test_k_and_window_default_to_none_and_false_still_means_unset(tmp_path, three_conformers_sdf):

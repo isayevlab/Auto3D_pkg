@@ -202,6 +202,30 @@ def test_a_missing_gibbs_energy_is_refused_with_a_usable_message(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "selector", [{"k": 1}, {"k": 2}, {"window": 5.0}], ids=["k1", "k2", "window"]
+)
+def test_a_garbled_gibbs_energy_is_refused_at_read_time(tmp_path, selector):
+    """A present but unreadable G_hartree is an input error, on every selector.
+
+    The realistic form is a Fortran overflow field. Before this fix the value
+    parsed to None, sorted last, and k=1 silently returned the other record
+    while k>1 and window crashed in the selection with a bare TypeError.
+    """
+    good = _mol("m_0_0", e_ev=-10.0, g_hartree=-100.0)
+    bad = _mol("m_0_1", e_ev=-10.1, g_hartree=-100.1, seed=7)
+    bad.SetProp("G_hartree", "*********")
+    ranker = ConformerRanker(
+        input_path=_write([good, bad], tmp_path / "in.sdf"),
+        out_path=str(tmp_path / "out.sdf"),
+        threshold=0.3,
+        rank_by=RANK_BY_GIBBS,
+        **selector,
+    )
+    with pytest.raises(InputValidationError, match="unreadable 'G_hartree'"):
+        ranker.run()
+
+
 def test_an_unknown_basis_is_refused_at_construction(tmp_path):
     from Auto3D.foundation.exceptions import ConfigurationError
 

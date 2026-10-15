@@ -19,9 +19,12 @@ twice.
 The fix is one unit for the property and one conversion boundary. Writers call
 :func:`set_e_tot_from_ev` (models produce eV); readers call :func:`e_tot_ev` /
 :func:`try_e_tot_ev` and get eV back, so every in-package energy tolerance
-(``DEFAULT_DUPLICATE_ENERGY_TOL``, ``DEFAULT_ENERGY_CLUSTER_WINDOW``, the
-kcal/mol -> eV window conversion in ``ranking``) keeps its documented eV
-meaning. Writers additionally set :data:`E_TOT_HARTREE_PROP`, the unit-labeled
+(``DEFAULT_DUPLICATE_ENERGY_TOL``, ``DEFAULT_ENERGY_CLUSTER_WINDOW``) keeps
+its documented eV meaning. The ranker is the one deliberate exception: it
+reads the stored Hartree values through :func:`e_tot_hartree` /
+:func:`gibbs_hartree`, forms each relative energy as a Hartree difference and
+converts that difference, so its kcal/mol window is compared in kcal/mol.
+Writers additionally set :data:`E_TOT_HARTREE_PROP`, the unit-labeled
 sibling, so a file states its own unit.
 """
 
@@ -60,6 +63,7 @@ __all__ = [
     "e_tot_ev",
     "try_e_tot_ev",
     "try_gibbs_ev",
+    "gibbs_hartree",
     # Conversion factors
     "HARTREE_TO_EV",
     "HARTREE_TO_KCAL_PER_MOL",
@@ -151,13 +155,24 @@ def try_e_tot_ev(mol: Chem.Mol) -> float | None:
 def try_gibbs_ev(mol: Chem.Mol) -> float | None:
     """``G_hartree`` in eV, or None when the record has no usable one.
 
-    eV, not Hartree, so a caller can compare it against the same thresholds it
-    already applies to :func:`e_tot_ev` -- the kcal/mol energy window in
-    ``ranking`` converts to eV once and must not care which basis it is
-    measuring. ``Auto3D.entry.ASE.thermo`` writes the underlying property.
+    Kept as a public name. Nothing in the package calls it since the ranker
+    started reading Gibbs energies in Hartree (:func:`gibbs_hartree`); a
+    caller that compares Gibbs energies against the eV thresholds it applies
+    to :func:`e_tot_ev` can still use it. ``Auto3D.entry.ASE.thermo`` writes
+    the underlying property.
     """
     value = _try_float_prop(mol, G_HARTREE_PROP)
     return None if value is None else value * HARTREE_TO_EV
+
+
+def gibbs_hartree(mol: Chem.Mol) -> float:
+    """Return ``G_hartree`` in Hartree, the unit it is stored in.
+
+    Raises:
+        KeyError: The molecule has no ``G_hartree`` property.
+        ValueError: The property is not a number.
+    """
+    return float(mol.GetProp(G_HARTREE_PROP))
 
 
 def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
@@ -205,16 +220,22 @@ def set_relative_energies(mols: Sequence[Chem.Mol]) -> None:
             group member, and must not be the reference either.
     """
     for group in _comparable_groups(mols, E_REL_KCAL_PROP):
-        with_energy = [(mol, try_e_tot_ev(mol)) for mol in group]
+        with_energy = [(mol, _try_float_prop(mol, E_TOT_PROP)) for mol in group]
         usable = [(mol, e) for mol, e in with_energy if e is not None]
         # A record with no readable E_tot cannot carry a relative one either.
         _clear_prop((mol for mol, e in with_energy if e is None), E_REL_KCAL_PROP)
         if not usable:
             continue
 
+        # Formed in Hartree, the stored unit, and converted once: two stored
+        # energies within a factor of two of each other subtract exactly in
+        # binary floating point, so the only rounding is the final product.
+        # Converting each absolute energy to eV first lost about ten digits to
+        # cancellation (the terms are the size of the absolute energy, the
+        # difference a few hundredths of an eV).
         reference = min(e for _, e in usable)
         for mol, energy in usable:
-            mol.SetProp(E_REL_KCAL_PROP, str((energy - reference) * EV_TO_KCAL_PER_MOL))
+            mol.SetProp(E_REL_KCAL_PROP, str((energy - reference) * HARTREE_TO_KCAL_PER_MOL))
 
 
 def set_relative_gibbs_energies(mols: Sequence[Chem.Mol]) -> None:
