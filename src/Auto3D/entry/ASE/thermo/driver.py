@@ -31,6 +31,7 @@ from Auto3D.domain.energy import (
     set_relative_energies,
     set_relative_gibbs_energies,
 )
+from Auto3D.domain.multiplicity import resolve_multiplicity
 from Auto3D.domain.stereo_check import set_conformer_positions
 from Auto3D.engines.model_factory import create_model
 from Auto3D.engines.models.contract import ModelAdapter
@@ -43,8 +44,6 @@ from Auto3D.entry.ASE.thermo.calculator import (
 )
 from Auto3D.entry.ASE.thermo.properties import (
     _detect_geometry,
-    _mol_name,
-    _resolve_multiplicity,
     _symmetry_number,
     mass_convention,
 )
@@ -66,6 +65,7 @@ from Auto3D.foundation.constants import (
 )
 from Auto3D.foundation.exceptions import ConfigurationError
 from Auto3D.foundation.utils.logging_config import get_logger, should_disable_progress_bars
+from Auto3D.foundation.utils.molprops import record_name
 
 logger = get_logger(__name__)
 
@@ -302,10 +302,10 @@ def do_mol_thermo(
     geometry = _detect_geometry(atoms)
     symmetry = _symmetry_number(mol)
 
-    multiplicity = _resolve_multiplicity(mol)
+    multiplicity = resolve_multiplicity(mol)
     spin = (multiplicity - 1) / 2.0
 
-    name = _mol_name(mol)
+    name = record_name(mol)
     # Project translation and rotation out of the Hessian instead of taking
     # VibrationsData.get_energies()'s raw 3N spectrum and letting
     # IdealGasThermo guess which entries are vibrations. `atoms` supplies the
