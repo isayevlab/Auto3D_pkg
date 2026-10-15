@@ -13,10 +13,9 @@ did -- measured below, by structure:
 * ``OC(=O)C=CC(=O)O`` embeds as **fumaric and maleic acid together**, two
   species ~5 kcal/mol apart, under a single species id. They then compete on
   energy in ranking, so ``k=1`` returns whichever happens to be lower.
-* ``CC=CC`` embeds as cis-2-butene alone under RDKit 2025.09.6 (the trans
-  isomer is absent entirely); from 2026.09 the generator samples both
-  geometries under one unlabeled name. Either way the user gets a species
-  they did not specify.
+* ``CC=CC`` embeds as a mixture of cis- and trans-2-butene under one
+  unlabeled name: the user gets a species they did not specify, without
+  knowing which geometry (or which mixture of the two) they received.
 
 Every assertion here is on the emitted *structures*, not on a count: a count of
 2 is satisfied by two copies of one isomer. Nothing in this module loads a
@@ -29,7 +28,6 @@ import warnings
 from collections import Counter
 from pathlib import Path
 
-import rdkit
 from rdkit import Chem
 
 from Auto3D.engines.isomers.rdkit_smi import RDKitIsomer
@@ -41,21 +39,6 @@ TRANS_2_BUTENE = "C/C=C/C"
 CIS_2_BUTENE = "C/C=C\\C"
 FUMARIC_ACID = "O=C(O)/C=C/C(=O)O"
 MALEIC_ACID = "O=C(O)/C=C\\C(=O)O"
-
-
-def _rdkit_version() -> tuple[int, ...]:
-    """``rdkit.__version__`` ("2026.09.1") as a comparable tuple."""
-    return tuple(int(part) for part in rdkit.__version__.split(".")[:3])
-
-
-# RDKit 2026.09 reworked the conformer generator (a new strategy for the initial
-# coordinates, ETKDGv4 beta). Measured on CC=CC with Auto3D's embedding settings
-# (seed 42, pruneRmsThresh 0.3, heavy-atom symmetry pruning): 2025.09.6 embeds the
-# cis geometry only; 2026.09.1 embeds one cis and one trans conformer. The warning
-# this file guards is owed in both regimes -- an unspecified double bond is
-# sampled by chance, not enumerated and labeled -- but the "trans is silently
-# dropped" premise holds only before 2026.09.
-RDKIT_SAMPLES_UNSPECIFIED_DOUBLE_BONDS = _rdkit_version() >= (2026, 9)
 
 
 def _configuration_from_3d(mol: Chem.Mol) -> str:
@@ -150,13 +133,14 @@ class TestUnspecifiedDoubleBondOnTheSmilesPath:
     def test_2_butene_unspecified_geometry_is_warned_about(self, tmp_path):
         """``CC=CC`` without enumeration gets whatever geometry ETKDG samples, and a warning.
 
-        Before RDKit 2026.09 that was cis-2-butene alone: trans was lost
-        entirely, with no warning before the fix. From 2026.09 the conformer
-        generator samples both geometries, so the user gets an unlabeled
-        mixture under one name instead; the warning is owed either way. The
-        enumerated run is the non-vacuity guard: it shows both geometries are
-        reachable for this molecule, so whatever the embedding alone produced
-        is a sampling outcome rather than an artifact of the comparison.
+        The conformer budget for a rotor-free 4-heavy-atom molecule such as
+        this one requests 16 conformers; under that request, this package's
+        embedding settings sample a mixture of both 2-butene geometries under
+        one unlabeled name, so the user gets a species they did not specify
+        either way the sampling happens to land. The enumerated run is the
+        non-vacuity guard: it shows both geometries are reachable for this
+        molecule, so whatever the embedding alone produced is a sampling
+        outcome rather than an artifact of the comparison.
         """
         both = _configurations_emitted(tmp_path / "enumerated", "CC=CC", enumerate_isomers=True)
         assert set(both) == {TRANS_2_BUTENE, CIS_2_BUTENE}, (
@@ -164,20 +148,15 @@ class TestUnspecifiedDoubleBondOnTheSmilesPath:
         )
 
         emitted = _configurations_emitted(tmp_path / "embed", "CC=CC", enumerate_isomers=False)
-        if RDKIT_SAMPLES_UNSPECIFIED_DOUBLE_BONDS:
-            assert set(emitted) <= {TRANS_2_BUTENE, CIS_2_BUTENE}, (
-                f"unexpected 2-butene geometry: {dict(emitted)}"
-            )
-        else:
-            assert set(emitted) == {CIS_2_BUTENE}, (
-                f"expected cis-2-butene alone, got {dict(emitted)}"
-            )
-            assert TRANS_2_BUTENE not in emitted
+        assert set(emitted) <= {TRANS_2_BUTENE, CIS_2_BUTENE}, (
+            f"unexpected 2-butene geometry: {dict(emitted)}"
+        )
 
         messages = _warnings_for(tmp_path / "warn", "CC=CC")
         stereo_warnings = [m for m in messages if "unspecified stereo element" in m]
         assert len(stereo_warnings) == 1, (
-            f"the input whose trans isomer is silently dropped was not warned about: {messages}"
+            f"the input whose geometry is sampled rather than specified was not warned about: "
+            f"{messages}"
         )
         assert "CC=CC" in stereo_warnings[0]
 

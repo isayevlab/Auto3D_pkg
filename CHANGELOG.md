@@ -64,6 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is kept; converting each absolute energy to eV first lost about ten digits
   to cancellation and placed such a conformer just outside an inclusive
   window.
+- The default conformer budget requests at least 16 embeddings for any
+  molecule with two or more heavy atoms (previously one per heavy atom for a
+  rotor-free molecule, so oxane requested 6 and kept 1; it now keeps 3), because
+  ring puckering is not a rotatable bond and the rotor term is zero for such
+  molecules. The budget's documentation now states what the published constants
+  estimate (how many low-energy conformers a molecule has, checked against the
+  authors' deposited data) and which parts of the expression are Auto3D's own.
 
 ## [3.2.1] - 2026-10-11
 

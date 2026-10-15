@@ -56,12 +56,21 @@ MAX_STEREOISOMERS = 2**16  # 65536
 # Chunk sizing
 DEFAULT_CAPACITY = 42  # molecules per GB of GPU/CPU memory for chunk sizing
 
-# Conformer generation formula coefficients
-# Coefficient and exponent cited to https://doi.org/10.1021/acs.jctc.0c01213
-# (unverified; see Auto3D.domain.conformer_budget).
-CONFORMER_ROTATABLE_COEFF = 8.481  # Coefficient for rotatable bond count
-CONFORMER_ROTATABLE_EXP = 1.642  # Exponent for rotatable bond count
+# Conformer budget. The rotatable-bond coefficient and exponent are the fitted
+# constants of Chan, Morris and Hutchison, J. Chem. Theory Comput. 2021, 17,
+# 2099 (https://doi.org/10.1021/acs.jctc.0c01213), checked against that
+# work's deposited dataset rather than its paywalled text; see
+# Auto3D.domain.conformer_budget for what they estimate and which parts of the
+# expression are Auto3D's own.
+CONFORMER_ROTATABLE_COEFF = 8.481
+CONFORMER_ROTATABLE_EXP = 1.642
 CONFORMER_MULTIPLIER = 2  # Auto3D's own oversampling factor, not from that work
+# Auto3D's own floor for molecules with two or more heavy atoms: the request the
+# expression already gives at one rotatable bond, extended to the rotor-free
+# case because ring puckering is not a rotatable bond (in the deposited data a
+# molecule with no rotatable bond averages 25 retained conformers, more than a
+# one-rotor molecule's 15). A lone atom or a bare proton still requests 1.
+CONFORMER_MIN_REQUEST = 16
 CONFORMER_RANDOM_SEED = 42  # Random seed for reproducible embedding
 
 # Seconds. Wall-clock cap on embedding one species (RDKit's

@@ -12,6 +12,7 @@ from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 
 from Auto3D.foundation.constants import (
+    CONFORMER_MIN_REQUEST,
     CONFORMER_MULTIPLIER,
     CONFORMER_ROTATABLE_COEFF,
     CONFORMER_ROTATABLE_EXP,
@@ -24,10 +25,11 @@ __all__ = ["calculate_conformer_count"]
 def calculate_conformer_count(mol: Chem.Mol) -> int:
     """Calculate the number of conformers to generate for a molecule.
 
-    Uses a formula based on the number of rotatable bonds, with a minimum
-    of the heavy atom count and a maximum cap. The result is floored at 1 so
-    a molecule never gets 0 conformers (which would silently drop tiny species
-    such as ``[H+]`` or a lone atom from the pipeline).
+    Uses a formula based on the number of rotatable bonds, with a minimum of
+    16 for a molecule with two or more heavy atoms (or the heavy-atom count,
+    if larger) and a maximum cap. The result is floored at 1 so a molecule
+    never gets 0 conformers (which would silently drop tiny species such as
+    ``[H+]`` or a lone atom from the pipeline).
 
     Rotatable bonds are counted on the heavy-atom graph (``Chem.RemoveAllHs``,
     which also drops isotope-labeled hydrogens) using RDKit's default
@@ -55,14 +57,35 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
     agree on the same request; a caller that wants the larger pool back asks
     for it explicitly with ``max_confs``.
 
-    Formula: min(max(1, num_heavy, 2 * 8.481 * (num_rotatable ** 1.642)), 1000)
-    The formula is Auto3D's own rule, adapted from Chan, Morris and Hutchison
-    (J. Chem. Theory Comput. 2021, 17, 2099-2106): the rotatable-bond
-    coefficient and exponent are cited to that work, the factor of 2 and the
-    heavy-atom floor are Auto3D's choices. None of the three has been checked
-    against the paper's text (a conformational-entropy study).
-
-    Reference: https://doi.org/10.1021/acs.jctc.0c01213
+    Formula: `min(max(1, 16 if num_heavy >= 2 else 1, num_heavy, 2 * 8.481 *
+    (num_rotatable ** 1.642)), 1000)`. The rotatable-bond coefficient 8.481 and
+    exponent 1.642 are the fitted constants of Chan, Morris and Hutchison (*J.
+    Chem. Theory Comput.* 2021, 17, 2099-2106,
+    `https://doi.org/10.1021/acs.jctc.0c01213`), whose published text is
+    paywalled. Checked against that work's deposited dataset
+    (`github.com/ghutchis/molecular-entropies`, 117,229 molecules from the COD,
+    ZINC, curated and peptide sets): a power-law least-squares fit over every
+    molecule with at least one rotatable bond returns 8.608 and 1.618 for the
+    mean number of distinct conformers retained within the widest energy window
+    that deposit records (about 5-6 kcal/mol), counted against the
+    amide-including rotatable-bond definition. So the published expression
+    estimates **how many low-energy conformers a molecule has**, not how many
+    embedding attempts recover them, and its independent variable counts one
+    more rotor per amide than the `Default`/`Strict` count used here -- which
+    makes this request conservative for amides. The factor of 2 is Auto3D's:
+    against that same deposited data it turns the fit's mean into a cover of
+    roughly the 90th percentile of the per-molecule spread (86-93% of molecules
+    at 2-12 rotors), and it is canceled by the 1000 cap from 12 rotatable
+    bonds up, where the cap alone decides the budget; the unmultiplied fit
+    itself exceeds the cap at 19 rotatable bonds. The constant minimum of 16 is
+    the budget the expression already gives a one-rotor molecule, extended down
+    to the rotor-free case because ring puckering is not a rotatable bond: in
+    that deposited data a molecule with no rotatable bonds averages 25 retained
+    conformers, more than a one-rotor molecule's 15. The heavy-atom term is
+    Auto3D's too and keeps large rigid polycyclics above the constant floor.
+    The 1000 cap is an operational ceiling, not a chemical one; pass
+    `max_confs` for a larger pool. The refit is recorded in
+    `benchmarks/results-notes/2026-10-14-conformer-budget-provenance.md`.
 
     Args:
         mol: RDKit molecule object (with or without hydrogens).
@@ -89,4 +112,6 @@ def calculate_conformer_count(mol: Chem.Mol) -> int:
 
     # Floor at 1: a heavy-atom-free species (e.g. [H+]) or a single atom must
     # still receive at least one conformer instead of being silently dropped.
-    return min(max(1, num_heavy, formula_count), MAX_CONFORMERS_CAP)
+    # The constant minimum applies from two heavy atoms up (see constants.py).
+    minimum = CONFORMER_MIN_REQUEST if num_heavy >= 2 else 1
+    return min(max(1, minimum, num_heavy, formula_count), MAX_CONFORMERS_CAP)
