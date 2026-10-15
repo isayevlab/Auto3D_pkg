@@ -5,7 +5,7 @@ mass convention the record was built under -- all pure inspection of an RDKit
 ``Mol`` or an ASE ``Atoms``, with no model, no calculator and no ASE
 thermochemistry involved. All but the last are the inputs ``IdealGasThermo`` is
 constructed from; the mass convention annotates the record instead, naming what
-``mol2atoms`` gave the molecule rather than feeding ``IdealGasThermo`` itself.
+``atoms`` actually carries rather than feeding ``IdealGasThermo`` itself.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import ase
 import ase.calculators.calculator
 import numpy as np
+from ase.data import atomic_masses
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 
@@ -197,26 +198,56 @@ def _symmetry_number(mol: Chem.Mol) -> int:
 
 MOST_ABUNDANT_MASSES = "most-abundant-isotope masses"
 ISOTOPE_LABELED_MASSES = "isotope-labeled masses"
+STANDARD_ATOMIC_WEIGHTS = "standard atomic weights"
+CALLER_SUPPLIED_MASSES = "caller-supplied masses"
+#: amu. The tolerance must separate the most-abundant-isotope table from the
+#: standard-weight table where they differ: hydrogen's gap is 1.75e-4 (1.007825
+#: against 1.008). For mononuclidic and near-mononuclidic elements the two
+#: tables nearly coincide (tantalum differs by 4.2e-6, below this tolerance;
+#: vanadium by 4.1e-5, manganese by 4.5e-5), so a molecule of such elements
+#: built with standard weights reports the most-abundant token, which names the
+#: same masses to within a few micro-amu.
+_MASS_MATCH_ATOL = 1e-5
 
 
-def mass_convention(mol: Chem.Mol) -> str:
-    """Which masses ``mol2atoms`` gave this molecule, for ``Thermo_convention``.
+def mass_convention(mol: Chem.Mol, atoms: ase.Atoms) -> str:
+    """Which masses the thermochemistry used, read from ``atoms`` itself.
 
-    ``mol2atoms`` takes the most abundant isotope's mass for every atom except one
-    carrying an RDKit isotope label, which keeps the labeled mass. The token is
-    therefore per record: a file mixing labeled and unlabeled molecules says
-    different things on different records, as it must, because their G are not
-    comparable.
-
-    The token follows the LABEL, not the resulting mass: ``[12C]`` says
-    ``isotope-labeled masses`` even though ``GetMass()`` then equals the
-    most-abundant-isotope mass to six decimals. Conservative on purpose -- the
-    token may over-warn that two records are incomparable, never under-warn,
-    because ``mol2atoms`` departs from the default convention exactly when
-    ``GetIsotope()`` is nonzero.
+    The token describes the ``Atoms`` object the Hessian, the moments of
+    inertia and the translational term were built from, not what ``mol2atoms``
+    would have produced: a caller-supplied ``Atoms`` carrying other masses is
+    reported as what it is. Each stored mass is compared, within
+    ``_MASS_MATCH_ATOL``, against the conventions in turn: the isotope labels
+    the molecule carries (labeled atoms at their isotope's mass, every other
+    atom the most abundant isotope), the most-abundant-isotope table, and the
+    standard atomic weights, from RDKit's table or from ASE's
+    ``atomic_masses`` (the table an ``Atoms`` built with ASE's defaults
+    carries); masses matching none are named caller-supplied. A file mixing
+    conventions says different things on different records, as it must,
+    because their G are not comparable.
     """
-    labeled = any(atom.GetIsotope() for atom in mol.GetAtoms())
-    return ISOTOPE_LABELED_MASSES if labeled else MOST_ABUNDANT_MASSES
+    periodic_table = Chem.GetPeriodicTable()
+    atoms_list = list(mol.GetAtoms())
+    numbers = np.array([atom.GetAtomicNum() for atom in atoms_list])
+    used = np.asarray(atoms.get_masses(), dtype=float)
+    if used.shape != numbers.shape:
+        return CALLER_SUPPLIED_MASSES
+    most_abundant = np.array([periodic_table.GetMostCommonIsotopeMass(int(z)) for z in numbers])
+    isotope_mask = np.array([atom.GetIsotope() != 0 for atom in atoms_list])
+    label_masses = np.array([atom.GetMass() for atom in atoms_list])
+    labeled = np.where(isotope_mask, label_masses, most_abundant)
+    has_labels = bool(isotope_mask.any())
+    standard_rdkit = np.array([periodic_table.GetAtomicWeight(int(z)) for z in numbers])
+    standard_ase = atomic_masses[numbers]
+    if has_labels and np.allclose(used, labeled, rtol=0.0, atol=_MASS_MATCH_ATOL):
+        return ISOTOPE_LABELED_MASSES
+    if np.allclose(used, most_abundant, rtol=0.0, atol=_MASS_MATCH_ATOL):
+        return MOST_ABUNDANT_MASSES
+    if np.allclose(used, standard_rdkit, rtol=0.0, atol=_MASS_MATCH_ATOL) or np.allclose(
+        used, standard_ase, rtol=0.0, atol=_MASS_MATCH_ATOL
+    ):
+        return STANDARD_ATOMIC_WEIGHTS
+    return CALLER_SUPPLIED_MASSES
 
 
 _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)

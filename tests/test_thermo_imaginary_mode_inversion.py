@@ -591,5 +591,16 @@ class TestTheInversionWordingAttributesTheRightConvention:
         monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: vib)
         monkeypatch.setattr(thermo_mod, "project_vibrations", lambda *a, **k: exact_projection)
         with caplog.at_level(logging.WARNING):
-            thermo_mod.do_mol_thermo(mol, atoms, adapter=None, low_freq_cutoff_cm=0.0)
+            produced = thermo_mod.do_mol_thermo(mol, atoms, adapter=None, low_freq_cutoff_cm=0.0)
         assert "ASE kept" in caplog.text
+        # Three modes were handed to ASE and it kept two; the record must say
+        # two, the count that entered G, not the three Auto3D built.
+        assert produced.GetProp("Thermo_vib_modes") == "2"
+        # The dropped exactly-zero mode contributes nothing to a hand ZPE
+        # either, so the record's ZPE must match the two kept modes alone --
+        # computed independently of IdealGasThermo, straight from the
+        # wavenumbers this test built the fake spectrum from.
+        kept_modes_cm = (1595.0, 3657.0)
+        assert float(produced.GetProp("ZPE_hartree")) == pytest.approx(
+            0.5 * sum(kept_modes_cm) * EV_PER_WAVENUMBER * EV_TO_HARTREE, rel=1e-9
+        )
