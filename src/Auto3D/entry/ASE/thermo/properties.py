@@ -197,26 +197,51 @@ def _symmetry_number(mol: Chem.Mol) -> int:
 
 MOST_ABUNDANT_MASSES = "most-abundant-isotope masses"
 ISOTOPE_LABELED_MASSES = "isotope-labeled masses"
+STANDARD_ATOMIC_WEIGHTS = "standard atomic weights"
+CALLER_SUPPLIED_MASSES = "caller-supplied masses"
+#: amu. Hydrogen's most-abundant-isotope mass (1.007825) and standard atomic
+#: weight (1.008) differ by 1.1e-4, so the match tolerance must sit well below
+#: that; the tables themselves are given to at least six decimals.
+_MASS_MATCH_ATOL = 1e-5
 
 
-def mass_convention(mol: Chem.Mol) -> str:
-    """Which masses ``mol2atoms`` gave this molecule, for ``Thermo_convention``.
+def mass_convention(mol: Chem.Mol, atoms) -> str:
+    """Which masses the thermochemistry used, read from ``atoms`` itself.
 
-    ``mol2atoms`` takes the most abundant isotope's mass for every atom except one
-    carrying an RDKit isotope label, which keeps the labeled mass. The token is
-    therefore per record: a file mixing labeled and unlabeled molecules says
-    different things on different records, as it must, because their G are not
-    comparable.
-
-    The token follows the LABEL, not the resulting mass: ``[12C]`` says
-    ``isotope-labeled masses`` even though ``GetMass()`` then equals the
-    most-abundant-isotope mass to six decimals. Conservative on purpose -- the
-    token may over-warn that two records are incomparable, never under-warn,
-    because ``mol2atoms`` departs from the default convention exactly when
-    ``GetIsotope()`` is nonzero.
+    The token describes the ``Atoms`` object the Hessian, the moments of
+    inertia and the translational term were built from, not what ``mol2atoms``
+    would have produced: a caller-supplied ``Atoms`` carrying other masses is
+    reported as what it is. Each stored mass is compared, within
+    ``_MASS_MATCH_ATOL``, against the three conventions in turn: the isotope
+    labels the molecule carries (labeled atoms at their isotope's mass, every
+    other atom the most abundant isotope), the most-abundant-isotope table,
+    and the standard atomic weights; masses matching none are named
+    caller-supplied. A file mixing conventions says different things on
+    different records, as it must, because their G are not comparable.
     """
-    labeled = any(atom.GetIsotope() for atom in mol.GetAtoms())
-    return ISOTOPE_LABELED_MASSES if labeled else MOST_ABUNDANT_MASSES
+    periodic_table = Chem.GetPeriodicTable()
+    numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+    used = np.asarray(atoms.get_masses(), dtype=float)
+    if used.shape != (len(numbers),):
+        return CALLER_SUPPLIED_MASSES
+    most_abundant = np.array([periodic_table.GetMostCommonIsotopeMass(z) for z in numbers])
+    labeled = np.array(
+        [
+            atom.GetMass()
+            if atom.GetIsotope()
+            else periodic_table.GetMostCommonIsotopeMass(atom.GetAtomicNum())
+            for atom in mol.GetAtoms()
+        ]
+    )
+    standard = np.array([periodic_table.GetAtomicWeight(z) for z in numbers])
+    has_labels = any(atom.GetIsotope() for atom in mol.GetAtoms())
+    if has_labels and np.allclose(used, labeled, rtol=0.0, atol=_MASS_MATCH_ATOL):
+        return ISOTOPE_LABELED_MASSES
+    if np.allclose(used, most_abundant, rtol=0.0, atol=_MASS_MATCH_ATOL):
+        return MOST_ABUNDANT_MASSES
+    if np.allclose(used, standard, rtol=0.0, atol=_MASS_MATCH_ATOL):
+        return STANDARD_ATOMIC_WEIGHTS
+    return CALLER_SUPPLIED_MASSES
 
 
 _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)

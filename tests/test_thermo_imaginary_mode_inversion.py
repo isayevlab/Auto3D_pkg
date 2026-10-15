@@ -591,5 +591,8 @@ class TestTheInversionWordingAttributesTheRightConvention:
         monkeypatch.setattr(thermo_mod, "vib_hessian", lambda *a, **k: vib)
         monkeypatch.setattr(thermo_mod, "project_vibrations", lambda *a, **k: exact_projection)
         with caplog.at_level(logging.WARNING):
-            thermo_mod.do_mol_thermo(mol, atoms, adapter=None, low_freq_cutoff_cm=0.0)
+            produced = thermo_mod.do_mol_thermo(mol, atoms, adapter=None, low_freq_cutoff_cm=0.0)
         assert "ASE kept" in caplog.text
+        # Three modes were handed to ASE and it kept two; the record must say
+        # two, the count that entered G, not the three Auto3D built.
+        assert produced.GetProp("Thermo_vib_modes") == "2"

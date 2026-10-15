@@ -11,10 +11,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from rdkit import Chem
+
 from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 from Auto3D.entry.ASE.thermo.properties import (
+    CALLER_SUPPLIED_MASSES,
     ISOTOPE_LABELED_MASSES,
     MOST_ABUNDANT_MASSES,
+    STANDARD_ATOMIC_WEIGHTS,
     mass_convention,
 )
 from Auto3D.foundation.constants import STANDARD_PRESSURE, STANDARD_STATE_LABEL
@@ -24,9 +29,16 @@ from tests.test_thermo_projection import REAL_MODES, TRANS_ROT_NOISE
 FULL_CONVENTION = "RRHO+quasiharmonic(100cm-1); 1 atm; most-abundant-isotope masses"
 
 
-def _ethanol_run(monkeypatch, mol=None, **kwargs):
+def _ethanol_run(monkeypatch, mol=None, atoms=None, **kwargs):
     mol = mol if mol is not None else probe_mol("CCO")
-    atoms = atoms_for(mol, potential_energy=0.0)
+    if atoms is None:
+        atoms = atoms_for(mol, potential_energy=0.0)
+    else:
+        # atoms_for stubs get_potential_energy itself; a caller-supplied
+        # (e.g. bare mol2atoms(mol)) Atoms carries no calculator at all, so
+        # IdealGasThermo's potentialenergy=atoms.get_potential_energy() would
+        # otherwise raise, unrelated to whatever this test is checking.
+        atoms.get_potential_energy = lambda: 0.0
     vib = fake_vib_for(atoms, [120, *REAL_MODES], TRANS_ROT_NOISE, "nonlinear")
     return drive_do_mol_thermo(mol, atoms, vib, monkeypatch, **kwargs)
 
@@ -65,7 +77,7 @@ def test_an_isotope_label_changes_the_mass_token_and_the_masses_agree(monkeypatc
     mol = probe_mol("CCO")
     plain_masses = mol2atoms(mol).get_masses().copy()
     mol.GetAtomWithIdx(0).SetIsotope(13)
-    assert mass_convention(mol) == ISOTOPE_LABELED_MASSES
+    assert mass_convention(mol, mol2atoms(mol)) == ISOTOPE_LABELED_MASSES
     labeled_masses = mol2atoms(mol).get_masses()
     assert labeled_masses[0] != plain_masses[0], "test premise: mol2atoms honors the label"
     assert (labeled_masses[1:] == plain_masses[1:]).all()
@@ -74,7 +86,38 @@ def test_an_isotope_label_changes_the_mass_token_and_the_masses_agree(monkeypatc
 
 
 def test_an_unlabeled_molecule_uses_most_abundant_masses():
-    assert mass_convention(probe_mol("CCO")) == MOST_ABUNDANT_MASSES
+    assert mass_convention(probe_mol("CCO"), mol2atoms(probe_mol("CCO"))) == MOST_ABUNDANT_MASSES
+
+
+def test_a_caller_supplied_atoms_object_with_standard_weights_says_so(monkeypatch):
+    mol = probe_mol("CCO")
+    atoms = mol2atoms(mol)
+    periodic_table = Chem.GetPeriodicTable()
+    atoms.set_masses([periodic_table.GetAtomicWeight(int(z)) for z in atoms.numbers])
+    assert mass_convention(mol, atoms) == STANDARD_ATOMIC_WEIGHTS
+    produced, _ = _ethanol_run(monkeypatch, mol=mol, atoms=atoms)
+    assert produced.GetProp("Thermo_convention").endswith(f"; {STANDARD_ATOMIC_WEIGHTS}")
+
+
+def test_masses_matching_no_convention_are_named_caller_supplied():
+    mol = probe_mol("CCO")
+    atoms = mol2atoms(mol)
+    masses = atoms.get_masses()
+    masses[0] += 0.5
+    atoms.set_masses(masses)
+    assert mass_convention(mol, atoms) == CALLER_SUPPLIED_MASSES
+
+
+def test_the_record_carries_the_zero_point_energy_ase_used(monkeypatch):
+    from ase.thermochemistry import IdealGasThermo
+
+    from Auto3D.foundation.constants import EV_TO_HARTREE
+
+    produced, calls = _ethanol_run(monkeypatch)
+    rebuilt = IdealGasThermo(**calls[0])
+    assert float(produced.GetProp("ZPE_hartree")) == pytest.approx(
+        rebuilt.get_ZPE_correction() * EV_TO_HARTREE, rel=1e-12
+    )
 
 
 def test_the_standard_state_label_matches_the_pressure_constant():
@@ -94,6 +137,7 @@ def test_usage_rst_documents_the_thermo_conventions():
     """
     text = (Path(__file__).resolve().parents[1] / "docs" / "source" / "usage.rst").read_text()
     for needle in (
+        "**ZPE_hartree**",
         "**Thermo_convention**",
         "**Thermo_standard_state**",
         "**Symmetry_number**",

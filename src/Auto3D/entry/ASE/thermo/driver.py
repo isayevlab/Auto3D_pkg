@@ -8,6 +8,7 @@ per-record sequence it drives.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 import ase
 import ase.calculators.calculator
@@ -85,6 +86,20 @@ _THERMO_SKIP_MESSAGES = {
 }
 
 
+class _GibbsTerms(NamedTuple):
+    """What ``_gibbs_terms`` returns: the three energies in Hartree (``S`` in
+    Hartree/K), the zero-point energy in Hartree, and the number of vibrational
+    modes ``IdealGasThermo`` actually used -- the count the record reports,
+    which can be one short of the list Auto3D handed it (an exactly-zero mode
+    is dropped by ASE's own cleaning)."""
+
+    H: float
+    S: float
+    G: float
+    zpe: float
+    n_modes_used: int
+
+
 def _warn_imaginary_modes(analysis, name, vib_e) -> None:
     """Log the saddle-point diagnostics a vibrational analysis surfaces, if any apply."""
     if analysis.n_inverted > 0:
@@ -139,7 +154,7 @@ def _warn_imaginary_modes(analysis, name, vib_e) -> None:
         )
 
 
-def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry) -> None:
+def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry, atoms) -> None:
     """Write the vibrational-analysis SD properties, including the verdict, onto ``mol``."""
     mol.SetProp("N_imaginary_modes", str(analysis.n_imag))
     mol.SetProp("N_inverted_imaginary_modes", str(analysis.n_inverted))
@@ -151,10 +166,9 @@ def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry) -> None:
     # Symmetry_number (capital S) is the value USED; symmetry_number is the
     # request, which may have been rejected (see _symmetry_number).
     mol.SetProp("N_raised_modes", str(analysis.n_raised))
-    mol.SetProp("Thermo_vib_modes", str(len(analysis.corrected_energies)))
     mol.SetProp(
         "Thermo_convention",
-        f"{analysis.convention}; {STANDARD_STATE_LABEL}; {mass_convention(mol)}",
+        f"{analysis.convention}; {STANDARD_STATE_LABEL}; {mass_convention(mol, atoms)}",
     )
     mol.SetProp("Thermo_linearity", analysis.linearity)
     mol.SetProp("Symmetry_number", str(symmetry))
@@ -171,8 +185,10 @@ def _stamp_vibration_props(mol: Chem.Mol, analysis, symmetry) -> None:
 
 def _gibbs_terms(
     atoms, analysis, e, *, geometry, symmetry, spin, n_expected, name, T
-) -> tuple[float, float, float]:
-    """Build ``IdealGasThermo`` from the corrected spectrum; return ``(H, S, G)`` in hartree (S in hartree/K)."""
+) -> _GibbsTerms:
+    """Build ``IdealGasThermo`` from the corrected spectrum; return a ``_GibbsTerms``
+    of ``H``, ``S``, ``G`` (hartree, ``S`` in hartree/K), the zero-point energy
+    (hartree) and the number of vibrational modes ``IdealGasThermo`` actually used."""
     # The list handed to ASE is final: 3N-6 (or 3N-5) modes for a minimum,
     # 3N-7 for a confirmed saddle point whose reaction coordinate Auto3D
     # removed itself. _verbatim_mode_kwargs stops ASE re-selecting on top of
@@ -223,7 +239,7 @@ def _gibbs_terms(
         thermo.get_gibbs_energy(temperature=T, pressure=STANDARD_PRESSURE, verbose=False)
         * EV_TO_HARTREE
     )
-    return H, S, G
+    return _GibbsTerms(H, S, G, thermo.get_ZPE_correction() * EV_TO_HARTREE, n_used)
 
 
 def do_mol_thermo(
@@ -320,8 +336,8 @@ def do_mol_thermo(
         linearity=projection.linearity,
     )
     _warn_imaginary_modes(analysis, name, vib_e)
-    _stamp_vibration_props(mol, analysis, symmetry)
-    H, S, G = _gibbs_terms(
+    _stamp_vibration_props(mol, analysis, symmetry, atoms)
+    terms = _gibbs_terms(
         atoms,
         analysis,
         e,
@@ -333,10 +349,12 @@ def do_mol_thermo(
         T=T,
     )
 
-    mol.SetProp("H_hartree", str(H))
-    mol.SetProp("S_hartree_per_K", str(S))
+    mol.SetProp("Thermo_vib_modes", str(terms.n_modes_used))
+    mol.SetProp("ZPE_hartree", str(terms.zpe))
+    mol.SetProp("H_hartree", str(terms.H))
+    mol.SetProp("S_hartree_per_K", str(terms.S))
     mol.SetProp(T_K_PROP, str(T))
-    mol.SetProp(G_HARTREE_PROP, str(G))
+    mol.SetProp(G_HARTREE_PROP, str(terms.G))
     set_e_hartree_from_ev(mol, e)
     # `E_tot` too, through its owner. calc_thermo relaxes to a threshold 50x
     # tighter than the one the conformer pipeline used, so `atoms` is almost
@@ -719,6 +737,16 @@ def calc_thermo(
         record re-read from an earlier Auto3D output, carry them without a
         matching ``G_hartree``, so filter on ``Thermo_failed == ""`` rather
         than on their presence.
+
+        A record that reaches ``G_hartree`` also carries ``ZPE_hartree``, the
+        zero-point energy that entered *H* and *G*, written alongside them --
+        a record that fails inside ``IdealGasThermo`` carries neither. The
+        mass convention named in ``Thermo_convention`` is one of four tokens
+        (``most-abundant-isotope masses``, ``isotope-labeled masses``,
+        ``standard atomic weights`` or ``caller-supplied masses``), read from
+        the masses the thermochemistry actually used rather than inferred
+        from ``mol``'s isotope labels alone, so a caller-supplied ``Atoms``
+        built from other masses is reported as what it is.
 
         ``RRHO+quasiharmonic(100cm-1)`` is Truhlar's raising (Ribeiro,
         Marenich, Cramer and Truhlar, *J. Phys. Chem. B* 2011, 115, 14556):

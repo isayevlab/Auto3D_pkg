@@ -590,6 +590,9 @@ A ``calc_thermo`` output carries more, and two of them are relative:
 
 - **G_hartree** / **H_hartree** / **S_hartree_per_K** / **T_K**: absolute
   thermochemistry at the recorded temperature
+- **ZPE_hartree**: the zero-point vibrational energy that entered *H* and *G*,
+  from the same corrected frequency list, so the quasi-harmonic floor moves it
+  by design; it was previously obtainable from no output.
 - **E_tot** / **E_tot(Hartree)** and **E_rel(kcal/mol)**: recomputed for the
   relaxed geometry, since ``calc_thermo`` relaxes to a tighter threshold than
   conformer generation uses
@@ -617,7 +620,11 @@ A ``calc_thermo`` output carries more, and two of them are relative:
   atoms carry RDKit isotope labels says ``isotope-labeled masses`` instead: each
   labeled atom gets its own isotope's mass, every other atom still the most
   abundant isotope, and which atoms differ is recoverable from the record's atom
-  block. Two files are comparable only when this string, ``T_K`` and
+  block. The token describes the masses the thermochemistry used, read from the
+  atoms object itself: a caller who hands ``calc_thermo`` an ``Atoms`` built with
+  standard atomic weights gets ``standard atomic weights``, and masses matching
+  no convention get ``caller-supplied masses``. Two files are comparable only
+  when this string, ``T_K`` and
   ``Symmetry_number`` all agree and the spin multiplicity used for
   ``R ln(2S+1)`` -- an explicit ``multiplicity`` property when the input
   carried a valid one, otherwise unpaired electrons + 1 from the record's own
