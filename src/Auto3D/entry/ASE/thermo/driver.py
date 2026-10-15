@@ -37,9 +37,15 @@ from Auto3D.engines.model_factory import create_model
 from Auto3D.engines.models.contract import ModelAdapter
 from Auto3D.entry._run_setup import prepare_single_file_run
 from Auto3D.entry.ASE.thermo import properties as _properties
+
+# `mol2aimnet_input` is imported for RE-EXPORT, not called here: callers
+# (including the Hessian-path contract tests) reach it as
+# `Auto3D.entry.ASE.thermo.driver.mol2aimnet_input`. The fmax pre-check used to
+# be its one in-module caller and now goes through the ASE calculator instead,
+# which carries the record's charge and multiplicity.
 from Auto3D.entry.ASE.thermo.calculator import (
     model_name2model_calculator,
-    mol2aimnet_input,
+    mol2aimnet_input,  # noqa: F401
     mol2atoms,
 )
 from Auto3D.entry.ASE.thermo.properties import (
@@ -281,10 +287,14 @@ def do_mol_thermo(
             ``analyze_vibrations``). 0.0 disables it and gives plain RRHO.
             Whichever value is used is recorded in the record's
             ``Thermo_convention`` property.
-        multiplicity: Spin multiplicity of this record, for the Hessian and the
-            electronic-entropy term. ``None`` resolves it from the record
-            here; ``_thermo_one_record`` passes the value it already resolved
-            so the resolver (and any warning it emits) runs once per record.
+        multiplicity: Spin multiplicity of this record, for the energy, the
+            Hessian and the electronic-entropy term. ``None`` here means
+            "resolve it from the molecule" (``_thermo_one_record`` instead
+            passes the value it already resolved, so the resolver and any
+            warning it emits run once per record), while ``vib_hessian``'s own
+            default of ``multiplicity=1`` means a singlet -- the two defaults
+            differ because only this function holds the molecule the value can
+            be read from.
 
     Raises:
         ConfigurationError: if ``T`` is not positive.
@@ -305,6 +315,14 @@ def do_mol_thermo(
     # the same spin state rather than two.
     if multiplicity is None:
         multiplicity = resolve_multiplicity(mol)
+    # The energy below comes from the attached calculator and the Hessian from
+    # `adapter`, so the calculator is told the multiplicity here: otherwise a
+    # caller-built calculator could hold a different one and this record's
+    # frequencies and its energy would belong to two different spin states.
+    # `hasattr` because `atoms.calc` is the caller's -- `calc_thermo` passes
+    # Auto3D's own Calculator, but a caller may attach any ASE calculator.
+    if hasattr(atoms.calc, "set_mult"):
+        atoms.calc.set_mult(multiplicity)
     # atoms.get_calculator() is deprecated since ase 3.22.1; use `.calc`
     # (Minor 6, same rationale as the set_calculator() call above).
     vib = vib_hessian(mol, atoms.calc, adapter, device, positions=coord, multiplicity=multiplicity)
@@ -532,7 +550,6 @@ def _thermo_one_record(
     mol: Chem.Mol,
     *,
     hessian_adapter: ModelAdapter,
-    opt_adapter: ModelAdapter,
     calculator,
     device,
     mol_info_func,
@@ -588,13 +605,15 @@ def _thermo_one_record(
         return mol
 
     try:
-        EnForce_in = mol2aimnet_input(mol, device, adapter=opt_adapter)
-        _, f_ = opt_adapter.forward(
-            EnForce_in["coord"].requires_grad_(True),
-            EnForce_in["numbers"],
-            EnForce_in["charge"],
-        )
-        fmax = f_.norm(dim=-1).max(dim=-1)[0].item()
+        # The pre-check goes through the ATTACHED CALCULATOR rather than the
+        # bare adapter: the calculator carries this record's charge and spin
+        # multiplicity (both set above), so the gate is evaluated at the same
+        # spin state as the relaxation and the Hessian -- the bare adapter
+        # would score an open-shell record as a closed shell and could then
+        # skip or demand a relaxation the real forces do not call for. ASE
+        # caches energy and forces together, so BFGS below starts from exactly
+        # these forces instead of recomputing them.
+        fmax = float(np.linalg.norm(atoms.get_forces(), axis=1).max())
 
         # Gate on the documented threshold, not a hardcoded 0.01.
         converged = fmax <= opt_tol
@@ -871,16 +890,17 @@ def calc_thermo(
     _properties._symmetry_default_warned = False
 
     # Two adapters, deliberately: `hessian_adapter`'s module is fp64 for the
-    # autograd Hessian (see _load_hessian_model), `opt_adapter`'s is the fp32 one
-    # the relaxation and the fmax pre-check share with `calculator`.
+    # autograd Hessian (see _load_hessian_model), while the fp32 one the
+    # relaxation uses reaches each record wrapped in `calculator` -- which is
+    # also what the fmax pre-check now calls, so the bare adapter
+    # `model_name2model_calculator` returns alongside it has no reader here.
     hessian_adapter = _load_hessian_model(model_name, device)
-    opt_adapter, calculator = model_name2model_calculator(model_name, device)
+    _opt_adapter, calculator = model_name2model_calculator(model_name, device)
 
     for mol in tqdm(survivors, disable=should_disable_progress_bars()):
         mol = _thermo_one_record(
             mol,
             hessian_adapter=hessian_adapter,
-            opt_adapter=opt_adapter,
             calculator=calculator,
             device=device,
             mol_info_func=mol_info_func,

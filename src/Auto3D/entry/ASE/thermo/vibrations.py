@@ -20,7 +20,7 @@ from ase.vibrations import VibrationsData
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 
-from Auto3D.engines.models.contract import ModelAdapter
+from Auto3D.engines.models.contract import ModelAdapter, spin_kwargs
 from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 from Auto3D.foundation.constants import (
     EV_PER_WAVENUMBER,
@@ -124,10 +124,10 @@ def vib_hessian(
     # the optimizer path was fixed, leaving CLAUDE.md's "charges reach a model
     # as float32" false on this path.
     charge = torch.tensor([charge], dtype=torch.float32, device=device)
-    extra = (
-        {}
+    extra = spin_kwargs(
+        None
         if multiplicity == 1
-        else {"mults": torch.tensor([float(multiplicity)], dtype=torch.float32, device=device)}
+        else torch.tensor([float(multiplicity)], dtype=torch.float32, device=device)
     )
 
     hess = adapter.analytic_hessian(coord, numbers, charge, **extra)

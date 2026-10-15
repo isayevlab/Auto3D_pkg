@@ -24,6 +24,7 @@ from Auto3D.engines.models.adapter.compiling import (
     _warn_if_compile_fell_back_to_eager,
 )
 from Auto3D.engines.models.adapter.validation import _validate_outputs
+from Auto3D.engines.models.contract import spin_kwargs
 
 
 class BaseModelAdapter(ABC, nn.Module):
@@ -279,9 +280,7 @@ class BaseModelAdapter(ABC, nn.Module):
             mults: spin multiplicity per molecule, (batch,), or None when every
                 molecule is a singlet; backends without a spin input ignore it.
         """
-        return self._energy_graph(
-            coords, species, charges, atom_mask, **({} if mults is None else {"mults": mults})
-        )
+        return self._energy_graph(coords, species, charges, atom_mask, **spin_kwargs(mults))
 
     def forward(
         self,
@@ -325,16 +324,7 @@ class BaseModelAdapter(ABC, nn.Module):
         input_dtype = coords.dtype
         coords_in, charges_in = self._model_inputs(coords, charges)
         coords_in = coords_in.requires_grad_(True)
-        # A singlet is never passed on: with `mults is None` the hook is called
-        # without the keyword, so a backend hook written before the keyword
-        # existed still works unchanged.
-        energy = self._energy_graph(
-            coords_in,
-            species,
-            charges_in,
-            atom_mask,
-            **({} if mults is None else {"mults": mults}),
-        )
+        energy = self._energy_graph(coords_in, species, charges_in, atom_mask, **spin_kwargs(mults))
         # create_graph=False (default): no second-order graph.
         grad = torch.autograd.grad([energy.sum()], [coords_in], create_graph=False)[0]
         forces = -grad

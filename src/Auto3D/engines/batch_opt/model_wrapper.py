@@ -20,7 +20,11 @@ import torch.nn as nn
 # TYPE_CHECKING) import because the gate below consults it; contract.py costs
 # nothing beyond torch, which this module already imports.
 from Auto3D.engines.models.adapter import validate_energies
-from Auto3D.engines.models.contract import ModelAdapter, missing_adapter_members
+from Auto3D.engines.models.contract import (
+    ModelAdapter,
+    missing_adapter_members,
+    spin_kwargs,
+)
 from Auto3D.foundation.exceptions import NumericalError, OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
@@ -34,30 +38,35 @@ def _slice(
     numbers: torch.Tensor,
     charges: torch.Tensor,
     atom_mask: torch.Tensor | None,
+    mults: torch.Tensor | None,
     sub: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
-    """Slice a padded batch's four tensors to the sub-batch indices ``sub``.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    """Slice a padded batch's per-molecule tensors to the sub-batch indices ``sub``.
 
     Shared by :meth:`BatchedEnergyForce.forward_batched` and
     :meth:`BatchedEnergyForce.energy_batched`, whose per-sub-batch ``compute``
     closures differ only in which call they make with the sliced arguments.
+    Every per-molecule tensor is indexed HERE, including the two optional ones,
+    so a sub-batch cannot be built with one of them left at full width or
+    sliced by a different index.
 
-    The other owner of this "index every per-molecule tensor together" rule is
+    The other owner of that rule is
     :meth:`Auto3D.engines.batch_opt.padding.PaddedBatch.sub`, which cannot be
-    delegated to here: it indexes ``self.atom_mask`` and ``self.mults``
-    unconditionally, while the loose tensors this module holds have an
-    ``atom_mask`` that may be ``None`` -- and a ``mults`` that may be, which is
-    why each caller slices that one itself right beside this call.
+    delegated to here: it indexes its five fields unconditionally, while two of
+    the tensors this module holds may be ``None`` (an unpadded batch has no
+    mask, and an all-singlet batch has no multiplicities).
 
     Returns:
-        ``(coord[sub], numbers[sub], charges[sub], atom_mask[sub])``, with the
-        last entry ``None`` when ``atom_mask`` is ``None``.
+        ``(coord[sub], numbers[sub], charges[sub], atom_mask[sub],
+        mults[sub])``, with either optional entry ``None`` when the tensor it
+        comes from is ``None``.
     """
     return (
         coord[sub],
         numbers[sub],
         charges[sub],
         None if atom_mask is None else atom_mask[sub],
+        None if mults is None else mults[sub],
     )
 
 
@@ -89,11 +98,12 @@ class BatchedEnergyForce(nn.Module):
     Takes in a model adapter and provides batched forward functionality
     for calculating energies and forces.
 
-    The four tensors every method here takes -- ``coord``, ``numbers``,
-    ``charges``, ``atom_mask`` -- are the fields of
-    :class:`Auto3D.engines.batch_opt.padding.PaddedBatch` in that order, so a
-    caller holding one may splat it (``model.forward_batched(*batch)``) and the
-    mask cannot then be lost by forgetting a fourth argument.
+    The tensors every method here takes are fields of
+    :class:`Auto3D.engines.batch_opt.padding.PaddedBatch`, but they are named
+    rather than splatted: the batch carries five fields and these methods take
+    the positional three plus two keywords, ``atom_mask`` and ``mults``, so a
+    caller hands each field over by name (see the example below). Splatting a
+    whole batch is what would silently bind ``mults`` to ``atom_mask``.
 
     Args:
         model_adapter: A model adapter implementing the
@@ -108,8 +118,15 @@ class BatchedEnergyForce(nn.Module):
         >>> energy, forces = model.forward(coords, species, charges)
 
         >>> # Batched computation for large systems, straight from the padder
+        >>> from Auto3D.engines.models.contract import as_mults, spin_kwargs
         >>> batch = pad_from_mols(mols, adapter, device)  # a PaddedBatch
-        >>> energy, forces = model.forward_batched(*batch)
+        >>> energy, forces = model.forward_batched(
+        ...     batch.coords,
+        ...     batch.species,
+        ...     batch.charges,
+        ...     atom_mask=batch.atom_mask,
+        ...     **spin_kwargs(as_mults(batch.mults, device)),
+        ... )
     """
 
     def __init__(
@@ -211,11 +228,7 @@ class BatchedEnergyForce(nn.Module):
             forces has shape (B, N, 3).
         """
         return self.model.forward(
-            coord,
-            numbers,
-            charges,
-            atom_mask=atom_mask,
-            **({} if mults is None else {"mults": mults}),
+            coord, numbers, charges, atom_mask=atom_mask, **spin_kwargs(mults)
         )
 
     def _run_in_sub_batches(
@@ -554,15 +567,10 @@ class BatchedEnergyForce(nn.Module):
         # of how many times a bucket needed bisecting -- this `torch.cat`
         # does not need to re-sort anything.
         def _compute(sub: torch.Tensor):
-            coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
-            mults_s = None if mults is None else mults[sub]
-            return self(
-                coord_s,
-                numbers_s,
-                charges_s,
-                atom_mask=mask_s,
-                **({} if mults_s is None else {"mults": mults_s}),
+            coord_s, numbers_s, charges_s, mask_s, mults_s = _slice(
+                coord, numbers, charges, atom_mask, mults, sub
             )
+            return self(coord_s, numbers_s, charges_s, atom_mask=mask_s, **spin_kwargs(mults_s))
 
         results = self._run_in_sub_batches(
             coord,
@@ -662,14 +670,11 @@ class BatchedEnergyForce(nn.Module):
         # A single-point energy has no backward pass, so nothing downstream
         # wants the graph either way.
         def _compute(sub: torch.Tensor):
-            coord_s, numbers_s, charges_s, mask_s = _slice(coord, numbers, charges, atom_mask, sub)
-            mults_s = None if mults is None else mults[sub]
+            coord_s, numbers_s, charges_s, mask_s, mults_s = _slice(
+                coord, numbers, charges, atom_mask, mults, sub
+            )
             return self.model.energy(
-                coord_s,
-                numbers_s,
-                charges_s,
-                atom_mask=mask_s,
-                **({} if mults_s is None else {"mults": mults_s}),
+                coord_s, numbers_s, charges_s, atom_mask=mask_s, **spin_kwargs(mults_s)
             ).detach()
 
         results = self._run_in_sub_batches(

@@ -14,7 +14,11 @@ from ase import Atoms
 from rdkit import Chem
 
 from Auto3D.engines.model_factory import create_model
-from Auto3D.engines.models.contract import ModelAdapter, missing_adapter_members
+from Auto3D.engines.models.contract import (
+    ModelAdapter,
+    missing_adapter_members,
+    spin_kwargs,
+)
 from Auto3D.foundation.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -61,7 +65,8 @@ class Calculator(ase.calculators.calculator.Calculator):
     not bare attributes the caller mutates.
     ASE decides whether a cached ``energy``/``forces`` may be reused by calling
     ``check_state``, which delegates to ``compare_atoms`` and compares only
-    positions, atomic numbers, cell and pbc -- the charge is invisible to it.
+    positions, atomic numbers, cell and pbc -- neither the charge nor the
+    multiplicity is visible to it.
     Reassigning the charge without invalidating the cache would therefore let
     two records with the SAME geometry and DIFFERENT formal charge share one
     result: a vertical IP/EA input (one geometry, two charges) is the ordinary
@@ -71,11 +76,17 @@ class Calculator(ase.calculators.calculator.Calculator):
     ``BFGS`` would "converge" in zero steps on the previous molecule's
     gradient and the stationary-point gate would pass.
 
+    The same argument holds for the multiplicity, one geometry at a time: a
+    radical and its closed-shell shadow are the same atoms at the same
+    positions, so only the parameter tells them apart, and the thermochemistry
+    sets it per record beside the charge.
+
     ``discard_results_on_any_change`` makes ASE's own ``Calculator.set`` call
-    ``reset()`` whenever a parameter actually changes, so routing the charge
-    through ``set(charge=...)`` (see the ``charge`` setter below) is what
-    invalidates the cache. Both ``calc.set_charge(q)`` and a direct
-    ``calc.charge = q`` go through that one path.
+    ``reset()`` whenever a parameter actually changes, so routing each value
+    through ``set(charge=...)``/``set(mult=...)`` (see the setters below) is
+    what invalidates the cache. ``calc.set_charge(q)``, ``calc.set_mult(m)``
+    and the direct ``calc.charge = q`` / ``calc.mult = m`` all go through that
+    one path.
     """
 
     implemented_properties = ["energy", "forces"]
@@ -262,10 +273,15 @@ class Calculator(ase.calculators.calculator.Calculator):
         species = species.unsqueeze(0)
         coordinates = coordinates.unsqueeze(0)
 
-        # A singlet is never passed: multiplicity 1 is what every model assumes,
-        # so the keyword is omitted and this call is the one it always was.
-        extra = {} if int(self._mult.item()) == 1 else {"mults": self._mult}
-        energy, forces = self.adapter.forward(coordinates, species, self.charge, **extra)
+        # Decided from the ASE parameter, a host integer, rather than from the
+        # tensor: this runs once per BFGS step, and reading `self._mult` would
+        # be a device-to-host copy per step to learn a value that only changes
+        # when `set_mult` is called. `spin_kwargs` states why a singlet is not
+        # passed at all.
+        mults = None if int(self.parameters["mult"]) == 1 else self._mult
+        energy, forces = self.adapter.forward(
+            coordinates, species, self.charge, **spin_kwargs(mults)
+        )
         self.results["energy"] = energy.item()
         self.results["forces"] = forces.squeeze(0).to("cpu").numpy()
 

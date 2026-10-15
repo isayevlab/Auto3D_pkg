@@ -44,6 +44,7 @@ import torch
 
 from Auto3D.engines.batch_opt.fire_optimizer import FIRE
 from Auto3D.engines.batch_opt.model_wrapper import is_oom
+from Auto3D.engines.models.contract import spin_kwargs
 from Auto3D.foundation.exceptions import OptimizationError
 from Auto3D.foundation.utils.logging_config import get_logger
 
@@ -71,7 +72,11 @@ def _validate_state(state: dict[str, Any]) -> None:
     coord = state["coord"]
     numbers = state["numbers"]
     charges = state["charges"]
-    mults = state.get("mults")
+    # Normalized here, once, so every reader below can index state["mults"]
+    # directly: a hand-built state (every one in the tests) omits the key, and
+    # omitting it means the same thing as carrying None -- every molecule is a
+    # singlet.
+    mults = state.setdefault("mults", None)
 
     if len(coord.shape) != 3:
         raise ValueError(
@@ -242,7 +247,7 @@ def _step_active_subset(
     charges = state["charges"].index_select(0, active_idx)
     # The multiplicities ride along with the charges, selected the same way, so
     # a molecule's spin cannot drift onto another row as the active set shrinks.
-    mults = state.get("mults")
+    mults = state["mults"]
     mults_sub = None if mults is None else mults.index_select(0, active_idx)
     atom_mask_subset = state["atom_mask"].index_select(0, active_idx)
     smallest_fmax = smallest_fmax0.index_select(0, active_idx)
@@ -253,16 +258,14 @@ def _step_active_subset(
     # an adapter that has to flatten a padded batch (AIMNet2) needs to know
     # which slots are real, and deriving that from a species sentinel is not
     # reliable.
-    # A singlet is never passed: `mults is None` means every molecule in this
-    # bucket is a singlet, which is what every model assumes, so the keyword is
-    # left off entirely and a model wrapper written before it existed is
-    # called exactly as it always was.
+    # `spin_kwargs` states the convention: a singlet is never passed, so an
+    # all-singlet bucket calls `forward_batched` exactly as it always did.
     e, f = state["nn"].forward_batched(
         coord,
         numbers,
         charges,
         atom_mask=atom_mask_subset,
-        **({} if mults_sub is None else {"mults": mults_sub}),
+        **spin_kwargs(mults_sub),
     )  # Key step to calculate all energies and forces.
     coord.requires_grad_(False)
 
@@ -491,7 +494,7 @@ def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
     final_coord = state["coord"].index_select(0, finite_idx).detach().clone().requires_grad_(True)
     numbers = state["numbers"].index_select(0, finite_idx)
     charges = state["charges"].index_select(0, finite_idx)
-    mults = state.get("mults")
+    mults = state["mults"]
     mults_sub = None if mults is None else mults.index_select(0, finite_idx)
     atom_mask = state["atom_mask"].index_select(0, finite_idx)
     e_final, f_final = state["nn"].forward_batched(
@@ -499,7 +502,7 @@ def _recompute_final_energy_and_fmax(state: dict[str, Any]) -> None:
         numbers,
         charges,
         atom_mask=atom_mask,
-        **({} if mults_sub is None else {"mults": mults_sub}),
+        **spin_kwargs(mults_sub),
     )
     state["energy"].index_copy_(0, finite_idx, e_final.detach().to(state["energy"].dtype))
     # Zero padded-atom force slots before the reduction, matching the in-loop

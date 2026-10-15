@@ -78,8 +78,22 @@ class AIMNet2Adapter(BaseModelAdapter):
         molecule is evaluated as a closed shell, which the warning says once.
         ``mult`` takes the dtype and device of the ``charge`` entry already in
         ``data``, whatever the caller built it from.
+
+        aimnet's ``mult`` is the multiplicity itself, 2S+1 -- the same
+        convention :func:`Auto3D.domain.multiplicity.resolve_multiplicity`
+        returns, so the value is passed through unscaled; the calculator
+        derives the number of unpaired electrons from it internally.
         """
         charge = data["charge"]
+        # Checked here, on the host, because the alternative diagnosis is an
+        # aimnet-internal broadcast or index error several frames down: this
+        # tensor must carry one multiplicity per molecule, exactly as `charge`
+        # does, and both are built per batch by the padder or by one of the
+        # single-molecule callers.
+        if mults is not None and mults.shape != charge.shape:
+            raise ValueError(
+                f"mults has shape {tuple(mults.shape)}, expected {tuple(charge.shape)}"
+            )
         if self._calc.is_nse:
             mult = (
                 torch.ones_like(charge)

@@ -150,6 +150,18 @@ def pad_from_mols(
           the same value some adapters use as ``species_pad``), which would
           silently zero and exclude real atoms from the force-convergence
           check.
+
+        A consumer that reads two or three of the fields should take them by
+        ATTRIBUTE (``batch.coords``, ``batch.atom_mask``) rather than by a
+        five-way unpack with throwaway names: the unpack has to be edited
+        again the next time the batch grows a field, and a mis-ordered one
+        binds a tensor to the wrong name.
+
+        Resolving a multiplicity also clears an INVALID ``multiplicity``
+        property from a record (the documented behavior of
+        :func:`Auto3D.domain.multiplicity.resolve_multiplicity`), so a record
+        the optimizer writes out no longer advertises a multiplicity that was
+        not the one used.
     """
     from rdkit.Chem import rdmolops
 

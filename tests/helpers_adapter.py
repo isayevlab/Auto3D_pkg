@@ -22,6 +22,19 @@ import torch
 
 from Auto3D.engines.batch_opt.padding import PaddedBatch
 
+#: Default for the ``mults`` keyword, so a recorded call says whether the
+#: caller passed the keyword AT ALL. The convention stated in
+#: ``Auto3D.engines.models.contract.spin_kwargs`` is that a singlet is never
+#: passed, so "not passed" and an explicit ``mults=None`` mean the same thing
+#: to a model but very different things to a test of the plumbing.
+_NOT_PASSED = object()
+
+
+def _spin_record(mults) -> dict:
+    """The two recorded fields for one call's ``mults`` argument."""
+    passed = mults is not _NOT_PASSED
+    return {"mults": mults if passed else None, "mults_passed": passed}
+
 
 class FakeAdapter:
     """A minimal object that satisfies the whole ``ModelAdapter`` contract.
@@ -54,7 +67,9 @@ class FakeAdapter:
         self.species_map = species_map
         self._energy_fn = energy_fn
         self._hessian = hessian
-        #: Recorded ``(coords_dtype, atom_mask, mults)`` per forward/energy call.
+        #: One dict per forward/energy/analytic_hessian call: the coords dtype,
+        #: the ``atom_mask`` and ``mults`` values, whether ``mults`` was passed
+        #: at all, and which member was called.
         self.calls: list[dict] = []
 
     # -- the species half of the contract ---------------------------------
@@ -69,25 +84,25 @@ class FakeAdapter:
             return self._energy_fn(coords, species, charges)
         return coords.pow(2).sum(dim=(1, 2))
 
-    def forward(self, coords, species, charges, atom_mask=None, *, mults=None):
+    def forward(self, coords, species, charges, atom_mask=None, *, mults=_NOT_PASSED):
         self.calls.append(
-            {"dtype": coords.dtype, "atom_mask": atom_mask, "mults": mults, "kind": "forward"}
+            {"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "forward"} | _spin_record(mults)
         )
         coords = coords if coords.requires_grad else coords.detach().requires_grad_(True)
         energy = self._energies(coords, species, charges)
         grad = torch.autograd.grad([energy.sum()], [coords], create_graph=False)[0]
         return energy, -grad
 
-    def energy(self, coords, species, charges, atom_mask=None, *, mults=None):
+    def energy(self, coords, species, charges, atom_mask=None, *, mults=_NOT_PASSED):
         """Energies at the dtype of ``coords`` -- deliberately no downcast."""
         self.calls.append(
-            {"dtype": coords.dtype, "atom_mask": atom_mask, "mults": mults, "kind": "energy"}
+            {"dtype": coords.dtype, "atom_mask": atom_mask, "kind": "energy"} | _spin_record(mults)
         )
         return self._energies(coords, species, charges)
 
-    def analytic_hessian(self, coords, species, charges, *, mults=None):
+    def analytic_hessian(self, coords, species, charges, *, mults=_NOT_PASSED):
         """The Hessian capability, ``None`` unless one was supplied."""
-        self.calls.append({"dtype": coords.dtype, "mults": mults, "kind": "analytic_hessian"})
+        self.calls.append({"dtype": coords.dtype, "kind": "analytic_hessian"} | _spin_record(mults))
         return self._hessian
 
     def to_double(self) -> None:
@@ -131,10 +146,17 @@ class AdapterModuleMixin:
     def to_species(self, atomic_numbers: Sequence[int]) -> list[int]:
         return list(atomic_numbers)
 
-    def energy(self, coords, species, charges, atom_mask=None):
+    def energy(self, coords, species, charges, atom_mask=None, *, mults=None):
+        """``forward``'s first output. ``mults`` is accepted and not forwarded.
+
+        A mixed-in double declares its own ``forward`` on the three-positional
+        signature, so there is nothing to hand a spin multiplicity to; the
+        keyword is declared here only so such a double satisfies the whole
+        contract, including a caller that passes it.
+        """
         return self.forward(coords, species, charges, atom_mask)[0]
 
-    def analytic_hessian(self, coords, species, charges):
+    def analytic_hessian(self, coords, species, charges, *, mults=None):
         """No native second derivative -- ``BaseModelAdapter``'s own default."""
         return None
 

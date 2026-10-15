@@ -24,9 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - The `aimnet2-nse` engine runs. It was registered but raised on its first
   forward because the model needs each molecule's spin multiplicity, which
-  Auto3D never sent; the optimizer and the thermochemistry now resolve one
-  multiplicity per molecule (an explicit valid `multiplicity` property,
-  otherwise unpaired electrons + 1) and pass it to a spin-aware model, so
+  Auto3D never sent; the optimizer, the single-point energies and the
+  thermochemistry now resolve one multiplicity per molecule (an explicit
+  valid `multiplicity` property, otherwise unpaired electrons + 1) and pass it
+  to a spin-aware model, so
   open-shell energies, forces and Hessians use it. One-channel AIMNet2 models
   and the ANI engines are unchanged; an open-shell molecule sent to a
   one-channel AIMNet2 model is evaluated as a closed shell, with one warning

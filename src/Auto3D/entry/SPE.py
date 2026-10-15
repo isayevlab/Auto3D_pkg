@@ -11,6 +11,7 @@ from Auto3D.domain.energy import set_e_hartree_from_ev
 from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.engines.batch_opt.padding import pad_from_mols
 from Auto3D.engines.model_factory import create_model
+from Auto3D.engines.models.contract import as_mults, spin_kwargs
 from Auto3D.entry._run_setup import prepare_single_file_run
 
 __all__ = ["calc_spe"]
@@ -87,7 +88,7 @@ def calc_spe(
     # both pad values, so the remap and the sentinel cannot come from
     # different places and contradict each other, the way handing over
     # `model_name` alongside the adapter's two pads separately would allow.
-    coord_padded, numbers_padded, charges, _mults, atom_mask = pad_from_mols(
+    coord_padded, numbers_padded, charges, mults, atom_mask = pad_from_mols(
         mols, model_adapter, device
     )
 
@@ -107,7 +108,18 @@ def calc_spe(
     # and this repository has no way to measure the difference -- CI is CPU-only
     # and no NNP may be loaded here. An unmeasured optimization that also has to
     # re-thread the writer loop's index alignment is not worth the change.
-    es = model.energy_batched(coord_padded, numbers_padded, charges, atom_mask=atom_mask)
+    # The multiplicities travel with the batch here too: a single-point energy
+    # of an open-shell record on a spin-aware model must be the energy of that
+    # spin state, not of the closed-shell shadow the model would fill in. An
+    # all-singlet batch collapses to None in `as_mults`, so the ordinary case
+    # calls the wrapper exactly as it always did.
+    es = model.energy_batched(
+        coord_padded,
+        numbers_padded,
+        charges,
+        atom_mask=atom_mask,
+        **spin_kwargs(as_mults(mults, device)),
+    )
     es = es.to("cpu").detach().numpy()
 
     with Chem.SDWriter(str(outpath)) as f:

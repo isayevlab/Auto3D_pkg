@@ -423,6 +423,62 @@ class ModelAdapter(Protocol):
         ...
 
 
+def spin_kwargs(mults: torch.Tensor | None) -> dict[str, torch.Tensor]:
+    """The ``mults`` keyword arguments for one call, or none at all.
+
+    The one statement of the convention: a singlet is never passed. ``None``
+    means every molecule in this call is a singlet, which is what every model
+    assumes, so the keyword is left off the call entirely rather than passed as
+    ``None``. Two things follow, and both are the point of spelling it once:
+    a closed-shell batch reaches the model through exactly the call shape it
+    reached it through before ``mults`` existed, and a structural adapter or
+    test double written without the keyword keeps working until an open-shell
+    record actually arrives.
+
+    Args:
+        mults: Spin multiplicity per molecule, or ``None`` for all singlets.
+
+    Returns:
+        ``{}`` when ``mults`` is ``None``, else ``{"mults": mults}``, to be
+        splatted at the call site (``f(..., **spin_kwargs(mults))``).
+    """
+    return {} if mults is None else {"mults": mults}
+
+
+def as_mults(values: Any, device: torch.device) -> torch.Tensor | None:
+    """One float32 multiplicity tensor on ``device``, or ``None`` for all singlets.
+
+    The entry point for the convention :func:`spin_kwargs` enforces: a batch
+    whose every molecule is a singlet collapses to ``None`` here, once, so no
+    downstream hand-off has to re-decide it and a closed-shell run never grows
+    a spin argument at all.
+
+    Costs one host synchronization per batch when ``values`` lives on a GPU
+    (the ``all`` below reads a device tensor). That is deliberate and cheap at
+    this granularity -- once per batch, never per step -- and it is what buys
+    every later hand-off a pure ``is None`` test with no device traffic.
+
+    Args:
+        values: Per-molecule multiplicities as a tensor, or anything
+            ``torch.as_tensor`` accepts (a list, as ``PaddedBatch.mults`` is
+            built from). ``None`` passes through as ``None``.
+        device: Device the returned tensor lives on.
+
+    Returns:
+        ``None`` when ``values`` is ``None`` or every entry is 1.0, else a
+        float32 tensor on ``device``.
+    """
+    if values is None:
+        return None
+    if isinstance(values, torch.Tensor):
+        mults = values.detach().to(device=device, dtype=torch.float32)
+    else:
+        mults = torch.as_tensor(values, dtype=torch.float32, device=device)
+    if bool((mults == 1.0).all()):
+        return None
+    return mults
+
+
 def missing_adapter_members(obj: Any) -> list[str]:
     """Members :class:`ModelAdapter` requires that ``obj`` does not provide.
 
