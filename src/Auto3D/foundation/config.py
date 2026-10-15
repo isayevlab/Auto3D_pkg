@@ -463,13 +463,14 @@ class Auto3DOptions(BaseModel):
     """Maximum conformers per SMILES.
 
     ``None`` derives the count per molecule via
-    :func:`Auto3D.domain.conformer_budget.calculate_conformer_count`, which is
-    ``min(max(1, num_heavy, 2 * 8.481 * num_rotatable ** 1.642), 1000)``
-    (Auto3D's own rule: the rotatable-bond coefficient and exponent are cited
-    to https://doi.org/10.1021/acs.jctc.0c01213, the factor of 2 and the
-    heavy-atom floor are Auto3D's choices), with ``num_rotatable`` counted
-    on the heavy-atom graph. The rotatable-bond term dominates for anything
-    flexible: glycerol gets **52**, not 5.
+    :func:`Auto3D.domain.conformer_budget.calculate_conformer_count`:
+    ``min(max(1, 16 if num_heavy >= 2 else 1, num_heavy, 2 * 8.481 * num_rotatable ** 1.642), 1000)``,
+    with ``num_rotatable`` counted on the heavy-atom graph. The coefficient and
+    exponent are Chan, Morris and Hutchison's fitted constants for how many
+    low-energy conformers a molecule has (checked against that work's deposited
+    data); the factor of 2, the minimum of 16 and the heavy-atom term are
+    Auto3D's. The rotatable-bond term dominates for anything flexible: glycerol
+    gets **52**; a rotor-free ring gets 16.
     """
 
     # GPU settings

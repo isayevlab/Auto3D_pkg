@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import pytest
 from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors
 
 from Auto3D.domain.conformer_budget import calculate_conformer_count
 from Auto3D.foundation.constants import MAX_CONFORMERS_CAP
@@ -72,3 +74,48 @@ class TestCalculateConformerCount:
         count = calculate_conformer_count(mol_h)
         # Should still count only heavy atoms (C, C, O = 3)
         assert count >= 3
+
+    @pytest.mark.parametrize(
+        "smiles",
+        ["CCO", "c1ccccc1O", "CC(=O)N", "c1ccncc1", "Clc1ccccc1", "C1CCOCC1", "C1CCCCCC1"],
+        ids=[
+            "ethanol",
+            "phenol",
+            "acetamide",
+            "pyridine",
+            "chlorobenzene",
+            "oxane",
+            "cycloheptane",
+        ],
+    )
+    def test_a_rotor_free_molecule_requests_sixteen(self, smiles):
+        """Ring puckering is not a rotatable bond, and the rotor term is zero
+        here, so the request would fall to the heavy-atom count (3 to 7). Under
+        the embedding settings this package uses, oxane keeps 1 conformer of 6
+        requested and 3 of 16, cycloheptane 1 of 7 and 2 of 16: the pool is still
+        growing when a heavy-atom budget stops it."""
+        assert calculate_conformer_count(Chem.MolFromSmiles(smiles)) == 16
+
+    @pytest.mark.parametrize(
+        "smiles", ["C", "[H+]", "[Na+]"], ids=["methane", "proton", "sodium_ion"]
+    )
+    def test_a_lone_atom_still_requests_one(self, smiles):
+        assert calculate_conformer_count(Chem.MolFromSmiles(smiles)) == 1
+
+    def test_the_floor_never_binds_above_one_rotatable_bond(self):
+        """At one rotor the expression already gives 16; above it the floor is
+        inert, so every benchmark molecule with a rotatable bond keeps its budget."""
+        import sys
+
+        sys.path.insert(0, "benchmarks")
+        from bench_optimization_perf import SMILES
+
+        for group in SMILES.values():
+            for smi in group:
+                mol = Chem.MolFromSmiles(smi)
+                n_rot = rdMolDescriptors.CalcNumRotatableBonds(Chem.RemoveAllHs(mol))
+                if n_rot == 0:
+                    continue
+                n_heavy = mol.GetNumHeavyAtoms()
+                formula = int(2 * 8.481 * n_rot**1.642)
+                assert calculate_conformer_count(mol) == min(max(1, n_heavy, formula), 1000), smi
