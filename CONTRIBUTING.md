@@ -152,8 +152,9 @@ pytest tests/
 ```
 
 The first two run in CI on every pull request (the `ruff` job) and turn it red
-if they fail. They are not currently *required* status checks on `main`, so a
-red `ruff` job does not by itself block a merge — treat it as blocking anyway.
+if they fail. `ruff`, the two fast pytest legs, the `no-aimnet` packaging check
+and the slow tier are required status checks on `main`, and `main` requires the
+branch to be up to date, so the tree that merges is the tree CI tested.
 `mypy` runs there too but is advisory by construction: it reports a known
 backlog of pre-existing errors and its step ends in `|| true`.
 
@@ -177,8 +178,11 @@ GitHub's blame view picks the file up automatically; only local git needs tellin
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run the fast tier (the default; the slow tier is deselected)
 pytest tests/
+
+# Run the slow tier (loads neural network potentials; several minutes)
+pytest tests/ -m slow
 
 # Run specific test file
 pytest tests/test_auto3D.py
@@ -250,11 +254,15 @@ machine — it is a relative regression signal, not an absolute baseline.
 ### Building Docs Locally
 
 ```bash
-cd docs
-pip install -r requirements.txt
-make html
-# Open build/html/index.html in browser
+pip install -e ".[ase,ani,docs]"
+make -C docs html
+# Open docs/build/html/index.html in browser
 ```
+
+The same extras CI and Read the Docs install. `ase` and `ani` are not
+documentation tools: autodoc imports the modules it documents, and the ASE and
+torchani code paths cannot be imported without them, so a `docs`-only
+environment builds an API reference with pages missing.
 
 ### Documentation Style
 

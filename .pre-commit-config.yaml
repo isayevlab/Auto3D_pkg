@@ -15,7 +15,10 @@ repos:
       - id: debug-statements
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
+    # Kept equal to the `dev` extra in pyproject.toml and to the `lint` CI job:
+    # `ruff format --check` is a gate, and a hook on an older version formats
+    # with a style that gate rejects.
+    rev: v0.15.9
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -24,6 +27,9 @@ repos:
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.8.0
     hooks:
+      # CI runs mypy with the project's dependencies installed; this hook runs
+      # it in an isolated environment with the few stubs listed below, so the
+      # two can disagree about the same file.
       - id: mypy
         additional_dependencies:
           - torch

@@ -13,10 +13,11 @@ fourth:
 * ``strain_energy`` skipped every conformer and printed an empty table;
 * ``molecular_descriptors`` quietly omitted the descriptor.
 
-Nothing caught it: the docs workflow parses notebook JSON and does not execute a
-cell. This test is the check that can run in the fast tier -- it compares the
-property names notebooks *read* against the ones ``src/`` demonstrably *writes*,
-so the two cannot drift again without a failure here.
+Nothing caught it: parsing a notebook's JSON, which is all
+``test_notebook_is_valid_json`` below does, never executes a cell. The other
+test here is the check that can run in the fast tier -- it compares the property
+names notebooks *read* against the ones ``src/`` demonstrably *writes*, so the
+two cannot drift again without a failure here.
 """
 
 from __future__ import annotations
@@ -104,6 +105,15 @@ def test_the_scan_finds_the_properties_we_know_are_written():
 def test_there_are_notebooks_to_check():
     """Premise check: a glob that matched nothing would pass silently."""
     assert len(_notebooks()) > 10
+
+
+@pytest.mark.parametrize("notebook", _notebooks(), ids=lambda p: p.name)
+def test_notebook_is_valid_json(notebook):
+    """Replaces the documentation workflow's notebook JSON check, deleted with it."""
+    data = json.loads(notebook.read_text())
+
+    assert "cells" in data, f"{notebook.name} has no 'cells' key"
+    assert "nbformat" in data, f"{notebook.name} has no 'nbformat' key"
 
 
 @pytest.mark.parametrize("notebook", _notebooks(), ids=lambda p: p.name)

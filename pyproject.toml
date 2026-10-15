@@ -82,12 +82,19 @@ dev = [
     # `>=0.1.0` was the old floor, spanning every formatting style ruff has had.
     "ruff==0.15.9",
     "pre-commit>=3.0",
+    # Runs the one executed notebook in the slow CI job; installed with the
+    # rest so a resolver failure shows at install time, not seven minutes into
+    # the job.
+    "nbmake>=1.5",
 ]
+# The floors the documentation build was actually resolved against, taken from
+# the `docs/requirements.txt` this extra replaces. `myst-parser` is gone: it is
+# not in `extensions` in docs/source/conf.py and no Markdown source is reached
+# from docs/source/index.rst, so nothing ever loaded it.
 docs = [
-    "sphinx>=7.0",
-    "sphinx-rtd-theme>=1.3.0",
+    "sphinx>=7.1.0",
+    "sphinx-rtd-theme>=2.0.0",
     "nbsphinx>=0.9.0",
-    "myst-parser>=2.0",
 ]
 all = [
     "Auto3D[ani,ase,dev,docs]",
