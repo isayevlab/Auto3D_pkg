@@ -227,9 +227,12 @@ def run_arm(mols_by_group: dict[str, list], set_name: str, device, model, is_cud
         # `json.dump` would write that as the bare `NaN` token, which is not
         # JSON and which a strict reader rejects. Such a row has no energy to
         # report, so it is recorded as null and the `non_finite` column says
-        # why.
+        # why. The value's own finiteness is tested as well: the final-energy
+        # recompute can hand back a non-finite energy for a row the loop
+        # counted as finite, and that value would reach the record as the same
+        # unreadable token.
         energy.extend(
-            None if bad else value
+            None if (bad or not math.isfinite(value)) else value
             for value, bad in zip(state["energy"].tolist(), group_non_finite, strict=True)
         )
 
@@ -279,6 +282,12 @@ def main() -> None:
         sets="auto3d,bitzek2006",
     )
     args = parser.parse_args()
+    if args.reps % 2:
+        print(
+            "WARNING: odd --reps: one set leads one more repeat than the other, which is "
+            "the asymmetry the alternating arm order exists to remove.",
+            file=sys.stderr,
+        )
 
     from Auto3D.engines.batch_opt.optimization_engine import n_steps
     from Auto3D.engines.model_factory import ModelFactory, create_model
@@ -319,6 +328,11 @@ def main() -> None:
         # in this script names the set it is running through a variable, which
         # is what `tests/test_bench_scripts.py` checks.
         warmup_set = sets[0]
+        print(
+            f"{engine}: warm-up starting -- the full step budget over every size group "
+            f"with the {warmup_set} set; this prints nothing until it ends.",
+            file=sys.stderr,
+        )
         for warmup_mols in groups.values():
             warm_state, warm_mask, _ = make_state(warmup_mols, len(warmup_mols), device, model)
             n_steps(
@@ -329,6 +343,7 @@ def main() -> None:
                 atom_mask=warm_mask,
                 fire_constants=warmup_set,
             )
+        print(f"{engine}: warm-up done.", file=sys.stderr)
 
         for rep in range(args.reps):
             # Alternate which set goes first each repeat, as
