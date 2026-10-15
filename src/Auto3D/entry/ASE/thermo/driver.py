@@ -254,13 +254,15 @@ def do_mol_thermo(
     """For a RDKit mol object, calculate its thermochemistry properties.
 
     Args:
-        atoms: The relaxed geometry, and it must be the ``mol2atoms(mol)``
-            object (``calc_thermo`` builds it that way): its masses are what
-            the mass-weighted Hessian, the moments of inertia and the
-            translational term are built from, while the mass token in
-            ``Thermo_convention`` is read off ``mol``'s isotope labels. Passing
-            an ``Atoms`` built any other way -- ASE's own per-element defaults,
-            say -- leaves the record describing masses it did not use.
+        atoms: The relaxed geometry. Its masses are what the mass-weighted
+            Hessian, the moments of inertia, the translational term AND the
+            mass token in ``Thermo_convention`` are built from and read off --
+            the token describes whatever ``atoms`` actually carries, not
+            ``mol``'s isotope labels. ``calc_thermo`` passes the
+            ``mol2atoms(mol)`` object, so its records report the default
+            convention; any other ``Atoms`` -- ASE's own per-element defaults,
+            say, or one built with standard atomic weights -- is reported as
+            what it is.
         adapter: The Hessian model, satisfying
             :class:`Auto3D.engines.models.contract.ModelAdapter`. Passed straight to
             ``vib_hessian``, which asks it for the species convention and for

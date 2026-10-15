@@ -5,7 +5,7 @@ mass convention the record was built under -- all pure inspection of an RDKit
 ``Mol`` or an ASE ``Atoms``, with no model, no calculator and no ASE
 thermochemistry involved. All but the last are the inputs ``IdealGasThermo`` is
 constructed from; the mass convention annotates the record instead, naming what
-``mol2atoms`` gave the molecule rather than feeding ``IdealGasThermo`` itself.
+``atoms`` actually carries rather than feeding ``IdealGasThermo`` itself.
 """
 
 from __future__ import annotations
