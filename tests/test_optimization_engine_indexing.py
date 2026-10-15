@@ -623,6 +623,11 @@ class TestDecomposedHelpers:
         state["atom_mask"] = torch.ones_like(state["numbers"], dtype=torch.bool)
         state["oscillating_count"] = torch.zeros(4, dtype=torch.long)
         state["non_finite"] = torch.zeros(4, dtype=torch.bool)
+        # The keys `n_steps` normally adds on the way in, which these tests
+        # skip by calling the pieces directly: `_validate_state` normalizes a
+        # missing `mults` to None (every molecule a singlet), so a state built
+        # by hand has to carry what that call would have put there.
+        state["mults"] = None
         return state
 
     def test_step_active_subset_returns_rows_aligned_with_the_index(self):

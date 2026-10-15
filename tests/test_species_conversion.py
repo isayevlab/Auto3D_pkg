@@ -45,7 +45,7 @@ class TestBatchPathIsCorrect:
 
         from Auto3D.engines.model_factory import create_model
 
-        _, species, _, _ = pad_from_mols([mol], create_model("ANI2xt", device), device)
+        _, species, _, _, _ = pad_from_mols([mol], create_model("ANI2xt", device), device)
         values = sorted(int(v) for v in species[0])
 
         # ANI2XT_INDEX: H=0, C=1. Methane is one carbon and four hydrogens.
@@ -72,7 +72,7 @@ class TestThermoPathConverts:
 
         model = create_model("ANI2xt", device)
 
-        coords_b, species_b, charges_b, _ = pad_from_mols([mol], model, device)
+        coords_b, species_b, charges_b, _, _ = pad_from_mols([mol], model, device)
         e_batch = float(model.forward(coords_b, species_b, charges_b)[0][0])
 
         thermo_in = mol2aimnet_input(mol, device, adapter=model)
@@ -119,7 +119,7 @@ class TestHealthCheckIsHonest:
         mol = Chem.AddHs(Chem.MolFromSmiles("C"))
         AllChem.EmbedMolecule(mol, randomSeed=42)
         model = create_model("ANI2xt", device)
-        coords, species, charges, _ = pad_from_mols([mol], model, device)
+        coords, species, charges, _, _ = pad_from_mols([mol], model, device)
         reference = float(model.forward(coords, species, charges)[0][0])
 
         # _health_check_energy does not exist -- cli/commands/models.py builds

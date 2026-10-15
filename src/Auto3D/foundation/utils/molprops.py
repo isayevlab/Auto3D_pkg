@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-"""The dummy-atom predicate, read straight off a molecular graph.
+"""Properties read straight off a molecular graph: the dummy-atom predicate and
+the record label.
 
 A function of the graph alone (no coordinates, no force field, no energy),
 which is what separates it from ``Auto3D.domain.geometry`` and
@@ -50,10 +51,11 @@ def has_dummy_atoms(mol: Chem.Mol) -> bool:
 def record_name(mol: Chem.Mol, default: str = "molecule") -> str:
     """The molecule's ``_Name`` property, or ``default`` when it has none.
 
-    The one definition of the record-label idiom for log lines and error
-    messages (``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``).
-    The default is a parameter, not a constant: some callers want the generic
-    ``"molecule"``, others thread a position-based fallback such as
-    ``f"record {position}"`` through explicitly.
+    The record-label idiom for log lines and error messages
+    (``mol.GetProp("_Name") if mol.HasProp("_Name") else <default>``). The
+    default is a parameter so a caller can pass a position-based fallback such
+    as ``f"record {position}"`` instead of the generic ``"molecule"``;
+    ``sdf_io._display_name`` keeps its own variant because an empty ``_Name``
+    falls through to the position there.
     """
     return mol.GetProp("_Name") if mol.HasProp("_Name") else default

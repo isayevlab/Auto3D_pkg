@@ -1,6 +1,11 @@
-"""Spin multiplicity of a molecule, for the energy engines and the
-thermochemistry: an explicit `multiplicity` property when it is valid,
-otherwise the high-spin value from the radical-electron count.
+"""The spin state the energy engines and the thermochemistry use for a molecule:
+an explicit `multiplicity` property when it is valid, otherwise the high-spin
+value from the radical-electron count.
+
+Both callers resolve it per record -- the optimizer when it pads a bucket, the
+thermochemistry when it stamps a record -- so the value a spin-aware model is
+evaluated at and the value the electronic entropy is built from are the same
+number read the same way.
 """
 
 from __future__ import annotations
@@ -13,13 +18,20 @@ from Auto3D.foundation.utils.molprops import record_name
 
 logger = get_logger(__name__)
 
-__all__ = ["resolve_multiplicity", "electron_count"]
+__all__ = ["resolve_multiplicity", "electron_count", "drawn_closed_shell_but_open_shell"]
 
 _OPEN_SHELL_DRAWN_CLOSED = ("O=O",)
 
 
-def _drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
+def drawn_closed_shell_but_open_shell(mol: Chem.Mol) -> bool:
     """True for known species whose closed-shell drawing hides an open shell.
+
+    Public because two callers need it: :func:`resolve_multiplicity` drives its
+    own per-record warning from it, and the optimizer asks it about a whole
+    bucket so a run over such species is flagged once rather than per record.
+    The resolver still returns 1 for them -- nothing in the graph says
+    otherwise -- so an explicit 'multiplicity' property is the only way to get
+    the ground state.
 
     Caveat: singlet O2 (a real, if short-lived, excited state) is written with
     the identical closed-shell SMILES/graph as ground-state triplet O2, so
@@ -48,8 +60,24 @@ def electron_count(mol: Chem.Mol) -> int:
     return sum(a.GetAtomicNum() for a in Chem.AddHs(mol).GetAtoms()) - rdmolops.GetFormalCharge(mol)
 
 
-def resolve_multiplicity(mol: Chem.Mol) -> int:
-    """Spin multiplicity (2S+1) for IdealGasThermo's electronic-degeneracy term.
+def resolve_multiplicity(mol: Chem.Mol, *, warn_open_shell: bool = True) -> int:
+    """Spin multiplicity (2S+1): the spin state the energy engines and the thermochemistry use.
+
+    The thermochemistry reads it as IdealGasThermo's electronic-degeneracy
+    term; the optimizer and the single-point paths hand it to the model.
+
+    ``warn_open_shell=False`` silences the three open-shell warnings (the
+    high-spin assumption, the parity check on a derived value, the closed-shell
+    drawing of an open-shell species), for a caller that resolves every
+    conformer record of a run and reports once itself; the invalid-property
+    warning always fires because it names a defect in that record.
+
+    Resolving a record also CLEARS an invalid 'multiplicity' property from it,
+    a side effect both callers now share. The optimizer clears the invalid
+    property, warns once and writes the record without it, so a
+    thermochemistry run on the optimizer's output uses the derived value
+    silently; only a caller handing the same in-memory molecules to both paths
+    sees the warning twice.
 
     Uses an explicit integer 'multiplicity' molecule property when present
     and valid. An invalid one (unparseable, out of bounds, or the wrong
@@ -64,9 +92,9 @@ def resolve_multiplicity(mol: Chem.Mol) -> int:
     explicit 'multiplicity' property to override the high-spin default. The
     derived value is returned but not written back onto ``mol``: no energy
     engine reads the property, so recording it would only be a value a
-    re-run recomputes anyway. The NNP *energy* stays closed-shell regardless
-    (AIMNet2 takes only coords/species/charge, no spin), so warn for
-    open-shell species that the energy is an approximation.
+    re-run recomputes anyway. A spin-aware AIMNet2 model receives this value;
+    a model without a spin input ignores it and evaluates the molecule as a
+    closed shell.
 
     The property is parsed with plain Python ``int()`` rather than RDKit's
     ``GetUnsignedProp``: the latter parses as an *unsigned* C++ integer, so a
@@ -151,44 +179,54 @@ def resolve_multiplicity(mol: Chem.Mol) -> int:
     # requires odd multiplicity for an even-electron species and even for an
     # odd-electron one, which the radical count can violate when the drawing is
     # wrong (a valence-satisfied structure hiding an open shell). Getting it wrong
-    # is worth R*ln 3 = 0.65 kcal/mol in T*S_elec.
+    # is worth at least RT ln((m+1)/m) in T*S_elec -- 0.41 kcal/mol at 298 K
+    # for a doublet taken for a singlet.
     #
     # Warn-only, and deliberately so: unlike the supplied-value branch, there is
     # no further fallback to take -- this IS the fallback. Silently substituting a
     # parity-consistent guess would replace a wrong number the user can see with a
     # wrong number they cannot.
-    n_electrons = electron_count(mol)
-    if multiplicity % 2 == n_electrons % 2:
-        logger.warning(
-            "Molecule %s: the multiplicity derived from its radical-electron "
-            "count (%d) has a parity inconsistent with a %d-electron species "
-            "(2S+1 requires odd multiplicity for an even-electron species, even "
-            "for an odd-electron one). The drawing may hide an open shell. Set "
-            "the 'multiplicity' property explicitly; the electronic entropy term "
-            "is otherwise wrong by up to R*ln(3) = 0.65 kcal/mol in T*S.",
-            record_name(mol),
-            multiplicity,
-            n_electrons,
-        )
+    #
+    # The electron count is computed inside the guard, not above it: it feeds
+    # only this warning here (the supplied-value branch above has its own
+    # call), and `electron_count` copies the molecule through `AddHs`, which a
+    # caller resolving every conformer record of a run quietly should not pay
+    # for a message it has silenced.
+    if warn_open_shell:
+        n_electrons = electron_count(mol)
+        if multiplicity % 2 == n_electrons % 2:
+            logger.warning(
+                "Molecule %s: the multiplicity derived from its radical-electron "
+                "count (%d) has a parity inconsistent with a %d-electron species "
+                "(2S+1 requires odd multiplicity for an even-electron species, even "
+                "for an odd-electron one). The drawing may hide an open shell. Set "
+                "the 'multiplicity' property explicitly; the electronic entropy term "
+                "is otherwise wrong by at least RT ln((m+1)/m) in T*S, "
+                "0.41 kcal/mol at 298 K for a doublet taken for a singlet.",
+                record_name(mol),
+                multiplicity,
+                n_electrons,
+            )
     if n_radical > 0:
-        logger.warning(
-            "Molecule %s: open-shell species detected (%d unpaired "
-            "electron(s), multiplicity %d); the NNP energy is a closed-shell "
-            "approximation.",
-            record_name(mol),
-            n_radical,
-            multiplicity,
-        )
-    elif _drawn_closed_shell_but_open_shell(mol):
+        if warn_open_shell:
+            logger.warning(
+                "Molecule %s: open-shell species (%d unpaired electron(s)); "
+                "resolved to multiplicity %d, the high-spin value. Set the "
+                "'multiplicity' property to override it.",
+                record_name(mol),
+                n_radical,
+                multiplicity,
+            )
+    elif warn_open_shell and drawn_closed_shell_but_open_shell(mol):
         # O=O draws as a closed-shell double bond and carries zero radical
         # electrons, but its ground state is a triplet. Nothing in the graph
         # distinguishes it, so the electronic entropy term is silently wrong
         # unless the caller sets 'multiplicity' explicitly.
         logger.warning(
             "%s matches a species whose ground state is open-shell but whose "
-            "drawing is closed-shell; multiplicity 1 is assumed and the "
-            "electronic entropy term will be wrong. Set the 'multiplicity' "
-            "property explicitly.",
+            "drawing is closed-shell; multiplicity 1 is assumed, a spin-aware "
+            "model evaluates the singlet state and the electronic entropy term "
+            "will be wrong. Set the 'multiplicity' property explicitly.",
             record_name(mol),
         )
     return multiplicity

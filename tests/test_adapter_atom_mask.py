@@ -53,6 +53,11 @@ class _RecordingCalculator:
     Both make a dropped atom visible as a number rather than as a branch.
     """
 
+    #: One charge channel, like every AIMNet2 model but the spin-aware ones, so
+    #: the adapter sends it no ``mult`` entry -- the property the real
+    #: calculator publishes for exactly that decision.
+    is_nse = False
+
     def __init__(self) -> None:
         self.numbers: torch.Tensor | None = None
         self.mol_idx: torch.Tensor | None = None
@@ -122,7 +127,7 @@ class TestDummyAtomIsNotTreatedAsPadding:
         assert mol.GetNumAtoms() == 9
         assert mol.GetAtomWithIdx(0).GetAtomicNum() == 0, "atom 0 is the dummy"
 
-        coords, species, charges, atom_mask = self._pad([mol])
+        coords, species, charges, _mults, atom_mask = self._pad([mol])
         assert int(atom_mask.sum()) == 9
 
         calc = _RecordingCalculator()
@@ -137,7 +142,7 @@ class TestDummyAtomIsNotTreatedAsPadding:
 
     def test_r_group_atom_receives_a_nonzero_force(self):
         mol = _embed("*CCO", "rgroup")
-        coords, species, charges, atom_mask = self._pad([mol])
+        coords, species, charges, _mults, atom_mask = self._pad([mol])
 
         adapter = _stub_adapter(_RecordingCalculator())
         _, forces = adapter.forward(coords, species, charges, atom_mask=atom_mask)
@@ -157,7 +162,7 @@ class TestRealPaddingIsStillExcluded:
     def test_padded_slots_are_dropped_and_get_zero_force(self):
         big = _embed("*CCO", "rgroup")  # 9 atoms
         small = _embed("O", "water")  # 3 atoms
-        coords, species, charges, atom_mask = pad_from_mols(
+        coords, species, charges, _mults, atom_mask = pad_from_mols(
             [big, small], _aimnet_padding(), torch.device("cpu")
         )
         assert species.shape == (2, 9)
@@ -180,7 +185,9 @@ class TestUnpaddedCallersNeedNoMask:
 
     def test_no_mask_treats_every_slot_as_real(self):
         mol = _embed("*CCO", "rgroup")
-        coords, species, charges, _ = pad_from_mols([mol], _aimnet_padding(), torch.device("cpu"))
+        coords, species, charges, _mults, _ = pad_from_mols(
+            [mol], _aimnet_padding(), torch.device("cpu")
+        )
         calc = _RecordingCalculator()
         energy, _ = _stub_adapter(calc).forward(coords, species, charges)
         assert calc.numbers.numel() == 9
@@ -209,7 +216,7 @@ class TestMaskReachesTheAdapterThroughTheStack:
 
         big = _embed("*CCO", "rgroup")
         small = _embed("O", "water")
-        coords, species, charges, atom_mask = pad_from_mols(
+        coords, species, charges, _mults, atom_mask = pad_from_mols(
             [big, small], _aimnet_padding(), torch.device("cpu")
         )
         # batchsize_atoms=9 with N=9 gives one molecule per sub-batch, so the
@@ -226,7 +233,7 @@ class TestMaskReachesTheAdapterThroughTheStack:
 # which; scoring it silently is wrong under either reading.
 def test_aimnet2_refuses_a_multi_molecule_batch_without_a_mask():
     adapter = _stubbed_aimnet2()
-    coords, species, charges, _ = pad_from_mols(
+    coords, species, charges, _mults, _ = pad_from_mols(
         [_mol("CCO"), _mol("C")], adapter, torch.device("cpu")
     )
     with pytest.raises(ValueError, match="atom_mask"):
@@ -235,13 +242,13 @@ def test_aimnet2_refuses_a_multi_molecule_batch_without_a_mask():
 
 def test_aimnet2_accepts_a_single_unpadded_molecule_without_a_mask():
     adapter = _stubbed_aimnet2()
-    coords, species, charges, _ = pad_from_mols([_mol("CCO")], adapter, torch.device("cpu"))
+    coords, species, charges, _mults, _ = pad_from_mols([_mol("CCO")], adapter, torch.device("cpu"))
     adapter.forward(coords, species, charges)  # B == 1: every slot is a real atom
 
 
 def test_aimnet2_accepts_an_unpadded_equal_size_batch_without_a_mask():
     adapter = _stubbed_aimnet2()
-    coords, species, charges, _ = pad_from_mols(
+    coords, species, charges, _mults, _ = pad_from_mols(
         [_mol("C"), _mol("C")], adapter, torch.device("cpu")
     )
     adapter.forward(coords, species, charges)  # no slot is 0: nothing to misread

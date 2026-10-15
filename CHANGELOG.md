@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- The model adapter's `forward`, `energy` and `analytic_hessian` take an
+  optional keyword `mults` (the spin multiplicity per molecule, or `None` for
+  all singlets); callers written against 3.2.1 and custom NNPs
+  (`forward(coords, species, charges)`) are unaffected.
 - CI: test and documentation jobs install the CPU build of torch and cache pip
   downloads; the documentation link check runs weekly instead of on every pull
   request and can fail again; the documentation build's error gate reads the
@@ -18,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built wheel before publishing.
 
 ### Fixed
+- The `aimnet2-nse` engine runs. It was registered but raised on its first
+  forward because the model needs each molecule's spin multiplicity, which
+  Auto3D never sent; the optimizer, the single-point energies and the
+  thermochemistry now resolve one multiplicity per molecule (an explicit
+  valid `multiplicity` property, otherwise unpaired electrons + 1) and pass it
+  to a spin-aware model, so
+  open-shell energies, forces and Hessians use it. One-channel AIMNet2 models
+  and the ANI engines are unchanged; an open-shell molecule sent to a
+  one-channel AIMNet2 model is evaluated as a closed shell, with one warning
+  naming `aimnet2-nse`.
 - `calc_thermo` records: `Thermo_vib_modes` now counts the vibrational modes
   that entered *G* (under plain RRHO, `low_freq_cutoff_cm=0.0`, ASE drops an
   exactly-zero mode from the list Auto3D hands it, and the record used to

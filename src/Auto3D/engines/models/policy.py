@@ -292,18 +292,24 @@ def check_engine_supports_molecules(
     mol_list = [mols] if isinstance(mols, Chem.Mol) else list(mols)
 
     if optimizing_engine.upper() not in BUILTIN_ANI_MODELS:
-        # AIMNET / custom-NNP path: no element/charge/radical restriction, but
-        # still closed-shell-by-default, so warn rather than stay silent.
-        # Batched into ONE warning for the whole call instead of one per
-        # molecule -- a run over a large SDF must not turn into a wall of
-        # near-identical log lines -- phrased like
-        # ASE/thermo/properties.py:319-325's per-molecule warning so the two
-        # read as the same policy stated at two different granularities.
+        # AIMNET / custom-NNP path: no element/charge/radical restriction.
+        # Whether the spin state is honored is the MODEL's to decide -- Auto3D
+        # resolves and sends a multiplicity either way -- and this function
+        # holds only an engine name, never the adapter that knows, so the line
+        # states both outcomes. Batched into ONE warning for the whole call
+        # instead of one per molecule -- a run over a large SDF must not turn
+        # into a wall of near-identical log lines -- phrased like
+        # `Auto3D.domain.multiplicity.resolve_multiplicity`'s per-record
+        # open-shell warning so the two read as the same policy stated at two
+        # different granularities.
         if any(a.GetNumRadicalElectrons() > 0 for mol in mol_list for a in mol.GetAtoms()):
             logger.warning(
                 "Open-shell species detected among the input molecules; %s "
-                "treats them at the model's closed-shell/default-multiplicity "
-                "level.",
+                "resolves each record's spin multiplicity (an explicit "
+                "'multiplicity' property, otherwise unpaired electrons + 1) and "
+                "hands it to the model: a spin-aware model (aimnet2-nse) uses "
+                "it, a model without a spin input evaluates the molecule as a "
+                "closed shell and says so once.",
                 optimizing_engine,
             )
         return

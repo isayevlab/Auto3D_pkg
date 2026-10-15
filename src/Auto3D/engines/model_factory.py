@@ -72,7 +72,7 @@ def _verify_compiled_adapter(
     private for the same reason.
     """
     mols = _probe_mols()
-    coord, species, charges, mask = pad_from_mols(mols, eager, device)
+    coord, species, charges, _mults, mask = pad_from_mols(mols, eager, device)
     # .forward(...), not eager(...)/compiled(...): ModelAdapter is a Protocol that
     # declares forward but not __call__ (same reason model_wrapper.py's BatchedEnergyForce
     # calls self.model.forward(...) rather than self.model(...)).

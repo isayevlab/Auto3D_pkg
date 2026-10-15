@@ -1312,9 +1312,11 @@ class TestCalculatorDeviceAndDtypeFollowTheCaller:
     def test_calc_thermo_no_gpu_uses_one_device_and_one_dtype(self, monkeypatch, tmp_path):
         """The whole call, both stages, on the device ``use_gpu=False`` means.
 
-        The fmax pre-check goes through ``mol2aimnet_input`` (device from
-        ``get_device``) and the relaxation goes through the ASE ``Calculator``.
-        Before this fix those two disagreed for a param-less custom NNP.
+        The fmax pre-check and the relaxation both go through the ASE
+        ``Calculator`` (device from ``get_device``), and the Hessian through
+        the adapter built on the same device. Before this fix the pre-check
+        built its own tensors and the two disagreed for a param-less custom
+        NNP.
         """
         import torch
         from rdkit import Chem

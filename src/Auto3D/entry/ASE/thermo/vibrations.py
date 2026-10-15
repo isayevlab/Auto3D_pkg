@@ -20,7 +20,7 @@ from ase.vibrations import VibrationsData
 from rdkit import Chem
 from rdkit.Chem import rdmolops
 
-from Auto3D.engines.models.contract import ModelAdapter
+from Auto3D.engines.models.contract import ModelAdapter, spin_kwargs
 from Auto3D.entry.ASE.thermo.calculator import mol2atoms
 from Auto3D.foundation.constants import (
     EV_PER_WAVENUMBER,
@@ -45,6 +45,7 @@ def vib_hessian(
     device=torch.device("cpu"),
     *,
     positions=None,
+    multiplicity: int = 1,
 ):
     """Return a VibrationsData object for one molecule.
 
@@ -79,7 +80,14 @@ def vib_hessian(
             passes the relaxed geometry explicitly here in addition to
             syncing mol's conformer beforehand, so the Hessian is guaranteed
             to describe the same structure as the energy regardless of sync
-            order."""
+            order.
+        multiplicity: Spin multiplicity of this record. A singlet is never
+            passed on: multiplicity 1 is what every model assumes, so the
+            keyword is left off the adapter calls below and a closed-shell
+            record's Hessian is bit-identical to the one this function has
+            always built. Above 1, a spin-aware model builds the Hessian at
+            that multiplicity, so the frequencies belong to the same spin
+            state as the energy."""
     # Built through mol2atoms (not a bare Atoms(species, coord) call) so
     # isotope masses are applied here exactly as they are for the other two
     # Atoms constructions (mol2atoms's own default path, calc_thermo's
@@ -116,14 +124,19 @@ def vib_hessian(
     # the optimizer path was fixed, leaving CLAUDE.md's "charges reach a model
     # as float32" false on this path.
     charge = torch.tensor([charge], dtype=torch.float32, device=device)
+    extra = spin_kwargs(
+        None
+        if multiplicity == 1
+        else torch.tensor([float(multiplicity)], dtype=torch.float32, device=device)
+    )
 
-    hess = adapter.analytic_hessian(coord, numbers, charge)
+    hess = adapter.analytic_hessian(coord, numbers, charge, **extra)
     if hess is None:
         # No native second derivative: differentiate the adapter's energy. Note
         # `energy`, not `forward` -- forward would compute (and discard) forces,
         # and in two adapters would downcast this fp64 geometry to fp32.
         hess = torch.autograd.functional.hessian(
-            lambda xyz: adapter.energy(xyz, numbers, charge), coord
+            lambda xyz: adapter.energy(xyz, numbers, charge, **extra), coord
         )
     hess = hess.detach().cpu().view(num_atoms, 3, num_atoms, 3).numpy()
 

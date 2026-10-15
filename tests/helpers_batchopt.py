@@ -28,7 +28,7 @@ def make_fake_ensemble_opt(
     """
 
     def fake_ensemble_opt(
-        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None
+        net, coord, numbers, charges, param, device, atom_mask=None, progress_cb=None, mults=None
     ):
         n = len(coord)
         values = list(energies[:n]) if energies is not None else [0.0] * n

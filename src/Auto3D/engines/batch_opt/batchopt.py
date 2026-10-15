@@ -18,6 +18,7 @@ from rdkit import Chem
 
 from Auto3D.domain.convergence import OPTIMIZATION_FAILED_PROP, set_converged
 from Auto3D.domain.energy import set_e_tot_from_ev
+from Auto3D.domain.multiplicity import drawn_closed_shell_but_open_shell
 from Auto3D.domain.stereo_check import apply_optimized_coords
 
 # Deliberately NOT `from Auto3D.engines.model_factory import create_model`. This module
@@ -35,6 +36,7 @@ from Auto3D.domain.stereo_check import apply_optimized_coords
 # `batch_opt.optimization_engine`; import them from there.
 from Auto3D.engines.batch_opt.model_wrapper import BatchedEnergyForce
 from Auto3D.engines.batch_opt.optimization_engine import n_steps
+from Auto3D.engines.models.contract import as_mults
 from Auto3D.foundation.constants import INITIAL_ENERGY_SENTINEL, INITIAL_FMAX_SENTINEL
 from Auto3D.foundation.utils.sdf_io import iter_conformer_records
 
@@ -68,6 +70,7 @@ def ensemble_opt(
     device: torch.device,
     atom_mask: torch.Tensor | None = None,
     progress_cb: "Callable[[dict], None] | None" = None,
+    mults: list | torch.Tensor | None = None,
 ) -> dict:
     """Optimize a group of molecules using batch optimization.
 
@@ -92,6 +95,12 @@ def ensemble_opt(
             explicit mask is required instead. Defaults to None, which is a
             no-op (every atom treated as real) for unpadded batches or any
             caller that omits it.
+        mults: Spin multiplicity per molecule (N,), or None when every molecule
+            is a singlet. A batch whose every entry is 1 is stored as None, so
+            the keyword never reaches the model wrapper for a closed-shell
+            batch and such a run takes the code path it always took. A
+            spin-aware model (``aimnet2-nse``) reads the value; every other
+            model ignores it.
 
     Returns:
         Dictionary containing:
@@ -130,6 +139,10 @@ def ensemble_opt(
     # cast, and `ASE/thermo.py`'s Hessian path still builds an int64 charge --
     # so the float32 claim is not yet true everywhere.
     charges = _as_tensor(charges, torch.float32, device)
+    # `as_mults` owns the convention: an all-singlet batch collapses to None
+    # here, once, so a closed-shell run takes the path it always took and its
+    # numbers do not move.
+    mults = as_mults(mults, device)
     if atom_mask is not None:
         atom_mask = _as_tensor(atom_mask, torch.bool, device)
     converged_mask = torch.zeros(coord.shape[0], dtype=torch.bool, device=device)
@@ -148,6 +161,7 @@ def ensemble_opt(
         fmax=fmax,
         energy=energy,
         charges=charges,
+        mults=mults,
     )
 
     if "convergence_threshold" in param:
@@ -235,6 +249,10 @@ class Optimizer:
         self.out_f = out_f
         self.device = device
         self.progress_cb = progress_cb
+        # One notice per run, not per bucket: a large SDF of radicals would
+        # otherwise log the same line for every bucket it is split into.
+        self._noted_open_shell = False
+        self._noted_drawn_closed_shell = False
 
         # Support both OptimizationConfig and legacy dict
         if isinstance(config, dict):
@@ -332,9 +350,36 @@ class Optimizer:
             The optdict from :func:`ensemble_opt` (per-molecule lists indexed by
             position within ``bucket_mols``).
         """
-        coord_padded, numbers_padded, charges, atom_mask = pad_from_mols(
+        coord_padded, numbers_padded, charges, mults, atom_mask = pad_from_mols(
             bucket_mols, self.model, self.device
         )
+
+        # The padder resolves every record's multiplicity quietly; the two
+        # notices belong here, where the whole run is in view, instead of once
+        # per record inside the resolver. Once per `Optimizer` instance, which
+        # in the pipeline is once per chunk.
+        if not self._noted_open_shell and bool((mults > 1.0).any()):
+            self._noted_open_shell = True
+            logger.info(
+                "This run contains open-shell records; each record's spin multiplicity "
+                "(an explicit 'multiplicity' property, otherwise unpaired electrons + 1) "
+                "is resolved and handed to the model. A model with a spin input uses it; "
+                "a model without one evaluates the molecule as a closed shell and says "
+                "so once."
+            )
+        # A closed-shell drawing carries no radical electrons, so the line
+        # above cannot see it and the resolver returns 1: the record is
+        # optimized as a singlet, which for O=O is the wrong state.
+        if not self._noted_drawn_closed_shell and any(
+            drawn_closed_shell_but_open_shell(m) for m in bucket_mols
+        ):
+            self._noted_drawn_closed_shell = True
+            logger.warning(
+                "This run contains a species drawn closed-shell whose ground state is "
+                "open-shell (for example O=O); multiplicity 1 is used unless the record's "
+                "'multiplicity' property says otherwise. Set the property to use the "
+                "ground-state multiplicity."
+            )
 
         # torch.jit.optimized_execution only affects TorchScript modules; the
         # default AIMNet2 path is eager and ANI uses torch.compile, so the old
@@ -348,6 +393,7 @@ class Optimizer:
             self.device,
             atom_mask=atom_mask,
             progress_cb=self.progress_cb,
+            mults=mults,
         )  # Magic step
         return optdict
 

@@ -107,7 +107,8 @@ def execute_models_list() -> None:
     console.print()
     console.print("[dim]aimnet2-2025: B97-3c, improved non-covalent interactions[/dim]")
     console.print(
-        "[dim]aimnet2-nse: open-shell chemistry model (Auto3D uses default multiplicity)[/dim]"
+        "[dim]aimnet2-nse: open-shell chemistry model (Auto3D passes each record's "
+        "spin multiplicity)[/dim]"
     )
     console.print("[dim]aimnet2-pd: palladium catalysis[/dim]")
     console.print(

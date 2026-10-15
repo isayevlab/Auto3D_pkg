@@ -546,7 +546,7 @@ def test_the_adapters_pad_is_what_the_padder_writes():
         assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0
         mols.append(mol)
     adapter = FakeAdapter(coord_pad=7.25, species_pad=-99)
-    coords, species, _charges, _mask = pad_from_mols(mols, adapter, CPU)
+    coords, species, _charges, _mults, _mask = pad_from_mols(mols, adapter, CPU)
     assert species[1, 3:].tolist() == [-99, -99]
     assert torch.all(coords[1, 3:] == 7.25)
 
@@ -644,7 +644,7 @@ class TestExampleCustomNNPsDoNotPadWithARealElement:
         # coord_pad/species_pad and consumes raw atomic numbers, so the identity
         # `to_species` is what a custom NNP must get.
         model.to_species = list
-        coords, species, charges, _atom_mask = pad_from_mols(mols, model, CPU)
+        coords, species, charges, _mults, _atom_mask = pad_from_mols(mols, model, CPU)
         return mols, coords, species, charges
 
     @pytest.mark.parametrize("module_name", EXAMPLE_MODULES)

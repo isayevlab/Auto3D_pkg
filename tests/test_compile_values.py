@@ -66,7 +66,7 @@ def _element_pattern_batches(n: int) -> list[list[Chem.Mol]]:
 
 
 def _energies_and_forces(adapter, mols):
-    coord, species, charges, mask = pad_from_mols(mols, adapter, torch.device("cpu"))
+    coord, species, charges, _mults, mask = pad_from_mols(mols, adapter, torch.device("cpu"))
     e, f = adapter(coord.clone(), species.clone(), charges.clone(), atom_mask=mask)
     return e.detach(), f.detach()
 
@@ -175,7 +175,9 @@ def test_ani2xt_compile_does_not_hit_the_recompile_limit():
         adapter = create_model("ANI2xt", torch.device("cpu"), compile_model=True, use_cache=False)
         before = dict(counters["frames"])
         for mols in _element_pattern_batches(torch._dynamo.config.recompile_limit + 2):
-            coord, species, charges, mask = pad_from_mols(mols, adapter, torch.device("cpu"))
+            coord, species, charges, _mults, mask = pad_from_mols(
+                mols, adapter, torch.device("cpu")
+            )
             adapter.forward(coord, species, charges, atom_mask=mask)
         after = counters["frames"]
         assert after["total"] - before.get("total", 0) == after["ok"] - before.get("ok", 0)

@@ -523,7 +523,7 @@ class TestEnForceANIRejectsNonAdapters:
 
         adapter = FakeAdapter()
         wrapper = BatchedEnergyForce(adapter)
-        coords, species, charges, atom_mask = padded_batch()
+        coords, species, charges, _mults, atom_mask = padded_batch()
         e, f = wrapper.forward(coords, species, charges, atom_mask=atom_mask)
         assert e.shape == (2,)
         assert f.shape == (2, 3, 3)

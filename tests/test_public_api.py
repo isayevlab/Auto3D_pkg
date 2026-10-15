@@ -72,10 +72,23 @@ def test_module_all_declared():
         assert set(mod.__all__) == expected, mod_name
 
 
+#: member -> (parameter names in order, required defaults, parameters that must
+#: be KEYWORD_ONLY). The third entry exists for ``mults``: a positional
+#: ``mults`` would make the spin multiplicity bindable by position, so a caller
+#: passing four positionals would silently hand a mask to the spin argument
+#: (or vice versa) instead of failing.
 CONSUMER_HALF = {
-    "forward": (["self", "coords", "species", "charges", "atom_mask"], {"atom_mask": None}),
-    "energy": (["self", "coords", "species", "charges", "atom_mask"], {"atom_mask": None}),
-    "to_species": (["self", "atomic_numbers"], {}),
+    "forward": (
+        ["self", "coords", "species", "charges", "atom_mask", "mults"],
+        {"atom_mask": None, "mults": None},
+        {"mults"},
+    ),
+    "energy": (
+        ["self", "coords", "species", "charges", "atom_mask", "mults"],
+        {"atom_mask": None, "mults": None},
+        {"mults"},
+    ),
+    "to_species": (["self", "atomic_numbers"], {}, set()),
 }
 
 
@@ -98,12 +111,28 @@ def test_the_consumer_half_of_the_adapter_contract_is_frozen(name):
     """D4: ``forward``, ``energy`` and ``to_species`` are public on every adapter
     ``create_model`` can return, with these parameter names and defaults.
     Checked on the classes, so no model is loaded."""
-    names, defaults = CONSUMER_HALF[name]
+    names, defaults, keyword_only = CONSUMER_HALF[name]
     for cls in _adapter_classes():
         sig = inspect.signature(getattr(cls, name))
         assert list(sig.parameters) == names, (cls.__name__, name)
         for param, default in defaults.items():
             assert sig.parameters[param].default == default, (cls.__name__, name, param)
+        for param in keyword_only:
+            assert sig.parameters[param].kind is inspect.Parameter.KEYWORD_ONLY, (
+                cls.__name__,
+                name,
+                param,
+            )
+
+
+def test_the_spin_keyword_is_keyword_only_on_the_hessian_capability_too():
+    """``analytic_hessian`` is not part of the frozen consumer half (it may
+    change between releases), but ``mults`` means the same thing there and the
+    thermochemistry passes it by keyword, so its kind is pinned as well."""
+    for cls in _adapter_classes():
+        parameter = inspect.signature(cls.analytic_hessian).parameters["mults"]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY, cls.__name__
+        assert parameter.default is None, cls.__name__
 
 
 def test_every_other_contract_member_is_supplied_by_the_base_class():
