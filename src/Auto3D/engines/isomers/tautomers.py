@@ -127,14 +127,21 @@ def _separates_shifted_regions(
 ) -> bool:
     """True when a hydrogen migrated from one side of ``pivot`` to the other.
 
-    Two conditions together: every route inside the tautomer core between two
-    components of ``delta`` passes through ``pivot``, *and* one of those two
-    components gained hydrogens while the other lost them. The second
-    condition is what separates a migration through the element from two
-    independent shifts that happen to flank it -- a 1,3-diketone enolizing at
-    both of its outer methyls leaves the center between the carbonyls
-    untouched, and each of its two shifted regions moves a hydrogen only
-    within itself, so its net change is zero.
+    A pair of ``delta`` components is a candidate for one such migration when
+    one of them gained hydrogens and the other lost them, and when no third
+    shifted region lies between the two -- a pair with another shifted region
+    in the way is two shifts in series, not one hydrogen crossing from the one
+    region to the other. Each candidate pair is then asked the question the
+    pivot is actually on trial for: whether every route between the two inside
+    the tautomer core passes through it.
+
+    All three conditions are needed. Without the signs, a 1,3-diketone that
+    enolizes both of its outer methyls would lose the center between the
+    carbonyls, although each shift moves a hydrogen only within its own region
+    and the center keeps all four substituents. Without the neighbor test, a
+    chain carrying two such independent 1,3-shifts, one at each end, would
+    lose the center between them, because the outermost gaining and losing
+    regions do flank it even though neither shift reaches it.
 
     ``hydrogen_change`` is the per-atom total hydrogen count in ``mol`` minus
     the count in the reference, over the shared atom indexing.
@@ -142,7 +149,7 @@ def _separates_shifted_regions(
     components = _components(mol, delta)
     if len(components) < 2:
         return False
-    allowed = (core | delta) - pivot
+    reachable = core | delta
     net = [sum(hydrogen_change[j] for j in component) for component in components]
     for i, a in enumerate(components):
         if net[i] == 0:
@@ -150,7 +157,19 @@ def _separates_shifted_regions(
         for j in range(i + 1, len(components)):
             if net[j] == 0 or (net[i] > 0) == (net[j] > 0):
                 continue
-            if not _connected_without(mol, a - pivot, components[j] - pivot, allowed):
+            # Nearest neighbors first, with the pivot itself allowed: a route
+            # that has to cross a third shifted region to get from one of the
+            # pair to the other means the hydrogen did not travel between
+            # them, so the pivot is not on its way.
+            between = {
+                atom
+                for k, component in enumerate(components)
+                if k not in (i, j)
+                for atom in component
+            }
+            if not _connected_without(mol, a, components[j], reachable - between):
+                continue
+            if not _connected_without(mol, a - pivot, components[j] - pivot, reachable - pivot):
                 return True
     return False
 
@@ -348,6 +367,11 @@ def _merge_one_constitution(idx: str, comparable: list[tuple[Chem.Mol, Counter]]
     if len(survivors) == 1:
         return first
     disagreeing = _disagreeing_classes([fingerprint for _, fingerprint in survivors])
+    if not disagreeing:
+        # Survivors that say exactly the same thing: none is a strict subset of
+        # another, so all of them survived the drop above, and any one of them
+        # is the merged record as it stands.
+        return first
     keys = {enantiomer_key(Chem.MolToSmiles(mol)) for mol, _ in survivors}
     # Elements, not symmetry classes: on a symmetric constitution two centers
     # of one class can both flip, which is one disagreeing class but two
@@ -613,9 +637,9 @@ class RDKitOrOEChemTautomerEngine:
                 continue
             atoms, bonds = _name_elements(opened)
             logger.info(
-                "%r: %d stereo element(s) the input specified are unspecified in at least one "
-                "emitted tautomer -- atom(s) %s, double bond(s) %s, by atom index counted from "
-                "zero in the order the input lists its atoms.",
+                "%r: %d stereo element(s) the input specified were left unspecified by tautomer "
+                "enumeration -- atom(s) %s, double bond(s) %s, by atom index counted from zero "
+                "in the order the input lists its atoms.",
                 idx,
                 len(opened),
                 atoms,

@@ -358,3 +358,75 @@ def test_a_double_bond_whose_order_changed_loses_its_geometry():
     core = set(range(reference.GetNumAtoms()))
     _atoms, bonds = _destroyed_stereo(reference, tautomer, core)
     assert tautomer.GetBondBetweenAtoms(begin, end).GetIdx() in bonds
+
+
+HEPTOSE = "O=C[C@H](O)[C@H](O)[C@H](C)[C@H](O)[C@H](O)C(C)=O"
+
+
+def test_two_independent_carbonyl_migrations_clear_only_the_centers_they_cross():
+    """Two 1,3-shifts in series, one at each end of a chain, called directly.
+
+    The reference is a 4-methyl heptose with a terminal methyl ketone; the
+    tautomer moves the C1 aldehyde to C3 and the C7 ketone to C5. That leaves
+    four shifted regions: C1 gained two hydrogens, C3 and C5 each lost two,
+    C7 gained two. The left migration crosses C2 and the right one crosses C6,
+    so those two centers lose their configuration. C4 keeps its own: it sits
+    between the two *losing* regions, and the gaining region on either side of
+    it is separated from the losing region on the other by a third shifted
+    region, so no hydrogen travelled across C4.
+
+    The signs alone do not say this -- the outermost gaining and losing
+    regions do flank C4 with opposite signs -- which is why only nearest
+    neighbors are put on trial.
+    """
+    from Auto3D.engines.isomers.tautomers import _destroyed_stereo
+
+    reference = Chem.MolFromSmiles(HEPTOSE)
+    tautomer = Chem.MolFromSmiles("OC[C@H](O)C(=O)[C@H](C)C(=O)[C@H](O)C(C)O")
+    core = set(range(reference.GetNumAtoms()))
+    atoms, bonds = _destroyed_stereo(reference, tautomer, core)
+    assert atoms == {2, 10}
+    assert bonds == set()
+
+
+def test_the_heptose_3_5_diketone_keeps_the_center_between_the_two_migrations(job_dir):
+    """The same molecule end to end: the record is emitted with the center
+    between the two migrations intact and the two they crossed open, plus the
+    center the right-hand shift created."""
+    out = _run_rd_taut(job_dir, HEPTOSE)
+    diketone = Chem.MolToSmiles(
+        Chem.MolFromSmiles("CC(C(=O)C(O)CO)C(=O)C(O)C(C)O"), isomericSmiles=False
+    )
+    records = [
+        s for s in out if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == diketone
+    ]
+    assert len(records) == 1
+    assert _unspecified_centers(records[0]) == 3
+    mol = Chem.MolFromSmiles(records[0])
+    specified = [
+        element.centeredOn
+        for element in Chem.FindPotentialStereo(mol)
+        if element.type == Chem.StereoType.Atom_Tetrahedral
+        and element.specified == Chem.StereoSpecified.Specified
+    ]
+    assert len(specified) == 1
+    # The one center that keeps its configuration is the methyl-bearing C4.
+    kept = mol.GetAtomWithIdx(specified[0])
+    assert any(nb.GetSymbol() == "C" and nb.GetTotalNumHs() == 3 for nb in kept.GetNeighbors()), (
+        Chem.MolToSmiles(mol)
+    )
+
+
+def test_survivors_that_say_the_same_thing_are_merged_without_clearing_anything(job_dir, caplog):
+    """Two records of one constitution can come out of the clearing identical.
+
+    Neither says less than the other, so both survive the drop, and there is
+    nothing for them to disagree about: one of them is the merged record as it
+    stands. The 4-methyl heptose dialdehyde reaches that case twice.
+    """
+    with caplog.at_level(logging.INFO):
+        out = _run_rd_taut(job_dir, "O=C[C@H](O)[C@H](O)[C@H](C)[C@H](O)[C@H](O)C=O")
+    assert out
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("stereo element" in m for m in messages), messages
+    assert not [m for m in messages if "0 stereo element" in m], messages
