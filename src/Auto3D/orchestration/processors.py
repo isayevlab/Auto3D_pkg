@@ -52,6 +52,11 @@ class TautomerProcessor:
             input_path,
             output_path,
             pka_norm=self.config.pKaNorm,
+            # With stereoisomer enumeration off, an element the tautomer step
+            # left unspecified would reach embedding and be fixed per
+            # conformer, putting two epimers under one species id; ask the
+            # engine for one record per configuration instead.
+            expand_cleared_stereo=not self.config.enumerate_isomers,
         )
         engine.run()
         hash_taut_smi(output_path, output_path)
