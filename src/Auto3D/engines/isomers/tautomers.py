@@ -16,7 +16,7 @@ from rdkit.Chem import rdCIPLabeler
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
-from Auto3D.domain.stereochemistry import count_unspecified_stereo, enantiomer_key
+from Auto3D.domain.stereochemistry import enantiomer_key
 from Auto3D.foundation.utils.logging_config import get_logger
 from Auto3D.foundation.utils.smi_io import (
     combine_smi,
@@ -34,10 +34,11 @@ logger = get_logger(__name__)
 def _contradicts_reference_stereo(reference: Chem.Mol, tautomer: Chem.Mol) -> bool:
     """True if ``tautomer`` is the input's skeleton with a different configuration.
 
-    A tautomer that comes back with the input's own constitution and a
-    different configuration is the input written wrong, whatever route the
-    enumerator took to it, so it is dropped outright rather than relaxed to an
-    unspecified element.
+    Applied after the unjustified elements of ``tautomer`` have been cleared,
+    so a record that reaches here still carrying the input's constitution and a
+    different configuration is asserting a configuration the clearing did not
+    take away: the input written wrong. It is dropped outright rather than
+    relaxed to an unspecified element.
 
     The test is deliberately narrow. A tautomer whose constitution differs from
     the input is a genuinely different species, and its stereo descriptors are
@@ -118,18 +119,38 @@ def _connected_without(
 
 
 def _separates_shifted_regions(
-    mol: Chem.Mol, pivot: set[int], delta: set[int], core: set[int]
+    mol: Chem.Mol,
+    pivot: set[int],
+    delta: set[int],
+    core: set[int],
+    hydrogen_change: list[int],
 ) -> bool:
-    """A core element not itself shifted was planarized on the way when the
-    shifted regions lie on two or more sides of it: every route inside the
-    tautomer core between two components of ``delta`` passes through ``pivot``."""
+    """True when a hydrogen migrated from one side of ``pivot`` to the other.
+
+    Two conditions together: every route inside the tautomer core between two
+    components of ``delta`` passes through ``pivot``, *and* one of those two
+    components gained hydrogens while the other lost them. The second
+    condition is what separates a migration through the element from two
+    independent shifts that happen to flank it -- a 1,3-diketone enolizing at
+    both of its outer methyls leaves the center between the carbonyls
+    untouched, and each of its two shifted regions moves a hydrogen only
+    within itself, so its net change is zero.
+
+    ``hydrogen_change`` is the per-atom total hydrogen count in ``mol`` minus
+    the count in the reference, over the shared atom indexing.
+    """
     components = _components(mol, delta)
     if len(components) < 2:
         return False
     allowed = (core | delta) - pivot
+    net = [sum(hydrogen_change[j] for j in component) for component in components]
     for i, a in enumerate(components):
-        for b in components[i + 1 :]:
-            if not _connected_without(mol, a - pivot, b - pivot, allowed):
+        if net[i] == 0:
+            continue
+        for j in range(i + 1, len(components)):
+            if net[j] == 0 or (net[i] > 0) == (net[j] > 0):
+                continue
+            if not _connected_without(mol, a - pivot, components[j] - pivot, allowed):
                 return True
     return False
 
@@ -143,31 +164,43 @@ def _destroyed_stereo(
     ``reference`` and ``tautomer`` share the enumerator's atom indexing, and
     ``core`` is the tautomer core the enumerator reports. An element outside
     the core is untouchable by any transform and keeps what the input gave it;
-    an element inside the core loses it when its own bonding changed or when
-    the shifted regions surround it.
+    an element inside the core loses it when its own bonding changed or when a
+    hydrogen migrated from one side of it to the other.
+
+    Raises:
+        ValueError: If ``reference`` and ``tautomer`` do not share one atom
+            indexing, which every assumption here rests on.
     """
     ref_sig, taut_sig = _local_signatures(reference), _local_signatures(tautomer)
     delta = {i for i, (r, t) in enumerate(zip(ref_sig, taut_sig, strict=True)) if r != t}
+    hydrogen_change = [
+        t.GetTotalNumHs() - r.GetTotalNumHs()
+        for r, t in zip(reference.GetAtoms(), tautomer.GetAtoms(), strict=True)
+    ]
     atoms, bonds = set(), set()
     for atom in tautomer.GetAtoms():
         i = atom.GetIdx()
         if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED or i not in core:
             continue
-        if i in delta or _separates_shifted_regions(tautomer, {i}, delta, core):
+        # `or` short-circuits, so the surround test runs only for an element
+        # whose own bonding the shifts left alone.
+        if i in delta or _separates_shifted_regions(tautomer, {i}, delta, core, hydrogen_change):
             atoms.add(i)
     for bond in tautomer.GetBonds():
         if bond.GetStereo() == Chem.BondStereo.STEREONONE:
             continue
         a, b = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
         ref_bond = reference.GetBondBetweenAtoms(a, b)
-        own_bonding_changed = (
+        destroyed = (
             ref_bond is None
             or ref_bond.GetBondType() != bond.GetBondType()
             or a in delta
             or b in delta
+        ) or (
+            {a, b} <= core
+            and _separates_shifted_regions(tautomer, {a, b}, delta, core, hydrogen_change)
         )
-        surrounded = {a, b} <= core and _separates_shifted_regions(tautomer, {a, b}, delta, core)
-        if own_bonding_changed or surrounded:
+        if destroyed:
             bonds.add(bond.GetIdx())
     return atoms, bonds
 
@@ -192,41 +225,101 @@ def _clear_stereo(mol: Chem.Mol, atoms: set[int], bonds: set[int]) -> Chem.Mol:
     return work
 
 
-def _stereo_fingerprint(mol: Chem.Mol) -> Counter:
-    """Multiset of (symmetry class on the stereo-stripped graph, CIP descriptor)
-    over the specified elements.
+def _stereo_classes(mol: Chem.Mol) -> list[int]:
+    """Per-atom symmetry class of ``mol`` on its stereo-stripped graph.
 
     ``breakTies=False`` gives symmetry classes rather than a total order, so
     two records of one constitution that were parsed from different isomeric
-    SMILES still key the same element the same way; a multiset rather than a
-    set so that a record specifying two symmetry-equivalent centers is not
-    flattened onto one that specifies a single center.
+    SMILES key the same element the same way. With ``breakTies=True`` the order
+    within a class falls back to input atom order, which differs between those
+    two records, and a comparison between them would silently find nothing in
+    common.
     """
     stripped = Chem.Mol(mol)
     Chem.RemoveStereochemistry(stripped)
-    ranks = list(Chem.CanonicalRankAtoms(stripped, breakTies=False))
+    return list(Chem.CanonicalRankAtoms(stripped, breakTies=False))
+
+
+def _stereo_fingerprint(mol: Chem.Mol) -> Counter | None:
+    """Multiset of (symmetry class, CIP descriptor) over the specified elements.
+
+    A multiset rather than a set, so that a record specifying two
+    symmetry-equivalent centers is not flattened onto one that specifies a
+    single center.
+
+    Returns ``None`` when a tagged atom comes back without a CIP descriptor:
+    the record then cannot be compared with the other records of its
+    constitution, and the caller keeps it as it is rather than collapsing it
+    on an incomplete comparison.
+    """
+    classes = _stereo_classes(mol)
     labeled = Chem.Mol(mol)
     rdCIPLabeler.AssignCIPLabels(labeled)
     fingerprint: Counter = Counter()
     for atom in labeled.GetAtoms():
         if atom.HasProp("_CIPCode"):
-            fingerprint[(ranks[atom.GetIdx()], atom.GetProp("_CIPCode"))] += 1
+            fingerprint[(classes[atom.GetIdx()], atom.GetProp("_CIPCode"))] += 1
+        elif atom.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED:
+            logger.warning(
+                "%s: the stereocenter at atom %d has no CIP descriptor, so this tautomer is "
+                "not compared with the other records of its constitution and is written as it "
+                "stands.",
+                Chem.MolToSmiles(mol),
+                atom.GetIdx(),
+            )
+            return None
     for bond in labeled.GetBonds():
         if bond.HasProp("_CIPCode"):
-            key = tuple(sorted((ranks[bond.GetBeginAtomIdx()], ranks[bond.GetEndAtomIdx()])))
+            key = tuple(sorted((classes[bond.GetBeginAtomIdx()], classes[bond.GetEndAtomIdx()])))
             fingerprint[(key, bond.GetProp("_CIPCode"))] += 1
     return fingerprint
 
 
+def _descriptors_by_class(fingerprint: Counter) -> dict:
+    """Regroup a fingerprint as symmetry class -> multiset of its descriptors."""
+    by_class: dict = defaultdict(Counter)
+    for (stereo_class, code), count in fingerprint.items():
+        by_class[stereo_class][code] += count
+    return by_class
+
+
+def _disagreeing_classes(fingerprints: list[Counter]) -> set:
+    """The symmetry classes the fingerprints do not all specify identically.
+
+    A class one fingerprint does not mention at all counts as a disagreement:
+    one record asserting an element that another leaves open is not agreement
+    on that element.
+    """
+    by_class = [_descriptors_by_class(fp) for fp in fingerprints]
+    classes = set().union(*(set(entry) for entry in by_class))
+    return {
+        stereo_class
+        for stereo_class in classes
+        if any(entry.get(stereo_class) != by_class[0].get(stereo_class) for entry in by_class)
+    }
+
+
 def _merge_same_constitution(records: list[tuple[Chem.Mol, str]]) -> list[tuple[Chem.Mol, str]]:
-    """Within one input, records of one constitution that differ only in how much
-    they specify collapse onto the most specified one; two records that specify
-    one element with different descriptors emit that element unspecified.
+    """Reduce the records of one constitution, within one input, to one record.
 
     Fingerprints are multisets of (symmetry class, CIP descriptor), so a
     record is compared with another by what it says, not by atom indices,
     which differ between two records of one constitution read from opposite
-    ends of a chain.
+    ends of a chain. A record that says strictly less than another says
+    nothing the other does not and is dropped. If more than one record
+    survives that, they came by routes that justify different assignments, and
+    either
+
+    * they are mirror images of one another differing at two or more elements,
+      in which case one stands for the pair: they are exactly degenerate in
+      energy and ``remove_enantiomers`` collapses them downstream, while
+      clearing their elements would instead enumerate diastereomers that no
+      route produced; or
+    * one record is emitted keeping only the elements every survivor specifies
+      with the same descriptor. An element that the survivors label differently,
+      or that any survivor leaves open, is emitted unspecified.
+
+    A record whose descriptors cannot be read is kept as it stands.
     """
     groups: dict[tuple[str, str], list[Chem.Mol]] = defaultdict(list)
     for mol, idx in records:
@@ -234,50 +327,117 @@ def _merge_same_constitution(records: list[tuple[Chem.Mol, str]]) -> list[tuple[
     merged: list[tuple[Chem.Mol, str]] = []
     for (idx, _constitution), mols in groups.items():
         fingerprints = [_stereo_fingerprint(m) for m in mols]
-        # A record that says strictly less than another record of the same
-        # constitution adds nothing.
-        kept = [
-            (m, fp)
-            for i, (m, fp) in enumerate(zip(mols, fingerprints, strict=True))
-            if not any(
-                j != i and fp != other and fp <= other for j, other in enumerate(fingerprints)
-            )
-        ]
-        # Among records that specify the same elements, a disagreement on one
-        # element's descriptor means neither assignment is justified.
-        by_elements: dict[tuple, list[tuple[Chem.Mol, Counter]]] = defaultdict(list)
-        for m, fp in kept:
-            elements = Counter(cls for cls, _ in fp.elements())
-            by_elements[tuple(sorted(elements.items(), key=repr))].append((m, fp))
-        for members in by_elements.values():
-            first, first_fp = members[0]
-            if all(fp == first_fp for _, fp in members):
-                merged.append((first, idx))
-                continue
-            descriptors: dict = defaultdict(set)
-            for _, fp in members:
-                for cls, code in fp:
-                    descriptors[cls].add(code)
-            disagreeing = {cls for cls, codes in descriptors.items() if len(codes) > 1}
-            stripped = Chem.Mol(first)
-            Chem.RemoveStereochemistry(stripped)
-            ranks = list(Chem.CanonicalRankAtoms(stripped, breakTies=False))
-            atoms = {a.GetIdx() for a in first.GetAtoms() if ranks[a.GetIdx()] in disagreeing}
-            bonds = {
-                b.GetIdx()
-                for b in first.GetBonds()
-                if tuple(sorted((ranks[b.GetBeginAtomIdx()], ranks[b.GetEndAtomIdx()])))
-                in disagreeing
-            }
-            logger.info(
-                "%r: two tautomer records of one constitution disagree on the descriptor of %d "
-                "stereo element(s) (atom(s) %s); the element is emitted unspecified.",
-                idx,
-                len(atoms) + len(bonds),
-                sorted(atoms),
-            )
-            merged.append((_clear_stereo(first, atoms, bonds), idx))
+        comparable = [(m, fp) for m, fp in zip(mols, fingerprints, strict=True) if fp is not None]
+        if comparable:
+            merged.append((_merge_one_constitution(idx, comparable), idx))
+        merged.extend((m, idx) for m, fp in zip(mols, fingerprints, strict=True) if fp is None)
     return merged
+
+
+def _merge_one_constitution(idx: str, comparable: list[tuple[Chem.Mol, Counter]]) -> Chem.Mol:
+    """The one record that stands for ``comparable``, all of one constitution."""
+    survivors = [
+        (mol, fingerprint)
+        for i, (mol, fingerprint) in enumerate(comparable)
+        if not any(
+            j != i and fingerprint != other and fingerprint <= other
+            for j, (_, other) in enumerate(comparable)
+        )
+    ]
+    first = survivors[0][0]
+    if len(survivors) == 1:
+        return first
+    disagreeing = _disagreeing_classes([fingerprint for _, fingerprint in survivors])
+    keys = {enantiomer_key(Chem.MolToSmiles(mol)) for mol, _ in survivors}
+    # Elements, not symmetry classes: on a symmetric constitution two centers
+    # of one class can both flip, which is one disagreeing class but two
+    # differing elements and so a mirror pair rather than a single open center.
+    differing = sum(
+        count for (stereo_class, _), count in survivors[0][1].items() if stereo_class in disagreeing
+    )
+    if len(keys) == 1 and differing >= 2:
+        logger.info(
+            "%r: %d tautomer records of one constitution are mirror images of one another; "
+            "one stands for them all, since they have the same energy and enantiomer removal "
+            "keeps one of them.",
+            idx,
+            len(survivors),
+        )
+        return first
+    # Every element of a disagreeing symmetry class, since a class is compared
+    # as a multiset of descriptors and a difference there does not say which of
+    # its members carries it. Elements that are not specified in `first` are
+    # left out, so the clearing and the line below name only real assertions.
+    classes = _stereo_classes(first)
+    atoms = {
+        a.GetIdx()
+        for a in first.GetAtoms()
+        if a.GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+        and classes[a.GetIdx()] in disagreeing
+    }
+    bonds = {
+        b.GetIdx()
+        for b in first.GetBonds()
+        if b.GetStereo() != Chem.BondStereo.STEREONONE
+        and tuple(sorted((classes[b.GetBeginAtomIdx()], classes[b.GetEndAtomIdx()]))) in disagreeing
+    }
+    logger.info(
+        "%r: %d tautomer records of one constitution label %d stereo element(s) differently "
+        "(atom(s) %s); those elements are emitted unspecified.",
+        idx,
+        len(survivors),
+        len(atoms) + len(bonds),
+        sorted(atoms),
+    )
+    return _clear_stereo(first, atoms, bonds)
+
+
+#: ``Chem.FindPotentialStereo`` element types that live on a bond rather than
+#: an atom, so an element can be named by the atom pair it spans.
+_BOND_STEREO_TYPES = (
+    Chem.StereoType.Bond_Double,
+    Chem.StereoType.Bond_Atropisomer,
+    Chem.StereoType.Bond_Cumulene_Even,
+)
+
+
+def _stereo_elements(mol: Chem.Mol) -> tuple[set[tuple], set[tuple]]:
+    """The molecule's potential stereo elements, as (specified, unspecified).
+
+    Each element is named by the molecule's own atom indexing -- ``("atom", i)``
+    or ``("bond", (i, j))`` -- rather than by a stereo-element index, so the
+    same element is recognizable between the input and a tautomer, which share
+    that indexing, and comparing the two sets says which elements the
+    enumeration opened up and which the input had already left open.
+    """
+    specified: set[tuple] = set()
+    unspecified: set[tuple] = set()
+    for element in Chem.FindPotentialStereo(mol):
+        if element.type in _BOND_STEREO_TYPES:
+            bond = mol.GetBondWithIdx(element.centeredOn)
+            key = ("bond", tuple(sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))))
+        else:
+            key = ("atom", element.centeredOn)
+        if element.specified == Chem.StereoSpecified.Specified:
+            specified.add(key)
+        else:
+            unspecified.add(key)
+    return specified, unspecified
+
+
+def _name_elements(elements: set[tuple]) -> tuple[list[int], list[tuple[int, int]]]:
+    """Split a stereo-element set into sorted atom indices and atom-index pairs."""
+    atoms = sorted(index for kind, index in elements if kind == "atom")
+    bonds = sorted(index for kind, index in elements if kind == "bond")
+    return atoms, bonds
+
+
+def _apply_stereo_rule(reference: Chem.Mol, tautomer: Chem.Mol, core: set[int]) -> Chem.Mol:
+    """``tautomer`` with every stereo element the route did not justify cleared."""
+    atoms, bonds = _destroyed_stereo(reference, tautomer, core)
+    if not atoms and not bonds:
+        return tautomer
+    return _clear_stereo(tautomer, atoms, bonds)
 
 
 def _expand_cleared(mol: Chem.Mol) -> list[Chem.Mol]:
@@ -306,12 +466,13 @@ class RDKitOrOEChemTautomerEngine:
 
     On the rdkit backend the output carries the input's stereo only where the
     proton shifts justify it: an element outside the tautomer core, or one
-    whose own bonding is unchanged and that the shifted regions do not
-    surround, keeps the configuration the input gave it, and every other
-    element is emitted unspecified for the stereoisomer step to enumerate.
-    Tetrahedral centers and double-bond geometry are covered; axial and planar
-    chirality and the other non-tetrahedral classes are not perceived here and
-    are emitted as the enumerator produces them.
+    whose own bonding is unchanged and that no hydrogen migrated through,
+    keeps the configuration the input gave it, and every other element is
+    emitted unspecified for the stereoisomer step to enumerate. The records of
+    one constitution are then reduced to one. Tetrahedral centers and
+    double-bond geometry are covered; axial and planar chirality and the other
+    non-tetrahedral classes are not perceived here and are emitted as the
+    enumerator produces them.
 
     Args:
         mode: Tautomer engine to use: 'rdkit' or 'oechem'.
@@ -340,6 +501,12 @@ class RDKitOrOEChemTautomerEngine:
         self.output = out
         self.pKaNorm = pKaNorm
         self.expand_cleared_stereo = expand_cleared_stereo
+        if expand_cleared_stereo and mode == "oechem":
+            logger.warning(
+                "The oechem tautomer backend applies no stereo policy, so it leaves no stereo "
+                "element unspecified for this option to expand; its output is written as "
+                "OEChem produces it."
+            )
 
     def oe_taut(self) -> None:
         """Enumerate tautomers using OEChem."""
@@ -362,14 +529,12 @@ class RDKitOrOEChemTautomerEngine:
         """Enumerate tautomers using RDKit, keeping only justified stereo.
 
         Each emitted tautomer keeps a stereo element when the element lies
-        outside the tautomer core, or when its own bonding is unchanged and the
-        shifted regions do not surround it; every other element is cleared and
-        re-perceived, so the record states that the configuration is open
-        rather than asserting the input's. A tautomer with the input's
-        constitution and a different configuration is dropped. Records of one
-        constitution that differ only in how much they specify are then merged
-        onto the most specified one, and two that disagree on one element's
-        descriptor emit that element unspecified.
+        outside the tautomer core, or when its own bonding is unchanged and no
+        hydrogen migrated from one side of it to the other; every other element
+        is cleared and re-perceived, so the record states that the
+        configuration is open rather than asserting the input's. A tautomer
+        with the input's constitution and a different configuration is then
+        dropped, and the records of one constitution are reduced to one.
 
         With ``expand_cleared_stereo`` the surviving unspecified elements are
         written out one record per configuration, mirror pairs collapsed,
@@ -393,60 +558,99 @@ class RDKitOrOEChemTautomerEngine:
         for _line_no, smi, idx in iter_smi_records(self.input_f, on_malformed="skip"):
             smiles.append((smi, idx))
         tautomers: list[tuple[Chem.Mol, str]] = []
-        unspecified_in_input: dict[str, int] = {}
+        inputs: dict[str, Chem.Mol] = {}
         for smi, idx in smiles:
             mol = Chem.MolFromSmiles(smi)
             if mol is None:
                 logger.warning(f"Skipping molecule {idx!r}: failed to parse {smi!r}")
                 continue
-            unspecified_in_input[idx] = count_unspecified_stereo(mol)
             result = enumerator.Enumerate(mol)
             core = set(result.modifiedAtoms)
-            cleared_total: set[int] = set()
-            for taut in result:
-                atoms, bonds = _destroyed_stereo(mol, taut, core)
-                if atoms or bonds:
-                    taut = _clear_stereo(taut, atoms, bonds)
-                    cleared_total |= atoms
-                if _contradicts_reference_stereo(mol, taut):
-                    continue
-                tautomers.append((taut, idx))
-            if cleared_total:
-                logger.info(
-                    "%r: tautomer enumeration left %d stereo element(s) unspecified at atom(s) %s, "
-                    "because every proton-shift route to those tautomers passes through them.",
+            try:
+                kept = [
+                    taut
+                    for taut in (_apply_stereo_rule(mol, taut, core) for taut in result)
+                    if not _contradicts_reference_stereo(mol, taut)
+                ]
+            except ValueError as error:
+                # _destroyed_stereo compares the input and the tautomer atom by
+                # atom, so an enumerator output that does not share the input's
+                # atom indexing cannot be judged. One molecule is skipped
+                # rather than the whole chunk.
+                logger.warning(
+                    "Skipping molecule %r: its tautomers do not share the input's atom "
+                    "indexing (%s)",
                     idx,
-                    len(cleared_total),
-                    sorted(cleared_total),
+                    error,
                 )
+                continue
+            inputs[idx] = mol
+            tautomers.extend((taut, idx) for taut in kept)
         tautomers = _merge_same_constitution(tautomers)
+        self._log_opened_elements(tautomers, inputs)
         if self.expand_cleared_stereo:
-            # Stereoisomer enumeration is off downstream, so a record the
-            # tautomer step left with more unspecified elements than the input
-            # had (a cleared center, or one a shift created) is written once
-            # per configuration here; a record with only the input's own
-            # unspecified elements is left as the user wrote it.
-            expanded: list[tuple[Chem.Mol, str]] = []
-            warned: set[str] = set()
-            for taut, idx in tautomers:
-                n_unspecified = count_unspecified_stereo(taut)
-                if n_unspecified <= unspecified_in_input[idx]:
-                    expanded.append((taut, idx))
-                    continue
-                if idx not in warned:
-                    warned.add(idx)
-                    logger.warning(
-                        "%r: stereoisomer enumeration is disabled, but tautomer enumeration left "
-                        "stereo elements unspecified; those tautomers are written once per "
-                        "configuration, mirror pairs collapsed, so each configuration is its own "
-                        "species.",
-                        idx,
-                    )
-                expanded.extend((iso, idx) for iso in _expand_cleared(taut))
-            tautomers = expanded
+            tautomers = self._expand_opened_records(tautomers, inputs)
         with open(self.output, "w+") as f:
             for taut, idx in tautomers:
                 f.write(Chem.MolToSmiles(taut).strip() + " " + str(idx).strip() + "\n")
+
+    def _log_opened_elements(
+        self, tautomers: list[tuple[Chem.Mol, str]], inputs: dict[str, Chem.Mol]
+    ) -> None:
+        """Report which of each input's own stereo elements the output leaves open.
+
+        Read off the records that are actually written, not off the clearing
+        decisions: an element cleared in one tautomer but kept in every record
+        that survives the constitution merge is not something the user needs
+        to hear about.
+        """
+        open_in_output: dict[str, set[tuple]] = defaultdict(set)
+        for taut, idx in tautomers:
+            open_in_output[idx] |= _stereo_elements(taut)[1]
+        for idx, mol in inputs.items():
+            opened = _stereo_elements(mol)[0] & open_in_output.get(idx, set())
+            if not opened:
+                continue
+            atoms, bonds = _name_elements(opened)
+            logger.info(
+                "%r: %d stereo element(s) the input specified are unspecified in at least one "
+                "emitted tautomer -- atom(s) %s, double bond(s) %s, by atom index counted from "
+                "zero in the order the input lists its atoms.",
+                idx,
+                len(opened),
+                atoms,
+                bonds,
+            )
+
+    def _expand_opened_records(
+        self, tautomers: list[tuple[Chem.Mol, str]], inputs: dict[str, Chem.Mol]
+    ) -> list[tuple[Chem.Mol, str]]:
+        """One record per configuration for records carrying a newly open element.
+
+        Stereoisomer enumeration is off downstream, so an element this step
+        opened would otherwise reach embedding and be fixed per conformer,
+        putting two epimers under one species id. A record whose open elements
+        are all elements the input itself left open is written as the user
+        wrote it.
+        """
+        open_in_input = {idx: _stereo_elements(mol)[1] for idx, mol in inputs.items()}
+        expanded: list[tuple[Chem.Mol, str]] = []
+        warned: set[str] = set()
+        for taut, idx in tautomers:
+            if not _stereo_elements(taut)[1] - open_in_input[idx]:
+                expanded.append((taut, idx))
+                continue
+            if idx not in warned:
+                warned.add(idx)
+                logger.warning(
+                    "%r: stereoisomer enumeration is disabled, but tautomer enumeration left "
+                    "stereo elements unspecified; those tautomers are written once per "
+                    "configuration, mirror pairs collapsed, so each configuration is its own "
+                    "species.",
+                    idx,
+                )
+            expanded.extend((iso, idx) for iso in _expand_cleared(taut))
+        return expanded
 
     def run(self) -> None:
         """Execute tautomer enumeration."""

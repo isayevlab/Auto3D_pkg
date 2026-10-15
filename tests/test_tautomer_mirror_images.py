@@ -1,16 +1,16 @@
 """Tautomer enumeration emits no mirror image of a legitimate tautomer.
 
-A stereo element the proton shifts must flatten on every route to a tautomer
-is emitted unspecified; one the shifts leave untouched keeps the input's
-configuration. The molecules and the expected sets are those the chemistry
-brief verified by hand; the regression sets below are the enumerator's own
-output before the rule, which the rule must leave alone.
+A stereo element a hydrogen migrated through on every route to a tautomer is
+emitted unspecified; one the shifts leave untouched keeps the input's
+configuration. Each expected set below is derived from that rule by hand --
+every test's docstring says which centers each route to each record flattens --
+and the regression sets are the enumerator's own output before the rule, which
+the rule must leave alone.
 """
 
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 
 import pytest
 from rdkit import Chem
@@ -18,6 +18,7 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnum
 
 from Auto3D.domain.stereochemistry import enantiomer_key
 from Auto3D.engines.isomers.factory import create_tautomer_engine
+from Auto3D.foundation.config import Auto3DOptions
 
 
 def _run_rd_taut(job_dir, smiles: str) -> list[str]:
@@ -187,10 +188,11 @@ def test_the_tautomer_processor_expands_only_when_stereoisomer_enumeration_is_of
     monkeypatch.setattr(proc, "create_tautomer_engine", fake_factory)
     monkeypatch.setattr(proc, "hash_taut_smi", lambda a, b: None)
     for enumerate_isomers in (True, False):
-        config = SimpleNamespace(
+        config = Auto3DOptions(
+            path="x.smi",
+            k=1,
             enumerate_tautomer=True,
             tauto_engine="rdkit",
-            pKaNorm=True,
             enumerate_isomers=enumerate_isomers,
         )
         proc.TautomerProcessor(config).process("in.smi", "out.smi")
@@ -216,3 +218,143 @@ def test_two_justified_routes_that_disagree_emit_the_element_unspecified(job_dir
     assert len(out) == len(by_constitution) == 5
     assert by_constitution["O=C(C(O)CO)C(O)CO"] == "O=C([C@H](O)CO)[C@@H](O)CO"
     assert by_constitution["O=C(CO)C(O)C(O)CO"] == "O=C(CO)C(O)C(O)CO"
+
+
+def _unspecified_centers(smiles: str) -> int:
+    """Potential tetrahedral centers the record leaves open.
+
+    Counted instead of every stereo element, because a tautomer that creates a
+    C=C legitimately leaves that bond's geometry open; only an open *center*
+    can be an element the rule cleared.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    return sum(
+        1
+        for element in Chem.FindPotentialStereo(mol)
+        if element.type == Chem.StereoType.Atom_Tetrahedral
+        and element.specified != Chem.StereoSpecified.Specified
+    )
+
+
+def test_two_independent_shifts_flanking_a_center_do_not_clear_it(job_dir):
+    """3-methylhexane-2,4-dione: C3 sits between the two carbonyls, and the
+    bis-enol enolizes both of them outward, toward C1 and C6.
+
+    Each enolization is its own one-step shift: the left one moves a hydrogen
+    from C1 to the C2 oxygen, the right one from C6 to the C4 oxygen, and
+    neither hydrogen crosses C3, which keeps its four substituents throughout.
+    Two shifted regions flank C3 but nothing migrated through it, so its
+    configuration is still the input's. Only the new C=C of the enol is open.
+    """
+    out = _run_rd_taut(job_dir, "CC(=O)[C@H](C)C(=O)CC")
+    bis_enol = "C=C(O)C(C)C(O)=CC"
+    records = [
+        s for s in out if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == bis_enol
+    ]
+    assert len(records) == 1
+    assert Chem.MolToSmiles(Chem.MolFromSmiles(records[0])) == "C=C(O)[C@H](C)C(O)=CC"
+    assert _unspecified_centers(records[0]) == 0
+
+
+def test_a_ring_center_between_two_independent_enolizations_keeps_its_configuration(job_dir):
+    """2,4-dimethylcyclohexane-1,3-dione: the same two-independent-shifts case
+    inside a ring, where the route search cannot use the far arc.
+
+    C2 lies between the C1 and C3 carbonyls. The bis-enol enolizes C1 toward
+    the ring methine that carries its methyl and C3 toward C4, so each shift
+    moves a hydrogen onto its own carbonyl oxygen and neither crosses C2. The
+    far arc of the ring is outside the tautomer core, so the route search alone
+    would call C2 a separator; the hydrogen bookkeeping is what keeps it. The
+    canonical spelling writes the retained tag as ``[C@@H]`` -- a relabeling
+    from the output's own atom order, not an inversion, since the rule only
+    ever clears a tag and never rewrites one.
+    """
+    out = _run_rd_taut(job_dir, "C[C@H]1CCC(=O)[C@H](C)C1=O")
+    bis_enol = "CC1=C(O)C(C)C(O)=CC1"
+    records = [
+        s for s in out if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == bis_enol
+    ]
+    assert len(records) == 1
+    assert Chem.MolToSmiles(Chem.MolFromSmiles(records[0])) == "CC1=C(O)[C@@H](C)C(O)=CC1"
+    assert _unspecified_centers(records[0]) == 0
+    assert all(_unspecified_centers(s) == 0 for s in out), sorted(out)
+
+
+def test_mirror_image_records_of_one_constitution_collapse_onto_one_that_keeps_its_centers(job_dir):
+    """meso-3,4-dihydroxy... the meso alpha-hydroxy 1,3-diketone
+    ``C[C@H](O)C(=O)CC(=O)[C@H](O)C``, whose two ends are related by the meso
+    symmetry.
+
+    Enolizing the left carbonyl toward the central CH2 and enolizing the right
+    one give two records of one mono-enol constitution. Neither route touches
+    either carbinol center -- the hydrogen moves from the central CH2 onto one
+    carbonyl oxygen -- so both records justly keep both centers, and the two
+    records are mirror images of each other. Clearing both centers would hand
+    the stereoisomer step three diastereomers where only this mirror pair is
+    reachable, so one record stands for the pair: they are exactly degenerate
+    in energy and enantiomer removal keeps one of them anyway.
+    """
+    out = _run_rd_taut(job_dir, "C[C@H](O)C(=O)CC(=O)[C@H](O)C")
+    mono_enol = "CC(O)C(=O)C=C(O)C(C)O"
+    records = [
+        s for s in out if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == mono_enol
+    ]
+    assert len(records) == 1
+    assert _unspecified_centers(records[0]) == _unspecified_centers("C[C@H](O)C(=O)CC(=O)[C@H](O)C")
+    assert Chem.MolToSmiles(Chem.MolFromSmiles(records[0])) == "C[C@H](O)C(=O)C=C(O)[C@@H](C)O"
+
+    identity = Chem.MolToSmiles(Chem.MolFromSmiles("C[C@H](O)C(=O)CC(=O)[C@H](O)C"))
+    assert identity in _canonical(out)
+    species = _species(out)
+    keys = [enantiomer_key(s) for s in species]
+    assert len(set(keys)) == len(keys)
+
+
+def test_open_chain_glucose_emits_the_3_ketohexose_once_with_no_specified_center(job_dir):
+    """Open-chain D-glucose reaches the 3-ketohexose by two routes that keep
+    different centers, and the merge cannot choose between them.
+
+    Shifting the carbonyl from C1 to C3 flattens C2 on the way and leaves C4
+    and C5 alone; shifting it from C1 to C4 instead -- the same constitution,
+    read from the other end of the chain -- flattens C2 and C3 and leaves only
+    the center next to the terminal CH2OH. Neither record says less than the
+    other, they are not mirror images, and they agree on no element, so the
+    one emitted record asserts nothing at any of the three centers.
+    """
+    out = _run_rd_taut(job_dir, "O=C[C@H](O)[C@@H](O)[C@H](O)[C@H](O)CO")
+    three_ketose = "O=C(C(O)CO)C(O)C(O)CO"
+    records = [
+        s
+        for s in out
+        if Chem.MolToSmiles(Chem.MolFromSmiles(s), isomericSmiles=False) == three_ketose
+    ]
+    assert len(records) == 1
+    assert Chem.MolToSmiles(Chem.MolFromSmiles(records[0])) == three_ketose
+    assert _unspecified_centers(records[0]) == 3
+
+    species = _species(out)
+    assert len(set(species)) == len(species)
+    keys = [enantiomer_key(s) for s in species]
+    assert len(set(keys)) == len(keys)
+
+
+def test_a_double_bond_whose_order_changed_loses_its_geometry():
+    """The bond branch of the clearing rule, called directly.
+
+    A specified C=C that the shift turns into a single bond and back has no
+    geometry to inherit, whatever its atoms' own signatures say, so it must be
+    among the bonds the rule returns.
+    """
+    from Auto3D.engines.isomers.tautomers import _destroyed_stereo
+
+    reference = Chem.MolFromSmiles("C/C=C/C(C)=O")
+    tautomer = Chem.MolFromSmiles("C/C=C/C(C)=O")
+    moved = Chem.RWMol(tautomer)
+    stereo_bond = next(b for b in moved.GetBonds() if b.GetStereo() != Chem.BondStereo.STEREONONE)
+    begin, end = stereo_bond.GetBeginAtomIdx(), stereo_bond.GetEndAtomIdx()
+    moved.GetBondBetweenAtoms(begin, end).SetBondType(Chem.BondType.SINGLE)
+    tautomer = moved.GetMol()
+
+    core = set(range(reference.GetNumAtoms()))
+    _atoms, bonds = _destroyed_stereo(reference, tautomer, core)
+    assert tautomer.GetBondBetweenAtoms(begin, end).GetIdx() in bonds
