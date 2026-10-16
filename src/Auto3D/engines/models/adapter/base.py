@@ -25,6 +25,7 @@ from Auto3D.engines.models.adapter.compiling import (
 )
 from Auto3D.engines.models.adapter.validation import _validate_outputs
 from Auto3D.engines.models.contract import spin_kwargs
+from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 
 
 class BaseModelAdapter(ABC, nn.Module):
@@ -64,6 +65,18 @@ class BaseModelAdapter(ABC, nn.Module):
         requires_grad=True for force computation. All autograd.grad() calls use
         create_graph=False to avoid building second-order gradient graphs.
     """
+
+    #: eV. The duplicate-energy tolerance conformers from THIS backend are
+    #: deduplicated with: five times the largest spread two optimizations of
+    #: one minimum were measured to land apart on it, rounded up to two
+    #: significant figures. The quantity is a property of the backend's
+    #: kernels and of where its forces leave the convergence gate, so each
+    #: adapter below carries its own measured value and the orchestrator
+    #: passes it down to the conformer filter (which is a lower layer and
+    #: cannot ask). The value here is the shipped constant, which is what an
+    #: adapter with no measurement of its own -- a user's custom NNP -- is
+    #: deduplicated with.
+    duplicate_energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Refuse a subclass that supplies neither hook, at class-definition time.

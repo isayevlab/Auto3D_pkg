@@ -38,6 +38,13 @@ class ANI2xtAdapter(BaseModelAdapter):
     is claimed here because none has been measured.
     """
 
+    #: eV, five times this engine's measured floor (2.04e-03 eV) rounded up to
+    #: two significant figures. See :class:`BaseModelAdapter` for what the
+    #: attribute is, and
+    #: ``benchmarks/results-notes/2026-10-16-batch-noise.md`` for the
+    #: measurement.
+    duplicate_energy_tol: float = 0.011
+
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
         """Initialize ANI2xt adapter.
 
@@ -154,6 +161,17 @@ class ANI2xAdapter(BaseModelAdapter):
     ``compile_model=True`` is ignored with a warning: torch.compile of
     torchani's AEV path corrupts energies.
     """
+
+    #: eV, five times this engine's measured floor (7.81e-03 eV) rounded up to
+    #: two significant figures. See :class:`BaseModelAdapter` for what the
+    #: attribute is, and
+    #: ``benchmarks/results-notes/2026-10-16-batch-noise.md`` for the
+    #: measurement. This engine's total energy is itself a float32 quantity,
+    #: quantized at 2-4e-3 eV above |E| ~ 2e4 eV, and the floor behind this
+    #: value is a two-step quantization event rather than optimizer position
+    #: -- which is why it is this large for a model whose single-point noise
+    #: is one step.
+    duplicate_energy_tol: float = 0.040
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
         """Initialize ANI2x adapter.

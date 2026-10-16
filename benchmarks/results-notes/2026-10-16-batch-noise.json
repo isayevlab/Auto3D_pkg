@@ -1,0 +1,2702 @@
+{
+ "env": {
+  "gpu": "NVIDIA L40S",
+  "torch": "2.9.1+cu128",
+  "cuda": "12.8",
+  "capability": "8.9",
+  "python": "3.13.12",
+  "commit": "8affb78",
+  "ref": "worktree-dedup-tolerance-decision",
+  "auto3d_path": "/home/olexandr/auto3d/.claude/worktrees/dedup-tolerance-decision/src/Auto3D"
+ },
+ "device": "cuda:3",
+ "smoke": false,
+ "reps": 3,
+ "limit": null,
+ "n_molecules": 24,
+ "opttol": 0.01,
+ "patience": 250,
+ "max_steps": 2000,
+ "gpu_state": {
+  "start": {
+   "nvidia_smi_id": "3",
+   "driver_version": "595.71.05",
+   "utilization_gpu": "0 %",
+   "clocks_sm": "210 MHz",
+   "clocks_mem": "405 MHz",
+   "temperature_gpu": "23",
+   "memory_used": "0 MiB",
+   "other_processes": []
+  },
+  "end": {
+   "nvidia_smi_id": "3",
+   "driver_version": "595.71.05",
+   "utilization_gpu": "2 %",
+   "clocks_sm": "2520 MHz",
+   "clocks_mem": "9001 MHz",
+   "temperature_gpu": "29",
+   "memory_used": "567 MiB",
+   "other_processes": []
+  }
+ },
+ "engines": {
+  "AIMNET": {
+   "single_point": [
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "e_alone": -4221.32567787249,
+     "spread": 2.2381582311936654e-06,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "e_alone": -8372.158638919063,
+     "spread": 1.5324112609960139e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "e_alone": -5696.428261916769,
+     "spread": 2.7265896278549917e-06,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "e_alone": -8814.34898021672,
+     "spread": 1.3411736290436238e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "e_alone": -6760.634283594269,
+     "spread": 8.148617780534551e-07,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "e_alone": -14080.5749732485,
+     "spread": 1.5254991012625396e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "e_alone": -9387.898956695042,
+     "spread": 1.6905141819734126e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "e_alone": -18832.20308989746,
+     "spread": 5.269648681860417e-07,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "e_alone": -14036.052258086424,
+     "spread": 2.7897385734831914e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "e_alone": -13586.376985224459,
+     "spread": 4.7326539061032236e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "e_alone": -16640.546376970477,
+     "spread": 3.129924152744934e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "e_alone": -17663.1154971866,
+     "spread": 3.7811987567692995e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "e_alone": -17881.008932219018,
+     "spread": 2.4971013772301376e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "e_alone": -22148.895367084304,
+     "spread": 4.025252565043047e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "e_alone": -20353.472881707752,
+     "spread": 3.311401087557897e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "e_alone": -21467.655284762674,
+     "spread": 3.2067873689811677e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "e_alone": -38907.568308702605,
+     "spread": 4.186542355455458e-06,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "e_alone": -27667.40477424823,
+     "spread": 2.671731635928154e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "e_alone": -36322.96614198619,
+     "spread": 2.6512425392866135e-06,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "e_alone": -24300.205327473624,
+     "spread": 7.521946827182546e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "e_alone": -29305.69854878323,
+     "spread": 4.397312295623124e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "e_alone": -36444.7652646902,
+     "spread": 3.627785190474242e-06,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "e_alone": -23088.164979093344,
+     "spread": 2.4295077309943736e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "e_alone": -22533.007171923626,
+     "spread": 5.3515759645961225e-06,
+     "ulp32": 0.001953125
+    }
+   ],
+   "single_point_summary": {
+    "n": 24,
+    "dropped_non_finite": 0,
+    "median": 2.7581641006690916e-06,
+    "p90": 4.632051422959193e-06,
+    "max": 7.521946827182546e-06
+   },
+   "same_composition_rerun_summary": {
+    "n": 24,
+    "dropped_non_finite": 0,
+    "median": 7.212893251562491e-07,
+    "p90": 2.278805914102122e-06,
+    "max": 3.808556357398629e-06
+   },
+   "post_opt": [
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 3.472358912404161e-06,
+     "e_all": -4221.57193982231,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 1.4056531654205173e-06,
+     "e_all": -8372.50153499927,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 3.7214795156614855e-07,
+     "e_all": -5696.990256717714,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 2.2137646737974137e-07,
+     "e_all": -8815.706396751515,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 2.086794665956404e-06,
+     "e_all": -6760.797686429441,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 3.1636827770853415e-06,
+     "e_all": -14080.872779815305,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 3.6933015508111566e-06,
+     "e_all": -9388.226787751517,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 3.5273005778435618e-06,
+     "e_all": -18832.31399334404,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 2.1149153326405212e-06,
+     "e_all": -14036.798049952826,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0001400872897647787,
+     "e_all": -13587.419007320652,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0005030548018112313,
+     "e_all": -16641.845562221104,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0009188165167870466,
+     "e_all": -17664.361987624507,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 2.819735527737066e-06,
+     "e_all": -17882.26067566716,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.00315171797410585,
+     "e_all": -22150.293561456405,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 5.750098353018984e-06,
+     "e_all": -20355.1102939111,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.00037035485365777276,
+     "e_all": -21469.34785296354,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.0004447406099643558,
+     "e_all": -38910.60374108079,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 7.392248517135158e-05,
+     "e_all": -27669.05035023357,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 0.0017057281802408397,
+     "e_all": -36325.567642818074,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 0.0006267397002375219,
+     "e_all": -24304.042928292736,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 2.43615431827493e-06,
+     "e_all": -29306.5314299221,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 3.2262469176203012e-06,
+     "e_all": -36447.48496498226,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 1.9393206457607448e-05,
+     "e_all": -23090.351595916054,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 1.7435741028748453e-06,
+     "e_all": -22534.188308862893,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 8.735851224628277e-07,
+     "e_all": -4221.571941660881,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 7.857670425437391e-07,
+     "e_all": -8372.501533273986,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 6.605241651413962e-07,
+     "e_all": -5696.9902570905315,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 1.4063225535210222e-06,
+     "e_all": -8815.706395009805,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 5.655920176650397e-07,
+     "e_all": -6760.797685738146,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 1.9094059098279104e-06,
+     "e_all": -14080.872780613292,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 1.6385783965233713e-06,
+     "e_all": -9388.226789118806,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 3.0491901270579547e-06,
+     "e_all": -18832.313991805746,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 7.900143828010187e-07,
+     "e_all": -14036.798048743467,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.00014166136497806292,
+     "e_all": -13587.418865460282,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0003882080018229317,
+     "e_all": -16641.845643657507,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0005527294561034068,
+     "e_all": -17664.362356295547,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 4.372490366222337e-06,
+     "e_all": -17882.260673946148,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0018397672174614854,
+     "e_all": -22150.294219352192,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 1.3264143490232527e-06,
+     "e_all": -20355.11028788061,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.007083551383402664,
+     "e_all": -21469.347608274158,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.0001044986056513153,
+     "e_all": -38910.60382761474,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.0008874047489371151,
+     "e_all": -27669.050364177394,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 5.281624908093363e-06,
+     "e_all": -36325.5693545441,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 0.00022349862774717622,
+     "e_all": -24304.043029632176,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 2.3708817025180906e-06,
+     "e_all": -29306.53142972333,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 6.8813751568086445e-06,
+     "e_all": -36447.4849603861,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 8.275950676761568e-06,
+     "e_all": -23090.351592563587,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 2.3917309590615332e-06,
+     "e_all": -22534.188311527898,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 2.2615295165451244e-06,
+     "e_all": -4221.571941104458,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 1.1788142728619277e-06,
+     "e_all": -8372.501532808425,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 1.470873030484654e-06,
+     "e_all": -5696.990257508615,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 3.1111540010897443e-06,
+     "e_all": -8815.706394929684,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 1.2605605661519803e-06,
+     "e_all": -6760.797685255093,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 2.1568012016359717e-06,
+     "e_all": -14080.872780141084,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 1.2392029020702466e-06,
+     "e_all": -9388.226789706157,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 2.716878952924162e-06,
+     "e_all": -18832.31399283308,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 3.370687409187667e-06,
+     "e_all": -14036.798050558911,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 4.8932233767118305e-06,
+     "e_all": -13587.419004734456,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0006353876233333722,
+     "e_all": -16641.84540342972,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0005572404406848364,
+     "e_all": -17664.362910664477,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 4.009136318927631e-06,
+     "e_all": -17882.260676186797,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0008388829992327373,
+     "e_all": -22150.29471199616,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 5.482430424308404e-06,
+     "e_all": -20355.110296036048,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0019117172123515047,
+     "e_all": -21469.347843455627,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.00044560260721482337,
+     "e_all": -38910.603741957224,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.00048532055006944574,
+     "e_all": -27669.049879668106,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 2.4010660126805305e-06,
+     "e_all": -36325.569355156695,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 7.37776790629141e-05,
+     "e_all": -24304.043012119037,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 4.1852072172332555e-06,
+     "e_all": -29306.53142706053,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 1.7078418750315905e-06,
+     "e_all": -36447.48495903287,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 0.00046310350444400683,
+     "e_all": -23090.35112149532,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 6.0617348935920745e-06,
+     "e_all": -22534.188315590305,
+     "ulp32": 0.001953125,
+     "rep": 2
+    }
+   ],
+   "post_opt_converged": [
+    {
+     "rep": 0,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    },
+    {
+     "rep": 1,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    },
+    {
+     "rep": 2,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    }
+   ],
+   "post_opt_summary": {
+    "n": 72,
+    "dropped_non_finite": 0,
+    "median": 3.851218934869394e-06,
+    "p90": 0.0008185334616428006,
+    "max": 0.007083551383402664,
+    "rows_total": 72
+   },
+   "tolerance_check": {
+    "floor_ev": 0.007083551383402664,
+    "tolerance_ev": 0.01,
+    "ratio": 1.4117212481059729,
+    "verdict": "below five times the floor"
+   },
+   "seconds": 54.79161220276728,
+   "gpu_state": {
+    "nvidia_smi_id": "3",
+    "driver_version": "595.71.05",
+    "utilization_gpu": "9 %",
+    "clocks_sm": "2520 MHz",
+    "clocks_mem": "9001 MHz",
+    "temperature_gpu": "30",
+    "memory_used": "627 MiB",
+    "other_processes": []
+   },
+   "max_memory_allocated": 86895104,
+   "memory_reserved": 109051904
+  },
+  "ANI2xt": {
+   "single_point": [
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "e_alone": -4216.744607248215,
+     "spread": 4.815083229914308e-07,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "e_alone": -8362.423902048964,
+     "spread": 1.0137046047020704e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "e_alone": -5690.17353070355,
+     "spread": 1.2671289368881844e-06,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "e_alone": -8804.602092656716,
+     "spread": 1.520555088063702e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "e_alone": -6752.61618064185,
+     "spread": 6.58907083561644e-07,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "e_alone": -14073.733555010449,
+     "spread": 1.0137027857126668e-06,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "e_alone": -9377.605460498276,
+     "spread": 7.856197044020519e-07,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "e_alone": -18821.4289560077,
+     "spread": 8.61648004502058e-07,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "e_alone": -14019.929515396056,
+     "spread": 5.068504833616316e-07,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "e_alone": -13570.399345746768,
+     "spread": 3.9280894270632416e-07,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "e_alone": -16621.19828857923,
+     "spread": 1.7359670891892165e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "e_alone": -17643.196232396353,
+     "spread": 1.292472006753087e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "e_alone": -17860.484872729616,
+     "spread": 6.969203241169453e-07,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "e_alone": -22123.945024420795,
+     "spread": 7.602757250424474e-07,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "e_alone": -20330.019604207526,
+     "spread": 7.349335646722466e-07,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "e_alone": -21442.96784659488,
+     "spread": 1.4698707673233002e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "e_alone": -38872.02835169584,
+     "spread": 2.2301464923657477e-06,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "e_alone": -27635.697387186116,
+     "spread": 1.748638169374317e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "e_alone": -36289.99874478651,
+     "spread": 2.00206704903394e-06,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "e_alone": -24271.99722149168,
+     "spread": 2.0780935301445425e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "e_alone": -29272.193980611628,
+     "spread": 1.976721250684932e-06,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "e_alone": -36402.8499468516,
+     "spread": 1.723296009004116e-06,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "e_alone": -23060.92620254953,
+     "spread": 9.123323252424598e-07,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "e_alone": -22506.904221144752,
+     "spread": 7.349335646722466e-07,
+     "ulp32": 0.001953125
+    }
+   ],
+   "single_point_summary": {
+    "n": 24,
+    "dropped_non_finite": 0,
+    "median": 1.0137036952073686e-06,
+    "p90": 1.9944633095292375e-06,
+    "max": 2.2301464923657477e-06
+   },
+   "same_composition_rerun_summary": {
+    "n": 24,
+    "dropped_non_finite": 0,
+    "median": 5.448637239169329e-07,
+    "p90": 1.2291155144339426e-06,
+    "max": 1.406511728418991e-06
+   },
+   "post_opt": [
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 1.0643880159477703e-06,
+     "e_all": -4217.011713639205,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 2.534257873776369e-06,
+     "e_all": -8362.768162703136,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 8.996615270007169e-05,
+     "e_all": -5690.659213791246,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.00039433051824744325,
+     "e_all": -8805.87846730443,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 7.095923137967475e-07,
+     "e_all": -6752.768204940264,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 1.1150732461828738e-06,
+     "e_all": -14074.025717836683,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 2.6609704946167767e-06,
+     "e_all": -9377.936042825266,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 2.2808344510849565e-06,
+     "e_all": -18821.52422671709,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 0.00018213710973213892,
+     "e_all": -14020.781868363469,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 6.6144129959866405e-06,
+     "e_all": -13571.420293105359,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.00019947143664467148,
+     "e_all": -16622.279334886567,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0013768622775387485,
+     "e_all": -17644.39748984267,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 0.00010177579315495677,
+     "e_all": -17861.66986904721,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 5.904821591684595e-06,
+     "e_all": -22125.164929747185,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 6.132901035016403e-06,
+     "e_all": -20331.585791461446,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 7.5267453212291e-06,
+     "e_all": -21444.715372667808,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.00040804084710543975,
+     "e_all": -38875.03685710428,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.0007322611272684298,
+     "e_all": -27637.56925550439,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 3.8013822631910443e-06,
+     "e_all": -36291.9810975183,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 1.3228825991973281e-05,
+     "e_all": -24275.630315396465,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 4.21953882323578e-06,
+     "e_all": -29272.96698112596,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 1.708089985186234e-05,
+     "e_all": -36405.195007990456,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 1.3431563274934888e-06,
+     "e_all": -23063.05117682744,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 0.0018126532559108455,
+     "e_all": -22508.110328704388,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 1.520555088063702e-06,
+     "e_all": -4217.01171222002,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 3.3452197385486215e-06,
+     "e_all": -8362.768159966137,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 8.824285760056227e-05,
+     "e_all": -5690.659301071085,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 2.2808308131061494e-06,
+     "e_all": -8805.878861128096,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 1.419184627593495e-06,
+     "e_all": -6752.768208488225,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 9.630166459828615e-07,
+     "e_all": -14074.025716113389,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 3.11713847622741e-06,
+     "e_all": -9377.936040797858,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 7.095914043020457e-07,
+     "e_all": -18821.524227122572,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 0.0007670184750168119,
+     "e_all": -14020.78209317748,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 7.197293598437682e-06,
+     "e_all": -13571.420304104038,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 5.2598523325286806e-05,
+     "e_all": -16622.279139799397,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 7.2226321208290756e-06,
+     "e_all": -17644.39847295731,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 9.946961654350162e-05,
+     "e_all": -17861.66976658717,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 3.6620040191337466e-06,
+     "e_all": -22125.16493145781,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 7.5267453212291e-06,
+     "e_all": -20331.585789560755,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 5.30927354702726e-06,
+     "e_all": -21444.71537579762,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 8.515111403539777e-06,
+     "e_all": -38875.036871498865,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.0012563583186420146,
+     "e_all": -27637.56850075172,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 7.501403160858899e-06,
+     "e_all": -36291.98108778675,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 5.499339749803767e-06,
+     "e_all": -24275.6303277383,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 2.0020634110551327e-06,
+     "e_all": -29272.966983457474,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 0.0003063537587877363,
+     "e_all": -36405.19499952604,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 4.637691745301709e-06,
+     "e_all": -23063.051174939417,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 0.0012433322335709818,
+     "e_all": -22508.10909211328,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 2.4835726435412653e-06,
+     "e_all": -4217.011712929612,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 1.5712394088041037e-06,
+     "e_all": -8362.768163412728,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 9.062505978363333e-05,
+     "e_all": -5690.659303706713,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 5.4587913837167434e-05,
+     "e_all": -8805.878477492146,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 4.0548184188082814e-07,
+     "e_all": -6752.76820696767,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 8.61648004502058e-07,
+     "e_all": -14074.025717177776,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 1.4698689483338967e-06,
+     "e_all": -9377.936041152656,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 1.2164418876636773e-06,
+     "e_all": -18821.524227325313,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 3.243851097067818e-06,
+     "e_all": -14020.782656796422,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 1.3596292774309404e-05,
+     "e_all": -13571.42030303965,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.00010950527939712629,
+     "e_all": -16622.279248316318,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0020371124701341614,
+     "e_all": -17644.398874814575,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 0.000453378728707321,
+     "e_all": -17861.669767271418,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 8.755858289077878e-06,
+     "e_all": -22125.1649272256,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 6.766469596186653e-06,
+     "e_all": -20331.585791030622,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 1.3431563274934888e-06,
+     "e_all": -21444.7153720089,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 3.395900421310216e-06,
+     "e_all": -38875.03686432691,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.0005670655336871278,
+     "e_all": -27637.56978060261,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 9.655523172114044e-06,
+     "e_all": -36291.981091208,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 8.210994565160945e-06,
+     "e_all": -24275.630326724597,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 9.655523172114044e-06,
+     "e_all": -29272.966977045802,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 0.00033116414124378935,
+     "e_all": -36405.19531433154,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 3.2058378565125167e-06,
+     "e_all": -23063.05117656134,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 0.002025404199230252,
+     "e_all": -22508.110114660973,
+     "ulp32": 0.001953125,
+     "rep": 2
+    }
+   ],
+   "post_opt_converged": [
+    {
+     "rep": 0,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    },
+    {
+     "rep": 1,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    },
+    {
+     "rep": 2,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    }
+   ],
+   "post_opt_summary": {
+    "n": 72,
+    "dropped_non_finite": 0,
+    "median": 7.209962859633379e-06,
+    "p90": 0.0007157415679102994,
+    "max": 0.0020371124701341614,
+    "rows_total": 72
+   },
+   "tolerance_check": {
+    "floor_ev": 0.0020371124701341614,
+    "tolerance_ev": 0.01,
+    "ratio": 4.908909128292467,
+    "verdict": "below five times the floor"
+   },
+   "seconds": 50.370461902115494,
+   "gpu_state": {
+    "nvidia_smi_id": "3",
+    "driver_version": "595.71.05",
+    "utilization_gpu": "11 %",
+    "clocks_sm": "2520 MHz",
+    "clocks_mem": "9001 MHz",
+    "temperature_gpu": "30",
+    "memory_used": "629 MiB",
+    "other_processes": []
+   },
+   "max_memory_allocated": 71440384,
+   "memory_reserved": 109051904
+  },
+  "ANI2x": {
+   "single_point": [
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "e_alone": -4217.25927734375,
+     "spread": 0.0,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "e_alone": -8363.873046875,
+     "spread": 0.0009765625,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "e_alone": -5690.97216796875,
+     "spread": 0.0,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "e_alone": -8805.9287109375,
+     "spread": 0.0,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "e_alone": -6754.0703125,
+     "spread": 0.0,
+     "ulp32": 0.00048828125
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "e_alone": -14075.396484375,
+     "spread": 0.0,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "e_alone": -9378.7216796875,
+     "spread": 0.0009765625,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "e_alone": -18823.701171875,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "e_alone": -14022.4150390625,
+     "spread": 0.0009765625,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "e_alone": -13573.623046875,
+     "spread": 0.0009765625,
+     "ulp32": 0.0009765625
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "e_alone": -16624.66796875,
+     "spread": 0.001953125,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "e_alone": -17646.28515625,
+     "spread": 0.001953125,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "e_alone": -17864.04296875,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "e_alone": -22128.63671875,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "e_alone": -20334.431640625,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "e_alone": -21446.9921875,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "e_alone": -38878.83203125,
+     "spread": 0.0,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "e_alone": -27641.662109375,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "e_alone": -36295.95703125,
+     "spread": 0.0,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "e_alone": -24277.845703125,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "e_alone": -29278.28125,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "e_alone": -36410.26953125,
+     "spread": 0.0,
+     "ulp32": 0.00390625
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "e_alone": -23066.306640625,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "e_alone": -22511.513671875,
+     "spread": 0.0,
+     "ulp32": 0.001953125
+    }
+   ],
+   "single_point_summary": {
+    "n": 24,
+    "dropped_non_finite": 0,
+    "median": 0.0,
+    "p90": 0.0009765625,
+    "max": 0.001953125
+   },
+   "same_composition_rerun_summary": {
+    "n": 24,
+    "dropped_non_finite": 0,
+    "median": 0.0,
+    "p90": 0.0,
+    "max": 0.0
+   },
+   "post_opt": [
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -4217.5078125,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -8364.2470703125,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -5691.48681640625,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.0009765625,
+     "e_all": -8807.251953125,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -6754.234375,
+     "ulp32": 0.00048828125,
+     "rep": 0
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -14075.6875,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 0.0009765625,
+     "e_all": -9379.02734375,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -18823.8203125,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -14023.17578125,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -13574.697265625,
+     "ulp32": 0.0009765625,
+     "rep": 0
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -16625.962890625,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -17647.515625,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -17865.302734375,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -22129.966796875,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -20335.982421875,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -21448.845703125,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.00390625,
+     "e_all": -38881.76953125,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.00390625,
+     "e_all": -27643.775390625,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 0.00390625,
+     "e_all": -36298.203125,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -24281.81640625,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -29279.134765625,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -36412.91796875,
+     "ulp32": 0.00390625,
+     "rep": 0
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -23068.564453125,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -22512.8359375,
+     "ulp32": 0.001953125,
+     "rep": 0
+    },
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -4217.5078125,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -8364.2470703125,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -5691.48681640625,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -8807.251953125,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -6754.234375,
+     "ulp32": 0.00048828125,
+     "rep": 1
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -14075.6875,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 0.0009765625,
+     "e_all": -9379.02734375,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -18823.8203125,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -14023.17578125,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -13574.697265625,
+     "ulp32": 0.0009765625,
+     "rep": 1
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -16625.96484375,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -17647.515625,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -17865.302734375,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -22129.966796875,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -20335.982421875,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -21448.845703125,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.0078125,
+     "e_all": -38881.765625,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -27643.7734375,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -36298.19921875,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -24281.81640625,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -29279.134765625,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -36412.91796875,
+     "ulp32": 0.00390625,
+     "rep": 1
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -23068.564453125,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -22512.8359375,
+     "ulp32": 0.001953125,
+     "rep": 1
+    },
+    {
+     "name": "CCO",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -4217.5078125,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "c1ccccc1O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -8364.2470703125,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)N",
+     "atoms": 9,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -5691.48681640625,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "CC(N)C(=O)O",
+     "atoms": 13,
+     "converged_everywhere": true,
+     "spread": 0.0009765625,
+     "e_all": -8807.251953125,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "c1ccncc1",
+     "atoms": 11,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -6754.234375,
+     "ulp32": 0.00048828125,
+     "rep": 2
+    },
+    {
+     "name": "CSCC",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -14075.6875,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "OCC(O)CO",
+     "atoms": 14,
+     "converged_everywhere": true,
+     "spread": 0.0009765625,
+     "e_all": -9379.02734375,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "Clc1ccccc1",
+     "atoms": 12,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -18823.8203125,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)Nc1ccc(O)cc1",
+     "atoms": 20,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -14023.17578125,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "CN1CCC[C@H]1c1cccnc1",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -13574.697265625,
+     "ulp32": 0.0009765625,
+     "rep": 2
+    },
+    {
+     "name": "c1ccc2[nH]ccc2c1C(=O)NCC",
+     "atoms": 26,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -16625.96484375,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "OC(=O)c1ccccc1OC(C)=O",
+     "atoms": 21,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -17647.515625,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+     "atoms": 33,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -17865.302734375,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "Fc1ccc(cc1)C(=O)CCCN1CCCCC1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -22129.966796875,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CCN(CC)CCNC(=O)c1ccc(N)cc1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -20335.982421875,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)(C)NCC(O)c1ccc(O)c(CO)c1",
+     "atoms": 38,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -21448.845703125,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+     "atoms": 41,
+     "converged_everywhere": true,
+     "spread": 0.0078125,
+     "e_all": -38881.77734375,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2",
+     "atoms": 43,
+     "converged_everywhere": true,
+     "spread": 0.001953125,
+     "e_all": -27643.775390625,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1",
+     "atoms": 42,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -36298.19921875,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CC(=O)OC1CC2CCC3C(CCC4(C)C3CCC24C)C1",
+     "atoms": 51,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -24281.81640625,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "COc1cc2c(cc1OC)C(=O)C(CC2)Cc1ccc(OC)cc1",
+     "atoms": 46,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -29279.134765625,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "OC(=O)C1CCCN1C(=O)C(Cc1ccccc1)NC(=O)OCc1ccccc1",
+     "atoms": 53,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -36412.91796875,
+     "ulp32": 0.00390625,
+     "rep": 2
+    },
+    {
+     "name": "CN(C)CCCN1c2ccccc2CCc2ccccc21",
+     "atoms": 45,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -23068.564453125,
+     "ulp32": 0.001953125,
+     "rep": 2
+    },
+    {
+     "name": "CC(C)NCC(O)COc1cccc2ccccc12",
+     "atoms": 40,
+     "converged_everywhere": true,
+     "spread": 0.0,
+     "e_all": -22512.8359375,
+     "ulp32": 0.001953125,
+     "rep": 2
+    }
+   ],
+   "post_opt_converged": [
+    {
+     "rep": 0,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    },
+    {
+     "rep": 1,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    },
+    {
+     "rep": 2,
+     "everywhere": 24,
+     "all": 24,
+     "groups": 24,
+     "reversed": 24
+    }
+   ],
+   "post_opt_summary": {
+    "n": 72,
+    "dropped_non_finite": 0,
+    "median": 0.0,
+    "p90": 0.001953125,
+    "max": 0.0078125,
+    "rows_total": 72
+   },
+   "tolerance_check": {
+    "floor_ev": 0.0078125,
+    "tolerance_ev": 0.01,
+    "ratio": 1.28,
+    "verdict": "below five times the floor"
+   },
+   "seconds": 145.2414499069564,
+   "gpu_state": {
+    "nvidia_smi_id": "3",
+    "driver_version": "595.71.05",
+    "utilization_gpu": "13 %",
+    "clocks_sm": "2520 MHz",
+    "clocks_mem": "9001 MHz",
+    "temperature_gpu": "30",
+    "memory_used": "683 MiB",
+    "other_processes": []
+   },
+   "max_memory_allocated": 127709696,
+   "memory_reserved": 165675008
+  }
+ }
+}

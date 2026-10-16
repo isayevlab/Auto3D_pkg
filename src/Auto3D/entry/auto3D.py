@@ -325,9 +325,17 @@ def smiles2mols(
                 "SMILES (embedding likely failed for all of them)."
             )
 
-        # Ranking step
+        # Ranking step. The duplicate-energy tolerance comes from the adapter
+        # these energies were produced with: how far two optimizations of one
+        # minimum land apart was measured per engine, and the filter is a lower
+        # layer that cannot ask which engine ran.
         rank_engine = ConformerRanker(
-            meta["optimized_og"], meta["output"], args.threshold, k=k, window=window
+            meta["optimized_og"],
+            meta["output"],
+            args.threshold,
+            k=k,
+            window=window,
+            duplicate_energy_tol=adapter.duplicate_energy_tol,
         )
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)

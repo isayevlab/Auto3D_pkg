@@ -264,11 +264,15 @@ def converged_counts(rows: list[dict], arrangements: dict[str, tuple[list, list]
     ``arrangements`` maps an arrangement's name to its ``(energies, flags)``
     in row order. ``everywhere`` is the number of rows :func:`post_opt_row`
     found converged in every arrangement, which is the count the floor is read
-    over; each arrangement's own count requires a finite energy in that
-    arrangement as well as the optimizer's flag, because the flag alone
+    over; each arrangement's own count requires a finite energy **in that
+    arrangement** as well as the optimizer's flag, because the flag alone
     reports a row as converged that the summary dropped for having no spread
-    (see :func:`post_opt_row` for how such a row arises). No count here
-    reports a row whose energy was not finite.
+    (see :func:`post_opt_row` for how such a row arises).
+
+    So no count reports a row whose energy in it was not finite, and a row
+    with one non-finite arrangement still counts in the arrangements where it
+    returned a finite energy -- it is a converged measurement there. The count
+    that excludes such a row outright is ``everywhere``.
     """
     counts = {"everywhere": sum(1 for row in rows if row["converged_everywhere"])}
     for name, (energies, flags) in arrangements.items():
@@ -335,10 +339,15 @@ def post_opt_rows(
                 "name": mol.GetProp("_Name"),
                 "atoms": mol.GetNumAtoms(),
                 "spread": rows[worst_idx]["spread"],
+                # Through `finite_or_none` like every other number in the
+                # record: these come from RDKit's alignment of geometries the
+                # optimizer wrote, so a non-finite coordinate among them would
+                # otherwise put a bare NaN token in a record the rest of this
+                # script keeps readable by a strict parser.
                 "rmsd": {
-                    "all-groups": _heavy_atom_rmsd(m_all, m_grp),
-                    "all-reversed": _heavy_atom_rmsd(m_all, m_rev),
-                    "groups-reversed": _heavy_atom_rmsd(m_grp, m_rev),
+                    "all-groups": finite_or_none(_heavy_atom_rmsd(m_all, m_grp)),
+                    "all-reversed": finite_or_none(_heavy_atom_rmsd(m_all, m_rev)),
+                    "groups-reversed": finite_or_none(_heavy_atom_rmsd(m_grp, m_rev)),
                 },
             }
     return (
@@ -392,10 +401,17 @@ def post_opt_summary(rows: list[dict]) -> dict:
     count it is named for: filtering such a row out first left that key
     structurally zero on this path, with nothing to read the gap between the
     row count and ``n`` from. It contributes to no statistic either way.
+
+    ``rows_total`` is how many rows were offered, which closes the other half
+    of that arithmetic: ``n`` plus ``dropped_non_finite`` falls short of it by
+    the rows that returned finite energies everywhere and converged nowhere,
+    and those are left out here rather than counted by ``summarize``.
     """
-    return summarize(
+    summary = summarize(
         row["spread"] for row in rows if row["spread"] is None or row["converged_everywhere"]
     )
+    summary["rows_total"] = len(rows)
+    return summary
 
 
 def tolerance_check(summary: dict) -> dict:
@@ -412,10 +428,13 @@ def tolerance_check(summary: dict) -> dict:
     ratio infinite -- ``json`` writes either of those as a bare ``NaN`` or
     ``Infinity`` token, which is not JSON and which a strict reader rejects, so
     the ratio is recorded as null in both cases and ``floor_ev`` says which
-    case it was. A zero floor is still in the top band: the tolerance stands
-    above every spread such a run measured. A non-finite maximum is read as no
-    floor as well; ``summarize`` cannot produce one, and this function is the
-    last place a NaN could enter the verdict.
+    case it was. A floor merely too small to divide the tolerance by -- the
+    quotient overflows without the floor being zero -- is the third way, and
+    it is kept as the measurement it is with a null ratio. A zero floor is
+    still in the top band: the tolerance stands above every spread such a run
+    measured. A non-finite maximum is read as no floor as well; ``summarize``
+    cannot produce one, and this function is the last place a NaN could enter
+    the verdict.
     """
     from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 
@@ -428,6 +447,8 @@ def tolerance_check(summary: dict) -> dict:
             "verdict": "no floor measured (no row converged in every arrangement)",
         }
     ratio = None if floor == 0.0 else DEFAULT_DUPLICATE_ENERGY_TOL / floor
+    if ratio is not None and not math.isfinite(ratio):
+        ratio = None
     if ratio is None or ratio > LOOSE_RATIO:
         verdict = "above twenty times the floor"
     elif ratio < GATE_RATIO:
@@ -594,6 +615,14 @@ def main() -> None:
             # a model that failed halfway through loading can still be holding
             # memory the next engine runs on.
             entry["gpu_state"] = gpu_state(device)
+            if device.type == "cuda":
+                # This engine's own two figures, read while it still holds its
+                # memory: `gpu_state.memory_used` is the whole card, which on a
+                # shared box is mostly a co-tenant's, so it says nothing about
+                # what this engine needed. The peak is reset after the release
+                # below, so each engine's peak is its own.
+                entry["max_memory_allocated"] = int(torch.cuda.max_memory_allocated(device))
+                entry["memory_reserved"] = int(torch.cuda.memory_reserved(device))
             # Between engines: drop every reference to this engine's adapter
             # (the model and ModelFactory's cache -- create_model caches by
             # default) so the next engine does not run on memory this one
@@ -604,6 +633,7 @@ def main() -> None:
             if device.type == "cuda":
                 torch.cuda.synchronize(device)
                 torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats(device)
 
     gpu_state_end = gpu_state(device)
     warn_if_occupied(gpu_state_end, "end")

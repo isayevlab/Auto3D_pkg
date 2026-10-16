@@ -182,6 +182,19 @@ def test_the_batch_noise_tolerance_verdict_writes_no_unreadable_ratio():
         "verdict": "above twenty times the floor",
     }
 
+    # A floor too small to divide the tolerance by: the quotient overflows to
+    # an infinity without the floor itself being zero, which is a second way
+    # the record could have carried a token no strict reader accepts. The
+    # floor is a real measurement and is kept; the ratio it cannot have is
+    # null, and the verdict is the same top band as a zero floor.
+    subnormal_floor = module.tolerance_check({"n": 24, "max": 5e-324})
+    assert subnormal_floor == {
+        "floor_ev": 5e-324,
+        "tolerance_ev": tol,
+        "ratio": None,
+        "verdict": "above twenty times the floor",
+    }
+
 
 def test_the_batch_noise_row_refuses_a_non_finite_energy():
     """A row whose arrangements did not all return a finite energy has no spread.
@@ -301,20 +314,29 @@ def test_the_batch_noise_summary_counts_a_row_it_has_no_spread_for():
     assert summary["dropped_non_finite"] == 1
     # The unconverged row's spread (1.0 eV) is not a converged measurement of
     # anything and stays out of the statistics; the non-finite row moved none
-    # of them either.
+    # of them either. `rows_total` is what makes that second exclusion visible:
+    # `n` plus `dropped_non_finite` is short of it by the unconverged rows.
+    assert summary["rows_total"] == 3
     assert summary["max"] == converged["spread"]
 
+    # The row count is reported even when nothing survived to take a statistic
+    # over, which is the case a reader is most likely to be reading it in.
+    nothing = module.post_opt_summary([non_finite, unconverged])
+    assert nothing == {"n": 0, "dropped_non_finite": 1, "rows_total": 2}
 
-def test_the_batch_noise_converged_counts_refuse_a_non_finite_energy():
-    """No converged count reports a row whose energy was not finite.
+
+def test_the_batch_noise_converged_counts_refuse_a_non_finite_energy_in_that_arrangement():
+    """No converged count reports a row whose energy in it was not finite.
 
     The optimization loop recomputes the final energy for every row it did not
     retire and copies back what the model returns, so a row can arrive flagged
     converged with a non-finite energy. Counting that flag as it stands would
     report a row as converged beside a summary that dropped it for having no
-    spread; a count per arrangement therefore needs that arrangement's energy
-    to be finite as well as its flag, and ``everywhere`` is the number of rows
-    the row builder found converged in every arrangement.
+    spread; a count per arrangement therefore needs that arrangement's own
+    energy to be finite as well as its flag -- it says nothing about the other
+    arrangements, where the same row may well be a converged measurement.
+    ``everywhere`` is the count that excludes such a row outright, since the
+    row builder requires every arrangement's energy to be finite.
     """
     module = _batch_noise_module()
 
@@ -331,7 +353,7 @@ def test_the_batch_noise_converged_counts_refuse_a_non_finite_energy():
     assert counts == {"everywhere": 1, "all": 2, "groups": 1, "reversed": 1}
 
 
-def test_the_batch_noise_engine_loop_releases_the_card_whatever_happens():
+def test_the_batch_noise_engine_loop_releases_the_card_in_order_whatever_happens():
     """Every engine's snapshot and release run even when its model never loads.
 
     An engine whose ``create_model`` raises used to ``continue`` straight past
@@ -340,6 +362,13 @@ def test_the_batch_noise_engine_loop_releases_the_card_whatever_happens():
     no snapshot for it. The release and the snapshot belong in a ``finally``,
     which is checked here by parsing the loop: running it would need a device
     and three sets of model weights.
+
+    The order inside that block is as much of the measurement as its presence.
+    This engine's own peak allocation and reserved bytes are what a reader has
+    on a shared box, where the card-wide figure is mostly someone else's, so
+    they are read -- with the card snapshot -- while this engine still holds
+    its memory, and the peak is reset only once the release has finished, for
+    the next engine to start its own.
     """
     tree = ast.parse((REPO / "benchmarks" / "measure_batch_noise.py").read_text())
     loops = [
@@ -353,14 +382,60 @@ def test_the_batch_noise_engine_loop_releases_the_card_whatever_happens():
     assert len(tries) == 1
     (guard,) = tries
     assert guard.finalbody
-    called = {
-        getattr(n.func, "attr", None) or getattr(n.func, "id", None)
-        for n in ast.walk(ast.Module(body=guard.finalbody, type_ignores=[]))
-        if isinstance(n, ast.Call)
-    }
-    # The snapshot of the card as this engine left it, and the three steps that
-    # hand the card back: the adapter cache, the collector and the allocator.
-    assert {"gpu_state", "clear_cache", "collect", "empty_cache"} <= called
+    # In source order: one statement per step, so statement order is the order
+    # the card is handed back in.
+    order: list[str] = []
+    for statement in guard.finalbody:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+                if name:
+                    order.append(name)
+    # The snapshot of the card as this engine left it, this engine's own two
+    # memory figures, and the four steps that hand the card back: the adapter
+    # cache, the collector, the stream and the allocator.
+    assert {
+        "gpu_state",
+        "max_memory_allocated",
+        "memory_reserved",
+        "clear_cache",
+        "collect",
+        "synchronize",
+        "empty_cache",
+        "reset_peak_memory_stats",
+    } <= set(order)
+    assert order.index("gpu_state") < order.index("empty_cache")
+    assert order.index("max_memory_allocated") < order.index("clear_cache")
+    assert order.index("memory_reserved") < order.index("clear_cache")
+    assert order.index("synchronize") < order.index("empty_cache")
+    assert order.index("empty_cache") < order.index("reset_peak_memory_stats")
+
+
+def test_the_batch_noise_geometry_check_reports_no_unreadable_rmsd():
+    """The geometry check's three RMSDs reach the record as numbers or nulls.
+
+    Everything else in the record passes through the three helpers that refuse
+    a non-finite number; these RMSDs come from RDKit's alignment on geometries
+    the optimizer wrote, so a non-finite coordinate anywhere in them would put
+    a bare ``NaN`` token in a record the rest of the script keeps strict. The
+    wrapping is checked by parsing, since producing the dict needs a model, a
+    device and three optimizations.
+    """
+    tree = ast.parse((REPO / "benchmarks" / "measure_batch_noise.py").read_text())
+    rmsd_blocks = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values, strict=True):
+            if isinstance(key, ast.Constant) and key.value == "rmsd":
+                rmsd_blocks.append(value)
+    assert len(rmsd_blocks) == 1
+    (block,) = rmsd_blocks
+    assert isinstance(block, ast.Dict)
+    assert [k.value for k in block.keys] == ["all-groups", "all-reversed", "groups-reversed"]
+    for value in block.values:
+        assert isinstance(value, ast.Call)
+        assert getattr(value.func, "id", None) == "finite_or_none"
 
 
 def _refuse_constant(token: str) -> float:
@@ -391,3 +466,14 @@ def test_the_bench_record_survives_a_number_that_is_not_finite(tmp_path, capsys)
     assert "non-finite" in warning
     with pytest.raises(ValueError):
         json.loads(lenient.read_text(), parse_constant=_refuse_constant)
+
+    # The warning is printed before the lenient dump is attempted, so a record
+    # the lenient dump cannot write either -- here a value no encoder accepts,
+    # reached after the NaN that sent it down this path -- still says on stderr
+    # which file was being written when the run ended.
+    doomed = tmp_path / "doomed.json"
+    with pytest.raises(TypeError):
+        write_record(str(doomed), {"value": float("nan"), "unwritable": object()}, is_smoke=False)
+    failed = capsys.readouterr().err
+    assert str(doomed) in failed
+    assert "non-finite" in failed

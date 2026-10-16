@@ -152,32 +152,32 @@ BUILTIN_ANI_MODELS = frozenset({MODEL_ANI2X.upper(), MODEL_ANI2XT.upper()})
 
 # Default optimization parameters
 DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
-# eV, energy tolerance for the duplicate-conformer test. RMSD dedup compares
-# heavy-atom skeletons only, so two conformers that settled on the same skeleton
-# with different O-H / N-H orientations have RMSD ~= 0 while being distinct
-# minima; they count as duplicates only when their energies ALSO agree within
-# this tolerance (~0.23 kcal/mol). What the tolerance has to cover is how far two
+# eV, the FALLBACK energy tolerance for the duplicate-conformer test, for a
+# caller with no adapter to ask. RMSD dedup compares heavy-atom skeletons only,
+# so two conformers that settled on the same skeleton with different O-H / N-H
+# orientations have RMSD ~= 0 while being distinct minima; they count as
+# duplicates only when their energies ALSO agree within the tolerance in force
+# (~0.23 kcal/mol at this value). What the tolerance has to cover is how far two
 # optimizations of the SAME minimum can land apart at the 0.01 eV/A force gate,
-# not float32 kernel noise: on the 24-molecule bench set the same start optimized
-# in three batch arrangements ended up to 1.7e-3 eV (AIMNet2) and 2.0e-3 eV
-# (ANI2xt) apart (benchmarks/results-notes/2026-10-05-batch-noise.md). 0.01 is
-# 5.8x AIMNet2's measured maximum and 4.96x ANI2xt's -- the >=5x decision gate
-# is met for AIMNet2 and missed by about one percent for ANI2xt, on one
-# molecule of 24, measured as a same-start lower bound on a shared card; a
-# pair of different starts in one basin is bounded by the same gate. ANI2x's
-# float32 total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV: every
-# nonzero spread this measurement saw was 1 or 5 of those ULPs. A second
-# sample's heavy-atom RMSD check (from 6.5e-5 A to 0.054 A, all well below the 0.3 A
-# duplicate threshold;
-# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json) confirms
-# basin position, not a different rotamer, for a 1-ULP ANI2x spread
-# (3.9e-3 eV) -- but the measured maximum, 2.0e-2 eV, is a 5-ULP event that
-# did NOT recur in that second sample, so whether IT is basin position or two
-# rotamers is not established (benchmarks/results-notes/2026-10-05-batch-noise.md,
-# "Same minimum?"). Above this tolerance either way: with that engine two
-# copies of a conformer -- of one minimum, or of two that happen to agree in
-# energy -- can survive dedup for large molecules (docs/source/usage.rst,
-# "Reproducibility across reruns").
+# which is a property of the engine that produced the energies and is measured
+# per engine: each adapter carries its own `duplicate_energy_tol`
+# (Auto3D.engines.models.adapter), five times its measured floor rounded up to
+# two significant figures, and the orchestrator passes that value down to
+# `filter_conformers` -- the filter is a lower layer and cannot ask which engine
+# ran. On the 24-molecule bench set, three batch arrangements, three repeats on
+# an idle card, those floors were 7.1e-3 eV (AIMNet2), 2.0e-3 eV (ANI2xt) and
+# 7.8e-3 eV (ANI2x), giving 0.036, 0.011 and 0.040 eV
+# (benchmarks/results-notes/2026-10-16-batch-noise.md). Every one of them is
+# above this 0.01, which no longer stands five times above any measured floor:
+# a run deduplicated with THIS value -- a custom NNP, or a direct call into the
+# filter or the ranker that passes nothing -- can keep two copies of one
+# minimum whose energies disagree by more than it (docs/source/usage.rst,
+# "Reproducibility across reruns"). ANI2x's float32 total energy is quantized at
+# 2-4e-3 eV above |E| ~ 2e4 eV, and its floor is a two-step event of that
+# quantization rather than optimizer position; the earlier sample's heavy-atom
+# RMSD check (6.5e-5 A to 0.054 A, well below the 0.3 A duplicate threshold;
+# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json) found basin
+# position, not a different rotamer, for the spreads it captured.
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by

@@ -395,8 +395,17 @@ def optim_rank_wrapper(
                     duplicate_threshold = args.threshold
                     k = args.k
                     window = args.window
+                    # The duplicate-energy tolerance comes from the adapter
+                    # this worker optimized with: how far two optimizations of
+                    # one minimum land apart was measured per engine, and the
+                    # filter is a lower layer that cannot ask which engine ran.
                     rank_engine = ConformerRanker(
-                        optimized_og, output, duplicate_threshold, k=k, window=window
+                        optimized_og,
+                        output,
+                        duplicate_threshold,
+                        k=k,
+                        window=window,
+                        duplicate_energy_tol=adapter.duplicate_energy_tol,
                     )
                     # The ranked mols are written to `output` by `run()`; they are
                     # deliberately not accumulated. Every call site in this

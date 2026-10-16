@@ -1487,3 +1487,83 @@ class TestRankedOutputIsWrittenAtomically:
         # Assert the directory's exact contents instead, so a leftover
         # `tmp*.sdf` sibling fails this test.
         assert sorted(p.name for p in tmp_path.iterdir()) == ["three_conformers.sdf"]
+
+
+class TestTheRankerForwardsTheDuplicateEnergyTolerance:
+    """What the ranker is told to deduplicate with reaches the filter.
+
+    The tolerance belongs to the engine that produced the energies, which the
+    ranker is handed by its caller and the filter cannot know. ``None`` is the
+    caller that has no measurement to offer, and it means the shipped
+    constant -- the behavior every existing caller of this class already has.
+    """
+
+    def test_a_given_tolerance_reaches_the_filter(self, tmp_path, monkeypatch):
+        from Auto3D.domain import ranking
+        from Auto3D.domain.filtering import FilterResult
+        from Auto3D.domain.ranking import ConformerRanker
+
+        seen: list[float] = []
+
+        def _recording_filter(mols, **kwargs):
+            seen.append(kwargs["energy_tol"])
+            return FilterResult(kept=list(mols), dropped={})
+
+        monkeypatch.setattr(ranking, "filter_conformers", _recording_filter)
+
+        # Two conformers and `k=2`: `top_k` skips the dedup entirely for
+        # `k=1` (the lowest-energy survivor needs no comparison), so a
+        # one-molecule, one-slot selection would never reach the filter and
+        # this test would pass on an empty call list.
+        input_path = str(tmp_path / "input.sdf")
+        _write_mols_to_sdf(
+            [
+                _create_mol_with_energy("C", -10.0, "mol_0_0"),
+                _create_mol_with_energy("C", -10.02, "mol_0_1"),
+            ],
+            input_path,
+        )
+
+        ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=2,
+            duplicate_energy_tol=0.04,
+        ).run()
+        assert seen == [0.04]
+
+    def test_no_tolerance_means_the_shipped_constant(self, tmp_path, monkeypatch):
+        from Auto3D.domain import ranking
+        from Auto3D.domain.filtering import FilterResult
+        from Auto3D.domain.ranking import ConformerRanker
+        from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
+
+        seen: list[float] = []
+
+        def _recording_filter(mols, **kwargs):
+            seen.append(kwargs["energy_tol"])
+            return FilterResult(kept=list(mols), dropped={})
+
+        monkeypatch.setattr(ranking, "filter_conformers", _recording_filter)
+
+        # Two conformers and `k=2`: `top_k` skips the dedup entirely for
+        # `k=1` (the lowest-energy survivor needs no comparison), so a
+        # one-molecule, one-slot selection would never reach the filter and
+        # this test would pass on an empty call list.
+        input_path = str(tmp_path / "input.sdf")
+        _write_mols_to_sdf(
+            [
+                _create_mol_with_energy("C", -10.0, "mol_0_0"),
+                _create_mol_with_energy("C", -10.02, "mol_0_1"),
+            ],
+            input_path,
+        )
+
+        ConformerRanker(
+            input_path=input_path,
+            out_path=str(tmp_path / "out.sdf"),
+            threshold=0.3,
+            k=2,
+        ).run()
+        assert seen == [DEFAULT_DUPLICATE_ENERGY_TOL]

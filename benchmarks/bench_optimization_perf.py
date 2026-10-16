@@ -381,13 +381,16 @@ def write_record(out: str, record: dict, *, is_smoke: bool) -> Path:
     try:
         text = json.dumps(record, indent=1, allow_nan=False)
     except ValueError:
-        text = json.dumps(record, indent=1)
+        # Warned before the lenient dump runs, not after: if that dump fails
+        # too (something in the record no encoder accepts), this line is all a
+        # reader has about which file the run died writing.
         print(
             f"WARNING: {path} carries a non-finite token (NaN or Infinity), which is not "
             "JSON; the record is written as it stands rather than lost, and a strict "
             "reader will reject it.",
             file=sys.stderr,
         )
+        text = json.dumps(record, indent=1)
     path.write_text(text)
     if is_smoke:
         print("SMOKE RUN -- NOT A MEASUREMENT (see above)", file=sys.stderr)

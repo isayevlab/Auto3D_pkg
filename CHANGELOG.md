@@ -22,6 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built wheel before publishing.
 
 ### Fixed
+- Duplicate conformers are deduplicated with a tolerance measured for the
+  engine that produced their energies, instead of one number for every engine.
+  How far two optimizations of the same minimum can land apart at the 0.01
+  eV/A force gate was measured per engine (three batch arrangements, three
+  repeats, idle card), and each adapter now carries five times its own floor
+  rounded up to two significant figures: 0.036 eV for AIMNet2, 0.011 eV for
+  ANI2xt, 0.040 eV for ANI2x
+  (`benchmarks/results-notes/2026-10-16-batch-noise.md`). The pipeline passes
+  that value from the adapter it optimized with down to the conformer filter;
+  `filter_conformers`, `filter_unique_optimized` and `ConformerRanker` take it
+  as a parameter, and `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV) remains the
+  default for a caller with no adapter, including a custom NNP. The shipped
+  0.01 eV stood below five times every measured floor, so runs could return
+  two copies of one minimum as distinct conformers; a wider tolerance also
+  merges two genuinely distinct minima whose energies agree within it and
+  whose heavy-atom RMSD is below the 0.3 A threshold.
 - Tautomer enumeration no longer emits the mirror image of a legitimate
   tautomer. A stereo element that every proton-shift route to a tautomer must
   flatten is now emitted unspecified, so stereoisomer enumeration and enantiomer
