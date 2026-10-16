@@ -206,7 +206,7 @@ def _batch_like_test_forward_batched_retries_on_oom():
     """The 2-molecule, 3-atom batch every OOM-retry test in this module uses.
 
     Lifted out of ``test_forward_batched_retries_on_oom`` (which built it
-    inline) so the two tests below do not each grow their own copy.
+    inline) so the tests below do not each grow their own copy.
     """
     coord = torch.randn(2, 3, 3)
     numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
