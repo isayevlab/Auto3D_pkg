@@ -363,12 +363,32 @@ def smoke_notice(detail: str) -> None:
 def write_record(out: str, record: dict, *, is_smoke: bool) -> Path:
     """Write the JSON record, creating its directory, and return its path.
 
+    Dumped strictly first, with ``allow_nan=False``: a NaN or an infinity
+    anywhere in the structure is otherwise written as the bare
+    ``NaN``/``Infinity`` token, which is not JSON and which a strict reader
+    rejects. A record the strict dump refuses is written leniently anyway,
+    with one stderr warning naming the file and the token it carries -- this
+    is the last line of a run that can take tens of minutes, and a record with
+    a non-finite number in it is still the only copy of what was measured. The
+    warning is what tells a reader that this file needs a lenient parser and
+    holds a number no statistic should be taken over.
+
     Repeats the smoke notice immediately after writing, so a reader who finds
     the file knows what is in it before the table is printed.
     """
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=1))
+    try:
+        text = json.dumps(record, indent=1, allow_nan=False)
+    except ValueError:
+        text = json.dumps(record, indent=1)
+        print(
+            f"WARNING: {path} carries a non-finite token (NaN or Infinity), which is not "
+            "JSON; the record is written as it stands rather than lost, and a strict "
+            "reader will reject it.",
+            file=sys.stderr,
+        )
+    path.write_text(text)
     if is_smoke:
         print("SMOKE RUN -- NOT A MEASUREMENT (see above)", file=sys.stderr)
     return path

@@ -278,3 +278,116 @@ def test_the_shared_bench_parser_takes_only_positive_reps_and_limit():
     assert args.reps == 1
     assert args.limit == 1
     assert parser.parse_args(["--out", "out.json"]).reps == 3
+
+
+def test_the_batch_noise_summary_counts_a_row_it_has_no_spread_for():
+    """A row with no spread reaches the summary, where it is counted as dropped.
+
+    The floor is the maximum spread over the rows that converged in every
+    arrangement. A row some arrangement returned a non-finite energy for has no
+    spread at all, so it cannot be in the statistics -- but dropping it before
+    ``summarize`` sees it made ``dropped_non_finite`` structurally zero on this
+    path, and a reader comparing ``n`` against the row count had nothing to
+    read the gap from. It is handed over and counted, and it moves no statistic.
+    """
+    module = _batch_noise_module()
+
+    converged = module.post_opt_row("converged", 9, [-1.0, -1.002, -1.001], [True] * 3)
+    non_finite = module.post_opt_row("non-finite", 9, [-1.0, float("nan"), -1.0], [True] * 3)
+    unconverged = module.post_opt_row("unconverged", 9, [-1.0, -2.0, -1.5], [True, False, True])
+
+    summary = module.post_opt_summary([converged, non_finite, unconverged])
+    assert summary["n"] == 1
+    assert summary["dropped_non_finite"] == 1
+    # The unconverged row's spread (1.0 eV) is not a converged measurement of
+    # anything and stays out of the statistics; the non-finite row moved none
+    # of them either.
+    assert summary["max"] == converged["spread"]
+
+
+def test_the_batch_noise_converged_counts_refuse_a_non_finite_energy():
+    """No converged count reports a row whose energy was not finite.
+
+    The optimization loop recomputes the final energy for every row it did not
+    retire and copies back what the model returns, so a row can arrive flagged
+    converged with a non-finite energy. Counting that flag as it stands would
+    report a row as converged beside a summary that dropped it for having no
+    spread; a count per arrangement therefore needs that arrangement's energy
+    to be finite as well as its flag, and ``everywhere`` is the number of rows
+    the row builder found converged in every arrangement.
+    """
+    module = _batch_noise_module()
+
+    good = module.post_opt_row("good", 9, [-1.0, -1.002, -1.001], [True] * 3)
+    bad = module.post_opt_row("bad", 9, [-1.0, float("nan"), -1.0], [True] * 3)
+    counts = module.converged_counts(
+        [good, bad],
+        {
+            "all": ([-1.0, -1.0], [True, True]),
+            "groups": ([-1.002, float("nan")], [True, True]),
+            "reversed": ([-1.001, -1.0], [True, False]),
+        },
+    )
+    assert counts == {"everywhere": 1, "all": 2, "groups": 1, "reversed": 1}
+
+
+def test_the_batch_noise_engine_loop_releases_the_card_whatever_happens():
+    """Every engine's snapshot and release run even when its model never loads.
+
+    An engine whose ``create_model`` raises used to ``continue`` straight past
+    the per-engine card snapshot and the release block, so the next engine
+    started on memory the failed one had already taken and the record carried
+    no snapshot for it. The release and the snapshot belong in a ``finally``,
+    which is checked here by parsing the loop: running it would need a device
+    and three sets of model weights.
+    """
+    tree = ast.parse((REPO / "benchmarks" / "measure_batch_noise.py").read_text())
+    loops = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.For) and getattr(n.target, "id", None) == "engine"
+    ]
+    assert len(loops) == 1
+    (loop,) = loops
+    tries = [n for n in loop.body if isinstance(n, ast.Try)]
+    assert len(tries) == 1
+    (guard,) = tries
+    assert guard.finalbody
+    called = {
+        getattr(n.func, "attr", None) or getattr(n.func, "id", None)
+        for n in ast.walk(ast.Module(body=guard.finalbody, type_ignores=[]))
+        if isinstance(n, ast.Call)
+    }
+    # The snapshot of the card as this engine left it, and the three steps that
+    # hand the card back: the adapter cache, the collector and the allocator.
+    assert {"gpu_state", "clear_cache", "collect", "empty_cache"} <= called
+
+
+def _refuse_constant(token: str) -> float:
+    """A ``json.loads`` hook that rejects the three non-JSON literals."""
+    raise ValueError(f"not JSON: {token}")
+
+
+def test_the_bench_record_survives_a_number_that_is_not_finite(tmp_path, capsys):
+    """A non-finite number costs the record a warning, never the record itself.
+
+    The records are dumped strictly, since a bare ``NaN`` or ``Infinity``
+    token is not JSON and a strict reader rejects it. But the dump is the last
+    line of a run that can take tens of minutes, and a record carrying such a
+    token is still the only copy of what was measured: the strict dump is tried
+    first, and a record it refuses is written leniently with one warning naming
+    the file.
+    """
+    from bench_optimization_perf import write_record
+
+    strict = write_record(str(tmp_path / "strict.json"), {"value": 1.5}, is_smoke=False)
+    assert json.loads(strict.read_text()) == {"value": 1.5}
+    assert capsys.readouterr().err == ""
+
+    lenient = write_record(str(tmp_path / "lenient.json"), {"value": float("nan")}, is_smoke=False)
+    assert "NaN" in lenient.read_text()
+    warning = capsys.readouterr().err
+    assert str(lenient) in warning
+    assert "non-finite" in warning
+    with pytest.raises(ValueError):
+        json.loads(lenient.read_text(), parse_constant=_refuse_constant)
