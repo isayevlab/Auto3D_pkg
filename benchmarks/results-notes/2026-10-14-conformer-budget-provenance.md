@@ -44,10 +44,11 @@ deposit's two rotor-count columns:
 The first three recipes land within about 1.5 percent of both implemented constants (8.481 and
 1.642) against RDKit's default (strict) rotatable-bond count; none of the last four come close in
 both parameters at once, and none of the seven come as close against RDKit's non-strict count,
-where the same three recipes return 7.853 and 1.548 instead. The implemented constants are
-consistent with being the paper's fitted numbers, reproduced to 1.5% from the deposit; the
-residual is far outside the fit's statistical uncertainty on 114,678 points, so the exact sample
-or recipe was not recovered.
+where the first two of those three recipes return 7.853 and 1.548 and the third 7.810 and 1.550
+instead. The implemented constants are consistent with being the paper's fitted numbers,
+reproduced to 1.5% from the deposit; the residual is larger than the spread among the three
+recipes that come close (0.6 percent in the coefficient, 0.2 percent in the exponent), so the
+exact sample or recipe was not recovered.
 
 Re-descriptoring 1,500 randomly sampled deposited molecules with the installed RDKit identifies
 which of RDKit's rotatable-bond options the two deposited columns correspond to: the deposit's

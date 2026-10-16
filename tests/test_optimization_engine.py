@@ -314,8 +314,8 @@ class TestNSteps:
         bare CUDA error -- the same contract ``_run_in_sub_batches`` already
         gives a model-forward OOM.
 
-        GPU review M3 (fix round 1): production can raise this condition as a
-        bare ``RuntimeError``, the typed ``torch.cuda.OutOfMemoryError``, or
+        Production can raise this condition as a bare ``RuntimeError``, the
+        typed ``torch.cuda.OutOfMemoryError``, or
         ``torch.AcceleratorError`` -- all three are ``RuntimeError``
         subclasses whose message names the condition, and ``is_oom`` must
         recognize every one of them, not just the bare-``RuntimeError`` form

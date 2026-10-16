@@ -370,7 +370,10 @@ Two measured cases, both with ``enumerate_isomer=False``:
        maleic acid, ~5 kcal/mol apart, under one species id
      - no
    * - ``CC=CC``
-     - ``C/C=C\C`` only -- cis-2-butene; the trans isomer is absent
+     - ``C/C=C\C`` only -- cis-2-butene; the trans isomer is absent. Measured
+       at the 4 conformers 3.0 requested for this molecule, under RDKit
+       2025.09.6; from 3.2.2 the default budget requests 16 for it and both
+       geometries come out
      - no
 
 The conformers Auto3D emits are unchanged: the fix makes the condition

@@ -288,13 +288,24 @@ class Calculator(ase.calculators.calculator.Calculator):
         species = species.unsqueeze(0)
         coordinates = coordinates.unsqueeze(0)
 
-        # Decided from the ASE parameter, a host integer, rather than from a
-        # tensor: this runs once per BFGS step, and reading a device tensor
+        # Decided from the ASE parameter, a host integer, rather than by reading
+        # a device tensor back: this runs once per BFGS step, and reading one
         # back would be a device-to-host copy per step to learn a value that
         # only changes when the multiplicity is set. The `self.mult` property
         # is built from that same parameter, so the value sent and the value
         # the decision was made on cannot disagree. `spin_kwargs` states why a
         # singlet is not passed at all.
+        #
+        # The two scalars the model does receive, `self.charge` and `self.mult`,
+        # are both rebuilt from the parameter state on every read, so each call
+        # does allocate and copy a `(1,)` tensor for each of them. That is
+        # accepted deliberately: the ASE parameter stays the single place either
+        # value lives, which is what makes `calc.set(charge=...)` -- ASE's own
+        # writer, which no property setter of ours sees -- unable to leave a
+        # cached attribute holding the previous value. The traffic it costs is
+        # two 4-byte host-to-device copies, against the two device-to-host
+        # transfers this body already ends with (`energy.item()` and the force
+        # copy to the host).
         mults = None if int(self.parameters["mult"]) == 1 else self.mult
         energy, forces = self.adapter.forward(
             coordinates, species, self.charge, **spin_kwargs(mults)

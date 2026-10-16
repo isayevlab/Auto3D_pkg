@@ -73,6 +73,11 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+# Autosummary stubs. Sphinx regenerates every one of these on each build (see
+# the comment beside `autosummary_generate` in docs/source/conf.py), and both
+# the documentation workflow and Read the Docs build from a fresh checkout, so
+# a tracked copy is never read and only ever goes stale.
+docs/source/generated/
 
 # PyBuilder
 target/

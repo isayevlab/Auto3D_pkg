@@ -104,8 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authors' deposited data) and which parts of the expression are Auto3D's own.
   A small rotor-free molecule with an unspecified stereo element and
   stereoisomer enumeration disabled is now more likely to embed both
-  configurations among its conformers (2-butene does from 5 requests up; it
-  requested 4 before), so a `k=1` result for such an input can change; the
+  configurations among its conformers (2-butene does from 5 requests up under
+  RDKit 2025.09.6, and it requested 4 before; RDKit 2026.9.1 already mixes at
+  4), so a `k=1` result for such an input can change; the
   existing warning about unspecified stereo already covers it.
 - The optimizer releases the CUDA cache once per chunk instead of after every
   size bucket. The per-bucket release was measured on and off against the

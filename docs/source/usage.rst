@@ -144,15 +144,17 @@ With ``enumerate_isomers`` on (the default), this enumeration covers unspecified
 of stereo element, so ``CC=CC`` (e.g. ``/`` or ``\`` left out of the SMILES)
 produces and labels both the *E* and *Z* conformer groups, not one.
 
-The single-geometry behavior below applies only with ``--no-enumerate-isomer``,
-or when a double bond reaches the embedder still unspecified despite
-enumeration being on (e.g. a tautomer-enumeration product whose double bond was
-never re-checked): the conformer generator then samples a geometry for it, and
-which geometry (or geometries) come out of a given embedding is an artifact of
-the installed RDKit release, not something Auto3D enumerates or guarantees in
-that case (measured by embedding ``CC=CC`` directly, bypassing enumeration:
-RDKit 2025.09.6 kept only the *Z* geometry, RDKit 2026.9.1 kept both *E* and
-*Z*, from the same request; see
+The unenumerated behavior applies only with ``--no-enumerate-isomer``, or when
+a double bond reaches the embedder still unspecified despite enumeration being
+on (e.g. a tautomer-enumeration product whose double bond was never
+re-checked): the conformer generator then samples a geometry for it, and which
+geometry (or geometries) come out of a given embedding is an artifact of the
+installed RDKit release *and* of how many conformers were requested, not
+something Auto3D enumerates or guarantees in that case (measured by embedding
+``CC=CC`` directly, bypassing enumeration: RDKit 2025.09.6 keeps both the *E*
+and the *Z* geometry at the default conformer budget for 2-butene, 16
+requested, and only the *Z* geometry at the 4 that budget requested before
+3.2.2; RDKit 2026.9.1 keeps both at the request of 4 it was measured at; see
 ``benchmarks/results-notes/2026-10-09-rdkit-2026-09-kept-counts.md``).
 
 Configuration Files
