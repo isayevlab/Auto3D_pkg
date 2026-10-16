@@ -355,7 +355,7 @@ def two_bucket_run(tmp_path, monkeypatch):
     20-carbon ring, well past ``BUCKET_SIZE_FACTOR``), using the fake
     ``ensemble_opt`` double so no model is loaded. Returns a no-argument
     callable that performs the run, so a caller can monkeypatch
-    ``torch.cuda`` and ``Optimizer.EMPTY_CACHE_PER_BUCKET`` first.
+    ``torch.cuda`` first.
     """
     from rdkit import Chem
     from rdkit.Chem import AllChem
@@ -393,28 +393,22 @@ def two_bucket_run(tmp_path, monkeypatch):
     return eng.run
 
 
-def test_per_bucket_empty_cache_is_skipped_when_the_switch_is_off(monkeypatch, two_bucket_run):
+def test_the_cuda_cache_is_released_once_per_chunk_not_once_per_bucket(monkeypatch, two_bucket_run):
+    """One release per chunk, however many size buckets the chunk holds.
+
+    The optimizer released the cache after every bucket as well; measured on
+    and off against the production path, that release lowered neither peak
+    reserved memory nor the allocator's retry and out-of-memory counts
+    (``benchmarks/results-notes/2026-10-16-empty-cache.md``), and it is gone.
+    """
     calls = {"n": 0}
-    # This test must also pass on a host with no CUDA at all, where both
-    # guards read ``is_available() == False``; patch it True so either call
-    # can fire regardless of what hardware is actually present.
+    # This test must also pass on a host with no CUDA at all, where the guard
+    # reads ``is_available() == False``; patch it True so the call can fire
+    # regardless of what hardware is actually present.
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.__setitem__("n", calls["n"] + 1))
-    monkeypatch.setattr(Optimizer, "EMPTY_CACHE_PER_BUCKET", False)
     two_bucket_run()  # the file's smallest run that produces two buckets on CPU
-    assert calls["n"] == 1  # the per-chunk call at the end still runs
-
-
-def test_per_bucket_empty_cache_fires_once_per_bucket_when_the_switch_is_on(
-    monkeypatch, two_bucket_run
-):
-    calls = {"n": 0}
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.__setitem__("n", calls["n"] + 1))
-    assert Optimizer.EMPTY_CACHE_PER_BUCKET is True  # the default; nothing to monkeypatch
-    two_bucket_run()
-    # 2 buckets x 1 per-bucket call each, plus the 1 per-chunk call at the end.
-    assert calls["n"] == 3
+    assert calls["n"] == 1  # the per-chunk call in run(), and nothing per bucket
 
 
 class TestBatchOptDependsDownwards:
