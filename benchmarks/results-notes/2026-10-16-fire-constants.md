@@ -5,8 +5,7 @@
 - **Date:** 2026-10-16. Script: `benchmarks/measure_fire_constants.py`. Record:
   `benchmarks/results-notes/2026-10-16-fire-constants.json`, a byte-for-byte copy of the file
   the run wrote.
-- **Command** (`AUTO3D_COMPILE_MODEL` unset, `CUDA_VISIBLE_DEVICES` unset, so `--device cuda:3`
-  is physical card 3):
+- **Command** (`AUTO3D_COMPILE_MODEL` unset, `CUDA_VISIBLE_DEVICES` unset):
 
   ```
   PYTHONPATH=src python3 benchmarks/measure_fire_constants.py \
@@ -14,9 +13,20 @@
       --out benchmarks/results-notes/2026-10-16-fire-constants.json
   ```
 
-  Exit status 0; the record carries `"smoke": false`, so these are device numbers, not the
-  script's CPU plumbing check.
-- **Card:** NVIDIA L40S, physical index 3 of 8, driver 595.71.05, compute capability 8.9. The
+  The `--out` above is where the committed copy lives; the run's own output path was a scratch
+  directory, and the file was copied from it, with `cmp` reporting no difference and both files
+  at md5 `b7d5084a256f57476832fd3516930f2b`. Exit status 0; the record carries
+  `"smoke": false`, so these are device numbers, not the script's CPU plumbing check.
+- **Card:** NVIDIA L40S, driver 595.71.05, compute capability 8.9, UUID
+  `GPU-7cee0416-230c-883b-d07c-2e3975802a9c` -- the UUID of the card addressed as index 3,
+  recorded in the occupancy check of
+  `benchmarks/results-notes/2026-10-16-batch-noise.md` on the same box the same day, quoted here
+  so the card is checkable by something other than an ordinal. The box has eight of these
+  cards, as the run log's device list shows. `CUDA_VISIBLE_DEVICES` was unset, so the record's
+  `nvidia_smi_id` `"3"` is the torch ordinal echoed back from `--device cuda:3`
+  (`bench_optimization_perf._nvidia_smi_id` returns the ordinal when the variable is unset) and
+  is not independent confirmation of which physical card ran; on eight identical cards the two
+  orderings coincide. The
   record's two `nvidia-smi` snapshots both resolve `nvidia_smi_id` `"3"` and both carry
   `"other_processes": []` -- at the start (3 MiB used, 0% utilization, 25 C) and at the end
   (581 MiB, all this process's own, 0%, 30 C). Those are the only two moments the record
@@ -32,38 +42,69 @@
   touches a model, which is what a production run applies when the user passes nothing: TF32
   off for matmul and for cuDNN, determinism and the cuDNN autotuner left as the process had
   them. The record does not store the resulting flag values (deviation 3), so none are quoted.
-- **Commit:** `env.commit` `3cc0b08`, where `measure_fire_constants.py` was unmodified at run
-  time. `git diff 3cc0b08 HEAD -- benchmarks/measure_fire_constants.py` is
-  empty: the script that produced this record is byte-identical to the one beside this note.
-  The shared helper `benchmarks/bench_optimization_perf.py` has since gained the `env` fields
-  listed in deviation 3 and nothing else that this script reads.
+  The two the call leaves alone are at this torch's defaults, since `TorchConfig`'s
+  `cudnn_benchmark` and `deterministic` both default to `None` and nothing in this script sets
+  them: `torch.backends.cudnn.benchmark` false, and deterministic algorithms off
+  (`torch.are_deterministic_algorithms_enabled()` false,
+  `torch.backends.cudnn.deterministic` false).
+- **Commit:** `env.commit` `3cc0b08`.
+  `git diff 3cc0b08 HEAD -- benchmarks/measure_fire_constants.py` is empty, so the script at
+  that commit is byte-identical to the one beside this note. A diff between two commits cannot
+  show that the run's working tree was clean; what supports that for this script is the
+  record's own `env` block, which lacks the fields the then-uncommitted edit to
+  `benchmarks/bench_optimization_perf.py` added (deviation 3) -- so that edit was not yet in
+  the tree when the record was written, and the helper this script imports was the committed
+  one. The helper has since gained those `env` fields and nothing else that this script reads.
+- **Code under test:** between `3cc0b08` and this branch's head,
+  `src/Auto3D/engines/batch_opt/` and `FIRE_CONSTANT_SETS` in
+  `src/Auto3D/foundation/constants.py` changed in prose only -- the `FIRE` docstring sentence
+  this note is cited in, and a comment on the duplicate-energy tolerance. `FIRE_CONSTANT_SETS`,
+  `FIRE.__init__` and `n_steps` are unchanged, as `git diff 3cc0b08 HEAD` on those paths shows.
 - **The two sets** (`Auto3D.foundation.constants.FIRE_CONSTANT_SETS`), five constants plus the
   first-step rule:
 
-  | set | dt_max | maxstep | finc | fdec | astart | dt_init | skip_first_progress_test |
+  | set | dt_max (time) | maxstep (A) | finc (-) | fdec (-) | astart (-) | dt_init (time) | skip_first_progress_test |
   |---|---|---|---|---|---|---|---|
   | `auto3d` | 0.1 | 0.1 | 1.5 | 0.7 | 0.1 | 0.1 | false |
   | `bitzek2006` | 1.0 | 0.2 | 1.1 | 0.5 | 0.1 | 0.1 | true |
 
+  Units: `maxstep` is a displacement in Angstrom, and it caps the Euclidean norm of a whole
+  molecule's displacement vector rather than any single coordinate -- as in ASE, and as the
+  step cap in `src/Auto3D/engines/batch_opt/fire_optimizer.py` computes it (the flattened
+  displacement's 2-norm, scaled by `maxstep / norm` clamped at 1). `dt_init` and `dt_max` are
+  in the optimizer's internal time unit: the velocity update is `v + dt * forces`, with no
+  division by mass, so the constants assume unit masses and the unit is not femtoseconds.
+  `finc`, `fdec` and `astart` are dimensionless.
+
   `auto3d` is the set every release has run and the current default. `bitzek2006` is the
   published set -- Bitzek, Koskinen, Gaehler, Moseler and Gumbsch, *Phys. Rev. Lett.* **2006**,
   *97*, 170201, as ASE implements it, which runs no progress test on the first step because the
-  velocity is still zero there.
+  velocity is still zero there. Four of the five constants differ between the sets; `astart`
+  and `dt_init` are the same in both.
 - **Repeats:** four, an even count so each set leads the alternation equally often; the script
   warns on an odd count. Within one repeat the arm order alternates -- `auto3d` leads the even
   repeats, `bitzek2006` the odd ones -- so neither set is always the later arm, and an even
   count leaves each set leading twice.
 - **Bench set:** the 24 fixed SMILES of `benchmarks/bench_optimization_perf.py` (8 small, 8
-  medium, 8 large; 14 to 53 atoms with hydrogens), each embedded with ETKDGv3 at the shared
-  seed into 10 conformers and split into 10 one-conformer copies: 240 conformers per arm, 960
-  per set per engine over the four repeats. Every arm of every repeat runs the same 240
-  starting geometries in the same order, so row *i* is the same starting geometry throughout
-  the record.
+  medium, 8 large; 9 to 53 atoms with hydrogens (3 to 29 heavy atoms)), each embedded with
+  ETKDGv3 at the shared seed into 10 conformers and split into 10 one-conformer copies: 240
+  conformers per arm, 960 per set per engine over the four repeats. Every arm of every repeat
+  runs the same 240 starting geometries in the same order, so row *i* is the same starting
+  geometry throughout the record.
+- **Warm-up:** before the timed arms, the script runs one untimed warm-up per engine -- every
+  size group, the full step budget, the `auto3d` set -- so that first-call costs and every
+  padded width the timed arms will ask for are paid outside them. Those passes are not in the
+  record and are in no table here. The run log shows the AIMNet2 warm-up's large group ending
+  at step 471 with 79 of 80 converged and one row retired as oscillating, and all three ANI2xt
+  warm-up groups ending with 80 of 80 converged and none retired.
 - **Settings:** the production ones -- `max_steps` 2000, `opttol` 0.01 eV/A, `patience` 250.
   What is compared is `optimization_engine.n_steps` and nothing above it: no bucketing, no file
   reading or writing, no conformer ranking. A row is `dropped` when the loop retired it as
-  oscillating (its non-progressing-step counter reached `patience`), `unconverged` when it was
-  still active at `max_steps`, and `non_finite` when it was retired on a non-finite energy.
+  oscillating, `unconverged` when it was still active at `max_steps`, and `non_finite` when it
+  was retired on a non-finite energy. The retirement criterion is Auto3D's own heuristic and no
+  part of the published FIRE method: `src/Auto3D/engines/batch_opt/optimization_engine.py`
+  counts, per row, the consecutive steps in which that row's best fmax has not improved, and
+  retires the row when the counter reaches `patience` (250 here).
 - **Engines:** AIMNet2 (`AIMNET`) and ANI2xt, each read only against itself. ANI2x was not
   measured.
 
@@ -105,7 +146,7 @@ into the flattened small/medium/large SMILES order and `index % 10` for the conf
 the record stores no names). Over all 960 pairs with two finite energies -- which includes the
 168 rows `bitzek2006` retired as oscillating, whose recorded energy is the one they were retired
 at and not a converged energy -- the maximum is 5.819e-01 eV (58.6x the floor), 284 rows above
-it. Both floors are conditional on `opttol` 0.01 eV/A, which is the gate this run used.
+it. This floor is conditional on `opttol` 0.01 eV/A, which is the gate this run used.
 
 ### ANI2xt
 
@@ -133,8 +174,8 @@ per-conformer difference **1.504e-01 eV** against this engine's floor of **2.10e
 median 1.481e-03 eV, p90 1.559e-02 eV. The worst pair is repeat 1, row 85 (paracetamol,
 `CC(=O)Nc1ccc(O)cc1`, its sixth conformer). Over all 960 finite pairs, including the 151 rows
 `bitzek2006` retired as oscillating, the maximum is 3.988e-01 eV (189.9x the floor), 510 rows
-above it. How far this engine's own reruns move on this bench set, and what that does to the
-reading of this clause, is concern 1 below.
+above it. How far this engine's own reruns move on this bench set, and the row-by-row read that
+separates the two, are in the Decision section's clause 3 and in concern 1.
 
 ## What this measurement supports
 
@@ -142,7 +183,8 @@ reading of this clause, is concern 1 below.
   atom slots differently and shape their forces differently, so no number here is carried from
   one engine to the other, and none is combined across them. Each engine's rows above are read
   only against that engine's own other rows and against that engine's own floor.
-- **The optimization loop only.** The arms differ in nothing but the five constants and the
+- **The optimization loop only.** The arms differ in nothing but the four constants that are not
+  shared between the sets and the
   first-step rule; every arm runs the same 240 starting geometries in the same order, padded the
   same way, through the same `n_steps`. Nothing here supports a claim about the bucketing, the
   ranking or anything else above the loop.
@@ -172,8 +214,12 @@ before the run:
 Clause by clause, per engine.
 
 **Clause 1 -- steps to convergence must not rise beyond the repeat spread.** Fails on both
-engines. The rise from `auto3d` to `bitzek2006` is one to two orders of magnitude above the
-spread the same statistic shows across the four repeats of either set:
+engines. The rise from `auto3d` to `bitzek2006` is far beyond the spread the same statistic
+shows across the four repeats of either set, in every cell of the table below: taking each
+rise over each of the two spreads of that statistic, the ratios run from 6.9x (ANI2xt p90 over
+`bitzek2006`'s spread of 67) to 338.0x (ANI2xt median over `auto3d`'s spread of 0.5), and one
+spread -- AIMNet2's `auto3d` p99, identical in all four repeats -- is zero, so no ratio exists
+for that pair at all:
 
 | engine | statistic | `auto3d` | `bitzek2006` | rise | `auto3d` spread | `bitzek2006` spread |
 |---|---|---|---|---|---|---|
@@ -188,7 +234,7 @@ spread the same statistic shows across the four repeats of either set:
 
 Every pooled `bitzek2006` statistic also sits outside the full per-repeat range of the
 corresponding `auto3d` statistic, with no overlap at any repeat, and the rise is in the same
-direction in all four of the four repeats on both engines.
+direction in all four repeats on both engines.
 
 **Clause 2 -- no conformer may newly drop or fail to converge.** Fails on both engines.
 `auto3d` dropped nothing and left nothing unconverged in any repeat of either engine: 960 of
@@ -198,24 +244,45 @@ spread over 15 of the 24 molecules (3 small, 22 medium, 17 large rows) -- and AN
 37, 39 and 38 rows, 151 of 960, over 39 distinct rows of which 36 dropped in every repeat,
 spread over 14 of the 24 molecules (3 small, 18 medium, 18 large rows). Every one of those rows
 converged under `auto3d` in the same repeat; no row dropped under `auto3d` and converged under
-`bitzek2006`. These are new drops in the strict sense the clause asks for, and they are
-reproducible rather than marginal.
+`bitzek2006`. These are new drops in the strict sense the clause asks for, and they repeat:
+for AIMNet2 all 42 rows dropped in all four repeats, and for ANI2xt 36 of the 39 distinct
+dropped rows dropped in all four while the remaining 3 dropped in some repeats and not others.
 
 **Clause 3 -- final energies must agree within the engine's measured noise floor.** Fails as
 written on both engines: 1.309e-01 eV against a 9.93e-03 eV floor for AIMNet2 (13.2x), 1.504e-01
-eV against a 2.10e-03 eV floor for ANI2xt (71.6x), on the pairs where both sets converged. This
-clause is the weakest of the three on this evidence, and the honest reading is that it is not
-independently discriminating here: the floor from that note
-(`benchmarks/results-notes/2026-10-16-batch-noise.md`) is a same-start bound measured over 24
-single-conformer molecules in different batch arrangements, while this bench set is 240
-starting geometries, and on it the same set rerun against itself already moves one conformer by
-1.426e-01 eV for ANI2xt (67.9x that engine's floor) and 1.458e-02 eV for AIMNet2 (1.5x). Two
-optimizations that stop in different local minima differ by the energy between those minima,
-which neither the force gate nor the floor bounds; the floor bounds two stops inside one basin.
-The 1.426e-01 eV within-set move is of that kind -- the basin-hop effect
-`2026-10-09-bucket-policy.md` measured when it found a per-conformer energy rule cannot gate a
-batch repartition. So clause 3's failure is recorded, but it is clauses 1 and 2 that carry the
-decision, and they fail by margins no spread in this record covers.
+eV against a 2.10e-03 eV floor for ANI2xt (71.6x), on the pairs where both sets converged.
+
+Two things about the yardstick, before the clause is read. Structurally, the floor from
+`benchmarks/results-notes/2026-10-16-batch-noise.md` is a same-start, same-optimizer bound: it
+measures how far two runs of **one** optimizer from one embedding land apart when only the batch
+arrangement differs, over 24 single-conformer molecules. This comparison runs two **different**
+optimizers from one start, which is not that quantity, so the floor is not the matching yardstick
+for it. And two optimizations that stop in different local minima differ by the energy between
+those minima, which neither the force gate nor the floor bounds; what the floor bounds is two
+stops inside one basin.
+
+A maximum against a maximum is the least discriminating way to read that, and it is the read the
+earlier wording rested on: the largest of 240 within-set four-draw ranges against the largest of
+the pairwise between-set differences. Taken that way the two are comparable for ANI2xt
+(1.426e-01 eV within set against 1.504e-01 eV between sets) and not for AIMNet2 (1.458e-02 eV
+against 1.309e-01 eV), so the maximum-based statement holds for ANI2xt's tail and nowhere else.
+The paired read is the discriminating one: compare, row by row, that row's largest between-set
+difference with that row's own within-set spread over the same repeats (the larger of the two
+sets' spreads). The between-set difference is the larger one in **188 of 198 rows for AIMNet2
+and 191 of 203 for ANI2xt** -- the denominators being the rows where both quantities exist, which
+needs two repeats in which both sets converged the row. The medians separate as well: per-row
+between-set maximum 1.353e-03 eV against a within-set spread of 1.070e-04 eV for AIMNet2, and
+1.616e-03 eV against 8.026e-05 eV for ANI2xt. So do the above-floor counts: 35 of 198 rows
+between sets against 2 of 198 within set (AIMNet2), 93 of 203 against 14 of 203 (ANI2xt).
+
+The difference also has a sign. Taking dE as `bitzek2006` minus `auto3d`, the `auto3d` row is
+the lower energy in 668 of 792 both-converged pairs for AIMNet2 and 671 of 809 for ANI2xt, and
+in 124 of the 128 and 343 of the 359 pairs that exceed the floor; the mean signed dE is
++4.004e-03 eV and +6.265e-03 eV. That is a one-sided shift toward higher final energies under
+`bitzek2006`, not the symmetric scatter a basin-hop argument would predict, so no basin-hop
+analogy is drawn here and no mechanism is proposed. It strengthens the reading that the clause
+fails rather than weakening it, and it moves no clause verdict: clauses 1 and 2 already fail by
+margins no spread in this record covers.
 
 **Decision: keep the `auto3d` set as the default, on both engines measured.** The rule requires
 all three clauses to hold before the published set is adopted; all three fail for AIMNet2 and
@@ -235,17 +302,27 @@ it as the reason the current set stays.
    -- 12 MiB, no compute -- present for at least one sixty-second sample at 09:33:41 UTC, during
    the AIMNet2 arms. The record's start and end snapshots list no other process. That is the
    whole of what was logged about it. This record was kept deliberately
-   rather than rerun: the quantities the decision reads -- step counts, drop counts and final
-   energies -- are properties of the loop's own arithmetic and do not depend on what else holds
-   the card, and the wall-clock columns, which are the numbers co-tenancy could move, are
-   reported here as a sensitivity line that no clause reads. The arm order alternates repeat to
-   repeat, so a co-tenant present for part of the run reaches both sets. A reader who wants the
-   wall-clock columns to be a clean measurement of the card should treat them as contaminated
-   for at least that sample and rerun; the decision does not change.
-2. **The same process also held a CUDA context on card 0,** which was otherwise idle:
-   `CUDA_VISIBLE_DEVICES` was not set for this run, so that context existed on a card this run
-   never used. No snapshot of card 0 exists in the record or elsewhere, so nothing more is
-   claimed about it. It does not touch the measurement, which ran entirely on card 3.
+   rather than rerun, for two reasons. No mechanism is known by which a process holding memory
+   on the card, with no compute, changes a step count, a drop count or a converged energy. And
+   the four repeats bound their own run-to-run spread, whatever its sources: the `bitzek2006`
+   drop counts for ANI2xt are 37, 37, 39 and 38, and within-set energies move by up to
+   1.426e-01 eV on one row, and the clause margins above stand well outside both. The
+   wall-clock columns are the numbers co-tenancy could plausibly move, and they are reported
+   here as a sensitivity line that no clause reads. Note what the alternation does and does not
+   cover: it covers drift across the run, not a single sixty-second sighting, which can fall
+   entirely inside one set's arms -- an `auto3d` arm runs about 18 s and a `bitzek2006` arm
+   about 62 s. A reader who wants the wall-clock columns to be a clean measurement of the card
+   should treat them as contaminated for at least that sample and rerun; the decision does not
+   change.
+2. **The measurement process was not confined to one card, and held a CUDA context on card 0.**
+   `CUDA_VISIBLE_DEVICES` was unset and the device was given as `--device cuda:3`, so the
+   process enumerated every card on the box -- the run log's Warp initialization lists `cuda:0`
+   through `cuda:7` -- and left a context on card 0. All compute ran on card 3. This is the
+   process's own context, not the co-tenant of deviation 1; the sibling note
+   `benchmarks/results-notes/2026-10-16-batch-noise.md` records the same mechanism for the same
+   launch form, which is why the later run there set `CUDA_VISIBLE_DEVICES`. No snapshot of
+   card 0 exists, so nothing is claimed about card 0 beyond the context. A rerun should confine
+   the process the way that note does: `CUDA_VISIBLE_DEVICES=3 ... --device cuda:0`.
 3. **The record's `env` block predates the fields later records carry.** It holds `gpu`, `torch`,
    `cuda`, `capability`, `python`, `commit`, `ref` and `auto3d_path` only. It does not hold
    `precision`, `cuda_visible_devices`, `aimnet`, `torchani`, `rdkit` or `dirty_tree`, all of
@@ -255,9 +332,9 @@ it as the reason the current set stays.
    RDKit versions from the installed packages
    (`python3 -c 'import importlib.metadata as m; print(m.version("aimnet"), m.version("torchani"), m.version("rdkit"))'`),
    `CUDA_VISIBLE_DEVICES` unset, the precision flags named as the call the script makes rather
-   than as recorded values, and the tree state as `3cc0b08` with no
-   uncommitted change to `measure_fire_constants.py` -- which `git diff 3cc0b08 HEAD` on that
-   script confirms is byte-identical to the script beside this note. A hand-stated version is
+   than as recorded values, and the tree state as the Commit bullet gives it -- a diff showing
+   the script unchanged between `3cc0b08` and this head, plus the missing `env` fields as the
+   evidence that the helper edit was not yet in the tree. A hand-stated version is
    weaker evidence than a recorded one: it is the version installed when this note was written,
    and nothing in the record pins it.
 4. **The run order on the card.** This run held card 3 from 09:29 to 09:39 UTC. The
@@ -274,27 +351,46 @@ it as the reason the current set stays.
 
 **Concerns.**
 
-1. **This bench set's own run-to-run energy spread is of the same order as the between-set
-   difference on ANI2xt.** Holding the set fixed and comparing a row with itself across the four
-   repeats, the largest move is 1.426e-01 eV for ANI2xt `auto3d` -- against a between-set
-   maximum of 1.504e-01 eV on the same engine. For AIMNet2 the within-set figure is 1.458e-02 eV
-   against 1.309e-01 eV between sets, a cleaner separation. Read within each engine only, this
-   says the energy clause is not a sharp instrument on a 240-start set, which is why the decision
-   above rests on clauses 1 and 2. It also says the floors in `2026-10-16-batch-noise.md`, which
-   were measured on single-conformer starts, should not be reused as a per-conformer gate on a
+1. **On ANI2xt, the maximum within-set move reaches the maximum between-set difference.**
+   Holding the set fixed and comparing a row with itself across the four repeats, the largest
+   move is 1.426e-01 eV for ANI2xt `auto3d`, against a between-set maximum of 1.504e-01 eV on
+   that engine. Within AIMNet2, the same two quantities are 1.458e-02 eV and 1.309e-01 eV, so
+   the within-set maximum stands at about 1.5 times that engine's floor while the between-set
+   maximum stands at about 13 times it. The qualification this earns is narrow: the
+   maximum-against-maximum read is non-discriminating on ANI2xt, while the paired read in the
+   Decision section discriminates on both engines (188 of 198 rows and 191 of 203). What
+   remains a caution is the yardstick itself -- the floors in
+   `benchmarks/results-notes/2026-10-16-batch-noise.md` were measured same-start, same-optimizer
+   on single-conformer molecules, and should not be reused as a per-conformer gate on a
    multi-conformer set without a measurement of that set's own spread.
 2. **The drops are concentrated.** Under `bitzek2006`, the retired rows fall on 15 of 24
    molecules for AIMNet2 and 14 of 24 for ANI2xt, mostly in the medium and large size groups. A
    bench set weighted differently would show a different drop count, so the counts above size
    the effect on this set and are not a rate to extrapolate.
-3. **`patience` 250 defines "dropped".** Every drop count here is conditional on that setting:
-   a larger patience would convert some drops into very long runs rather than into convergences,
-   and nothing here measures where that boundary sits.
+3. **`patience` 250 defines "dropped", and the criterion is Auto3D's, not the published
+   method's.** Every drop count here is conditional on that setting and on the no-improvement
+   heuristic the Settings bullet describes, which is not guaranteed neutral between two sets
+   that differ in `dt_max` and `maxstep`; no mechanism is asserted here, only that neutrality
+   is not something this measurement establishes. What the record does show is where the
+   retired rows left the loop: steps 310 to 1567 with a median of 509 for AIMNet2 (168 rows)
+   and steps 339 to 1857 with a median of 541 for ANI2xt (151 rows), against `auto3d` converging
+   every one of its 960 rows by step 471 with a median of 132 (AIMNet2) and by step 436 with a
+   median of 125 (ANI2xt). So the retired rows were still running well past the point at which
+   the current set had finished the same geometries. The record stores no per-row fmax, so how
+   close those rows stood to the convergence gate when they were retired cannot be read from
+   it, and whether a larger patience would convert them into convergences or only into longer
+   runs is unmeasured in either direction.
 4. **One box, one card, one commit, four repeats, two engines.** ANI2x ships the same optimizer
    and was not measured, so the decision above is stated for the two engines that were.
-5. **`auto3d` left nothing unconverged and nothing non-finite in any arm,** which is a clean
-   result but also means this measurement has no evidence about how either set behaves on
-   molecules the current default struggles with -- there were none in these 240 starts.
+5. **`auto3d` left nothing unconverged and nothing non-finite in any recorded arm,** which is a
+   clean result but also means this measurement has little evidence about how either set behaves
+   on molecules the current default struggles with: there were none in the four recorded
+   repeats. The qualifier matters, because one such row exists outside them. The untimed
+   AIMNet2 warm-up -- the `auto3d` set, the same 80 large-group geometries -- retired one row as
+   oscillating (Setup, Warm-up). That is one unrecorded draw of the same arm, not a rate, and
+   nothing here says how often it would recur; the three ANI2xt warm-up groups retired none,
+   and so did all twelve recorded AIMNet2 `auto3d` group passes (three size groups in each of
+   the four repeats).
 
 ## Appendix: the script that produced every number above
 
@@ -423,4 +519,87 @@ for engine, arms in record["results"].items():
         )
         print(f"{set_name} within-set spread over the four repeats, converged rows: "
               f"max {worst:.3e} eV ({worst / FLOOR[engine]:.1f}x the floor)")
+    # The paired read. For one row, the between-set quantity is the largest
+    # |dE| over the repeats where both sets converged it, and the within-set
+    # quantity is the larger of the two sets' own spreads over those same
+    # repeats -- so the two are measured on one row, over one set of repeats,
+    # which a maximum against a maximum is not. A row needs two such repeats
+    # for a spread to exist at all, which is the denominator below.
+    floor = FLOOR[engine]
+    a_by_rep = {r["rep"]: r for r in arms if r["set"] == "auto3d"}
+    b_by_rep = {r["rep"]: r for r in arms if r["set"] == "bitzek2006"}
+    reps = sorted(a_by_rep)
+    n_rows = len(a_by_rep[reps[0]]["energy"])
+    between, within, exceed = [], [], 0
+    for i in range(n_rows):
+        shared = [r for r in reps if a_by_rep[r]["converged"][i] and b_by_rep[r]["converged"][i]]
+        if len(shared) < 2:
+            continue
+        ea = [a_by_rep[r]["energy"][i] for r in shared]
+        eb = [b_by_rep[r]["energy"][i] for r in shared]
+        btw = max(abs(x - y) for x, y in zip(ea, eb, strict=True))
+        wth = max(max(ea) - min(ea), max(eb) - min(eb))
+        between.append(btw)
+        within.append(wth)
+        exceed += btw > wth
+    print(f"paired read: the between-set difference is the larger one in {exceed} of "
+          f"{len(between)} rows")
+    print(f"  per-row between-set maximum: median {statistics.median(between):.3e} eV, "
+          f"{sum(1 for x in between if x > floor)} of {len(between)} above the floor")
+    print(f"  per-row within-set spread:   median {statistics.median(within):.3e} eV, "
+          f"{sum(1 for x in within if x > floor)} of {len(within)} above the floor")
+
+    # The sign of dE(bitzek2006 - auto3d), over every both-converged pair.
+    signed, auto3d_lower, above, above_lower = [], 0, 0, 0
+    for rep in reps:
+        a, b = a_by_rep[rep], b_by_rep[rep]
+        for i in range(n_rows):
+            if not (a["converged"][i] and b["converged"][i]):
+                continue
+            d = b["energy"][i] - a["energy"][i]
+            signed.append(d)
+            auto3d_lower += d > 0
+            if abs(d) > floor:
+                above += 1
+                above_lower += d > 0
+    print(f"sign: auto3d is the lower energy in {auto3d_lower} of {len(signed)} both-converged "
+          f"pairs, and in {above_lower} of the {above} pairs above the floor; mean signed "
+          f"dE(bitzek2006 - auto3d) {statistics.fmean(signed):+.3e} eV")
+
+    # Clause 1 as ratios: each statistic's rise over the spread of that same
+    # statistic across the four repeats of either set.
+    ratios = []
+    for key in ("median", "p90", "p99", "max"):
+        rise = (
+            stats([r for r in arms if r["set"] == "bitzek2006"])[key]
+            - stats([r for r in arms if r["set"] == "auto3d"])[key]
+        )
+        for set_name in ("auto3d", "bitzek2006"):
+            values = [stats([r])[key] for r in arms if r["set"] == set_name]
+            sp = max(values) - min(values)
+            if sp == 0:
+                print(f"  {key}: rise {rise:g} over a {set_name} spread of 0 -- no ratio")
+                continue
+            ratios.append(rise / sp)
+            print(f"  {key}: rise {rise:g} = {rise / sp:.1f}x the {set_name} spread of {sp:g}")
+    print(f"rise-to-spread ratios: {min(ratios):.1f}x to {max(ratios):.1f}x")
+
+    # Where the retired rows left the loop, against where auto3d converged.
+    exits = [
+        s
+        for r in arms
+        if r["set"] == "bitzek2006"
+        for s, d in zip(r["converged_step"], r["dropped"], strict=True)
+        if d
+    ]
+    conv = [
+        s
+        for r in arms
+        if r["set"] == "auto3d"
+        for s, c in zip(r["converged_step"], r["converged"], strict=True)
+        if c
+    ]
+    print(f"retired rows left the loop at step {min(exits)} to {max(exits)}, median "
+          f"{statistics.median(exits):g} (n {len(exits)}); auto3d converged every row by step "
+          f"{max(conv)}, median {statistics.median(conv):g}")
 ```
