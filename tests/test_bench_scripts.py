@@ -64,19 +64,6 @@ def test_measure_fire_constants_calls_n_steps_with_a_named_set():
         assert isinstance(keywords["fire_constants"], ast.Name)
 
 
-def test_measure_empty_cache_builds_the_optimizer_with_keywords():
-    tree = ast.parse((REPO / "benchmarks" / "measure_empty_cache.py").read_text())
-    calls = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and getattr(n.func, "id", None) in {"Optimizer", "optimizing"}
-    ]
-    assert calls  # both the warm-up run and the timed loop build one
-    for call in calls:
-        assert len(call.args) == 2
-        assert {"adapter", "device", "config"} <= {k.arg for k in call.keywords}
-
-
 def test_measure_batch_noise_builds_its_parser_through_the_shared_helper():
     """The batch-noise script does not spell the shared arguments its own way.
 

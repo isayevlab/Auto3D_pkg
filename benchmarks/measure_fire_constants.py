@@ -107,10 +107,10 @@ def build_groups(limit: int | None = None) -> dict[str, list]:
     own starting geometry (``pad_from_mols`` reads ``mol.GetConformer()``, which
     would otherwise take conformer 0 ten times over).
 
-    ``limit`` applies to the flattened small/medium/large order, as
-    ``measure_empty_cache.py``'s does, so a small enough limit returns fewer
-    groups rather than empty ones. (``measure_batch_noise.py`` cuts each size
-    group instead, for the reason its own helper gives.)
+    ``limit`` applies to the flattened small/medium/large order, so a small
+    enough limit returns fewer groups rather than empty ones.
+    (``measure_batch_noise.py`` cuts each size group instead, for the reason
+    its own helper gives.)
     """
     from rdkit import Chem
     from rdkit.Chem import AllChem
@@ -354,8 +354,7 @@ def main() -> None:
         print(f"{engine}: warm-up done.", file=sys.stderr)
 
         for rep in range(args.reps):
-            # Alternate which set goes first each repeat, as
-            # measure_empty_cache.py does for its two arms, so neither set is
+            # Alternate which set goes first each repeat, so neither set is
             # always later in wall-clock time.
             order = sets if rep % 2 == 0 else list(reversed(sets))
             for set_name in order:

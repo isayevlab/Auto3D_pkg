@@ -4,7 +4,12 @@
 
 - **Date:** 2026-10-16. Script: `benchmarks/measure_empty_cache.py`. Record:
   `benchmarks/results-notes/2026-10-16-empty-cache.json`, a byte-for-byte copy of the file the
-  run wrote.
+  run wrote. **The script is removed in the same change as the switch it measured**, so every
+  reference to it below names the program that produced this record rather than a file in the
+  tree: it is readable at `3cc0b08`, the commit the record's `env` block names, and at any
+  commit of the default branch before this change landed. It drove the arms by flipping the
+  class attribute named in the next bullet, so once that attribute was removed the script could
+  not run at all (concern 3).
 - **What is compared.** `Auto3D.engines.batch_opt.batchopt.Optimizer._optimize_all` released the
   CUDA cache after every size bucket, gated by the class attribute
   `Optimizer.EMPTY_CACHE_PER_BUCKET` (default `True`); `Optimizer.run` releases it once more at
@@ -60,17 +65,19 @@
   memory, allocator retries and out-of-memory events -- are counts and byte totals of the
   caching allocator and do not depend on the arithmetic precision of a matmul, while wall clock
   does, and wall clock is a sensitivity line here that no part of the decision reads.
-- **Commit:** `env.commit` `3cc0b08`. `git diff 3cc0b08 HEAD -- benchmarks/measure_empty_cache.py`
-  is empty, so the script at that commit is byte-identical to the one beside this note. A diff
+- **Commit:** `env.commit` `3cc0b08`.
+  `git diff 3cc0b08 0ac0ae5 -- benchmarks/measure_empty_cache.py` is empty -- `0ac0ae5` being the
+  commit this change builds on, the last one that still holds the script -- so the script that
+  produced this record is byte-identical to the one this change removes. A diff
   between two commits cannot show that the run's working tree was clean; what supports that for
   this script is the record's own `env` block, which lacks the fields the then-uncommitted edit
   to `benchmarks/bench_optimization_perf.py` added (deviation 1) -- so that edit was not yet in
   the tree when the record was written, and the shared helper this script imports was the
   committed one. The helper has since gained those `env` fields and nothing else that this
   script reads.
-- **Code under test:** `git diff 3cc0b08 HEAD -- src/Auto3D/engines/batch_opt/batchopt.py` is
-  also empty, so the gate, the per-bucket call and the per-chunk call measured here are the ones
-  this note decides on, to the byte.
+- **Code under test:** `git diff 3cc0b08 0ac0ae5 -- src/Auto3D/engines/batch_opt/batchopt.py` is
+  also empty, so the gate, the per-bucket call and the per-chunk call measured here are, to the
+  byte, the ones this note decides on and the ones this change edits.
 - **Repeats:** four, an even count, and the script alternates which arm leads each repeat, so
   each arm leads twice: the record's order is `on`/`off`, `off`/`on`, `on`/`off`, `off`/`on` for
   both engines. Unlike the script behind
@@ -168,8 +175,10 @@ MiB.
 
 ## Decision
 
-The rule, pre-registered in the module docstring of `benchmarks/measure_empty_cache.py` before
-the run and unchanged there since (the Commit bullet's diff):
+The rule, pre-registered in the module docstring of `benchmarks/measure_empty_cache.py` at
+`3cc0b08`, the commit the record names, before the run -- and unchanged in that docstring from
+there to the commit this change builds on (the Commit bullet's diff), which is where the script
+is readable now that this change removes it (Setup):
 
 > remove the per-bucket call and the switch only if, per engine, the off arm's peak reserved
 > memory is not higher than the on arm's beyond the repeat spread (20 MiB floor) and no
@@ -218,8 +227,10 @@ clauses hold for AIMNet2 and both hold for ANI2xt, so the rule's condition for r
 `Optimizer.EMPTY_CACHE_PER_BUCKET` is gone with it; the release in `Optimizer.run`, after the
 chunk's output is written, is untouched and is now the only one the optimizer makes. The two
 tests that covered the switch's two positions become one test asserting that a two-bucket run
-releases the cache exactly once, at the end of the chunk. The `### Fixed` entry of the
-CHANGELOG's unreleased section records the change and cites this note.
+releases the cache exactly once, at the end of the chunk. The script goes with the switch, for
+the reason concern 3 gives, and so does the test that parsed it. The CHANGELOG's unreleased
+section records both halves and cites this note: a `### Fixed` entry for the release policy and
+a `### Removed` entry for the script.
 
 ## Deviations and concerns
 
@@ -235,7 +246,7 @@ CHANGELOG's unreleased section records the change and cites this note.
    `CUDA_VISIBLE_DEVICES` as `5` from the command that launched the run, the precision flags
    named as the call this script does *not* make rather than as recorded values, and the tree
    state as the Commit bullet gives it -- a diff showing the script unchanged between `3cc0b08`
-   and this head, plus the missing `env` fields as the evidence that the helper edit was not yet
+   and `0ac0ae5`, plus the missing `env` fields as the evidence that the helper edit was not yet
    in the tree. A hand-stated version is weaker evidence than a recorded one: it is the version
    installed when this note was written, and nothing in the record pins it.
 2. **The script applies no precision configuration, so this run did not carry the production
@@ -248,10 +259,10 @@ CHANGELOG's unreleased section records the change and cites this note.
    out-of-memory counters, which are allocator bookkeeping and are not a function of matmul
    precision; the quantity TF32 does move is wall clock, which appears here only as the
    sensitivity line both engines' Results paragraphs describe and which no clause reads. The
-   call was deliberately not added to the script as part of this change: the committed record
-   was produced by the script as committed, and adding the call now would leave a record that
-   the script beside it could not have produced. Adding it is the right first step for whoever
-   repeats this measurement, together with concern 3.
+   call was deliberately not added to the script as part of this change: this record must stay
+   producible by the program that produced it, and the script is in any case removed here
+   (Setup, concern 3). Adding the call belongs to whoever restores the script to repeat the
+   measurement, together with the gate concern 3 names.
 3. **Another process was on the card during the run, and the record was kept.** A watch on card
    5 saw a second process -- 426 MiB, no sustained compute -- present for at least one
    sixty-second sample at 09:45:25 UTC, belonging to another of the owner's own tools on this
@@ -297,12 +308,16 @@ CHANGELOG's unreleased section records the change and cites this note.
    stressed the allocator. On a chunk that fills the card, the per-chunk release and the
    sub-batch halving in `BatchedEnergyForce` are what remain; whether a per-bucket release would
    help there is not measured in either direction.
-3. **The script cannot be rerun as committed now that the gate is gone.** It reads
-   `Optimizer.EMPTY_CACHE_PER_BUCKET` before each arm to restore it afterwards, so with the
-   attribute removed it raises `AttributeError` at the first arm and produces no record. It is
-   left in the tree as the record of how these numbers were made and as the place the rule is
-   pre-registered. Repeating the measurement means reinstating a gate on the call first -- and,
-   per deviation 2, adding the precision call while there.
+3. **The script could not survive the switch, so it is removed with it.** It read
+   `Optimizer.EMPTY_CACHE_PER_BUCKET` before each arm to restore it afterwards and wrote it to
+   select the arm, so with the attribute removed it raises `AttributeError` at the first arm and
+   produces no record: a script that measures a switch no longer in the code can only mislead.
+   `benchmarks/measure_empty_cache.py` and the test that parsed it therefore go in this same
+   change, and the script stays readable at the commits Setup names. Repeating this measurement
+   means restoring the script and a gate on the call first -- and, per deviation 2, adding the
+   precision call while there. Everything the rule was read against is in this note and in the
+   record beside it, so nothing the decision rests on depends on the script still being in the
+   tree.
 4. **The 10.0 MiB and the 0.198 MiB are unexplained.** Both differences are perfectly
    repeatable across four repeats on both engines and both run in the same direction, which is
    not what run-to-run noise looks like; neither is large enough to change a clause verdict, and

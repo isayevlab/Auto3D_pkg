@@ -121,6 +121,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measurement exercises" bounds what it covers: two size buckets, so one
   release beyond the per-chunk one, and no memory pressure in either arm.
 
+### Removed
+- `benchmarks/measure_empty_cache.py`, the cache-release measurement script, is
+  removed together with the per-bucket switch it measured: it selected each arm
+  by flipping `Optimizer.EMPTY_CACHE_PER_BUCKET`, which no longer exists. Its
+  record and the decision it produced are kept in
+  `benchmarks/results-notes/2026-10-16-empty-cache.md` and the JSON beside it,
+  and the script itself remains readable in the history at the commit that
+  record names. The other benchmark scripts are unaffected.
+
 ## [3.2.1] - 2026-10-11
 
 ### Fixed
