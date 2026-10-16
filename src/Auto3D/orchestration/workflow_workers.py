@@ -24,6 +24,7 @@ from Auto3D.domain.ranking import ConformerRanker
 from Auto3D.engines.batch_opt.batchopt import Optimizer
 from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
+from Auto3D.engines.models.contract import duplicate_energy_tol_of
 from Auto3D.engines.models.policy import check_gpu_requested
 from Auto3D.engines.torch_config import TorchConfig, configure_torch
 from Auto3D.foundation.exceptions import (
@@ -399,13 +400,16 @@ def optim_rank_wrapper(
                     # this worker optimized with: how far two optimizations of
                     # one minimum land apart was measured per engine, and the
                     # filter is a lower layer that cannot ask which engine ran.
+                    # Through the accessor, not the attribute: `create_model`
+                    # returns the ModelAdapter Protocol, which does not require
+                    # the member (see `duplicate_energy_tol_of`).
                     rank_engine = ConformerRanker(
                         optimized_og,
                         output,
                         duplicate_threshold,
                         k=k,
                         window=window,
-                        duplicate_energy_tol=adapter.duplicate_energy_tol,
+                        duplicate_energy_tol=duplicate_energy_tol_of(adapter),
                     )
                     # The ranked mols are written to `output` by `run()`; they are
                     # deliberately not accumulated. Every call site in this

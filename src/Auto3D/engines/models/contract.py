@@ -479,6 +479,37 @@ def as_mults(values: Any, device: torch.device) -> torch.Tensor | None:
     return mults
 
 
+def duplicate_energy_tol_of(adapter: Any) -> float:
+    """The duplicate-energy tolerance to deduplicate ``adapter``'s output with.
+
+    How far two optimizations of one minimum can land apart at the force gate
+    is a measured property of the backend, so Auto3D's own adapters carry it:
+    :class:`Auto3D.engines.models.adapter.BaseModelAdapter` supplies
+    ``duplicate_energy_tol`` and each backend overrides it with its own
+    measurement. It is deliberately NOT a member of :class:`ModelAdapter` and
+    is never required of an implementer -- a structural adapter (a test
+    double, or anything written against the documented interface) is a
+    complete adapter without it, and adding it to the Protocol would make
+    :func:`missing_adapter_members` reject every such adapter at the two
+    places that check structural conformance.
+
+    This accessor is therefore the one place the absence is handled, and the
+    reason callers do not read the attribute themselves: the factory's return
+    type is the Protocol, where the member does not exist.
+
+    Args:
+        adapter: Any adapter, whether or not it carries the attribute.
+
+    Returns:
+        The adapter's own value, or
+        ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL`` when it
+        has none.
+    """
+    from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
+
+    return float(getattr(adapter, "duplicate_energy_tol", DEFAULT_DUPLICATE_ENERGY_TOL))
+
+
 def missing_adapter_members(obj: Any) -> list[str]:
     """Members :class:`ModelAdapter` requires that ``obj`` does not provide.
 

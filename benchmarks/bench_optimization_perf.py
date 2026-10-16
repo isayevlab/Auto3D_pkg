@@ -46,6 +46,7 @@ number you can trust:
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import os
 import platform
@@ -177,6 +178,63 @@ def env_block(device: torch.device | None = None) -> dict:
         except Exception:
             return "unknown"
 
+    def dirty_tree() -> bool | None:
+        """Whether the tree had uncommitted changes, or ``None`` if git refused.
+
+        A record from a dirty tree cannot be reproduced from the commit it
+        names -- the script that produced it is not the script that commit
+        holds -- so this is the flag a reader needs before trusting ``commit``.
+        """
+        try:
+            porcelain = subprocess.check_output(
+                ["git", "status", "--porcelain"], text=True, stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            return None
+        return bool(porcelain.strip())
+
+    def precision_flags() -> dict:
+        """The precision knobs ``configure_torch`` writes, as this process has them.
+
+        Both spellings: the ``allow_tf32`` booleans (back-compat) and the
+        ``fp32_precision`` strings (canonical on torch >= 2.9, where reading
+        the booleans is deprecated -- hence the suppressed warnings). An
+        attribute this torch does not have is recorded as ``None`` rather than
+        omitted, so two records are read against the same set of keys.
+        """
+        flags: dict = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for key, holder, attribute in (
+                ("matmul_allow_tf32", torch.backends.cuda.matmul, "allow_tf32"),
+                ("cudnn_allow_tf32", torch.backends.cudnn, "allow_tf32"),
+                ("matmul_fp32_precision", torch.backends.cuda.matmul, "fp32_precision"),
+                ("cudnn_fp32_precision", torch.backends.cudnn, "fp32_precision"),
+            ):
+                try:
+                    value = getattr(holder, attribute)
+                except Exception:
+                    value = None
+                flags[key] = value if isinstance(value, bool) or value is None else str(value)
+            try:
+                flags["float32_matmul_precision"] = torch.get_float32_matmul_precision()
+            except Exception:
+                flags["float32_matmul_precision"] = None
+        return flags
+
+    def version_of(package: str) -> str | None:
+        """The installed version of ``package``, or ``None`` when it is absent.
+
+        The energies in a record come from these packages, so two records
+        measured against different model weights or a different RDKit are not
+        one measurement -- and which versions were installed is not
+        recoverable from the record afterwards.
+        """
+        try:
+            return importlib.metadata.version(package)
+        except Exception:
+            return None
+
     import Auto3D
 
     on_gpu = torch.cuda.is_available() and (device is None or device.type == "cuda")
@@ -191,8 +249,18 @@ def env_block(device: torch.device | None = None) -> dict:
         "python": platform.python_version(),
         "commit": git("rev-parse", "--short", "HEAD"),
         "ref": git("rev-parse", "--abbrev-ref", "HEAD"),
+        # Read `commit` only together with this: True means the run carried
+        # changes that commit does not hold.
+        "dirty_tree": dirty_tree(),
         # The A/B guard: if these match, both runs benchmarked the same code.
         "auto3d_path": str(Path(Auto3D.__file__).resolve().parent),
+        "precision": precision_flags(),
+        # Which cards this process could see at all, which is what `device`
+        # indexes into (`None` when the variable was unset).
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "aimnet": version_of("aimnet"),
+        "torchani": version_of("torchani"),
+        "rdkit": version_of("rdkit"),
     }
 
 

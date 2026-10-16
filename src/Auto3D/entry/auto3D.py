@@ -21,6 +21,7 @@ from Auto3D.domain.ranking import ConformerRanker
 from Auto3D.engines.batch_opt.batchopt import Optimizer
 from Auto3D.engines.isomers import IsomerEngineFactory
 from Auto3D.engines.model_factory import create_model, get_device
+from Auto3D.engines.models.contract import duplicate_energy_tol_of
 from Auto3D.engines.models.preflight import preflight_model
 from Auto3D.foundation.config import Auto3DOptions, require_selector
 from Auto3D.foundation.exceptions import ConfigurationError, OptimizationError
@@ -328,14 +329,16 @@ def smiles2mols(
         # Ranking step. The duplicate-energy tolerance comes from the adapter
         # these energies were produced with: how far two optimizations of one
         # minimum land apart was measured per engine, and the filter is a lower
-        # layer that cannot ask which engine ran.
+        # layer that cannot ask which engine ran. Through the accessor, not the
+        # attribute: `create_model` returns the ModelAdapter Protocol, which
+        # does not require the member (see `duplicate_energy_tol_of`).
         rank_engine = ConformerRanker(
             meta["optimized_og"],
             meta["output"],
             args.threshold,
             k=k,
             window=window,
-            duplicate_energy_tol=adapter.duplicate_energy_tol,
+            duplicate_energy_tol=duplicate_energy_tol_of(adapter),
         )
         _ = rank_engine.run()
         conformers = reorder_sdf(meta["output"], path0)

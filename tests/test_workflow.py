@@ -1769,13 +1769,12 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
             return True  # matches Optimizer.run()'s real True-on-write contract
 
     class _StubRank:
-        # **kwargs, not a copy of the real signature: this test is about
-        # reconciliation, and the keywords the entry point ranks with (the
-        # selectors, the engine's duplicate-energy tolerance) are pinned where
-        # they belong, not here.
-        def __init__(self, in_f, out_f, threshold, **kwargs):
+        # The real signature, spelled out: this stub standing in for a
+        # ConformerRanker the entry point calls with keywords it does not
+        # accept would be a silent pass. What the entry point ranks WITH is
+        # pinned in the test below, not here.
+        def __init__(self, in_f, out_f, threshold, k=None, window=None, duplicate_energy_tol=None):
             written["out_f"] = out_f
-            written["duplicate_energy_tol"] = kwargs.get("duplicate_energy_tol")
 
         def run(self):
             # Only ethanol "converges"; propanol vanishes mid-pipeline with no
@@ -1814,13 +1813,70 @@ def test_smiles2mols_calls_find_smiles_not_in_sdf_and_reports_missing(monkeypatc
     assert ethanol_id not in missing_ids
     assert len(missing_ids) == 1
     assert any(missing_ids[0] in r.message for r in caplog.records)
-    # This entry point is the other production construction of the ranker, and
-    # it ranks with the adapter it optimized with (a real one here: only the
-    # isomer engine, the optimizer and the ranker are stubbed above). The
-    # engine is this run's default, so the value is that adapter class's own.
-    from Auto3D.engines.models.adapter import AIMNet2Adapter
 
-    assert written["duplicate_energy_tol"] == AIMNet2Adapter.duplicate_energy_tol
+
+def test_smiles2mols_ranks_with_the_adapters_duplicate_energy_tol(monkeypatch, tmp_path):
+    """The other production construction of the ranker, pinned on its own.
+
+    `smiles2mols` optimizes and ranks in the caller's process, so the adapter
+    it built is what its energies came from and what their duplicate-energy
+    tolerance was measured for. Reading the shipped constant here instead
+    would deduplicate every engine with a tolerance measured for none of them.
+    The adapter is a stub: what is under test is which number reaches the
+    ranker, not any model.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    import Auto3D.entry.auto3D as auto3D_mod
+    from Auto3D.foundation.config import Auto3DOptions
+
+    class _Adapter:
+        duplicate_energy_tol = 0.123
+
+    class _StubIsomerEngine:
+        def run(self):
+            return None
+
+    class _StubOpt:
+        def __init__(self, in_f, out_f, **kwargs):
+            self._out = out_f
+
+        def run(self):
+            # Enough of an SDF for the entry point to get past its
+            # "nothing was produced" guard and reach the ranking step.
+            with Chem.SDWriter(self._out) as w:
+                mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+                AllChem.EmbedMolecule(mol, randomSeed=42)
+                w.write(mol)
+            return True
+
+    recorded: list[dict] = []
+
+    class _RecordingRank:
+        def __init__(self, in_f, out_f, threshold, **kwargs):
+            recorded.append(kwargs)
+            self._out = out_f
+
+        def run(self):
+            with Chem.SDWriter(self._out) as w:
+                mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+                AllChem.EmbedMolecule(mol, randomSeed=42)
+                w.write(mol)
+            return []
+
+    monkeypatch.setattr(
+        auto3D_mod.IsomerEngineFactory, "create", staticmethod(lambda **k: _StubIsomerEngine())
+    )
+    monkeypatch.setattr(auto3D_mod, "create_model", lambda *a, **k: _Adapter())
+    monkeypatch.setattr(auto3D_mod, "Optimizer", _StubOpt)
+    monkeypatch.setattr(auto3D_mod, "ConformerRanker", _RecordingRank)
+    monkeypatch.setattr(auto3D_mod, "reorder_sdf", lambda *a, **k: [])
+
+    auto3D_mod.smiles2mols(["CCO"], Auto3DOptions(k=1, use_gpu=False))
+
+    assert len(recorded) == 1, "the run never reached the ranking step"
+    assert recorded[0]["duplicate_energy_tol"] == 0.123
 
 
 class TestQuietPathsNameWhatTheyDropped:

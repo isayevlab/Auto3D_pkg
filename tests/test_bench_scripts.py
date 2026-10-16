@@ -477,3 +477,57 @@ def test_the_bench_record_survives_a_number_that_is_not_finite(tmp_path, capsys)
     failed = capsys.readouterr().err
     assert str(doomed) in failed
     assert "non-finite" in failed
+
+
+def test_the_bench_environment_block_records_what_makes_a_record_comparable():
+    """Everything that decides whether two records measured the same thing.
+
+    A record is read months later against another one, and the questions that
+    come up then are whether the tree was clean, which precision the kernels
+    ran at, which card the process could see, and which model package produced
+    the energies. None of them could be answered from a record before this,
+    and none is recoverable afterwards. Checked on CPU, where the values are
+    whatever this process has: this asserts the keys exist and are of a type
+    a reader can use, not what they contain.
+    """
+    import torch
+    from bench_optimization_perf import env_block
+
+    env = env_block(torch.device("cpu"))
+    assert {
+        "gpu",
+        "torch",
+        "cuda",
+        "capability",
+        "python",
+        "commit",
+        "ref",
+        "auto3d_path",
+        "dirty_tree",
+        "precision",
+        "cuda_visible_devices",
+        "aimnet",
+        "torchani",
+        "rdkit",
+    } <= set(env)
+
+    # A tree with uncommitted work is a record that cannot be reproduced from
+    # its commit alone; `None` only when git could not be asked.
+    assert env["dirty_tree"] is None or isinstance(env["dirty_tree"], bool)
+    # The flags `Auto3D.engines.torch_config.configure_torch` writes, under
+    # both the names torch uses: the booleans and the fp32 precision setting.
+    assert {
+        "matmul_allow_tf32",
+        "cudnn_allow_tf32",
+        "matmul_fp32_precision",
+        "cudnn_fp32_precision",
+        "float32_matmul_precision",
+    } <= set(env["precision"])
+    assert env["cuda_visible_devices"] is None or isinstance(env["cuda_visible_devices"], str)
+    # One of the three is certainly installed (this suite imports rdkit); a
+    # package that is not installed is `None` rather than a missing key.
+    for package in ("aimnet", "torchani", "rdkit"):
+        assert env[package] is None or isinstance(env[package], str)
+    assert env["rdkit"] is not None
+    # And the whole block still survives the strict dump every record gets.
+    json.dumps(env, allow_nan=False)
