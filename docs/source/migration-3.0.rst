@@ -770,7 +770,13 @@ instead; a hand-written parameter dict may keep ``opttol`` until 4.0, which
 emits a ``DeprecationWarning`` -- see the ``Unreleased`` section of
 ``CHANGELOG.md``.) The unrelated ``energy_tol`` argument of
 ``Auto3D.filtering`` (the duplicate-conformer energy tolerance) is a
-different parameter and is unchanged.
+different parameter, and this migration does not touch it. It did change
+later: from the ``Unreleased`` section of ``CHANGELOG.md``,
+``filter_conformers`` and ``filter_unique_optimized`` accept ``energy_tol``
+as a keyword (defaulting, as before, to
+``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``), and Auto3D's
+own pipeline passes the value measured for the engine that produced the
+energies. A call that passes nothing behaves as it did.
 
 ``use_ensemble`` and ``**kwargs`` removed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

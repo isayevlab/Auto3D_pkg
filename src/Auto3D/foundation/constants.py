@@ -164,20 +164,27 @@ DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
 # (Auto3D.engines.models.adapter), five times its measured floor rounded up to
 # two significant figures, and the orchestrator passes that value down to
 # `filter_conformers` -- the filter is a lower layer and cannot ask which engine
-# ran. On the 24-molecule bench set, three batch arrangements, three repeats on
-# an idle card, those floors were 7.1e-3 eV (AIMNet2), 2.0e-3 eV (ANI2xt) and
-# 7.8e-3 eV (ANI2x), giving 0.036, 0.011 and 0.040 eV
-# (benchmarks/results-notes/2026-10-16-batch-noise.md). Every one of them is
-# above this 0.01, which no longer stands five times above any measured floor:
-# a run deduplicated with THIS value -- a custom NNP, or a direct call into the
-# filter or the ranker that passes nothing -- can keep two copies of one
-# minimum whose energies disagree by more than it (docs/source/usage.rst,
-# "Reproducibility across reruns"). ANI2x's float32 total energy is quantized at
-# 2-4e-3 eV above |E| ~ 2e4 eV, and its floor is a two-step event of that
-# quantization rather than optimizer position; the earlier sample's heavy-atom
-# RMSD check (6.5e-5 A to 0.054 A, well below the 0.3 A duplicate threshold;
-# benchmarks/results-notes/2026-10-06-batch-noise-gpu-geometry.json) found basin
-# position, not a different rotamer, for the spreads it captured.
+# ran. The shipped values are 0.036 eV (AIMNet2, 0.83 kcal/mol), 0.011 eV
+# (ANI2xt, 0.25) and 0.040 eV (ANI2x, 0.92), each five times the floor of the
+# 2026-10-16 measurement they were taken from -- the first of the two samples
+# that day on one idle card, whose record the note below has since replaced.
+# A second sample, three arrangements and three repeats again, measured larger
+# floors for two engines: 9.9e-3 eV (AIMNet2), 2.1e-3 eV (ANI2xt) and 2.0e-2 eV
+# (ANI2x), each verified as one minimum reached twice by heavy-atom RMSD
+# (<= 0.10 A, well inside the 0.3 A duplicate threshold). The shipped values
+# still cover every spread that sample measured -- by 3.6x, 5.2x and 2.1x --
+# but no longer by five times for AIMNet2 and ANI2x; five times those floors
+# would be 0.050 and 0.098 eV, which is not what is shipped. Both samples and
+# that reading: benchmarks/results-notes/2026-10-16-batch-noise.md.
+#
+# Every per-engine value is above this 0.01, which stands five times above no
+# measured floor at all: a run deduplicated with THIS value -- a custom NNP, or
+# a direct call into the filter or the ranker that passes nothing -- can keep
+# two copies of one minimum whose energies disagree by more than it
+# (docs/source/usage.rst, "Reproducibility across reruns"). ANI2x's float32
+# total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV, so its floor is a
+# count of those steps rather than optimizer position, and it doubles with each
+# doubling of |E|.
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by

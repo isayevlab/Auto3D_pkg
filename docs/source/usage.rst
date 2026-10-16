@@ -547,21 +547,43 @@ With ``memory`` unset on a GPU, Auto3D reads the card's free memory from
 ``nvidia-smi`` once per run and scales ``batchsize_atoms`` by it, so on a shared
 card the sub-batch composition can differ between two runs of the same input.
 Energies then differ at the batch-composition noise level, measured on one box
-in ``benchmarks/results-notes/2026-10-05-batch-noise.md``: below 1e-5 eV for a
-single-point AIMNet2 or ANI2xt energy; after optimization, up to 1.7e-3 eV
-for AIMNet2 and 2.0e-3 eV for ANI2xt -- where the optimizer stopped at a
-slightly different point of the same basin, 5.8x and 4.96x below the 0.01 eV
-``DEFAULT_DUPLICATE_ENERGY_TOL`` mentioned below, respectively; and up to
-about 2e-2 eV for ANI2x, whose total energy is a float32 quantity. A
-duplicate-conformer decision sitting at ``DEFAULT_DUPLICATE_ENERGY_TOL``
-(0.01 eV) can therefore flip between reruns; for ANI2x specifically, one
-observed event above the tolerance (2e-2 eV) would let two copies of a
-conformer survive for a large molecule -- whether that event is the same
-minimum landed on twice or two different, near-degenerate rotamers is not
-established (``benchmarks/results-notes/2026-10-05-batch-noise.md``, "Same
-minimum?"); either way the duplicate survives. Pass ``memory=<GB>`` (``--memory``
-on the command line) to pin the batch composition; the remaining rerun-to-rerun
-difference at a fixed composition measured 3.8e-6 eV on the same box.
+in ``benchmarks/results-notes/2026-10-16-batch-noise.md``: below 1e-5 eV for a
+single-point AIMNet2 or ANI2xt energy, and one float32 quantization step
+(about 2e-3 eV at these molecules' total energies) for ANI2x, whose total
+energy is itself a float32 quantity.
+
+After optimization the difference is larger, because it is set by where the
+optimizer stopped inside the basin at the 0.01 eV/A force gate rather than by
+kernel noise. On a 24-molecule bench set, the same starting structure
+optimized in three batch arrangements and repeated three times ended up to
+9.9e-3 eV (AIMNet2), 2.1e-3 eV (ANI2xt) and 2.0e-2 eV (ANI2x) apart. Each of
+those largest cases was checked: the three arrangements' final geometries
+agree to 0.10 A heavy-atom RMSD or better, well inside the 0.3 A duplicate
+threshold, so they are one minimum reached more than once and not distinct
+conformers.
+
+Duplicate detection is where that matters, and the tolerance it uses is per
+engine. Each model adapter carries a ``duplicate_energy_tol`` measured for
+that engine -- 0.036 eV (0.83 kcal/mol) for AIMNet2, 0.011 eV (0.25 kcal/mol)
+for ANI2xt, 0.040 eV (0.92 kcal/mol) for ANI2x -- and Auto3D passes the value
+from the adapter it optimized with down to the conformer filter. Two
+conformers count as duplicates only when they are the same compound, their
+heavy-atom RMSD is under ``threshold`` (0.3 A by default) **and** their
+energies agree within that tolerance, so a tolerance wide enough to cover the
+rerun-to-rerun spread also merges two genuinely distinct structures whose
+energies happen to agree within it -- which is the trade-off those numbers
+make, and why the measurement behind them is written up rather than just
+applied. ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``
+(0.01 eV) remains the value used when there is no adapter to ask: a custom
+NNP, or a direct call to ``filter_conformers`` / ``filter_unique_optimized`` /
+``ConformerRanker`` that passes no tolerance of its own. Under that fallback,
+an ANI2x spread of the size measured above (2.0e-2 eV) is wider than the
+tolerance, so two copies of one minimum can both survive deduplication; the
+per-engine values cover every spread these measurements saw.
+
+Pass ``memory=<GB>`` (``--memory`` on the command line) to pin the batch
+composition; the remaining rerun-to-rerun difference at a fixed composition
+measured 3.0e-6 eV (AIMNet2) and was bit-identical for ANI2x on the same box.
 
 Output Files
 ------------

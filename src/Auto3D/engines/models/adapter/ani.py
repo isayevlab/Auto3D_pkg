@@ -38,11 +38,15 @@ class ANI2xtAdapter(BaseModelAdapter):
     is claimed here because none has been measured.
     """
 
-    #: eV, five times this engine's measured floor (2.04e-03 eV) rounded up to
-    #: two significant figures. See :class:`BaseModelAdapter` for what the
-    #: attribute is, and
+    #: eV (0.25 kcal/mol), five times the floor of the 2026-10-16 measurement
+    #: this value was taken from (2.04e-03 eV), rounded up to two significant
+    #: figures; a second sample that day measured 2.10e-03 eV, which this
+    #: value still stands 5.2x above. See :class:`BaseModelAdapter` for what
+    #: the attribute is, and
     #: ``benchmarks/results-notes/2026-10-16-batch-noise.md`` for the
-    #: measurement.
+    #: measurement. The difference from the shipped fallback (0.01 eV) is
+    #: within the rounding, so deduplication on this engine is effectively
+    #: unchanged by it.
     duplicate_energy_tol: float = 0.011
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:
@@ -162,15 +166,22 @@ class ANI2xAdapter(BaseModelAdapter):
     torchani's AEV path corrupts energies.
     """
 
-    #: eV, five times this engine's measured floor (7.81e-03 eV) rounded up to
-    #: two significant figures. See :class:`BaseModelAdapter` for what the
-    #: attribute is, and
+    #: eV (0.92 kcal/mol), five times the floor of the 2026-10-16 measurement
+    #: this value was taken from (7.81e-03 eV), rounded up to two significant
+    #: figures. See :class:`BaseModelAdapter` for what the attribute is, and
     #: ``benchmarks/results-notes/2026-10-16-batch-noise.md`` for the
-    #: measurement. This engine's total energy is itself a float32 quantity,
-    #: quantized at 2-4e-3 eV above |E| ~ 2e4 eV, and the floor behind this
-    #: value is a two-step quantization event rather than optimizer position
-    #: -- which is why it is this large for a model whose single-point noise
-    #: is one step.
+    #: measurement.
+    #:
+    #: This engine's total energy is itself a float32 quantity, quantized at
+    #: 2-4e-3 eV above |E| ~ 2e4 eV, so its floor counts those steps rather
+    #: than measuring where the optimizer stopped: the sample behind this
+    #: value saw two steps, and a second sample that day saw five
+    #: (1.95e-02 eV, verified as one minimum reached twice at 0.10 A
+    #: heavy-atom RMSD), which this value covers by only 2.05x. The step
+    #: doubles with each doubling of |E|, so the value is calibrated for
+    #: molecules up to the |E| that bench set reaches, 3.9e4 eV (41 atoms for
+    #: a sulfur-containing molecule there; |E| per atom depends on
+    #: composition). Above that, the same number of steps is a larger energy.
     duplicate_energy_tol: float = 0.040
 
     def __init__(self, device: torch.device, compile_model: bool = False) -> None:

@@ -26,18 +26,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engine that produced their energies, instead of one number for every engine.
   How far two optimizations of the same minimum can land apart at the 0.01
   eV/A force gate was measured per engine (three batch arrangements, three
-  repeats, idle card), and each adapter now carries five times its own floor
-  rounded up to two significant figures: 0.036 eV for AIMNet2, 0.011 eV for
-  ANI2xt, 0.040 eV for ANI2x
-  (`benchmarks/results-notes/2026-10-16-batch-noise.md`). The pipeline passes
-  that value from the adapter it optimized with down to the conformer filter;
-  `filter_conformers`, `filter_unique_optimized` and `ConformerRanker` take it
-  as a parameter, and `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV) remains the
-  default for a caller with no adapter, including a custom NNP. The shipped
-  0.01 eV stood below five times every measured floor, so runs could return
-  two copies of one minimum as distinct conformers; a wider tolerance also
-  merges two genuinely distinct minima whose energies agree within it and
-  whose heavy-atom RMSD is below the 0.3 A threshold.
+  repeats, idle card), and each adapter now carries five times its own
+  measured floor rounded up to two significant figures: 0.036 eV
+  (0.83 kcal/mol) for AIMNet2, 0.011 eV (0.25 kcal/mol) for ANI2xt, 0.040 eV
+  (0.92 kcal/mol) for ANI2x. The measurement, including the check that each
+  largest case is one minimum reached twice rather than two conformers, is
+  written up in `benchmarks/results-notes/2026-10-16-batch-noise.md`. The
+  pipeline passes the value from the adapter it optimized with down to the
+  conformer filter; `filter_conformers`, `filter_unique_optimized` and
+  `ConformerRanker` take it as a parameter, and
+  `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV) remains the default for a caller
+  with no adapter, including a custom NNP.
+  **For the same input, a run returns fewer near-degenerate conformers than
+  3.2.1 did**: pairs whose energies differ by between 0.01 eV and the
+  engine's tolerance, and whose heavy-atom RMSD is under the 0.3 A threshold,
+  are now merged. That is the point for a pair that is one minimum reached
+  twice -- which is what 3.2.1 could return twice -- and the cost for a pair
+  of genuinely distinct structures whose energies agree that closely, which
+  the note discusses.
+  The AIMNet2 value was measured with the default `aimnet2` model and is
+  applied to the whole family (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`,
+  `aimnet2-pd`), which share one adapter class.
 - Tautomer enumeration no longer emits the mirror image of a legitimate
   tautomer. A stereo element that every proton-shift route to a tautomer must
   flatten is now emitted unspecified, so stereoisomer enumeration and enantiomer

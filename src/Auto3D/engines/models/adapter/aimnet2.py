@@ -40,12 +40,18 @@ class AIMNet2Adapter(BaseModelAdapter):
     calculator guarantees stays connected to ``coord`` in the autograd graph.
     """
 
-    #: eV, five times this engine's measured floor (7.08e-03 eV) rounded up to
-    #: two significant figures. See :class:`BaseModelAdapter` for what the
-    #: attribute is, and
+    #: eV (0.83 kcal/mol), five times the floor of the 2026-10-16 measurement
+    #: this value was taken from (7.08e-03 eV), rounded up to two significant
+    #: figures. See :class:`BaseModelAdapter` for what the attribute is, and
     #: ``benchmarks/results-notes/2026-10-16-batch-noise.md`` for the
-    #: measurement: the same molecule, optimized in three batch arrangements,
-    #: three repeats, on one card.
+    #: measurement -- the same molecule optimized in three batch arrangements,
+    #: three repeats, on one idle card -- including a second sample whose
+    #: floor was 9.9e-03 eV, which this value covers by 3.6x rather than the
+    #: five times the rule asks for.
+    #:
+    #: Measured with the default ``aimnet2`` model and applied to the family:
+    #: this class also serves ``aimnet2-2025``, ``aimnet2-nse`` and
+    #: ``aimnet2-pd``, which were not measured.
     duplicate_energy_tol: float = 0.036
 
     def __init__(
