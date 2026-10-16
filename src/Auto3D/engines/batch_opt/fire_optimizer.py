@@ -59,6 +59,13 @@ class FIRE:
       the dot product of velocity and force is zero and the step would count
       as "not progressing").
 
+    The ``auto3d`` set remains the default because the two were measured
+    against each other on 2026-10-16
+    (``benchmarks/results-notes/2026-10-16-fire-constants.md``): on both
+    engines measured, ``bitzek2006`` raised steps to convergence far beyond
+    the spread across repeats and retired as oscillating conformers that
+    ``auto3d`` converged.
+
     ``dt_init`` is a separate argument from ``dt_max``: the two are equal in
     the ``auto3d`` set but not in general, so a different ``dt_max`` has to
     come with its own starting time step rather than inherit it.
