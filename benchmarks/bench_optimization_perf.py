@@ -265,9 +265,9 @@ def env_block(device: torch.device | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Shared by every measurement script in this directory (measure_empty_cache.py,
-# measure_fire_constants.py, and the batch-noise script next): the card's state,
-# the common argument parser, and the smoke-run notices. They live here, beside
+# Shared by every measurement script in this directory
+# (measure_fire_constants.py and measure_batch_noise.py): the card's state, the
+# common argument parser, and the smoke-run notices. They live here, beside
 # `env_block` and `make_state`, because this module is already the one the
 # others import; a copy per script is how two of them drifted before.
 # --------------------------------------------------------------------------- #
@@ -396,11 +396,10 @@ def bench_arg_parser(
 
     ``--limit`` is the one flag whose UNIT is per script, which is why its help
     text is a parameter rather than a sentence written here: it keeps the first
-    N molecules of the flattened bench set in ``measure_fire_constants.py`` and
-    ``measure_empty_cache.py``, and the first N of EACH size group in
-    ``measure_batch_noise.py``, whose three arrangements need more than one
-    group to stay distinct. Both counts are positive, so a run cannot start
-    with nothing to measure.
+    N molecules of the flattened bench set in ``measure_fire_constants.py``,
+    and the first N of EACH size group in ``measure_batch_noise.py``, whose
+    three arrangements need more than one group to stay distinct. Both counts
+    are positive, so a run cannot start with nothing to measure.
     """
     parser = argparse.ArgumentParser(
         description=description, formatter_class=argparse.RawDescriptionHelpFormatter

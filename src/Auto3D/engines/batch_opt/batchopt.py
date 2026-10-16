@@ -299,9 +299,6 @@ class Optimizer:
     # descriptor compute.
     BUCKET_SIZE_FACTOR = 4.0
 
-    EMPTY_CACHE_PER_BUCKET: bool = True
-    """Per-bucket ``empty_cache()`` switch; ``benchmarks/measure_empty_cache.py`` measures it on and off."""
-
     def _make_buckets(self, mols):
         """Group molecule indices into size-homogeneous buckets.
 
@@ -489,14 +486,19 @@ class Optimizer:
                 coords_out[orig_i] = optdict["coord"][local_i]
                 non_finite_flags[orig_i] = optdict["non_finite"][local_i]
 
-            # Free per-bucket reserved GPU memory so peak usage doesn't accumulate
-            # or fragment across many buckets. The final empty_cache() in run()
-            # still runs after all output is written. EMPTY_CACHE_PER_BUCKET
-            # gates this call so benchmarks/measure_empty_cache.py can measure
-            # it on and off against the production path.
-            if self.EMPTY_CACHE_PER_BUCKET and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
+        # No per-bucket empty_cache() here: the release in run(), after the
+        # chunk's output is written, is the only unconditional one this class
+        # makes. BatchedEnergyForce still releases the cache on its
+        # out-of-memory retry path (model_wrapper.py), reached from inside this
+        # loop, and that release is unchanged. A release after every size
+        # bucket was measured on and off against this production path and
+        # lowered neither peak reserved memory nor the allocator's retry and
+        # out-of-memory counts, on either AIMNet2 or ANI2xt (one NVIDIA L40S,
+        # 240 conformers in two size buckets, four repeats):
+        # ``benchmarks/results-notes/2026-10-16-empty-cache.md``,
+        # whose "What this measurement exercises" bounds what that covers --
+        # two size buckets, so one release beyond the per-chunk one, and no
+        # memory pressure in either arm.
         return _OptimizationResults(
             energies=energies,
             fmaxs=fmaxs,

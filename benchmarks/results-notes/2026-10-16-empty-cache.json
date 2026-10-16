@@ -1,0 +1,221 @@
+{
+ "env": {
+  "gpu": "NVIDIA L40S",
+  "torch": "2.9.1+cu128",
+  "cuda": "12.8",
+  "capability": "8.9",
+  "python": "3.13.12",
+  "commit": "3cc0b08",
+  "ref": "worktree-dedup-tolerance-decision",
+  "auto3d_path": "/home/olexandr/auto3d/.claude/worktrees/dedup-tolerance-decision/src/Auto3D"
+ },
+ "device": "cuda:0",
+ "smoke": false,
+ "reps": 4,
+ "limit": null,
+ "n_conformers": 240,
+ "gpu_state": {
+  "start": {
+   "nvidia_smi_id": "5",
+   "driver_version": "595.71.05",
+   "utilization_gpu": "0 %",
+   "clocks_sm": "210 MHz",
+   "clocks_mem": "405 MHz",
+   "temperature_gpu": "23",
+   "memory_used": "0 MiB",
+   "other_processes": []
+  },
+  "end": {
+   "nvidia_smi_id": "5",
+   "driver_version": "595.71.05",
+   "utilization_gpu": "0 %",
+   "clocks_sm": "2520 MHz",
+   "clocks_mem": "9001 MHz",
+   "temperature_gpu": "30",
+   "memory_used": "567 MiB",
+   "other_processes": []
+  }
+ },
+ "results": {
+  "AIMNET": [
+   {
+    "arm": "on",
+    "rep": 0,
+    "wall_s": 13.910358144901693,
+    "peak_reserved_gb": 0.53515625,
+    "peak_allocated_gb": 0.39624691009521484,
+    "reserved_minus_allocated_gb": 0.13890933990478516,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 0,
+    "wall_s": 14.270044937729836,
+    "peak_reserved_gb": 0.525390625,
+    "peak_allocated_gb": 0.3960537910461426,
+    "reserved_minus_allocated_gb": 0.12933683395385742,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 1,
+    "wall_s": 13.968639278784394,
+    "peak_reserved_gb": 0.525390625,
+    "peak_allocated_gb": 0.3960537910461426,
+    "reserved_minus_allocated_gb": 0.12933683395385742,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "on",
+    "rep": 1,
+    "wall_s": 14.319153010845184,
+    "peak_reserved_gb": 0.53515625,
+    "peak_allocated_gb": 0.39624691009521484,
+    "reserved_minus_allocated_gb": 0.13890933990478516,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "on",
+    "rep": 2,
+    "wall_s": 14.373625347856432,
+    "peak_reserved_gb": 0.53515625,
+    "peak_allocated_gb": 0.39624691009521484,
+    "reserved_minus_allocated_gb": 0.13890933990478516,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 2,
+    "wall_s": 15.257171206641942,
+    "peak_reserved_gb": 0.525390625,
+    "peak_allocated_gb": 0.3960537910461426,
+    "reserved_minus_allocated_gb": 0.12933683395385742,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 3,
+    "wall_s": 13.882109319325536,
+    "peak_reserved_gb": 0.525390625,
+    "peak_allocated_gb": 0.3960537910461426,
+    "reserved_minus_allocated_gb": 0.12933683395385742,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "on",
+    "rep": 3,
+    "wall_s": 14.262833155691624,
+    "peak_reserved_gb": 0.53515625,
+    "peak_allocated_gb": 0.39624691009521484,
+    "reserved_minus_allocated_gb": 0.13890933990478516,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   }
+  ],
+  "ANI2xt": [
+   {
+    "arm": "on",
+    "rep": 0,
+    "wall_s": 8.999718268867582,
+    "peak_reserved_gb": 0.451171875,
+    "peak_allocated_gb": 0.3423151969909668,
+    "reserved_minus_allocated_gb": 0.1088566780090332,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 0,
+    "wall_s": 8.180576184298843,
+    "peak_reserved_gb": 0.44140625,
+    "peak_allocated_gb": 0.3422865867614746,
+    "reserved_minus_allocated_gb": 0.09911966323852539,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 1,
+    "wall_s": 7.892264640890062,
+    "peak_reserved_gb": 0.44140625,
+    "peak_allocated_gb": 0.3422865867614746,
+    "reserved_minus_allocated_gb": 0.09911966323852539,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "on",
+    "rep": 1,
+    "wall_s": 7.939923580270261,
+    "peak_reserved_gb": 0.451171875,
+    "peak_allocated_gb": 0.3423151969909668,
+    "reserved_minus_allocated_gb": 0.1088566780090332,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "on",
+    "rep": 2,
+    "wall_s": 8.944047642871737,
+    "peak_reserved_gb": 0.451171875,
+    "peak_allocated_gb": 0.3423151969909668,
+    "reserved_minus_allocated_gb": 0.1088566780090332,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 2,
+    "wall_s": 8.442580773029476,
+    "peak_reserved_gb": 0.44140625,
+    "peak_allocated_gb": 0.3422865867614746,
+    "reserved_minus_allocated_gb": 0.09911966323852539,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "off",
+    "rep": 3,
+    "wall_s": 8.597357491031289,
+    "peak_reserved_gb": 0.44140625,
+    "peak_allocated_gb": 0.3422865867614746,
+    "reserved_minus_allocated_gb": 0.09911966323852539,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   },
+   {
+    "arm": "on",
+    "rep": 3,
+    "wall_s": 8.864456607028842,
+    "peak_reserved_gb": 0.451171875,
+    "peak_allocated_gb": 0.3423151969909668,
+    "reserved_minus_allocated_gb": 0.1088566780090332,
+    "num_alloc_retries": 0,
+    "num_ooms": 0,
+    "n_buckets": 2
+   }
+  ]
+ }
+}

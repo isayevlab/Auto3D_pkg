@@ -107,6 +107,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configurations among its conformers (2-butene does from 5 requests up; it
   requested 4 before), so a `k=1` result for such an input can change; the
   existing warning about unspecified stereo already covers it.
+- The optimizer releases the CUDA cache once per chunk instead of after every
+  size bucket. The per-bucket release was measured on and off against the
+  production path on 2026-10-16 on one NVIDIA L40S (240 conformers in two size
+  buckets, four repeats per arm, AIMNet2 and ANI2xt): it lowered neither peak
+  reserved memory -- 10 MiB higher with it, on both engines, in every repeat,
+  which is below the 20 MiB the rule treats as this comparison's resolution --
+  nor the allocator's retry and out-of-memory counts, which were zero in every
+  arm. The release at the end of a chunk, after the output is written, and the
+  out-of-memory retry inside `BatchedEnergyForce` are unchanged. The
+  measurement and the rule it was read against are written up in
+  `benchmarks/results-notes/2026-10-16-empty-cache.md`, whose "What this
+  measurement exercises" bounds what it covers: two size buckets, so one
+  release beyond the per-chunk one, and no memory pressure in either arm.
+
+### Removed
+- `benchmarks/measure_empty_cache.py`, the cache-release measurement script, is
+  removed together with the per-bucket switch it measured: it selected each arm
+  by flipping `Optimizer.EMPTY_CACHE_PER_BUCKET`, which no longer exists. Its
+  record and the decision it produced are kept in
+  `benchmarks/results-notes/2026-10-16-empty-cache.md` and the JSON beside it,
+  and the script itself remains readable in the history at the commit that
+  record names. In the other benchmark files, only their cross-references to
+  the removed script changed (`benchmarks/bench_optimization_perf.py`,
+  `benchmarks/measure_fire_constants.py`, `benchmarks/measure_batch_noise.py`);
+  no other benchmark script's behavior changes.
 
 ## [3.2.1] - 2026-10-11
 
