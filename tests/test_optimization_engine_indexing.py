@@ -311,8 +311,8 @@ def _reference_n_steps(state, n, opttol, patience, atom_mask=None):
     state["atom_mask"] = atom_mask
 
     optimizer = FIRE(coord)
-    # float("inf"), not 999.0 (GPU review M2, fix round 1): production seeds
-    # this sentinel with infinity (N-m8), and the two must agree for every
+    # float("inf"), not 999.0: production seeds this sentinel with infinity,
+    # and the two must agree for every
     # `fmax`, not merely every `fmax < 999`, or a future parametrization with
     # a step-1 `fmax` at or above 999 would fail this reference for a reason
     # unrelated to the indexing property under test.

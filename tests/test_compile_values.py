@@ -164,7 +164,7 @@ def test_ani2xt_compile_does_not_hit_the_recompile_limit():
     import torch._dynamo
     from torch._dynamo.utils import counters
 
-    # M3 (GPU review): this test deliberately exhausts recompile_limit for
+    # This test deliberately exhausts recompile_limit for
     # `_atom_energies`'s code object, which every ANI2xtAdapter in the
     # interpreter shares, and contributes to the process-global
     # accumulated_recompile_limit. Reset before AND after (the latter in a

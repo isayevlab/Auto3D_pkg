@@ -770,11 +770,11 @@ A legacy dict config is unaffected -- ``ensemble_opt`` reads only
 leftover ``"energy_tol"`` key is ignored rather than rejected. (From 3.2.1,
 ``OptimizationConfig.to_dict()`` names this key ``convergence_threshold``
 instead; a hand-written parameter dict may keep ``opttol`` until 4.0, which
-emits a ``DeprecationWarning`` -- see the ``Unreleased`` section of
+emits a ``DeprecationWarning`` -- see the ``[3.2.1]`` section of
 ``CHANGELOG.md``.) The unrelated ``energy_tol`` argument of
 ``Auto3D.filtering`` (the duplicate-conformer energy tolerance) is a
 different parameter, and this migration does not touch it. It did change
-later: from the ``Unreleased`` section of ``CHANGELOG.md``,
+later: from the ``[3.2.2]`` section of ``CHANGELOG.md``,
 ``filter_conformers`` and ``filter_unique_optimized`` accept ``energy_tol``
 as a keyword (defaulting, as before, to
 ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``), and Auto3D's

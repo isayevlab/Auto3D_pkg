@@ -240,7 +240,7 @@ def test_capacity_default_comes_from_the_shared_constant():
 def test_dict_style_access_warns_once_per_method():
     """Each of the five dict-compat shim methods must warn, exactly once per call.
 
-    The shim stays for one release (CHANGELOG.md, Unreleased), but every call
+    The shim stays for one release (CHANGELOG.md, 3.2.1), but every call
     site using it should see a DeprecationWarning telling it to switch to
     attribute access before the shim is removed in 4.0.
     """
