@@ -181,7 +181,7 @@ the one tolerance every engine ships with -- and `ratio = tolerance / floor`:
 
 The three bands, with both edges inclusive in the middle one: *below five
 times the floor*, *within five to twenty times*, *above twenty times the
-floor*. The rule these verdicts feed, as the task brief states it:
+floor*. The rule these verdicts feed, fixed before the measurement ran:
 
 > If no engine is below five times its floor and none above twenty times: no
 > code change; the comment block above `DEFAULT_DUPLICATE_ENERGY_TOL` gains
@@ -279,7 +279,7 @@ floor is a draw: a pair can land past either on another run.
 Between the commit that introduced them and the commit beside this note, the
 three adapter classes carried per-engine values from the **first** 2026-10-16
 sample on this card -- three repeats, no geometries, its record replaced by
-this file's. The ruling above removed them. Both samples, same card, same
+this file's. The decision above removed them. Both samples, same card, same
 bench set, same settings:
 
 | engine | first sample's floor | it asked for | this sample's floor | it asks for | shipped |
@@ -291,7 +291,7 @@ bench set, same settings:
 The first sample's values would have covered every spread this sample measured
 -- by 3.63x (AIMNet2), 5.23x (ANI2xt) and 2.05x (ANI2x) -- so no conformer
 pair either sample saw would have survived deduplication under them. That is
-the trade the ruling declines: the coverage is bought with a window of 1.4 to
+the trade this decision declines: the coverage is bought with a window of 1.4 to
 1.6 kT. ANI2xt's number is the one the two samples agree on, and it is within
 rounding of the shipped constant either way.
 
