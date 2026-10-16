@@ -206,7 +206,7 @@ def _batch_like_test_forward_batched_retries_on_oom():
     """The 2-molecule, 3-atom batch every OOM-retry test in this module uses.
 
     Lifted out of ``test_forward_batched_retries_on_oom`` (which built it
-    inline) so P-m12's two new tests below do not each grow their own copy.
+    inline) so the two tests below do not each grow their own copy.
     """
     coord = torch.randn(2, 3, 3)
     numbers = torch.tensor([[1, 6, -1], [1, 6, -1]])
@@ -351,7 +351,7 @@ def test_forward_batched_propagates_if_the_retry_also_ooms(monkeypatch):
 
 
 def test_a_runtime_error_naming_out_of_memory_is_retried_like_the_typed_one():
-    """P-m12: some paths raise a bare ``RuntimeError`` whose message names the
+    """Some paths raise a bare ``RuntimeError`` whose message names the
     condition ("CUDA error: out of memory") instead of the typed
     ``torch.cuda.OutOfMemoryError``. Both must be treated the same way."""
     import torch
