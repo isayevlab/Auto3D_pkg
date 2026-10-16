@@ -182,6 +182,7 @@ def filter_conformers(
     *,
     rmsd_threshold: float = DEFAULT_RMSD_THRESHOLD,
     energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
+    energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL,
 ) -> FilterResult:
     """Remove duplicate conformers, skipping RMSD comparisons that cannot match.
 
@@ -194,8 +195,8 @@ def filter_conformers(
     A pair counts as a duplicate only when all three of these agree: the two are
     the same compound (:func:`Auto3D.domain.stereo_check.species_key`), their
     heavy-atom RMSD is under ``rmsd_threshold``, and their energies agree within
-    ``DEFAULT_DUPLICATE_ENERGY_TOL`` (or at least one of them has no usable
-    energy, in which case that term cannot apply and RMSD alone decides).
+    ``energy_tol`` (or at least one of them has no usable energy, in which case
+    that term cannot apply and RMSD alone decides).
 
     Args:
         mols: List of RDKit Mol objects with 'E_tot' (Hartree) and, optionally,
@@ -212,6 +213,17 @@ def filter_conformers(
             that tolerance is the floor at which a pair can still be a duplicate.
             The stored Hartree energies are converted to eV on read
             (``Auto3D.domain.energy``), so the unit is as documented.
+        energy_tol: Energy tolerance (eV) for the duplicate test, used both by
+            that test and as the lower bound on the run split below. How far
+            two optimizations of one minimum can land apart is a property of
+            the engine that produced the energies, so the value lives on that
+            engine's adapter (``Auto3D.engines.models.adapter``'s
+            ``duplicate_energy_tol``, which the orchestrator passes down);
+            this layer cannot know which engine that was and must not import
+            upward to find out, so the number arrives as a parameter. Every
+            adapter Auto3D ships carries the default below. Defaults to
+            ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``, for
+            a caller with no adapter to ask.
 
     Returns:
         A :class:`FilterResult` whose ``kept`` list is sorted by energy (lowest
@@ -261,8 +273,8 @@ def filter_conformers(
     # survived, which is how a k=5 request came back with five slots holding two
     # distinct structures.
     #
-    # A pair can only be a duplicate if its energies agree within
-    # DEFAULT_DUPLICATE_ENERGY_TOL (`_filter_within_cluster` requires it). So a
+    # A pair can only be a duplicate if its energies agree within `energy_tol`
+    # (`_filter_within_cluster` requires it, with the same value). So a
     # run may end wherever the gap to the PREVIOUS molecule exceeds that
     # tolerance, and nowhere else: a gap that large proves no pair straddling it
     # can be a duplicate, and conversely, for any duplicate pair every gap
@@ -288,7 +300,7 @@ def filter_conformers(
     if any(energy is None for energy in energies):
         clusters: list[list[Chem.Mol]] = [valid_mols]
     else:
-        split_gap = max(DEFAULT_DUPLICATE_ENERGY_TOL, energy_cluster_window)
+        split_gap = max(energy_tol, energy_cluster_window)
         clusters = []
         current_cluster: list[Chem.Mol] = [valid_mols[0]]
         previous_e = energies[0]
@@ -305,7 +317,7 @@ def filter_conformers(
     # Filter unique within each cluster
     unique_mols: list[Chem.Mol] = []
     for cluster in clusters:
-        unique_in_cluster = _filter_within_cluster(cluster, rmsd_threshold)
+        unique_in_cluster = _filter_within_cluster(cluster, rmsd_threshold, energy_tol)
         unique_mols.extend(unique_in_cluster)
 
     n_duplicates = len(valid_mols) - len(unique_mols)
@@ -318,12 +330,14 @@ def filter_unique_optimized(
     mols: list[Chem.Mol],
     rmsd_threshold: float = DEFAULT_RMSD_THRESHOLD,
     energy_cluster_window: float = DEFAULT_ENERGY_CLUSTER_WINDOW,
+    energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL,
 ) -> list[Chem.Mol]:
     """The surviving molecules from :func:`filter_conformers`, nothing else.
 
     Kept as the public name it has always been, for callers that want the list
     and not the drop counts. Prefer :func:`filter_conformers` when the reason
-    something is missing has to reach a user.
+    something is missing has to reach a user. ``energy_tol`` means what it
+    means there, and is forwarded unchanged.
 
     Returns:
         List of unique molecules, sorted by energy (lowest first); records with
@@ -333,6 +347,7 @@ def filter_unique_optimized(
         mols,
         rmsd_threshold=rmsd_threshold,
         energy_cluster_window=energy_cluster_window,
+        energy_tol=energy_tol,
     ).kept
 
 

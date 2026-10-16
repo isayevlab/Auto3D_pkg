@@ -36,9 +36,12 @@ tolerance is below five times any engine's floor, or above twenty times
 another's, it becomes engine-aware -- the adapter exposes a
 ``duplicate_energy_tol`` and the orchestrator passes it down to
 ``filter_conformers`` as a parameter (no upward import); otherwise the single
-constant stays and its comment cites the note. Each engine's ``verdict`` is
-which side of those two multiples its own ratio falls on, with both edges
-inclusive:
+constant stays and its comment cites the note. The rule says what to compute,
+not what to ship: on the 2026-10-16 sample it triggered, the per-engine values
+it yields were computed and not adopted, and every adapter keeps the constant
+(``benchmarks/results-notes/2026-10-16-batch-noise.md``). Each engine's
+``verdict`` is which side of those two multiples its own ratio falls on, with
+both edges inclusive:
 
 * ``"below five times the floor"`` -- the tolerance does not stand five times
   above what this engine's own noise can move an energy by.
@@ -52,12 +55,18 @@ Each engine is read on its own floor, and this script never carries one
 engine's number across to another: the floor is a property of that engine's
 kernels and of where its forces leave the convergence gate.
 
-This script measures energies, not time, so another process on the card does
-not by itself invalidate a GPU run. The record still stores an ``nvidia-smi``
-snapshot of the card at the start of the run, one per engine as that engine
-finishes, and one at the end, and the script warns on stderr if someone else
-holds the card at the start or the end, so a reader can see what the card was
-doing while each engine's floor was measured. Both the floor and the
+This script measures energies, not time. The per-engine ``seconds`` is a
+sensitivity line and nothing the decision rule reads: it is the wall clock of
+the repeats, measured from the moment the discarded warm-up pass ends, so that
+pass and the first-call costs it paid are not in it (under ``--skip-post-opt``,
+where there are no repeats and no warm-up, it covers loading the model and the
+single-point pass instead). Since no number here is a time, another process on
+the card does not by itself invalidate a GPU run. The record still stores an
+``nvidia-smi`` snapshot of the card at the start of the run, one per engine as
+that engine finishes (an engine whose model never loaded included), and one at
+the end, and the script warns on stderr if someone else holds the card at the
+start or the end, so a reader can see what the card was doing while each
+engine's floor was measured. Both the floor and the
 single-point spreads are measured under the precision flags a production run
 applies when the user passes nothing.
 
@@ -252,6 +261,30 @@ def post_opt_row(name: str, atoms: int, values: list[float], converged: list[boo
     }
 
 
+def converged_counts(rows: list[dict], arrangements: dict[str, tuple[list, list]]) -> dict:
+    """How many molecules converged in every arrangement, and in each one.
+
+    ``arrangements`` maps an arrangement's name to its ``(energies, flags)``
+    in row order. ``everywhere`` is the number of rows :func:`post_opt_row`
+    found converged in every arrangement, which is the count the floor is read
+    over; each arrangement's own count requires a finite energy **in that
+    arrangement** as well as the optimizer's flag, because the flag alone
+    reports a row as converged that the summary dropped for having no spread
+    (see :func:`post_opt_row` for how such a row arises).
+
+    So no count reports a row whose energy in it was not finite, and a row
+    with one non-finite arrangement still counts in the arrangements where it
+    returned a finite energy -- it is a converged measurement there. The count
+    that excludes such a row outright is ``everywhere``.
+    """
+    counts = {"everywhere": sum(1 for row in rows if row["converged_everywhere"])}
+    for name, (energies, flags) in arrangements.items():
+        counts[name] = sum(
+            1 for e, c in zip(energies, flags, strict=True) if c and math.isfinite(e)
+        )
+    return counts
+
+
 def post_opt_rows(
     model, groups, device, save_geometries: bool = False
 ) -> tuple[list[dict], dict, dict | None]:
@@ -309,15 +342,23 @@ def post_opt_rows(
                 "name": mol.GetProp("_Name"),
                 "atoms": mol.GetNumAtoms(),
                 "spread": rows[worst_idx]["spread"],
+                # Through `finite_or_none` like every other number in the
+                # record: these come from RDKit's alignment of geometries the
+                # optimizer wrote, so a non-finite coordinate among them would
+                # otherwise put a bare NaN token in a record the rest of this
+                # script keeps readable by a strict parser.
                 "rmsd": {
-                    "all-groups": _heavy_atom_rmsd(m_all, m_grp),
-                    "all-reversed": _heavy_atom_rmsd(m_all, m_rev),
-                    "groups-reversed": _heavy_atom_rmsd(m_grp, m_rev),
+                    "all-groups": finite_or_none(_heavy_atom_rmsd(m_all, m_grp)),
+                    "all-reversed": finite_or_none(_heavy_atom_rmsd(m_all, m_rev)),
+                    "groups-reversed": finite_or_none(_heavy_atom_rmsd(m_grp, m_rev)),
                 },
             }
     return (
         rows,
-        {"all": sum(c_all), "groups": sum(c_grp), "reversed": sum(c_rev)},
+        converged_counts(
+            rows,
+            {"all": (e_all, c_all), "groups": (e_grp, c_grp), "reversed": (e_rev, c_rev)},
+        ),
         worst_geometry_check,
     )
 
@@ -348,10 +389,38 @@ def summarize(spreads) -> dict:
     }
 
 
-def tolerance_check(post_opt_summary: dict) -> dict:
+def post_opt_summary(rows: list[dict]) -> dict:
+    """The spread statistics one engine's floor is read from, over every repeat.
+
+    A row is in the statistics only if it converged in every arrangement: an
+    unconverged optimization's final energy is not a measurement of where the
+    optimizer leaves a minimum, which is the quantity the duplicate-energy
+    tolerance has to cover.
+
+    A row with no spread at all -- some arrangement returned a non-finite
+    energy for it, so :func:`post_opt_row` left ``spread`` ``None`` and
+    ``converged_everywhere`` ``False`` -- is handed to :func:`summarize`
+    rather than dropped here, which is what makes ``dropped_non_finite`` the
+    count it is named for: filtering such a row out first left that key
+    structurally zero on this path, with nothing to read the gap between the
+    row count and ``n`` from. It contributes to no statistic either way.
+
+    ``rows_total`` is how many rows were offered, which closes the other half
+    of that arithmetic: ``n`` plus ``dropped_non_finite`` falls short of it by
+    the rows that returned finite energies everywhere and converged nowhere,
+    and those are left out here rather than counted by ``summarize``.
+    """
+    summary = summarize(
+        row["spread"] for row in rows if row["spread"] is None or row["converged_everywhere"]
+    )
+    summary["rows_total"] = len(rows)
+    return summary
+
+
+def tolerance_check(summary: dict) -> dict:
     """Read the shipped duplicate-energy tolerance against one engine's floor.
 
-    The floor is ``post_opt_summary["max"]`` -- the largest post-optimization
+    The floor is the summary's ``max`` -- the largest post-optimization
     spread any row reached in any repeat -- and the ratio is the tolerance over
     it. The verdict names the band of the module docstring's decision rule; the
     decision itself belongs to the results note, not to this script.
@@ -362,14 +431,17 @@ def tolerance_check(post_opt_summary: dict) -> dict:
     ratio infinite -- ``json`` writes either of those as a bare ``NaN`` or
     ``Infinity`` token, which is not JSON and which a strict reader rejects, so
     the ratio is recorded as null in both cases and ``floor_ev`` says which
-    case it was. A zero floor is still in the top band: the tolerance stands
-    above every spread such a run measured. A non-finite maximum is read as no
-    floor as well; ``summarize`` cannot produce one, and this function is the
-    last place a NaN could enter the verdict.
+    case it was. A floor merely too small to divide the tolerance by -- the
+    quotient overflows without the floor being zero -- is the third way, and
+    it is kept as the measurement it is with a null ratio. A zero floor is
+    still in the top band: the tolerance stands above every spread such a run
+    measured. A non-finite maximum is read as no floor as well; ``summarize``
+    cannot produce one, and this function is the last place a NaN could enter
+    the verdict.
     """
     from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
 
-    floor = post_opt_summary.get("max")
+    floor = summary.get("max")
     if floor is None or not math.isfinite(floor):
         return {
             "floor_ev": None,
@@ -378,6 +450,8 @@ def tolerance_check(post_opt_summary: dict) -> dict:
             "verdict": "no floor measured (no row converged in every arrangement)",
         }
     ratio = None if floor == 0.0 else DEFAULT_DUPLICATE_ENERGY_TOL / floor
+    if ratio is not None and not math.isfinite(ratio):
+        ratio = None
     if ratio is None or ratio > LOOSE_RATIO:
         verdict = "above twenty times the floor"
     elif ratio < GATE_RATIO:
@@ -460,80 +534,109 @@ def main() -> None:
     groups = limit_groups(build_mols(), args.limit)
     per_engine: dict[str, dict] = {}
     for engine in engine_names:
+        # Registered before anything can fail, so an engine whose model never
+        # loads still reaches the record with its own entry -- and, from the
+        # `finally` below, with the snapshot of the card it left behind.
+        entry: dict = {}
+        per_engine[engine] = entry
+        model = None
         started = time.perf_counter()
         try:
-            model = create_model(engine, device)
-        except Exception as exc:  # torchani absent, no weights, ...
-            per_engine[engine] = {"error": f"{type(exc).__name__}: {exc}"}
-            continue
-        sp_rows, rerun = single_point_rows(model, groups, device)
-        entry = {
-            "single_point": sp_rows,
-            "single_point_summary": summarize(r["spread"] for r in sp_rows),
-            "same_composition_rerun_summary": summarize(rerun),
-        }
-        if not args.skip_post_opt:
-            # Untimed warm-up, one per engine before the first repeat: one
-            # whole arrangement set whose rows are discarded. It pays this
-            # engine's first-call costs (CUDA context, allocator, kernel
-            # selection, any compile) and reaches every padded width the
-            # repeats will ask for, so repeat 0 is not the one repeat carrying
-            # them. The rows are dropped rather than summarized: a pass that
-            # paid those costs is not one of the repeats being compared.
-            print(
-                f"{engine}: warm-up starting -- one discarded pass over every arrangement; "
-                "this prints nothing until it ends.",
-                file=sys.stderr,
-            )
-            post_opt_rows(model, groups, device)
-            print(f"{engine}: warm-up done.", file=sys.stderr)
-
-            # Every repeat's rows are kept, each tagged with its repeat, and
-            # the summary (and so the floor) runs over all of them together:
-            # the quantity the tolerance has to cover is the worst any repeat
-            # saw, not the worst of an average repeat.
-            po_rows: list[dict] = []
-            po_counts: list[dict] = []
-            geometry_checks: list[dict] = []
-            for rep in range(args.reps):
-                rows, counts, worst_geometry_check = post_opt_rows(
-                    model, groups, device, save_geometries=args.save_geometries
-                )
-                for row in rows:
-                    row["rep"] = rep
-                po_rows += rows
-                po_counts.append({"rep": rep, **counts})
-                if args.save_geometries:
-                    geometry_checks.append({"rep": rep, "check": worst_geometry_check})
-                spreads = [r["spread"] for r in rows if r["converged_everywhere"]]
-                largest = f"{max(spreads):.2e} eV" if spreads else "n/a"
+            # The `except` sits around `create_model` alone. A missing
+            # torchani or a missing weight file is a result this record
+            # reports, with the remaining engines measured after it; a failure
+            # inside the measurement itself is not something to write a record
+            # around, so it propagates -- and the `finally` hands the card
+            # back either way.
+            try:
+                model = create_model(engine, device)
+            except Exception as exc:  # torchani absent, no weights, ...
+                entry["error"] = f"{type(exc).__name__}: {exc}"
+                continue
+            sp_rows, rerun = single_point_rows(model, groups, device)
+            entry["single_point"] = sp_rows
+            entry["single_point_summary"] = summarize(r["spread"] for r in sp_rows)
+            entry["same_composition_rerun_summary"] = summarize(rerun)
+            if not args.skip_post_opt:
+                # Untimed warm-up, one per engine before the first repeat: one
+                # whole arrangement set whose rows are discarded. It pays this
+                # engine's first-call costs (CUDA context, allocator, kernel
+                # selection, any compile) and reaches every padded width the
+                # repeats will ask for, so repeat 0 is not the one repeat
+                # carrying them. The rows are dropped rather than summarized: a
+                # pass that paid those costs is not one of the repeats being
+                # compared.
                 print(
-                    f"{engine} post-optimization rep {rep}: {len(spreads)} of {len(rows)} "
-                    f"molecules converged in every arrangement, largest spread {largest}",
-                    flush=True,
+                    f"{engine}: warm-up starting -- one discarded pass over every arrangement; "
+                    "this prints nothing until it ends.",
+                    file=sys.stderr,
                 )
-            entry["post_opt"] = po_rows
-            entry["post_opt_converged"] = po_counts
-            entry["post_opt_summary"] = summarize(
-                r["spread"] for r in po_rows if r["converged_everywhere"]
-            )
-            entry["tolerance_check"] = tolerance_check(entry["post_opt_summary"])
-            if args.save_geometries:
-                entry["worst_geometry_check"] = geometry_checks
-        entry["seconds"] = time.perf_counter() - started
-        # What the card looked like as this engine finished, so a reader can
-        # tell which engine's numbers were measured beside a co-tenant.
-        entry["gpu_state"] = gpu_state(device)
-        per_engine[engine] = entry
-        # Between engines: drop every reference to this engine's adapter (the
-        # model and ModelFactory's cache -- create_model caches by default) so
-        # the next engine does not run on memory this one still holds.
-        del model
-        ModelFactory.clear_cache()
-        gc.collect()
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
-            torch.cuda.empty_cache()
+                post_opt_rows(model, groups, device)
+                print(f"{engine}: warm-up done.", file=sys.stderr)
+
+                # The warm-up is untimed, which is what this restart makes
+                # true: `seconds` is the wall clock of the repeats below, and
+                # neither that pass nor the first-call costs it paid is in it.
+                started = time.perf_counter()
+
+                # Every repeat's rows are kept, each tagged with its repeat, and
+                # the summary (and so the floor) runs over all of them together:
+                # the quantity the tolerance has to cover is the worst any repeat
+                # saw, not the worst of an average repeat.
+                po_rows: list[dict] = []
+                po_counts: list[dict] = []
+                geometry_checks: list[dict] = []
+                for rep in range(args.reps):
+                    rows, counts, worst_geometry_check = post_opt_rows(
+                        model, groups, device, save_geometries=args.save_geometries
+                    )
+                    for row in rows:
+                        row["rep"] = rep
+                    po_rows += rows
+                    po_counts.append({"rep": rep, **counts})
+                    if args.save_geometries:
+                        geometry_checks.append({"rep": rep, "check": worst_geometry_check})
+                    spreads = [r["spread"] for r in rows if r["converged_everywhere"]]
+                    largest = f"{max(spreads):.2e} eV" if spreads else "n/a"
+                    print(
+                        f"{engine} post-optimization rep {rep}: {counts['everywhere']} of "
+                        f"{len(rows)} molecules converged in every arrangement, largest "
+                        f"spread {largest}",
+                        flush=True,
+                    )
+                entry["post_opt"] = po_rows
+                entry["post_opt_converged"] = po_counts
+                entry["post_opt_summary"] = post_opt_summary(po_rows)
+                entry["tolerance_check"] = tolerance_check(entry["post_opt_summary"])
+                if args.save_geometries:
+                    entry["worst_geometry_check"] = geometry_checks
+            entry["seconds"] = time.perf_counter() - started
+        finally:
+            # What the card looked like as this engine finished, so a reader
+            # can tell which engine's numbers were measured beside a co-tenant
+            # -- and an engine that never loaded leaves a snapshot too, since
+            # a model that failed halfway through loading can still be holding
+            # memory the next engine runs on.
+            entry["gpu_state"] = gpu_state(device)
+            if device.type == "cuda":
+                # This engine's own two figures, read while it still holds its
+                # memory: `gpu_state.memory_used` is the whole card, which on a
+                # shared box is mostly a co-tenant's, so it says nothing about
+                # what this engine needed. The peak is reset after the release
+                # below, so each engine's peak is its own.
+                entry["max_memory_allocated"] = int(torch.cuda.max_memory_allocated(device))
+                entry["memory_reserved"] = int(torch.cuda.memory_reserved(device))
+            # Between engines: drop every reference to this engine's adapter
+            # (the model and ModelFactory's cache -- create_model caches by
+            # default) so the next engine does not run on memory this one
+            # still holds.
+            del model
+            ModelFactory.clear_cache()
+            gc.collect()
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats(device)
 
     gpu_state_end = gpu_state(device)
     warn_if_occupied(gpu_state_end, "end")

@@ -871,3 +871,79 @@ def test_torchscript_archive_saved_in_train_mode_gives_repeatable_energies(tmp_p
     energies = {round(float(loaded(species, coords, charges)), 8) for _ in range(5)}
 
     assert len(energies) == 1, f"energy is not repeatable across calls: {energies}"
+
+
+class TestTheDuplicateEnergyToleranceIsReadThroughAnAccessor:
+    """An adapter need not carry a duplicate-energy tolerance to be an adapter.
+
+    The tolerance lives on ``BaseModelAdapter``, so every adapter
+    ``create_model`` returns has one -- the shipped constant for all of them,
+    since no bundled adapter overrides it.
+    But the type the factory returns is the ``ModelAdapter`` Protocol, and a
+    structural adapter -- a test double, or anything a downstream user writes
+    against the documented interface -- does not have to. Reading the attribute
+    directly at the two ranking sites would be an ``AttributeError`` for such
+    an adapter (and a type error for every caller), while adding the member to
+    the Protocol would make it required of every implementer and reject them
+    at the two places that check structural conformance. One accessor with the
+    fallback in it is the seam.
+    """
+
+    def test_an_adapter_without_the_member_gets_the_shipped_constant(self):
+        from Auto3D.engines.models.contract import duplicate_energy_tol_of
+        from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
+
+        class _Structural:
+            """Everything the optimizer needs, nothing about deduplication."""
+
+            coord_pad = 0.0
+            species_pad = -1
+
+            def forward(self, coords, species, charges):  # pragma: no cover - never called
+                raise AssertionError
+
+        assert duplicate_energy_tol_of(_Structural()) == DEFAULT_DUPLICATE_ENERGY_TOL
+
+    def test_an_adapter_that_carries_one_is_read_as_it_is(self):
+        from Auto3D.engines.models.contract import duplicate_energy_tol_of
+
+        class _Measured:
+            duplicate_energy_tol = 0.123
+
+        assert duplicate_energy_tol_of(_Measured()) == 0.123
+
+    def test_the_protocol_still_accepts_an_adapter_without_the_member(self):
+        """The reason the member is not on the Protocol, pinned.
+
+        ``missing_adapter_members`` is derived from the Protocol and is what
+        the batched wrapper and the thermochemistry calculator reject on, so
+        declaring the tolerance there would turn every duck-typed adapter into
+        a category error.
+        """
+        from Auto3D.engines.models.contract import missing_adapter_members
+
+        class _Structural:
+            coord_pad = 0.0
+            species_pad = -1
+
+            def to_species(self, numbers):  # pragma: no cover - presence only
+                raise AssertionError
+
+            def forward(self, coords, species, charges):  # pragma: no cover - presence only
+                raise AssertionError
+
+            def energy(self, coords, species, charges):  # pragma: no cover - presence only
+                raise AssertionError
+
+            def analytic_hessian(self, coords, species, charges):  # pragma: no cover
+                raise AssertionError
+
+            def to_double(self):  # pragma: no cover - presence only
+                raise AssertionError
+
+        assert missing_adapter_members(_Structural()) == []
+        # ... and that same adapter still gets a tolerance to deduplicate with.
+        from Auto3D.engines.models.contract import duplicate_energy_tol_of
+        from Auto3D.foundation.constants import DEFAULT_DUPLICATE_ENERGY_TOL
+
+        assert duplicate_energy_tol_of(_Structural()) == DEFAULT_DUPLICATE_ENERGY_TOL

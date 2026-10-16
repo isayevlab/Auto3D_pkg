@@ -547,21 +547,76 @@ With ``memory`` unset on a GPU, Auto3D reads the card's free memory from
 ``nvidia-smi`` once per run and scales ``batchsize_atoms`` by it, so on a shared
 card the sub-batch composition can differ between two runs of the same input.
 Energies then differ at the batch-composition noise level, measured on one box
-in ``benchmarks/results-notes/2026-10-05-batch-noise.md``: below 1e-5 eV for a
-single-point AIMNet2 or ANI2xt energy; after optimization, up to 1.7e-3 eV
-for AIMNet2 and 2.0e-3 eV for ANI2xt -- where the optimizer stopped at a
-slightly different point of the same basin, 5.8x and 4.96x below the 0.01 eV
-``DEFAULT_DUPLICATE_ENERGY_TOL`` mentioned below, respectively; and up to
-about 2e-2 eV for ANI2x, whose total energy is a float32 quantity. A
-duplicate-conformer decision sitting at ``DEFAULT_DUPLICATE_ENERGY_TOL``
-(0.01 eV) can therefore flip between reruns; for ANI2x specifically, one
-observed event above the tolerance (2e-2 eV) would let two copies of a
-conformer survive for a large molecule -- whether that event is the same
-minimum landed on twice or two different, near-degenerate rotamers is not
-established (``benchmarks/results-notes/2026-10-05-batch-noise.md``, "Same
-minimum?"); either way the duplicate survives. Pass ``memory=<GB>`` (``--memory``
-on the command line) to pin the batch composition; the remaining rerun-to-rerun
-difference at a fixed composition measured 3.8e-6 eV on the same box.
+in ``benchmarks/results-notes/2026-10-16-batch-noise.md``: below 1e-5 eV for a
+single-point AIMNet2 or ANI2xt energy. For ANI2x, whose total energy is itself
+a float32 quantity, the single-point energy evaluated in five batch
+compositions moved 6 of the 24 molecules by exactly one float32 step of their
+own total energy (the largest 1.953e-3 eV, at total energies near 1.7e4 eV in
+magnitude) and left the other 18 bit-identical, including every molecule at
+both ends of the set's energy range. One such step is 3.9e-3 eV at the top of
+that range and 4.9e-4 eV at the bottom.
+
+After optimization the difference is larger, because it is set by where the
+optimizer stopped inside the basin at the 0.01 eV/A force gate rather than by
+kernel noise. On a 24-molecule bench set, the same starting structure
+optimized in three batch arrangements and repeated three times ended up to
+9.9e-3 eV (AIMNet2), 2.1e-3 eV (ANI2xt) and 2.0e-2 eV (ANI2x) apart. Each of
+those largest cases was checked: the three arrangements' final geometries
+agree to at most 0.1023 A heavy-atom RMSD, well inside the 0.3 A duplicate
+threshold, so they are the same structure by the duplicate filter's own
+criterion (heavy-atom RMSD) reached more than once. That criterion ignores
+hydrogens, so a difference in a hydroxyl or amine hydrogen orientation is not
+excluded -- no all-atom RMSD was compared. Of the molecules checked, only
+salbutamol carries hydroxyl or amine hydrogens whose alternative orientations
+are close in energy; the others have none, or only carboxylic and amide
+hydrogens whose rotamers lie several kcal/mol apart. If salbutamol's largest
+case were a rotamer pair rather than one structure, AIMNet2's largest spread
+would be the next case, 4.0e-3 eV, which changes nothing about the tolerance
+below.
+
+Duplicate detection is where that matters. Two conformers count as duplicates
+only when they are the same compound, their heavy-atom RMSD is under
+``threshold`` (0.3 A by default) **and** their energies agree within the
+duplicate-energy tolerance,
+``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL`` (0.01 eV,
+0.23 kcal/mol), which is the tolerance every engine Auto3D ships uses. The
+value is read from the model adapter that produced the energies: an adapter
+class can carry its own ``duplicate_energy_tol`` and its conformers are then
+deduplicated with that value, but no bundled adapter sets one, so the
+behavior is the same for AIMNet2, ANI2xt and ANI2x.
+
+What that means for a rerun: the ANI2x spread measured above (2.0e-2 eV) is
+wider than the tolerance, so **two copies of one minimum can both appear in
+the output**, as two conformers of the same compound whose energies differ by
+about 0.02 eV and whose heavy-atom RMSD is near zero. It is the engine most
+likely to do this and it is more likely on larger molecules, because its total
+energy is a float32 quantity whose quantization step grows with the total
+energy. The AIMNet2 spread (9.9e-3 eV) sits just inside the tolerance, close
+enough that another run can land outside it; the ANI2xt spread (2.1e-3 eV) is
+a fifth of it. The tolerance is deliberately not widened to cover those
+spreads: five times them would be 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
+2.26 kcal/mol, against kT of 0.59 kcal/mol at 298 K), and the AIMNet2 and
+ANI2x windows would also merge two genuinely distinct conformers that differ
+only in where a hydroxyl or amine hydrogen points, whose splittings are
+roughly 0.5 to 1.5 kcal/mol, which heavy-atom RMSD cannot tell apart and which
+the energy comparison is there to protect; ANI2xt's 0.011 eV (0.25 kcal/mol)
+sits below that band and is within rounding of the tolerance. A surviving
+duplicate pair is visible and one of the two can be dropped; a merged pair is
+not. The measurement and that
+reading are written up in
+``benchmarks/results-notes/2026-10-16-batch-noise.md``.
+
+Pass ``memory=<GB>`` (``--memory`` on the command line) to pin the batch
+composition. That removes composition as a variable but not the spread: with
+the arrangement held fixed, the same molecule optimized in three successive
+repeats still ended 9.95e-3 eV apart for AIMNet2 (salbutamol, as large as the
+across-arrangement figure above; no geometries were compared across repeats,
+and this molecule's hydroxyl and amine hydrogens have close-lying alternative
+orientations, so a rotamer pair is not excluded here either) and 7.8e-3 eV --
+two quantization steps -- for ANI2x. Both are inside the 0.01 eV tolerance,
+the AIMNet2 one at 0.995 of it, close enough that another run can land
+outside: pinning the batch size does not leave margin against two copies of
+one minimum appearing in the output.
 
 Output Files
 ------------
