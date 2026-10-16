@@ -548,10 +548,13 @@ With ``memory`` unset on a GPU, Auto3D reads the card's free memory from
 card the sub-batch composition can differ between two runs of the same input.
 Energies then differ at the batch-composition noise level, measured on one box
 in ``benchmarks/results-notes/2026-10-16-batch-noise.md``: below 1e-5 eV for a
-single-point AIMNet2 or ANI2xt energy, and one float32 quantization step of
-its own total energy for ANI2x -- 3.9e-3 eV at the top of this set's energy
-range, 4.9e-4 eV at the bottom -- since that total energy is itself a float32
-quantity.
+single-point AIMNet2 or ANI2xt energy. For ANI2x, whose total energy is itself
+a float32 quantity, the single-point energy evaluated in five batch
+compositions moved 6 of the 24 molecules by exactly one float32 step of their
+own total energy (the largest 1.953e-3 eV, at total energies near 1.7e4 eV in
+magnitude) and left the other 18 bit-identical, including every molecule at
+both ends of the set's energy range. One such step is 3.9e-3 eV at the top of
+that range and 4.9e-4 eV at the bottom.
 
 After optimization the difference is larger, because it is set by where the
 optimizer stopped inside the basin at the 0.01 eV/A force gate rather than by
@@ -591,13 +594,15 @@ energy is a float32 quantity whose quantization step grows with the total
 energy. The AIMNet2 spread (9.9e-3 eV) sits just inside the tolerance, close
 enough that another run can land outside it; the ANI2xt spread (2.1e-3 eV) is
 a fifth of it. The tolerance is deliberately not widened to cover those
-spreads: a window of that width (five times them would be 0.050, 0.011 and
-0.098 eV, or 1.15, 0.25 and 2.26 kcal/mol, against kT of 0.59 kcal/mol at
-298 K) would also merge two genuinely distinct conformers that differ only in
-where a hydroxyl or amine hydrogen points, whose splittings are roughly 0.5 to
-1.5 kcal/mol, which heavy-atom RMSD cannot tell apart and which the energy
-comparison is there to protect. A surviving duplicate pair is visible and one
-of the two can be dropped; a merged pair is not. The measurement and that
+spreads: five times them would be 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
+2.26 kcal/mol, against kT of 0.59 kcal/mol at 298 K), and the AIMNet2 and
+ANI2x windows would also merge two genuinely distinct conformers that differ
+only in where a hydroxyl or amine hydrogen points, whose splittings are
+roughly 0.5 to 1.5 kcal/mol, which heavy-atom RMSD cannot tell apart and which
+the energy comparison is there to protect; ANI2xt's 0.011 eV (0.25 kcal/mol)
+sits below that band and is within rounding of the tolerance. A surviving
+duplicate pair is visible and one of the two can be dropped; a merged pair is
+not. The measurement and that
 reading are written up in
 ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
 
@@ -605,9 +610,13 @@ Pass ``memory=<GB>`` (``--memory`` on the command line) to pin the batch
 composition. That removes composition as a variable but not the spread: with
 the arrangement held fixed, the same molecule optimized in three successive
 repeats still ended 9.95e-3 eV apart for AIMNet2 (salbutamol, as large as the
-across-arrangement figure above) and 7.8e-3 eV -- two quantization steps --
-for ANI2x. A duplicate pair can therefore survive, or be merged, on a rerun
-with a pinned batch size as well.
+across-arrangement figure above; no geometries were compared across repeats,
+and this molecule's hydroxyl and amine hydrogens have close-lying alternative
+orientations, so a rotamer pair is not excluded here either) and 7.8e-3 eV --
+two quantization steps -- for ANI2x. Both are inside the 0.01 eV tolerance,
+the AIMNet2 one at 0.995 of it, close enough that another run can land
+outside: pinning the batch size does not leave margin against two copies of
+one minimum appearing in the output.
 
 Output Files
 ------------

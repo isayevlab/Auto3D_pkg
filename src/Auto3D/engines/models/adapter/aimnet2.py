@@ -44,14 +44,21 @@ class AIMNet2Adapter(BaseModelAdapter):
     # attribute so that an adapter CAN deduplicate its conformers with its own
     # number, and this one deliberately does not set it, so AIMNet2 runs use
     # the shared ``DEFAULT_DUPLICATE_ENERGY_TOL``. The 2026-10-16 measurement
-    # put this engine's spread between two optimizations of one minimum at
-    # 9.9e-03 eV (0.23 kcal/mol), just under that constant, but 1.4x above its
-    # own reading an hour earlier, so a value built on it would be built on a
-    # draw rather than a bound -- and anything at or above kT (0.0257 eV at
-    # 298 K) would start merging the O-H and N-H rotamer pairs the energy half
-    # of the duplicate test exists to keep apart, which matters here because
-    # this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse`` and
-    # ``aimnet2-pd`` while only the default model was measured. See
+    # put this engine's largest spread between two optimizations of the same
+    # starting structure at 9.9e-03 eV (0.23 kcal/mol), just under that
+    # constant. That row is salbutamol: its arrangements agree to 0.0647 A
+    # heavy-atom RMSD, the duplicate filter's own criterion, but the molecule
+    # carries hydroxyl and amine hydrogens whose alternative orientations are
+    # close in energy, so an O-H rotamer or N-H invertomer pair is not
+    # excluded (the next case, 4.0e-03 eV, has no such rotor). The spread was
+    # also 1.4x above its own reading an hour earlier, so a value built on it
+    # would be built on a draw rather than a bound -- and five times it,
+    # 0.050 eV (1.15 kcal/mol, 1.9 kT at 298 K), overlaps typical
+    # hydroxyl-rotamer splittings of roughly 0.5 to 1.5 kcal/mol, which the
+    # energy half of the duplicate test exists to keep apart (ANI2xt's
+    # 0.011 eV, 0.25 kcal/mol, sits below that band). That matters here
+    # because this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse``
+    # and ``aimnet2-pd`` while only the default model was measured. See
     # ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
 
     def __init__(

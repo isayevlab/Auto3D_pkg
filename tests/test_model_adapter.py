@@ -374,9 +374,12 @@ class TestTheShippedAdaptersKeepTheSharedDuplicateEnergyTolerance:
     moved by 1.4x and 2.5x between two runs an hour apart, so five times the
     largest of three draws is not a bound on the quantity, and the values that
     rule produced for AIMNet2 and ANI2x (0.050 and 0.098 eV) are 1.9 and 3.8
-    times kT at 298 K (0.0257 eV), where the O-H and N-H rotamer splittings
-    the energy half of the duplicate test exists to protect live. ANI2xt's
-    (0.011 eV) is within rounding of the constant.
+    times kT at 298 K (0.0257 eV) and overlap typical hydroxyl-rotamer
+    splittings of roughly 0.5 to 1.5 kcal/mol (0.022 to 0.065 eV), which the
+    energy half of the duplicate test exists to protect: 0.050 eV
+    (1.15 kcal/mol) sits inside that band and 0.098 eV (2.26 kcal/mol) above
+    it. ANI2xt's (0.011 eV, 0.25 kcal/mol) sits below the band and is within
+    rounding of the constant.
 
     Both halves are asserted, because they fail differently: the resolved
     value is what a run deduplicates with, and the absence of a class-level

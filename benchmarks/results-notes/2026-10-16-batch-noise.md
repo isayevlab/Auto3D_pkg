@@ -1,4 +1,4 @@
-# Batch-composition energy noise, with the one-minimum check on each floor
+# Batch-composition energy noise, with the geometry check on each floor row
 
 ## 1. Setup
 
@@ -112,9 +112,17 @@ composition with `memory=<GB>` is left with. Computed from the record's
 | ANI2xt | 9.92e-04 | `OC(=O)c1ccccc1OC(C)=O` | 2.10e-03 | 0.47x |
 | ANI2x | 7.81e-03 (2 ULPs) | `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O` | 1.95e-02 (5 ULPs) | 0.40x |
 
-For AIMNet2 the two cuts are the same size on the same molecule: batch
-composition adds nothing to what repeating the run already moves, so pinning
-the composition does not remove the spread for this engine. For ANI2x the
+This cut has no geometry check of its own: geometries were saved for the
+three arrangements within a repeat only (section 4), so no structure from one
+repeat was compared with one from another. For AIMNet2 the two cuts share one
+event: salbutamol's repeat-2 all-24 energy is -21469.3578 eV against
+-21469.3478 eV in repeats 0 and 1 (`post_opt[].e_all`), and that arrangement
+is the one whose heavy-atom RMSD against the other two arrangements of
+repeat 2 is 0.0647 A (section 4). One arrangement in one repeat is the
+outlier in both cuts, so the two cuts are not independent evidence. What the
+pinned cut shows on its own is that with the all-24 arrangement held fixed,
+repeating the run still moved salbutamol by 9.95e-03 eV, so pinning the
+composition does not remove the spread for this engine. For ANI2x the
 fixed-arrangement cut is two quantization steps against the floor's five, so
 composition does add there; for ANI2xt it is about half the floor.
 
@@ -199,14 +207,19 @@ Which of the nine rows the hydrogen blind spot can actually reach is a
 question about their structures, and for eight of them it cannot:
 `Fc1ccc(cc1)C(=O)CCCN1CCCCC1` (two AIMNET rows) and
 `CN1C2CCC1C(C(=O)OC)C(OC(=O)c1ccccc1)C2` (two ANI2xt rows) have no O-H or N-H
-at all; `OC(=O)c1ccccc1OC(C)=O` (ANI2xt's floor) has a carboxylic O-H, whose
-syn/anti splitting is several kcal/mol; `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O`
-(two ANI2x rows, including its floor) has a carboxylic O-H and an amide N-H,
-both of them several kcal/mol; and `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1`
-(ANI2x rep 2) carries sulfonamide and urea N-H on planar conjugated nitrogen,
-which has no hydrogen-only degree of freedom. Each of those costs several
-kcal/mol, against spreads of 0.45 kcal/mol and below, so for those rows a
-rotamer pair is not a candidate explanation.
+at all, so there is no hydrogen rotor to differ in; `OC(=O)c1ccccc1OC(C)=O`
+(ANI2xt's floor) has a carboxylic O-H, whose syn/anti splitting is several
+kcal/mol; `CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O` (two ANI2x rows,
+including its floor) has a carboxylic O-H, again several kcal/mol, and an
+amide N-H on a planar conjugated nitrogen, where reorienting the hydrogen is
+not a hydrogen-only motion (an amide flip moves heavy atoms and would show in
+the heavy-atom RMSD); and `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1` (ANI2x
+rep 2) carries sulfonamide and urea N-H on planar conjugated nitrogen, which
+has no hydrogen-only degree of freedom either. So for those eight rows a
+rotamer pair is not a candidate explanation: four have no such rotor at all,
+one has only planar N-H with no hydrogen-only motion, and the carboxylic O-H
+the other three carry costs several kcal/mol against spreads of 0.45 kcal/mol
+and below.
 
 The exception is **AIMNET's floor row**, `CC(C)(C)NCC(O)c1ccc(O)c(CO)c1`
 (salbutamol): three O-H and a secondary amine N-H, which is where hydroxyl
@@ -223,10 +236,11 @@ an ANI2x spread of 1.95e-02 eV on this same molecule
 capture its geometries because the event did not recur in its second sample,
 and left "basin position or two rotamers" unresolved. The event recurred here
 at the same 1.95e-02 eV, its three arrangements agree to 0.1023 A heavy-atom
-RMSD, and -- as above -- this molecule's only hydrogen-only degrees of freedom
-are a carboxylic O-H and an amide N-H, whose splittings are several kcal/mol
-against a spread of 0.45 kcal/mol. The rotamer branch is excluded on those
-grounds rather than by the RMSD alone: it is basin position.
+RMSD, and -- as above -- this molecule's only hydrogen-only degree of freedom
+is a carboxylic O-H, whose syn/anti splitting is several kcal/mol against a
+spread of 0.45 kcal/mol; its amide N-H sits on a planar conjugated nitrogen,
+so reorienting it is not a hydrogen-only motion. The rotamer branch is
+excluded on those grounds rather than by the RMSD alone: it is basin position.
 
 The check covers the worst row of each repeat -- 3 rows of 72 per engine, the
 3 that can set the floor -- and says nothing about the other 69.
@@ -308,9 +322,11 @@ Two reasons, both about what the rule's number would mean:
    The structures that lose by widening are polyols, where several hydroxyl
    rotors couple, and the alcohol and amine pairs of the aminoalcohol drugs;
    in this bench set those rotors are carried by `OCC(O)CO` (glycerol),
-   `CC(C)(C)NCC(O)c1ccc(O)c(CO)c1` (salbutamol: a benzylic and a primary
-   alcohol plus a secondary amine), `CC(C)NCC(O)COc1cccc2ccccc12`
-   (propranolol: the same pair) and `CC(N)C(=O)O` (alanine's NH2). Several
+   `CC(C)(C)NCC(O)c1ccc(O)c(CO)c1` (salbutamol: a phenol whose ortho
+   hydroxymethyl group makes its two in-plane O-H orientations inequivalent,
+   plus a benzylic and a primary alcohol and a secondary amine),
+   `CC(C)NCC(O)COc1cccc2ccccc12` (propranolol: a secondary alcohol and a
+   secondary amine) and `CC(N)C(=O)O` (alanine's NH2). Several
    classes that look at risk are not: a carboxylic O-H (syn/anti, several
    kcal/mol), a para-substituted phenol such as `CC(=O)Nc1ccc(O)cc1`
    (paracetamol, whose two in-plane orientations are symmetry-equivalent and
@@ -331,10 +347,11 @@ from a conformer that was never generated.
 **The accepted residual.** ANI2x is the one engine whose measured floor stands
 above the tolerance (1.95e-02 against 1.00e-02 eV). On a molecule near
 |E| ~ 4e4 eV, two optimizations of one minimum can land five float32 steps
-apart, so a true duplicate can survive as two conformers about 0.02 eV
-(0.45 kcal/mol) apart -- which the user sees as near-degenerate conformers of
-one skeleton and can remove. That event is not representation rounding that
-float64 accumulation would shrink: its three arrangements differ by 0.1023 A
+apart, so a true duplicate can survive as two conformers about 0.02 eV apart
+(the measured 1.95e-02 eV is 0.45 kcal/mol) -- which the user sees as
+near-degenerate conformers of one skeleton and can remove. That event is not
+representation rounding that float64 accumulation would shrink: its three
+arrangements differ by 0.1023 A
 heavy-atom RMSD (section 4, which also rules out the rotamer reading for this
 molecule on energetic grounds), so the two optimizations stopped at different
 positions inside one basin at the force gate, and the float32 quantum only
@@ -383,15 +400,22 @@ reported from each repeat. They do share the code under test.
    it measures how close two DIFFERENT minima can be, which is the quantity a
    wider tolerance spends: section 5 reads that side from the rotamer band
    and from the 2026-10-05 note, not from this record, and no measurement in
-   this repository bounds it. What can be said about how often such pairs
-   reach the filter at all is the opposite of a mitigation: Auto3D embeds
-   hydrogen-complete molecules with ETKDGv3 (`Chem.AddHs` then
-   `EmbedMultipleConfs`, in `src/Auto3D/domain/embedding.py` and
-   `src/Auto3D/engines/isomers/rdkit_smi.py`; an OpenEye omega engine is also
-   available), and that delivers distinct hydroxyl rotamers routinely -- the
-   C-O-H dihedral spans its full range across the embedded conformers of one
-   molecule. The pairs a wider window would merge do arrive, as a product of
-   the embedding stage rather than incidentally.
+   this repository bounds it. How often such pairs reach the filter at all is
+   set at the embedding stage. Auto3D embeds hydrogen-complete molecules with
+   ETKDGv3 (`Chem.AddHs` then `EmbedMultipleConfs`, in
+   `src/Auto3D/domain/embedding.py` and
+   `src/Auto3D/engines/isomers/rdkit_smi.py`), and the C-O-H dihedral is
+   spread across the embedded conformers of one molecule; but the pool is
+   pruned with `pruneRmsThresh` equal to the duplicate RMSD threshold (0.3 A,
+   the same `threshold` option) on heavy atoms only and with symmetry
+   (`embed_params` sets `onlyHeavyAtomsForRMS` and `useSymmetryForPruning`),
+   so a pair that differs only in an O-H orientation is pruned at embedding.
+   Such a pair can reach the duplicate filter only when two distinct
+   heavy-atom embeddings converge during optimization. Measured with Auto3D's
+   own embed parameters, `randomSeed=0xA173D` and 30 conformers requested,
+   under RDKit 2025.09.6: glycerol keeps 9 of 30 embeddings and salbutamol 29
+   of 30, and no kept pair is below 0.3 A heavy-atom RMSD (the minima are
+   0.437 and 0.445 A).
 3. **ANI2x's floor is quantization, and it scales with |E|.** 1.95e-02 eV is
    exactly five float32 ULPs at |E| ~ 3.9e4 eV, where one ULP is 3.91e-03 eV.
    The ULP doubles with each doubling of |E|, so a value derived from this
@@ -467,7 +491,10 @@ rules that out.
 One box, one card, one commit, three repeats of 24 molecules per engine. The
 floors are same-start lower bounds: two optimizations from the same embedding,
 differing only in batch arrangement. Section 3's second table reports the
-other cut of the same rows -- one arrangement across the three repeats -- and
-nothing here separates run-to-run variation from composition beyond those two
-cuts. Two different starts that fall into one minimum are bounded by the same
-force gate, but are not what was measured.
+other cut of the same rows -- one arrangement across the three repeats -- with
+no geometry check of its own (geometries were saved for the arrangements
+within a repeat only), and for AIMNet2 the two cuts share one event, so they
+are not independent evidence; nothing here separates run-to-run variation
+from composition beyond those two cuts. Two different starts that fall into
+one minimum are bounded by the same force gate, but are not what was
+measured.

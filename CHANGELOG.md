@@ -37,10 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ANI2xt and 1.95e-2 eV (0.45 kcal/mol) for ANI2x. Widening the tolerance to
   five times each of those spreads -- 0.050, 0.011 and 0.098 eV (1.15, 0.25 and
   2.26 kcal/mol) -- was computed and rejected: the spreads themselves moved by
-  1.4x and 2.5x between two runs an hour apart, and a window of that width
-  would merge conformers that differ only in a hydroxyl or amine hydrogen
-  orientation, whose splittings are roughly 0.5 to 1.5 kcal/mol and which the
-  energy half of this test exists to keep apart. The measurement and that
+  1.4x and 2.5x between two runs an hour apart, and the AIMNet2 and ANI2x
+  windows would merge conformers that differ only in a hydroxyl or amine
+  hydrogen orientation, whose splittings are roughly 0.5 to 1.5 kcal/mol and
+  which the energy half of this test exists to keep apart, while ANI2xt's
+  0.011 eV (0.25 kcal/mol) sits below that band and is within rounding of the
+  constant. The measurement and that
   reading are written up in
   `benchmarks/results-notes/2026-10-16-batch-noise.md`.
   Known limitation: ANI2x's measured spread is twice the tolerance (its total
