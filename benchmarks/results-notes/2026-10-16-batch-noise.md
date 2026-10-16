@@ -15,8 +15,14 @@
 - **Versions:** torch 2.9.1+cu128, CUDA 12.8, compute capability 8.9,
   Python 3.13.12, aimnet 0.2.0.post1.dev34+g8092749f9.d20260617,
   torchani 2.8.4, RDKit 2025.9.6.
-- **Commit:** `8affb78` (branch `worktree-dedup-tolerance-decision`); the
-  record's own `env` block is the source of record.
+- **Commit:** the record's `env.commit` reads `8affb78`, which was HEAD when
+  the run started (branch `worktree-dedup-tolerance-decision`). The script as
+  run carried, uncommitted at that moment, the edits committed beside this
+  note -- which is why the record has keys `8affb78`'s script does not write
+  (`post_opt_summary.rows_total`, the per-engine `max_memory_allocated` and
+  `memory_reserved`). The script committed with this note is the one that
+  produced the record; the record's own `env` block is the source of record
+  for everything else.
 - **Bench set:** the 24 fixed SMILES (8 small / 8 medium / 8 large) in
   `benchmarks/bench_optimization_perf.py::SMILES`, embedded with ETKDGv3,
   `randomSeed=0xA173D`.
@@ -116,8 +122,11 @@ ANI2x's three figures are exactly one and two float32 ULPs at that molecule's
 |E| (`ulp32` 3.91e-03 eV in the record), so its floor is a two-step
 quantization event on one molecule, which recurred in two of the three
 repeats. AIMNET's and ANI2xt's floors are the position the optimizer stopped
-at inside the basin, several orders of magnitude above their own
-same-composition rerun noise and far below their own storage quantum.
+at inside the basin: several orders of magnitude above their own
+same-composition rerun noise (3.81e-06 and 1.41e-06 eV), and nine orders of
+magnitude above the quantum their float64 total energy is stored at
+(9.1e-13 to 7.3e-12 eV across these |E|), so neither floor is a quantization
+step of anything -- unlike ANI2x's, whose total energy is itself float32.
 
 Each engine's floor is read on its own, and nothing here carries one engine's
 number across to another: the floor is a property of that engine's kernels and
