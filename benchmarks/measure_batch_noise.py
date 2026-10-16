@@ -36,9 +36,12 @@ tolerance is below five times any engine's floor, or above twenty times
 another's, it becomes engine-aware -- the adapter exposes a
 ``duplicate_energy_tol`` and the orchestrator passes it down to
 ``filter_conformers`` as a parameter (no upward import); otherwise the single
-constant stays and its comment cites the note. Each engine's ``verdict`` is
-which side of those two multiples its own ratio falls on, with both edges
-inclusive:
+constant stays and its comment cites the note. The rule says what to compute,
+not what to ship: on the 2026-10-16 sample it triggered, the per-engine values
+it yields were computed and not adopted, and every adapter keeps the constant
+(``benchmarks/results-notes/2026-10-16-batch-noise.md``). Each engine's
+``verdict`` is which side of those two multiples its own ratio falls on, with
+both edges inclusive:
 
 * ``"below five times the floor"`` -- the tolerance does not stand five times
   above what this engine's own noise can move an energy by.

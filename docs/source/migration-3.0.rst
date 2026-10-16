@@ -775,8 +775,9 @@ later: from the ``Unreleased`` section of ``CHANGELOG.md``,
 ``filter_conformers`` and ``filter_unique_optimized`` accept ``energy_tol``
 as a keyword (defaulting, as before, to
 ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``), and Auto3D's
-own pipeline passes the value measured for the engine that produced the
-energies. A call that passes nothing behaves as it did.
+own pipeline passes the value carried by the model adapter that produced the
+energies -- that default for every engine it ships. A call that passes nothing
+behaves as it did.
 
 ``use_ensemble`` and ``**kwargs`` removed
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

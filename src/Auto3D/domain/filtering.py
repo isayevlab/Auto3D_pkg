@@ -216,11 +216,12 @@ def filter_conformers(
         energy_tol: Energy tolerance (eV) for the duplicate test, used both by
             that test and as the lower bound on the run split below. How far
             two optimizations of one minimum can land apart is a property of
-            the engine that produced the energies, measured per engine
-            (``Auto3D.engines.models.adapter``'s ``duplicate_energy_tol``,
-            which the orchestrator passes down); this layer cannot know which
-            engine that was and must not import upward to find out, so the
-            number arrives as a parameter. Defaults to
+            the engine that produced the energies, so the value lives on that
+            engine's adapter (``Auto3D.engines.models.adapter``'s
+            ``duplicate_energy_tol``, which the orchestrator passes down);
+            this layer cannot know which engine that was and must not import
+            upward to find out, so the number arrives as a parameter. Every
+            adapter Auto3D ships carries the default below. Defaults to
             ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``, for
             a caller with no adapter to ask.
 

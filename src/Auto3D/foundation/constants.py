@@ -152,39 +152,46 @@ BUILTIN_ANI_MODELS = frozenset({MODEL_ANI2X.upper(), MODEL_ANI2XT.upper()})
 
 # Default optimization parameters
 DEFAULT_RMSD_THRESHOLD = 0.3  # Angstrom, for duplicate conformer removal
-# eV, the FALLBACK energy tolerance for the duplicate-conformer test, for a
-# caller with no adapter to ask. RMSD dedup compares heavy-atom skeletons only,
-# so two conformers that settled on the same skeleton with different O-H / N-H
-# orientations have RMSD ~= 0 while being distinct minima; they count as
-# duplicates only when their energies ALSO agree within the tolerance in force
-# (~0.23 kcal/mol at this value). What the tolerance has to cover is how far two
-# optimizations of the SAME minimum can land apart at the 0.01 eV/A force gate,
-# which is a property of the engine that produced the energies and is measured
-# per engine: each adapter carries its own `duplicate_energy_tol`
-# (Auto3D.engines.models.adapter), five times its measured floor rounded up to
-# two significant figures, and the orchestrator passes that value down to
-# `filter_conformers` -- the filter is a lower layer and cannot ask which engine
-# ran. The shipped values are 0.036 eV (AIMNet2, 0.83 kcal/mol), 0.011 eV
-# (ANI2xt, 0.25) and 0.040 eV (ANI2x, 0.92), each five times the floor of the
-# 2026-10-16 measurement they were taken from -- the first of the two samples
-# that day on one idle card, whose record the note below has since replaced.
-# A second sample, three arrangements and three repeats again, measured larger
-# floors for two engines: 9.9e-3 eV (AIMNet2), 2.1e-3 eV (ANI2xt) and 2.0e-2 eV
-# (ANI2x), each verified as one minimum reached twice by heavy-atom RMSD
-# (<= 0.10 A, well inside the 0.3 A duplicate threshold). The shipped values
-# still cover every spread that sample measured -- by 3.6x, 5.2x and 2.1x --
-# but no longer by five times for AIMNet2 and ANI2x; five times those floors
-# would be 0.050 and 0.098 eV, which is not what is shipped. Both samples and
-# that reading: benchmarks/results-notes/2026-10-16-batch-noise.md.
+# eV, the energy tolerance for the duplicate-conformer test, and what every
+# engine Auto3D ships is deduplicated with. RMSD dedup compares heavy-atom
+# skeletons only, so two conformers that settled on the same skeleton with
+# different O-H / N-H orientations have RMSD ~= 0 while being distinct minima;
+# they count as duplicates only when their energies ALSO agree within the
+# tolerance in force (0.23 kcal/mol, 0.39 kT at 298 K, at this value). What the
+# tolerance has to cover is how far two optimizations of the SAME minimum can
+# land apart at the 0.01 eV/A force gate, which is a property of the engine
+# that produced the energies: the value lives on that engine's adapter as
+# `duplicate_energy_tol` (Auto3D.engines.models.adapter) and the orchestrator
+# passes it down to `filter_conformers`, which is a lower layer and cannot ask
+# which engine ran. No adapter in this repository overrides it, so every
+# bundled engine resolves to this constant; the attribute is the hook for an
+# adapter that has a measurement to apply.
 #
-# Every per-engine value is above this 0.01, which stands five times above no
-# measured floor at all: a run deduplicated with THIS value -- a custom NNP, or
-# a direct call into the filter or the ranker that passes nothing -- can keep
-# two copies of one minimum whose energies disagree by more than it
-# (docs/source/usage.rst, "Reproducibility across reruns"). ANI2x's float32
-# total energy is quantized at 2-4e-3 eV above |E| ~ 2e4 eV, so its floor is a
-# count of those steps rather than optimizer position, and it doubles with each
-# doubling of |E|.
+# The three bundled engines were measured on 2026-10-16 (three batch
+# arrangements, three repeats, one idle card, each largest case geometry-checked
+# as one minimum reached twice): floors 9.93e-3 eV (AIMNet2), 2.10e-3 eV
+# (ANI2xt) and 1.95e-2 eV (ANI2x), i.e. this tolerance stands 1.01x, 4.75x and
+# 0.51x above them. Per-engine values were computed from those floors --
+# 0.050, 0.011 and 0.098 eV, five times each floor rounded up -- and were NOT
+# adopted. Two reasons: the floors moved by 1.4x and 2.5x between two runs an
+# hour apart, so five times the largest of three draws is a draw and not a
+# bound on the quantity. And a window at or above kT (0.0257 eV at 298 K)
+# overlaps the O-H and N-H rotamer splittings the energy half of this test
+# exists to protect -- the AIMNet2 and ANI2x values are 1.9 and 3.8 kT, while
+# ANI2xt's 0.011 eV is 0.43 kT and within rounding of this constant -- which
+# would buy false positives (a merged rotamer, silent and irreversible) to
+# reduce false negatives that are intrinsic to any finite window and that a
+# user can see and correct. The measurement, both samples and that reading:
+# benchmarks/results-notes/2026-10-16-batch-noise.md.
+#
+# The accepted cost is on ANI2x, whose measured floor is twice this value: its
+# float32 total energy is quantized at 3.91e-3 eV near |E| ~ 3.9e4 eV (the step
+# doubles with each doubling of |E|), and two optimizations of one minimum were
+# seen five steps apart, so such a pair survives as two near-degenerate
+# conformers in the output (docs/source/usage.rst, "Reproducibility across
+# reruns"). AIMNet2's measured floor sits just inside this value and ANI2xt's
+# well inside it, but a floor is a draw: a pair can land past it on another
+# run.
 DEFAULT_DUPLICATE_ENERGY_TOL = 0.01
 DEFAULT_CONVERGENCE_THRESHOLD = 0.01  # eV/Angstrom, force convergence
 # eV/Angstrom, the deliberately tighter pre-optimization force tolerance used by

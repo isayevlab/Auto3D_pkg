@@ -40,19 +40,19 @@ class AIMNet2Adapter(BaseModelAdapter):
     calculator guarantees stays connected to ``coord`` in the autograd graph.
     """
 
-    #: eV (0.83 kcal/mol), five times the floor of the 2026-10-16 measurement
-    #: this value was taken from (7.08e-03 eV), rounded up to two significant
-    #: figures. See :class:`BaseModelAdapter` for what the attribute is, and
-    #: ``benchmarks/results-notes/2026-10-16-batch-noise.md`` for the
-    #: measurement -- the same molecule optimized in three batch arrangements,
-    #: three repeats, on one idle card -- including a second sample whose
-    #: floor was 9.9e-03 eV, which this value covers by 3.6x rather than the
-    #: five times the rule asks for.
-    #:
-    #: Measured with the default ``aimnet2`` model and applied to the family:
-    #: this class also serves ``aimnet2-2025``, ``aimnet2-nse`` and
-    #: ``aimnet2-pd``, which were not measured.
-    duplicate_energy_tol: float = 0.036
+    # No `duplicate_energy_tol` here: :class:`BaseModelAdapter` carries the
+    # attribute so that an adapter CAN deduplicate its conformers with its own
+    # number, and this one deliberately does not set it, so AIMNet2 runs use
+    # the shared ``DEFAULT_DUPLICATE_ENERGY_TOL``. The 2026-10-16 measurement
+    # put this engine's spread between two optimizations of one minimum at
+    # 9.9e-03 eV (0.23 kcal/mol), just under that constant, but 1.4x above its
+    # own reading an hour earlier, so a value built on it would be built on a
+    # draw rather than a bound -- and anything at or above kT (0.0257 eV at
+    # 298 K) would start merging the O-H and N-H rotamer pairs the energy half
+    # of the duplicate test exists to keep apart, which matters here because
+    # this class serves ``aimnet2``, ``aimnet2-2025``, ``aimnet2-nse`` and
+    # ``aimnet2-pd`` while only the default model was measured. See
+    # ``benchmarks/results-notes/2026-10-16-batch-noise.md``.
 
     def __init__(
         self,

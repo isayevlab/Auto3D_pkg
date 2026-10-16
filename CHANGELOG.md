@@ -20,33 +20,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are not repeated on the merge commit (branch protection requires an
   up-to-date branch instead); releases verify the tag, the merge gates and the
   built wheel before publishing.
+- The duplicate-conformer test reads its energy tolerance from the model
+  adapter that produced the energies. Every adapter Auto3D ships keeps
+  `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV, 0.23 kcal/mol), so for the same
+  input a run deduplicates exactly as 3.2.1 did; an adapter that carries its
+  own `duplicate_energy_tol` -- a custom NNP whose owner measured one -- is
+  deduplicated with that value instead. `filter_conformers`,
+  `filter_unique_optimized` and `ConformerRanker` take the tolerance as a
+  parameter (`energy_tol`, `duplicate_energy_tol`), defaulting to the
+  constant, and the pipeline passes the adapter's value down to the filter.
+  The three bundled engines were measured for this release (three batch
+  arrangements, three repeats, one idle card, each largest case
+  geometry-checked as one minimum reached twice rather than two conformers):
+  the spread between two optimizations of one minimum reached 9.93e-3 eV
+  (0.23 kcal/mol) for AIMNet2, 2.10e-3 eV (0.048 kcal/mol) for ANI2xt and
+  1.95e-2 eV (0.45 kcal/mol) for ANI2x. That triggered the rule that would
+  make the tolerance engine-aware, which asked for 0.050, 0.011 and 0.098 eV
+  (1.15, 0.25 and 2.26 kcal/mol); none was adopted, because the floors moved
+  by 1.4x and 2.5x between two runs an hour apart and because a window at or
+  above kT (0.0257 eV at 298 K) merges the O-H and N-H rotamer pairs the
+  energy half of the test exists to keep apart. The measurement and that
+  reading are written up in
+  `benchmarks/results-notes/2026-10-16-batch-noise.md`.
+  Known limitation: ANI2x's measured spread is twice the tolerance (its total
+  energy is a float32 quantity, quantized at 3.91e-3 eV near the largest of
+  these molecules), so a true duplicate can survive as two near-degenerate
+  copies about 0.02 eV apart; AIMNet2's measured spread sits just inside the
+  tolerance and could land past it on another run, while ANI2xt's is a fifth
+  of it.
 
 ### Fixed
-- Duplicate conformers are deduplicated with a tolerance measured for the
-  engine that produced their energies, instead of one number for every engine.
-  How far two optimizations of the same minimum can land apart at the 0.01
-  eV/A force gate was measured per engine (three batch arrangements, three
-  repeats, idle card), and each adapter now carries five times its own
-  measured floor rounded up to two significant figures: 0.036 eV
-  (0.83 kcal/mol) for AIMNet2, 0.011 eV (0.25 kcal/mol) for ANI2xt, 0.040 eV
-  (0.92 kcal/mol) for ANI2x. The measurement, including the check that each
-  largest case is one minimum reached twice rather than two conformers, is
-  written up in `benchmarks/results-notes/2026-10-16-batch-noise.md`. The
-  pipeline passes the value from the adapter it optimized with down to the
-  conformer filter; `filter_conformers`, `filter_unique_optimized` and
-  `ConformerRanker` take it as a parameter, and
-  `DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV) remains the default for a caller
-  with no adapter, including a custom NNP.
-  **For the same input, a run returns fewer near-degenerate conformers than
-  3.2.1 did**: pairs whose energies differ by between 0.01 eV and the
-  engine's tolerance, and whose heavy-atom RMSD is under the 0.3 A threshold,
-  are now merged. That is the point for a pair that is one minimum reached
-  twice -- which is what 3.2.1 could return twice -- and the cost for a pair
-  of genuinely distinct structures whose energies agree that closely, which
-  the note discusses.
-  The AIMNet2 value was measured with the default `aimnet2` model and is
-  applied to the whole family (`aimnet2`, `aimnet2-2025`, `aimnet2-nse`,
-  `aimnet2-pd`), which share one adapter class.
 - Tautomer enumeration no longer emits the mirror image of a legitimate
   tautomer. A stereo element that every proton-shift route to a tautomer must
   flatten is now emitted unspecified, so stereoisomer enumeration and enantiomer

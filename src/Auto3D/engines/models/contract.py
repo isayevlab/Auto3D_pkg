@@ -483,10 +483,13 @@ def duplicate_energy_tol_of(adapter: Any) -> float:
     """The duplicate-energy tolerance to deduplicate ``adapter``'s output with.
 
     How far two optimizations of one minimum can land apart at the force gate
-    is a measured property of the backend, so Auto3D's own adapters carry it:
+    is a property of the backend, so an adapter is where that number lives:
     :class:`Auto3D.engines.models.adapter.BaseModelAdapter` supplies
-    ``duplicate_energy_tol`` and each backend overrides it with its own
-    measurement. It is deliberately NOT a member of :class:`ModelAdapter` and
+    ``duplicate_energy_tol`` and a backend may override it with a value
+    measured for itself. None of the bundled adapters does, so Auto3D's own
+    engines are deduplicated with the shared constant (see that attribute and
+    ``benchmarks/results-notes/2026-10-16-batch-noise.md``). The member is
+    deliberately NOT part of :class:`ModelAdapter` and
     is never required of an implementer -- a structural adapter (a test
     double, or anything written against the documented interface) is a
     complete adapter without it, and adding it to the Protocol would make

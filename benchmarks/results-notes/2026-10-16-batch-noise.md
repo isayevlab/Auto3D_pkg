@@ -168,12 +168,12 @@ basin position.
 The check covers the worst row of each repeat -- 3 rows of 72 per engine, the
 3 that can set the floor -- and says nothing about the other 69.
 
-## 5. The rule, the verdicts, and what the rule asks for
+## 5. The rule, the verdicts, and the decision
 
-`tolerance_check` per engine, with `DEFAULT_DUPLICATE_ENERGY_TOL = 0.01` eV as
-shipped for a caller with no adapter, and `ratio = tolerance / floor`:
+`tolerance_check` per engine, with `DEFAULT_DUPLICATE_ENERGY_TOL = 0.01` eV --
+the one tolerance every engine ships with -- and `ratio = tolerance / floor`:
 
-| engine | floor (eV) | fallback tolerance (eV) | ratio | verdict |
+| engine | floor (eV) | tolerance (eV) | ratio | verdict |
 |---|---|---|---|---|
 | AIMNET | 9.93e-03 | 1.00e-02 | 1.01 | below five times the floor |
 | ANI2xt | 2.10e-03 | 1.00e-02 | 4.75 | below five times the floor |
@@ -194,42 +194,106 @@ floor*. The rule these verdicts feed, as the task brief states it:
 > constructions pass the adapter's value, `DEFAULT_DUPLICATE_ENERGY_TOL` stays
 > as the fallback for callers with no adapter.
 
-All three engines are below five times their own floor, so the rule asks for
-engine-aware values. Five times each floor, rounded up to two significant
-figures (a ceiling, computed in decimal from the record's full-precision
-`floor_ev`):
+All three engines are below five times their own floor, so **the rule
+triggered** and asks for engine-aware values. Five times each floor, rounded
+up to two significant figures (a ceiling, computed in decimal from the
+record's full-precision `floor_ev`), beside what the first sample of the day
+asked for:
 
-| engine | floor (eV) | 5 x floor | rounded up to 2 s.f. | in kcal/mol |
-|---|---|---|---|---|
-| AIMNET | 0.00992760767985601 | 4.963804e-02 | 0.050 | 1.15 |
-| ANI2xt | 0.002103712766256649 | 1.051856e-02 | 0.011 | 0.25 |
-| ANI2x | 0.01953125 | 9.765625e-02 | 0.098 | 2.26 |
+| engine | floor (eV) | 5 x floor | rounded up to 2 s.f. | in kcal/mol | in kT (298 K) | first sample asked for |
+|---|---|---|---|---|---|---|
+| AIMNET | 0.00992760767985601 | 4.963804e-02 | 0.050 | 1.15 | 1.9 | 0.036 (1.4 kT) |
+| ANI2xt | 0.002103712766256649 | 1.051856e-02 | 0.011 | 0.25 | 0.43 | 0.011 (0.43 kT) |
+| ANI2x | 0.01953125 | 9.765625e-02 | 0.098 | 2.26 | 3.8 | 0.040 (1.6 kT) |
 
-**ANI2x's 0.098 eV is above the 0.05 eV ceiling the controller set on this
-rule, so it was not written into the code, and neither were the other two.**
-2.26 kcal/mol is wider than the energy difference between many genuinely
-distinct conformers of one skeleton, and a duplicate test that wide stops
-being a duplicate test. AIMNET's 0.050 eV sits exactly on that ceiling.
+**None of these values is adopted.** Every adapter this repository ships keeps
+`DEFAULT_DUPLICATE_ENERGY_TOL` (0.01 eV), so for the same input a run
+deduplicates exactly as 3.2.1 did. What remains from the rule's branch is the
+plumbing, each piece defaulting to that constant:
+`BaseModelAdapter.duplicate_energy_tol`, the `energy_tol` parameter on
+`filter_conformers` and `filter_unique_optimized`, `ConformerRanker`'s
+`duplicate_energy_tol=None`, the two production sites reading the adapter
+through `duplicate_energy_tol_of`, and that accessor's fallback. It is a hook
+for an adapter that HAS a measurement to apply -- a custom NNP, or a future
+backend -- and keeping it is the one deviation from the rule's literal
+no-code-change branch.
 
-## 6. What this repository currently ships, and why it is not this sample's
+Two reasons, both about what the rule's number would mean:
 
-The per-engine values in the code today come from the **first** 2026-10-16
-sample on this card -- three repeats, no geometries, record committed with the
-change that introduced the values (`fix: duplicate-energy tolerance decision
-from the 2026-10-16 measurement`), whose JSON this file's record has since
-replaced. Both samples, same card, same bench set, same settings:
+1. **The basis is not stable.** A floor is the maximum of three draws of a
+   stochastic quantity, and it moved: AIMNet2's from 7.08e-03 to 9.93e-03 eV
+   (1.4x) and ANI2x's from 7.81e-03 to 1.95e-02 eV (2.5x) between two runs an
+   hour apart on the same card with the same settings, with AIMNet2's
+   per-repeat maximum moving 3.6x inside this sample alone (section 3). Five
+   times the largest of three draws is not a bound on the quantity; it is five
+   times what three draws happened to show, and the rule's premise that a
+   floor can be fixed by one run did not hold.
+2. **At or above kT, the window stops being a noise window.** kT is 0.0257 eV
+   at 298 K. The shipped 0.01 eV is 0.23 kcal/mol, 0.39 kT: sub-thermal, so
+   merging a pair inside it cannot erase a population-relevant distinction,
+   whatever the pair is. The rule's values are 1.9 kT (0.050), 0.43 kT (0.011)
+   and 3.8 kT (0.098); the first sample's were 1.4 kT (0.036) and 1.6 kT
+   (0.040). A duplicate filter that wide performs a Boltzmann pruning the user
+   did not ask for. It is also exactly the band where O-H and N-H rotamer
+   splittings live, and those pairs are what the energy half of the duplicate
+   test exists to protect: heavy-atom RMSD cannot separate two conformers that
+   differ only in where a hydroxyl or amine hydrogen points, so the energy
+   difference is the only thing keeping them apart. The structures that lose
+   by widening are polyols and sugars (several coupled hydroxyl rotors),
+   catechols, and the N-H of sulfonamides and ureas; in this bench set those
+   rotors are carried by `OCC(O)CO` (glycerol),
+   `CC(C)(C)NCC(O)c1ccc(O)c(CO)c1` (salbutamol),
+   `CC(C)NCC(O)COc1cccc2ccccc12` (propranolol), `CC(=O)Nc1ccc(O)cc1`
+   (paracetamol), `CC(N)C(=O)O` (alanine) and
+   `Cc1ccc(cc1)S(=O)(=O)NC(=O)NN1CCCCCC1` (a sulfonamide and a urea N-H on
+   one molecule). Carboxylic-acid syn/anti pairs are safe; their splitting is
+   several kcal/mol. The 2026-10-05 note rejected a uniform 0.02 eV
+   (0.78 kT) as already merging distinct rotamers; 0.050 and 0.098 eV are two
+   and four times that, so adopting them would reverse that judgment rather
+   than refine it.
 
-| engine | first sample's floor | shipped value | this sample's floor | this sample would ask for |
-|---|---|---|---|---|
-| AIMNET | 7.08e-03 | 0.036 (0.83 kcal/mol) | 9.93e-03 | 0.050 |
-| ANI2xt | 2.04e-03 | 0.011 (0.25 kcal/mol) | 2.10e-03 | 0.011 |
-| ANI2x | 7.81e-03 | 0.040 (0.92 kcal/mol) | 1.95e-02 | 0.098 |
+The asymmetry that settles it: no finite window makes deduplication exact, so
+false negatives -- two copies of one minimum, both kept -- are intrinsic to
+the test and cannot be bought out, only traded. They are visible in the output
+as two near-degenerate conformers and the user can drop one. A false positive
+is a rotamer merged into its partner: silent, irreversible, and indistinguishable
+from a conformer that was never generated.
 
-The shipped values do cover every spread this sample measured -- by 3.63x
-(AIMNet2), 5.23x (ANI2xt) and 2.05x (ANI2x) -- so no conformer pair this
-sample saw would survive deduplication under them. What they do not have is
-the five-times margin the rule asks for, for AIMNet2 and ANI2x. ANI2xt's
-number is unchanged by the new sample.
+**The accepted residual.** ANI2x is the one engine whose measured floor stands
+above the tolerance (1.95e-02 against 1.00e-02 eV). On a molecule near
+|E| ~ 4e4 eV, two optimizations of one minimum can land five float32 steps
+apart, so a true duplicate can survive as two conformers about 0.02 eV
+(0.45 kcal/mol) apart -- which the user sees as near-degenerate conformers of
+one skeleton and can remove. That event is not representation rounding that
+float64 accumulation would shrink: its three arrangements differ by 0.1023 A
+heavy-atom RMSD (section 4), so the two optimizations stopped at different
+positions inside the basin at the force gate, and the float32 quantum only
+sets the smallest nonzero difference they can report. What bounds it is a
+tighter `opttol`, not a wider duplicate window -- out of scope here, and every
+floor in this note is conditional on `opttol=0.01` eV/A. AIMNet2's floor sits
+just inside the tolerance (1.01x) and ANI2xt's well inside it (4.75x), but a
+floor is a draw: a pair can land past either on another run.
+
+## 6. The first sample, and what it almost shipped
+
+Between the commit that introduced them and the commit beside this note, the
+three adapter classes carried per-engine values from the **first** 2026-10-16
+sample on this card -- three repeats, no geometries, its record replaced by
+this file's. The ruling above removed them. Both samples, same card, same
+bench set, same settings:
+
+| engine | first sample's floor | it asked for | this sample's floor | it asks for | shipped |
+|---|---|---|---|---|---|
+| AIMNET | 7.08e-03 | 0.036 (0.83 kcal/mol) | 9.93e-03 | 0.050 (1.15) | 0.01 (0.23) |
+| ANI2xt | 2.04e-03 | 0.011 (0.25 kcal/mol) | 2.10e-03 | 0.011 (0.25) | 0.01 (0.23) |
+| ANI2x | 7.81e-03 | 0.040 (0.92 kcal/mol) | 1.95e-02 | 0.098 (2.26) | 0.01 (0.23) |
+
+The first sample's values would have covered every spread this sample measured
+-- by 3.63x (AIMNet2), 5.23x (ANI2xt) and 2.05x (ANI2x) -- so no conformer
+pair either sample saw would have survived deduplication under them. That is
+the trade the ruling declines: the coverage is bought with a window of 1.4 to
+1.6 kT. ANI2xt's number is the one the two samples agree on, and it is within
+rounding of the shipped constant either way.
 
 The two samples are not one measurement, and not only because of the draw: the
 first ran without `--save-geometries`, and they also differ in what is
@@ -244,27 +308,18 @@ reported from each repeat. They do share the code under test.
    on one molecule. ANI2xt's two readings agree to 3%. Five times the largest
    of three draws is not a bound on the quantity; it is five times what three
    draws happened to show.
-2. **The over-merging direction, which this measurement does not bound.**
-   0.036 to 0.040 eV is 0.83 to 0.92 kcal/mol, and 0.098 eV would be 2.26.
-   That range is where O-H and N-H rotamer splittings live, and those pairs
-   are exactly what the energy term in the duplicate test exists to protect:
-   heavy-atom RMSD cannot separate two conformers that differ only in where a
-   hydroxyl or amine hydrogen points, so the energy difference is the only
-   thing that keeps them apart. In this bench set the molecules with such
-   rotors are `OCC(O)CO` (glycerol), `CC(C)(C)NCC(O)c1ccc(O)c(CO)c1`
-   (salbutamol), `CC(C)NCC(O)COc1cccc2ccccc12` (propranolol),
-   `CC(=O)Nc1ccc(O)cc1` (paracetamol) and `CC(N)C(=O)O` (alanine);
-   carboxylic-acid syn/anti pairs are safe (their splitting is several
-   kcal/mol). ANI2xt at 0.011 eV (0.25 kcal/mol) is effectively the shipped
-   0.01 and changes nothing. The 2026-10-05 note rejected a uniform 0.02 eV
-   as already merging distinct rotamers; that judgment is not contradicted
-   here -- it is the same concern, now with a measurement on the other side of
-   it, which is why 0.098 eV was not written.
-   One mitigation worth stating: ETKDG does not sample hydroxyl or amine
-   rotor orientations, so a pair that differs only in an H-rotor arrives in
-   the filter only incidentally -- when the optimizer settles two embeddings'
-   hydrogens differently -- rather than as a systematic product of the
-   embedding stage.
+2. **This measurement bounds one direction only.** Every number here is about
+   how far apart two optimizations of the SAME minimum can land. Nothing in
+   it measures how close two DIFFERENT minima can be, which is the quantity a
+   wider tolerance spends: section 5 reads that side from the rotamer band
+   and from the 2026-10-05 note, not from this record, and no measurement in
+   this repository bounds it. One mitigation worth stating: ETKDG does not
+   sample hydroxyl or amine rotor orientations, so a pair that differs only
+   in an H-rotor arrives in the filter only incidentally -- when the optimizer
+   settles two embeddings' hydrogens differently -- rather than as a
+   systematic product of the embedding stage. That is a reason the false
+   positives section 5 declines to buy are rarer than the rotor count
+   suggests, not a reason they are harmless.
 3. **ANI2x's floor is quantization, and it scales with |E|.** 1.95e-02 eV is
    exactly five float32 ULPs at |E| ~ 3.9e4 eV, where one ULP is 3.91e-03 eV.
    The ULP doubles with each doubling of |E|, so a value derived from this
@@ -278,13 +333,15 @@ reported from each repeat. They do share the code under test.
    returning a duplicate pair a user then noticed. What has been observed is
    the 2026-10-05 ANI2x spread of 1.95e-02 eV -- the only measured spread in
    any sample that stands above the then-shipped 0.01 eV tolerance -- which
-   this sample reproduced and geometry-checked as one minimum. That pair would
-   survive deduplication at 0.01 eV. Everything else in both samples is below
-   the shipped tolerance.
-5. **One AIMNet2 class attribute governs four registry names.** The measured
-   engine is the default `aimnet2` model. `AIMNet2Adapter` also serves
-   `aimnet2-2025`, `aimnet2-nse` and `aimnet2-pd`, which were not measured and
-   which inherit whatever the class carries.
+   this sample reproduced and geometry-checked as one minimum. That pair
+   survives deduplication at the shipped 0.01 eV, which is the residual
+   section 5 accepts. Everything else in both samples is below that tolerance.
+5. **Only one of the four AIMNet2 registry names was measured.** The measured
+   engine is the default `aimnet2` model, while `AIMNet2Adapter` also serves
+   `aimnet2-2025`, `aimnet2-nse` and `aimnet2-pd`. Nothing engine-specific
+   ships, so no unmeasured model inherits a number taken from another one --
+   but a future per-engine value set on that class would govern all four, and
+   three of them have no floor of their own.
 6. Each engine is read on its own floor. Nothing here carries one engine's
    number across to another: a floor is a property of that engine's kernels
    and of where its forces leave the convergence gate.
@@ -309,7 +366,8 @@ reported from each repeat. They do share the code under test.
   samples.
 - **This file's record replaced an earlier one of the same name**, from the
   first 2026-10-16 run (section 6). The earlier JSON is in git history with
-  the commit that introduced the shipped per-engine values.
+  the commit that introduced the per-engine values, which the decision in
+  section 5 has since removed.
 - **The earlier run was not confined to one card.** With `--device cuda:3`
   and no `CUDA_VISIBLE_DEVICES`, that process also left a context on card 0,
   which happened to be idle. This run set `CUDA_VISIBLE_DEVICES=3`, so it

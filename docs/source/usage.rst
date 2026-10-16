@@ -562,24 +562,33 @@ agree to 0.10 A heavy-atom RMSD or better, well inside the 0.3 A duplicate
 threshold, so they are one minimum reached more than once and not distinct
 conformers.
 
-Duplicate detection is where that matters, and the tolerance it uses is per
-engine. Each model adapter carries a ``duplicate_energy_tol`` measured for
-that engine -- 0.036 eV (0.83 kcal/mol) for AIMNet2, 0.011 eV (0.25 kcal/mol)
-for ANI2xt, 0.040 eV (0.92 kcal/mol) for ANI2x -- and Auto3D passes the value
-from the adapter it optimized with down to the conformer filter. Two
-conformers count as duplicates only when they are the same compound, their
-heavy-atom RMSD is under ``threshold`` (0.3 A by default) **and** their
-energies agree within that tolerance, so a tolerance wide enough to cover the
-rerun-to-rerun spread also merges two genuinely distinct structures whose
-energies happen to agree within it -- which is the trade-off those numbers
-make, and why the measurement behind them is written up rather than just
-applied. ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``
-(0.01 eV) remains the value used when there is no adapter to ask: a custom
-NNP, or a direct call to ``filter_conformers`` / ``filter_unique_optimized`` /
-``ConformerRanker`` that passes no tolerance of its own. Under that fallback,
-an ANI2x spread of the size measured above (2.0e-2 eV) is wider than the
-tolerance, so two copies of one minimum can both survive deduplication; the
-per-engine values cover every spread these measurements saw.
+Duplicate detection is where that matters. Two conformers count as duplicates
+only when they are the same compound, their heavy-atom RMSD is under
+``threshold`` (0.3 A by default) **and** their energies agree within the
+duplicate-energy tolerance,
+``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL`` (0.01 eV,
+0.23 kcal/mol), which is the tolerance every engine Auto3D ships uses. The
+value is read from the model adapter that produced the energies -- each
+adapter may carry its own ``duplicate_energy_tol``, and a custom NNP whose
+owner measured one is deduplicated with that instead -- but no bundled adapter
+sets one, so the behavior is the same for AIMNet2, ANI2xt and ANI2x.
+
+What that means for a rerun: the ANI2x spread measured above (2.0e-2 eV) is
+wider than the tolerance, so **two copies of one minimum can both appear in
+the output**, as two conformers of the same compound whose energies differ by
+about 0.02 eV and whose heavy-atom RMSD is near zero. It is the engine most
+likely to do this and it is more likely on larger molecules, because its total
+energy is a float32 quantity whose quantization step grows with the total
+energy. The AIMNet2 spread (9.9e-3 eV) sits just inside the tolerance, close
+enough that another run can land outside it; the ANI2xt spread (2.1e-3 eV) is
+a fifth of it. The tolerance is deliberately not widened to cover those
+spreads: anything at or above kT (0.0257 eV at 298 K) would also merge two
+genuinely distinct conformers that differ only in where a hydroxyl or amine
+hydrogen points, which heavy-atom RMSD cannot tell apart and which the energy
+comparison is there to protect. A surviving duplicate pair is visible and one
+of the two can be dropped; a merged pair is not. The measurement and that
+reading are written up in
+``benchmarks/results-notes/2026-10-16-batch-noise.md``.
 
 Pass ``memory=<GB>`` (``--memory`` on the command line) to pin the batch
 composition; the remaining rerun-to-rerun difference at a fixed composition

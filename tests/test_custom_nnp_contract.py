@@ -876,8 +876,9 @@ def test_torchscript_archive_saved_in_train_mode_gives_repeatable_energies(tmp_p
 class TestTheDuplicateEnergyToleranceIsReadThroughAnAccessor:
     """An adapter need not carry a duplicate-energy tolerance to be an adapter.
 
-    The per-engine tolerance is measured for Auto3D's own backends and lives on
-    ``BaseModelAdapter``, so every adapter ``create_model`` returns has one.
+    The tolerance lives on ``BaseModelAdapter``, so every adapter
+    ``create_model`` returns has one -- the shipped constant for all of them,
+    since no bundled adapter overrides it.
     But the type the factory returns is the ``ModelAdapter`` Protocol, and a
     structural adapter -- a test double, or anything a downstream user writes
     against the documented interface -- does not have to. Reading the attribute

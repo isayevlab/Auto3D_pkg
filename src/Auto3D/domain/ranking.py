@@ -190,9 +190,10 @@ class ConformerRanker:
             ``Auto3D.foundation.constants.DEFAULT_ENERGY_CLUSTER_WINDOW``.
         duplicate_energy_tol: Energy tolerance in eV for the duplicate test --
             how far two optimizations of one minimum can land apart on the
-            engine that produced these energies, which is a measured property
-            of that engine (its adapter's ``duplicate_energy_tol``; Auto3D's
-            own pipeline passes it in). ``None`` for a caller with no engine
+            engine that produced these energies, which is a property of that
+            engine and so lives on its adapter (``duplicate_energy_tol``;
+            Auto3D's own pipeline passes it in, and every adapter it ships
+            carries the constant below). ``None`` for a caller with no engine
             to ask, which means
             ``Auto3D.foundation.constants.DEFAULT_DUPLICATE_ENERGY_TOL``.
         overwrite: Allow writing over an existing `out_path`. Defaults to

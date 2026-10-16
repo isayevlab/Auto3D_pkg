@@ -398,11 +398,14 @@ def optim_rank_wrapper(
                     window = args.window
                     # The duplicate-energy tolerance comes from the adapter
                     # this worker optimized with: how far two optimizations of
-                    # one minimum land apart was measured per engine, and the
-                    # filter is a lower layer that cannot ask which engine ran.
-                    # Through the accessor, not the attribute: `create_model`
-                    # returns the ModelAdapter Protocol, which does not require
-                    # the member (see `duplicate_energy_tol_of`).
+                    # one minimum land apart is a property of the engine, and
+                    # the filter is a lower layer that cannot ask which engine
+                    # ran. Every bundled adapter carries the shipped constant,
+                    # so this is the 3.2.1 value unless an adapter sets its
+                    # own. Through the accessor, not the attribute:
+                    # `create_model` returns the ModelAdapter Protocol, which
+                    # does not require the member (see
+                    # `duplicate_energy_tol_of`).
                     rank_engine = ConformerRanker(
                         optimized_og,
                         output,

@@ -67,15 +67,23 @@ class BaseModelAdapter(ABC, nn.Module):
     """
 
     #: eV. The duplicate-energy tolerance conformers from THIS backend are
-    #: deduplicated with: five times the largest spread two optimizations of
-    #: one minimum were measured to land apart on it, rounded up to two
-    #: significant figures. The quantity is a property of the backend's
-    #: kernels and of where its forces leave the convergence gate, so each
-    #: adapter below carries its own measured value and the orchestrator
-    #: passes it down to the conformer filter (which is a lower layer and
-    #: cannot ask). The value here is the shipped constant, which is what an
-    #: adapter with no measurement of its own -- a user's custom NNP -- is
-    #: deduplicated with.
+    #: deduplicated with: how far two optimizations of one minimum can land
+    #: apart at the convergence gate, which is a property of the backend's
+    #: kernels and of where its forces leave that gate. The orchestrator reads
+    #: it (through
+    #: :func:`Auto3D.engines.models.contract.duplicate_energy_tol_of`) and
+    #: passes it down to the conformer filter, which is a lower layer and
+    #: cannot ask which engine ran.
+    #:
+    #: Every adapter shipped here inherits this value, the shared
+    #: ``DEFAULT_DUPLICATE_ENERGY_TOL``, and none overrides it: the
+    #: 2026-10-16 measurement of the three bundled engines
+    #: (``benchmarks/results-notes/2026-10-16-batch-noise.md``) found floors
+    #: that moved between two runs an hour apart, and every per-engine value
+    #: it computed was at or above kT at 298 K, where the rotamer pairs the
+    #: energy half of the duplicate test protects live. The attribute is the
+    #: hook for an adapter that HAS a measurement to apply -- a custom NNP, or
+    #: a future backend -- and overriding it changes only that adapter's runs.
     duplicate_energy_tol: float = DEFAULT_DUPLICATE_ENERGY_TOL
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
