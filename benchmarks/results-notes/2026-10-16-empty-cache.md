@@ -73,8 +73,9 @@
   this note decides on, to the byte.
 - **Repeats:** four, an even count, and the script alternates which arm leads each repeat, so
   each arm leads twice: the record's order is `on`/`off`, `off`/`on`, `on`/`off`, `off`/`on` for
-  both engines. Unlike the sibling scripts this one does not warn on an odd count, so the even
-  count was chosen at the command line.
+  both engines. Unlike the script behind
+  `benchmarks/results-notes/2026-10-16-fire-constants.md`, this one does not warn on an odd
+  count, so the even count was chosen at the command line.
 - **Bench set:** the 24 fixed SMILES of `benchmarks/bench_optimization_perf.py` (8 small, 8
   medium, 8 large), each embedded with ETKDGv3 at the shared seed into 10 conformers written as
   10 one-conformer records: `"n_conformers": 240` per arm, the same 240 starting geometries in
@@ -129,8 +130,8 @@ repeats. The script's own docstring records that column for reference only -- a 
 returns reserved segments to the driver and cannot change how many bytes the program has
 allocated -- and the rule below does not read it. The record carries no per-tensor accounting,
 so which allocations differ at the peak moment cannot be read from it, and no mechanism is
-asserted here. The difference is two orders of magnitude below the reserved-memory difference
-in the same rows.
+asserted here. It is a fraction of a MiB, against the 10.0 MiB reserved-memory difference in the
+same rows.
 
 **Where the reserved difference sits.** The whole of the 10.0 MiB reserved difference is
 allocator headroom: `reserved - allocated` falls by 9.802 MiB (AIMNet2) and 9.971 MiB (ANI2xt)
@@ -253,11 +254,15 @@ CHANGELOG's unreleased section records the change and cites this note.
    repeats this measurement, together with concern 3.
 3. **Another process was on the card during the run, and the record was kept.** A watch on card
    5 saw a second process -- 426 MiB, no sustained compute -- present for at least one
-   sixty-second sample at 09:45:25 UTC, belonging to another of this box's own tools. That
-   observation is from the watch, not from the record: the record's start and end snapshots both
-   carry `"other_processes": []`, so the sighting falls strictly between them, and the record
-   holds nothing about it. The record was kept rather than rerun. The three quantities the rule
-   reads are per-process: `torch.cuda.max_memory_reserved`, `num_alloc_retries` and `num_ooms`
+   sixty-second sample at 09:45:25 UTC, belonging to another of the owner's own tools on this
+   box. That observation is from the watch, not from the record: the record's start and end
+   snapshots both carry `"other_processes": []`, so the sighting falls strictly between them,
+   and the record holds nothing about it. Placing the sighting inside the run also rests on an
+   observation outside the record, since the record carries no timestamps at all: the run was
+   launched at 09:43 UTC, and its sixteen timed arms account for 182.1 s of what followed
+   (appendix), with the untimed warm-ups, model loads and conformer embedding on top. The record
+   was kept rather than rerun. The three quantities the rule reads are per-process:
+   `torch.cuda.max_memory_reserved`, `num_alloc_retries` and `num_ooms`
    come from this process's own caching allocator and count only its own segments and failures,
    and a co-tenant holding 426 MiB of a 44 GiB card leaves this process's 548 MiB peak and its
    zero retries unaffected -- there is no mechanism by which it could move them short of
@@ -383,6 +388,13 @@ for engine, rows in record["results"].items():
     print(f"wall clock (sensitivity line only): off - on = "
           f"{statistics.mean(off_walls) - statistics.mean(on_walls):+.3f} s against an on-arm "
           f"spread of {max(on_walls) - min(on_walls):.3f} s")
+
+# How much of the run's span the timed arms account for: the untimed warm-up
+# runs, the model loads and the input embedding are in none of these numbers.
+per_engine = {e: sum(r["wall_s"] for r in rows) for e, rows in record["results"].items()}
+print(f"\ntimed arms, all engines: {sum(per_engine.values()):.1f} s ("
+      + ", ".join(f"{e} {total:.1f} s" for e, total in per_engine.items())
+      + ") -- the run's own span is longer and is in no field of the record")
 ```
 
 Its output, with the figures this note quotes:
@@ -431,4 +443,6 @@ off - on reserved - allocated: -9.971 MiB
 clause 1: off - on = -10.0 MiB (mean), -10.0 MiB (worst rep pairing); repeat spread 0.0 MiB, tolerance max(spread, 20) = 20.0 MiB -> PASS
 clause 2: off - on retries +0, ooms +0 -> PASS
 wall clock (sensitivity line only): off - on = -0.409 s against an on-arm spread of 1.060 s
+
+timed arms, all engines: 182.1 s (AIMNET 114.2 s, ANI2xt 67.9 s) -- the run's own span is longer and is in no field of the record
 ```
