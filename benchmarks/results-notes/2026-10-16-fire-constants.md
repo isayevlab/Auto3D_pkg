@@ -55,13 +55,17 @@
   `benchmarks/bench_optimization_perf.py` added (deviation 3) -- so that edit was not yet in
   the tree when the record was written, and the helper this script imports was the committed
   one. The helper has since gained those `env` fields and nothing else that this script reads.
-- **Code under test:** between `3cc0b08` and this branch's head,
-  `src/Auto3D/engines/batch_opt/` and `FIRE_CONSTANT_SETS` in
-  `src/Auto3D/foundation/constants.py` changed in prose only -- the `FIRE` docstring sentence
-  this note is cited in, and a comment on the duplicate-energy tolerance. `FIRE_CONSTANT_SETS`,
-  `FIRE.__init__` and `n_steps` are unchanged, as `git diff 3cc0b08 HEAD` on those paths shows.
-- **The two sets** (`Auto3D.foundation.constants.FIRE_CONSTANT_SETS`), five constants plus the
-  first-step rule:
+- **Code under test:** between `3cc0b08` and this branch's head, two files under the optimizer
+  changed and both only in prose.
+  `src/Auto3D/engines/batch_opt/fire_optimizer.py` changed in the `FIRE` class docstring
+  sentence this note is cited in, and nothing else; `src/Auto3D/foundation/constants.py` changed
+  in the comment above `DEFAULT_DUPLICATE_ENERGY_TOL`, which is a different constant from
+  `FIRE_CONSTANT_SETS` -- `FIRE_CONSTANT_SETS` itself is byte-identical. `FIRE.__init__` is
+  unchanged, and `src/Auto3D/engines/batch_opt/optimization_engine.py`, which holds `n_steps`,
+  has no change at all. A diff of those paths between the two commits shows exactly this.
+- **The two sets** (`Auto3D.foundation.constants.FIRE_CONSTANT_SETS`), six constants plus the
+  first-step rule -- the five adaptation constants the optimizer's own docstring names, and
+  `dt_init`:
 
   | set | dt_max (time) | maxstep (A) | finc (-) | fdec (-) | astart (-) | dt_init (time) | skip_first_progress_test |
   |---|---|---|---|---|---|---|---|
@@ -79,8 +83,8 @@
   `auto3d` is the set every release has run and the current default. `bitzek2006` is the
   published set -- Bitzek, Koskinen, Gaehler, Moseler and Gumbsch, *Phys. Rev. Lett.* **2006**,
   *97*, 170201, as ASE implements it, which runs no progress test on the first step because the
-  velocity is still zero there. Four of the five constants differ between the sets; `astart`
-  and `dt_init` are the same in both.
+  velocity is still zero there. Four of the six differ between the sets -- `dt_max`, `maxstep`,
+  `finc` and `fdec` -- and two are shared: `astart` and `dt_init`.
 - **Repeats:** four, an even count so each set leads the alternation equally often; the script
   warns on an odd count. Within one repeat the arm order alternates -- `auto3d` leads the even
   repeats, `bitzek2006` the odd ones -- so neither set is always the later arm, and an even
@@ -261,8 +265,8 @@ for it. And two optimizations that stop in different local minima differ by the 
 those minima, which neither the force gate nor the floor bounds; what the floor bounds is two
 stops inside one basin.
 
-A maximum against a maximum is the least discriminating way to read that, and it is the read the
-earlier wording rested on: the largest of 240 within-set four-draw ranges against the largest of
+A maximum against a maximum is the least discriminating way to read that: the largest of 240
+within-set four-draw ranges against the largest of
 the pairwise between-set differences. Taken that way the two are comparable for ANI2xt
 (1.426e-01 eV within set against 1.504e-01 eV between sets) and not for AIMNet2 (1.458e-02 eV
 against 1.309e-01 eV), so the maximum-based statement holds for ANI2xt's tail and nowhere else.
@@ -278,11 +282,22 @@ between sets against 2 of 198 within set (AIMNet2), 93 of 203 against 14 of 203 
 The difference also has a sign. Taking dE as `bitzek2006` minus `auto3d`, the `auto3d` row is
 the lower energy in 668 of 792 both-converged pairs for AIMNet2 and 671 of 809 for ANI2xt, and
 in 124 of the 128 and 343 of the 359 pairs that exceed the floor; the mean signed dE is
-+4.004e-03 eV and +6.265e-03 eV. That is a one-sided shift toward higher final energies under
-`bitzek2006`, not the symmetric scatter a basin-hop argument would predict, so no basin-hop
-analogy is drawn here and no mechanism is proposed. It strengthens the reading that the clause
-fails rather than weakening it, and it moves no clause verdict: clauses 1 and 2 already fail by
-margins no spread in this record covers.
++4.004e-03 eV and +6.265e-03 eV. The bulk of the distribution is therefore one-sided, toward
+higher final energies under `bitzek2006`.
+
+The largest single rows run both ways, and reproducibly so. For AIMNet2 the four largest
+between-set differences are all one row -- row 69, the glycerol conformer named above -- where
+`bitzek2006` lands about 0.131 eV **lower** in each of the four repeats; the next four are row
+68, the adjacent conformer of the same molecule, where `bitzek2006` is about 0.081 eV **higher**
+in each of the four. The record carries no per-row fmax and no geometry comparison, so it cannot
+separate a difference of basin from a different stopping point inside one basin, for those rows
+or any other. No analogy is drawn here and no mechanism is proposed.
+
+What the sign evidence establishes is that the between-set difference is systematic rather than
+scatter -- not that its magnitude exceeds the floor, which is a separate matter and read within
+each engine: AIMNet2's mean shift of +4.004e-03 eV is about 0.40 of that engine's 9.93e-03 eV
+floor, and ANI2xt's +6.265e-03 eV is about 3.0 of its 2.10e-03 eV floor. It moves no clause
+verdict either way: clauses 1 and 2 already fail by margins no spread in this record covers.
 
 **Decision: keep the `auto3d` set as the default, on both engines measured.** The rule requires
 all three clauses to hold before the published set is adopted; all three fail for AIMNet2 and
@@ -306,7 +321,8 @@ it as the reason the current set stays.
    on the card, with no compute, changes a step count, a drop count or a converged energy. And
    the four repeats bound their own run-to-run spread, whatever its sources: the `bitzek2006`
    drop counts for ANI2xt are 37, 37, 39 and 38, and within-set energies move by up to
-   1.426e-01 eV on one row, and the clause margins above stand well outside both. The
+   1.426e-01 eV on one row. The margins by which clauses 1 and 2 fail stand well outside both;
+   clause 3's margin on ANI2xt does not, which is what that clause's own section says. The
    wall-clock columns are the numbers co-tenancy could plausibly move, and they are reported
    here as a sensitivity line that no clause reads. Note what the alternation does and does not
    cover: it covers drift across the run, not a single sixty-second sighting, which can fall
@@ -315,10 +331,13 @@ it as the reason the current set stays.
    should treat them as contaminated for at least that sample and rerun; the decision does not
    change.
 2. **The measurement process was not confined to one card, and held a CUDA context on card 0.**
-   `CUDA_VISIBLE_DEVICES` was unset and the device was given as `--device cuda:3`, so the
-   process enumerated every card on the box -- the run log's Warp initialization lists `cuda:0`
-   through `cuda:7` -- and left a context on card 0. All compute ran on card 3. This is the
-   process's own context, not the co-tenant of deviation 1; the sibling note
+   The context on card 0 is what the same watch that saw the co-tenant on card 3 observed: it
+   showed this measurement's own process holding a context there. The mechanism, separately, is
+   the launch form -- `CUDA_VISIBLE_DEVICES` unset with the device given as `--device cuda:3`,
+   so the process enumerated every card on the box, which is what the run log's Warp
+   initialization listing `cuda:0` through `cuda:7` shows (enumeration, not the context). All
+   compute ran on card 3. The context is this
+   process's own, not the co-tenant of deviation 1; the sibling note
    `benchmarks/results-notes/2026-10-16-batch-noise.md` records the same mechanism for the same
    launch form, which is why the later run there set `CUDA_VISIBLE_DEVICES`. No snapshot of
    card 0 exists, so nothing is claimed about card 0 beyond the context. A rerun should confine
@@ -373,13 +392,23 @@ it as the reason the current set stays.
    that differ in `dt_max` and `maxstep`; no mechanism is asserted here, only that neutrality
    is not something this measurement establishes. What the record does show is where the
    retired rows left the loop: steps 310 to 1567 with a median of 509 for AIMNet2 (168 rows)
-   and steps 339 to 1857 with a median of 541 for ANI2xt (151 rows), against `auto3d` converging
-   every one of its 960 rows by step 471 with a median of 132 (AIMNet2) and by step 436 with a
-   median of 125 (ANI2xt). So the retired rows were still running well past the point at which
-   the current set had finished the same geometries. The record stores no per-row fmax, so how
-   close those rows stood to the convergence gate when they were retired cannot be read from
-   it, and whether a larger patience would convert them into convergences or only into longer
-   runs is unmeasured in either direction.
+   and steps 339 to 1857 with a median of 541 for ANI2xt (151 rows). The comparison that holds
+   is row by row, against `auto3d`'s step for the same (repeat, row) pair rather than against
+   its pooled figures: over those same pairs `auto3d` converged with a median step of 229 and a
+   maximum of 471 (AIMNet2) and a median of 234 and a maximum of 436 (ANI2xt), and the retired
+   exit step is the later of the two in 168 of 168 and 151 of 151 pairs. So every retired row
+   was still running past the step at which the current set had finished that same geometry.
+   One part of that gap is definitional: the criterion only fires after 250 consecutive
+   non-improving steps, so a retired row's best fmax last improved at its exit step minus 250 --
+   steps 60 to 1317 with a median of 259 for AIMNet2 and 89 to 1607 with a median of 291 for
+   ANI2xt -- and for 70 of the 168 AIMNet2 rows and 54 of the 151 ANI2xt rows that last
+   improvement already preceded `auto3d`'s convergence of the same pair. On those rows the
+   excess over `auto3d`'s step falls inside the mandatory tail; on the remaining 98 and 97 the
+   row was still improving at the step by which `auto3d` had finished the same geometry. The
+   record stores no per-row fmax,
+   so how close those rows stood to the convergence gate when they were retired cannot be read
+   from it, and whether a larger patience would convert them into convergences or only into
+   longer runs is unmeasured in either direction.
 4. **One box, one card, one commit, four repeats, two engines.** ANI2x ships the same optimizer
    and was not measured, so the decision above is stated for the two engines that were.
 5. **`auto3d` left nothing unconverged and nothing non-finite in any recorded arm,** which is a
@@ -602,4 +631,44 @@ for engine, arms in record["results"].items():
     print(f"retired rows left the loop at step {min(exits)} to {max(exits)}, median "
           f"{statistics.median(exits):g} (n {len(exits)}); auto3d converged every row by step "
           f"{max(conv)}, median {statistics.median(conv):g}")
+    # The extremes of the signed difference, which the bulk sign counts above
+    # do not describe: the largest rows, and whether they run one way.
+    extremes = sorted(
+        (
+            (abs(b_by_rep[rep]["energy"][i] - a_by_rep[rep]["energy"][i]),
+             b_by_rep[rep]["energy"][i] - a_by_rep[rep]["energy"][i], rep, i)
+            for rep in reps
+            for i in range(n_rows)
+            if a_by_rep[rep]["converged"][i] and b_by_rep[rep]["converged"][i]
+        ),
+        reverse=True,
+    )
+    print("the eight largest between-set differences (|dE|, signed, repeat, row):")
+    for magnitude, signed_d, rep, i in extremes[:8]:
+        print(f"  {magnitude:.4f} eV  {signed_d:+.4f}  rep {rep}  row {i}")
+    print(f"mean signed shift against the floor: {statistics.fmean(signed):+.3e} eV "
+          f"= {statistics.fmean(signed) / floor:.2f} x the floor")
+
+    # The retired rows against auto3d on the SAME (repeat, row) pair, not
+    # against auto3d's pooled figures -- and the mandatory non-improving tail
+    # the criterion adds before it fires.
+    patience = record["patience"]
+    exits, same_pair, later, tail_before = [], [], 0, 0
+    for rep in reps:
+        for i in range(n_rows):
+            if not b_by_rep[rep]["dropped"][i]:
+                continue
+            exit_step = b_by_rep[rep]["converged_step"][i]
+            auto3d_step = a_by_rep[rep]["converged_step"][i]
+            exits.append(exit_step)
+            same_pair.append(auto3d_step)
+            later += exit_step > auto3d_step
+            tail_before += exit_step - patience < auto3d_step
+    print(f"retired rows: {len(exits)}; the exit step is the later one in {later} of them")
+    print(f"  auto3d on the same pairs: median {statistics.median(same_pair):g}, "
+          f"max {max(same_pair)}")
+    print(f"  last improvement (exit - {patience}): {min(exits) - patience} to "
+          f"{max(exits) - patience}, median {statistics.median(exits) - patience:g}")
+    print(f"  rows whose last improvement preceded auto3d on the same pair: {tail_before} of "
+          f"{len(exits)}")
 ```
